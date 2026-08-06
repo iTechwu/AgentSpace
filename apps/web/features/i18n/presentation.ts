@@ -3,6 +3,85 @@ import type { LedgerItem, WorkspaceMessage } from "@/shared/types/workspace";
 
 export type TxFn = (zh: string, en: string) => string;
 
+const zhTx: TxFn = (zh) => zh;
+
+export function translateWorkflowRunStatus(value: string | undefined, tx: TxFn = zhTx): string {
+  const labels: Record<string, [string, string]> = {
+    created: ["已创建", "Created"],
+    queued: ["排队中", "Queued"],
+    running: ["运行中", "Running"],
+    waiting_approval: ["等待审批", "Waiting approval"],
+    paused: ["已暂停", "Paused"],
+    succeeded: ["已完成", "Succeeded"],
+    partially_succeeded: ["部分完成", "Partially succeeded"],
+    failed: ["失败", "Failed"],
+    cancelled: ["已取消", "Cancelled"],
+  };
+  const label = value ? labels[value] : undefined;
+  return label ? tx(label[0], label[1]) : tx("状态未知", "Unknown status");
+}
+
+export function translateWorkflowNodeStatus(value: string | undefined, tx: TxFn = zhTx): string {
+  const labels: Record<string, [string, string]> = {
+    pending: ["等待", "Pending"],
+    ready: ["就绪", "Ready"],
+    queued: ["排队", "Queued"],
+    running: ["执行中", "Running"],
+    waiting_approval: ["待审批", "Waiting approval"],
+    retry_wait: ["待重试", "Waiting to retry"],
+    succeeded: ["成功", "Succeeded"],
+    failed: ["失败", "Failed"],
+    skipped: ["已跳过", "Skipped"],
+    cancelled: ["已取消", "Cancelled"],
+  };
+  const label = value ? labels[value] : undefined;
+  return label ? tx(label[0], label[1]) : tx("未知", "Unknown");
+}
+
+export function translateWorkflowTriggerType(value: string | undefined, tx: TxFn = zhTx): string {
+  if (value === "schedule") return tx("定时触发", "Scheduled trigger");
+  if (value === "event") return tx("事件触发", "Event trigger");
+  if (value === "manual") return tx("手动触发", "Manual trigger");
+  return tx("未知触发方式", "Unknown trigger");
+}
+
+export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = zhTx): string {
+  const labels: Record<string, [string, string]> = {
+    workflow_actor_forbidden: ["当前成员没有执行此操作的权限", "You do not have permission to perform this operation"],
+    workflow_version_conflict: ["草稿已被其他编辑者更新，请刷新后重试", "The draft was updated elsewhere. Refresh and try again"],
+    workflow_definition_not_found: ["未找到工作流", "Workflow not found"],
+    workflow_definition_archived: ["已归档的工作流不能编辑", "Archived workflows cannot be edited"],
+    workflow_definition_not_published: ["请先发布工作流", "Publish the workflow first"],
+    workflow_active_version_missing: ["工作流缺少可运行的发布版本", "The workflow has no runnable published version"],
+    workflow_graph_invalid: ["流程结构无效，请检查步骤连接", "The workflow structure is invalid. Check its connections"],
+    workflow_graph_requires_employee_task: ["至少添加一个 AI 员工步骤", "Add at least one AI employee step"],
+    workflow_graph_cycle: ["流程中不能存在循环连接", "Workflow connections cannot contain a cycle"],
+    workflow_graph_multiple_entry_nodes: ["流程只能有一个起点", "The workflow must have one entry step"],
+    workflow_graph_multiple_terminal_nodes: ["流程只能有一个终点", "The workflow must have one terminal step"],
+    workflow_graph_disconnected: ["所有步骤必须连接到主流程", "Every step must connect to the main workflow"],
+    workflow_employee_task_requires_employee_id: ["请选择执行此步骤的 AI 员工", "Select an AI employee for this step"],
+    workflow_employee_not_ready: ["AI 员工运行环境尚未就绪", "The AI employee runtime is not ready"],
+    workflow_join_requires_multiple_inputs: ["汇聚步骤至少需要两个并行输入", "A join requires at least two parallel inputs"],
+    workflow_join_requires_downstream: ["汇聚步骤后需要添加汇总员工", "Add a summarizing employee after the join"],
+    workflow_trigger_duplicate: ["相同触发器已经绑定到其他工作流", "An identical trigger is already assigned to another workflow"],
+    workflow_trigger_cross_workspace_conflict: ["触发器不能引用其他工作空间", "The trigger cannot reference another workspace"],
+    workflow_cross_workspace_reference: ["工作流不能引用其他工作空间的资源", "The workflow cannot reference resources from another workspace"],
+    workflow_budget_exceeded: ["工作流预算不足，请调整预算或流程", "The workflow budget is insufficient. Adjust the budget or workflow"],
+    workflow_input_reference_missing: ["步骤缺少必需的上游输入", "A step is missing required upstream input"],
+    workflow_run_not_found: ["未找到运行记录", "Workflow run not found"],
+    workflow_run_control_conflict: ["运行状态已变化，请刷新后重试", "The run state changed. Refresh and try again"],
+    workflow_run_events_unavailable: ["运行状态同步失败，将自动重试", "Run synchronization failed and will retry automatically"],
+    workflow_event_sequence_gap: ["正在同步缺失事件", "Synchronizing missing events"],
+    workflow_node_run_not_found: ["未找到步骤运行记录", "Workflow step run not found"],
+    workflow_node_not_retryable: ["当前步骤不能重试", "This step cannot be retried"],
+    workflow_node_retry_conflict: ["步骤状态已变化，请刷新后重试", "The step state changed. Refresh and try again"],
+    workflow_node_retry_exhausted: ["该步骤已达到最大重试次数", "This step reached its retry limit"],
+    workflow_node_execution_failed: ["步骤执行失败", "Step execution failed"],
+  };
+  const label = code ? labels[code] : undefined;
+  return label ? tx(label[0], label[1]) : tx("工作流操作未完成，请稍后重试", "The workflow operation did not complete. Try again later");
+}
+
 export function translateTaskStatus(value: string | undefined, tx: TxFn): string {
   if (value === "todo" || value === "待开始") return tx("待开始", "Todo");
   if (value === "in_progress" || value === "进行中") return tx("进行中", "In progress");

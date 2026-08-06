@@ -1,4 +1,5 @@
 import type { WorkflowPublishValidation } from "@dofe-agent/services";
+import { translateWorkflowErrorCode, type TxFn } from "@/features/i18n/presentation";
 
 export function WorkflowPreflightPanel({
   validation,
@@ -54,18 +55,6 @@ function preflightSummary(validation: WorkflowPublishValidation | null): string 
   return "预检通过";
 }
 
-export function workflowPreflightBlockerLabel(code: string): string {
-  const labels: Record<string, string> = {
-    workflow_actor_forbidden: "当前成员没有发布权限",
-    workflow_graph_requires_employee_task: "至少添加一个 AI 员工步骤",
-    workflow_graph_cycle: "流程中不能存在循环连接",
-    workflow_graph_multiple_entry_nodes: "流程只能有一个起点",
-    workflow_graph_multiple_terminal_nodes: "流程只能有一个终点",
-    workflow_graph_disconnected: "所有步骤必须连接到主流程",
-    workflow_employee_task_requires_employee_id: "请选择执行此步骤的 AI 员工",
-    workflow_employee_not_ready: "AI 员工运行环境尚未就绪",
-    workflow_join_requires_multiple_inputs: "汇聚步骤至少需要两个并行输入",
-    workflow_join_requires_downstream: "汇聚步骤后需要添加汇总员工",
-  };
-  return labels[code] ?? "工作流配置需要调整";
+export function workflowPreflightBlockerLabel(code: string, tx?: TxFn): string {
+  return translateWorkflowErrorCode(code, tx);
 }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
 import type { WorkflowPublishValidation } from "@dofe-agent/services";
+import { translateWorkflowErrorCode } from "@/features/i18n/presentation";
 import {
   createWorkflowDraftAction,
   publishWorkflowAction,
@@ -123,7 +124,7 @@ export function WorkflowBuilderClient({
         });
       setPendingAction(null);
       if (!result.ok) {
-        setNotice({ tone: "error", message: result.error.message });
+        setNotice({ tone: "error", message: translateWorkflowErrorCode(result.error.code) });
         return null;
       }
       saved = { workflowId, draftVersion: result.data.draftVersion, graph: result.data.graph };
@@ -131,7 +132,7 @@ export function WorkflowBuilderClient({
       const result = await createWorkflowDraftAction({ name, description, graph });
       setPendingAction(null);
       if (!result.ok) {
-        setNotice({ tone: "error", message: result.error.message });
+        setNotice({ tone: "error", message: translateWorkflowErrorCode(result.error.code) });
         return null;
       }
       saved = result.data;
@@ -155,7 +156,7 @@ export function WorkflowBuilderClient({
     setPendingAction(null);
     if (!result.ok) {
       setValidation(null);
-      setNotice({ tone: "error", message: result.error.message });
+      setNotice({ tone: "error", message: translateWorkflowErrorCode(result.error.code) });
       if (result.error.nodeId) focusNode(result.error.nodeId);
       return;
     }
@@ -179,7 +180,7 @@ export function WorkflowBuilderClient({
     });
     setPendingAction(null);
     if (!result.ok) {
-      setNotice({ tone: "error", message: result.error.message });
+      setNotice({ tone: "error", message: translateWorkflowErrorCode(result.error.code) });
       if (result.error.nodeId) focusNode(result.error.nodeId);
       return;
     }

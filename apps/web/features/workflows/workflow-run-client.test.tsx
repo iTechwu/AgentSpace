@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LanguageProvider } from "@/features/i18n/language-provider";
 import type { WorkflowRunPageData } from "./workflow-types";
 
 const mocks = vi.hoisted(() => ({
@@ -34,6 +35,14 @@ const initial: WorkflowRunPageData = {
   events: [{ id: "event-4", sequence: 4, type: "workflow.node.started", severity: "info", createdAt: "2026-08-06T00:00:04.000Z" }],
 };
 
+function renderRun(): void {
+  render(
+    <LanguageProvider initialLanguage="zh">
+      <WorkflowRunClient data={initial} workspaceId="workspace-1" />
+    </LanguageProvider>,
+  );
+}
+
 describe("workflow run client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -48,7 +57,7 @@ describe("workflow run client", () => {
     let resolveFetch!: (response: Response) => void;
     const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve; }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<WorkflowRunClient data={initial} workspaceId="workspace-1" />);
+    renderRun();
 
     act(() => window.dispatchEvent(new CustomEvent("workflow-run-event", { detail: {
       id: "event-6",
@@ -77,7 +86,7 @@ describe("workflow run client", () => {
   it("submits allowed run controls", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ events: [], hasMore: false, projection: initial })));
-    render(<WorkflowRunClient data={initial} workspaceId="workspace-1" />);
+    renderRun();
 
     await user.click(screen.getByRole("button", { name: "暂停" }));
     await waitFor(() => expect(mocks.control).toHaveBeenCalledWith({ runId: "run-1", action: "pause", nodeId: undefined }));

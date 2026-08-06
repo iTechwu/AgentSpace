@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  translateWorkflowErrorCode,
+  translateWorkflowNodeStatus,
+  translateWorkflowRunStatus,
+  translateWorkflowTriggerType,
+} from "@/features/i18n/presentation";
+import { useLanguage } from "@/features/i18n/language-provider";
 import { controlWorkflowRunAction } from "./workflow-actions";
 import { WorkflowRunTimeline } from "./workflow-run-timeline";
 import type { WorkflowRunEventItem, WorkflowRunPageData } from "./workflow-types";
@@ -17,6 +24,7 @@ export function WorkflowRunClient({
   data: WorkflowRunPageData;
 }) {
   const router = useRouter();
+  const { tx } = useLanguage();
   const [projection, setProjection] = useState(data);
   const [events, setEvents] = useState(data.events);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -50,7 +58,7 @@ export function WorkflowRunClient({
         hasMore = page.hasMore && page.events.length > 0;
       }
     } catch {
-      setNotice("运行状态同步失败，将自动重试。");
+      setNotice(translateWorkflowErrorCode("workflow_run_events_unavailable", tx));
     } finally {
       setIsSyncing(false);
     }
@@ -84,7 +92,7 @@ export function WorkflowRunClient({
     try {
       const result = await controlWorkflowRunAction({ runId: projection.id, action, nodeId });
       if (!result.ok) {
-        setNotice(result.error.message);
+        setNotice(translateWorkflowErrorCode(result.error.code, tx));
         return;
       }
       setProjection((current) => ({ ...current, status: result.data.status }));
@@ -108,10 +116,10 @@ export function WorkflowRunClient({
         <div>
           <span>编排中心 / 运行详情</span>
           <h1>{projection.workflowName}</h1>
-          <p>运行 ID {projection.id} · {triggerLabel(projection.triggerType)}</p>
+          <p>运行 ID {projection.id} · {translateWorkflowTriggerType(projection.triggerType, tx)}</p>
         </div>
         <div className="workflow-run__header-state">
-          <strong data-status={projection.status}>{runStatusLabel(projection.status)}</strong>
+          <strong data-status={projection.status}>{translateWorkflowRunStatus(projection.status, tx)}</strong>
           <div className="workflow-run__controls">
             {canPause ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("pause")} type="button">暂停</button> : null}
             {canResume ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("resume")} type="button">恢复</button> : null}
@@ -120,7 +128,7 @@ export function WorkflowRunClient({
         </div>
       </header>
 
-      {isSyncing ? <p className="workflow-run__sync" role="status">正在同步缺失事件</p> : null}
+      {isSyncing ? <p className="workflow-run__sync" role="status">{translateWorkflowErrorCode("workflow_event_sequence_gap", tx)}</p> : null}
       {notice ? <p className="workflow-run__notice" role="status">{notice}</p> : null}
 
       <section aria-labelledby="workflow-run-steps-title" className="workflow-run__steps">
@@ -128,7 +136,7 @@ export function WorkflowRunClient({
         <ol>
           {projection.nodes.map((node) => (
             <li key={node.id}>
-              <span className="workflow-run__node-status" data-status={node.status}>{nodeStatusLabel(node.status)}</span>
+              <span className="workflow-run__node-status" data-status={node.status}>{translateWorkflowNodeStatus(node.status, tx)}</span>
               <div className="workflow-run__node-copy">
                 <strong>{node.employeeName}</strong>
                 <small>{node.nodeType} · 尝试 {node.attemptCount}/{node.maxAttempts} · {durationLabel(node.startedAt, node.finishedAt)}</small>
@@ -136,7 +144,7 @@ export function WorkflowRunClient({
               <span>{node.artifactCount} 个产物{node.costUsd !== undefined ? ` · $${node.costUsd.toFixed(4)}` : ""}</span>
               {node.status === "failed" && node.attemptCount < node.maxAttempts ? (
                 <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("retry_node", node.nodeId)} type="button">重试步骤</button>
-              ) : <span>{node.errorCode ? errorCodeLabel(node.errorCode) : ""}</span>}
+              ) : <span>{node.errorCode ? translateWorkflowErrorCode(node.errorCode, tx) : ""}</span>}
             </li>
           ))}
         </ol>
@@ -164,29 +172,10 @@ function lastSequence(events: WorkflowRunEventItem[]): number {
   return events.reduce((highest, event) => Math.max(highest, event.sequence), 0);
 }
 
-function runStatusLabel(status: string): string {
-  const labels: Record<string, string> = { created: "已创建", queued: "排队中", running: "运行中", waiting_approval: "等待审批", paused: "已暂停", succeeded: "已完成", partially_succeeded: "部分完成", failed: "失败", cancelled: "已取消" };
-  return labels[status] ?? "状态未知";
-}
-
-function nodeStatusLabel(status: string): string {
-  const labels: Record<string, string> = { pending: "等待", ready: "就绪", queued: "排队", running: "执行中", waiting_approval: "待审批", retry_wait: "待重试", succeeded: "成功", failed: "失败", skipped: "已跳过", cancelled: "已取消" };
-  return labels[status] ?? "未知";
-}
-
-function triggerLabel(type: string): string {
-  return type === "schedule" ? "定时触发" : type === "event" ? "事件触发" : "手动触发";
-}
-
 function durationLabel(startedAt?: string, finishedAt?: string): string {
   if (!startedAt) return "尚未开始";
   const end = finishedAt ? Date.parse(finishedAt) : Date.now();
   const duration = Math.max(0, end - Date.parse(startedAt));
   if (!Number.isFinite(duration)) return "耗时未知";
   return duration < 60_000 ? `${Math.round(duration / 1000)} 秒` : `${Math.round(duration / 60_000)} 分钟`;
-}
-
-function errorCodeLabel(code: string): string {
-  const labels: Record<string, string> = { workflow_node_retry_exhausted: "已达到重试上限", workflow_employee_not_ready: "AI 员工未就绪", workflow_node_execution_failed: "步骤执行失败" };
-  return labels[code] ?? "执行未完成";
 }
