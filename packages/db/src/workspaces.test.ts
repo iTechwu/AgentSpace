@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   DEFAULT_WORKSPACE_ID,
   archiveWorkspaceSync,
+  createOpenMontageDelegationIntentSync,
   createWorkspaceSync,
   getDatabase,
   hardDeleteWorkspaceSync,
@@ -30,6 +31,7 @@ before(() => {
 beforeEach(() => {
   const db = getDatabase();
   db.exec(`
+    DELETE FROM openmontage_delegation_intent;
     DELETE FROM task_message;
     DELETE FROM task_execution_event;
     DELETE FROM token_usage;
@@ -261,6 +263,47 @@ test("hardDeleteWorkspaceSync rejects the default workspace", () => {
   assert.throws(
     () => hardDeleteWorkspaceSync(DEFAULT_WORKSPACE_ID),
     /Cannot hard-delete the default workspace/,
+  );
+});
+
+test("hardDeleteWorkspaceSync preserves workspaces with OpenMontage audit evidence", () => {
+  const workspace = createWorkspaceSync({
+    id: "workspace-openmontage-audit",
+    slug: "workspace-openmontage-audit",
+    name: "OpenMontage Audit",
+    createdBy: "system",
+  });
+  createOpenMontageDelegationIntentSync({
+    idempotencyKey: "intent-workspace-purge-guard",
+    workspaceId: workspace.id,
+    runtimeId: "runtime-1",
+    mcpConnectionId: "mcp-1",
+    runtimeCredentialId: "credential-1",
+    modelsTenantId: "tenant-1",
+    modelsTeamId: "team-1",
+    externalJobId: "job-1",
+    request: {
+      idempotencyKey: "intent-workspace-purge-guard",
+      runtimeCredentialId: "credential-1",
+      tenantId: "tenant-1",
+      teamId: "team-1",
+      externalJobId: "job-1",
+      sourceService: "openmontage",
+    },
+  });
+
+  assert.throws(
+    () => hardDeleteWorkspaceSync(workspace.id),
+    /Cannot hard-delete workspace .* OpenMontage audit evidence exists/,
+  );
+  assert.notEqual(readWorkspaceSync(workspace.id), null);
+  assert.equal(
+    Number(
+      (getDatabase().prepare(
+        "SELECT COUNT(*) AS count FROM openmontage_delegation_intent WHERE workspace_id = ?",
+      ).get(workspace.id) as { count: number }).count,
+    ),
+    1,
   );
 });
 

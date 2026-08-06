@@ -857,6 +857,7 @@ export {
 // Workspaces
 export {
   createWorkspaceSync,
+  assertWorkspaceHardDeleteAllowedSync,
   hardDeleteWorkspaceSync,
   listActiveSsoWorkspacesSync,
   listAllWorkspacesSync,
@@ -866,6 +867,7 @@ export {
   updateWorkspaceSync,
   archiveWorkspaceSync,
   type HardDeleteWorkspaceResult,
+  type WorkspaceHardDeleteGuard,
 } from "./workspaces.ts";
 
 // Workspace memberships
