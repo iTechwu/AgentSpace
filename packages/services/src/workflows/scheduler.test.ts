@@ -132,6 +132,20 @@ test("skip misfire advances directly to the next future occurrence", () => {
   );
 });
 
+test("cron execution exactly on schedule is not treated as an invalid misfire", () => {
+  assert.deepEqual(
+    resolveWorkflowScheduleDecision(
+      trigger('{"cronExpression":"0 9 * * 1-5"}', "Asia/Shanghai"),
+      "2026-08-07T01:00:00.000Z",
+    ),
+    {
+      runScheduledAt: "2026-08-07T01:00:00.000Z",
+      nextFireAt: "2026-08-10T01:00:00.000Z",
+      misfired: false,
+    },
+  );
+});
+
 test("fire-once misfire runs only the latest missed occurrence", () => {
   assert.deepEqual(
     resolveWorkflowScheduleDecision(

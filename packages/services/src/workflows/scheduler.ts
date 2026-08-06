@@ -91,7 +91,10 @@ export function resolveWorkflowScheduleDecision(
     };
   }
 
-  const window = recurringWindowAroundNow(trigger, scheduledAt, now);
+  const nextAfterScheduled = computeNextWorkflowFireAt(trigger, scheduledAt, now);
+  const window = nextAfterScheduled && Date.parse(nextAfterScheduled) > nowMillis
+    ? { latestDueAt: scheduledAt, nextFireAt: nextAfterScheduled }
+    : recurringWindowAroundNow(trigger, scheduledAt, now);
   if (!window) return { runScheduledAt: null, nextFireAt: null, misfired: true };
   return {
     runScheduledAt: misfired
