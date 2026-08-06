@@ -5,6 +5,7 @@ import {
   dispatchReadyWorkflowNodeSync,
   isWorkflowRunDispatchBlocked,
   resolveWorkflowMaxConcurrency,
+  workflowNodeOutputSchema,
 } from "./dispatcher.ts";
 
 test("dispatcher concurrency defaults are bounded", () => {
@@ -27,6 +28,21 @@ test("paused and terminal runs block every node dispatcher", () => {
   }
   assert.equal(isWorkflowRunDispatchBlocked("waiting_approval"), false);
   assert.equal(isWorkflowRunDispatchBlocked("running"), false);
+});
+
+test("workflow dispatch publishes the employee node output contract", () => {
+  assert.deepEqual(workflowNodeOutputSchema({ outputFields: ["report", "score"] }), {
+    type: "object",
+    required: ["report", "score"],
+    properties: { report: {}, score: {} },
+    additionalProperties: false,
+  });
+  assert.deepEqual(workflowNodeOutputSchema({}), {
+    type: "object",
+    required: ["text"],
+    properties: { text: {} },
+    additionalProperties: false,
+  });
 });
 
 test("dispatcher rejects an unknown node run without creating a queue task", () => {

@@ -7,8 +7,10 @@ import {
   listStoredEmployeesSync,
   listWorkflowNodeRunsSync,
   lockWorkflowDefinitionForUpdateSync,
+  lockWorkflowTriggerForUpdateSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowVersionSync,
+  recordAuditLogSync,
   transitionWorkflowNodeRunSync,
   transitionWorkflowRunSync,
   upsertWorkflowTriggerSync,
@@ -24,6 +26,16 @@ export interface MaterializeWorkflowRunInput {
   createdBy?: string;
   inputJson?: string;
   now: string;
+  triggerAdvance?: {
+    workerId: string;
+    nextFireAt: string | null;
+    status?: string;
+    misfired?: boolean;
+    outcome?: {
+      code: "workflow.trigger.misfire_fire_once";
+      reasonCode: string;
+    };
+  };
 }
 
 export interface MaterializeManualWorkflowRunInput {
@@ -72,6 +84,8 @@ export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): 
     const definition = lockWorkflowDefinitionForUpdateSync(input.trigger.workflowId, input.workspaceId);
     if (!definition) throw new Error("workflow_definition_not_found");
     if (definition.status !== "published") throw new Error("workflow_definition_not_published");
+    const currentTrigger = lockWorkflowTriggerForUpdateSync(input.trigger.id, input.workspaceId);
+    assertWorkflowTriggerCanMaterialize(input.trigger, currentTrigger);
     const versionId = definition.activeVersionId;
     const version = versionId ? readWorkflowVersionSync(versionId, input.workspaceId) : null;
     if (!definition || !version) throw new Error("workflow_active_version_missing");
@@ -121,10 +135,76 @@ export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): 
       const queued = transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["created"], to: "queued", now: input.now });
       if (!queued) throw new Error("workflow_run_materialization_conflict");
       appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, type: "run.created", actorType: "scheduler", dataJson: JSON.stringify({ triggerId: input.trigger.id }), now: input.now });
+      appendWorkflowRunEventSync({
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        type: "trigger.fired",
+        actorType: input.trigger.type === "schedule" ? "scheduler" : "system",
+        actorId: input.createdBy,
+        dataJson: JSON.stringify({
+          triggerId: input.trigger.id,
+          scheduledAt: input.scheduledAt,
+          nextFireAt: input.triggerAdvance?.nextFireAt ?? null,
+          misfirePolicy: input.trigger.misfirePolicy,
+          misfired: input.triggerAdvance?.misfired === true,
+        }),
+        now: input.now,
+      });
       enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_run", aggregateId: run.id, eventType: "workflow.run.ready", payloadJson: JSON.stringify({ runId: run.id }), now: input.now });
+    }
+    if (input.triggerAdvance) {
+      const advanced = advanceWorkflowTriggerSync({
+        id: input.trigger.id,
+        workspaceId: input.workspaceId,
+        workerId: input.triggerAdvance.workerId,
+        nextFireAt: input.triggerAdvance.nextFireAt,
+        lastFireAt: input.scheduledAt,
+        status: input.triggerAdvance.status,
+        now: input.now,
+      });
+      if (!advanced) throw new Error("workflow_trigger_lease_conflict");
+      if (input.triggerAdvance.outcome) {
+        recordAuditLogSync({
+          workspaceId: input.workspaceId,
+          title: "Workflow trigger outcome",
+          note: input.triggerAdvance.outcome.reasonCode,
+          code: input.triggerAdvance.outcome.code,
+          data: {
+            workflowId: input.trigger.workflowId,
+            triggerId: input.trigger.id,
+            scheduledAt: input.scheduledAt,
+            policy: input.trigger.misfirePolicy,
+            reasonCode: input.triggerAdvance.outcome.reasonCode,
+            occurredAt: input.now,
+          },
+        });
+      }
     }
     return { runId: run.id, created: existingNodes.length === 0 };
   });
+}
+
+export function assertWorkflowTriggerCanMaterialize(
+  claimed: WorkflowTriggerRecord,
+  current: WorkflowTriggerRecord | null,
+): void {
+  if (!current || current.workflowId !== claimed.workflowId || current.status !== "active") {
+    throw new Error("workflow_trigger_not_active");
+  }
+  if (current.type !== claimed.type) throw new Error("workflow_trigger_stale_snapshot");
+  if (claimed.type === "schedule" && (
+    !claimed.leaseOwner
+    || current.leaseOwner !== claimed.leaseOwner
+    || current.leaseExpiresAt !== claimed.leaseExpiresAt
+  )) {
+    throw new Error("workflow_trigger_lease_conflict");
+  }
+  if (claimed.type !== "schedule" && (
+    current.updatedAt !== claimed.updatedAt
+    || current.configJson !== claimed.configJson
+  )) {
+    throw new Error("workflow_trigger_stale_snapshot");
+  }
 }
 
 export function buildWorkflowEmployeeNameSnapshots(

@@ -1,6 +1,7 @@
 import {
   enqueueWorkflowOutboxSync,
   getDatabase,
+  lockWorkflowRunForUpdateSync,
   readQueuedTaskSync,
   readWorkflowNodeRunSync,
   transitionWorkflowNodeRunSync,
@@ -30,6 +31,9 @@ export function recoverStaleWorkflowWorkSync(input: {
   for (const row of retryRows) {
     if (!row.id || !row.workspaceId) continue;
     const ready = withTransaction(db, () => {
+      const candidate = readWorkflowNodeRunSync(row.id!, row.workspaceId!);
+      if (!candidate || candidate.status !== "retry_wait") return null;
+      if (!lockWorkflowRunForUpdateSync(candidate.runId, row.workspaceId!)) return null;
       const transitioned = transitionWorkflowNodeRunSync({ workspaceId: row.workspaceId!, nodeRunId: row.id!, from: ["retry_wait"], to: "ready", availableAt: input.now, now: input.now });
       if (!transitioned) return null;
       enqueueWorkflowOutboxSync({ workspaceId: row.workspaceId!, aggregateType: "workflow_node_run", aggregateId: row.id!, eventType: "workflow.node.ready", payloadJson: JSON.stringify({ nodeRunId: row.id }), now: input.now });
@@ -50,6 +54,7 @@ export function recoverStaleWorkflowWorkSync(input: {
     if (!node || (task && ["queued", "claimed", "running", "preparing_commit", "committed"].includes(task.status))) continue;
     withTransaction(db, () => {
       const failed = failStaleWorkflowNodeSync({ workspaceId: row.workspaceId!, nodeRunId: row.id!, actorId: input.workerId, now: input.now });
+      if (!failed) return;
       if (failed.attemptCount < failed.maxAttempts) {
         retryWorkflowNodeSync({ workspaceId: row.workspaceId!, runId: failed.runId, nodeId: failed.nodeId, actorUserId: input.workerId, reason: "stale queue recovery", now: input.now });
         result.retriedNodeRunIds.push(row.id!);

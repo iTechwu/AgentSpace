@@ -3,10 +3,12 @@ import test, { after, before } from "node:test";
 import { getDatabase, resetDatabaseForTests } from "../database.ts";
 import {
   createWorkflowDefinitionSync,
+  pauseWorkflowTriggersForDefinitionSync,
   publishWorkflowVersionSync,
   readWorkflowDefinitionSync,
   readWorkflowTriggerForWorkflowSync,
   readWorkflowVersionSync,
+  transitionWorkflowDefinitionStatusSync,
   updateWorkflowDraftSync,
   upsertWorkflowTriggerSync,
 } from "./definitions.ts";
@@ -160,4 +162,58 @@ test("publishing historical content reactivates its immutable version", () => {
 
   assert.equal(reactivated.id, first.id);
   assert.equal(readWorkflowDefinitionSync(definition.id, WORKSPACE_ID)?.activeVersionId, first.id);
+});
+
+test("republishing a paused workflow preserves its definition and trigger suspension", () => {
+  const definition = createWorkflowDefinitionSync({
+    id: "workflow-paused-republish-test",
+    workspaceId: WORKSPACE_ID,
+    name: "Paused republish",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const trigger = {
+    id: "workflow-paused-trigger-test",
+    type: "schedule" as const,
+    configJson: '{"repeatSeconds":3600}',
+    nextFireAt: "2026-08-08T00:00:00.000Z",
+    status: "active",
+  };
+  const first = publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+    contentHash: "sha256:paused-a",
+    publishedBy: "u1",
+    trigger,
+  });
+  transitionWorkflowDefinitionStatusSync({
+    id: definition.id,
+    workspaceId: WORKSPACE_ID,
+    from: ["published"],
+    to: "paused",
+  });
+  pauseWorkflowTriggersForDefinitionSync({ workflowId: definition.id, workspaceId: WORKSPACE_ID });
+
+  publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson: '{"schemaVersion":1,"nodes":[{"id":"approval","type":"approval","config":{}}],"edges":[]}',
+    contentHash: "sha256:paused-b",
+    publishedBy: "u1",
+    trigger,
+  });
+  assert.equal(readWorkflowDefinitionSync(definition.id, WORKSPACE_ID)?.status, "paused");
+  assert.equal(readWorkflowTriggerForWorkflowSync(definition.id, WORKSPACE_ID)?.status, "suspended");
+
+  publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson: first.graphJson,
+    contentHash: first.contentHash,
+    publishedBy: "u1",
+    trigger,
+  });
+  assert.equal(readWorkflowDefinitionSync(definition.id, WORKSPACE_ID)?.status, "paused");
+  assert.equal(readWorkflowTriggerForWorkflowSync(definition.id, WORKSPACE_ID)?.status, "suspended");
 });

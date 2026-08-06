@@ -150,6 +150,7 @@ function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListIt
           <small>
             {workflow.migrationStatus === "needs_migration" ? `${tx("需迁移", "Migration needed")} · ` : ""}
             {triggerLabel(workflow.triggerLabelCode, tx)} · {topology}
+            {workflow.lastTriggerOutcome ? ` · ${triggerOutcomeLabel(workflow.lastTriggerOutcome.code, tx)}` : ""}
           </small>
         </span>
         <span>{workflow.nextFireAt ? formatCompactTimestamp(workflow.nextFireAt) : tx("按需运行", "On demand")}</span>
@@ -184,4 +185,14 @@ function triggerLabel(code: string, tx: (zh: string, en: string) => string): str
   if (code === "schedule") return tx("定时", "Schedule");
   if (code === "event") return tx("事件", "Event");
   return tx("手动", "Manual");
+}
+
+function triggerOutcomeLabel(code: NonNullable<WorkflowListItem["lastTriggerOutcome"]>["code"], tx: (zh: string, en: string) => string): string {
+  const labels = {
+    "workflow.trigger.misfire_skipped": tx("已跳过错过的执行", "Missed run skipped"),
+    "workflow.trigger.misfire_fire_once": tx("已补执行最近一次", "Latest missed run recovered"),
+    "workflow.trigger.invalid": tx("触发配置异常", "Invalid trigger configuration"),
+    "workflow.trigger.materialization_failed": tx("触发执行失败，等待重试", "Trigger failed and will retry"),
+  };
+  return labels[code];
 }

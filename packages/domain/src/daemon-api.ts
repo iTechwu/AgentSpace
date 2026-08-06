@@ -974,6 +974,7 @@ export interface DaemonTaskUsage {
 
 export interface CompleteTaskRequest {
   outputText?: string;
+  structuredOutput?: Record<string, unknown>;
   sessionId?: string;
   routerSessionId?: string;
   workDir?: string;

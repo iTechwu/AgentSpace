@@ -23,22 +23,26 @@ test("resolves only declared run, node, and join references", () => {
     nodeConfig: {
       input: {
         topic: "${run.input.topic}",
-        report: "${nodes.research.output.report}",
+        report: "${nodes.research.output.text}",
         joined: "${join.outputs}",
       },
     },
-    predecessorOutputs: { research: { report: "artifact://report" }, audit: { ok: true } },
+    predecessorOutputs: { research: { text: "artifact://report" }, audit: { ok: true } },
   });
   assert.deepEqual(result, {
     topic: "automation",
     report: "artifact://report",
-    joined: { research: { report: "artifact://report" }, audit: { ok: true } },
+    joined: { research: { text: "artifact://report" }, audit: { ok: true } },
   });
 });
 
 test("rejects unknown input references without evaluating code", () => {
   assert.throws(
     () => resolveWorkflowNodeInput({ runInput: {}, nodeConfig: { input: { value: "${process.env.SECRET}" } }, predecessorOutputs: {} }),
+    /workflow_input_reference_missing/,
+  );
+  assert.throws(
+    () => resolveWorkflowNodeInput({ runInput: {}, nodeConfig: { input: { value: "${run.input.toString}" } }, predecessorOutputs: {} }),
     /workflow_input_reference_missing/,
   );
 });
@@ -48,8 +52,8 @@ test("builds a downstream context from immutable graph configuration and all ups
     schemaVersion: 1 as const,
     nodes: [
       { id: "research", type: "employee_task" as const, employeeId: "emp-1", config: { input: { topic: "${run.input.topic}" } } },
-      { id: "review", type: "employee_task" as const, employeeId: "emp-2", config: { input: { report: "${nodes.research.output.report}" } } },
-      { id: "publish", type: "employee_task" as const, employeeId: "emp-3", config: { title: "发布", channelName: "交付群", input: { report: "${nodes.research.output.report}" } } },
+      { id: "review", type: "employee_task" as const, employeeId: "emp-2", config: { input: { report: "${nodes.research.output.text}" } } },
+      { id: "publish", type: "employee_task" as const, employeeId: "emp-3", config: { title: "发布", channelName: "交付群", input: { report: "${nodes.research.output.text}" } } },
     ],
     edges: [{ source: "research", target: "review" }, { source: "review", target: "publish" }],
   };
@@ -58,7 +62,7 @@ test("builds a downstream context from immutable graph configuration and all ups
     nodeId: "publish",
     runInput: { topic: "automation" },
     nodeRuns: [
-      { nodeId: "research", nodeType: "employee_task", status: "succeeded", outputJson: JSON.stringify({ report: "完成" }) },
+      { nodeId: "research", nodeType: "employee_task", status: "succeeded", outputJson: JSON.stringify({ text: "完成" }) },
       { nodeId: "review", nodeType: "employee_task", status: "succeeded", artifactManifestJson: JSON.stringify([{ id: "attachment-1" }]) },
       { nodeId: "publish", nodeType: "employee_task", status: "ready" },
     ],
@@ -118,4 +122,33 @@ test("publish input reference validation only accepts upstream and join referenc
     "workflow_input_reference_not_upstream",
     "workflow_join_reference_missing",
   ]);
+});
+
+test("publish rejects output fields the daemon completion contract cannot produce", () => {
+  const graph = {
+    schemaVersion: 1 as const,
+    nodes: [
+      { id: "research", type: "employee_task" as const, employeeId: "emp-1", config: { outputFields: ["text", "report"] } },
+      {
+        id: "publish",
+        type: "employee_task" as const,
+        employeeId: "emp-2",
+        config: { input: { supported: "${nodes.research.output.text}", unsupported: "${nodes.research.output.report}" } },
+      },
+    ],
+    edges: [{ source: "research", target: "publish" }],
+  };
+
+  assert.deepEqual(validateWorkflowInputReferences(graph), []);
+});
+
+test("publish rejects malformed, duplicate, empty, and oversized output field declarations", () => {
+  for (const outputFields of [[], ["bad-name"], ["report", "report"], Array.from({ length: 33 }, (_, index) => `field${index}`)]) {
+    const graph = {
+      schemaVersion: 1 as const,
+      nodes: [{ id: "research", type: "employee_task" as const, employeeId: "emp-1", config: { outputFields } }],
+      edges: [],
+    };
+    assert.deepEqual(validateWorkflowInputReferences(graph).map((error) => error.code), ["workflow_output_field_invalid"]);
+  }
 });

@@ -189,6 +189,7 @@ export {
 export {
   dispatchReadyWorkflowNodeSync,
   resolveWorkflowMaxConcurrency,
+  workflowNodeOutputSchema,
   type DispatchWorkflowNodeInput,
   type DispatchWorkflowNodeResult,
 } from "./workflows/dispatcher.ts";
@@ -198,6 +199,7 @@ export {
   mergeWorkflowArtifactManifests,
   resolveWorkflowNodeInput,
   validateWorkflowInputReferences,
+  workflowNodeOutputFields,
 } from "./workflows/inputs.ts";
 export {
   completeWorkflowNodeSync,
@@ -206,8 +208,10 @@ export {
   type CompleteWorkflowNodeInput,
 } from "./workflows/coordinator.ts";
 export {
+  startQueuedTaskWithWorkflowSync,
   lockWorkflowRunForTaskIfLinkedSync,
   completeWorkflowTaskIfLinkedSync,
+  getWorkflowCompletionErrorCode,
   failWorkflowTaskIfLinkedSync,
 } from "./workflows/completion.ts";
 export {
@@ -229,6 +233,7 @@ export {
   cancelPendingWorkflowApprovalsSync,
   continueWorkflowAfterApprovalSync,
   reviewWorkflowApprovalSync,
+  reviewApprovalWithWorkflowSync,
   workflowApprovalInputFromNodeConfig,
   type CreateWorkflowApprovalInput,
 } from "./workflows/approvals.ts";

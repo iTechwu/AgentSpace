@@ -111,7 +111,7 @@ export function failStaleWorkflowNodeSync(input: {
   nodeRunId: string;
   actorId: string;
   now: string;
-}): WorkflowNodeRunRecord {
+}): WorkflowNodeRunRecord | null {
   return withTransaction(getDatabase(), () => {
     const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
     if (!candidate) throw new Error("workflow_node_run_not_found");
@@ -119,6 +119,7 @@ export function failStaleWorkflowNodeSync(input: {
     if (!run) throw new Error("workflow_run_not_found");
     const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
     if (!nodeRun) throw new Error("workflow_node_run_not_found");
+    if (nodeRun.status !== "queued") return null;
     const failed = transitionWorkflowNodeRunSync({
       workspaceId: input.workspaceId,
       nodeRunId: nodeRun.id,
@@ -130,7 +131,7 @@ export function failStaleWorkflowNodeSync(input: {
       finishedAt: input.now,
       now: input.now,
     });
-    if (!failed) throw new Error("workflow_node_recovery_conflict");
+    if (!failed) return null;
     appendWorkflowRunEventSync({
       workspaceId: input.workspaceId,
       runId: run.id,

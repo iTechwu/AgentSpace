@@ -45,7 +45,11 @@ export function fireWorkflowEventSync(rawInput: WorkflowEventInput): WorkflowEve
         now,
       });
     } catch (error) {
-      if (error instanceof Error && error.message === "workflow_definition_not_published") continue;
+      if (error instanceof Error && [
+        "workflow_definition_not_published",
+        "workflow_trigger_not_active",
+        "workflow_trigger_stale_snapshot",
+      ].includes(error.message)) continue;
       throw error;
     }
     if (materialized.created) result.createdRunIds.push(materialized.runId);

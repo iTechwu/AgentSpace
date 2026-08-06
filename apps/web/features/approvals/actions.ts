@@ -12,8 +12,7 @@ import {
   rejectDocumentPermissionRequestSync,
   rejectKnowledgeProposalForActorSync,
   reviewFeishuDataOperationApproval,
-  reviewApprovalSync,
-  reviewWorkflowApprovalSync,
+  reviewApprovalWithWorkflowSync,
 } from "@dofe-agent/services";
 import type { ApprovalRequest } from "@dofe-agent/domain/workspace";
 import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
@@ -51,19 +50,13 @@ export async function reviewApprovalAction(
   if (!approvalId.trim()) {
     throw new Error("Missing approval id.");
   }
-  const approval = listApprovalsSync(workspaceContext.currentWorkspace.id)
-    .find((item) => item.id === approvalId.trim());
-  if (approval?.metadata?.kind === "workflow_node") {
-    reviewWorkflowApprovalSync({
-      workspaceId: workspaceContext.currentWorkspace.id,
-      approvalId: approval.id,
-      decision,
-      actorUserId: workspaceContext.currentUser.id,
-      comment,
-    });
-  } else {
-    reviewApprovalSync(approvalId, decision, comment, workspaceContext.currentWorkspace.id);
-  }
+  reviewApprovalWithWorkflowSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    approvalId: approvalId.trim(),
+    decision,
+    actorUserId: workspaceContext.currentUser.id,
+    comment,
+  });
   revalidateApprovalRoutes(workspaceContext.currentWorkspace.slug);
   return actionToastResult(
     undefined,
@@ -110,17 +103,13 @@ export async function reviewApprovalQueueItemAction(
         reviewerComment: comment,
       });
     } else {
-      if (approval?.metadata?.kind === "workflow_node") {
-        reviewWorkflowApprovalSync({
-          workspaceId: workspaceContext.currentWorkspace.id,
-          approvalId: approval.id,
-          decision,
-          actorUserId: workspaceContext.currentUser.id,
-          comment,
-        });
-      } else {
-        reviewApprovalSync(trimmedActionId, decision, comment, workspaceContext.currentWorkspace.id);
-      }
+      reviewApprovalWithWorkflowSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        approvalId: trimmedActionId,
+        decision,
+        actorUserId: workspaceContext.currentUser.id,
+        comment,
+      });
     }
   } else if (kind === "channel_access") {
     if (decision === "approved") {

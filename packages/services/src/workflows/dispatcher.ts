@@ -14,7 +14,7 @@ import {
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition, WorkflowNodeDefinition } from "@dofe-agent/domain";
 import { failWorkflowNodeBeforeDispatchSync } from "./coordinator.ts";
-import { buildWorkflowNodeRuntimeContext, getWorkflowInputResolutionErrorCode } from "./inputs.ts";
+import { buildWorkflowNodeRuntimeContext, getWorkflowInputResolutionErrorCode, workflowNodeOutputFields } from "./inputs.ts";
 import { validateWorkflowNodeForDispatchSync } from "./validation.ts";
 
 export interface DispatchWorkflowNodeInput {
@@ -160,7 +160,7 @@ function dispatchReadyWorkflowNodeInTransactionSync(input: DispatchWorkflowNodeI
       workflowNodeRunId: nodeRun.id,
       attempt: Math.max(1, nodeRun.attemptCount),
       artifactRefs: runtimeContext.artifactRefs,
-      outputSchema: version ? parseConfig(version.outputSchemaJson) : undefined,
+      outputSchema: workflowNodeOutputSchema(config),
     } satisfies WorkflowTaskMetadata,
   });
   if (!task) {
@@ -203,6 +203,16 @@ function dispatchReadyWorkflowNodeInTransactionSync(input: DispatchWorkflowNodeI
 
 export function resolveWorkflowMaxConcurrency(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 20 ? value : 4;
+}
+
+export function workflowNodeOutputSchema(config: Record<string, unknown>): Record<string, unknown> {
+  const fields = workflowNodeOutputFields(config);
+  return {
+    type: "object",
+    required: fields,
+    properties: Object.fromEntries(fields.map((field) => [field, {}])),
+    additionalProperties: false,
+  };
 }
 
 export function isWorkflowRunDispatchBlocked(status: string): boolean {

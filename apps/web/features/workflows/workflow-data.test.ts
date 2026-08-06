@@ -157,4 +157,60 @@ describe("getWorkflowCenterPageData", () => {
     });
     expect(JSON.stringify(legacy)).not.toContain("never-returned");
   });
+
+  it("projects only stable trigger outcome codes into workflow summaries", () => {
+    mockGetDatabase.mockReturnValue({
+      prepare: vi.fn((sql: string) => ({
+        all: vi.fn(() => sql.includes("FROM audit_log") ? [
+          {
+            workflowId: "workflow-daily",
+            code: "workflow.trigger.materialization_failed",
+            createdAt: "2026-08-07T04:00:00.000Z",
+            reasonCode: "sensitive-database-message",
+          },
+          { workflowId: "workflow-daily", code: "unrecognized.code", createdAt: "2026-08-07T05:00:00.000Z" },
+        ] : []),
+      })),
+    });
+
+    const data = getWorkflowCenterPageData("default");
+
+    expect(data.workflows[0]?.lastTriggerOutcome).toEqual({
+      code: "workflow.trigger.materialization_failed",
+      createdAt: "2026-08-07T04:00:00.000Z",
+    });
+    expect(JSON.stringify(data)).not.toContain("sensitive-database-message");
+  });
+
+  it("preserves a suspended schedule trigger when the workflow is paused", () => {
+    mockListWorkflowDefinitionsSync.mockImplementation(() => [{
+      id: "workflow-daily",
+      workspaceId: "default",
+      name: "Daily brief",
+      ownerUserId: "owner-1",
+      status: "paused",
+      draftGraphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+      draftVersion: 1,
+      createdBy: "owner-1",
+      createdAt: "2026-08-06T00:00:00.000Z",
+      updatedAt: "2026-08-07T00:00:00.000Z",
+    }]);
+    mockGetDatabase.mockReturnValue({
+      prepare: vi.fn((sql: string) => ({
+        all: vi.fn(() => sql.includes("FROM workflow_trigger") ? [{
+          workflowId: "workflow-daily",
+          type: "schedule",
+          nextFireAt: "2026-08-08T01:00:00.000Z",
+        }] : []),
+      })),
+    });
+
+    const workflow = getWorkflowCenterPageData("default").workflows[0];
+
+    expect(workflow).toMatchObject({
+      status: "paused",
+      triggerLabelCode: "schedule",
+      nextFireAt: "2026-08-08T01:00:00.000Z",
+    });
+  });
 });

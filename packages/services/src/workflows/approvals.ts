@@ -115,6 +115,23 @@ export function reviewWorkflowApprovalSync(input: {
   });
 }
 
+export function reviewApprovalWithWorkflowSync(input: {
+  workspaceId: string;
+  approvalId: string;
+  decision: "approved" | "rejected";
+  actorUserId: string;
+  comment?: string;
+}): void {
+  withTransaction(getDatabase(), () => {
+    const approval = listApprovalsSync(input.workspaceId).find((item) => item.id === input.approvalId);
+    if (approval?.metadata?.kind === "workflow_node") {
+      reviewWorkflowApprovalSync(input);
+      return;
+    }
+    reviewApprovalSync(input.approvalId, input.decision, input.comment, input.workspaceId);
+  });
+}
+
 export function cancelPendingWorkflowApprovalsSync(input: {
   workspaceId: string;
   runId: string;

@@ -38,7 +38,7 @@ function resolvePath(path: string, context: {
   else if (path === "join.outputs") current = context.joinOutputs ?? context.predecessorOutputs;
   else throw new Error("workflow_input_reference_missing");
   for (const part of parts.slice(path === "join.outputs" ? 2 : parts[0] === "run" ? 2 : 3)) {
-    if (!current || typeof current !== "object" || !(part in (current as Record<string, unknown>))) {
+    if (!current || typeof current !== "object" || !Object.hasOwn(current, part)) {
       throw new Error("workflow_input_reference_missing");
     }
     current = (current as Record<string, unknown>)[part];
@@ -110,7 +110,7 @@ export function buildWorkflowNodeRuntimeContext(input: {
 }
 
 export interface WorkflowInputReferenceError {
-  code: "workflow_input_reference_invalid" | "workflow_input_reference_not_upstream" | "workflow_join_reference_missing";
+  code: "workflow_input_reference_invalid" | "workflow_input_reference_not_upstream" | "workflow_join_reference_missing" | "workflow_output_field_invalid" | "workflow_output_field_unsupported";
   nodeId: string;
   detail: string;
 }
@@ -119,7 +119,11 @@ export function validateWorkflowInputReferences(graph: WorkflowGraphDefinition):
   const errors: WorkflowInputReferenceError[] = [];
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
   const nodeTypes = new Map(graph.nodes.map((node) => [node.id, node.type]));
+  const nodeConfigs = new Map(graph.nodes.map((node) => [node.id, node.config]));
   for (const node of graph.nodes) {
+    if (node.type === "employee_task") {
+      errors.push(...validateWorkflowOutputFieldDefinitions(node.id, node.config));
+    }
     const ancestors = collectAncestorNodeIds(graph, node.id);
     const hasJoinPredecessor = graph.edges.some((edge) => edge.target === node.id && nodeTypes.get(edge.source) === "join");
     for (const reference of collectReferences(node.config.input)) {
@@ -130,15 +134,44 @@ export function validateWorkflowInputReferences(graph: WorkflowGraphDefinition):
         }
         continue;
       }
-      const match = /^nodes\.([^.]+)\.output(?:\..+)?$/.exec(reference);
+      const match = /^nodes\.([^.]+)\.output\.([A-Za-z][A-Za-z0-9_]{0,63})$/.exec(reference);
       if (!match || !nodeIds.has(match[1]!)) {
         errors.push({ code: "workflow_input_reference_invalid", nodeId: node.id, detail: reference });
       } else if (!ancestors.has(match[1]!)) {
         errors.push({ code: "workflow_input_reference_not_upstream", nodeId: node.id, detail: reference });
+      } else if (
+        nodeTypes.get(match[1]!) !== "employee_task"
+        || !workflowNodeOutputFields(nodeConfigs.get(match[1]!)).includes(match[2]!)
+      ) {
+        errors.push({ code: "workflow_output_field_unsupported", nodeId: node.id, detail: reference });
       }
     }
   }
   return errors;
+}
+
+export function workflowNodeOutputFields(config: Record<string, unknown> | undefined): string[] {
+  if (!Array.isArray(config?.outputFields)) return ["text"];
+  const fields = config.outputFields.filter((field): field is string => (
+    typeof field === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field)
+  ));
+  return fields.length > 0 ? [...new Set(fields)] : ["text"];
+}
+
+function validateWorkflowOutputFieldDefinitions(
+  nodeId: string,
+  config: Record<string, unknown>,
+): WorkflowInputReferenceError[] {
+  if (config.outputFields === undefined) return [];
+  if (!Array.isArray(config.outputFields) || config.outputFields.length === 0 || config.outputFields.length > 32) {
+    return [{ code: "workflow_output_field_invalid", nodeId, detail: "outputFields" }];
+  }
+  const fields = config.outputFields;
+  const valid = fields.every((field) => typeof field === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field));
+  if (!valid || new Set(fields).size !== fields.length) {
+    return [{ code: "workflow_output_field_invalid", nodeId, detail: "outputFields" }];
+  }
+  return [];
 }
 
 export function collectWorkflowArtifactRefs(manifests: Array<string | undefined>): string[] {

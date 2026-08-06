@@ -1,6 +1,5 @@
-import { startQueuedTaskSync } from "@dofe-agent/db";
 import { parseTaskPayload } from "dofe-agent-daemon";
-import { postMessageSync } from "@dofe-agent/services";
+import { postMessageSync, startQueuedTaskWithWorkflowSync } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -25,7 +24,7 @@ export async function POST(
   }
 
   const shouldPostStartNotice = task.status !== "running";
-  const started = startQueuedTaskSync(task.id);
+  const started = startQueuedTaskWithWorkflowSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
   const payload = parseTaskPayload(started);
   if (shouldPostStartNotice && payload.channel && !payload.contactId) {
     postMessageSync({

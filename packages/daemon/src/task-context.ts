@@ -5,6 +5,7 @@ import { materializeHeadRevisionToWorkDir } from "./workdir-capture.ts";
 import {
   type AgentRuntimeRecord,
   type QueuedTaskRecord,
+  type WorkflowTaskMetadata,
   listStoredAgentSkillAssignmentsSync,
   readStoredSkillActiveArtifactDigestSync,
 } from "@dofe-agent/db";
@@ -53,6 +54,8 @@ export interface ParsedTaskPayload {
   title?: string;
   channel?: string;
   priority?: string;
+  workflowNodeInput?: Record<string, unknown>;
+  workflow?: WorkflowTaskMetadata;
   contactId?: string;
   channelName?: string;
   channelMessage?: string;
@@ -201,6 +204,8 @@ export function parseTaskInputJson(inputJson: string): ParsedTaskPayload {
       title: typeof parsed.title === "string" ? parsed.title : undefined,
       channel: typeof parsed.channel === "string" ? parsed.channel : undefined,
       priority: typeof parsed.priority === "string" ? parsed.priority : undefined,
+      workflowNodeInput: isPlainRecord(parsed.workflowNodeInput) ? parsed.workflowNodeInput : undefined,
+      workflow: parseWorkflowTaskMetadata(parsed.workflow),
       contactId: typeof parsed.contactId === "string" ? parsed.contactId : undefined,
       channelName: typeof parsed.channelName === "string" ? parsed.channelName : undefined,
       channelMessage: typeof parsed.channelMessage === "string" ? parsed.channelMessage : undefined,
@@ -310,6 +315,34 @@ export function parseTaskInputJson(inputJson: string): ParsedTaskPayload {
   } catch {
     return {};
   }
+}
+
+function parseWorkflowTaskMetadata(input: unknown): WorkflowTaskMetadata | undefined {
+  if (!isPlainRecord(input)) return undefined;
+  const requiredStrings = [
+    "workflowId",
+    "workflowVersionId",
+    "workflowRunId",
+    "workflowNodeId",
+    "workflowNodeRunId",
+  ] as const;
+  if (requiredStrings.some((key) => typeof input[key] !== "string")) return undefined;
+  if (!Number.isInteger(input.attempt) || Number(input.attempt) < 1) return undefined;
+  if (!Array.isArray(input.artifactRefs) || !input.artifactRefs.every((value) => typeof value === "string")) return undefined;
+  return {
+    workflowId: input.workflowId as string,
+    workflowVersionId: input.workflowVersionId as string,
+    workflowRunId: input.workflowRunId as string,
+    workflowNodeId: input.workflowNodeId as string,
+    workflowNodeRunId: input.workflowNodeRunId as string,
+    attempt: Number(input.attempt),
+    artifactRefs: input.artifactRefs as string[],
+    outputSchema: isPlainRecord(input.outputSchema) ? input.outputSchema : undefined,
+  };
+}
+
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+  return Boolean(input) && typeof input === "object" && !Array.isArray(input);
 }
 
 function parseAutoContinuationPayload(input: unknown): ParsedTaskPayload["autoContinuation"] {
@@ -667,6 +700,7 @@ export function buildTaskPromptWithDocumentContexts(
   const agentNotificationLines = buildAgentNotificationLines(agentNotifications);
   const routerSessionLines = buildRouterSessionContextLines(routerSessionContext);
   const externalInputLines = buildExternalInputPromptLines(payload.externalInput);
+  const workflowTaskLines = buildWorkflowTaskPromptLines(payload);
 
   if (payload.channelName && payload.channelMessage) {
     const isDirectConversation = Boolean(payload.contactId);
@@ -735,6 +769,7 @@ export function buildTaskPromptWithDocumentContexts(
           : `如果上面的内联历史仍然不够，请继续读取 workspace 中的频道历史 Markdown：${payload.channelHistoryPath}`
         : "",
       ...externalInputLines,
+      ...workflowTaskLines,
       isDirectConversation
         ? "以下是会话里的新消息。请以私聊对象身份，给出一段自然、简洁、适合直接发回这条会话的回复。语言按照用户消息的语言决定。"
         : "以下是群里的新消息。请以群成员身份，给出一段自然、简洁、适合直接发回群聊的回复。语言按照用户消息的语言决定。",
@@ -763,6 +798,7 @@ export function buildTaskPromptWithDocumentContexts(
     payload.channel ? `频道: ${payload.channel}` : "",
     payload.priority ? `优先级: ${payload.priority}` : "",
     payload.title ? `任务标题: ${payload.title}` : "",
+    ...workflowTaskLines,
     attachmentLines.length > 0 ? "附带文件：" : "",
     ...attachmentLines,
     "请直接执行这条任务，并输出一段简洁、可发回工作台的回复。语言按照用户消息的语言决定。",
@@ -770,6 +806,21 @@ export function buildTaskPromptWithDocumentContexts(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function buildWorkflowTaskPromptLines(payload: ParsedTaskPayload): string[] {
+  if (!payload.workflow) return [];
+  const lines = [
+    `工作流节点 ID: ${payload.workflow.workflowNodeId}`,
+    `工作流节点输入（JSON 数据）: ${JSON.stringify(payload.workflowNodeInput ?? {})}`,
+  ];
+  const required = Array.isArray(payload.workflow.outputSchema?.required)
+    ? payload.workflow.outputSchema.required.filter((field): field is string => typeof field === "string")
+    : [];
+  if (required.length !== 1 || required[0] !== "text") {
+    lines.push(`最终回复必须是一个合法 JSON 对象，且只包含这些字段: ${required.join(", ")}。不得使用 Markdown 代码块包裹。`);
+  }
+  return lines;
 }
 
 function resolveAgentNotificationsForTask(input: {

@@ -11,6 +11,10 @@ export interface WorkflowListItem {
   ownerLabel: string;
   triggerLabelCode: string;
   nextFireAt?: string;
+  lastTriggerOutcome?: {
+    code: "workflow.trigger.misfire_skipped" | "workflow.trigger.misfire_fire_once" | "workflow.trigger.invalid" | "workflow.trigger.materialization_failed";
+    createdAt: string;
+  };
   latestRun?: {
     id: string;
     status: WorkflowRunStatus;

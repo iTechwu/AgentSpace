@@ -213,6 +213,7 @@ export function publishWorkflowVersionSync(
       if (input.trigger) {
         upsertWorkflowTriggerWithDatabase(db, {
           ...input.trigger,
+          status: definition.status === "paused" ? "suspended" : input.trigger.status,
           workspaceId: input.workspaceId,
           workflowId: input.workflowId,
           now: input.trigger.now ?? now,
@@ -266,6 +267,7 @@ export function publishWorkflowVersionSync(
     if (input.trigger) {
       upsertWorkflowTriggerWithDatabase(db, {
         ...input.trigger,
+        status: definition.status === "paused" ? "suspended" : input.trigger.status,
         workspaceId: input.workspaceId,
         workflowId: input.workflowId,
         now: input.trigger.now ?? now,
@@ -282,7 +284,9 @@ function activateWorkflowVersionWithDatabase(
 ): void {
   const updated = db.prepare(
     `UPDATE workflow_definition
-        SET active_version_id = ?, status = 'published', updated_at = ?
+        SET active_version_id = ?,
+            status = CASE WHEN status = 'paused' THEN 'paused' ELSE 'published' END,
+            updated_at = ?
       WHERE id = ? AND workspace_id = ?`,
   ).run(input.versionId, input.now, input.workflowId, input.workspaceId);
   if (updated.changes !== 1) throw new Error("workflow_definition_conflict");
@@ -394,6 +398,12 @@ function upsertWorkflowTriggerWithDatabase(
 
 export function readWorkflowTriggerSync(id: string, workspaceId: string): WorkflowTriggerRecord | null {
   return readWorkflowTriggerWithDatabase(getDatabase(), id, workspaceId);
+}
+
+export function lockWorkflowTriggerForUpdateSync(id: string, workspaceId: string): WorkflowTriggerRecord | null {
+  const row = getDatabase().prepare(`${TRIGGER_SELECT} WHERE id = ? AND workspace_id = ? FOR UPDATE`)
+    .get(id, workspaceId) as Record<string, unknown> | undefined;
+  return row ? mapTrigger(row) : null;
 }
 
 export function readWorkflowTriggerForWorkflowSync(

@@ -13,6 +13,7 @@ const {
   mockRejectKnowledgeProposalForActorSync,
   mockReviewFeishuDataOperationApproval,
   mockReviewApprovalSync,
+  mockReviewApprovalWithWorkflowSync,
   mockReviewWorkflowApprovalSync,
   mockRequireCurrentWorkspaceContext,
   mockRevalidateWorkspacePaths,
@@ -29,6 +30,7 @@ const {
   mockRejectKnowledgeProposalForActorSync: vi.fn(),
   mockReviewFeishuDataOperationApproval: vi.fn(),
   mockReviewApprovalSync: vi.fn(),
+  mockReviewApprovalWithWorkflowSync: vi.fn(),
   mockReviewWorkflowApprovalSync: vi.fn(),
   mockRequireCurrentWorkspaceContext: vi.fn(),
   mockRevalidateWorkspacePaths: vi.fn(),
@@ -47,6 +49,7 @@ vi.mock("@dofe-agent/services", () => ({
   rejectKnowledgeProposalForActorSync: mockRejectKnowledgeProposalForActorSync,
   reviewFeishuDataOperationApproval: mockReviewFeishuDataOperationApproval,
   reviewApprovalSync: mockReviewApprovalSync,
+  reviewApprovalWithWorkflowSync: mockReviewApprovalWithWorkflowSync,
   reviewWorkflowApprovalSync: mockReviewWorkflowApprovalSync,
 }));
 
@@ -75,6 +78,7 @@ describe("approval actions", () => {
     mockRejectKnowledgeProposalForActorSync.mockReset();
     mockReviewFeishuDataOperationApproval.mockReset();
     mockReviewApprovalSync.mockReset();
+    mockReviewApprovalWithWorkflowSync.mockReset();
     mockReviewWorkflowApprovalSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockReset();
     mockRevalidateWorkspacePaths.mockReset();
@@ -112,7 +116,13 @@ describe("approval actions", () => {
 
     const result = await reviewApprovalAction("approval-1", "approved", "Ship it");
 
-    expect(mockReviewApprovalSync).toHaveBeenCalledWith("approval-1", "approved", "Ship it", "workspace-1");
+    expect(mockReviewApprovalWithWorkflowSync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      approvalId: "approval-1",
+      decision: "approved",
+      actorUserId: "user-1",
+      comment: "Ship it",
+    });
     expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", [
       "/approvals",
       "/inbox",
@@ -146,7 +156,7 @@ describe("approval actions", () => {
 
     await reviewApprovalAction("approval-workflow-1", "rejected", "Needs changes");
 
-    expect(mockReviewWorkflowApprovalSync).toHaveBeenCalledWith({
+    expect(mockReviewApprovalWithWorkflowSync).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       approvalId: "approval-workflow-1",
       decision: "rejected",

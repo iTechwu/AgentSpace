@@ -55,6 +55,7 @@ export function WorkflowNodeConfigPanel({
             />
           </label>
           <CommaSeparatedField key={`${node.id}:skills`} node={node} onEvent={onEvent} />
+          <OutputFieldsField key={`${node.id}:outputs`} node={node} onEvent={onEvent} />
           <WorkflowInputEditor key={node.id} node={node} onEvent={onEvent} />
           <div className="workflow-node-config__numbers">
             <OptionalNumberField label="单步预算上限（USD）" node={node} onEvent={onEvent} property="budgetUsd" />
@@ -224,6 +225,33 @@ function CommaSeparatedField({
         })}
         onChange={(event) => setValue(event.target.value)}
         placeholder="web-search, analysis"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function OutputFieldsField({
+  node,
+  onEvent,
+}: {
+  node: WorkflowNodeDefinition;
+  onEvent: (event: WorkflowDraftEvent) => void;
+}) {
+  const serialized = Array.isArray(node.config.outputFields) ? node.config.outputFields.join(", ") : "text";
+  const [value, setValue] = useState(serialized);
+  useEffect(() => setValue(serialized), [serialized]);
+  return (
+    <label>
+      <span>输出字段</span>
+      <input
+        onBlur={() => onEvent({
+          type: "updateNode",
+          nodeId: node.id,
+          patch: { config: { ...node.config, outputFields: commaSeparatedValues(value) } },
+        })}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder="text, report"
         value={value}
       />
     </label>

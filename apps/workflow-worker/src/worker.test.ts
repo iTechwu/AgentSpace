@@ -5,7 +5,7 @@ import { runWorkflowWorkerTick, type WorkflowWorkerServices } from "./worker.ts"
 test("worker tick runs scheduler, outbox and recovery with bounded batches", async () => {
   const calls: string[] = [];
   const services: WorkflowWorkerServices = {
-    scheduler: ({ limit }) => { calls.push(`scheduler:${limit}`); return { createdRunIds: ["run-1"] }; },
+    scheduler: ({ limit }) => { calls.push(`scheduler:${limit}`); return { createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"] }; },
     outbox: ({ limit }) => { calls.push(`outbox:${limit}`); return { dispatchedTaskIds: ["task-1"] }; },
     recovery: ({ limit }) => { calls.push(`recovery:${limit}`); return { readyNodeRunIds: ["node-1"], retriedNodeRunIds: [], failedNodeRunIds: [] }; },
   };
@@ -13,7 +13,7 @@ test("worker tick runs scheduler, outbox and recovery with bounded batches", asy
   const result = await runWorkflowWorkerTick({ workerId: "w1", batchSize: 20, now: "2026-08-07T00:00:00.000Z", services });
 
   assert.deepEqual(calls, ["scheduler:20", "outbox:20", "recovery:20"]);
-  assert.deepEqual(result, { scheduled: 1, dispatched: 1, recovered: 1 });
+  assert.deepEqual(result, { scheduled: 1, schedulerFailures: 1, dispatched: 1, recovered: 1 });
 });
 
 test("worker tick caps batch size", async () => {

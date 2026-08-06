@@ -1,7 +1,7 @@
 import {
   getDatabase,
+  lockWorkflowDefinitionForUpdateSync,
   pauseWorkflowTriggersForDefinitionSync,
-  readWorkflowDefinitionSync,
   listWorkflowTriggersForWorkflowSync,
   recordAuditLogSync,
   transitionWorkflowDefinitionStatusSync,
@@ -23,7 +23,7 @@ export function pauseWorkflowDefinitionSync(
   input: ControlWorkflowDefinitionInput,
 ): WorkflowDefinitionRecord {
   return withTransaction(getDatabase(), () => {
-    const current = readWorkflowDefinitionSync(input.workflowId, input.workspaceId);
+    const current = lockWorkflowDefinitionForUpdateSync(input.workflowId, input.workspaceId);
     if (!current) throw new Error("workflow_definition_not_found");
     if (current.status === "paused") return current;
     const now = input.now ?? new Date().toISOString();
@@ -45,7 +45,7 @@ export function resumeWorkflowDefinitionSync(
   input: ControlWorkflowDefinitionInput,
 ): WorkflowDefinitionRecord {
   return withTransaction(getDatabase(), () => {
-    const current = readWorkflowDefinitionSync(input.workflowId, input.workspaceId);
+    const current = lockWorkflowDefinitionForUpdateSync(input.workflowId, input.workspaceId);
     if (!current) throw new Error("workflow_definition_not_found");
     if (current.status === "published") return current;
     const now = input.now ?? new Date().toISOString();

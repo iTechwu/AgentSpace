@@ -191,6 +191,7 @@ export {
   listWorkflowVersionsSync,
   upsertWorkflowTriggerSync,
   readWorkflowTriggerSync,
+  lockWorkflowTriggerForUpdateSync,
   readWorkflowTriggerForWorkflowSync,
   listWorkflowTriggersForWorkflowSync,
   listActiveWorkflowEventTriggersSync,

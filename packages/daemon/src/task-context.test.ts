@@ -194,6 +194,36 @@ test("buildTaskPrompt excludes raw provider diagnostics from router continuity c
   assert.equal(prompt.includes("Error code: provider.runtime_generic_failure"), false);
 });
 
+test("workflow task payload exposes resolved input and enforces declared structured output", () => {
+  const payload = parseTaskInputJson(JSON.stringify({
+    assignee: "Atlas",
+    title: "研究主题",
+    workflowNodeInput: { topic: "automation", reports: ["artifact://one"] },
+    workflow: {
+      workflowId: "workflow-1",
+      workflowVersionId: "version-1",
+      workflowRunId: "run-1",
+      workflowNodeId: "research",
+      workflowNodeRunId: "node-run-1",
+      attempt: 1,
+      artifactRefs: ["artifact://one"],
+      outputSchema: {
+        type: "object",
+        required: ["report", "score"],
+        properties: { report: {}, score: {} },
+        additionalProperties: false,
+      },
+    },
+  }));
+  const prompt = buildTaskPrompt(createRuntime(), payload, []);
+
+  assert.deepEqual(payload.workflowNodeInput, { topic: "automation", reports: ["artifact://one"] });
+  assert.equal(payload.workflow?.workflowRunId, "run-1");
+  assert.match(prompt, /工作流节点输入（JSON 数据）: \{"topic":"automation","reports":\["artifact:\/\/one"\]\}/);
+  assert.match(prompt, /只包含这些字段: report, score/);
+  assert.match(prompt, /不得使用 Markdown 代码块包裹/);
+});
+
 function createRuntime(): AgentRuntimeRecord {
   return {
     id: "runtime-test",

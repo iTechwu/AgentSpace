@@ -21,6 +21,14 @@ const {
   mockRequestChannelAccessForActorSync,
   mockRevalidateWorkspacePaths,
   mockReviewApprovalSync,
+  mockReviewApprovalWithWorkflowSync,
+  mockCancelWorkflowRunSync,
+  mockReplacePendingChannelMessageSync,
+  mockCancelQueuedTaskSync,
+  mockReadQueuedTaskSync,
+  mockReadWorkflowDefinitionSync,
+  mockReadWorkflowNodeRunByTaskQueueIdSync,
+  mockReadWorkflowRunSync,
   mockResolveChannelHumanMemberNames,
   mockResolveWorkspaceAccessForIdentifierSync,
   mockResolveAgentRuntimeMode,
@@ -51,6 +59,14 @@ const {
   mockRequestChannelAccessForActorSync: vi.fn(),
   mockRevalidateWorkspacePaths: vi.fn(),
   mockReviewApprovalSync: vi.fn(),
+  mockReviewApprovalWithWorkflowSync: vi.fn(),
+  mockCancelWorkflowRunSync: vi.fn(),
+  mockReplacePendingChannelMessageSync: vi.fn(),
+  mockCancelQueuedTaskSync: vi.fn(),
+  mockReadQueuedTaskSync: vi.fn(),
+  mockReadWorkflowDefinitionSync: vi.fn(),
+  mockReadWorkflowNodeRunByTaskQueueIdSync: vi.fn(),
+  mockReadWorkflowRunSync: vi.fn(),
   mockResolveChannelHumanMemberNames: vi.fn(),
   mockResolveWorkspaceAccessForIdentifierSync: vi.fn(),
   mockResolveAgentRuntimeMode: vi.fn(),
@@ -99,6 +115,10 @@ vi.mock("@dofe-agent/services", () => ({
   createChannelParticipantsForMembersSync: vi.fn(),
   requestChannelAccessForActorSync: mockRequestChannelAccessForActorSync,
   reviewApprovalSync: mockReviewApprovalSync,
+  reviewApprovalWithWorkflowSync: mockReviewApprovalWithWorkflowSync,
+  cancelWorkflowRunSync: mockCancelWorkflowRunSync,
+  replacePendingChannelMessageSync: mockReplacePendingChannelMessageSync,
+  listApprovalsSync: vi.fn(() => []),
   approveChannelAccessRequestForActorSync: vi.fn(),
   rejectChannelAccessRequestForActorSync: vi.fn(),
   inviteUserToChannelForActorSync: vi.fn(),
@@ -107,6 +127,15 @@ vi.mock("@dofe-agent/services", () => ({
   upsertChannelDocumentPresenceSync: vi.fn(),
   updateChannelDocumentSync: vi.fn(),
   validateSessionModelOverrideForChatCommandAsync: mockValidateSessionModelOverrideForChatCommandAsync,
+}));
+
+vi.mock("@dofe-agent/db", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@dofe-agent/db")>(),
+  cancelQueuedTaskSync: mockCancelQueuedTaskSync,
+  readQueuedTaskSync: mockReadQueuedTaskSync,
+  readWorkflowDefinitionSync: mockReadWorkflowDefinitionSync,
+  readWorkflowNodeRunByTaskQueueIdSync: mockReadWorkflowNodeRunByTaskQueueIdSync,
+  readWorkflowRunSync: mockReadWorkflowRunSync,
 }));
 
 vi.mock("@/features/auth/server-workspace", () => ({
@@ -138,6 +167,7 @@ import {
   renameChannelAction,
   requestChannelAccessAction,
   reviewInlineApprovalAction,
+  stopChannelTaskAction,
   saveChannelDocumentAction,
   sendChannelMessageAction,
   sendHumanDirectMessageAction,
@@ -166,6 +196,14 @@ describe("channel actions", () => {
     mockRequestChannelAccessForActorSync.mockReset();
     mockRevalidateWorkspacePaths.mockReset();
     mockReviewApprovalSync.mockReset();
+    mockReviewApprovalWithWorkflowSync.mockReset();
+    mockCancelWorkflowRunSync.mockReset();
+    mockReplacePendingChannelMessageSync.mockReset();
+    mockCancelQueuedTaskSync.mockReset();
+    mockReadQueuedTaskSync.mockReset();
+    mockReadWorkflowDefinitionSync.mockReset();
+    mockReadWorkflowNodeRunByTaskQueueIdSync.mockReset();
+    mockReadWorkflowRunSync.mockReset();
     mockResolveChannelHumanMemberNames.mockReset();
     mockResolveWorkspaceAccessForIdentifierSync.mockReset();
     mockResolveAgentRuntimeMode.mockReset();
@@ -505,7 +543,12 @@ describe("channel actions", () => {
 
     const result = await reviewInlineApprovalAction("approval-1", "approved");
 
-    expect(mockReviewApprovalSync).toHaveBeenCalledWith("approval-1", "approved", undefined, "workspace-1");
+    expect(mockReviewApprovalWithWorkflowSync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      approvalId: "approval-1",
+      decision: "approved",
+      actorUserId: "user-1",
+    });
     expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", ["/im", "/approvals", "/inbox", "/agents"]);
     expect(result.invalidation).toEqual({
       workspaceId: "workspace-1",
@@ -616,6 +659,37 @@ describe("channel actions", () => {
     expect(mockDeleteChannelSync).not.toHaveBeenCalled();
   });
 
+  it("rejects a channel member stopping a linked workflow task they do not manage", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+    mockReadQueuedTaskSync.mockReturnValue(workflowTask());
+    mockReadWorkflowNodeRunByTaskQueueIdSync.mockReturnValue({ id: "node-run-1", runId: "run-1" });
+    mockReadWorkflowRunSync.mockReturnValue({ id: "run-1", workflowId: "workflow-1" });
+    mockReadWorkflowDefinitionSync.mockReturnValue({ id: "workflow-1", ownerUserId: "another-user" });
+
+    await expect(stopChannelTaskAction("queue-1")).rejects.toThrow("Only the workflow owner or a workspace administrator");
+
+    expect(mockCancelQueuedTaskSync).not.toHaveBeenCalled();
+    expect(mockCancelWorkflowRunSync).not.toHaveBeenCalled();
+  });
+
+  it("stops a linked workflow task through Run-level cancellation", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin"));
+    mockReadQueuedTaskSync.mockReturnValue(workflowTask());
+    mockReadWorkflowNodeRunByTaskQueueIdSync.mockReturnValue({ id: "node-run-1", runId: "run-1" });
+    mockReadWorkflowRunSync.mockReturnValue({ id: "run-1", workflowId: "workflow-1" });
+    mockReadWorkflowDefinitionSync.mockReturnValue({ id: "workflow-1", ownerUserId: "another-user" });
+
+    await stopChannelTaskAction("queue-1");
+
+    expect(mockCancelWorkflowRunSync).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-1",
+      runId: "run-1",
+      actorUserId: "user-1",
+    }));
+    expect(mockCancelQueuedTaskSync).not.toHaveBeenCalled();
+    expect(mockReplacePendingChannelMessageSync).toHaveBeenCalled();
+  });
+
   it("allows members to rename channels they can access", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
 
@@ -721,5 +795,15 @@ function buildWorkspaceContext(
     memberships: [],
     workspaces: [],
     accessScope: "workspace" as const,
+  };
+}
+
+function workflowTask() {
+  return {
+    id: "queue-1",
+    workspaceId: "workspace-1",
+    agentId: "Atlas",
+    status: "running",
+    inputJson: JSON.stringify({ channelName: "general" }),
   };
 }

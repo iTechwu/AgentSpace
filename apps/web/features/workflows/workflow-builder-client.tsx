@@ -197,7 +197,7 @@ export function WorkflowBuilderClient({
       return;
     }
     setNotice({ tone: "success", message: "工作流已发布。" });
-    setDefinitionStatus("published");
+    setDefinitionStatus(result.data.status === "paused" ? "paused" : "published");
     setConfigurationDirty(false);
     router.refresh();
   }

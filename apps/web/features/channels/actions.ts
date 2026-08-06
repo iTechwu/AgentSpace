@@ -46,6 +46,8 @@ import {
   upsertChannelDocumentPresenceSync,
   updateChannelDocumentSync,
   reviewApprovalSync,
+  reviewApprovalWithWorkflowSync,
+  cancelWorkflowRunSync,
   listApprovalsSync,
   listEmployeeSkillIdsSync,
   listWorkspaceSkillsSync,
@@ -63,6 +65,9 @@ import {
   cancelQueuedTaskSync,
   listExternalChannelBindingsSync,
   listExternalIntegrationsSync,
+  readWorkflowDefinitionSync,
+  readWorkflowNodeRunByTaskQueueIdSync,
+  readWorkflowRunSync,
   readQueuedTaskSync,
 } from "@dofe-agent/db";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
@@ -251,7 +256,12 @@ export async function reviewInlineApprovalAction(
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   assertRequired(approvalId, "approval id");
 
-  reviewApprovalSync(approvalId.trim(), decision, undefined, workspaceContext.currentWorkspace.id);
+  reviewApprovalWithWorkflowSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    approvalId: approvalId.trim(),
+    decision,
+    actorUserId: workspaceContext.currentUser.id,
+  });
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/approvals", "/inbox", "/agents"]);
   return actionToastResult(
     undefined,
@@ -281,6 +291,26 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
   }
   assertChannelAccess(workspaceContext, channelName);
   const canManageAllTasks = workspaceContext.currentMembership.role === "owner" || workspaceContext.currentMembership.role === "admin";
+  const workflowNode = readWorkflowNodeRunByTaskQueueIdSync(task.id, task.workspaceId);
+  if (workflowNode) {
+    const workflowRun = readWorkflowRunSync(workflowNode.runId, task.workspaceId);
+    const workflowDefinition = workflowRun
+      ? readWorkflowDefinitionSync(workflowRun.workflowId, task.workspaceId)
+      : null;
+    if (!workflowRun || !workflowDefinition) throw new Error("Workflow task does not exist.");
+    if (!canManageAllTasks && workflowDefinition.ownerUserId !== workspaceContext.currentUser.id) {
+      throw new Error("Only the workflow owner or a workspace administrator can stop this task.");
+    }
+    cancelWorkflowRunSync({
+      workspaceId: task.workspaceId,
+      runId: workflowRun.id,
+      actorUserId: workspaceContext.currentUser.id,
+      reason: `Stopped by ${workspaceContext.currentUser.displayName.trim() || "the user"}.`,
+    });
+    replaceStoppedChannelTaskMessage(task, channelName);
+    revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals", "/automations", "/calendar", "/task-board"]);
+    return;
+  }
   if (task.requestedByUserId && task.requestedByUserId !== workspaceContext.currentUser.id && !canManageAllTasks) {
     throw new Error("Only the requester or a workspace administrator can stop this task.");
   }
@@ -305,6 +335,12 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
       );
     }
   }
+  replaceStoppedChannelTaskMessage(task, channelName);
+
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
+}
+
+function replaceStoppedChannelTaskMessage(task: { id: string; agentId: string; workspaceId: string }, channelName: string): void {
   replacePendingChannelMessageSync({
     channel: channelName,
     pendingSpeaker: task.agentId,
@@ -314,8 +350,6 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
     summary: `${task.agentId} 的执行已停止。`,
     status: "completed",
   }, task.workspaceId);
-
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
 }
 
 export async function addWorkspaceMembersToChannelAction(input: {

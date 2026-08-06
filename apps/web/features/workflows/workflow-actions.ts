@@ -159,7 +159,7 @@ export async function validateWorkflowAction(
 
 export async function publishWorkflowAction(
   input: PublishWorkflowActionInput,
-): Promise<WorkflowActionResult<{ versionId: string }>> {
+): Promise<WorkflowActionResult<{ versionId: string; status: string }>> {
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "admin", "workspace role admin required");
   try {
@@ -185,8 +185,9 @@ export async function publishWorkflowAction(
         status: "active",
       } : undefined,
     });
+    const published = requireDefinition(definition.id, context.currentWorkspace.id);
     revalidateWorkflowPages(context.currentWorkspace.slug);
-    return success(context.currentWorkspace.id, { versionId: result.version.id });
+    return success(context.currentWorkspace.id, { versionId: result.version.id, status: published.status });
   } catch (error) {
     return failure(error);
   }
@@ -299,7 +300,8 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_trigger_cross_workspace_conflict", "workflow_trigger_duplicate", "workflow_active_version_missing",
   "workflow_trigger_owner_conflict",
   "workflow_cross_workspace_reference", "workflow_budget_exceeded", "workflow_input_reference_missing",
-  "workflow_input_reference_invalid", "workflow_input_reference_not_upstream", "workflow_join_reference_missing",
+  "workflow_output_invalid", "workflow_output_too_large",
+  "workflow_input_reference_invalid", "workflow_input_reference_not_upstream", "workflow_join_reference_missing", "workflow_output_field_invalid", "workflow_output_field_unsupported",
   "workflow_skill_not_ready", "workflow_channel_not_ready", "workflow_budget_invalid",
   "workflow_concurrency_invalid",
   "workflow_approval_employee_not_ready", "workflow_approval_channel_not_ready",

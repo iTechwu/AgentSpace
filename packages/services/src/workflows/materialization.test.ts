@@ -1,7 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { WorkflowTriggerRecord } from "@dofe-agent/db";
 
-import { buildWorkflowEmployeeNameSnapshots } from "./materialization.ts";
+import { assertWorkflowTriggerCanMaterialize, buildWorkflowEmployeeNameSnapshots } from "./materialization.ts";
+
+function trigger(overrides: Partial<WorkflowTriggerRecord> = {}): WorkflowTriggerRecord {
+  return {
+    id: "trigger-1",
+    workspaceId: "workspace-1",
+    workflowId: "workflow-1",
+    type: "schedule" as const,
+    configJson: '{"repeatSeconds":60}',
+    timezone: "UTC",
+    status: "active",
+    misfirePolicy: "skip" as const,
+    dedupeWindowSeconds: 0,
+    nextFireAt: "2026-08-07T00:00:00.000Z",
+    leaseOwner: "scheduler-1",
+    leaseExpiresAt: "2026-08-07T00:01:00.000Z",
+    createdAt: "2026-08-06T00:00:00.000Z",
+    updatedAt: "2026-08-07T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 test("workflow node snapshots preserve the employee display name instead of the stable id", () => {
   const snapshots = buildWorkflowEmployeeNameSnapshots([
@@ -12,4 +33,22 @@ test("workflow node snapshots preserve the employee display name instead of the 
   assert.equal(snapshots.get("employee-1"), "研究员 Atlas");
   assert.equal(snapshots.get("employee-2"), "Nova");
   assert.equal(snapshots.has("Atlas"), false);
+});
+
+test("materialization fences a schedule claim by its exact lease", () => {
+  const claimed = trigger();
+  assert.doesNotThrow(() => assertWorkflowTriggerCanMaterialize(claimed, trigger()));
+  assert.throws(
+    () => assertWorkflowTriggerCanMaterialize(claimed, trigger({ leaseOwner: "scheduler-2" })),
+    /workflow_trigger_lease_conflict/,
+  );
+});
+
+test("materialization rejects stale event snapshots after trigger edits", () => {
+  const claimed = trigger({ type: "event", configJson: '{"eventName":"task.created"}', leaseOwner: undefined, leaseExpiresAt: undefined });
+  assert.doesNotThrow(() => assertWorkflowTriggerCanMaterialize(claimed, { ...claimed }));
+  assert.throws(
+    () => assertWorkflowTriggerCanMaterialize(claimed, { ...claimed, configJson: '{"eventName":"task.deleted"}', updatedAt: "2026-08-07T00:01:00.000Z" }),
+    /workflow_trigger_stale_snapshot/,
+  );
 });

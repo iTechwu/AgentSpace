@@ -50,6 +50,8 @@ interface WorkflowTopologySummary {
   hasApproval: boolean;
 }
 
+type WorkflowTriggerOutcome = NonNullable<WorkflowListItem["lastTriggerOutcome"]> & { workflowId: string };
+
 export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPageData {
   const definitions = listWorkflowDefinitionsSync(workspaceId);
   const definitionIds = new Set(definitions.map((definition) => definition.id));
@@ -74,6 +76,12 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       triggersByWorkflowId.set(trigger.workflowId, trigger);
     }
   }
+  const outcomesByWorkflowId = new Map<string, WorkflowTriggerOutcome>();
+  for (const outcome of listLatestWorkflowTriggerOutcomes(workspaceId)) {
+    if (definitionIds.has(outcome.workflowId) && !outcomesByWorkflowId.has(outcome.workflowId)) {
+      outcomesByWorkflowId.set(outcome.workflowId, outcome);
+    }
+  }
 
   const workflows = definitions.map((definition): WorkflowListItem => {
     const trigger = triggersByWorkflowId.get(definition.id);
@@ -84,6 +92,12 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       ownerLabel: ownerLabels.get(definition.ownerUserId) ?? definition.ownerUserId,
       triggerLabelCode: trigger?.type ?? "manual",
       ...(trigger?.nextFireAt ? { nextFireAt: trigger.nextFireAt } : {}),
+      ...(outcomesByWorkflowId.has(definition.id) ? {
+        lastTriggerOutcome: {
+          code: outcomesByWorkflowId.get(definition.id)!.code,
+          createdAt: outcomesByWorkflowId.get(definition.id)!.createdAt,
+        },
+      } : {}),
       ...(latestRuns.has(definition.id) ? { latestRun: latestRuns.get(definition.id)! } : {}),
       topology: summarizeWorkflowTopology(definition.draftGraphJson),
       sourceKind: "workflow",
@@ -235,8 +249,17 @@ function listWorkflowTriggerSummaries(workspaceId: string): WorkflowTriggerSumma
   const rows = getDatabase().prepare(
     `SELECT workflow_id AS "workflowId", type, next_fire_at AS "nextFireAt"
      FROM workflow_trigger
-     WHERE workspace_id = ? AND status = 'active'
-     ORDER BY CASE WHEN next_fire_at IS NULL THEN 1 ELSE 0 END, next_fire_at ASC, id ASC`,
+     WHERE workspace_id = ? AND status IN ('active', 'suspended', 'paused')
+     ORDER BY workflow_id ASC,
+       CASE
+         WHEN type <> 'manual' AND status = 'active' THEN 0
+         WHEN type <> 'manual' AND status = 'suspended' THEN 1
+         WHEN type <> 'manual' THEN 2
+         WHEN status = 'active' THEN 3
+         WHEN status = 'suspended' THEN 4
+         ELSE 5
+       END,
+       updated_at DESC, id ASC`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
 
   return rows.flatMap((row) => {
@@ -249,6 +272,35 @@ function listWorkflowTriggerSummaries(workspaceId: string): WorkflowTriggerSumma
       ...(typeof row.nextFireAt === "string" ? { nextFireAt: row.nextFireAt } : {}),
     }];
   });
+}
+
+function listLatestWorkflowTriggerOutcomes(workspaceId: string): WorkflowTriggerOutcome[] {
+  const rows = getDatabase().prepare(
+    `SELECT data_json ->> 'workflowId' AS "workflowId", code, created_at AS "createdAt"
+       FROM audit_log
+      WHERE workspace_id = ?
+        AND code IN (
+          'workflow.trigger.misfire_skipped',
+          'workflow.trigger.misfire_fire_once',
+          'workflow.trigger.invalid',
+          'workflow.trigger.materialization_failed'
+        )
+      ORDER BY created_at DESC, source_index DESC`,
+  ).all(workspaceId) as Array<Record<string, unknown>>;
+  return rows.flatMap((row) => (
+    typeof row.workflowId === "string"
+    && typeof row.createdAt === "string"
+    && isWorkflowTriggerOutcomeCode(row.code)
+      ? [{ workflowId: row.workflowId, code: row.code, createdAt: row.createdAt }]
+      : []
+  ));
+}
+
+function isWorkflowTriggerOutcomeCode(value: unknown): value is WorkflowTriggerOutcome["code"] {
+  return value === "workflow.trigger.misfire_skipped"
+    || value === "workflow.trigger.misfire_fire_once"
+    || value === "workflow.trigger.invalid"
+    || value === "workflow.trigger.materialization_failed";
 }
 
 function summarizeWorkflowTopology(graphJson: string): WorkflowTopologySummary {

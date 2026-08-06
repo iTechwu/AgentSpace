@@ -5,7 +5,7 @@ import {
   isOneTimeWorkflowTrigger,
   normalizeWorkflowTriggerForPublish,
   resolveWorkflowScheduleDecision,
-  workflowSchedulerFailureStatus,
+  workflowSchedulerFailureDisposition,
 } from "./scheduler.ts";
 
 function trigger(configJson: string, timezone = "UTC") {
@@ -179,6 +179,24 @@ test("fire-once cron recovery selects the latest occurrence after a long outage"
   );
 });
 
+test("fire-once cron recovery includes an occurrence exactly at recovery time", () => {
+  assert.deepEqual(
+    resolveWorkflowScheduleDecision(
+      {
+        ...trigger('{"cronExpression":"0 9 * * 1-5"}', "Asia/Shanghai"),
+        misfirePolicy: "fire_once",
+        nextFireAt: "2026-07-01T01:00:00.000Z",
+      },
+      "2026-08-07T01:00:00.000Z",
+    ),
+    {
+      runScheduledAt: "2026-08-07T01:00:00.000Z",
+      nextFireAt: "2026-08-10T01:00:00.000Z",
+      misfired: true,
+    },
+  );
+});
+
 test("misfire grace executes a slightly delayed occurrence without historical catch-up", () => {
   assert.deepEqual(
     resolveWorkflowScheduleDecision(
@@ -204,7 +222,10 @@ test("rejects unsupported misfire policies at publish", () => {
   );
 });
 
-test("a concurrently paused definition preserves its suspended trigger status", () => {
-  assert.equal(workflowSchedulerFailureStatus(new Error("workflow_definition_not_published")), undefined);
-  assert.equal(workflowSchedulerFailureStatus(new Error("workflow_active_version_missing")), "paused");
+test("scheduler failures distinguish stale claims, deterministic defects and transient retries", () => {
+  assert.equal(workflowSchedulerFailureDisposition(new Error("workflow_definition_not_published")), "stale");
+  assert.equal(workflowSchedulerFailureDisposition(new Error("workflow_trigger_lease_conflict")), "stale");
+  assert.equal(workflowSchedulerFailureDisposition(new Error("workflow_active_version_missing")), "suspend");
+  assert.equal(workflowSchedulerFailureDisposition(new SyntaxError("bad graph")), "suspend");
+  assert.equal(workflowSchedulerFailureDisposition(new Error("connection reset")), "retry");
 });

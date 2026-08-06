@@ -31,6 +31,7 @@ import {
   failChannelDocumentRunStepSync,
   formatConversationFailureSummary,
   formatTaskFailureSummary,
+  getWorkflowCompletionErrorCode,
   applyFeishuLarkCliResultManifestOperations,
   applyFeishuRuntimeDataOperationRequests,
   listFeishuLarkCliResourceGrantsForChannelSync,
@@ -438,6 +439,7 @@ export async function POST(
         workspaceId: task.workspaceId,
         taskQueueId: task.id,
         outputText: finalOutputText,
+        structuredOutput: body.structuredOutput,
         artifactManifest: outputEnvelope.attachments,
       });
     });
@@ -609,12 +611,13 @@ export async function POST(
           rawProviderMessage: error.message,
         }
       : undefined;
+    const workflowErrorCode = getWorkflowCompletionErrorCode(error);
     withTransaction(getDatabase(), () => {
       lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
       failQueuedTaskSync({
         taskId: task.id,
         errorText: message,
-        errorCode: providerError?.code,
+        errorCode: providerError?.code ?? workflowErrorCode,
         errorCategory: providerError?.category,
         rawProviderMessage: providerError?.rawProviderMessage,
         sessionId: body.sessionId,
@@ -623,7 +626,7 @@ export async function POST(
       failWorkflowTaskIfLinkedSync({
         workspaceId: task.workspaceId,
         taskQueueId: task.id,
-        errorCode: providerError?.code,
+        errorCode: providerError?.code ?? workflowErrorCode,
         errorText: message,
       });
     });

@@ -22,6 +22,7 @@ export async function GET(request: Request): Promise<Response> {
   const recovered = recoverStaleWorkflowWorkSync({ workerId, now, limit });
   return Response.json({
     scheduled: scheduled.createdRunIds.length,
+    schedulerFailures: scheduled.failedTriggerIds.length,
     dispatched: dispatched.dispatchedTaskIds.length,
     recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length + recovered.failedNodeRunIds.length,
   });

@@ -11,7 +11,7 @@ import { GET } from "./route";
 const originalSecret = process.env.CRON_SECRET;
 beforeEach(() => {
   vi.clearAllMocks();
-  services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"] });
+  services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"] });
   services.dispatchWorkflowOutboxBatchSync.mockReturnValue({ dispatchedTaskIds: ["task-1"] });
   services.recoverStaleWorkflowWorkSync.mockReturnValue({ readyNodeRunIds: ["node-1"], retriedNodeRunIds: [], failedNodeRunIds: [] });
 });
@@ -38,7 +38,7 @@ describe("workflow reconcile route", () => {
     process.env.CRON_SECRET = "expected";
     const response = await GET(new Request("http://localhost/api/cron/workflows/reconcile", { headers: { authorization: "Bearer expected" } }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ scheduled: 1, dispatched: 1, recovered: 1 });
+    expect(await response.json()).toEqual({ scheduled: 1, schedulerFailures: 1, dispatched: 1, recovered: 1 });
     expect(services.tickWorkflowSchedulerSync).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }));
   });
 });
