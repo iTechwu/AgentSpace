@@ -1,6 +1,7 @@
 import {
   claimWorkflowNodeForDispatchSync,
   enqueueNativeTaskSync,
+  getDatabase,
   appendWorkflowRunEventSync,
   listWorkflowNodeRunsSync,
   readStoredEmployeeByIdSync,
@@ -8,6 +9,7 @@ import {
   readWorkflowRunSync,
   readWorkflowVersionSync,
   transitionWorkflowNodeRunSync,
+  withTransaction,
   type WorkflowTaskMetadata,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition, WorkflowNodeDefinition } from "@dofe-agent/domain";
@@ -28,6 +30,10 @@ export interface DispatchWorkflowNodeResult {
 }
 
 export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {
+  return withTransaction(getDatabase(), () => dispatchReadyWorkflowNodeInTransactionSync(input));
+}
+
+function dispatchReadyWorkflowNodeInTransactionSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {
   const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
   if (!nodeRun) throw new Error("workflow_node_run_not_found");
   const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);

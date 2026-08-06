@@ -2,6 +2,7 @@ import {
   appendTaskMessageSync,
   assertEmployeeBindingGenerationSync,
   completeCommittedTaskSync,
+  getDatabase,
   failQueuedTaskSync,
   enqueueTokenUsageRetrySync,
   markTaskCommittedSync,
@@ -9,6 +10,7 @@ import {
   readAgentRuntimeSync,
   recordTokenUsageSync,
   upsertTaskCommitJournalSync,
+  withTransaction,
 } from "@dofe-agent/db";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
@@ -406,34 +408,36 @@ export async function POST(
       );
     }
 
-    completeCommittedTaskSync({
-      taskId: task.id,
-      resultJson: {
-        provider: runtime.provider,
-        output: finalOutputText,
-        attachments: outputEnvelope.attachments.map((attachment) => ({
-          id: attachment.id,
-          fileName: attachment.fileName,
-          mediaType: attachment.mediaType,
-          kind: attachment.kind,
-          sizeBytes: attachment.sizeBytes,
-        })),
-        skillImports: skillImportOperations.imports,
-        documentUpdates: documentOperations.documentUpdates,
-        feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
-        feishuRuntimeDataOperationRunIds: feishuRuntimeDataOperationRequests.operationRunIds,
-        feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,
-        documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
-        knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
-      },
-      sessionId: body.sessionId,
-      workDir: body.workDir,
-    });
-    completeWorkflowTaskIfLinkedSync({
-      workspaceId: task.workspaceId,
-      taskQueueId: task.id,
-      outputText: finalOutputText,
-      artifactManifest: outputEnvelope.attachments,
+    withTransaction(getDatabase(), () => {
+      completeCommittedTaskSync({
+        taskId: task.id,
+        resultJson: {
+          provider: runtime.provider,
+          output: finalOutputText,
+          attachments: outputEnvelope.attachments.map((attachment) => ({
+            id: attachment.id,
+            fileName: attachment.fileName,
+            mediaType: attachment.mediaType,
+            kind: attachment.kind,
+            sizeBytes: attachment.sizeBytes,
+          })),
+          skillImports: skillImportOperations.imports,
+          documentUpdates: documentOperations.documentUpdates,
+          feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
+          feishuRuntimeDataOperationRunIds: feishuRuntimeDataOperationRequests.operationRunIds,
+          feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,
+          documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
+          knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
+        },
+        sessionId: body.sessionId,
+        workDir: body.workDir,
+      });
+      completeWorkflowTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        outputText: finalOutputText,
+        artifactManifest: outputEnvelope.attachments,
+      });
     });
 
     if (payload.taskId) {
