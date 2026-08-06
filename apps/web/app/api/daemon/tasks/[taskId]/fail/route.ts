@@ -3,6 +3,7 @@ import { parseTaskPayload } from "dofe-agent-daemon";
 import type { FailTaskRequest } from "@dofe-agent/domain";
 import {
   continueAutoContinuationAfterTaskSync,
+  failWorkflowTaskIfLinkedSync,
   failChannelDocumentRunStepSync,
   formatConversationFailureSummary,
   formatTaskFailureSummary,
@@ -59,6 +60,12 @@ export async function POST(
     errorCategory: body.errorCategory,
     provider: body.provider,
     rawProviderMessage: body.rawProviderMessage,
+  });
+  failWorkflowTaskIfLinkedSync({
+    workspaceId: task.workspaceId,
+    taskQueueId: task.id,
+    errorCode: body.errorCode,
+    errorText: body.errorText.trim(),
   });
   const providerDiagnosticMessage = formatProviderDiagnosticMessage(body);
   if (providerDiagnosticMessage) {

@@ -24,6 +24,7 @@ import type { CompleteTaskRequest } from "@dofe-agent/domain";
 import {
   completeChannelDocumentRunStepSync,
   completeAgentChannelReplySync,
+  completeWorkflowTaskIfLinkedSync,
   continueAutoContinuationAfterTaskSync,
   failChannelDocumentRunStepSync,
   formatConversationFailureSummary,
@@ -44,6 +45,7 @@ import {
   writeConversationExecutionWorkspaceStateSync,
   upsertDirectConversationStateSync,
   updateTaskStatusSync,
+  failWorkflowTaskIfLinkedSync,
   writeWorkspaceStateSync,
   type FeishuAgentStatusCardStatus,
 } from "@dofe-agent/services";
@@ -427,6 +429,12 @@ export async function POST(
       sessionId: body.sessionId,
       workDir: body.workDir,
     });
+    completeWorkflowTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      outputText: finalOutputText,
+      artifactManifest: outputEnvelope.attachments,
+    });
 
     if (payload.taskId) {
       updateTaskStatusSync(payload.taskId, "done", task.workspaceId);
@@ -603,6 +611,12 @@ export async function POST(
       rawProviderMessage: providerError?.rawProviderMessage,
       sessionId: body.sessionId,
       workDir: body.workDir,
+    });
+    failWorkflowTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      errorCode: providerError?.code,
+      errorText: message,
     });
 
     if (payload.taskId) {

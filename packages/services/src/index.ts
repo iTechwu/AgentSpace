@@ -184,6 +184,10 @@ export {
   type CompleteWorkflowNodeInput,
 } from "./workflows/coordinator.ts";
 export {
+  completeWorkflowTaskIfLinkedSync,
+  failWorkflowTaskIfLinkedSync,
+} from "./workflows/completion.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,

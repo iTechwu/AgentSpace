@@ -43,6 +43,7 @@ export function completeWorkflowNodeSync(input: CompleteWorkflowNodeInput): Work
       from: ["queued", "running"],
       to: "succeeded",
       outputJson: JSON.stringify(input.output),
+      artifactManifestJson: JSON.stringify(input.artifactManifest ?? []),
       finishedAt: now,
       now,
     });

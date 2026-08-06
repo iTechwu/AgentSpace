@@ -55,6 +55,7 @@ export interface TransitionWorkflowNodeRunInput {
   finishedAt?: string;
   outputJson?: string;
   inputJson?: string;
+  artifactManifestJson?: string;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -143,6 +144,12 @@ export function readWorkflowNodeRunSync(id: string, workspaceId: string): Workfl
   return row ? mapNodeRun(row) : null;
 }
 
+export function readWorkflowNodeRunByTaskQueueIdSync(taskQueueId: string, workspaceId: string): WorkflowNodeRunRecord | null {
+  const row = getDatabase().prepare(`${NODE_RUN_SELECT} WHERE task_queue_id = ? AND workspace_id = ?`)
+    .get(taskQueueId, workspaceId) as Record<string, unknown> | undefined;
+  return row ? mapNodeRun(row) : null;
+}
+
 export function listWorkflowNodeRunsSync(workspaceId: string, runId: string): WorkflowNodeRunRecord[] {
   return (getDatabase().prepare(
     `${NODE_RUN_SELECT} WHERE workspace_id = ? AND run_id = ? ORDER BY created_at ASC, id ASC`,
@@ -171,6 +178,7 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
         SET status = ?, task_queue_id = COALESCE(?, task_queue_id), available_at = COALESCE(?, available_at),
             attempt_count = COALESCE(?, attempt_count), started_at = COALESCE(?, started_at),
             finished_at = COALESCE(?, finished_at), input_json = COALESCE(?, input_json), output_json = COALESCE(?, output_json),
+            artifact_manifest_json = COALESCE(?, artifact_manifest_json),
             error_code = COALESCE(?, error_code), error_message = COALESCE(?, error_message), updated_at = ?
       WHERE id = ? AND workspace_id = ? AND status IN (${placeholders})
       RETURNING ${NODE_RUN_COLUMNS}`,
@@ -183,6 +191,7 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     input.finishedAt ?? null,
     input.inputJson ?? null,
     input.outputJson ?? null,
+    input.artifactManifestJson ?? null,
     input.errorCode ?? null,
     input.errorMessage ?? null,
     now,
