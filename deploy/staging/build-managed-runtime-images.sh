@@ -25,7 +25,7 @@ if [ $# -eq 0 ]; then PROVIDERS=(codex claude openclaw hermes); fi
 
 default_install_command() {
   case "$1" in
-    codex)    echo "pnpm add --global @openai/codex@latest" ;;
+    codex)    echo "pnpm add --global @openai/codex@0.145.0" ;;
     claude)   echo "pnpm add --global @anthropic-ai/claude-code@latest" ;;
     openclaw) echo "pnpm add --global @openai/codex@latest" ;; # placeholder; replace with real openclaw package
     hermes)   echo "pip install --break-system-packages dofe-hermes" ;; # placeholder; replace with real hermes install

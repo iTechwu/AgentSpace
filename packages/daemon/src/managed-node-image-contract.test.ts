@@ -14,6 +14,14 @@ const providerDockerfile = readFileSync(
   new URL("../../../deploy/daemon/Dockerfile.provider-runtime", import.meta.url),
   "utf8",
 );
+const localRuntimeDockerfile = readFileSync(
+  new URL("../../../deploy/daemon/Dockerfile", import.meta.url),
+  "utf8",
+);
+const runtimeBuildScript = readFileSync(
+  new URL("../../../deploy/staging/build-managed-runtime-images.sh", import.meta.url),
+  "utf8",
+);
 
 test("managed-node image installs a checksum-pinned multi-arch cosign binary", () => {
   assert.match(dockerfile, /ARG COSIGN_VERSION=v\d+\.\d+\.\d+/);
@@ -37,6 +45,14 @@ test("provider runtime image includes operational tools required by provider che
   assert.match(providerDockerfile, /apt-get install --yes --no-install-recommends git/);
   assert.match(providerDockerfile, /npm_config_registry=https:\/\/registry\.npmmirror\.com/);
   assert.match(providerDockerfile, /--mount=type=cache,id=dofe-provider-runtime-pnpm,target=\/pnpm\/store/);
+});
+
+test("local runtime builds include provider probe tools and a pinned Codex CLI", () => {
+  assert.match(localRuntimeDockerfile, /apt-get install --yes --no-install-recommends ca-certificates curl/);
+  assert.match(localRuntimeDockerfile, /npm install --global pnpm@10\.26\.2/);
+  assert.match(localRuntimeDockerfile, /--mount=type=cache,id=dofe-local-runtime-pnpm,target=\/pnpm\/store/);
+  assert.match(runtimeBuildScript, /@openai\/codex@0\.145\.0/);
+  assert.doesNotMatch(runtimeBuildScript, /codex\).*@openai\/codex@latest/);
 });
 
 test("local managed-node recovery preserves required operational settings", () => {

@@ -1,7 +1,8 @@
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
 
 ENV PNPM_HOME=/pnpm \
-    PATH=/pnpm:$PATH
+    PATH=/pnpm:$PATH \
+    npm_config_registry=https://registry.npmmirror.com
 
 WORKDIR /workspace
 
@@ -9,7 +10,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/cli ./apps/cli
 COPY packages ./packages
 
-RUN npm install --global pnpm@10.26.2 \
+RUN --mount=type=cache,id=dofe-local-runtime-pnpm,target=/pnpm/store \
+  npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \
   && pnpm --filter dofe-agent-daemon run build \
   && mkdir -p /opt/daemon-package \
@@ -23,7 +25,11 @@ ENV PNPM_HOME=/pnpm \
 ARG PROVIDER_INSTALL_COMMAND
 
 RUN groupadd --gid 10001 dofe-agent \
-  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
+  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent \
+  && apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install --global pnpm@10.26.2
 
 COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
 
