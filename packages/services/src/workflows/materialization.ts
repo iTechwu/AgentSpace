@@ -9,6 +9,7 @@ import {
   readWorkflowVersionSync,
   transitionWorkflowNodeRunSync,
   transitionWorkflowRunSync,
+  upsertWorkflowTriggerSync,
   type WorkflowTriggerRecord,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
@@ -20,6 +21,42 @@ export interface MaterializeWorkflowRunInput {
   createdBy?: string;
   inputJson?: string;
   now: string;
+}
+
+export interface MaterializeManualWorkflowRunInput {
+  workspaceId: string;
+  workflowId: string;
+  idempotencyKey: string;
+  createdBy: string;
+  inputJson?: string;
+  now?: string;
+}
+
+export function materializeManualWorkflowRunSync(input: MaterializeManualWorkflowRunInput): {
+  runId: string;
+  created: boolean;
+} {
+  const now = input.now ?? new Date().toISOString();
+  const definition = readWorkflowDefinitionSync(input.workflowId, input.workspaceId);
+  if (!definition) throw new Error("workflow_definition_not_found");
+  if (definition.status !== "published") throw new Error("workflow_definition_not_published");
+  const trigger = upsertWorkflowTriggerSync({
+    id: `workflow-trigger-manual-${input.workflowId}`,
+    workspaceId: input.workspaceId,
+    workflowId: input.workflowId,
+    type: "manual",
+    configJson: "{}",
+    status: "active",
+    now,
+  });
+  return materializeWorkflowRunSync({
+    workspaceId: input.workspaceId,
+    trigger,
+    scheduledAt: input.idempotencyKey,
+    createdBy: input.createdBy,
+    inputJson: input.inputJson,
+    now,
+  });
 }
 
 export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): {
