@@ -220,7 +220,9 @@ export {
 } from "./workflows/retries.ts";
 export {
   createWorkflowApprovalSync,
+  cancelPendingWorkflowApprovalsSync,
   continueWorkflowAfterApprovalSync,
+  reviewWorkflowApprovalSync,
   workflowApprovalInputFromNodeConfig,
   type CreateWorkflowApprovalInput,
 } from "./workflows/approvals.ts";

@@ -6,7 +6,6 @@ import {
   approveDocumentPermissionRequestSync,
   approveKnowledgeProposalForActorSync,
   createApprovalRequestSync,
-  continueWorkflowAfterApprovalSync,
   listApprovalsSync,
   rejectChannelAccessRequestForActorSync,
   rejectAgentAccessRequestForActorSync,
@@ -14,6 +13,7 @@ import {
   rejectKnowledgeProposalForActorSync,
   reviewFeishuDataOperationApproval,
   reviewApprovalSync,
+  reviewWorkflowApprovalSync,
 } from "@dofe-agent/services";
 import type { ApprovalRequest } from "@dofe-agent/domain/workspace";
 import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
@@ -53,14 +53,16 @@ export async function reviewApprovalAction(
   }
   const approval = listApprovalsSync(workspaceContext.currentWorkspace.id)
     .find((item) => item.id === approvalId.trim());
-  reviewApprovalSync(approvalId, decision, comment, workspaceContext.currentWorkspace.id);
   if (approval?.metadata?.kind === "workflow_node") {
-    continueWorkflowAfterApprovalSync({
+    reviewWorkflowApprovalSync({
       workspaceId: workspaceContext.currentWorkspace.id,
       approvalId: approval.id,
       decision,
       actorUserId: workspaceContext.currentUser.id,
+      comment,
     });
+  } else {
+    reviewApprovalSync(approvalId, decision, comment, workspaceContext.currentWorkspace.id);
   }
   revalidateApprovalRoutes(workspaceContext.currentWorkspace.slug);
   return actionToastResult(
@@ -108,14 +110,16 @@ export async function reviewApprovalQueueItemAction(
         reviewerComment: comment,
       });
     } else {
-      reviewApprovalSync(trimmedActionId, decision, comment, workspaceContext.currentWorkspace.id);
       if (approval?.metadata?.kind === "workflow_node") {
-        continueWorkflowAfterApprovalSync({
+        reviewWorkflowApprovalSync({
           workspaceId: workspaceContext.currentWorkspace.id,
           approvalId: approval.id,
           decision,
           actorUserId: workspaceContext.currentUser.id,
+          comment,
         });
+      } else {
+        reviewApprovalSync(trimmedActionId, decision, comment, workspaceContext.currentWorkspace.id);
       }
     }
   } else if (kind === "channel_access") {

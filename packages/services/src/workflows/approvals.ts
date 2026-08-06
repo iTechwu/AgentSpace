@@ -1,14 +1,16 @@
 import {
   appendWorkflowRunEventSync,
+  getDatabase,
   listWorkflowNodeRunsSync,
   readStoredEmployeeByIdSync,
   readWorkflowRunSync,
   transitionWorkflowNodeRunSync,
   transitionWorkflowRunSync,
+  withTransaction,
   type WorkflowRunRecord,
 } from "@dofe-agent/db";
 import type { ApprovalRequest } from "@dofe-agent/domain/workspace";
-import { createApprovalRequestSync, listApprovalsSync } from "../approvals/approvals.ts";
+import { createApprovalRequestSync, listApprovalsSync, reviewApprovalSync } from "../approvals/approvals.ts";
 import { completeWorkflowApprovalNodeSync } from "./coordinator.ts";
 
 export interface CreateWorkflowApprovalInput {
@@ -74,4 +76,38 @@ export function continueWorkflowAfterApprovalSync(input: {
     actorUserId: input.actorUserId,
     approved: input.decision === "approved",
   });
+}
+
+export function reviewWorkflowApprovalSync(input: {
+  workspaceId: string;
+  approvalId: string;
+  decision: "approved" | "rejected";
+  actorUserId: string;
+  comment?: string;
+}): WorkflowRunRecord {
+  return withTransaction(getDatabase(), () => {
+    const approval = listApprovalsSync(input.workspaceId).find((item) => item.id === input.approvalId);
+    if (!approval || approval.metadata?.kind !== "workflow_node") throw new Error("workflow_approval_not_linked");
+    reviewApprovalSync(input.approvalId, input.decision, input.comment, input.workspaceId);
+    return continueWorkflowAfterApprovalSync(input);
+  });
+}
+
+export function cancelPendingWorkflowApprovalsSync(input: {
+  workspaceId: string;
+  runId: string;
+  reason: string;
+}): string[] {
+  const approvalIds = new Set(
+    listWorkflowNodeRunsSync(input.workspaceId, input.runId)
+      .map((node) => node.approvalId)
+      .filter((approvalId): approvalId is string => Boolean(approvalId)),
+  );
+  const cancelled: string[] = [];
+  for (const approval of listApprovalsSync(input.workspaceId)) {
+    if (!approvalIds.has(approval.id) || approval.status !== "pending") continue;
+    reviewApprovalSync(approval.id, "rejected", input.reason, input.workspaceId, { suppressConversationMessage: true });
+    cancelled.push(approval.id);
+  }
+  return cancelled;
 }

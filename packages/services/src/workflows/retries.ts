@@ -15,6 +15,7 @@ import {
   type WorkflowRunRecord,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
+import { cancelPendingWorkflowApprovalsSync } from "./approvals.ts";
 import { collectWorkflowDescendantNodeIds } from "./coordinator.ts";
 
 export interface RetryWorkflowNodeInput {
@@ -134,6 +135,11 @@ export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
       now,
     });
     if (!run) throw new Error("workflow_run_control_conflict");
+    cancelPendingWorkflowApprovalsSync({
+      workspaceId: input.workspaceId,
+      runId: input.runId,
+      reason: input.reason,
+    });
     for (const node of listWorkflowNodeRunsSync(input.workspaceId, input.runId)) {
       if (["succeeded", "failed", "skipped", "cancelled"].includes(node.status)) continue;
       if (node.taskQueueId) cancelQueuedTaskSync({ taskId: node.taskQueueId, errorText: input.reason });
