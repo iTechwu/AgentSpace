@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireContext: vi.fn(),
   readDefinition: vi.fn(),
+  readRun: vi.fn(),
   updateDraft: vi.fn(),
   manualRun: vi.fn(),
   publish: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("@/features/auth/workspace-revalidation", () => ({ revalidateWorkspacePa
 vi.mock("@dofe-agent/db", () => ({
   createWorkflowDefinitionSync: vi.fn(),
   readWorkflowDefinitionSync: mocks.readDefinition,
-  readWorkflowRunSync: vi.fn(),
+  readWorkflowRunSync: mocks.readRun,
   readWorkflowTriggerForWorkflowSync: mocks.readTrigger,
   updateWorkflowDraftSync: mocks.updateDraft,
 }));
@@ -30,7 +31,7 @@ vi.mock("@dofe-agent/services", () => ({
   validateWorkflowForPublishSync: vi.fn(),
 }));
 
-import { publishWorkflowAction, runWorkflowAction, updateWorkflowDraftAction } from "./workflow-actions";
+import { controlWorkflowRunAction, publishWorkflowAction, runWorkflowAction, updateWorkflowDraftAction } from "./workflow-actions";
 
 const graph = {
   schemaVersion: 1 as const,
@@ -52,11 +53,13 @@ describe("workflow actions", () => {
     mocks.readDefinition.mockReturnValue({
       id: "wf-1",
       workspaceId: "workspace-1",
+      ownerUserId: "user-1",
       status: "published",
       draftVersion: 2,
       draftGraphJson: JSON.stringify(graph),
     });
     mocks.manualRun.mockReturnValue({ runId: "run-1", created: true });
+    mocks.readRun.mockReturnValue({ id: "run-1", workflowId: "wf-1", status: "running" });
     mocks.readTrigger.mockReturnValue(null);
     mocks.publish.mockReturnValue({ version: { id: "version-1" } });
   });
@@ -91,6 +94,29 @@ describe("workflow actions", () => {
 
     expect(result).toMatchObject({ ok: true });
     expect(mocks.updateDraft).toHaveBeenCalledWith(expect.not.objectContaining({ ownerUserId: expect.anything() }));
+  });
+
+  it("prevents members from editing or controlling another owner's workflow", async () => {
+    mockContext("member");
+    mocks.readDefinition.mockReturnValue({
+      id: "wf-1",
+      workspaceId: "workspace-1",
+      ownerUserId: "user-2",
+      status: "published",
+      draftVersion: 2,
+      draftGraphJson: JSON.stringify(graph),
+    });
+
+    const update = await updateWorkflowDraftAction({
+      workflowId: "wf-1",
+      expectedDraftVersion: 2,
+      patch: { name: "Unauthorized" },
+    });
+    const control = await controlWorkflowRunAction({ runId: "run-1", action: "cancel" });
+
+    expect(update).toMatchObject({ ok: false, error: { code: "workflow_actor_forbidden" } });
+    expect(control).toMatchObject({ ok: false, error: { code: "workflow_actor_forbidden" } });
+    expect(mocks.updateDraft).not.toHaveBeenCalled();
   });
 
   it("reuses the current trigger when republishing", async () => {

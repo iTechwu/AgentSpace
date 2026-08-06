@@ -108,6 +108,8 @@ export async function updateWorkflowDraftAction(
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "member");
   try {
+    const definition = requireDefinition(input.workflowId, context.currentWorkspace.id);
+    assertWorkflowManager(context, definition.ownerUserId);
     const updated = updateWorkflowDraftSync({
       id: input.workflowId,
       workspaceId: context.currentWorkspace.id,
@@ -205,13 +207,17 @@ export async function controlWorkflowRunAction(
 ): Promise<WorkflowActionResult<{ runId: string; status: string }>> {
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "member");
-  const control = {
-    workspaceId: context.currentWorkspace.id,
-    runId: input.runId,
-    actorUserId: context.currentUser.id,
-    reason: input.reason?.trim() || "workflow_run_controlled",
-  };
   try {
+    const currentRun = readWorkflowRunSync(input.runId, context.currentWorkspace.id);
+    if (!currentRun) throw new Error("workflow_run_not_found");
+    const definition = requireDefinition(currentRun.workflowId, context.currentWorkspace.id);
+    assertWorkflowManager(context, definition.ownerUserId);
+    const control = {
+      workspaceId: context.currentWorkspace.id,
+      runId: input.runId,
+      actorUserId: context.currentUser.id,
+      reason: input.reason?.trim() || "workflow_run_controlled",
+    };
     if (input.action === "pause") pauseWorkflowRunSync(control);
     else if (input.action === "resume") resumeWorkflowRunSync(control);
     else if (input.action === "cancel") cancelWorkflowRunSync(control);
@@ -293,6 +299,15 @@ function requireDefinition(workflowId: string, workspaceId: string) {
   const definition = readWorkflowDefinitionSync(workflowId, workspaceId);
   if (!definition) throw new Error("workflow_definition_not_found");
   return definition;
+}
+
+function assertWorkflowManager(
+  context: Awaited<ReturnType<typeof requireCurrentWorkspaceContext>>,
+  workflowOwnerUserId: string,
+): void {
+  const role = context.currentMembership.role;
+  if (role === "owner" || role === "admin" || workflowOwnerUserId === context.currentUser.id) return;
+  throw new Error("workflow_actor_forbidden");
 }
 
 function parseWorkflowGraph(value: string): WorkflowGraphDefinition {
