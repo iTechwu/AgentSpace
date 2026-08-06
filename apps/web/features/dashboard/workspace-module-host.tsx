@@ -395,7 +395,7 @@ function renderWorkspaceModuleData(
     case "automations":
       return <WorkflowListClient data={data.data} workspaceSlug={workspaceSlug} />;
     case "calendar":
-      return <CalendarPageClient data={data.data as CalendarPageData} onDataChanged={onDataChanged} />;
+      return <CalendarPageClient data={data.data as CalendarPageData} workspaceSlug={workspaceSlug} />;
     case "contacts":
       return (
         <HumanContactsPageClient
