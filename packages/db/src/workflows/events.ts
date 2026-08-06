@@ -55,13 +55,18 @@ export function appendWorkflowRunEventSync(input: AppendWorkflowRunEventInput): 
 export function listWorkflowRunEventsSync(
   workspaceId: string,
   runId: string,
+  options: { after?: number; limit?: number } = {},
 ): WorkflowRunEventRecord[] {
+  const after = Math.max(0, Math.floor(options.after ?? 0));
+  const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 500), 500));
   const rows = getDatabase().prepare(
     `SELECT id, workspace_id AS "workspaceId", run_id AS "runId", node_run_id AS "nodeRunId",
             sequence, type, actor_type AS "actorType", actor_id AS "actorId", severity,
             data_json AS "dataJson", created_at AS "createdAt"
-     FROM workflow_run_event WHERE workspace_id = ? AND run_id = ? ORDER BY sequence ASC`,
-  ).all(workspaceId, runId) as Array<Record<string, unknown>>;
+     FROM workflow_run_event
+     WHERE workspace_id = ? AND run_id = ? AND sequence > ?
+     ORDER BY sequence ASC LIMIT ${limit}`,
+  ).all(workspaceId, runId, after) as Array<Record<string, unknown>>;
   return rows.map((row) => compactOptional(row) as unknown as WorkflowRunEventRecord);
 }
 

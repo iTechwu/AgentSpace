@@ -121,6 +121,10 @@ test("event sequence and outbox lease are monotonic and owned", () => {
     actorType: "system",
   }).sequence, 2);
   assert.deepEqual(listWorkflowRunEventsSync(WORKSPACE_ID, run.id).map((event) => event.sequence), [1, 2]);
+  assert.deepEqual(
+    listWorkflowRunEventsSync(WORKSPACE_ID, run.id, { after: 1, limit: 1 }).map((event) => event.sequence),
+    [2],
+  );
 
   const outbox = enqueueWorkflowOutboxSync({
     workspaceId: WORKSPACE_ID,

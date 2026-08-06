@@ -63,3 +63,41 @@ export interface WorkflowBuilderPageData {
   employees: WorkflowBuilderEmployee[];
   workflow?: WorkflowBuilderInitialValue;
 }
+
+export interface WorkflowRunEventItem {
+  id: string;
+  sequence: number;
+  type: string;
+  nodeRunId?: string;
+  severity: string;
+  createdAt: string;
+}
+
+export interface WorkflowNodeRunItem {
+  id: string;
+  nodeId: string;
+  nodeType: string;
+  employeeName: string;
+  status: string;
+  attemptCount: number;
+  maxAttempts: number;
+  artifactCount: number;
+  costUsd?: number;
+  errorCode?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface WorkflowRunPageData {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  status: string;
+  triggerType: string;
+  currentSequence: number;
+  startedAt?: string;
+  finishedAt?: string;
+  createdAt: string;
+  nodes: WorkflowNodeRunItem[];
+  events: WorkflowRunEventItem[];
+}

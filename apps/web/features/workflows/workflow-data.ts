@@ -3,9 +3,12 @@ import {
   listEmployeeRuntimeBindingsSync,
   listStoredEmployeesSync,
   listWorkflowDefinitionsSync,
+  listWorkflowNodeRunsSync,
+  listWorkflowRunEventsSync,
   listWorkflowRunsSync,
   listWorkspaceMemberUsersSync,
   readWorkflowDefinitionSync,
+  readWorkflowRunSync,
   readWorkflowTriggerForWorkflowSync,
   readWorkflowVersionSync,
 } from "@dofe-agent/db";
@@ -14,6 +17,8 @@ import type {
   WorkflowBuilderPageData,
   WorkflowCenterPageData,
   WorkflowListItem,
+  WorkflowRunEventItem,
+  WorkflowRunPageData,
 } from "./workflow-types";
 
 const WORKFLOW_RUN_STATUSES = new Set<WorkflowRunStatus>([
@@ -134,6 +139,62 @@ export function getWorkflowBuilderPageData(
   };
 }
 
+export function getWorkflowRunPageData(
+  workspaceId: string,
+  runId: string,
+): WorkflowRunPageData | null {
+  const run = readWorkflowRunSync(runId, workspaceId);
+  if (!run) return null;
+  const definition = readWorkflowDefinitionSync(run.workflowId, workspaceId);
+  const eventRecords = listWorkflowRunEventsSync(workspaceId, runId, { limit: 200 });
+  const costByNodeRunId = new Map<string, number>();
+  for (const event of eventRecords) {
+    const data = parseRecord(event.dataJson);
+    if (event.nodeRunId && typeof data.costUsd === "number" && Number.isFinite(data.costUsd)) {
+      costByNodeRunId.set(event.nodeRunId, (costByNodeRunId.get(event.nodeRunId) ?? 0) + data.costUsd);
+    }
+  }
+  return {
+    id: run.id,
+    workflowId: run.workflowId,
+    workflowName: definition?.name ?? run.workflowId,
+    status: run.status,
+    triggerType: run.triggerType,
+    currentSequence: run.currentSequence,
+    ...(run.startedAt ? { startedAt: run.startedAt } : {}),
+    ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
+    createdAt: run.createdAt,
+    nodes: listWorkflowNodeRunsSync(workspaceId, runId).map((node) => ({
+      id: node.id,
+      nodeId: node.nodeId,
+      nodeType: node.nodeType,
+      employeeName: node.employeeNameSnapshot ?? node.employeeId ?? node.nodeId,
+      status: node.status,
+      attemptCount: node.attemptCount,
+      maxAttempts: node.maxAttempts,
+      artifactCount: artifactCount(node.artifactManifestJson),
+      ...(costByNodeRunId.has(node.id) ? { costUsd: costByNodeRunId.get(node.id)! } : {}),
+      ...(node.errorCode ? { errorCode: node.errorCode } : {}),
+      ...(node.startedAt ? { startedAt: node.startedAt } : {}),
+      ...(node.finishedAt ? { finishedAt: node.finishedAt } : {}),
+    })),
+    events: eventRecords.map(toWorkflowRunEventItem),
+  };
+}
+
+export function getWorkflowRunEventsPage(
+  workspaceId: string,
+  runId: string,
+  after: number,
+): { events: WorkflowRunEventItem[]; hasMore: boolean } | null {
+  if (!readWorkflowRunSync(runId, workspaceId)) return null;
+  const rows = listWorkflowRunEventsSync(workspaceId, runId, { after, limit: 201 });
+  return {
+    events: rows.slice(0, 200).map(toWorkflowRunEventItem),
+    hasMore: rows.length > 200,
+  };
+}
+
 function listWorkflowTriggerSummaries(workspaceId: string): WorkflowTriggerSummary[] {
   const rows = getDatabase().prepare(
     `SELECT workflow_id AS "workflowId", type, next_fire_at AS "nextFireAt"
@@ -210,4 +271,32 @@ function numberInRange(value: unknown, min: number, max: number, fallback: numbe
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(min, Math.min(max, value))
     : fallback;
+}
+
+function artifactCount(value: string | undefined): number {
+  if (!value) return 0;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function toWorkflowRunEventItem(event: {
+  id: string;
+  sequence: number;
+  type: string;
+  nodeRunId?: string;
+  severity: string;
+  createdAt: string;
+}): WorkflowRunEventItem {
+  return {
+    id: event.id,
+    sequence: event.sequence,
+    type: event.type,
+    ...(event.nodeRunId ? { nodeRunId: event.nodeRunId } : {}),
+    severity: event.severity,
+    createdAt: event.createdAt,
+  };
 }
