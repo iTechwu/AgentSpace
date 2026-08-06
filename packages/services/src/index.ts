@@ -171,6 +171,11 @@ export {
   type WorkflowSchedulerTickResult,
 } from "./workflows/scheduler.ts";
 export {
+  dispatchReadyWorkflowNodeSync,
+  type DispatchWorkflowNodeInput,
+  type DispatchWorkflowNodeResult,
+} from "./workflows/dispatcher.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,
