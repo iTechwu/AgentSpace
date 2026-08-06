@@ -144,6 +144,13 @@ export interface RecordTokenUsageInput {
   routerSessionId?: string;
   gatewayRequestId?: string;
   gatewayUsageId?: string;
+  delegationId?: string;
+  employeeId?: string;
+  runtimeId?: string;
+  jobId?: string;
+  pipelineStage?: string;
+  sourceInvocationId?: string;
+  modelInvocationId?: string;
   protocol?: string;
   actualCostUsd?: number;
   currency?: string;
@@ -168,15 +175,17 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
   const usageCurrency = input.currency?.trim().toUpperCase();
   const workspaceId = input.workspaceId ?? (input.taskQueueId ? readWorkspaceIdForTaskQueueSync(input.taskQueueId) : null) ?? DEFAULT_WORKSPACE_ID;
   const billingStatus = input.billingStatus ?? "estimated";
+  assertDelegatedSnapshot(input);
 
   const insertResult = db.prepare(
     `INSERT INTO token_usage (
       id, workspace_id, task_queue_id, agent_id, model_id, provider_account_id,
       runtime_credential_id, router_session_id, gateway_request_id, gateway_usage_id,
+      delegation_id, employee_id, runtime_id, job_id, pipeline_stage, source_invocation_id, model_invocation_id,
       protocol, input_tokens, output_tokens, cache_tokens, cost_usd, actual_cost_usd,
       currency, billing_status, request_started_at, request_ended_at, source_updated_at,
       channel_name, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (workspace_id, gateway_request_id)
        WHERE gateway_request_id IS NOT NULL
        DO NOTHING`,
@@ -191,6 +200,13 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
     input.routerSessionId ?? null,
     input.gatewayRequestId ?? null,
     input.gatewayUsageId ?? null,
+    input.delegationId ?? null,
+    input.employeeId ?? null,
+    input.runtimeId ?? null,
+    input.jobId ?? null,
+    input.pipelineStage ?? null,
+    input.sourceInvocationId ?? null,
+    input.modelInvocationId ?? null,
     input.protocol ?? null,
     input.inputTokens,
     input.outputTokens,
@@ -223,6 +239,13 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
              agent_id = ?,
              provider_account_id = COALESCE(?, provider_account_id),
              runtime_credential_id = COALESCE(runtime_credential_id, ?),
+             delegation_id = COALESCE(delegation_id, ?),
+             employee_id = COALESCE(employee_id, ?),
+             runtime_id = COALESCE(runtime_id, ?),
+             job_id = COALESCE(job_id, ?),
+             pipeline_stage = COALESCE(pipeline_stage, ?),
+             source_invocation_id = COALESCE(source_invocation_id, ?),
+             model_invocation_id = COALESCE(model_invocation_id, ?),
              router_session_id = COALESCE(?, router_session_id),
              channel_name = COALESCE(?, channel_name),
              billing_status = CASE
@@ -239,6 +262,13 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
         input.agentId,
         input.providerAccountId ?? null,
         input.runtimeCredentialId ?? null,
+        input.delegationId ?? null,
+        input.employeeId ?? null,
+        input.runtimeId ?? null,
+        input.jobId ?? null,
+        input.pipelineStage ?? null,
+        input.sourceInvocationId ?? null,
+        input.modelInvocationId ?? null,
         input.routerSessionId ?? null,
         input.channelName ?? null,
         now,
@@ -260,6 +290,13 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
     routerSessionId: input.routerSessionId,
     gatewayRequestId: input.gatewayRequestId,
     gatewayUsageId: input.gatewayUsageId,
+    delegationId: input.delegationId,
+    employeeId: input.employeeId,
+    runtimeId: input.runtimeId,
+    jobId: input.jobId,
+    pipelineStage: input.pipelineStage,
+    sourceInvocationId: input.sourceInvocationId,
+    modelInvocationId: input.modelInvocationId,
     protocol: input.protocol,
     actualCostUsd: input.actualCostUsd,
     currency: usageCurrency,
@@ -274,6 +311,39 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
     sourceUpdatedAt: input.sourceUpdatedAt,
     createdAt: now,
   };
+}
+
+export function recordOpenMontagePendingTokenUsageSync(input: {
+  workspaceId: string;
+  employeeId: string;
+  runtimeId: string;
+  runtimeCredentialId: string;
+  delegationId: string;
+  jobId: string;
+  pipelineStage: string;
+  sourceInvocationId: string;
+  modelInvocationId: string;
+  requestStartedAt?: string;
+}): TokenUsageRecord {
+  return recordTokenUsageSync({
+    workspaceId: input.workspaceId,
+    agentId: input.employeeId,
+    modelId: "openmontage.pending",
+    runtimeCredentialId: input.runtimeCredentialId,
+    delegationId: input.delegationId,
+    employeeId: input.employeeId,
+    runtimeId: input.runtimeId,
+    jobId: input.jobId,
+    pipelineStage: input.pipelineStage,
+    sourceInvocationId: input.sourceInvocationId,
+    modelInvocationId: input.modelInvocationId,
+    gatewayRequestId: input.modelInvocationId,
+    protocol: "openmontage",
+    inputTokens: 0,
+    outputTokens: 0,
+    billingStatus: "pending_reconciliation",
+    requestStartedAt: input.requestStartedAt,
+  });
 }
 
 export function listTokenUsageSync(filters?: {
@@ -753,6 +823,22 @@ export function findTokenUsageByGatewayUsageIdSync(
   return row ? mapTokenUsageRow(row) : null;
 }
 
+export function findPendingOpenMontageTokenUsageSync(
+  workspaceId: string,
+  jobId: string,
+  pipelineStage: string,
+): TokenUsageRecord | null {
+  const row = getDatabase().prepare(
+    `SELECT * FROM token_usage
+      WHERE workspace_id = ? AND job_id = ? AND pipeline_stage = ?
+        AND model_id = 'openmontage.pending'
+        AND billing_status = 'pending_reconciliation'
+      ORDER BY created_at ASC
+      LIMIT 1`,
+  ).get(workspaceId, jobId, pipelineStage) as Record<string, unknown> | undefined;
+  return row ? mapTokenUsageRow(row) : null;
+}
+
 export function markTokenUsageReconciledSync(
   id: string,
   input: {
@@ -769,6 +855,13 @@ export function markTokenUsageReconciledSync(
     requestEndedAt?: string;
     sourceUpdatedAt?: string;
     billingStatus?: "pending_reconciliation" | "reconciled" | "unallocated";
+    delegationId?: string;
+    employeeId?: string;
+    runtimeId?: string;
+    jobId?: string;
+    pipelineStage?: string;
+    sourceInvocationId?: string;
+    modelInvocationId?: string;
   },
 ): TokenUsageRecord | null {
   const db = getDatabase();
@@ -790,6 +883,13 @@ export function markTokenUsageReconciledSync(
          request_started_at = COALESCE(?, request_started_at),
          request_ended_at = COALESCE(?, request_ended_at),
          source_updated_at = COALESCE(?, source_updated_at),
+         delegation_id = COALESCE(delegation_id, ?),
+         employee_id = COALESCE(employee_id, ?),
+         runtime_id = COALESCE(runtime_id, ?),
+         job_id = COALESCE(job_id, ?),
+         pipeline_stage = COALESCE(pipeline_stage, ?),
+         source_invocation_id = COALESCE(source_invocation_id, ?),
+         model_invocation_id = COALESCE(?, model_invocation_id),
          reconciled_at = ?
      WHERE id = ?`,
   ).run(
@@ -807,6 +907,13 @@ export function markTokenUsageReconciledSync(
     input.requestStartedAt ?? null,
     input.requestEndedAt ?? null,
     input.sourceUpdatedAt ?? null,
+    input.delegationId ?? null,
+    input.employeeId ?? null,
+    input.runtimeId ?? null,
+    input.jobId ?? null,
+    input.pipelineStage ?? null,
+    input.sourceInvocationId ?? null,
+    input.modelInvocationId ?? null,
     input.billingStatus === "pending_reconciliation" ? null : now,
     id,
   );
@@ -821,6 +928,13 @@ interface InsertUnallocatedTokenUsageInput {
   runtimeCredentialId: string;
   gatewayRequestId: string;
   gatewayUsageId?: string;
+  delegationId?: string;
+  employeeId?: string;
+  runtimeId?: string;
+  jobId?: string;
+  pipelineStage?: string;
+  sourceInvocationId?: string;
+  modelInvocationId?: string;
   protocol?: string;
   inputTokens?: number;
   outputTokens?: number;
@@ -839,15 +953,17 @@ export function insertUnallocatedTokenUsageIfAbsentSync(
   input: InsertUnallocatedTokenUsageInput,
 ): { record: TokenUsageRecord; inserted: boolean } {
   const db = getDatabase();
+  assertDelegatedSnapshot(input);
   const id = randomLikeId();
   const now = input.createdAt ?? new Date().toISOString();
   const insertResult = db.prepare(
     `INSERT INTO token_usage (
       id, workspace_id, task_queue_id, agent_id, model_id,
       runtime_credential_id, gateway_request_id, gateway_usage_id, protocol,
+      delegation_id, employee_id, runtime_id, job_id, pipeline_stage, source_invocation_id, model_invocation_id,
       input_tokens, output_tokens, cache_tokens, cost_usd, actual_cost_usd, currency,
       billing_status, request_started_at, request_ended_at, source_updated_at, channel_name, created_at
-     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (workspace_id, gateway_request_id)
        WHERE gateway_request_id IS NOT NULL
        DO NOTHING`,
@@ -860,6 +976,13 @@ export function insertUnallocatedTokenUsageIfAbsentSync(
     input.gatewayRequestId,
     input.gatewayUsageId ?? null,
     input.protocol ?? null,
+    input.delegationId ?? null,
+    input.employeeId ?? null,
+    input.runtimeId ?? null,
+    input.jobId ?? null,
+    input.pipelineStage ?? null,
+    input.sourceInvocationId ?? null,
+    input.modelInvocationId ?? null,
     input.inputTokens ?? 0,
     input.outputTokens ?? 0,
     input.cacheTokens ?? 0,
@@ -902,6 +1025,13 @@ function mapTokenUsageRow(row: Record<string, unknown>): TokenUsageRecord {
     routerSessionId: typeof row.router_session_id === "string" ? row.router_session_id : undefined,
     gatewayRequestId: typeof row.gateway_request_id === "string" ? row.gateway_request_id : undefined,
     gatewayUsageId: typeof row.gateway_usage_id === "string" ? row.gateway_usage_id : undefined,
+    delegationId: typeof row.delegation_id === "string" ? row.delegation_id : undefined,
+    employeeId: typeof row.employee_id === "string" ? row.employee_id : undefined,
+    runtimeId: typeof row.runtime_id === "string" ? row.runtime_id : undefined,
+    jobId: typeof row.job_id === "string" ? row.job_id : undefined,
+    pipelineStage: typeof row.pipeline_stage === "string" ? row.pipeline_stage : undefined,
+    sourceInvocationId: typeof row.source_invocation_id === "string" ? row.source_invocation_id : undefined,
+    modelInvocationId: typeof row.model_invocation_id === "string" ? row.model_invocation_id : undefined,
     protocol: typeof row.protocol === "string" ? row.protocol : undefined,
     inputTokens: Number(row.input_tokens) || 0,
     outputTokens: Number(row.output_tokens) || 0,
@@ -917,6 +1047,29 @@ function mapTokenUsageRow(row: Record<string, unknown>): TokenUsageRecord {
     channelName: typeof row.channel_name === "string" ? row.channel_name : undefined,
     createdAt: String(row.created_at),
   };
+}
+
+function assertDelegatedSnapshot(input: {
+  delegationId?: string;
+  employeeId?: string;
+  runtimeId?: string;
+  jobId?: string;
+  pipelineStage?: string;
+  sourceInvocationId?: string;
+  modelInvocationId?: string;
+}): void {
+  if (!input.delegationId) return;
+  const missing = [
+    ["employeeId", input.employeeId],
+    ["runtimeId", input.runtimeId],
+    ["jobId", input.jobId],
+    ["pipelineStage", input.pipelineStage],
+    ["sourceInvocationId", input.sourceInvocationId],
+    ["modelInvocationId", input.modelInvocationId],
+  ].filter(([, value]) => !value?.trim()).map(([field]) => field);
+  if (missing.length > 0) {
+    throw new Error(`token_usage.delegation_snapshot_required:${missing.join(",")}`);
+  }
 }
 
 function readWorkspaceIdForTaskQueueSync(taskQueueId: string): string | null {

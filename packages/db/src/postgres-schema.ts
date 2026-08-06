@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "107";
+export const POSTGRES_SCHEMA_VERSION = "108";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1627,6 +1627,13 @@ export function getPostgresSchemaStatements(): string[] {
         billing_status TEXT NOT NULL DEFAULT 'estimated',
         gateway_request_id TEXT,
         gateway_usage_id TEXT,
+        delegation_id TEXT,
+        employee_id TEXT,
+        runtime_id TEXT,
+        job_id TEXT,
+        pipeline_stage TEXT,
+        source_invocation_id TEXT,
+        model_invocation_id TEXT,
         protocol TEXT,
         actual_cost_usd DOUBLE PRECISION,
         currency TEXT,
@@ -1639,6 +1646,18 @@ export function getPostgresSchemaStatements(): string[] {
         created_at TIMESTAMPTZ NOT NULL
       )
     `,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS delegation_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS employee_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS runtime_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS job_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS pipeline_stage TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS source_invocation_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS model_invocation_id TEXT`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_token_usage_delegation_model_invocation
+       ON token_usage(workspace_id, delegation_id, model_invocation_id)
+       WHERE delegation_id IS NOT NULL AND model_invocation_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_token_usage_openmontage_job
+       ON token_usage(workspace_id, job_id, pipeline_stage, created_at)`,
     `
       CREATE TABLE IF NOT EXISTS token_usage_billing_event (
         id TEXT PRIMARY KEY,

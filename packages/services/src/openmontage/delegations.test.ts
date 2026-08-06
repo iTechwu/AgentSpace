@@ -69,6 +69,7 @@ test("binds a models delegation to the immutable Job and escrows only its one-ti
 });
 
 test("returns the escrowed key only to the authenticated matching Job and declared stage", () => {
+  let pendingUsage: Record<string, unknown> | undefined;
   const credential = issueOpenMontageModelCredential({
     jobId: "om_job_1",
     stage: "research",
@@ -83,11 +84,18 @@ test("returns the escrowed key only to the authenticated matching Job and declar
     readDelegation: () => delegation(),
     readProjection: () => projection(),
     vault: { store: () => ({ secretRef: "" }), retrieve: () => "delegated-api-key", forget: () => undefined },
+    recordPending: (input) => {
+      pendingUsage = input;
+      return {} as never;
+    },
   });
 
   assert.equal(credential.apiKey, "delegated-api-key");
   assert.equal(credential.delegationId, IDS.delegation);
   assert.equal(credential.stage, "research");
+  assert.equal(pendingUsage?.jobId, "om_job_1");
+  assert.equal(pendingUsage?.pipelineStage, "research");
+  assert.equal(pendingUsage?.modelInvocationId, "om-pending:om_job_1:research:1");
 
   assert.throws(() => issueOpenMontageModelCredential({
     jobId: "om_job_1",
@@ -99,6 +107,7 @@ test("returns the escrowed key only to the authenticated matching Job and declar
     readDelegation: () => delegation(),
     readProjection: () => projection(),
     vault: { store: () => ({ secretRef: "" }), retrieve: () => "delegated-api-key", forget: () => undefined },
+    recordPending: () => ({} as never),
   }), OpenMontageDelegationAuthenticationError);
 });
 

@@ -4,6 +4,7 @@ import {
   listOpenMontageDelegationDrainPendingJobIdsSync,
   readOpenMontageJobLinkSync,
   readOpenMontageJobProjectionSync,
+  recordOpenMontagePendingTokenUsageSync,
   readOpenMontageModelDelegationSync,
   updateOpenMontageModelDelegationStatusSync,
   type CreateOpenMontageJobLinkInput,
@@ -179,6 +180,7 @@ export function issueOpenMontageModelCredential(
   input: {
     jobId: string;
     stage: string;
+    stageAttempt?: number;
     headers: Headers;
     environment?: Record<string, string | undefined>;
     now?: string;
@@ -188,6 +190,7 @@ export function issueOpenMontageModelCredential(
     readDelegation?: typeof readOpenMontageModelDelegationSync;
     readProjection?: typeof readOpenMontageJobProjectionSync;
     vault?: RuntimeCredentialVault;
+    recordPending?: typeof recordOpenMontagePendingTokenUsageSync;
   } = {},
 ): OpenMontageModelCredentialDocument {
   const environment = input.environment ?? process.env;
@@ -218,6 +221,24 @@ export function issueOpenMontageModelCredential(
   if (!apiKey) {
     throw new OpenMontageDelegationConfigurationError("OpenMontage delegated model credential is unavailable.");
   }
+  const stageAttempt = input.stageAttempt ?? 1;
+  if (!Number.isInteger(stageAttempt) || stageAttempt < 1) {
+    throw new OpenMontageDelegationValidationError("OpenMontage stage attempt is invalid.");
+  }
+  // Project a visible billing row at admission time. Models remains the
+  // authority for tokens/amounts, but the chat/cost page no longer waits for
+  // a background reconciliation sweep to discover the Job attribution.
+  (options.recordPending ?? recordOpenMontagePendingTokenUsageSync)({
+    workspaceId: link.workspaceId,
+    employeeId: link.employeeId,
+    runtimeId: link.runtimeId,
+    runtimeCredentialId: delegation.runtimeCredentialId,
+    delegationId: delegation.delegationId,
+    jobId: link.jobId,
+    pipelineStage: input.stage,
+    sourceInvocationId: link.sourceInvocationId,
+    modelInvocationId: `om-pending:${link.jobId}:${input.stage}:${stageAttempt}`,
+  });
   return {
     schemaVersion: 1,
     jobId: link.jobId,

@@ -9,6 +9,8 @@ import {
   listOpenMontageSyncingJobIdsSync,
   readOpenMontageChatBindingSync,
   readOpenMontageJobProjectionSync,
+  readOpenMontageMcpPurgeGuardSync,
+  readOpenMontageRuntimePurgeGuardSync,
 } from "./openmontage-jobs.ts";
 import {
   consumeOpenMontageArtifactReadGrantSync,
@@ -206,6 +208,28 @@ test("Job Link stores immutable attribution, initial projection, and chat bindin
     () => createLink({ channelName: "direct:employee-2" }),
     /chat binding/,
   );
+});
+
+test("purge guards block active Jobs and delegations until both are terminal", () => {
+  createLink();
+
+  const runtimeBlocked = readOpenMontageRuntimePurgeGuardSync("default", "runtime-1");
+  const mcpBlocked = readOpenMontageMcpPurgeGuardSync("default", "connection-1");
+  assert.equal(runtimeBlocked.purgeable, false);
+  assert.deepEqual(runtimeBlocked.inFlightJobIds, ["om_job_1"]);
+  assert.deepEqual(mcpBlocked.unresolvedDelegationIds, [
+    "00000000-0000-4000-8000-000000000002",
+  ]);
+
+  getDatabase().prepare(
+    "UPDATE openmontage_job_projection SET status = 'SUCCEEDED' WHERE job_id = ?",
+  ).run("om_job_1");
+  getDatabase().prepare(
+    "UPDATE openmontage_model_delegation SET status = 'revoked' WHERE job_id = ?",
+  ).run("om_job_1");
+
+  assert.equal(readOpenMontageRuntimePurgeGuardSync("default", "runtime-1").purgeable, true);
+  assert.equal(readOpenMontageMcpPurgeGuardSync("default", "connection-1").purgeable, true);
 });
 
 test("artifact read grant stores only a token hash and can be consumed once", () => {

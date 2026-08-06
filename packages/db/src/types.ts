@@ -1396,6 +1396,13 @@ export interface TokenUsageRecord {
   costUsd: number;
   billingStatus?: TokenUsageBillingStatus;
   gatewayRequestId?: string;
+  delegationId?: string;
+  employeeId?: string;
+  runtimeId?: string;
+  jobId?: string;
+  pipelineStage?: string;
+  sourceInvocationId?: string;
+  modelInvocationId?: string;
   actualCostUsd?: number;
   currency?: string;
   reconciledAt?: string;

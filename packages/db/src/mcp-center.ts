@@ -20,6 +20,7 @@ import type {
   RuntimeMcpSecretRecord,
   RuntimeMcpToolAuditRecord,
 } from "./types.ts";
+import { readOpenMontageMcpPurgeGuardSync } from "./openmontage-jobs.ts";
 
 /* ------------------------------------------------------------------ */
 /* Input interfaces                                                    */
@@ -888,6 +889,12 @@ export function completeMcpOperationSync(input: CompleteMcpOperationInput): Runt
       return;
     }
     if (completed.operation === "remove") {
+      const purgeGuard = readOpenMontageMcpPurgeGuardSync(workspaceId, completed.connectionId);
+      if (!purgeGuard.purgeable) {
+        throw new Error(
+          `openmontage.purge_blocked:${purgeGuard.inFlightJobIds.join(",")}:${purgeGuard.unresolvedDelegationIds.join(",")}:${purgeGuard.unreconciledUsageCount}`,
+        );
+      }
       // Removing cascades live connection state. Historical tool audits retain
       // their immutable connection id and are purged only by retention policy.
       db.prepare(`DELETE FROM runtime_mcp_connection WHERE id = ? AND workspace_id = ?`).run(completed.connectionId, workspaceId);

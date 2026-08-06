@@ -46,6 +46,7 @@ import {
   listReadyMcpConnectionsForTaskSync,
   readMcpConnectionDetailSync,
   removeMcpConnectionSync,
+  removeMcpConnectionAsync,
   replaceMcpConnectionConfigSync,
   requestMcpConnectionSync,
   resolveClaimedMcpOperationSync,
@@ -740,6 +741,31 @@ test("remove connection enqueues a remove operation", () => {
   });
   const op = removeMcpConnectionSync({ workspaceId: "default", connectionId: connection.id, actorUserId: ADMIN_USER_ID });
   assert.equal(op.operation, "remove");
+});
+
+test("MCP removal strategies share the admission gate when no Job is running", async () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  for (const strategy of ["prohibit_new_jobs", "cancel_running_jobs"] as const) {
+    const currentRuntimeId = strategy === "prohibit_new_jobs" ? runtimeId : createRuntime();
+    const { connection } = requestMcpConnectionSync({
+      workspaceId: "default",
+      actorUserId: ADMIN_USER_ID,
+      runtimeId: currentRuntimeId,
+      catalogItemId: catalogId,
+      endpoint: "https://github-mcp.example.com/mcp",
+      secrets: { api_key: "x" },
+      confirmHighRisk: true,
+    });
+    const result = await removeMcpConnectionAsync({
+      workspaceId: "default",
+      connectionId: connection.id,
+      actorUserId: ADMIN_USER_ID,
+      strategy,
+    });
+    assert.equal(result.status, "queued");
+    assert.deepEqual(result.cancelledJobIds, []);
+  }
 });
 
 test("replaceMcpConnectionConfig atomically updates config + secrets and creates ONE verify operation", () => {

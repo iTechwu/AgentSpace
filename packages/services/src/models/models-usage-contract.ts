@@ -5,6 +5,11 @@ export type NormalizedModelsUsageLogEntry = ModelsInternalUsageLogEntry & {
   startedAt?: string | null;
   endedAt?: string | null;
   updatedAt?: string | null;
+  runtimeCredentialDelegationId?: string | null;
+  externalJobId?: string | null;
+  pipelineStage?: string | null;
+  sourceInvocationId?: string | null;
+  modelInvocationId?: string | null;
 };
 
 export function normalizeModelsUsageLogEntry(

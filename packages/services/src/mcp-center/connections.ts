@@ -19,6 +19,8 @@ import {
   readMcpCatalogItemSync,
   readMcpConnectionSecretsSync,
   readMcpConnectionSync,
+  readOpenMontageJobProjectionSync,
+  readOpenMontageMcpPurgeGuardSync,
   readMcpOperationSync,
   readMcpTaskSessionGrantSync,
   readRuntimeInstalledAppSync,
@@ -74,6 +76,11 @@ import {
 } from "./egress.ts";
 import { OPENMONTAGE_MCP_SLUG, resolveMcpRuntimeAppRequirement, resolveOfficialManagedStdioProfile } from "./official-catalog.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
+import { callOpenMontageJobActionAsync } from "../openmontage/events.ts";
+import {
+  assertOpenMontageMcpPurgeableAsync,
+  OpenMontagePurgeBlockedError,
+} from "../openmontage/purge-guard.ts";
 export { listReadyMcpConnectionsForTaskSync } from "./readiness.ts";
 
 /* ------------------------------------------------------------------ */
@@ -278,6 +285,56 @@ export function removeMcpConnectionSync(input: {
   actorUserId?: string;
 }): RuntimeMcpOperationRecord {
   return createConnectionOperationSync({ ...input, operation: "remove" });
+}
+
+export type McpRemovalStrategy = "prohibit_new_jobs" | "cancel_running_jobs";
+
+export async function removeMcpConnectionAsync(input: {
+  workspaceId: string;
+  connectionId: string;
+  actorUserId?: string;
+  strategy?: McpRemovalStrategy;
+}): Promise<{
+  status: "queued" | "waiting";
+  operation?: RuntimeMcpOperationRecord;
+  cancelledJobIds: string[];
+}> {
+  const strategy = input.strategy ?? "prohibit_new_jobs";
+  const connection = requireConnection(input.connectionId, input.workspaceId);
+  // Disabling is the admission gate for both strategies. It prevents new MCP
+  // jobs while the existing Job/delegation ledger drains.
+  disableMcpConnectionSync(input);
+  const cancelledJobIds: string[] = [];
+  if (strategy === "cancel_running_jobs") {
+    const guard = readOpenMontageMcpPurgeGuardSync(input.workspaceId, connection.id);
+    for (const jobId of guard.inFlightJobIds) {
+      const projection = readOpenMontageJobProjectionSync(input.workspaceId, jobId);
+      if (!projection || !(projection.status === "QUEUED" || projection.status === "RUNNING")) continue;
+      await callOpenMontageJobActionAsync({
+        workspaceId: input.workspaceId,
+        jobId,
+        action: "cancel",
+        expectedSequence: projection.lastAppliedSequence,
+      });
+      cancelledJobIds.push(jobId);
+    }
+  }
+  try {
+    await assertOpenMontageMcpPurgeableAsync({
+      workspaceId: input.workspaceId,
+      connectionId: connection.id,
+    });
+  } catch (error) {
+    if (error instanceof OpenMontagePurgeBlockedError) {
+      return { status: "waiting", cancelledJobIds };
+    }
+    throw error;
+  }
+  return {
+    status: "queued",
+    operation: removeMcpConnectionSync(input),
+    cancelledJobIds,
+  };
 }
 
 function createConnectionOperationSync(input: {

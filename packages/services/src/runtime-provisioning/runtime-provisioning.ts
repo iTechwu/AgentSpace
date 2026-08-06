@@ -94,6 +94,10 @@ import type {
   ModelsInternalRotateRuntimeCredentialRequest,
   ModelsInternalRevokeRuntimeCredentialRequest,
 } from "@dofe/models-sdk";
+import {
+  assertOpenMontageRuntimePurgeableAsync,
+  assertOpenMontageRuntimePurgeableSync,
+} from "../openmontage/purge-guard.ts";
 
 const MANAGED_RUNTIME_NAME_PREFIX = "Managed";
 
@@ -1350,6 +1354,12 @@ export async function stopManagedRuntimeAsync(input: StopManagedRuntimeInput): P
   if (runtime.provisioningState !== "managed") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
+  // Stop before revoking the parent credential. A running OpenMontage Job must
+  // first reach a terminal state and reconcile every reserved model charge.
+  await assertOpenMontageRuntimePurgeableAsync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+  });
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   if (runtime.managedCredentialId) {
     await safeRevokeCredential({
@@ -1476,6 +1486,10 @@ export function completeManagedRuntimeCleanupSync(
   const cleanupResult: Record<string, unknown> = { ...(result ?? {}) };
   if (completed.deleteRuntimeOnSuccess) {
     try {
+      assertOpenMontageRuntimePurgeableSync({
+        workspaceId: completed.workspaceId,
+        runtimeId: completed.runtimeId,
+      });
       deleteAgentRuntimeSync({ runtimeId: completed.runtimeId, workspaceId: completed.workspaceId });
       cleanupResult.removedRuntimeId = completed.runtimeId;
     } catch (error) {

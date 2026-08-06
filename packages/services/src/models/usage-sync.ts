@@ -1,6 +1,7 @@
 import {
   findTokenUsageByGatewayRequestIdSync,
   findTokenUsageByGatewayUsageIdSync,
+  findPendingOpenMontageTokenUsageSync,
   insertUnallocatedTokenUsageIfAbsentSync,
   listAllManagedAgentRuntimesSync,
   listRuntimeCredentialReconciliationTargetsSync,
@@ -339,7 +340,12 @@ export function reconcileRuntimeCredentialUsageEntrySync(
   }
 
   const existing = (entry.id ? findTokenUsageByGatewayUsageIdSync(entry.id, workspaceId) : null)
-    ?? findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId);
+    ?? findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId)
+    ?? (
+      entry.externalJobId && entry.pipelineStage
+        ? findPendingOpenMontageTokenUsageSync(workspaceId, entry.externalJobId, entry.pipelineStage)
+        : null
+    );
   if (existing) {
     if (
       existing.runtimeCredentialId
@@ -386,6 +392,13 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       requestEndedAt,
       sourceUpdatedAt,
       billingStatus: remoteStatus,
+      delegationId: entry.runtimeCredentialDelegationId ?? undefined,
+      employeeId: decodeAttributionIdentifier(entry.employeeId),
+      runtimeId: entry.runtimeId ?? runtimeId,
+      jobId: entry.externalJobId ?? undefined,
+      pipelineStage: entry.pipelineStage ?? undefined,
+      sourceInvocationId: entry.sourceInvocationId ?? undefined,
+      modelInvocationId: entry.modelInvocationId ?? undefined,
     });
     if (remoteStatus === "pending_reconciliation") result.pendingCount = (result.pendingCount ?? 0) + 1;
     else result.reconciledCount += 1;
@@ -413,6 +426,13 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     requestEndedAt: entry.endedAt ?? entry.timestamp,
     sourceUpdatedAt: entry.updatedAt ?? entry.timestamp,
     billingStatus: remoteStatus,
+    delegationId: entry.runtimeCredentialDelegationId ?? undefined,
+    employeeId: decodeAttributionIdentifier(entry.employeeId),
+    runtimeId: entry.runtimeId ?? runtimeId,
+    jobId: entry.externalJobId ?? undefined,
+    pipelineStage: entry.pipelineStage ?? undefined,
+    sourceInvocationId: entry.sourceInvocationId ?? undefined,
+    modelInvocationId: entry.modelInvocationId ?? undefined,
   });
   if (inserted.inserted && remoteStatus === "pending_reconciliation") {
     result.pendingCount = (result.pendingCount ?? 0) + 1;

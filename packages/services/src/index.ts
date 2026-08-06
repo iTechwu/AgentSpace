@@ -345,6 +345,7 @@ export {
   listReadyMcpConnectionsForTaskSync,
   readMcpConnectionDetailSync,
   removeMcpConnectionSync,
+  removeMcpConnectionAsync,
   replaceMcpConnectionConfigSync,
   requestMcpConnectionSync,
   resolveClaimedMcpOperationSync,
@@ -356,6 +357,7 @@ export {
   validateMcpConnectionForGatewaySync,
   type McpConnectionActivity,
   type McpConnectionDetail,
+  type McpRemovalStrategy,
   type McpSecretFieldStatus,
   type ReplaceMcpConnectionConfigServiceInput,
   type RequestMcpConnectionInput,
@@ -1400,3 +1402,10 @@ export {
   type BindOpenMontageJobDelegationInput,
   type OpenMontageModelCredentialDocument,
 } from "./openmontage/delegations.ts";
+export {
+  assertOpenMontageMcpPurgeableAsync,
+  assertOpenMontageMcpPurgeableSync,
+  assertOpenMontageRuntimePurgeableAsync,
+  assertOpenMontageRuntimePurgeableSync,
+  OpenMontagePurgeBlockedError,
+} from "./openmontage/purge-guard.ts";
