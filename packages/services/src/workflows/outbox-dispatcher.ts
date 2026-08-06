@@ -1,12 +1,14 @@
 import {
   appendWorkflowRunEventSync,
   claimWorkflowOutboxBatchSync,
+  getDatabase,
   readWorkflowNodeRunSync,
   listWorkflowNodeRunsSync,
   markWorkflowOutboxFailedSync,
   markWorkflowOutboxPublishedSync,
   readWorkflowRunSync,
   transitionWorkflowNodeRunSync,
+  withTransaction,
 } from "@dofe-agent/db";
 import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
 import { dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
@@ -78,6 +80,10 @@ export function workflowOutboxErrorCode(error: unknown): string {
 }
 
 function dispatchReadyWorkflowNodeByTypeSync(input: { workspaceId: string; nodeRunId: string; now: string }): { taskQueueId?: string } {
+  return withTransaction(getDatabase(), () => dispatchReadyWorkflowNodeByTypeInTransactionSync(input));
+}
+
+function dispatchReadyWorkflowNodeByTypeInTransactionSync(input: { workspaceId: string; nodeRunId: string; now: string }): { taskQueueId?: string } {
   const node = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
   if (!node) throw new Error("workflow_node_run_not_found");
   const run = readWorkflowRunSync(node.runId, input.workspaceId);
