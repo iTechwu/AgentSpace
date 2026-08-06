@@ -42,6 +42,7 @@ scripts/loadtest/
 scripts/record
 # Added by code-review-graph
 .code-review-graph/
+.worktrees/
 
 # macOS
 .DS_Store
