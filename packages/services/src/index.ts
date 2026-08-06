@@ -162,6 +162,15 @@ export {
   type PublishWorkflowResult,
 } from "./workflows/publishing.ts";
 export {
+  materializeWorkflowRunSync,
+  releaseWorkflowTriggerLeaseSync,
+} from "./workflows/materialization.ts";
+export {
+  tickWorkflowSchedulerSync,
+  computeNextWorkflowFireAt,
+  type WorkflowSchedulerTickResult,
+} from "./workflows/scheduler.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,
