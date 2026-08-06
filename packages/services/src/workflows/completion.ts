@@ -1,4 +1,4 @@
-import { readWorkflowNodeRunByTaskQueueIdSync } from "@dofe-agent/db";
+import { getDatabase, readWorkflowNodeRunByTaskQueueIdSync, withTransaction } from "@dofe-agent/db";
 import { completeWorkflowNodeSync, failWorkflowNodeSync } from "./coordinator.ts";
 import { retryWorkflowNodeSync } from "./retries.ts";
 
@@ -26,26 +26,28 @@ export function failWorkflowTaskIfLinkedSync(input: {
   errorCode?: string;
   errorText: string;
 }): { linked: boolean; retryScheduled: boolean; runId?: string } {
-  const nodeRun = readWorkflowNodeRunByTaskQueueIdSync(input.taskQueueId, input.workspaceId);
-  if (!nodeRun) return { linked: false, retryScheduled: false };
-  const run = failWorkflowNodeSync({
-    workspaceId: input.workspaceId,
-    nodeRunId: nodeRun.id,
-    taskQueueId: input.taskQueueId,
-    errorCode: input.errorCode,
-    errorMessage: input.errorText,
-  });
-  const failed = readWorkflowNodeRunByTaskQueueIdSync(input.taskQueueId, input.workspaceId);
-  let retryScheduled = false;
-  if (failed?.status === "failed" && failed.attemptCount < failed.maxAttempts) {
-    retryWorkflowNodeSync({
+  return withTransaction(getDatabase(), () => {
+    const nodeRun = readWorkflowNodeRunByTaskQueueIdSync(input.taskQueueId, input.workspaceId);
+    if (!nodeRun) return { linked: false, retryScheduled: false };
+    const run = failWorkflowNodeSync({
       workspaceId: input.workspaceId,
-      runId: failed.runId,
-      nodeId: failed.nodeId,
-      actorUserId: "workflow-retry-policy",
-      reason: input.errorText,
+      nodeRunId: nodeRun.id,
+      taskQueueId: input.taskQueueId,
+      errorCode: input.errorCode,
+      errorMessage: input.errorText,
     });
-    retryScheduled = true;
-  }
-  return { linked: true, retryScheduled, runId: run.id };
+    const failed = readWorkflowNodeRunByTaskQueueIdSync(input.taskQueueId, input.workspaceId);
+    let retryScheduled = false;
+    if (failed?.status === "failed" && failed.attemptCount < failed.maxAttempts) {
+      retryWorkflowNodeSync({
+        workspaceId: input.workspaceId,
+        runId: failed.runId,
+        nodeId: failed.nodeId,
+        actorUserId: "workflow-retry-policy",
+        reason: input.errorText,
+      });
+      retryScheduled = true;
+    }
+    return { linked: true, retryScheduled, runId: run.id };
+  });
 }
