@@ -222,6 +222,14 @@ export {
   type MigrationReport,
 } from "./workflows/migration.ts";
 export {
+  resolveTriggerOwner,
+  readWorkflowCutoverModeSync,
+  assertTriggerWriteOwnerSync,
+  shouldReadLegacyWorkflowSources,
+  type WorkflowCutoverMode,
+  type WorkflowTriggerOwner,
+} from "./workflows/feature-flags.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,

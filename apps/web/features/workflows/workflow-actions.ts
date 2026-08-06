@@ -10,6 +10,7 @@ import {
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
 import {
+  assertTriggerWriteOwnerSync,
   cancelWorkflowRunSync,
   materializeManualWorkflowRunSync,
   pauseWorkflowRunSync,
@@ -154,6 +155,7 @@ export async function publishWorkflowAction(
   try {
     const definition = requireDefinition(input.workflowId, context.currentWorkspace.id);
     if (definition.draftVersion !== input.expectedDraftVersion) throw new Error("workflow_draft_version_conflict");
+    if (input.trigger) assertTriggerWriteOwnerSync(context.currentWorkspace.id, "workflow");
     const result = publishWorkflowSync({
       workspaceId: context.currentWorkspace.id,
       workflowId: definition.id,
@@ -257,6 +259,7 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_actor_forbidden", "workflow_employee_not_ready", "workflow_run_not_found", "workflow_run_control_conflict",
   "workflow_node_run_not_found", "workflow_node_not_retryable", "workflow_node_retry_exhausted", "workflow_node_retry_conflict",
   "workflow_trigger_cross_workspace_conflict", "workflow_trigger_duplicate", "workflow_active_version_missing",
+  "workflow_trigger_owner_conflict",
   "workflow_cross_workspace_reference", "workflow_budget_exceeded", "workflow_input_reference_missing",
   "workflow_graph_invalid", "workflow_graph_requires_employee_task", "workflow_graph_cycle", "workflow_graph_disconnected",
   "workflow_graph_multiple_entry_nodes", "workflow_graph_multiple_terminal_nodes",

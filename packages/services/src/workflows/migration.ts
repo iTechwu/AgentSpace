@@ -6,6 +6,7 @@ import {
 import type { ActiveEmployee, AutomationRule, ScheduledTask } from "@dofe-agent/domain/workspace";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
 import { publishWorkflowSync } from "./publishing.ts";
+import { assertTriggerWriteOwnerSync } from "./feature-flags.ts";
 
 export interface LegacyMigrationInput {
   workspaceId: string;
@@ -119,6 +120,9 @@ export function applyLegacyMigrationSync(input: {
       continue;
     }
     try {
+      if (action.kind === "create_workflow") {
+        assertTriggerWriteOwnerSync(input.workspaceId, "workflow");
+      }
       const graph = graphForAction(action);
       const definition = createWorkflowDefinitionSync({
         workspaceId: input.workspaceId,

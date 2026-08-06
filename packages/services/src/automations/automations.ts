@@ -7,6 +7,7 @@ import type {
 } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId } from "../shared/helpers.ts";
+import { assertTriggerWriteOwnerSync } from "../workflows/feature-flags.ts";
 
 export function listAutomationRulesSync(workspaceId?: string): AutomationRule[] {
   const state = ensureWorkspaceStateSync(workspaceId);
@@ -26,6 +27,7 @@ export function createAutomationRuleSync(input: {
   actions: AutomationAction[];
   createdBy?: string;
 }, workspaceId?: string): DofeAgentState {
+  assertTriggerWriteOwnerSync(workspaceId ?? "default", "automations");
   const state = ensureWorkspaceStateSync(workspaceId);
   const name = input.name.trim();
   if (!name) {
@@ -73,6 +75,7 @@ export function updateAutomationRuleSync(
   },
   workspaceId?: string,
 ): DofeAgentState {
+  assertTriggerWriteOwnerSync(workspaceId ?? "default", "automations");
   const state = ensureWorkspaceStateSync(workspaceId);
   const rule = (state.automationRules ?? []).find((r) => r.id === id);
   if (!rule) {
@@ -117,6 +120,7 @@ export function updateAutomationRuleSync(
 }
 
 export function toggleAutomationRuleSync(id: string, enabled: boolean, workspaceId?: string): DofeAgentState {
+  assertTriggerWriteOwnerSync(workspaceId ?? "default", "automations");
   const state = ensureWorkspaceStateSync(workspaceId);
   const rule = (state.automationRules ?? []).find((r) => r.id === id);
   if (!rule) {
@@ -130,6 +134,7 @@ export function toggleAutomationRuleSync(id: string, enabled: boolean, workspace
 }
 
 export function deleteAutomationRuleSync(id: string, workspaceId?: string): DofeAgentState {
+  assertTriggerWriteOwnerSync(workspaceId ?? "default", "automations");
   const state = ensureWorkspaceStateSync(workspaceId);
   const rule = (state.automationRules ?? []).find((r) => r.id === id);
   if (!rule) {

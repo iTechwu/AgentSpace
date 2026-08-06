@@ -64,6 +64,7 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_join_requires_multiple_inputs: ["汇聚步骤至少需要两个并行输入", "A join requires at least two parallel inputs"],
     workflow_join_requires_downstream: ["汇聚步骤后需要添加汇总员工", "Add a summarizing employee after the join"],
     workflow_trigger_duplicate: ["相同触发器已经绑定到其他工作流", "An identical trigger is already assigned to another workflow"],
+    workflow_trigger_owner_conflict: ["当前切流阶段不允许从此入口修改触发器", "This cutover stage does not allow trigger changes from this entry point"],
     workflow_trigger_cross_workspace_conflict: ["触发器不能引用其他工作空间", "The trigger cannot reference another workspace"],
     workflow_cross_workspace_reference: ["工作流不能引用其他工作空间的资源", "The workflow cannot reference resources from another workspace"],
     workflow_budget_exceeded: ["工作流预算不足，请调整预算或流程", "The workflow budget is insufficient. Adjust the budget or workflow"],

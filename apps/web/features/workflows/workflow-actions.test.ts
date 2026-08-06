@@ -22,6 +22,7 @@ vi.mock("@dofe-agent/db", () => ({
   upsertWorkflowTriggerSync: mocks.upsertTrigger,
 }));
 vi.mock("@dofe-agent/services", () => ({
+  assertTriggerWriteOwnerSync: vi.fn(),
   cancelWorkflowRunSync: vi.fn(),
   materializeManualWorkflowRunSync: mocks.manualRun,
   pauseWorkflowRunSync: vi.fn(),
