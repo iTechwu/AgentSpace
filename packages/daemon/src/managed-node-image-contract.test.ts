@@ -22,6 +22,10 @@ const runtimeBuildScript = readFileSync(
   new URL("../../../deploy/staging/build-managed-runtime-images.sh", import.meta.url),
   "utf8",
 );
+const managedNodeCompose = readFileSync(
+  new URL("../../../deploy/daemon/docker-compose.managed-node.yml", import.meta.url),
+  "utf8",
+);
 
 test("managed-node image installs a checksum-pinned multi-arch cosign binary", () => {
   assert.match(dockerfile, /ARG COSIGN_VERSION=v\d+\.\d+\.\d+/);
@@ -40,6 +44,10 @@ test("managed-node runtime stage includes provider probe tools and cached packag
   );
   assert.match(dockerfile, /npm_config_registry=https:\/\/registry\.npmmirror\.com/);
   assert.match(dockerfile, /--mount=type=cache,id=dofe-managed-node-pnpm,target=\/pnpm\/store/);
+  assert.match(
+    managedNodeCompose,
+    /\$\{MANAGED_NODE_MODELS_GATEWAY_HOST:-model\.local\.dofe\.ai\}:host-gateway/,
+  );
 });
 
 test("managed-node image does not embed shared data-plane services", () => {
