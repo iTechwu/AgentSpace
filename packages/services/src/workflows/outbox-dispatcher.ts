@@ -4,8 +4,9 @@ import {
   listWorkflowNodeRunsSync,
   markWorkflowOutboxFailedSync,
   markWorkflowOutboxPublishedSync,
+  readWorkflowRunSync,
 } from "@dofe-agent/db";
-import { dispatchReadyWorkflowNodeSync } from "./dispatcher.ts";
+import { dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
 import { createWorkflowApprovalSync, workflowApprovalInputFromNodeConfig } from "./approvals.ts";
 
 export interface WorkflowOutboxDispatchResult {
@@ -75,6 +76,9 @@ export function workflowOutboxErrorCode(error: unknown): string {
 function dispatchReadyWorkflowNodeByTypeSync(input: { workspaceId: string; nodeRunId: string; now: string }): { taskQueueId?: string } {
   const node = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
   if (!node) throw new Error("workflow_node_run_not_found");
+  const run = readWorkflowRunSync(node.runId, input.workspaceId);
+  if (!run) throw new Error("workflow_run_not_found");
+  if (isWorkflowRunDispatchBlocked(run.status)) return {};
   if (node.nodeType === "approval") {
     if (node.status !== "ready") return {};
     const approvalInput = workflowApprovalInputFromNodeConfig(parsePayload(node.inputJson));

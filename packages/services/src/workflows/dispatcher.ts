@@ -32,7 +32,7 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
   if (!nodeRun) throw new Error("workflow_node_run_not_found");
   const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
   if (!run) throw new Error("workflow_run_not_found");
-  if (["paused", "cancelled", "failed", "succeeded", "partially_succeeded"].includes(run.status)) {
+  if (isWorkflowRunDispatchBlocked(run.status)) {
     return { nodeRunId: nodeRun.id, taskQueueId: nodeRun.taskQueueId, status: nodeRun.status };
   }
   if (nodeRun.status === "queued" && nodeRun.taskQueueId) {
@@ -195,6 +195,10 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
 
 export function resolveWorkflowMaxConcurrency(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 20 ? value : 4;
+}
+
+export function isWorkflowRunDispatchBlocked(status: string): boolean {
+  return ["paused", "cancelled", "failed", "succeeded", "partially_succeeded"].includes(status);
 }
 
 export function computeWorkflowQueueRetryAt(now: string): string {

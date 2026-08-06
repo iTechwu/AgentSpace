@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   computeWorkflowQueueRetryAt,
   dispatchReadyWorkflowNodeSync,
+  isWorkflowRunDispatchBlocked,
   resolveWorkflowMaxConcurrency,
 } from "./dispatcher.ts";
 
@@ -18,6 +19,14 @@ test("queue creation failures receive a bounded recovery delay", () => {
     computeWorkflowQueueRetryAt("2026-08-06T00:00:00.000Z"),
     "2026-08-06T00:01:00.000Z",
   );
+});
+
+test("paused and terminal runs block every node dispatcher", () => {
+  for (const status of ["paused", "cancelled", "failed", "succeeded", "partially_succeeded"]) {
+    assert.equal(isWorkflowRunDispatchBlocked(status), true);
+  }
+  assert.equal(isWorkflowRunDispatchBlocked("waiting_approval"), false);
+  assert.equal(isWorkflowRunDispatchBlocked("running"), false);
 });
 
 test("dispatcher rejects an unknown node run without creating a queue task", () => {
