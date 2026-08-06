@@ -1,4 +1,4 @@
-import { appendTaskMessageSync, failQueuedTaskSync } from "@dofe-agent/db";
+import { appendTaskMessageSync, failQueuedTaskSync, getDatabase, withTransaction } from "@dofe-agent/db";
 import { parseTaskPayload } from "dofe-agent-daemon";
 import type { FailTaskRequest } from "@dofe-agent/domain";
 import {
@@ -45,27 +45,30 @@ export async function POST(
   if (!body.errorText?.trim()) {
     return Response.json({ error: "errorText is required." }, { status: 400 });
   }
+  const errorText = body.errorText.trim();
 
   const payload = parseTaskPayload(task);
   const workspaceState = readWorkspaceStateSync(task.workspaceId);
   const effectiveChannelName =
     payload.channelName
       ?? (payload.contactId ? resolveCompatibleDirectChannelRecord(workspaceState, payload.contactId)?.name : undefined);
-  failQueuedTaskSync({
-    taskId: task.id,
-    errorText: body.errorText.trim(),
-    sessionId: body.sessionId,
-    workDir: body.workDir,
-    errorCode: body.errorCode,
-    errorCategory: body.errorCategory,
-    provider: body.provider,
-    rawProviderMessage: body.rawProviderMessage,
-  });
-  failWorkflowTaskIfLinkedSync({
-    workspaceId: task.workspaceId,
-    taskQueueId: task.id,
-    errorCode: body.errorCode,
-    errorText: body.errorText.trim(),
+  withTransaction(getDatabase(), () => {
+    failQueuedTaskSync({
+      taskId: task.id,
+      errorText,
+      sessionId: body.sessionId,
+      workDir: body.workDir,
+      errorCode: body.errorCode,
+      errorCategory: body.errorCategory,
+      provider: body.provider,
+      rawProviderMessage: body.rawProviderMessage,
+    });
+    failWorkflowTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      errorCode: body.errorCode,
+      errorText,
+    });
   });
   const providerDiagnosticMessage = formatProviderDiagnosticMessage(body);
   if (providerDiagnosticMessage) {
