@@ -1,8 +1,15 @@
-export const POSTGRES_SCHEMA_VERSION = "107";
+export const POSTGRES_SCHEMA_VERSION = "108";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
   "workspace",
+  "workflow_definition",
+  "workflow_version",
+  "workflow_trigger",
+  "workflow_run",
+  "workflow_node_run",
+  "workflow_run_event",
+  "workflow_outbox",
   "users",
   "auth_identity",
   "session",
@@ -137,6 +144,184 @@ export function getPostgresSchemaStatements(): string[] {
         updated_at TIMESTAMPTZ NOT NULL,
         archived_at TIMESTAMPTZ
       )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_definition (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT,
+        owner_user_id TEXT NOT NULL,
+        channel_name TEXT,
+        status TEXT NOT NULL DEFAULT 'draft'
+          CHECK (status IN ('draft', 'published', 'paused', 'archived')),
+        active_version_id TEXT,
+        legacy_source_type TEXT,
+        legacy_source_id TEXT,
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        archived_at TIMESTAMPTZ,
+        UNIQUE(workspace_id, id)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_version (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        workflow_id TEXT NOT NULL REFERENCES workflow_definition(id),
+        version_number INTEGER NOT NULL,
+        schema_version INTEGER NOT NULL,
+        graph_json JSONB NOT NULL,
+        input_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        output_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        governance_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        content_hash TEXT NOT NULL,
+        published_by TEXT NOT NULL,
+        published_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workflow_id, version_number),
+        UNIQUE(workflow_id, content_hash)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_trigger (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        workflow_id TEXT NOT NULL REFERENCES workflow_definition(id),
+        type TEXT NOT NULL CHECK (type IN ('manual', 'schedule', 'event')),
+        config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        timezone TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        next_fire_at TIMESTAMPTZ,
+        last_fire_at TIMESTAMPTZ,
+        misfire_policy TEXT NOT NULL DEFAULT 'skip',
+        dedupe_window_seconds INTEGER NOT NULL DEFAULT 0,
+        lease_owner TEXT,
+        lease_expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_run (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        workflow_id TEXT NOT NULL REFERENCES workflow_definition(id),
+        version_id TEXT NOT NULL REFERENCES workflow_version(id),
+        root_task_id TEXT,
+        trigger_id TEXT REFERENCES workflow_trigger(id) ON DELETE SET NULL,
+        trigger_type TEXT NOT NULL,
+        trigger_key TEXT NOT NULL,
+        input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL DEFAULT 'created',
+        current_sequence INTEGER NOT NULL DEFAULT 0,
+        budget_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, trigger_key)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_node_run (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+        node_id TEXT NOT NULL,
+        node_type TEXT NOT NULL,
+        employee_id TEXT,
+        employee_name_snapshot TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 1,
+        available_at TIMESTAMPTZ,
+        task_queue_id TEXT,
+        approval_id TEXT,
+        input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        output_json JSONB,
+        artifact_manifest_json JSONB,
+        error_code TEXT,
+        error_message TEXT,
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(run_id, node_id)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_run_event (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+        node_run_id TEXT REFERENCES workflow_node_run(id) ON DELETE SET NULL,
+        sequence INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        actor_type TEXT NOT NULL,
+        actor_id TEXT,
+        severity TEXT NOT NULL DEFAULT 'info',
+        data_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(run_id, sequence)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_outbox (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        available_at TIMESTAMPTZ NOT NULL,
+        locked_at TIMESTAMPTZ,
+        locked_by TEXT,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        published_at TIMESTAMPTZ
+      )
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_definition_legacy_source
+        ON workflow_definition(workspace_id, legacy_source_type, legacy_source_id)
+        WHERE legacy_source_id IS NOT NULL
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_run_trigger_key
+        ON workflow_run(workspace_id, trigger_key)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_trigger_due
+        ON workflow_trigger(status, next_fire_at)
+        WHERE status = 'active'
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_node_run_ready
+        ON workflow_node_run(status, available_at)
+        WHERE status IN ('ready', 'retry_wait')
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_run_workspace_created
+        ON workflow_run(workspace_id, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_run_event_run_sequence
+        ON workflow_run_event(run_id, sequence ASC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_node_run_task_queue
+        ON workflow_node_run(workspace_id, task_queue_id)
+        WHERE task_queue_id IS NOT NULL
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_outbox_due
+        ON workflow_outbox(status, available_at)
+        WHERE status = 'pending'
     `,
     `
       CREATE TABLE IF NOT EXISTS users (
