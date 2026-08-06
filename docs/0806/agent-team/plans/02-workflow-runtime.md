@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 状态说明（2026-08-06）：复选框是可复现施工步骤，不是完成台账；实际完成度与环境门禁见 [../07-规格实施覆盖矩阵.md](../07-规格实施覆盖矩阵.md)。
+
 **Goal:** 让已发布 Workflow 能被手动、定时和受控事件可靠触发，并通过现有任务队列执行串行、并行 Join、审批、重试、暂停和取消。
 
 **Architecture:** 无状态 Workflow Worker 通过 PostgreSQL lease 领取 Trigger/outbox；Run Coordinator 在事务中推进 Node Run。每个 employee_task 节点写入 `agent_task_queue`，daemon 完成/失败路由调用统一 completion adapter，重复事件保持幂等。
@@ -316,7 +318,7 @@ it("advances workflow after a workflow task completes", async () => {
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- app/api/daemon/routes.test.ts -t "advances workflow"`
+Run: `pnpm --filter @dofe-agent/web exec vitest run app/api/daemon/routes.test.ts -t "advances workflow"`
 
 Expected: FAIL，Node Run 保持 queued/running。
 
@@ -342,7 +344,7 @@ export function failWorkflowTaskIfLinkedSync(input: {
 
 - [ ] **Step 4: 运行 complete/fail/legacy 测试**
 
-Run: `pnpm --filter @dofe-agent/web run test -- app/api/daemon/routes.test.ts -t "workflow|legacy completion"`
+Run: `pnpm --filter @dofe-agent/web exec vitest run app/api/daemon/routes.test.ts -t "workflow|legacy completion"`
 
 Expected: PASS；重复 daemon completion 返回成功且不重复下游。
 
@@ -447,7 +449,7 @@ Run:
 
 ```bash
 node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 apps/workflow-worker/src/worker.test.ts
-pnpm --filter @dofe-agent/web run test -- app/api/cron/workflows/reconcile/route.test.ts
+pnpm --filter @dofe-agent/web exec vitest run app/api/cron/workflows/reconcile/route.test.ts
 ```
 
 Expected: FAIL。
@@ -487,7 +489,7 @@ Run:
 
 ```bash
 node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 apps/workflow-worker/src/worker.test.ts
-pnpm --filter @dofe-agent/web run test -- app/api/cron/workflows/reconcile/route.test.ts
+pnpm --filter @dofe-agent/web exec vitest run app/api/cron/workflows/reconcile/route.test.ts
 pnpm run typecheck:deps
 ```
 
@@ -517,8 +519,8 @@ Run:
 ```bash
 node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 packages/services/src/workflows/*.test.ts
 node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 apps/workflow-worker/src/*.test.ts
-pnpm --filter @dofe-agent/web run test -- app/api/daemon/routes.test.ts -t "workflow"
-pnpm --filter @dofe-agent/web run test -- app/api/cron/workflows/reconcile/route.test.ts
+pnpm --filter @dofe-agent/web exec vitest run app/api/daemon/routes.test.ts -t "workflow"
+pnpm --filter @dofe-agent/web exec vitest run app/api/cron/workflows/reconcile/route.test.ts
 pnpm run typecheck:deps
 ```
 

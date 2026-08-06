@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 状态说明（2026-08-06）：复选框是可复现施工步骤，不是完成台账；实际完成度与环境门禁见 [../07-规格实施覆盖矩阵.md](../07-规格实施覆盖矩阵.md)。
+
 **Goal:** 把现有 Automations 升级为计划/运行/模板编排中心，并让任务看板和日历进入同一个可访问的 Workflow 创建向导。
 
 **Architecture:** Server Components/Workspace loader 提供首屏 projection，Server Actions 处理草稿、预检、发布和运行控制。客户端 `useReducer` 管理未保存草稿，`@xyflow/react` 仅负责画布交互，服务端 canonical graph 始终是事实来源。
@@ -52,7 +54,7 @@ it("returns workflow list summaries without graph payloads", () => {
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-data.test.ts`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-data.test.ts`
 
 Expected: FAIL，模块不存在。
 
@@ -85,7 +87,7 @@ export interface WorkflowCenterPageData {
 Run:
 
 ```bash
-pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-data.test.ts features/dashboard/data.test.ts
+pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-data.test.ts features/dashboard/data.test.ts
 pnpm --filter @dofe-agent/web run typecheck:test
 ```
 
@@ -123,7 +125,7 @@ it("returns a stable conflict code for stale drafts", async () => {
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-actions.test.ts`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-actions.test.ts`
 
 Expected: FAIL。
 
@@ -149,7 +151,7 @@ export async function controlWorkflowRunAction(input: ControlWorkflowRunInput): 
 Run:
 
 ```bash
-pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-actions.test.ts
+pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-actions.test.ts
 pnpm --filter @dofe-agent/web run typecheck:test
 ```
 
@@ -182,7 +184,7 @@ it("shows plan run template tabs and links to the shared builder", async () => {
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-list-client.test.tsx`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-list-client.test.tsx`
 
 Expected: FAIL。
 
@@ -194,7 +196,7 @@ Expected: FAIL。
 
 把侧栏 `工作流规则 / Workflow Rules` 改为 `编排中心 / Orchestration`；路由仍为 `/automations`。
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-list-client.test.tsx features/dashboard/workspace-frame.test.tsx`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-list-client.test.tsx features/dashboard/workspace-frame.test.tsx`
 
 Expected: PASS。
 
@@ -227,7 +229,7 @@ test("creates a parallel group with an explicit join and supports undo", () => {
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-builder-reducer.test.ts`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-builder-reducer.test.ts`
 
 Expected: FAIL。
 
@@ -249,7 +251,7 @@ History 只保存最近 50 次结构变化；`markSaved` 清除 dirty 但不清�
 
 - [ ] **Step 4: 运行测试并提交**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-builder-reducer.test.ts`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-builder-reducer.test.ts`
 
 Expected: PASS。
 
@@ -290,7 +292,7 @@ it("adds and connects nodes without drag and drop", async () => {
 
 - [ ] **Step 3: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-canvas.test.tsx`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-canvas.test.tsx`
 
 Expected: FAIL。
 
@@ -301,7 +303,7 @@ Expected: FAIL。
 Run:
 
 ```bash
-pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-canvas.test.tsx
+pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-canvas.test.tsx
 pnpm --filter @dofe-agent/web run typecheck:test
 ```
 
@@ -347,7 +349,7 @@ it("keeps the builder open and focuses a blocked employee node", async () => {
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-builder-client.test.tsx`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-builder-client.test.tsx`
 
 Expected: FAIL。
 
@@ -360,7 +362,7 @@ Expected: FAIL。
 Run:
 
 ```bash
-pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-builder-client.test.tsx
+pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-builder-client.test.tsx
 pnpm --filter @dofe-agent/web run typecheck
 ```
 
@@ -397,7 +399,7 @@ it("reconciles an event sequence gap before rendering newer state", async () => 
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-run-client.test.tsx`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-run-client.test.tsx`
 
 Expected: FAIL。
 
@@ -412,7 +414,7 @@ Route 使用当前用户 workspace context，拒绝 URL workspace 与 session wo
 Run:
 
 ```bash
-pnpm --filter @dofe-agent/web run test -- features/workflows/workflow-run-client.test.tsx app/api/workspaces/[workspaceId]/workflow-runs/[runId]/events/route.test.ts
+pnpm --filter @dofe-agent/web exec vitest run features/workflows/workflow-run-client.test.tsx 'app/api/workspaces/[workspaceId]/workflow-runs/[runId]/events/route.test.ts'
 ```
 
 Expected: PASS。
@@ -432,7 +434,7 @@ git commit -m "功能：实现工作流运行详情与事件补偿"
 - Modify: `apps/web/features/task-board/task-board-page-client.test.tsx`
 - Modify: `apps/web/features/calendar/calendar-page-client.test.tsx`
 - Modify: `apps/web/app/globals.css`
-- Create: `apps/web/e2e/workflows.spec.ts`
+- Create: `apps/web/e2e/workflows-migration.spec.ts`
 
 - [ ] **Step 1: 写两个入口都指向同一 builder 的测试**
 
@@ -443,7 +445,7 @@ expect(within(calendarHeader).getByRole("link", { name: "新建定时" })).toHav
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/task-board/task-board-page-client.test.tsx features/calendar/calendar-page-client.test.tsx`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/task-board/task-board-page-client.test.tsx features/calendar/calendar-page-client.test.tsx`
 
 Expected: FAIL，仍使用旧 modal/入口。
 
@@ -458,8 +460,8 @@ Expected: FAIL，仍使用旧 modal/入口。
 Run:
 
 ```bash
-pnpm --filter @dofe-agent/web run test -- features/workflows features/task-board/task-board-page-client.test.tsx features/calendar/calendar-page-client.test.tsx
-pnpm --filter @dofe-agent/web run test:e2e -- workflows.spec.ts
+pnpm --filter @dofe-agent/web exec vitest run features/workflows features/task-board/task-board-page-client.test.tsx features/calendar/calendar-page-client.test.tsx
+pnpm --filter @dofe-agent/web run test:e2e -- workflows-migration.spec.ts
 ```
 
 Expected: PASS。
@@ -467,7 +469,7 @@ Expected: PASS。
 - [ ] **Step 5: 提交**
 
 ```bash
-git add -A -- apps/web/features/task-board apps/web/features/calendar apps/web/features/workflows apps/web/app/globals.css apps/web/e2e/workflows.spec.ts
+git add -A -- apps/web/features/task-board apps/web/features/calendar apps/web/features/workflows apps/web/app/globals.css apps/web/e2e/workflows-migration.spec.ts
 git commit -m "功能：统一看板日历与工作流创建入口"
 ```
 
@@ -488,7 +490,7 @@ Run:
 pnpm --filter @dofe-agent/web run typecheck
 pnpm --filter @dofe-agent/web run typecheck:test
 pnpm --filter @dofe-agent/web run lint
-pnpm --filter @dofe-agent/web run test -- features/workflows features/task-board features/calendar
+pnpm --filter @dofe-agent/web exec vitest run features/workflows features/task-board features/calendar
 git diff --check
 ```
 

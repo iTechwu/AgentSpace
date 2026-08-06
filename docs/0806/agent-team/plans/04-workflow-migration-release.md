@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended; use executing-plans if executing inline). Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 状态说明（2026-08-06）：复选框是可复现施工步骤，不是完成台账；实际完成度与环境门禁见 [../07-规格实施覆盖矩阵.md](../07-规格实施覆盖矩阵.md)。
+
 **Goal:** 把现有 ScheduledTask/AutomationRule 平滑迁移到 Workflow 投影，建立 feature flag、部署、观测、安全和最终验收门禁。
 
 **Architecture:** 迁移脚本先 dry-run，再按 workspace 分阶段切流；旧对象保留 legacy source 映射和只读兼容，只有 Workflow Engine 拥有新 Trigger 的创建权。Worker 作为独立应用部署，Cron Route 只做恢复，不新增 PostgreSQL/Redis/RabbitMQ 服务。
@@ -133,7 +135,7 @@ export function assertTriggerWriteOwnerSync(workspaceId: string, source: "calend
 
 - [ ] **Step 4: 运行现有日历/自动化测试 + 新测试**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/calendar features/automations`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/calendar features/automations`
 
 Expected: legacy 单测行为保持；新增 workflow flag 测试 PASS。
 
@@ -164,7 +166,7 @@ test("dual-read shows one workflow row for a migrated scheduled task", () => {
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/dashboard/data.test.ts features/calendar/calendar-page-client.test.tsx`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/dashboard/data.test.ts features/calendar/calendar-page-client.test.tsx`
 
 Expected: FAIL，旧/新各显示一行或 DTO 缺字段。
 
@@ -174,7 +176,7 @@ Expected: FAIL，旧/新各显示一行或 DTO 缺字段。
 
 - [ ] **Step 4: 运行并提交**
 
-Run: `pnpm --filter @dofe-agent/web run test -- features/dashboard/data.test.ts features/calendar features/automations`
+Run: `pnpm --filter @dofe-agent/web exec vitest run features/dashboard/data.test.ts features/calendar features/automations`
 
 Expected: PASS。
 

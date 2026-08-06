@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 状态说明（2026-08-06）：复选框是可复现施工步骤，不是完成台账；实际完成度与环境门禁见 [../07-规格实施覆盖矩阵.md](../07-规格实施覆盖矩阵.md)。
+
 **Goal:** 建立版本化 Workflow 的领域契约、PostgreSQL 表、仓储、校验和发布服务。
 
 **Architecture:** Domain 包定义稳定 DAG 和状态类型；DB 包只负责持久化与事务；Service 包负责图校验、权限预检、版本哈希和审计。该阶段不运行 AI 节点。
@@ -21,7 +23,9 @@ packages/db/src/types.ts
 packages/db/src/workflows/definitions.ts
 packages/db/src/workflows/runs.ts
 packages/db/src/workflows/events.ts
-packages/db/src/workflows/workflows.test.ts
+packages/db/src/workflows/schema.test.ts
+packages/db/src/workflows/definitions.test.ts
+packages/db/src/workflows/runs.test.ts
 packages/db/src/index.ts
 packages/services/src/workflows/validation.ts
 packages/services/src/workflows/definitions.ts

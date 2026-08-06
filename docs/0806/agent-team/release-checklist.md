@@ -2,6 +2,7 @@
 
 更新时间：2026-08-06  
 目标分支：`codex/agent-team-workflow`  
+代码基线：`67482af`
 发布策略：按 workspace 从 `legacy_only` 逐步切换到 `dual_read`、`workflow_engine`、`legacy_archived`
 
 ## 放行结论
@@ -12,7 +13,7 @@
 
 | 检查项 | 当前状态 | 证据 / 放行条件 |
 | --- | --- | --- |
-| 目标提交 | 待最终固化 | 发布只能使用已提交 SHA，不得使用未提交工作树 |
+| 目标提交 | 代码基线 `67482af`；最终发布 SHA 待环境固化 | 发布只能使用已提交 SHA，不得使用未提交工作树 |
 | PostgreSQL schema 版本 | 代码为 `109`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `109` |
 | Workflow 表与唯一约束 | 静态测试已覆盖 | 7 张 workspace-scoped 表；`workspace_id + trigger_key`、`run_id + node_id`、`run_id + sequence` 唯一 |
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |
@@ -61,6 +62,7 @@ reviewer: PENDING
 | 门禁 | 当前状态 | 结果 |
 | --- | --- | --- |
 | TypeScript / ESLint | 通过 | Workflow E2E 文件通过 `typecheck:test` 和 ESLint |
+| 规格实施覆盖审计 | 通过 | [07-规格实施覆盖矩阵.md](./07-规格实施覆盖矩阵.md) 已区分 DONE / ENV-BLOCKED / EXTERNAL / R2 |
 | 部署契约 | 通过 | Node test + Compose 解析通过 |
 | 安全单元测试 | 通过 | 4/4 |
 | 发布脚本自测 | 通过 | 4/4，覆盖上限与隔离环境保护 |
@@ -69,6 +71,20 @@ reviewer: PENDING
 | Playwright 数据库 E2E | `BLOCKED_TEST_ENV` | 本机无 `DOFE_AGENT_TEST_DATABASE_URL`；五个场景已编译，待测试环境执行 |
 | 真实负载测试 | `PENDING` | 需 `NODE_ENV=test`、`WORKFLOW_TEST_DATABASE_URL` 和受审 adapter；P95 <= 60s |
 | 真实故障演练 | `PENDING` | 必须在隔离 workspace 执行并确认 finally cleanup |
+
+本地回归快照（2026-08-06）：
+
+```text
+Domain Workflow: 9 passed
+Service Workflow: 46 passed
+Web Workflow/API/双入口: 38 passed
+Workflow Worker: 2 passed
+Services/Web/Worker TypeScript: passed
+Web test TypeScript + ESLint: passed
+Markdown local links + git diff check: passed
+```
+
+以上结果只证明无数据库依赖的确定性逻辑、组件和静态契约，不替代 `BLOCKED_TEST_ENV` 项。
 
 ## 5. 分阶段切流
 
@@ -104,4 +120,3 @@ dashboard/evidence: PENDING
 | 安全验收人 | `PENDING` |
 | 运维验收人 | `PENDING` |
 | 最终 go/no-go | `NO-GO`，直到所有 `PENDING`/`BLOCKED_TEST_ENV` 门禁关闭 |
-

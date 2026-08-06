@@ -2,6 +2,8 @@
 
 > 实施状态（2026-08-06）：阶段 1-4 的代码、部署契约、迁移预演、观测和发布门禁已落地；本地纯函数/前端/类型检查已通过。数据库集成和 Playwright E2E 仍待提供隔离 PostgreSQL 后执行，当前发布门禁保持 NO-GO。
 
+> 状态说明：本文及 `plans/` 中的复选框保留为可复现的施工步骤，不作为完成台账。逐项实现、环境阻塞、外部验收和二期边界以 [07-规格实施覆盖矩阵.md](./07-规格实施覆盖矩阵.md) 为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 AgentSpace 中交付可持久化、可调度、可审计的通用 Workflow Engine，并首期开放串行、并行汇聚、审批、定时和有限重试。
@@ -60,9 +62,9 @@ deploy/self-hosted/*                             # 只增加应用 worker，不�
 
 ```bash
 node --experimental-strip-types --test --test-concurrency=1 packages/domain/src/workflows.test.ts
-node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 packages/db/src/workflows/workflows.test.ts
+node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 packages/db/src/workflows/schema.test.ts packages/db/src/workflows/definitions.test.ts packages/db/src/workflows/runs.test.ts
 node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 packages/services/src/workflows/publishing.test.ts
-pnpm run typecheck:deps
+pnpm --filter @dofe-agent/services run types
 ```
 
 期望：全部 PASS；重复内容发布返回同一 hash 或明确冲突；跨 workspace 读取为 `null`/403 语义。
@@ -74,8 +76,8 @@ pnpm run typecheck:deps
 ```bash
 node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 packages/services/src/workflows/scheduler.test.ts
 node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 packages/services/src/workflows/coordinator.test.ts
-pnpm --filter @dofe-agent/web run test -- app/api/daemon/routes.test.ts -t "workflow"
-pnpm --filter @dofe-agent/web run test -- app/api/cron/workflows/reconcile/route.test.ts
+pnpm --filter @dofe-agent/web exec vitest run app/api/daemon/routes.test.ts -t "workflow"
+pnpm --filter @dofe-agent/web exec vitest run app/api/cron/workflows/reconcile/route.test.ts app/api/internal/workflows/events/route.test.ts
 ```
 
 期望：重复触发/完成事件不产生重复 Run 或下游任务；Join 不早于策略满足；暂停/取消不再 dispatch。
@@ -85,10 +87,10 @@ pnpm --filter @dofe-agent/web run test -- app/api/cron/workflows/reconcile/route
 运行：
 
 ```bash
-pnpm --filter @dofe-agent/web run test -- features/workflows
+pnpm --filter @dofe-agent/web exec vitest run features/workflows
 pnpm --filter @dofe-agent/web run typecheck:test
 pnpm --filter @dofe-agent/web run lint
-pnpm --filter @dofe-agent/web run test:e2e -- workflows.spec.ts
+pnpm --filter @dofe-agent/web run test:e2e -- workflows-migration.spec.ts
 ```
 
 期望：任务看板与日历进入同一向导；键盘可创建并发布 `A → (B ∥ C) → D`；刷新后 Run 状态一致。
@@ -99,7 +101,9 @@ pnpm --filter @dofe-agent/web run test:e2e -- workflows.spec.ts
 
 ```bash
 node --env-file-if-exists=.env --experimental-strip-types scripts/workflows/migrate-legacy.ts --dry-run --workspace-id default
-pnpm run typecheck
+pnpm --filter @dofe-agent/services run types
+pnpm --filter @dofe-agent/web run typecheck
+pnpm --filter @dofe-agent/workflow-worker run types
 pnpm run lint:web
 git diff --check
 ```
@@ -108,11 +112,18 @@ git diff --check
 
 ## 5. 完成定义
 
+代码完成：
+
 - 设计文档中的产品、业务、UI/UX、技术、前后端要求都能映射到至少一个阶段任务。
 - 五个验收场景（每日简报、审批发布、失败恢复、错过/去重、权限撤销）均有自动化测试或明确的人工验证脚本。
-- 调度 P95 ≤60 秒、投影可见性 ≤5 秒；并发测试没有重复 Run、重复队列任务或终态回退。
-- 5-8 名目标用户测试完成率 ≥85%，SUS ≥68，P0/P1 可用性问题全部闭环。
 - 每个独立任务验证后立即使用中文 commit message 提交；未经用户明确要求不 push。
+
+发布完成（当前尚未满足）：
+
+- 隔离 PostgreSQL、Playwright 五场景和真实并发/故障演练通过，没有重复 Run、重复队列任务或终态回退。
+- 调度 P95 ≤60 秒、投影可见性 ≤5 秒，并完成告警、镜像、回滚和环境证据。
+- 5-8 名目标用户测试完成率 ≥85%，SUS ≥68，P0/P1 可用性问题全部闭环。
+- 产品、工程、安全和运维签字完整，[release-checklist.md](./release-checklist.md) 结论改为 GO。
 
 ## 6. 规格覆盖审计
 
