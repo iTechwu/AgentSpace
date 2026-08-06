@@ -101,6 +101,17 @@ test("rejects invalid cron and past one-time schedules", () => {
   );
 });
 
+test("normalizes valid event names and rejects unsafe names", () => {
+  assert.equal(normalizeWorkflowTriggerForPublish({
+    type: "event",
+    configJson: '{"eventName":" task.completed "}',
+  }).configJson, '{"eventName":"task.completed"}');
+  assert.throws(() => normalizeWorkflowTriggerForPublish({
+    type: "event",
+    configJson: '{"eventName":"task completed"}',
+  }), /workflow_event_invalid/);
+});
+
 test("rejects unbounded schedule configuration", () => {
   assert.equal(computeNextWorkflowFireAt(trigger("{}"), "2026-08-07T01:00:00.000Z", "2026-08-07T01:00:30.000Z"), null);
 });

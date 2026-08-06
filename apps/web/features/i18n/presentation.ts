@@ -68,6 +68,7 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_schedule_invalid: ["定时配置无效，请检查时间或 Cron 表达式", "The schedule is invalid. Check the time or cron expression"],
     workflow_schedule_in_past: ["一次性执行时间必须晚于当前时间", "The one-time schedule must be in the future"],
     workflow_schedule_timezone_invalid: ["时区无效，请填写标准 IANA 时区", "Enter a valid IANA timezone"],
+    workflow_event_invalid: ["事件名称无效，仅支持字母、数字、点、冒号、下划线和短横线", "The event name contains unsupported characters"],
     workflow_join_requires_multiple_inputs: ["汇聚步骤至少需要两个并行输入", "A join requires at least two parallel inputs"],
     workflow_join_requires_downstream: ["汇聚步骤后需要添加汇总员工", "Add a summarizing employee after the join"],
     workflow_trigger_duplicate: ["相同触发器已经绑定到其他工作流", "An identical trigger is already assigned to another workflow"],

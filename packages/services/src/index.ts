@@ -176,6 +176,13 @@ export {
   type WorkflowSchedulerTickResult,
 } from "./workflows/scheduler.ts";
 export {
+  fireWorkflowEventSync,
+  normalizeWorkflowEventInput,
+  workflowTriggerMatchesEvent,
+  type WorkflowEventInput,
+  type WorkflowEventResult,
+} from "./workflows/events.ts";
+export {
   dispatchReadyWorkflowNodeSync,
   type DispatchWorkflowNodeInput,
   type DispatchWorkflowNodeResult,

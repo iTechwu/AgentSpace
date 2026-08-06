@@ -333,6 +333,14 @@ export function readWorkflowTriggerForWorkflowSync(
   return row ? mapTrigger(row) : null;
 }
 
+export function listActiveWorkflowEventTriggersSync(workspaceId: string): WorkflowTriggerRecord[] {
+  return (getDatabase().prepare(
+    `${TRIGGER_SELECT}
+     WHERE workspace_id = ? AND type = 'event' AND status = 'active'
+     ORDER BY workflow_id ASC, id ASC`,
+  ).all(workspaceId) as Array<Record<string, unknown>>).map(mapTrigger);
+}
+
 export function claimDueWorkflowTriggersSync(input: {
   workerId: string;
   now: string;

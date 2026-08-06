@@ -93,6 +93,12 @@ export function normalizeWorkflowTriggerForPublish(
   input: PublishWorkflowTriggerInput,
   now = input.now ?? new Date().toISOString(),
 ): PublishWorkflowTriggerInput {
+  if (input.type === "event") {
+    const config = parseScheduleConfig(input.configJson);
+    const eventName = typeof config?.eventName === "string" ? config.eventName.trim() : "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(eventName)) throw new Error("workflow_event_invalid");
+    return { ...input, configJson: JSON.stringify({ ...config, eventName }), nextFireAt: undefined };
+  }
   if (input.type !== "schedule") return { ...input, nextFireAt: undefined };
   const config = parseScheduleConfig(input.configJson);
   if (!config) throw new Error("workflow_schedule_invalid");
