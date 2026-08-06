@@ -995,7 +995,11 @@ export function insertRemoteTokenUsageIfAbsentSync(
     ).get(input.workspaceId, input.delegationId, input.modelInvocationId) as Record<string, unknown> | undefined
     : undefined;
   if (existingStable) {
-    if (existingStable.billing_status === "voided" && input.actualCostUsd !== undefined) {
+    assertRemoteSnapshotMatches(existingStable, input);
+    if (
+      (existingStable.billing_status === "voided" || existingStable.model_id === "openmontage.pending")
+      && input.actualCostUsd !== undefined
+    ) {
       const lateUsage = markTokenUsageReconciledSync(String(existingStable.id), {
         actualCostUsd: input.actualCostUsd,
         currency: input.currency,
@@ -1029,9 +1033,7 @@ export function insertRemoteTokenUsageIfAbsentSync(
       input_tokens, output_tokens, cache_tokens, cost_usd, actual_cost_usd, currency,
       billing_status, request_started_at, request_ended_at, source_updated_at, channel_name, created_at
      ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (workspace_id, gateway_request_id)
-       WHERE gateway_request_id IS NOT NULL
-       DO NOTHING`,
+     ON CONFLICT DO NOTHING`,
   ).run(
     id,
     input.workspaceId,
@@ -1078,7 +1080,12 @@ export function insertRemoteTokenUsageIfAbsentSync(
   if (!stableRow) {
     throw new Error("token_usage.idempotency_conflict_without_existing_row");
   }
-  if (!insertResult.changes && stableRow.billing_status === "voided" && input.actualCostUsd !== undefined) {
+  assertRemoteSnapshotMatches(stableRow, input);
+  if (
+    !insertResult.changes
+    && (stableRow.billing_status === "voided" || stableRow.model_id === "openmontage.pending")
+    && input.actualCostUsd !== undefined
+  ) {
     const lateUsage = markTokenUsageReconciledSync(String(stableRow.id), {
       actualCostUsd: input.actualCostUsd,
       currency: input.currency,
@@ -1183,6 +1190,26 @@ function assertDelegatedSnapshot(input: {
   if (missing.length > 0) {
     throw new Error(`token_usage.delegation_snapshot_required:${missing.join(",")}`);
   }
+}
+
+function assertRemoteSnapshotMatches(
+  row: Record<string, unknown>,
+  input: InsertRemoteTokenUsageInput,
+): void {
+  const fields: Array<[string, unknown, unknown]> = [
+    ["runtimeCredentialId", row.runtime_credential_id, input.runtimeCredentialId],
+    ["delegationId", row.delegation_id, input.delegationId],
+    ["employeeId", row.employee_id, input.employeeId],
+    ["runtimeId", row.runtime_id, input.runtimeId],
+    ["jobId", row.job_id, input.jobId],
+    ["pipelineStage", row.pipeline_stage, input.pipelineStage],
+    ["sourceInvocationId", row.source_invocation_id, input.sourceInvocationId],
+    ["modelInvocationId", row.model_invocation_id, input.modelInvocationId],
+  ];
+  const mismatch = fields.find(([, existing, incoming]) =>
+    typeof existing === "string" && typeof incoming === "string" && existing !== incoming,
+  );
+  if (mismatch) throw new Error(`token_usage.snapshot_mismatch:${mismatch[0]}`);
 }
 
 function readWorkspaceIdForTaskQueueSync(taskQueueId: string): string | null {
