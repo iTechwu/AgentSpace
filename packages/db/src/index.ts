@@ -168,7 +168,29 @@ export type {
   ExternalThreadBindingRecord,
   ExternalThreadBindingStatus,
   ExternalUserBindingRecord,
+  WorkflowDefinitionRecord,
+  WorkflowVersionRecord,
+  WorkflowTriggerRecord,
+  WorkflowRunRecord,
+  WorkflowNodeRunRecord,
+  WorkflowRunEventRecord,
+  WorkflowOutboxRecord,
 } from "./types.ts";
+
+export {
+  createWorkflowDefinitionSync,
+  updateWorkflowDraftSync,
+  readWorkflowDefinitionSync,
+  listWorkflowDefinitionsSync,
+  publishWorkflowVersionSync,
+  readWorkflowVersionSync,
+  listWorkflowVersionsSync,
+  upsertWorkflowTriggerSync,
+  type CreateWorkflowDefinitionInput,
+  type UpdateWorkflowDraftInput,
+  type PublishWorkflowVersionInput,
+  type UpsertWorkflowTriggerInput,
+} from "./workflows/definitions.ts";
 
 export {
   appendTokenUsageBillingEventSync,
