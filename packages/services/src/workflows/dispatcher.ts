@@ -1,4 +1,5 @@
 import {
+  claimWorkflowNodeForDispatchSync,
   enqueueNativeTaskSync,
   appendWorkflowRunEventSync,
   listWorkflowNodeRunsSync,
@@ -50,6 +51,8 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     nodeRuns: listWorkflowNodeRunsSync(input.workspaceId, run.id),
   });
   const config = runtimeContext.nodeConfig;
+  const governance = parseConfig(version.governanceJson);
+  const maxConcurrency = resolveWorkflowMaxConcurrency(governance.maxConcurrency);
   const blocker = validateWorkflowNodeForDispatchSync(input.workspaceId, {
     id: nodeRun.nodeId,
     type: "employee_task",
@@ -84,14 +87,25 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     const current = readWorkflowNodeRunSync(nodeRun.id, input.workspaceId)!;
     return { nodeRunId: current.id, taskQueueId: current.taskQueueId, status: current.status };
   }
-  const queued = transitionWorkflowNodeRunSync({
+  const claim = claimWorkflowNodeForDispatchSync({
     workspaceId: input.workspaceId,
     nodeRunId: nodeRun.id,
-    from: ["ready"],
-    to: "queued",
-    clearError: true,
+    maxConcurrency,
     now,
   });
+  if (claim.reason === "concurrency_limited" && claim.nodeRun) {
+    appendWorkflowRunEventSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      nodeRunId: nodeRun.id,
+      type: "node.concurrency_wait",
+      actorType: "dispatcher",
+      dataJson: JSON.stringify({ maxConcurrency, availableAt: claim.nodeRun.availableAt }),
+      now,
+    });
+    return { nodeRunId: claim.nodeRun.id, status: claim.nodeRun.status };
+  }
+  const queued = claim.nodeRun;
   if (!queued) {
     const current = readWorkflowNodeRunSync(nodeRun.id, input.workspaceId)!;
     return { nodeRunId: current.id, taskQueueId: current.taskQueueId, status: current.status };
@@ -138,6 +152,10 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
   });
   if (!updated) throw new Error("workflow_node_queue_link_conflict");
   return { nodeRunId: updated.id, taskQueueId: task.id, status: updated.status };
+}
+
+export function resolveWorkflowMaxConcurrency(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 20 ? value : 4;
 }
 
 function rollbackReady(input: DispatchWorkflowNodeInput, now: string): void {

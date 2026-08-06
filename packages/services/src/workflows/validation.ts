@@ -63,6 +63,7 @@ export function validateWorkflowForPublishSync(
   if (input.actor.role === "viewer") {
     blockers.push({ code: "workflow_actor_forbidden", detail: "viewer cannot publish workflows" });
   }
+  blockers.push(...validateWorkflowGovernance(input.governance));
 
   const graphResult = validateWorkflowGraph(input.graph);
   for (const error of graphResult.errors) {
@@ -115,7 +116,26 @@ export function validateWorkflowForPublishSync(
       }
     }
   }
+  if (workflowBudget !== undefined) {
+    const estimatedTotal = input.graph.nodes.reduce((total, node) => (
+      total + (optionalFiniteNumber(node.config.estimatedCostUsd) ?? 0)
+    ), 0);
+    if (estimatedTotal > workflowBudget) {
+      blockers.push({
+        code: "workflow_budget_exceeded",
+        detail: `estimated_total_${estimatedTotal}_exceeds_workflow_budget_${workflowBudget}`,
+      });
+    }
+  }
   return { blockers, warnings };
+}
+
+export function validateWorkflowGovernance(governance?: Record<string, unknown>): WorkflowPublishBlocker[] {
+  if (governance?.maxConcurrency === undefined) return [];
+  const value = governance.maxConcurrency;
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 20
+    ? []
+    : [{ code: "workflow_concurrency_invalid", detail: "max_concurrency_must_be_integer_1_to_20" }];
 }
 
 export function validateWorkflowNodeForDispatchSync(

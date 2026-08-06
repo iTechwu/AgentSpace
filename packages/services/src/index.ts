@@ -151,6 +151,7 @@ export {
   canonicalizeJson,
   hashWorkflowGraph,
   validateWorkflowForPublishSync,
+  validateWorkflowGovernance,
   validateWorkflowEmployeeReadiness,
   validateWorkflowNodeForDispatchSync,
   type ValidateWorkflowForPublishInput,
@@ -187,6 +188,7 @@ export {
 } from "./workflows/events.ts";
 export {
   dispatchReadyWorkflowNodeSync,
+  resolveWorkflowMaxConcurrency,
   type DispatchWorkflowNodeInput,
   type DispatchWorkflowNodeResult,
 } from "./workflows/dispatcher.ts";

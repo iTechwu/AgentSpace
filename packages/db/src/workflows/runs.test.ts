@@ -3,6 +3,7 @@ import test, { after, before } from "node:test";
 import { getDatabase, resetDatabaseForTests } from "../database.ts";
 import { createWorkflowDefinitionSync, publishWorkflowVersionSync } from "./definitions.ts";
 import {
+  claimWorkflowNodeForDispatchSync,
   createWorkflowRunSync,
   listWorkflowNodeRunsSync,
   materializeWorkflowNodeRunsSync,
@@ -126,6 +127,48 @@ test("materializes one run for a duplicate trigger key and protects terminal nod
     allowTerminalRetry: true,
   }));
   assert.equal(readWorkflowRunSync(first.id, WORKSPACE_ID)?.status, "running");
+});
+
+test("dispatch claims serialize against the run concurrency limit", () => {
+  const seed = seedVersion();
+  const run = createWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: seed.workflowId,
+    versionId: seed.versionId,
+    triggerType: "manual",
+    triggerKey: `workflow-runs:concurrency-${seed.workflowId}`,
+    inputJson: "{}",
+  });
+  const nodes = materializeWorkflowNodeRunsSync({
+    workspaceId: WORKSPACE_ID,
+    runId: run.id,
+    nodes: [
+      { nodeId: "parallel-a", nodeType: "employee_task", employeeId: "e1" },
+      { nodeId: "parallel-b", nodeType: "employee_task", employeeId: "e2" },
+    ],
+  });
+  for (const node of nodes) {
+    transitionWorkflowNodeRunSync({ workspaceId: WORKSPACE_ID, nodeRunId: node.id, from: ["pending"], to: "ready" });
+  }
+
+  const first = claimWorkflowNodeForDispatchSync({
+    workspaceId: WORKSPACE_ID,
+    nodeRunId: nodes[0]!.id,
+    maxConcurrency: 1,
+    now: "2026-08-07T00:00:00.000Z",
+  });
+  const second = claimWorkflowNodeForDispatchSync({
+    workspaceId: WORKSPACE_ID,
+    nodeRunId: nodes[1]!.id,
+    maxConcurrency: 1,
+    now: "2026-08-07T00:00:00.000Z",
+  });
+
+  assert.equal(first.reason, "claimed");
+  assert.equal(first.nodeRun?.status, "queued");
+  assert.equal(second.reason, "concurrency_limited");
+  assert.equal(second.nodeRun?.status, "retry_wait");
+  assert.equal(second.nodeRun?.availableAt, "2026-08-07T00:00:05.000Z");
 });
 
 test("event sequence and outbox lease are monotonic and owned", () => {

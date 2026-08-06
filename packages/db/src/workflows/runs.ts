@@ -65,6 +65,19 @@ export interface TransitionWorkflowNodeRunInput {
   allowTerminalRetry?: boolean;
 }
 
+export interface ClaimWorkflowNodeForDispatchInput {
+  workspaceId: string;
+  nodeRunId: string;
+  maxConcurrency: number;
+  now: string;
+  retryDelaySeconds?: number;
+}
+
+export interface ClaimWorkflowNodeForDispatchResult {
+  nodeRun: WorkflowNodeRunRecord | null;
+  reason: "claimed" | "concurrency_limited" | "not_ready";
+}
+
 const TERMINAL_RUN_STATUSES = new Set(["succeeded", "partially_succeeded", "failed", "cancelled"]);
 const TERMINAL_NODE_RUN_STATUSES = new Set(["succeeded", "failed", "skipped", "cancelled"]);
 
@@ -168,6 +181,52 @@ export function listWorkflowNodeRunsSync(workspaceId: string, runId: string): Wo
   return (getDatabase().prepare(
     `${NODE_RUN_SELECT} WHERE workspace_id = ? AND run_id = ? ORDER BY created_at ASC, id ASC`,
   ).all(workspaceId, runId) as Array<Record<string, unknown>>).map(mapNodeRun);
+}
+
+export function claimWorkflowNodeForDispatchSync(
+  input: ClaimWorkflowNodeForDispatchInput,
+): ClaimWorkflowNodeForDispatchResult {
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const row = db.prepare(`${NODE_RUN_SELECT} WHERE id = ? AND workspace_id = ? FOR UPDATE`)
+      .get(input.nodeRunId, input.workspaceId) as Record<string, unknown> | undefined;
+    const nodeRun = row ? mapNodeRun(row) : null;
+    if (!nodeRun || nodeRun.status !== "ready") return { nodeRun, reason: "not_ready" };
+    db.prepare("SELECT id FROM workflow_run WHERE id = ? AND workspace_id = ? FOR UPDATE")
+      .get(nodeRun.runId, input.workspaceId);
+    const active = db.prepare(
+      `SELECT COUNT(*)::integer AS count
+         FROM workflow_node_run
+        WHERE workspace_id = ? AND run_id = ? AND status IN ('queued', 'running')`,
+    ).get(input.workspaceId, nodeRun.runId) as { count: number };
+    if (active.count >= Math.max(1, input.maxConcurrency)) {
+      const availableAt = new Date(Date.parse(input.now) + (input.retryDelaySeconds ?? 5) * 1_000).toISOString();
+      return {
+        nodeRun: transitionWorkflowNodeRunSync({
+          workspaceId: input.workspaceId,
+          nodeRunId: nodeRun.id,
+          from: ["ready"],
+          to: "retry_wait",
+          availableAt,
+          errorCode: "workflow_concurrency_limited",
+          errorMessage: `max_concurrency_${input.maxConcurrency}`,
+          now: input.now,
+        }),
+        reason: "concurrency_limited",
+      };
+    }
+    return {
+      nodeRun: transitionWorkflowNodeRunSync({
+        workspaceId: input.workspaceId,
+        nodeRunId: nodeRun.id,
+        from: ["ready"],
+        to: "queued",
+        clearError: true,
+        now: input.now,
+      }),
+      reason: "claimed",
+    };
+  });
 }
 
 export function transitionWorkflowRunSync(input: TransitionWorkflowRunInput): WorkflowRunRecord | null {

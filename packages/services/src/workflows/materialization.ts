@@ -78,6 +78,7 @@ export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): 
     triggerType: input.trigger.type,
     triggerKey,
     inputJson: input.inputJson ?? "{}",
+    budgetJson: version.governanceJson,
     createdBy: input.createdBy,
     now: input.now,
   });

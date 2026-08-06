@@ -5,9 +5,16 @@ import {
   canonicalizeWorkflowGraph,
   hashWorkflowGraph,
   validateWorkflowEmployeeReadiness,
+  validateWorkflowGovernance,
   validateWorkflowNodeDependencies,
   validateWorkflowForPublishSync,
 } from "./validation.ts";
+
+test("governance requires a bounded integer concurrency limit", () => {
+  assert.deepEqual(validateWorkflowGovernance({ maxConcurrency: 8 }), []);
+  assert.equal(validateWorkflowGovernance({ maxConcurrency: 0 })[0]?.code, "workflow_concurrency_invalid");
+  assert.equal(validateWorkflowGovernance({ maxConcurrency: 2.5 })[0]?.code, "workflow_concurrency_invalid");
+});
 
 const validGraph = {
   schemaVersion: 1 as const,
