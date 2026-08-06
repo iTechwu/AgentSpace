@@ -28,6 +28,7 @@ import type {
 const STEPS = ["目标", "触发", "流程", "治理", "预览"] as const;
 
 type TriggerType = "manual" | "schedule" | "event";
+type ScheduleMode = "once" | "daily" | "cron";
 
 export function WorkflowBuilderClient({
   workspaceSlug,
@@ -53,7 +54,10 @@ export function WorkflowBuilderClient({
   const [activeStep, setActiveStep] = useState(entry === "calendar" ? 1 : 0);
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [triggerType, setTriggerType] = useState<TriggerType>(initial?.trigger.type ?? (entry === "calendar" ? "schedule" : "manual"));
-  const [schedule, setSchedule] = useState(stringConfig(initial?.trigger.config.cron, "0 9 * * 1-5"));
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialScheduleMode(initial?.trigger.config));
+  const [schedule, setSchedule] = useState(stringConfig(initial?.trigger.config.cronExpression ?? initial?.trigger.config.cron, "0 9 * * 1-5"));
+  const [onceAt, setOnceAt] = useState(stringConfig(initial?.trigger.config.onceAt, ""));
+  const [dailyAt, setDailyAt] = useState(stringConfig(initial?.trigger.config.dailyAt, "09:00"));
   const [eventName, setEventName] = useState(stringConfig(initial?.trigger.config.eventName, ""));
   const [timezone, setTimezone] = useState(initial?.trigger.timezone ?? "Asia/Shanghai");
   const [maxConcurrency, setMaxConcurrency] = useState(initial?.governance.maxConcurrency ?? 4);
@@ -180,7 +184,7 @@ export function WorkflowBuilderClient({
       expectedDraftVersion: draft.draftVersion,
       graph,
       governance: { maxConcurrency, failurePolicy },
-      trigger: triggerPayload(triggerType, schedule, eventName, timezone),
+      trigger: triggerPayload(triggerType, scheduleMode, schedule, onceAt, dailyAt, eventName, timezone),
     });
     setPendingAction(null);
     if (!result.ok) {
@@ -258,7 +262,20 @@ export function WorkflowBuilderClient({
                 ))}
               </div>
             </fieldset>
-            {triggerType === "schedule" ? <><label><span>Cron 表达式</span><input onChange={(event) => updateConfiguration(() => setSchedule(event.target.value))} value={schedule} /></label><label><span>时区</span><input onChange={(event) => updateConfiguration(() => setTimezone(event.target.value))} value={timezone} /></label></> : null}
+            {triggerType === "schedule" ? <>
+              <fieldset>
+                <legend>执行周期</legend>
+                <div className="workflow-wizard__choice-grid">
+                  {(["once", "daily", "cron"] as const).map((mode) => (
+                    <label key={mode}><input checked={scheduleMode === mode} name="schedule-mode" onChange={() => updateConfiguration(() => setScheduleMode(mode))} type="radio" />{scheduleModeLabel(mode)}</label>
+                  ))}
+                </div>
+              </fieldset>
+              {scheduleMode === "once" ? <label><span>执行时间（ISO 8601）</span><input onChange={(event) => updateConfiguration(() => setOnceAt(event.target.value))} placeholder="2026-08-08T11:00:00+08:00" value={onceAt} /></label> : null}
+              {scheduleMode === "daily" ? <label><span>每天执行时间</span><input onChange={(event) => updateConfiguration(() => setDailyAt(event.target.value))} type="time" value={dailyAt} /></label> : null}
+              {scheduleMode === "cron" ? <label><span>Cron 表达式</span><input onChange={(event) => updateConfiguration(() => setSchedule(event.target.value))} value={schedule} /></label> : null}
+              <label><span>时区</span><input onChange={(event) => updateConfiguration(() => setTimezone(event.target.value))} value={timezone} /></label>
+            </> : null}
             {triggerType === "event" ? <label><span>事件名称</span><input onChange={(event) => updateConfiguration(() => setEventName(event.target.value))} value={eventName} /></label> : null}
           </div>
         ) : null}
@@ -313,10 +330,27 @@ function triggerLabel(type: TriggerType): string {
   return type === "manual" ? "手动触发" : type === "schedule" ? "定时触发" : "事件触发";
 }
 
-function triggerPayload(type: TriggerType, schedule: string, eventName: string, timezone: string) {
-  if (type === "schedule") return { type, config: { cron: schedule }, timezone };
+function triggerPayload(type: TriggerType, scheduleMode: ScheduleMode, schedule: string, onceAt: string, dailyAt: string, eventName: string, timezone: string) {
+  if (type === "schedule") {
+    const config = scheduleMode === "once"
+      ? { onceAt: onceAt.trim() }
+      : scheduleMode === "daily"
+        ? { dailyAt }
+        : { cronExpression: schedule.trim() };
+    return { type, config, timezone };
+  }
   if (type === "event") return { type, config: { eventName } };
   return { type, config: {} };
+}
+
+function initialScheduleMode(config: Record<string, unknown> | undefined): ScheduleMode {
+  if (typeof config?.onceAt === "string") return "once";
+  if (typeof config?.dailyAt === "string") return "daily";
+  return "cron";
+}
+
+function scheduleModeLabel(mode: ScheduleMode): string {
+  return mode === "once" ? "一次性" : mode === "daily" ? "每天" : "Cron";
 }
 
 function stringConfig(value: unknown, fallback: string): string {

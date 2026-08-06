@@ -171,6 +171,8 @@ export {
 export {
   tickWorkflowSchedulerSync,
   computeNextWorkflowFireAt,
+  isOneTimeWorkflowTrigger,
+  normalizeWorkflowTriggerForPublish,
   type WorkflowSchedulerTickResult,
 } from "./workflows/scheduler.ts";
 export {

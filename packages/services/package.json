@@ -16,6 +16,7 @@
     "@volcengine/tos-sdk": "^2.9.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "cron-parser": "^5.7.0",
     "fflate": "^0.8.2",
     "yaml": "^2.7.0"
   },

@@ -12,6 +12,7 @@ import {
   type ValidateWorkflowForPublishInput,
   type WorkflowPublishValidation,
 } from "./validation.ts";
+import { normalizeWorkflowTriggerForPublish } from "./scheduler.ts";
 
 export interface PublishWorkflowInput extends ValidateWorkflowForPublishInput {
   workflowId: string;
@@ -45,7 +46,7 @@ export function publishWorkflowSync(input: PublishWorkflowInput): PublishWorkflo
     contentHash: hashWorkflowGraph(input.graph),
     publishedBy: input.actor.userId,
     versionNumber: input.versionNumber,
-    trigger: input.trigger,
+    trigger: input.trigger ? normalizeWorkflowTriggerForPublish(input.trigger) : undefined,
   };
   const version = publishWorkflowVersionSync(versionInput);
   return { version, validation };

@@ -1,9 +1,13 @@
 import {
   advanceWorkflowTriggerSync,
   claimDueWorkflowTriggersSync,
+  type UpsertWorkflowTriggerInput,
   type WorkflowTriggerRecord,
 } from "@dofe-agent/db";
+import { CronExpressionParser } from "cron-parser";
 import { materializeWorkflowRunSync } from "./materialization.ts";
+
+type PublishWorkflowTriggerInput = Omit<UpsertWorkflowTriggerInput, "workspaceId" | "workflowId">;
 
 export interface WorkflowSchedulerTickResult {
   claimedTriggerIds: string[];
@@ -32,13 +36,14 @@ export function tickWorkflowSchedulerSync(input: {
       result.misfiredTriggerIds.push(trigger.id);
       continue;
     }
+    const oneTime = isOneTimeWorkflowTrigger(trigger);
     const next = computeNextWorkflowFireAt(trigger, scheduledAt, input.now);
-    if (!next) {
+    if (!next && !oneTime) {
       releaseTrigger(trigger, input.workerId, input.now, null, "paused");
       result.misfiredTriggerIds.push(trigger.id);
       continue;
     }
-    const misfired = trigger.misfirePolicy === "skip" && Date.parse(next) <= Date.parse(input.now);
+    const misfired = !oneTime && trigger.misfirePolicy === "skip" && next !== null && Date.parse(next) <= Date.parse(input.now);
     if (misfired) {
       releaseTrigger(trigger, input.workerId, input.now, advanceAfter(trigger, next, input.now), undefined, scheduledAt);
       result.misfiredTriggerIds.push(trigger.id);
@@ -51,7 +56,7 @@ export function tickWorkflowSchedulerSync(input: {
         scheduledAt,
         now: input.now,
       });
-      releaseTrigger(trigger, input.workerId, input.now, next, undefined, scheduledAt);
+      releaseTrigger(trigger, input.workerId, input.now, next, oneTime ? "paused" : undefined, scheduledAt);
       if (materialized.created) result.createdRunIds.push(materialized.runId);
       else result.deduplicatedTriggerIds.push(trigger.id);
     } catch {
@@ -63,19 +68,60 @@ export function tickWorkflowSchedulerSync(input: {
 }
 
 export function computeNextWorkflowFireAt(trigger: WorkflowTriggerRecord, scheduledAt: string, now: string): string | null {
-  let config: Record<string, unknown>;
-  try {
-    config = JSON.parse(trigger.configJson) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  const config = parseScheduleConfig(trigger.configJson);
+  if (!config) return null;
+  if (typeof config.onceAt === "string") return null;
   const repeatSeconds = Number(config.repeatSeconds ?? config.intervalSeconds);
   if (Number.isFinite(repeatSeconds) && repeatSeconds > 0) {
     return new Date(Date.parse(scheduledAt) + repeatSeconds * 1000).toISOString();
   }
   const dailyAt = typeof config.dailyAt === "string" ? config.dailyAt : undefined;
   if (dailyAt) return nextDailyAt(scheduledAt, dailyAt, trigger.timezone ?? "UTC");
+  const cronExpression = typeof config.cronExpression === "string"
+    ? config.cronExpression
+    : typeof config.cron === "string" ? config.cron : undefined;
+  if (cronExpression) return nextCronAt(cronExpression, scheduledAt, trigger.timezone ?? "UTC");
   return null;
+}
+
+export function isOneTimeWorkflowTrigger(trigger: Pick<WorkflowTriggerRecord, "configJson">): boolean {
+  const config = parseScheduleConfig(trigger.configJson);
+  return typeof config?.onceAt === "string";
+}
+
+export function normalizeWorkflowTriggerForPublish(
+  input: PublishWorkflowTriggerInput,
+  now = input.now ?? new Date().toISOString(),
+): PublishWorkflowTriggerInput {
+  if (input.type !== "schedule") return { ...input, nextFireAt: undefined };
+  const config = parseScheduleConfig(input.configJson);
+  if (!config) throw new Error("workflow_schedule_invalid");
+  const timezone = input.timezone ?? "UTC";
+  if (!isValidTimezone(timezone)) throw new Error("workflow_schedule_timezone_invalid");
+  const nowMillis = Date.parse(now);
+  if (!Number.isFinite(nowMillis)) throw new Error("workflow_schedule_invalid");
+
+  let nextFireAt: string | null = null;
+  if (typeof config.onceAt === "string") {
+    const onceMillis = Date.parse(config.onceAt);
+    if (!Number.isFinite(onceMillis)) throw new Error("workflow_schedule_invalid");
+    if (onceMillis <= nowMillis) throw new Error("workflow_schedule_in_past");
+    nextFireAt = new Date(onceMillis).toISOString();
+  } else {
+    const repeatSeconds = Number(config.repeatSeconds ?? config.intervalSeconds);
+    if (Number.isFinite(repeatSeconds) && repeatSeconds > 0) {
+      nextFireAt = new Date(nowMillis + repeatSeconds * 1000).toISOString();
+    } else if (typeof config.dailyAt === "string") {
+      nextFireAt = firstDailyAt(now, config.dailyAt, timezone);
+    } else {
+      const cronExpression = typeof config.cronExpression === "string"
+        ? config.cronExpression
+        : typeof config.cron === "string" ? config.cron : undefined;
+      if (cronExpression) nextFireAt = nextCronAt(cronExpression, now, timezone);
+    }
+  }
+  if (!nextFireAt) throw new Error("workflow_schedule_invalid");
+  return { ...input, timezone, nextFireAt };
 }
 
 function advanceAfter(trigger: WorkflowTriggerRecord, candidate: string, now: string): string | null {
@@ -96,6 +142,49 @@ function nextDailyAt(scheduledAt: string, dailyAt: string, timezone: string): st
   if (!parts) return null;
   const localDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1, hour, minute));
   return localDateToUtc(localDate, timezone);
+}
+
+function firstDailyAt(now: string, dailyAt: string, timezone: string): string | null {
+  const match = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(dailyAt);
+  if (!match) return null;
+  const [hour, minute] = dailyAt.split(":").map(Number);
+  const parts = zonedParts(new Date(now), timezone);
+  if (!parts) return null;
+  let localDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, hour, minute));
+  let candidate = localDateToUtc(localDate, timezone);
+  if (candidate && Date.parse(candidate) <= Date.parse(now)) {
+    localDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1, hour, minute));
+    candidate = localDateToUtc(localDate, timezone);
+  }
+  return candidate;
+}
+
+function nextCronAt(expression: string, currentDate: string, timezone: string): string | null {
+  try {
+    return CronExpressionParser.parse(expression, { currentDate, tz: timezone }).next().toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function parseScheduleConfig(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isValidTimezone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function zonedParts(date: Date, timezone: string): { year: number; month: number; day: number } | null {
