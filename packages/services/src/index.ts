@@ -147,6 +147,21 @@ export {
 export { parseSkillDependencyDeclaration } from "./skills/dependencies.ts";
 export type { SkillDependencyDeclaration } from "./skills/dependencies.ts";
 export {
+  canonicalizeWorkflowGraph,
+  canonicalizeJson,
+  hashWorkflowGraph,
+  validateWorkflowForPublishSync,
+  type ValidateWorkflowForPublishInput,
+  type WorkflowActorRole,
+  type WorkflowPublishBlocker,
+  type WorkflowPublishValidation,
+} from "./workflows/validation.ts";
+export {
+  publishWorkflowSync,
+  type PublishWorkflowInput,
+  type PublishWorkflowResult,
+} from "./workflows/publishing.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,
