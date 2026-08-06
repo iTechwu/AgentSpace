@@ -227,6 +227,7 @@ export {
   enqueueWorkflowOutboxSync,
   readWorkflowOutboxSync,
   claimWorkflowOutboxBatchSync,
+  markWorkflowOutboxFailedSync,
   markWorkflowOutboxPublishedSync,
   type EnqueueWorkflowOutboxInput,
 } from "./workflows/outbox.ts";

@@ -2,6 +2,7 @@ import {
   claimWorkflowOutboxBatchSync,
   readWorkflowNodeRunSync,
   listWorkflowNodeRunsSync,
+  markWorkflowOutboxFailedSync,
   markWorkflowOutboxPublishedSync,
 } from "@dofe-agent/db";
 import { dispatchReadyWorkflowNodeSync } from "./dispatcher.ts";
@@ -13,6 +14,8 @@ export interface WorkflowOutboxDispatchResult {
   dispatchedTaskIds: string[];
   failedOutboxIds: string[];
 }
+
+export const WORKFLOW_OUTBOX_MAX_ATTEMPTS = 8;
 
 export function dispatchWorkflowOutboxBatchSync(input: {
   workerId: string;
@@ -31,10 +34,12 @@ export function dispatchWorkflowOutboxBatchSync(input: {
   for (const item of items) {
     try {
       const payload = parsePayload(item.payloadJson);
-      if (item.eventType === "workflow.node.ready" && typeof payload.nodeRunId === "string") {
+      if (item.eventType === "workflow.node.ready") {
+        if (typeof payload.nodeRunId !== "string") throw new Error("workflow_outbox_payload_invalid");
         const dispatched = dispatchReadyWorkflowNodeByTypeSync({ workspaceId: item.workspaceId, nodeRunId: payload.nodeRunId, now });
         if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
-      } else if ((item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") && typeof payload.runId === "string") {
+      } else if (item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") {
+        if (typeof payload.runId !== "string") throw new Error("workflow_outbox_payload_invalid");
         for (const node of listWorkflowNodeRunsSync(item.workspaceId, payload.runId).filter((candidate) => candidate.status === "ready")) {
           const dispatched = dispatchReadyWorkflowNodeByTypeSync({ workspaceId: item.workspaceId, nodeRunId: node.id, now });
           if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
@@ -42,11 +47,29 @@ export function dispatchWorkflowOutboxBatchSync(input: {
       }
       markWorkflowOutboxPublishedSync(item.id, input.workerId, item.workspaceId, now);
       result.publishedOutboxIds.push(item.id);
-    } catch {
+    } catch (error) {
+      markWorkflowOutboxFailedSync({
+        id: item.id,
+        workerId: input.workerId,
+        workspaceId: item.workspaceId,
+        error: workflowOutboxErrorCode(error),
+        nextAvailableAt: computeWorkflowOutboxRetryAt(now, item.attempts),
+        maxAttempts: WORKFLOW_OUTBOX_MAX_ATTEMPTS,
+      });
       result.failedOutboxIds.push(item.id);
     }
   }
   return result;
+}
+
+export function computeWorkflowOutboxRetryAt(now: string, attempts: number): string {
+  const delaySeconds = Math.min(900, 5 * 2 ** Math.max(0, attempts - 1));
+  return new Date(Date.parse(now) + delaySeconds * 1_000).toISOString();
+}
+
+export function workflowOutboxErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return /^workflow_[a-z0-9_]+$/.test(message) ? message : "workflow_outbox_dispatch_failed";
 }
 
 function dispatchReadyWorkflowNodeByTypeSync(input: { workspaceId: string; nodeRunId: string; now: string }): { taskQueueId?: string } {
@@ -71,8 +94,9 @@ function dispatchReadyWorkflowNodeByTypeSync(input: { workspaceId: string; nodeR
 function parsePayload(value: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
   } catch {
-    return {};
+    // Normalize malformed payloads to a stable, non-sensitive dead-letter reason.
   }
+  throw new Error("workflow_outbox_payload_invalid");
 }

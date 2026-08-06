@@ -78,11 +78,37 @@ export function markWorkflowOutboxPublishedSync(id: string, workerId: string, wo
   if (result.changes !== 1) throw new Error("workflow_outbox_lease_conflict");
 }
 
-const OUTBOX_SELECT = `SELECT id, workspace_id AS "workspaceId", aggregate_type AS "aggregateType",
+export function markWorkflowOutboxFailedSync(input: {
+  id: string;
+  workerId: string;
+  workspaceId: string;
+  error: string;
+  nextAvailableAt: string;
+  maxAttempts: number;
+}): WorkflowOutboxRecord {
+  const row = getDatabase().prepare(
+    `UPDATE workflow_outbox
+        SET status = CASE WHEN attempts >= ? THEN 'dead_letter' ELSE 'pending' END,
+            available_at = ?, last_error = ?, locked_at = NULL, locked_by = NULL
+      WHERE id = ? AND workspace_id = ? AND status = 'pending' AND locked_by = ?
+      RETURNING ${OUTBOX_COLUMNS}`,
+  ).get(
+    Math.max(1, input.maxAttempts),
+    input.nextAvailableAt,
+    input.error,
+    input.id,
+    input.workspaceId,
+    input.workerId,
+  ) as Record<string, unknown> | undefined;
+  if (!row) throw new Error("workflow_outbox_lease_conflict");
+  return mapOutbox(row);
+}
+
+const OUTBOX_COLUMNS = `id, workspace_id AS "workspaceId", aggregate_type AS "aggregateType",
   aggregate_id AS "aggregateId", event_type AS "eventType", payload_json AS "payloadJson", status,
   attempts, available_at AS "availableAt", locked_at AS "lockedAt", locked_by AS "lockedBy",
-  last_error AS "lastError", created_at AS "createdAt", published_at AS "publishedAt"
-FROM workflow_outbox`;
+  last_error AS "lastError", created_at AS "createdAt", published_at AS "publishedAt"`;
+const OUTBOX_SELECT = `SELECT ${OUTBOX_COLUMNS} FROM workflow_outbox`;
 
 function mapOutbox(row: Record<string, unknown>): WorkflowOutboxRecord {
   return Object.fromEntries(Object.entries(row).filter(([, value]) => value !== null)) as unknown as WorkflowOutboxRecord;
