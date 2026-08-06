@@ -125,3 +125,39 @@ test("trigger upsert cannot overwrite a trigger from another workspace", () => {
     /workflow_trigger_cross_workspace_conflict/,
   );
 });
+
+test("publishing historical content reactivates its immutable version", () => {
+  const definition = createWorkflowDefinitionSync({
+    id: "workflow-version-reactivation-test",
+    workspaceId: WORKSPACE_ID,
+    name: "Version reactivation",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const first = publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+    contentHash: "sha256:reactivation-a",
+    publishedBy: "u1",
+  });
+  const second = publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson: '{"schemaVersion":1,"nodes":[{"id":"next","type":"approval","config":{}}],"edges":[]}',
+    contentHash: "sha256:reactivation-b",
+    publishedBy: "u1",
+  });
+  assert.equal(readWorkflowDefinitionSync(definition.id, WORKSPACE_ID)?.activeVersionId, second.id);
+
+  const reactivated = publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson: first.graphJson,
+    contentHash: first.contentHash,
+    publishedBy: "u1",
+  });
+
+  assert.equal(reactivated.id, first.id);
+  assert.equal(readWorkflowDefinitionSync(definition.id, WORKSPACE_ID)?.activeVersionId, first.id);
+});

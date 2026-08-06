@@ -144,9 +144,9 @@ export function publishWorkflowVersionSync(
   const db = getDatabase();
   return withTransaction(db, () => {
     const definition = db.prepare(
-      `SELECT id, status FROM workflow_definition
+      `SELECT id, status, active_version_id AS "activeVersionId" FROM workflow_definition
        WHERE id = ? AND workspace_id = ? FOR UPDATE`,
-    ).get(input.workflowId, input.workspaceId) as { id?: string; status?: string } | undefined;
+    ).get(input.workflowId, input.workspaceId) as { id?: string; status?: string; activeVersionId?: string } | undefined;
     if (!definition?.id) throw new Error("workflow_definition_not_found");
     if (definition.status === "archived") throw new Error("workflow_definition_archived");
 
@@ -157,11 +157,22 @@ export function publishWorkflowVersionSync(
       input.contentHash,
     );
     if (identical) {
+      const now = input.publishedAt ?? new Date().toISOString();
+      if (definition.activeVersionId !== identical.id) {
+        activateWorkflowVersionWithDatabase(db, {
+          workspaceId: input.workspaceId,
+          workflowId: input.workflowId,
+          versionId: identical.id,
+          versionNumber: identical.versionNumber,
+          now,
+        });
+      }
       if (input.trigger) {
         upsertWorkflowTriggerWithDatabase(db, {
           ...input.trigger,
           workspaceId: input.workspaceId,
           workflowId: input.workflowId,
+          now: input.trigger.now ?? now,
         });
       }
       return identical;
@@ -201,38 +212,13 @@ export function publishWorkflowVersionSync(
       now,
       now,
     );
-    const updated = db.prepare(
-      `UPDATE workflow_definition
-          SET active_version_id = ?, status = 'published', updated_at = ?
-        WHERE id = ? AND workspace_id = ?`,
-    ).run(id, now, input.workflowId, input.workspaceId);
-    if (updated.changes !== 1) throw new Error("workflow_definition_conflict");
-
-    db.prepare(
-      `INSERT INTO workflow_outbox (
-         id, workspace_id, aggregate_type, aggregate_id, event_type, payload_json,
-         status, attempts, available_at, created_at
-       ) VALUES (?, ?, 'workflow_definition', ?, 'workflow.version.published', ?, 'pending', 0, ?, ?)`,
-    ).run(
-      `workflow-outbox-${randomLikeId()}`,
-      input.workspaceId,
-      input.workflowId,
-      JSON.stringify({ workflowId: input.workflowId, versionId: id, versionNumber }),
+    activateWorkflowVersionWithDatabase(db, {
+      workspaceId: input.workspaceId,
+      workflowId: input.workflowId,
+      versionId: id,
+      versionNumber,
       now,
-      now,
-    );
-    db.prepare(
-      `INSERT INTO audit_log (
-         id, workspace_id, title, note, code, data_json, source, source_index, created_at
-       ) VALUES (?, ?, ?, ?, 'workflow.version.published', ?, 'runtime_lifecycle', 0, ?)`,
-    ).run(
-      `audit-${randomLikeId()}`,
-      input.workspaceId,
-      "工作流版本已发布",
-      input.workflowId,
-      JSON.stringify({ workflowId: input.workflowId, versionId: id, versionNumber }),
-      now,
-    );
+    });
 
     if (input.trigger) {
       upsertWorkflowTriggerWithDatabase(db, {
@@ -245,6 +231,49 @@ export function publishWorkflowVersionSync(
 
     return readWorkflowVersionWithDatabase(db, id, input.workspaceId)!;
   });
+}
+
+function activateWorkflowVersionWithDatabase(
+  db: PostgresSyncDatabase,
+  input: { workspaceId: string; workflowId: string; versionId: string; versionNumber: number; now: string },
+): void {
+  const updated = db.prepare(
+    `UPDATE workflow_definition
+        SET active_version_id = ?, status = 'published', updated_at = ?
+      WHERE id = ? AND workspace_id = ?`,
+  ).run(input.versionId, input.now, input.workflowId, input.workspaceId);
+  if (updated.changes !== 1) throw new Error("workflow_definition_conflict");
+
+  const dataJson = JSON.stringify({
+    workflowId: input.workflowId,
+    versionId: input.versionId,
+    versionNumber: input.versionNumber,
+  });
+  db.prepare(
+    `INSERT INTO workflow_outbox (
+       id, workspace_id, aggregate_type, aggregate_id, event_type, payload_json,
+       status, attempts, available_at, created_at
+     ) VALUES (?, ?, 'workflow_definition', ?, 'workflow.version.published', ?, 'pending', 0, ?, ?)`,
+  ).run(
+    `workflow-outbox-${randomLikeId()}`,
+    input.workspaceId,
+    input.workflowId,
+    dataJson,
+    input.now,
+    input.now,
+  );
+  db.prepare(
+    `INSERT INTO audit_log (
+       id, workspace_id, title, note, code, data_json, source, source_index, created_at
+     ) VALUES (?, ?, ?, ?, 'workflow.version.published', ?, 'runtime_lifecycle', 0, ?)`,
+  ).run(
+    `audit-${randomLikeId()}`,
+    input.workspaceId,
+    "工作流版本已发布",
+    input.workflowId,
+    dataJson,
+    input.now,
+  );
 }
 
 export function readWorkflowVersionSync(id: string, workspaceId: string): WorkflowVersionRecord | null {
