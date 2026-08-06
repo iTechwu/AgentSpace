@@ -87,6 +87,7 @@ export function WorkflowRunClient({
   }, [refreshFrom]);
 
   async function control(action: "pause" | "resume" | "cancel" | "retry_node", nodeId?: string): Promise<void> {
+    if (!projection.canControl) return;
     setPendingControl(`${action}:${nodeId ?? "run"}`);
     setNotice(undefined);
     try {
@@ -106,9 +107,9 @@ export function WorkflowRunClient({
     }
   }
 
-  const canPause = projection.status === "running" || projection.status === "queued";
-  const canResume = projection.status === "paused";
-  const canCancel = !TERMINAL_STATUSES.has(projection.status);
+  const canPause = projection.canControl && (projection.status === "running" || projection.status === "queued");
+  const canResume = projection.canControl && projection.status === "paused";
+  const canCancel = projection.canControl && !TERMINAL_STATUSES.has(projection.status);
 
   return (
     <main className="workflow-run">
@@ -142,7 +143,7 @@ export function WorkflowRunClient({
                 <small>{node.nodeType} · 尝试 {node.attemptCount}/{node.maxAttempts} · {durationLabel(node.startedAt, node.finishedAt)}</small>
               </div>
               <span>{node.artifactCount} 个产物{node.costUsd !== undefined ? ` · $${node.costUsd.toFixed(4)}` : ""}</span>
-              {node.status === "failed" && (projection.status === "failed" || projection.status === "partially_succeeded") && node.nodeType === "employee_task" ? (
+              {projection.canControl && node.status === "failed" && (projection.status === "failed" || projection.status === "partially_succeeded") && node.nodeType === "employee_task" ? (
                 <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("retry_node", node.nodeId)} type="button">重试步骤</button>
               ) : <span>{node.errorCode ? translateWorkflowErrorCode(node.errorCode, tx) : ""}</span>}
             </li>

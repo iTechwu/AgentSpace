@@ -175,6 +175,7 @@ export function getWorkflowBuilderPageData(
 export function getWorkflowRunPageData(
   workspaceId: string,
   runId: string,
+  actor?: { userId: string; role: string },
 ): WorkflowRunPageData | null {
   const run = readWorkflowRunSync(runId, workspaceId);
   if (!run) return null;
@@ -194,6 +195,7 @@ export function getWorkflowRunPageData(
     status: run.status,
     triggerType: run.triggerType,
     currentSequence: run.currentSequence,
+    canControl: actor?.role === "owner" || actor?.role === "admin" || definition?.ownerUserId === actor?.userId,
     ...(run.startedAt ? { startedAt: run.startedAt } : {}),
     ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
     createdAt: run.createdAt,

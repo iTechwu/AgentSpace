@@ -31,6 +31,9 @@ export async function GET(
 
   const page = getWorkflowRunEventsPage(workspaceId, runId, after);
   if (!page) return NextResponse.json({ error: "Workflow run not found." }, { status: 404 });
-  const projection = getWorkflowRunPageData(workspaceId, runId);
+  const projection = getWorkflowRunPageData(workspaceId, runId, {
+    userId: workspaceContext.currentUser.id,
+    role: workspaceContext.currentMembership.role,
+  });
   return NextResponse.json({ ...page, projection: projection ? { ...projection, events: [] } : null });
 }

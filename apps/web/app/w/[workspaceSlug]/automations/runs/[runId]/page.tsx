@@ -12,7 +12,10 @@ export default async function WorkflowRunPage({
 }) {
   const { workspaceSlug, runId } = await params;
   const context = await getWorkspacePageContext(workspaceSlug);
-  const data = getWorkflowRunPageData(context.currentWorkspace.id, runId);
+  const data = getWorkflowRunPageData(context.currentWorkspace.id, runId, {
+    userId: context.currentUser.id,
+    role: context.currentMembership.role,
+  });
   if (!data) notFound();
   return <WorkflowRunClient data={data} workspaceId={context.currentWorkspace.id} />;
 }

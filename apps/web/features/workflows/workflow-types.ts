@@ -98,6 +98,7 @@ export interface WorkflowRunPageData {
   status: string;
   triggerType: string;
   currentSequence: number;
+  canControl: boolean;
   startedAt?: string;
   finishedAt?: string;
   createdAt: string;

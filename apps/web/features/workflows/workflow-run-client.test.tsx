@@ -21,6 +21,7 @@ const initial: WorkflowRunPageData = {
   status: "running",
   triggerType: "schedule",
   currentSequence: 4,
+  canControl: true,
   createdAt: "2026-08-06T00:00:00.000Z",
   nodes: [{
     id: "node-run-audit",
@@ -134,5 +135,12 @@ describe("workflow run client", () => {
     renderRun(partial);
 
     expect(screen.getByRole("button", { name: "重试步骤" })).toBeVisible();
+  });
+
+  it("does not render run controls for read-only members", () => {
+    renderRun({ ...initial, canControl: false });
+
+    expect(screen.queryByRole("button", { name: "暂停" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
   });
 });
