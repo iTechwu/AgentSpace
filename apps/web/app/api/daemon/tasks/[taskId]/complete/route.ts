@@ -607,20 +607,22 @@ export async function POST(
           rawProviderMessage: error.message,
         }
       : undefined;
-    failQueuedTaskSync({
-      taskId: task.id,
-      errorText: message,
-      errorCode: providerError?.code,
-      errorCategory: providerError?.category,
-      rawProviderMessage: providerError?.rawProviderMessage,
-      sessionId: body.sessionId,
-      workDir: body.workDir,
-    });
-    failWorkflowTaskIfLinkedSync({
-      workspaceId: task.workspaceId,
-      taskQueueId: task.id,
-      errorCode: providerError?.code,
-      errorText: message,
+    withTransaction(getDatabase(), () => {
+      failQueuedTaskSync({
+        taskId: task.id,
+        errorText: message,
+        errorCode: providerError?.code,
+        errorCategory: providerError?.category,
+        rawProviderMessage: providerError?.rawProviderMessage,
+        sessionId: body.sessionId,
+        workDir: body.workDir,
+      });
+      failWorkflowTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        errorCode: providerError?.code,
+        errorText: message,
+      });
     });
 
     if (payload.taskId) {

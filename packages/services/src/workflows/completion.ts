@@ -33,8 +33,8 @@ export function failWorkflowTaskIfLinkedSync(input: {
       workspaceId: input.workspaceId,
       nodeRunId: nodeRun.id,
       taskQueueId: input.taskQueueId,
-      errorCode: input.errorCode,
-      errorMessage: input.errorText,
+      errorCode: normalizeWorkflowFailureCode(input.errorCode),
+      errorMessage: undefined,
     });
     const failed = readWorkflowNodeRunByTaskQueueIdSync(input.taskQueueId, input.workspaceId);
     let retryScheduled = false;
@@ -44,10 +44,16 @@ export function failWorkflowTaskIfLinkedSync(input: {
         runId: failed.runId,
         nodeId: failed.nodeId,
         actorUserId: "workflow-retry-policy",
-        reason: input.errorText,
+        reason: normalizeWorkflowFailureCode(input.errorCode),
       });
       retryScheduled = true;
     }
     return { linked: true, retryScheduled, runId: run.id };
   });
+}
+
+export function normalizeWorkflowFailureCode(errorCode?: string): string {
+  return errorCode && /^workflow_[a-z0-9_]+$/.test(errorCode)
+    ? errorCode
+    : "workflow_task_failed";
 }
