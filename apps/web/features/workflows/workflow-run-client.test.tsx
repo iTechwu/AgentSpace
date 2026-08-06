@@ -35,10 +35,10 @@ const initial: WorkflowRunPageData = {
   events: [{ id: "event-4", sequence: 4, type: "workflow.node.started", severity: "info", createdAt: "2026-08-06T00:00:04.000Z" }],
 };
 
-function renderRun(): void {
+function renderRun(data: WorkflowRunPageData = initial): void {
   render(
     <LanguageProvider initialLanguage="zh">
-      <WorkflowRunClient data={initial} workspaceId="workspace-1" />
+      <WorkflowRunClient data={data} workspaceId="workspace-1" />
     </LanguageProvider>,
   );
 }
@@ -97,5 +97,30 @@ describe("workflow run client", () => {
       id: "event-6", sequence: 6, type: "workflow.node.succeeded", severity: "info", createdAt: "2026-08-06T00:00:06.000Z",
     }]);
     expect(merged).toEqual({ events: initial.events, gapAfter: 4 });
+  });
+
+  it("allows a manual retry after automatic attempts are exhausted", async () => {
+    const user = userEvent.setup();
+    const failed: WorkflowRunPageData = {
+      ...initial,
+      status: "failed",
+      nodes: [{
+        ...initial.nodes[0],
+        status: "failed",
+        attemptCount: 3,
+        maxAttempts: 3,
+        errorCode: "workflow_task_failed",
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ events: [], hasMore: false, projection: failed })));
+    renderRun(failed);
+
+    await user.click(screen.getByRole("button", { name: "重试步骤" }));
+
+    await waitFor(() => expect(mocks.control).toHaveBeenCalledWith({
+      runId: "run-1",
+      action: "retry_node",
+      nodeId: "audit",
+    }));
   });
 });

@@ -223,7 +223,7 @@ export async function controlWorkflowRunAction(
     else if (input.action === "cancel") cancelWorkflowRunSync(control);
     else {
       if (!input.nodeId) throw new Error("workflow_node_run_not_found");
-      retryWorkflowNodeSync({ ...control, nodeId: input.nodeId });
+      retryWorkflowNodeSync({ ...control, nodeId: input.nodeId, manualOverride: true });
     }
     const run = readWorkflowRunSync(input.runId, context.currentWorkspace.id);
     if (!run) throw new Error("workflow_run_not_found");

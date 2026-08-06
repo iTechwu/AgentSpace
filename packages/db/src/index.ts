@@ -207,6 +207,7 @@ export {
   readWorkflowNodeRunByTaskQueueIdSync,
   readWorkflowNodeRunByApprovalIdSync,
   listWorkflowNodeRunsSync,
+  resetWorkflowDescendantNodeRunsForRetrySync,
   claimWorkflowNodeForDispatchSync,
   transitionWorkflowRunSync,
   transitionWorkflowNodeRunSync,

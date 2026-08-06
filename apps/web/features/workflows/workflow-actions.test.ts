@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   manualRun: vi.fn(),
   publish: vi.fn(),
   readTrigger: vi.fn(),
+  retryNode: vi.fn(),
   revalidate: vi.fn(),
 }));
 
@@ -27,7 +28,7 @@ vi.mock("@dofe-agent/services", () => ({
   pauseWorkflowRunSync: vi.fn(),
   publishWorkflowSync: mocks.publish,
   resumeWorkflowRunSync: vi.fn(),
-  retryWorkflowNodeSync: vi.fn(),
+  retryWorkflowNodeSync: mocks.retryNode,
   validateWorkflowForPublishSync: vi.fn(),
 }));
 
@@ -132,6 +133,20 @@ describe("workflow actions", () => {
     expect(result).toMatchObject({ ok: true, data: { versionId: "version-1" } });
     expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
       trigger: expect.objectContaining({ id: "trigger-1", type: "schedule" }),
+    }));
+  });
+
+  it("marks user-requested node retries as manual overrides", async () => {
+    mockContext("owner");
+    mocks.readRun.mockReturnValue({ id: "run-1", workflowId: "wf-1", status: "failed" });
+
+    const result = await controlWorkflowRunAction({ runId: "run-1", action: "retry_node", nodeId: "audit" });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(mocks.retryNode).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-1",
+      nodeId: "audit",
+      manualOverride: true,
     }));
   });
 });

@@ -41,6 +41,7 @@ export interface TransitionWorkflowRunInput {
   startedAt?: string;
   finishedAt?: string;
   allowTerminalRetry?: boolean;
+  clearFinishedAt?: boolean;
 }
 
 export interface TransitionWorkflowNodeRunInput {
@@ -63,6 +64,8 @@ export interface TransitionWorkflowNodeRunInput {
   errorMessage?: string;
   clearError?: boolean;
   allowTerminalRetry?: boolean;
+  clearFinishedAt?: boolean;
+  maxAttempts?: number;
 }
 
 export interface ClaimWorkflowNodeForDispatchInput {
@@ -239,10 +242,11 @@ export function transitionWorkflowRunSync(input: TransitionWorkflowRunInput): Wo
   const placeholders = from.map(() => "?").join(", ");
   const row = getDatabase().prepare(
     `UPDATE workflow_run
-        SET status = ?, started_at = COALESCE(?, started_at), finished_at = COALESCE(?, finished_at), updated_at = ?
+        SET status = ?, started_at = COALESCE(?, started_at),
+            finished_at = CASE WHEN ? THEN NULL ELSE COALESCE(?, finished_at) END, updated_at = ?
       WHERE id = ? AND workspace_id = ? AND status IN (${placeholders})
       RETURNING ${RUN_COLUMNS}`,
-  ).get(input.to, input.startedAt ?? null, input.finishedAt ?? null, now, input.runId, input.workspaceId, ...from) as Record<string, unknown> | undefined;
+  ).get(input.to, input.startedAt ?? null, input.clearFinishedAt === true, input.finishedAt ?? null, now, input.runId, input.workspaceId, ...from) as Record<string, unknown> | undefined;
   return row ? mapRun(row) : null;
 }
 
@@ -258,8 +262,10 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     `UPDATE workflow_node_run
         SET status = ?, task_queue_id = CASE WHEN ? THEN NULL ELSE COALESCE(?, task_queue_id) END,
             approval_id = COALESCE(?, approval_id), available_at = COALESCE(?, available_at),
-            attempt_count = COALESCE(?, attempt_count), started_at = COALESCE(?, started_at),
-            finished_at = COALESCE(?, finished_at), input_json = COALESCE(?, input_json), output_json = COALESCE(?, output_json),
+            attempt_count = COALESCE(?, attempt_count), max_attempts = COALESCE(?, max_attempts),
+            started_at = COALESCE(?, started_at),
+            finished_at = CASE WHEN ? THEN NULL ELSE COALESCE(?, finished_at) END,
+            input_json = COALESCE(?, input_json), output_json = COALESCE(?, output_json),
             artifact_manifest_json = COALESCE(?, artifact_manifest_json),
             error_code = CASE WHEN ? THEN NULL ELSE COALESCE(?, error_code) END,
             error_message = CASE WHEN ? THEN NULL ELSE COALESCE(?, error_message) END, updated_at = ?
@@ -272,7 +278,9 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     input.approvalId ?? null,
     input.availableAt ?? null,
     input.attemptCount ?? null,
+    input.maxAttempts ?? null,
     input.startedAt ?? null,
+    input.clearFinishedAt === true,
     input.finishedAt ?? null,
     input.inputJson ?? null,
     input.outputJson ?? null,
@@ -287,6 +295,27 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     ...from,
   ) as Record<string, unknown> | undefined;
   return row ? mapNodeRun(row) : null;
+}
+
+export function resetWorkflowDescendantNodeRunsForRetrySync(input: {
+  workspaceId: string;
+  runId: string;
+  nodeIds: string[];
+  now?: string;
+}): WorkflowNodeRunRecord[] {
+  if (input.nodeIds.length === 0) return [];
+  const placeholders = input.nodeIds.map(() => "?").join(", ");
+  const rows = getDatabase().prepare(
+    `UPDATE workflow_node_run
+        SET status = 'pending', task_queue_id = NULL, approval_id = NULL, available_at = NULL,
+            started_at = NULL, finished_at = NULL, output_json = NULL, artifact_manifest_json = NULL,
+            error_code = NULL, error_message = NULL, updated_at = ?
+      WHERE workspace_id = ? AND run_id = ? AND id IN (${placeholders})
+        AND ((status = 'failed' AND error_code = 'workflow_join_upstream_failed')
+          OR (status = 'skipped' AND error_code = 'workflow_upstream_failed'))
+      RETURNING ${NODE_RUN_COLUMNS}`,
+  ).all(input.now ?? new Date().toISOString(), input.workspaceId, input.runId, ...input.nodeIds) as Array<Record<string, unknown>>;
+  return rows.map(mapNodeRun);
 }
 
 const RUN_COLUMNS = `id, workspace_id AS "workspaceId", workflow_id AS "workflowId", version_id AS "versionId",

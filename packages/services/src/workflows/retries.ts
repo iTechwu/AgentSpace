@@ -2,14 +2,20 @@ import {
   appendWorkflowRunEventSync,
   cancelQueuedTaskSync,
   enqueueWorkflowOutboxSync,
+  getDatabase,
   listWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
   readWorkflowRunSync,
+  readWorkflowVersionSync,
+  resetWorkflowDescendantNodeRunsForRetrySync,
   transitionWorkflowNodeRunSync,
   transitionWorkflowRunSync,
+  withTransaction,
   type WorkflowNodeRunRecord,
   type WorkflowRunRecord,
 } from "@dofe-agent/db";
+import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
+import { collectWorkflowDescendantNodeIds } from "./coordinator.ts";
 
 export interface RetryWorkflowNodeInput {
   workspaceId: string;
@@ -17,6 +23,7 @@ export interface RetryWorkflowNodeInput {
   nodeId: string;
   actorUserId: string;
   reason: string;
+  manualOverride?: boolean;
   now?: string;
 }
 
@@ -29,38 +36,65 @@ export interface ControlWorkflowRunInput {
 }
 
 export function retryWorkflowNodeSync(input: RetryWorkflowNodeInput): WorkflowNodeRunRecord {
-  const run = readWorkflowRunSync(input.runId, input.workspaceId);
-  if (!run) throw new Error("workflow_run_not_found");
-  const node = listWorkflowNodeRunsSync(input.workspaceId, input.runId).find((item) => item.nodeId === input.nodeId);
-  if (!node) throw new Error("workflow_node_run_not_found");
-  if (node.status !== "failed") throw new Error("workflow_node_not_retryable");
-  const attempt = node.attemptCount + 1;
-  if (attempt > node.maxAttempts) throw new Error("workflow_node_retry_exhausted");
-  const now = input.now ?? new Date().toISOString();
-  const availableAt = computeWorkflowRetryAvailableAt(now, attempt);
-  const updated = transitionWorkflowNodeRunSync({
-    workspaceId: input.workspaceId,
-    nodeRunId: node.id,
-    from: ["failed"],
-    to: "retry_wait",
-    attemptCount: attempt,
-    availableAt,
-    clearTaskQueueId: true,
-    allowTerminalRetry: true,
-    now,
+  return withTransaction(getDatabase(), () => {
+    const run = readWorkflowRunSync(input.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
+    if (input.manualOverride && run.status !== "failed") throw new Error("workflow_run_control_conflict");
+    const node = listWorkflowNodeRunsSync(input.workspaceId, input.runId).find((item) => item.nodeId === input.nodeId);
+    if (!node) throw new Error("workflow_node_run_not_found");
+    if (node.status !== "failed" || node.nodeType !== "employee_task") throw new Error("workflow_node_not_retryable");
+    const attempt = node.attemptCount + 1;
+    if (!input.manualOverride && attempt > node.maxAttempts) throw new Error("workflow_node_retry_exhausted");
+    const now = input.now ?? new Date().toISOString();
+    const availableAt = computeWorkflowRetryAvailableAt(now, attempt);
+
+    if (input.manualOverride) {
+      const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
+      if (!version) throw new Error("workflow_version_not_found");
+      const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
+      const descendantNodeIds = new Set(collectWorkflowDescendantNodeIds(graph, node.nodeId));
+      const descendantRunIds = listWorkflowNodeRunsSync(input.workspaceId, input.runId)
+        .filter((candidate) => descendantNodeIds.has(candidate.nodeId))
+        .map((candidate) => candidate.id);
+      resetWorkflowDescendantNodeRunsForRetrySync({
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        nodeIds: descendantRunIds,
+        now,
+      });
+    }
+
+    const updated = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: node.id,
+      from: ["failed"],
+      to: "retry_wait",
+      attemptCount: attempt,
+      maxAttempts: input.manualOverride ? Math.max(node.maxAttempts, attempt) : undefined,
+      availableAt,
+      clearTaskQueueId: true,
+      clearError: true,
+      clearFinishedAt: true,
+      allowTerminalRetry: true,
+      now,
+    });
+    if (!updated) throw new Error("workflow_node_retry_conflict");
+    if (run.status === "failed") {
+      const resumed = transitionWorkflowRunSync({
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        from: ["failed"],
+        to: "running",
+        allowTerminalRetry: true,
+        clearFinishedAt: true,
+        now,
+      });
+      if (!resumed) throw new Error("workflow_run_control_conflict");
+    }
+    appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: node.id, type: "node.retry_scheduled", actorType: input.manualOverride ? "human" : "system", actorId: input.actorUserId, dataJson: JSON.stringify({ reason: input.reason, attempt, availableAt, manualOverride: input.manualOverride === true }), now });
+    enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_node_run", aggregateId: node.id, eventType: "workflow.node.retry_wait", payloadJson: JSON.stringify({ nodeRunId: node.id, availableAt }), availableAt, now });
+    return updated;
   });
-  if (!updated) throw new Error("workflow_node_retry_conflict");
-  transitionWorkflowRunSync({
-    workspaceId: input.workspaceId,
-    runId: run.id,
-    from: ["failed"],
-    to: "running",
-    allowTerminalRetry: true,
-    now,
-  });
-  appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: node.id, type: "node.retry_scheduled", actorType: "human", actorId: input.actorUserId, dataJson: JSON.stringify({ reason: input.reason, attempt, availableAt }), now });
-  enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_node_run", aggregateId: node.id, eventType: "workflow.node.retry_wait", payloadJson: JSON.stringify({ nodeRunId: node.id, availableAt }), availableAt, now });
-  return updated;
 }
 
 export function computeWorkflowRetryAvailableAt(now: string, attempt: number): string {
