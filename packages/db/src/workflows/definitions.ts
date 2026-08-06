@@ -291,6 +291,72 @@ export function upsertWorkflowTriggerSync(input: UpsertWorkflowTriggerInput): Wo
   return trigger;
 }
 
+export function readWorkflowTriggerSync(id: string, workspaceId: string): WorkflowTriggerRecord | null {
+  return readWorkflowTriggerWithDatabase(getDatabase(), id, workspaceId);
+}
+
+export function claimDueWorkflowTriggersSync(input: {
+  workerId: string;
+  now: string;
+  limit: number;
+  leaseSeconds: number;
+  workspaceId?: string;
+}): WorkflowTriggerRecord[] {
+  const db = getDatabase();
+  const limit = Math.max(1, Math.min(input.limit, 100));
+  const workspaceClause = input.workspaceId ? " AND workspace_id = ?" : "";
+  const params = input.workspaceId ? [input.now, input.now, input.workspaceId, limit] : [input.now, input.now, limit];
+  const rows = db.prepare(
+    `SELECT id, workspace_id AS "workspaceId" FROM workflow_trigger
+     WHERE status = 'active' AND next_fire_at IS NOT NULL AND next_fire_at <= ?
+       AND (lease_expires_at IS NULL OR lease_expires_at < ?) ${workspaceClause}
+     ORDER BY next_fire_at ASC, id ASC LIMIT ?`,
+  ).all(...params) as Array<{ id?: string; workspaceId?: string }>;
+  const leaseExpiresAt = new Date(Date.parse(input.now) + Math.max(1, input.leaseSeconds) * 1000).toISOString();
+  const claimed: WorkflowTriggerRecord[] = [];
+  for (const row of rows) {
+    if (!row.id || !row.workspaceId) continue;
+    const result = db.prepare(
+      `UPDATE workflow_trigger SET lease_owner = ?, lease_expires_at = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND status = 'active'
+         AND next_fire_at IS NOT NULL AND next_fire_at <= ?
+         AND (lease_expires_at IS NULL OR lease_expires_at < ?)
+       RETURNING id`,
+    ).get(input.workerId, leaseExpiresAt, input.now, row.id, row.workspaceId, input.now, input.now) as { id?: string } | undefined;
+    if (result?.id) {
+      const trigger = readWorkflowTriggerWithDatabase(db, row.id, row.workspaceId);
+      if (trigger) claimed.push(trigger);
+    }
+  }
+  return claimed;
+}
+
+export function advanceWorkflowTriggerSync(input: {
+  id: string;
+  workspaceId: string;
+  workerId: string;
+  nextFireAt?: string | null;
+  lastFireAt?: string | null;
+  status?: string;
+  now: string;
+}): WorkflowTriggerRecord | null {
+  const result = getDatabase().prepare(
+    `UPDATE workflow_trigger
+        SET next_fire_at = ?, last_fire_at = COALESCE(?, last_fire_at), status = COALESCE(?, status),
+            lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+      WHERE id = ? AND workspace_id = ? AND lease_owner = ?`,
+  ).run(
+    input.nextFireAt ?? null,
+    input.lastFireAt ?? null,
+    input.status ?? null,
+    input.now,
+    input.id,
+    input.workspaceId,
+    input.workerId,
+  );
+  return result.changes === 1 ? readWorkflowTriggerSync(input.id, input.workspaceId) : null;
+}
+
 const DEFINITION_SELECT = `SELECT
   id, workspace_id AS "workspaceId", name, description, owner_user_id AS "ownerUserId",
   channel_name AS "channelName", status, active_version_id AS "activeVersionId",
