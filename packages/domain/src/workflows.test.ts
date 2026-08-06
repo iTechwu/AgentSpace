@@ -158,3 +158,15 @@ test("requires employee task IDs to be non-empty after trimming", () => {
 
   assert.ok(result.errors.some((error) => error.code === "workflow_employee_task_requires_employee_id"));
 });
+
+test("reports non-string employee task IDs without throwing", () => {
+  const graph: WorkflowGraphDefinition = {
+    schemaVersion: 1,
+    nodes: [node("employee", "employee_task", 42 as unknown as string)],
+    edges: [],
+  };
+
+  const result = validateWorkflowGraph(graph);
+
+  assert.ok(result.errors.some((error) => error.code === "workflow_employee_task_requires_employee_id"));
+});

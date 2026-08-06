@@ -104,7 +104,10 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
 
   for (const node of nodes) {
     if (!node || typeof node.id !== "string" || !nodeIndex.has(node.id)) continue;
-    if (node.type === "employee_task" && (!node.employeeId || node.employeeId.trim().length === 0)) {
+    if (
+      node.type === "employee_task" &&
+      (typeof node.employeeId !== "string" || node.employeeId.trim().length === 0)
+    ) {
       errors.push({ code: "workflow_employee_task_requires_employee_id", nodeIds: [node.id] });
     }
     if (node.type === "join" && new Set(incoming.get(node.id) ?? []).size < 2) {
