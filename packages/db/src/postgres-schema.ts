@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "108";
+export const POSTGRES_SCHEMA_VERSION = "109";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -155,6 +155,8 @@ export function getPostgresSchemaStatements(): string[] {
         channel_name TEXT,
         status TEXT NOT NULL DEFAULT 'draft'
           CHECK (status IN ('draft', 'published', 'paused', 'archived')),
+        draft_graph_json JSONB NOT NULL DEFAULT '{"schemaVersion":1,"nodes":[],"edges":[]}'::jsonb,
+        draft_version INTEGER NOT NULL DEFAULT 1,
         active_version_id TEXT,
         legacy_source_type TEXT,
         legacy_source_id TEXT,
@@ -164,6 +166,15 @@ export function getPostgresSchemaStatements(): string[] {
         archived_at TIMESTAMPTZ,
         UNIQUE(workspace_id, id)
       )
+    `,
+    `
+      ALTER TABLE workflow_definition
+        ADD COLUMN IF NOT EXISTS draft_graph_json JSONB NOT NULL
+        DEFAULT '{"schemaVersion":1,"nodes":[],"edges":[]}'::jsonb
+    `,
+    `
+      ALTER TABLE workflow_definition
+        ADD COLUMN IF NOT EXISTS draft_version INTEGER NOT NULL DEFAULT 1
     `,
     `
       CREATE TABLE IF NOT EXISTS workflow_version (

@@ -28,6 +28,8 @@ test("workflow schema contains tenant-safe relations and idempotency constraints
   assert.match(sql, /UNIQUE\s*\(workspace_id, trigger_key\)/i);
   assert.match(sql, /UNIQUE\s*\(run_id, node_id\)/i);
   assert.match(sql, /UNIQUE\s*\(run_id, sequence\)/i);
+  assert.match(sql, /draft_graph_json JSONB NOT NULL/i);
+  assert.match(sql, /draft_version INTEGER NOT NULL DEFAULT 1/i);
   assert.match(sql, /idx_workflow_trigger_due[\s\S]*WHERE status = 'active'/i);
   assert.match(sql, /idx_workflow_node_run_ready[\s\S]*WHERE status IN \('ready', 'retry_wait'\)/i);
   assert.match(sql, /idx_workflow_outbox_due[\s\S]*WHERE status = 'pending'/i);

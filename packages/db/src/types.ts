@@ -1945,6 +1945,8 @@ export interface WorkflowDefinitionRecord {
   ownerUserId: string;
   channelName?: string;
   status: "draft" | "published" | "paused" | "archived";
+  draftGraphJson: string;
+  draftVersion: number;
   activeVersionId?: string;
   legacySourceType?: string;
   legacySourceId?: string;
