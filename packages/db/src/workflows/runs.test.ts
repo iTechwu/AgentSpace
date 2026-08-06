@@ -9,6 +9,7 @@ import {
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
   readWorkflowRunSync,
+  resetWorkflowDescendantNodeRunsForRetrySync,
   transitionWorkflowRunSync,
   transitionWorkflowNodeRunSync,
 } from "./runs.ts";
@@ -169,6 +170,62 @@ test("dispatch claims serialize against the run concurrency limit", () => {
   assert.equal(second.reason, "concurrency_limited");
   assert.equal(second.nodeRun?.status, "retry_wait");
   assert.equal(second.nodeRun?.availableAt, "2026-08-07T00:00:05.000Z");
+});
+
+test("manual retry reopens partial runs and resets only descendants", () => {
+  const seed = seedVersion();
+  const run = createWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: seed.workflowId,
+    versionId: seed.versionId,
+    triggerType: "manual",
+    triggerKey: `workflow-runs:partial-retry-${seed.workflowId}`,
+    inputJson: "{}",
+  });
+  const nodes = materializeWorkflowNodeRunsSync({
+    workspaceId: WORKSPACE_ID,
+    runId: run.id,
+    nodes: [
+      { nodeId: "failed-branch", nodeType: "employee_task" },
+      { nodeId: "successful-sibling", nodeType: "employee_task" },
+      { nodeId: "partial-join", nodeType: "join" },
+      { nodeId: "summary", nodeType: "employee_task" },
+    ],
+  });
+  for (const node of nodes) {
+    transitionWorkflowNodeRunSync({
+      workspaceId: WORKSPACE_ID,
+      nodeRunId: node.id,
+      from: ["pending"],
+      to: node.nodeId === "failed-branch" ? "failed" : "succeeded",
+      allowTerminalRetry: node.nodeId === "failed-branch",
+    });
+  }
+  transitionWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    runId: run.id,
+    from: ["created"],
+    to: "partially_succeeded",
+  });
+
+  const descendants = nodes.filter((node) => node.nodeId === "partial-join" || node.nodeId === "summary");
+  resetWorkflowDescendantNodeRunsForRetrySync({
+    workspaceId: WORKSPACE_ID,
+    runId: run.id,
+    nodeIds: descendants.map((node) => node.id),
+  });
+  assert.ok(transitionWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    runId: run.id,
+    from: ["partially_succeeded"],
+    to: "running",
+    allowTerminalRetry: true,
+  }));
+
+  const current = new Map(listWorkflowNodeRunsSync(WORKSPACE_ID, run.id).map((node) => [node.nodeId, node.status]));
+  assert.equal(current.get("successful-sibling"), "succeeded");
+  assert.equal(current.get("partial-join"), "pending");
+  assert.equal(current.get("summary"), "pending");
 });
 
 test("event sequence and outbox lease are monotonic and owned", () => {

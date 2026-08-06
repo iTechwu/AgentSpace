@@ -236,7 +236,9 @@ export function transitionWorkflowRunSync(input: TransitionWorkflowRunInput): Wo
   const now = input.now ?? new Date().toISOString();
   const from = input.from.filter((status) => (
     !TERMINAL_RUN_STATUSES.has(status)
-    || (input.allowTerminalRetry === true && status === "failed" && input.to === "running")
+    || (input.allowTerminalRetry === true
+      && (status === "failed" || status === "partially_succeeded")
+      && input.to === "running")
   ));
   if (from.length === 0) return null;
   const placeholders = from.map(() => "?").join(", ");
@@ -311,8 +313,7 @@ export function resetWorkflowDescendantNodeRunsForRetrySync(input: {
             started_at = NULL, finished_at = NULL, output_json = NULL, artifact_manifest_json = NULL,
             error_code = NULL, error_message = NULL, updated_at = ?
       WHERE workspace_id = ? AND run_id = ? AND id IN (${placeholders})
-        AND ((status = 'failed' AND error_code = 'workflow_join_upstream_failed')
-          OR (status = 'skipped' AND error_code = 'workflow_upstream_failed'))
+        AND status IN ('succeeded', 'failed', 'skipped', 'cancelled')
       RETURNING ${NODE_RUN_COLUMNS}`,
   ).all(input.now ?? new Date().toISOString(), input.workspaceId, input.runId, ...input.nodeIds) as Array<Record<string, unknown>>;
   return rows.map(mapNodeRun);

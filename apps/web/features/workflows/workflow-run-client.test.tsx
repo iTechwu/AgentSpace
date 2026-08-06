@@ -123,4 +123,16 @@ describe("workflow run client", () => {
       nodeId: "audit",
     }));
   });
+
+  it("allows a failed branch to be retried after a partial-success join", () => {
+    const partial: WorkflowRunPageData = {
+      ...initial,
+      status: "partially_succeeded",
+      nodes: [{ ...initial.nodes[0], status: "failed", attemptCount: 3, maxAttempts: 3 }],
+    };
+
+    renderRun(partial);
+
+    expect(screen.getByRole("button", { name: "重试步骤" })).toBeVisible();
+  });
 });

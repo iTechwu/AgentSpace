@@ -39,7 +39,9 @@ export function retryWorkflowNodeSync(input: RetryWorkflowNodeInput): WorkflowNo
   return withTransaction(getDatabase(), () => {
     const run = readWorkflowRunSync(input.runId, input.workspaceId);
     if (!run) throw new Error("workflow_run_not_found");
-    if (input.manualOverride && run.status !== "failed") throw new Error("workflow_run_control_conflict");
+    if (input.manualOverride && run.status !== "failed" && run.status !== "partially_succeeded") {
+      throw new Error("workflow_run_control_conflict");
+    }
     const node = listWorkflowNodeRunsSync(input.workspaceId, input.runId).find((item) => item.nodeId === input.nodeId);
     if (!node) throw new Error("workflow_node_run_not_found");
     if (node.status !== "failed" || node.nodeType !== "employee_task") throw new Error("workflow_node_not_retryable");
@@ -79,11 +81,11 @@ export function retryWorkflowNodeSync(input: RetryWorkflowNodeInput): WorkflowNo
       now,
     });
     if (!updated) throw new Error("workflow_node_retry_conflict");
-    if (run.status === "failed") {
+    if (run.status === "failed" || run.status === "partially_succeeded") {
       const resumed = transitionWorkflowRunSync({
         workspaceId: input.workspaceId,
         runId: run.id,
-        from: ["failed"],
+        from: [run.status],
         to: "running",
         allowTerminalRetry: true,
         clearFinishedAt: true,
