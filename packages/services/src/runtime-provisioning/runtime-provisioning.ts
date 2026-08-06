@@ -2093,6 +2093,17 @@ async function compensateProvisioning(
   const detail: Record<string, unknown> = {};
   let ok = true;
   let pending = false;
+  if (task.runtimeId) {
+    try {
+      await assertOpenMontageRuntimePurgeableAsync({
+        workspaceId: task.workspaceId,
+        runtimeId: task.runtimeId,
+      });
+    } catch (error) {
+      detail.runtimePurgeGuardError = error instanceof Error ? error.message : String(error);
+      return { ok: false, pending: false, detail };
+    }
+  }
   if (task.runtimeCredentialId) {
     try {
       const scope = resolveManagedRuntimeScopeSync(task.workspaceId);

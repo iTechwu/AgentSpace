@@ -9,6 +9,7 @@ import {
   claimDueTokenUsageRetriesSync,
   completeManagedProvisioningStageSync,
   completeRuntimeMaintenanceRunSync,
+  createOpenMontageJobLinkSync,
   createRuntimeMaintenanceRunSync,
   enqueueTokenUsageRetrySync,
   getDatabase,
@@ -241,6 +242,9 @@ before(() => {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM openmontage_job_projection");
+  db.exec("DELETE FROM openmontage_model_delegation");
+  db.exec("DELETE FROM openmontage_job_link");
   db.exec("DELETE FROM managed_runtime_cleanup_request");
   db.exec("DELETE FROM runtime_maintenance_run");
   db.exec("DELETE FROM runtime_provisioning_task_event");
@@ -1238,6 +1242,73 @@ test("cancel runs compensation: revokes credential with scope and removes the ru
   assert.equal(completeManagedRuntimeCleanupSync(cleanup.id, { removed: true })?.status, "succeeded");
   assert.equal(readRuntimeProvisioningTaskSync(task.id, TEAM_WS)?.status, "cancelled");
   assert.equal(readAgentRuntimeSync(runtimeId), null);
+});
+
+test("cancel does not revoke credentials while the runtime owns an in-flight OpenMontage job", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "cancel-openmontage-guard-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+  const runtimeCredentialId = provisioned.runtimeCredentialId!;
+  createOpenMontageJobLinkSync({
+    workspaceId: TEAM_WS,
+    employeeId: "employee-openmontage-guard",
+    runtimeId,
+    runtimeCredentialId,
+    rootTaskId: "task-openmontage-guard",
+    conversationId: "conversation-openmontage-guard",
+    sourceInvocationId: "source-openmontage-guard",
+    traceId: "trace-openmontage-guard",
+    snapshot: {
+      schemaVersion: 1,
+      jobId: "om_job_runtime_cancel_guard",
+      status: "RUNNING",
+      workflow: {
+        name: "animated-explainer",
+        version: "2.0",
+        stages: [{ code: "research", labelCode: "stage.research", approvalRequired: false }],
+      },
+      stages: [{
+        code: "research",
+        labelCode: "stage.research",
+        approvalRequired: false,
+        approvalStatus: "NOT_REQUIRED",
+        status: "RUNNING",
+        attempt: 1,
+      }],
+      currentStage: "research",
+      lastSequence: 1,
+      createdAt: "2026-08-07T00:00:00Z",
+      updatedAt: "2026-08-07T00:00:00Z",
+    },
+    delegation: {
+      delegationId: "00000000-0000-4000-8000-000000000091",
+      runtimeCredentialId,
+      modelsTenantId: "00000000-0000-4000-8000-000000000092",
+      modelsTeamId: "00000000-0000-4000-8000-000000000093",
+      mcpConnectionId: "mcp-runtime-cancel-guard",
+      secretRef: "vault://runtime-cancel-guard",
+      spendLimit: "2",
+      currency: "CNY",
+      status: "active",
+      expiresAt: "2099-08-07T00:00:00Z",
+    },
+  });
+
+  const cancelled = await cancelRuntimeProvisioningTaskAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    taskId: task.id,
+  });
+
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.cleanupStatus, "failed");
+  assert.equal(activeClient.revokeCalls, 0);
+  assert.ok(readAgentRuntimeSync(runtimeId));
 });
 
 test("cancel treats an already revoked Models credential as successful cleanup", async () => {

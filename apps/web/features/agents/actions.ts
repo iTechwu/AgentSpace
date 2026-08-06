@@ -42,6 +42,7 @@ import {
   acceptAgentForkInvitationForActorSync,
   approveAgentAccessRequestForActorSync,
   assertAgentSkillRequirementsReadySync,
+  assertOpenMontageRuntimePurgeableAsync,
   assertRuntimeCanBindEmployeeSync,
   bindEmployeeRuntimeSync,
   assertCanManageEmployeeForActorSync,
@@ -1279,6 +1280,7 @@ export async function deleteWorkspaceRuntimeAction(runtimeIdInput: string): Prom
       reason: "ui_delete",
     });
   } else {
+    await assertOpenMontageRuntimePurgeableAsync({ workspaceId, runtimeId });
     const deleted = deleteAgentRuntimeSync({ workspaceId, runtimeId });
     if (!deleted) throw new Error("runtime.not_found");
   }
