@@ -1,4 +1,4 @@
-import { AutomationsPageClient } from "@/features/automations/automations-page-client";
+import { WorkflowListClient } from "@/features/workflows/workflow-list-client";
 import { WorkspaceInitialModuleData } from "@/features/dashboard/workspace-initial-module-data";
 import { loadWorkspaceModuleDataWithMeta } from "@/features/dashboard/workspace-module-loaders";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
@@ -19,7 +19,7 @@ export default async function WorkspaceAutomationsPage({
       serverDurationMs={result.meta.durationMs}
       workspaceId={workspaceContext.currentWorkspace.id}
     >
-      <AutomationsPageClient data={result.data.data} />
+      <WorkflowListClient data={result.data.data} workspaceSlug={workspaceSlug} />
     </WorkspaceInitialModuleData>
   );
 }

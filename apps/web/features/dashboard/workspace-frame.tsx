@@ -233,7 +233,7 @@ function WorkspaceFrameContent({
                         : logicalPathname === "/tables"
                           ? tx("多维表格", "Data Tables")
                           : logicalPathname === "/automations"
-                            ? tx("工作流规则", "Workflow Rules")
+                            ? tx("编排中心", "Orchestration")
                             : logicalPathname === "/calendar"
                               ? tx("定时任务", "Schedules")
                               : logicalPathname === "/templates"
@@ -914,7 +914,7 @@ function WorkspaceFrameContent({
               <SidebarSectionLink
                 href={workspaceHref("/automations")}
                 icon="automations"
-                label={tx("工作流规则", "Workflow Rules")}
+                label={tx("编排中心", "Orchestration")}
                 active={logicalPathname === "/automations"}
                 onClick={handleWorkspaceModuleLinkClick}
                 onPrefetch={handleWorkspaceModuleLinkPrefetch}

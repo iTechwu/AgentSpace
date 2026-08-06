@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { AgentsPageClient } from "@/features/agents/agents-page-client";
 import { ApprovalsPageClient } from "@/features/approvals/approvals-page-client";
-import { AutomationsPageClient } from "@/features/automations/automations-page-client";
+import { WorkflowListClient } from "@/features/workflows/workflow-list-client";
 import { CalendarPageClient } from "@/features/calendar/calendar-page-client";
 import { ChannelsPageClient } from "@/features/channels/channels-page-client";
 import { CostsPageClient } from "@/features/costs/costs-page-client";
@@ -12,7 +12,6 @@ import type { HumanContactsPageData } from "@/features/contacts/human-contacts-d
 import type {
   AgentsPageData,
   ApprovalsPageData,
-  AutomationsPageData,
   BudgetPageData,
   CalendarPageData,
   ChannelsPageData,
@@ -394,7 +393,7 @@ function renderWorkspaceModuleData(
     case "approvals":
       return <ApprovalsPageClient data={data.data as ApprovalsPageData} onDataChanged={onDataChanged} onInvalidation={onInvalidation} />;
     case "automations":
-      return <AutomationsPageClient data={data.data as AutomationsPageData} onDataChanged={onDataChanged} />;
+      return <WorkflowListClient data={data.data} workspaceSlug={workspaceSlug} />;
     case "calendar":
       return <CalendarPageClient data={data.data as CalendarPageData} onDataChanged={onDataChanged} />;
     case "contacts":
