@@ -176,6 +176,14 @@ export {
   type DispatchWorkflowNodeResult,
 } from "./workflows/dispatcher.ts";
 export {
+  resolveWorkflowNodeInput,
+} from "./workflows/inputs.ts";
+export {
+  completeWorkflowNodeSync,
+  failWorkflowNodeSync,
+  type CompleteWorkflowNodeInput,
+} from "./workflows/coordinator.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,
