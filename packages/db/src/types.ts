@@ -1341,6 +1341,18 @@ export interface EnqueueTaskInput {
   requestedByUserId?: string;
   requestedByDisplayName?: string;
   metadata?: Record<string, unknown>;
+  workflow?: WorkflowTaskMetadata;
+}
+
+export interface WorkflowTaskMetadata {
+  workflowId: string;
+  workflowVersionId: string;
+  workflowRunId: string;
+  workflowNodeId: string;
+  workflowNodeRunId: string;
+  attempt: number;
+  artifactRefs: string[];
+  outputSchema?: Record<string, unknown>;
 }
 
 export function isNativeTaskStatus(value: unknown): value is NativeTaskStatus {

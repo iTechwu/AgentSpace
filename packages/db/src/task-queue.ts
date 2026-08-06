@@ -40,6 +40,7 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
     channel: input.channel,
     priority: input.priority,
     ...(input.metadata ?? {}),
+    ...(input.workflow ? { workflow: input.workflow } : {}),
     requester:
       input.requestedByUserId || input.requestedByDisplayName
         ? {

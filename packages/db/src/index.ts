@@ -130,6 +130,7 @@ export type {
   TaskExecutionEventSeverity,
   TaskExecutionEventStatus,
   EnqueueTaskInput,
+  WorkflowTaskMetadata,
   ModelPricingRecord,
   TokenUsageRecord,
   TokenUsageBillingStatus,
