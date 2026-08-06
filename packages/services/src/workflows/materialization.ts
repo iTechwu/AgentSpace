@@ -3,6 +3,7 @@ import {
   appendWorkflowRunEventSync,
   createWorkflowRunSync,
   enqueueWorkflowOutboxSync,
+  listStoredEmployeesSync,
   listWorkflowNodeRunsSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowDefinitionSync,
@@ -83,9 +84,7 @@ export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): 
   const existingNodes = listWorkflowNodeRunsSync(input.workspaceId, run.id);
   if (existingNodes.length > 0) return { runId: run.id, created: false };
 
-  const employees = new Map(
-    graph.nodes.filter((node) => node.type === "employee_task" && node.employeeId).map((node) => [node.employeeId!, node.employeeId!]),
-  );
+  const employees = buildWorkflowEmployeeNameSnapshots(listStoredEmployeesSync(input.workspaceId));
   materializeWorkflowNodeRunsSync({
     workspaceId: input.workspaceId,
     runId: run.id,
@@ -113,6 +112,15 @@ export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): 
     }
   }
   return { runId: run.id, created: true };
+}
+
+export function buildWorkflowEmployeeNameSnapshots(
+  employees: Array<{ id: string; name: string; remarkName?: string }>,
+): Map<string, string> {
+  return new Map(employees.map((employee) => [
+    employee.id,
+    employee.remarkName?.trim() || employee.name,
+  ]));
 }
 
 export function releaseWorkflowTriggerLeaseSync(input: {

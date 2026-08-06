@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   manualRun: vi.fn(),
   publish: vi.fn(),
   readTrigger: vi.fn(),
-  upsertTrigger: vi.fn(),
   revalidate: vi.fn(),
 }));
 
@@ -19,7 +18,6 @@ vi.mock("@dofe-agent/db", () => ({
   readWorkflowRunSync: vi.fn(),
   readWorkflowTriggerForWorkflowSync: mocks.readTrigger,
   updateWorkflowDraftSync: mocks.updateDraft,
-  upsertWorkflowTriggerSync: mocks.upsertTrigger,
 }));
 vi.mock("@dofe-agent/services", () => ({
   assertTriggerWriteOwnerSync: vi.fn(),
@@ -81,6 +79,20 @@ describe("workflow actions", () => {
     expect(result).toMatchObject({ ok: false, error: { code: "workflow_version_conflict" } });
   });
 
+  it("never forwards an untrusted draft owner reassignment", async () => {
+    mockContext("member");
+    mocks.updateDraft.mockReturnValue({ draftVersion: 3, draftGraphJson: JSON.stringify(graph) });
+
+    const result = await updateWorkflowDraftAction({
+      workflowId: "wf-1",
+      expectedDraftVersion: 2,
+      patch: { name: "Changed", ownerUserId: "attacker-selected-owner" },
+    } as never);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(mocks.updateDraft).toHaveBeenCalledWith(expect.not.objectContaining({ ownerUserId: expect.anything() }));
+  });
+
   it("reuses the current trigger when republishing", async () => {
     mockContext("admin");
     mocks.readTrigger.mockReturnValue({ id: "trigger-1" });
@@ -92,10 +104,8 @@ describe("workflow actions", () => {
     });
 
     expect(result).toMatchObject({ ok: true, data: { versionId: "version-1" } });
-    expect(mocks.upsertTrigger).toHaveBeenCalledWith(expect.objectContaining({
-      id: "trigger-1",
-      workflowId: "wf-1",
-      type: "schedule",
+    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: expect.objectContaining({ id: "trigger-1", type: "schedule" }),
     }));
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -11,6 +11,7 @@ import {
   type Edge,
   type Node,
   type NodeChange,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import { validateWorkflowGraph, type WorkflowGraphDefinition } from "@dofe-agent/domain";
 import type { WorkflowDraftEvent } from "./workflow-builder-reducer";
@@ -39,9 +40,26 @@ export function WorkflowCanvas({
   const [view, setView] = useState<"canvas" | "list">("canvas");
   const [isAdding, setIsAdding] = useState(false);
   const [employeeId, setEmployeeId] = useState("");
+  const flowInstance = useRef<ReactFlowInstance<Node, Edge> | null>(null);
   const initial = useMemo(() => toCanvasGraph(graph, employees, new Set(errorNodeIds)), [employees, errorNodeIds, graph]);
   const [nodes, setNodes] = useState<Node[]>(initial.nodes);
   useEffect(() => setNodes(initial.nodes), [initial.nodes]);
+  useEffect(() => {
+    if (view !== "canvas" || !flowInstance.current || initial.nodes.length === 0) return;
+    let frame = 0;
+    const refit = (): void => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        void flowInstance.current?.fitView({ duration: 200, padding: 0.2 });
+      });
+    };
+    refit();
+    window.addEventListener("resize", refit);
+    return () => {
+      window.removeEventListener("resize", refit);
+      cancelAnimationFrame(frame);
+    };
+  }, [initial.edges, initial.nodes, view]);
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
   const errorSet = useMemo(() => new Set(errorNodeIds), [errorNodeIds]);
 
@@ -101,6 +119,7 @@ export function WorkflowCanvas({
               nodesConnectable
               nodesDraggable
               onConnect={handleConnect}
+              onInit={(instance) => { flowInstance.current = instance; }}
               onNodeClick={(_event, node) => onSelectNode(node.id)}
               onNodesChange={handleNodesChange}
             >

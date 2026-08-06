@@ -46,10 +46,18 @@ export function retryWorkflowNodeSync(input: RetryWorkflowNodeInput): WorkflowNo
     attemptCount: attempt,
     availableAt,
     clearTaskQueueId: true,
+    allowTerminalRetry: true,
     now,
   });
   if (!updated) throw new Error("workflow_node_retry_conflict");
-  transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["failed"], to: "running", now });
+  transitionWorkflowRunSync({
+    workspaceId: input.workspaceId,
+    runId: run.id,
+    from: ["failed"],
+    to: "running",
+    allowTerminalRetry: true,
+    now,
+  });
   appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: node.id, type: "node.retry_scheduled", actorType: "human", actorId: input.actorUserId, dataJson: JSON.stringify({ reason: input.reason, attempt, availableAt }), now });
   enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_node_run", aggregateId: node.id, eventType: "workflow.node.retry_wait", payloadJson: JSON.stringify({ nodeRunId: node.id, availableAt }), availableAt, now });
   return updated;
@@ -78,7 +86,7 @@ export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
   const run = transitionWorkflowRunSync({
     workspaceId: input.workspaceId,
     runId: input.runId,
-    from: ["created", "queued", "running", "waiting_approval", "paused", "failed"],
+    from: ["created", "queued", "running", "waiting_approval", "paused"],
     to: "cancelled",
     finishedAt: now,
     now,

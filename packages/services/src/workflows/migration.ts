@@ -1,7 +1,6 @@
 import {
   createWorkflowDefinitionSync,
   listWorkflowDefinitionsSync,
-  upsertWorkflowTriggerSync,
 } from "@dofe-agent/db";
 import type { WorkflowDefinitionRecord, WorkflowTriggerRecord } from "@dofe-agent/db";
 import type { ActiveEmployee, AutomationRule, ScheduledTask } from "@dofe-agent/domain/workspace";
@@ -189,17 +188,15 @@ export function applyLegacyMigrationSync(input: {
           graph,
           actor: { userId: "system:workflow-migration", role: "admin" },
           governance: { migratedFrom: action.sourceType },
-        });
-        upsertWorkflowTriggerSync({
-          id: `workflow-trigger-migrated-${safeId(action.sourceId)}`,
-          workspaceId: input.workspaceId,
-          workflowId: definition.id,
-          type: action.triggerType,
-          configJson: JSON.stringify(action.triggerConfig),
-          status: action.enabled ? "active" : "paused",
-          nextFireAt: action.nextFireAt,
-          misfirePolicy: "skip",
-          dedupeWindowSeconds: 60,
+          trigger: {
+            id: `workflow-trigger-migrated-${safeId(action.sourceId)}`,
+            type: action.triggerType,
+            configJson: JSON.stringify(action.triggerConfig),
+            status: action.enabled ? "active" : "paused",
+            nextFireAt: action.nextFireAt,
+            misfirePolicy: "skip",
+            dedupeWindowSeconds: 60,
+          },
         });
       }
     } catch (error) {

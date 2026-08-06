@@ -12,9 +12,12 @@ describe("workflow presentation translations", () => {
   it.each([
     "workflow_graph_cycle",
     "workflow_employee_not_ready",
+    "workflow_skill_not_ready",
+    "workflow_channel_not_ready",
     "workflow_version_conflict",
     "workflow_trigger_duplicate",
     "workflow_budget_exceeded",
+    "workflow_budget_invalid",
     "workflow_node_retry_exhausted",
     "workflow_event_sequence_gap",
     "workflow_cross_workspace_reference",

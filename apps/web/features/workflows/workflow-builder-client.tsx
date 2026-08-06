@@ -152,7 +152,11 @@ export function WorkflowBuilderClient({
       : { workflowId, draftVersion: draft.draftVersion, graph };
     if (!saved) return;
     setPendingAction("preflight");
-    const result = await validateWorkflowAction({ workflowId: saved.workflowId, graph: saved.graph });
+    const result = await validateWorkflowAction({
+      workflowId: saved.workflowId,
+      graph: saved.graph,
+      governance: { maxConcurrency, failurePolicy },
+    });
     setPendingAction(null);
     if (!result.ok) {
       setValidation(null);

@@ -147,6 +147,7 @@ function advanceDownstream(input: { workspaceId: string; run: WorkflowRunRecord;
       const policy = targetConfig.policy === "allow_partial" ? "allow_partial" : "all_success";
       if (policy === "all_success" && success.length !== predecessors.length) {
         transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "failed", errorCode: "workflow_join_upstream_failed", finishedAt: input.now, now: input.now });
+        skipWorkflowDescendants(input, graph, byId, target.nodeId);
       } else if (success.length > 0) {
         const outputs = Object.fromEntries(success.map((node) => [node.nodeId, parseJson(node.outputJson)]));
         transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "succeeded", outputJson: JSON.stringify({ outputs }), finishedAt: input.now, now: input.now });
@@ -160,6 +161,53 @@ function advanceDownstream(input: { workspaceId: string; run: WorkflowRunRecord;
       enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_node_run", aggregateId: target.id, eventType: "workflow.node.ready", payloadJson: JSON.stringify({ nodeRunId: target.id }), now: input.now });
     }
   }
+}
+
+function skipWorkflowDescendants(
+  input: { workspaceId: string; run: WorkflowRunRecord; now: string },
+  graph: WorkflowGraphDefinition,
+  byId: Map<string, WorkflowNodeRunRecord>,
+  nodeId: string,
+): void {
+  for (const descendantId of collectWorkflowDescendantNodeIds(graph, nodeId)) {
+    const descendant = byId.get(descendantId);
+    if (!descendant || descendant.status !== "pending") continue;
+    const skipped = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: descendant.id,
+      from: ["pending"],
+      to: "skipped",
+      errorCode: "workflow_upstream_failed",
+      finishedAt: input.now,
+      now: input.now,
+    });
+    if (skipped) appendWorkflowRunEventSync({
+      workspaceId: input.workspaceId,
+      runId: input.run.id,
+      nodeRunId: descendant.id,
+      type: "node.skipped",
+      actorType: "coordinator",
+      dataJson: JSON.stringify({ reasonCode: "workflow_upstream_failed" }),
+      now: input.now,
+    });
+  }
+}
+
+export function collectWorkflowDescendantNodeIds(
+  graph: WorkflowGraphDefinition,
+  nodeId: string,
+): string[] {
+  const descendants: string[] = [];
+  const visited = new Set<string>([nodeId]);
+  const pending = graph.edges.filter((edge) => edge.source === nodeId).map((edge) => edge.target);
+  while (pending.length > 0) {
+    const current = pending.shift();
+    if (!current || visited.has(current)) continue;
+    visited.add(current);
+    descendants.push(current);
+    pending.push(...graph.edges.filter((edge) => edge.source === current).map((edge) => edge.target));
+  }
+  return descendants;
 }
 
 function activateSuccessors(input: { workspaceId: string; run: WorkflowRunRecord; now: string }, graph: WorkflowGraphDefinition, byId: Map<string, WorkflowNodeRunRecord>, nodeId: string): void {

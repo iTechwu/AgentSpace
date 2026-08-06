@@ -40,6 +40,7 @@ export interface TransitionWorkflowRunInput {
   now?: string;
   startedAt?: string;
   finishedAt?: string;
+  allowTerminalRetry?: boolean;
 }
 
 export interface TransitionWorkflowNodeRunInput {
@@ -60,7 +61,11 @@ export interface TransitionWorkflowNodeRunInput {
   artifactManifestJson?: string;
   errorCode?: string;
   errorMessage?: string;
+  allowTerminalRetry?: boolean;
 }
+
+const TERMINAL_RUN_STATUSES = new Set(["succeeded", "partially_succeeded", "failed", "cancelled"]);
+const TERMINAL_NODE_RUN_STATUSES = new Set(["succeeded", "failed", "skipped", "cancelled"]);
 
 export function createWorkflowRunSync(input: CreateWorkflowRunInput): WorkflowRunRecord {
   const db = getDatabase();
@@ -166,7 +171,11 @@ export function listWorkflowNodeRunsSync(workspaceId: string, runId: string): Wo
 
 export function transitionWorkflowRunSync(input: TransitionWorkflowRunInput): WorkflowRunRecord | null {
   const now = input.now ?? new Date().toISOString();
-  const from = input.from.length > 0 ? input.from : ["__never__"];
+  const from = input.from.filter((status) => (
+    !TERMINAL_RUN_STATUSES.has(status)
+    || (input.allowTerminalRetry === true && status === "failed" && input.to === "running")
+  ));
+  if (from.length === 0) return null;
   const placeholders = from.map(() => "?").join(", ");
   const row = getDatabase().prepare(
     `UPDATE workflow_run
@@ -179,7 +188,11 @@ export function transitionWorkflowRunSync(input: TransitionWorkflowRunInput): Wo
 
 export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunInput): WorkflowNodeRunRecord | null {
   const now = input.now ?? new Date().toISOString();
-  const from = input.from.length > 0 ? input.from : ["__never__"];
+  const from = input.from.filter((status) => (
+    !TERMINAL_NODE_RUN_STATUSES.has(status)
+    || (input.allowTerminalRetry === true && status === "failed" && input.to === "retry_wait")
+  ));
+  if (from.length === 0) return null;
   const placeholders = from.map(() => "?").join(", ");
   const row = getDatabase().prepare(
     `UPDATE workflow_node_run

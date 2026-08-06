@@ -4,6 +4,7 @@ import {
   canonicalizeJson,
   canonicalizeWorkflowGraph,
   hashWorkflowGraph,
+  validateWorkflowNodeDependencies,
   validateWorkflowForPublishSync,
 } from "./validation.ts";
 
@@ -18,6 +19,7 @@ test("canonical workflow JSON sorts object keys but preserves node and edge orde
   assert.equal(canonicalizeWorkflowGraph(left), canonicalizeWorkflowGraph(validGraph));
   assert.equal(hashWorkflowGraph(left), hashWorkflowGraph(validGraph));
   assert.equal(canonicalizeJson({ z: 1, a: 2 }), '{"a":2,"z":1}');
+  assert.equal(canonicalizeJson({ "ä": 1, z: 2 }), '{"z":2,"ä":1}');
 });
 
 test("graph blockers are returned before readiness queries", () => {
@@ -33,4 +35,44 @@ test("graph blockers are returned before readiness queries", () => {
 
   assert.ok(result.blockers.some((blocker) => blocker.code === "workflow_actor_forbidden"));
   assert.ok(result.blockers.some((blocker) => blocker.code === "workflow_graph_requires_employee_task"));
+});
+
+test("dependency preflight blocks missing skills, channel membership, and invalid budgets", () => {
+  const node = {
+    id: "research",
+    type: "employee_task" as const,
+    employeeId: "emp-1",
+    config: {
+      requiredSkillIds: ["web-search", "analysis"],
+      channelName: "项目协作群",
+      budgetUsd: 1,
+      estimatedCostUsd: 2,
+    },
+  };
+  const blockers = validateWorkflowNodeDependencies(node, {
+    employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
+    assignedSkills: new Set(["emp-1\u0000analysis"]),
+    channels: new Map([["项目协作群", { employeeNames: ["其他员工"] }]]),
+  });
+
+  assert.deepEqual(blockers.map((blocker) => blocker.code), [
+    "workflow_skill_not_ready",
+    "workflow_channel_not_ready",
+    "workflow_budget_exceeded",
+  ]);
+});
+
+test("dependency preflight accepts assigned skills and employee display names", () => {
+  const blockers = validateWorkflowNodeDependencies({
+    id: "research",
+    type: "employee_task",
+    employeeId: "emp-1",
+    config: { requiredSkillIds: ["analysis"], channelName: "项目协作群", budgetUsd: 3, estimatedCostUsd: 2 },
+  }, {
+    employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
+    assignedSkills: new Set(["emp-1\u0000analysis"]),
+    channels: new Map([["项目协作群", { employeeNames: ["研究员"] }]]),
+  });
+
+  assert.deepEqual(blockers, []);
 });

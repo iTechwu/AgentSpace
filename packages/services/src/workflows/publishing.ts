@@ -1,6 +1,7 @@
 import {
   publishWorkflowVersionSync,
   type PublishWorkflowVersionInput,
+  type UpsertWorkflowTriggerInput,
   type WorkflowVersionRecord,
 } from "@dofe-agent/db";
 import {
@@ -16,8 +17,8 @@ export interface PublishWorkflowInput extends ValidateWorkflowForPublishInput {
   workflowId: string;
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
-  governance?: Record<string, unknown>;
   versionNumber?: number;
+  trigger?: Omit<UpsertWorkflowTriggerInput, "workspaceId" | "workflowId">;
 }
 
 export interface PublishWorkflowResult {
@@ -44,6 +45,7 @@ export function publishWorkflowSync(input: PublishWorkflowInput): PublishWorkflo
     contentHash: hashWorkflowGraph(input.graph),
     publishedBy: input.actor.userId,
     versionNumber: input.versionNumber,
+    trigger: input.trigger,
   };
   const version = publishWorkflowVersionSync(versionInput);
   return { version, validation };

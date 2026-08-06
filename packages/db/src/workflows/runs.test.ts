@@ -7,6 +7,8 @@ import {
   listWorkflowNodeRunsSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
+  readWorkflowRunSync,
+  transitionWorkflowRunSync,
   transitionWorkflowNodeRunSync,
 } from "./runs.ts";
 import { appendWorkflowRunEventSync, listWorkflowRunEventsSync } from "./events.ts";
@@ -95,7 +97,35 @@ test("materializes one run for a duplicate trigger key and protects terminal nod
     to: "running",
   }), null);
   assert.equal(readWorkflowNodeRunSync(node.id, WORKSPACE_ID)?.status, "succeeded");
+  assert.equal(transitionWorkflowNodeRunSync({
+    workspaceId: WORKSPACE_ID,
+    nodeRunId: node.id,
+    from: ["succeeded"],
+    to: "retry_wait",
+    allowTerminalRetry: true,
+  }), null, "only failed nodes may use the explicit retry transition");
   assert.equal(listWorkflowNodeRunsSync(WORKSPACE_ID, first.id).length, 1);
+
+  assert.ok(transitionWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    runId: first.id,
+    from: ["created"],
+    to: "failed",
+  }));
+  assert.equal(transitionWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    runId: first.id,
+    from: ["failed"],
+    to: "running",
+  }), null);
+  assert.ok(transitionWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    runId: first.id,
+    from: ["failed"],
+    to: "running",
+    allowTerminalRetry: true,
+  }));
+  assert.equal(readWorkflowRunSync(first.id, WORKSPACE_ID)?.status, "running");
 });
 
 test("event sequence and outbox lease are monotonic and owned", () => {

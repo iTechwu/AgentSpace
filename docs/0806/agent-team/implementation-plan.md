@@ -1,5 +1,7 @@
 # AI 员工通用自动化引擎 Implementation Plan
 
+> 实施状态（2026-08-06）：阶段 1-4 的代码、部署契约、迁移预演、观测和发布门禁已落地；本地纯函数/前端/类型检查已通过。数据库集成和 Playwright E2E 仍待提供隔离 PostgreSQL 后执行，当前发布门禁保持 NO-GO。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 AgentSpace 中交付可持久化、可调度、可审计的通用 Workflow Engine，并首期开放串行、并行汇聚、审批、定时和有限重试。

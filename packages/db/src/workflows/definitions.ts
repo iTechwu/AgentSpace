@@ -44,6 +44,7 @@ export interface PublishWorkflowVersionInput {
   versionNumber?: number;
   id?: string;
   publishedAt?: string;
+  trigger?: Omit<UpsertWorkflowTriggerInput, "workspaceId" | "workflowId">;
 }
 
 export interface UpsertWorkflowTriggerInput {
@@ -155,7 +156,16 @@ export function publishWorkflowVersionSync(
       input.workspaceId,
       input.contentHash,
     );
-    if (identical) return identical;
+    if (identical) {
+      if (input.trigger) {
+        upsertWorkflowTriggerWithDatabase(db, {
+          ...input.trigger,
+          workspaceId: input.workspaceId,
+          workflowId: input.workflowId,
+        });
+      }
+      return identical;
+    }
 
     const nextRow = db.prepare(
       `SELECT COALESCE(MAX(version_number), 0) + 1 AS "versionNumber"
@@ -224,6 +234,15 @@ export function publishWorkflowVersionSync(
       now,
     );
 
+    if (input.trigger) {
+      upsertWorkflowTriggerWithDatabase(db, {
+        ...input.trigger,
+        workspaceId: input.workspaceId,
+        workflowId: input.workflowId,
+        now: input.trigger.now ?? now,
+      });
+    }
+
     return readWorkflowVersionWithDatabase(db, id, input.workspaceId)!;
   });
 }
@@ -242,7 +261,13 @@ export function listWorkflowVersionsSync(
 }
 
 export function upsertWorkflowTriggerSync(input: UpsertWorkflowTriggerInput): WorkflowTriggerRecord {
-  const db = getDatabase();
+  return upsertWorkflowTriggerWithDatabase(getDatabase(), input);
+}
+
+function upsertWorkflowTriggerWithDatabase(
+  db: PostgresSyncDatabase,
+  input: UpsertWorkflowTriggerInput,
+): WorkflowTriggerRecord {
   const workflow = db.prepare(
     "SELECT 1 FROM workflow_definition WHERE id = ? AND workspace_id = ?",
   ).get(input.workflowId, input.workspaceId);

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import {
+  listStoredAgentSkillAssignmentsSync,
+  listStoredChannelsSync,
   listStoredEmployeesSync,
   listEmployeeRuntimeBindingsSync,
 } from "@dofe-agent/db";
@@ -26,7 +28,14 @@ export interface WorkflowPublishValidation {
 export interface ValidateWorkflowForPublishInput {
   workspaceId: string;
   graph: WorkflowGraphDefinition;
+  governance?: Record<string, unknown>;
   actor: { userId: string; displayName?: string; role: WorkflowActorRole };
+}
+
+export interface WorkflowDependencyInventory {
+  employees: Map<string, { id: string; name: string; remarkName?: string }>;
+  assignedSkills: Set<string>;
+  channels: Map<string, { employeeNames: string[] }>;
 }
 
 export function canonicalizeWorkflowGraph(graph: WorkflowGraphDefinition): string {
@@ -58,16 +67,106 @@ export function validateWorkflowForPublishSync(
   }
   if (graphResult.errors.length > 0) return { blockers, warnings };
 
-  const employees = new Map(listStoredEmployeesSync(input.workspaceId).map((employee) => [employee.id, employee]));
+  const employees = new Map(
+    listStoredEmployeesSync(input.workspaceId).map((employee) => [employee.id, employee]),
+  );
   const bindings = new Map(
     listEmployeeRuntimeBindingsSync(input.workspaceId).map((binding) => [binding.employeeId, binding]),
   );
+  const inventory: WorkflowDependencyInventory = {
+    employees,
+    assignedSkills: new Set(
+      listStoredAgentSkillAssignmentsSync(input.workspaceId)
+        .map((assignment) => dependencyKey(assignment.employeeId, assignment.skillId)),
+    ),
+    channels: new Map(
+      listStoredChannelsSync(input.workspaceId).map((channel) => [channel.name, channel]),
+    ),
+  };
+  const workflowBudget = optionalFiniteNumber(input.governance?.budgetUsd);
+  if (input.governance?.budgetUsd !== undefined && workflowBudget === undefined) {
+    blockers.push({ code: "workflow_budget_invalid", detail: "workflow_budget_must_be_positive" });
+  }
   for (const node of input.graph.nodes) {
     if (node.type !== "employee_task") continue;
     const blocker = employeeReadinessBlocker(node, employees, bindings);
-    if (blocker) blockers.push(blocker);
+    if (blocker) {
+      blockers.push(blocker);
+      continue;
+    }
+    blockers.push(...validateWorkflowNodeDependencies(node, inventory));
+    if (workflowBudget !== undefined) {
+      const estimate = optionalFiniteNumber(node.config.estimatedCostUsd);
+      if (estimate !== undefined && estimate > workflowBudget) {
+        blockers.push({
+          code: "workflow_budget_exceeded",
+          nodeId: node.id,
+          employeeId: node.employeeId,
+          detail: `estimated_cost_${estimate}_exceeds_workflow_budget_${workflowBudget}`,
+        });
+      }
+    }
   }
   return { blockers, warnings };
+}
+
+export function validateWorkflowNodeDependencies(
+  node: WorkflowNodeDefinition,
+  inventory: WorkflowDependencyInventory,
+): WorkflowPublishBlocker[] {
+  if (node.type !== "employee_task" || !node.employeeId) return [];
+  const blockers: WorkflowPublishBlocker[] = [];
+  const requiredSkillIds = Array.isArray(node.config.requiredSkillIds)
+    ? node.config.requiredSkillIds.filter((value): value is string => typeof value === "string" && value.length > 0)
+    : [];
+  for (const skillId of requiredSkillIds) {
+    if (!inventory.assignedSkills.has(dependencyKey(node.employeeId, skillId))) {
+      blockers.push({
+        code: "workflow_skill_not_ready",
+        nodeId: node.id,
+        employeeId: node.employeeId,
+        detail: skillId,
+      });
+    }
+  }
+
+  const channelName = typeof node.config.channelName === "string" ? node.config.channelName.trim() : "";
+  if (channelName) {
+    const employee = inventory.employees.get(node.employeeId);
+    const channel = inventory.channels.get(channelName);
+    const acceptedNames = new Set([employee?.name, employee?.remarkName].filter((value): value is string => Boolean(value)));
+    if (!channel || !channel.employeeNames.some((name) => acceptedNames.has(name))) {
+      blockers.push({
+        code: "workflow_channel_not_ready",
+        nodeId: node.id,
+        employeeId: node.employeeId,
+        detail: channelName,
+      });
+    }
+  }
+
+  if (node.config.budgetUsd !== undefined) {
+    const budget = optionalFiniteNumber(node.config.budgetUsd);
+    if (budget === undefined) {
+      blockers.push({
+        code: "workflow_budget_invalid",
+        nodeId: node.id,
+        employeeId: node.employeeId,
+        detail: "node_budget_must_be_positive",
+      });
+    } else {
+      const estimate = optionalFiniteNumber(node.config.estimatedCostUsd);
+      if (estimate !== undefined && estimate > budget) {
+        blockers.push({
+          code: "workflow_budget_exceeded",
+          nodeId: node.id,
+          employeeId: node.employeeId,
+          detail: `estimated_cost_${estimate}_exceeds_node_budget_${budget}`,
+        });
+      }
+    }
+  }
+  return blockers;
 }
 
 function employeeReadinessBlocker(
@@ -96,6 +195,14 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, entry]) => entry !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(",")}}`;
+}
+
+function dependencyKey(employeeId: string, skillId: string): string {
+  return `${employeeId}\u0000${skillId}`;
+}
+
+function optionalFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }

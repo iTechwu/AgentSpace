@@ -6,9 +6,13 @@ import { WorkflowCanvas } from "./workflow-canvas";
 import { createWorkflowDraftState, workflowDraftReducer } from "./workflow-builder-reducer";
 
 const EMPLOYEES = [{ id: "emp-a", name: "AI 员工步骤" }];
+const flowMocks = vi.hoisted(() => ({ fitView: vi.fn() }));
 
 vi.mock("@xyflow/react", () => ({
-  ReactFlow: ({ children }: { children: React.ReactNode }) => <div data-testid="react-flow">{children}</div>,
+  ReactFlow: ({ children, onInit }: { children: React.ReactNode; onInit?: (instance: unknown) => void }) => {
+    onInit?.({ fitView: flowMocks.fitView });
+    return <div data-testid="react-flow">{children}</div>;
+  },
   Background: () => null,
   Controls: () => null,
   MiniMap: () => null,
@@ -37,6 +41,27 @@ function WorkflowCanvasHarness() {
 }
 
 describe("WorkflowCanvas", () => {
+  it("refits the canvas after the workflow topology changes", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const user = userEvent.setup();
+    render(<WorkflowCanvasHarness />);
+    flowMocks.fitView.mockClear();
+
+    await user.click(screen.getByRole("button", { name: "添加 AI 员工步骤" }));
+    await user.selectOptions(screen.getByLabelText("AI 员工"), "emp-a");
+    await user.click(screen.getByRole("button", { name: "添加" }));
+
+    expect(flowMocks.fitView).toHaveBeenCalledWith({ duration: 200, padding: 0.2 });
+    flowMocks.fitView.mockClear();
+    window.dispatchEvent(new Event("resize"));
+    expect(flowMocks.fitView).toHaveBeenCalledWith({ duration: 200, padding: 0.2 });
+    vi.unstubAllGlobals();
+  });
+
   it("adds and connects nodes without drag and drop", async () => {
     const user = userEvent.setup();
     render(<WorkflowCanvasHarness />);

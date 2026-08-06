@@ -6,7 +6,6 @@ import {
   readWorkflowRunSync,
   readWorkflowTriggerForWorkflowSync,
   updateWorkflowDraftSync,
-  upsertWorkflowTriggerSync,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
 import {
@@ -41,7 +40,6 @@ export interface UpdateWorkflowDraftActionInput {
   patch: {
     name?: string;
     description?: string | null;
-    ownerUserId?: string;
     channelName?: string | null;
     graph?: WorkflowGraphDefinition;
   };
@@ -50,6 +48,7 @@ export interface UpdateWorkflowDraftActionInput {
 export interface ValidateWorkflowInput {
   workflowId: string;
   graph?: WorkflowGraphDefinition;
+  governance?: Record<string, unknown>;
 }
 
 export interface PublishWorkflowActionInput {
@@ -115,7 +114,6 @@ export async function updateWorkflowDraftAction(
       expectedDraftVersion: input.expectedDraftVersion,
       name: input.patch.name?.trim(),
       description: input.patch.description,
-      ownerUserId: input.patch.ownerUserId,
       channelName: input.patch.channelName,
       graphJson: input.patch.graph ? JSON.stringify(input.patch.graph) : undefined,
     });
@@ -139,6 +137,7 @@ export async function validateWorkflowAction(
     const validation = validateWorkflowForPublishSync({
       workspaceId: context.currentWorkspace.id,
       graph: input.graph ?? parseWorkflowGraph(definition.draftGraphJson),
+      governance: input.governance,
       actor: actorFromContext(context),
     });
     return success(context.currentWorkspace.id, validation);
@@ -156,26 +155,24 @@ export async function publishWorkflowAction(
     const definition = requireDefinition(input.workflowId, context.currentWorkspace.id);
     if (definition.draftVersion !== input.expectedDraftVersion) throw new Error("workflow_draft_version_conflict");
     if (input.trigger) assertTriggerWriteOwnerSync(context.currentWorkspace.id, "workflow");
+    const currentTrigger = input.trigger
+      ? readWorkflowTriggerForWorkflowSync(definition.id, context.currentWorkspace.id)
+      : null;
     const result = publishWorkflowSync({
       workspaceId: context.currentWorkspace.id,
       workflowId: definition.id,
       graph: input.graph ?? parseWorkflowGraph(definition.draftGraphJson),
       governance: input.governance,
       actor: actorFromContext(context),
-    });
-    if (input.trigger) {
-      const currentTrigger = readWorkflowTriggerForWorkflowSync(definition.id, context.currentWorkspace.id);
-      upsertWorkflowTriggerSync({
+      trigger: input.trigger ? {
         id: currentTrigger?.id,
-        workspaceId: context.currentWorkspace.id,
-        workflowId: definition.id,
         type: input.trigger.type,
         configJson: JSON.stringify(input.trigger.config),
         timezone: input.trigger.timezone,
         nextFireAt: input.trigger.nextFireAt,
         status: "active",
-      });
-    }
+      } : undefined,
+    });
     revalidateWorkflowPages(context.currentWorkspace.slug);
     return success(context.currentWorkspace.id, { versionId: result.version.id });
   } catch (error) {
@@ -261,6 +258,7 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_trigger_cross_workspace_conflict", "workflow_trigger_duplicate", "workflow_active_version_missing",
   "workflow_trigger_owner_conflict",
   "workflow_cross_workspace_reference", "workflow_budget_exceeded", "workflow_input_reference_missing",
+  "workflow_skill_not_ready", "workflow_channel_not_ready", "workflow_budget_invalid",
   "workflow_graph_invalid", "workflow_graph_requires_employee_task", "workflow_graph_cycle", "workflow_graph_disconnected",
   "workflow_graph_multiple_entry_nodes", "workflow_graph_multiple_terminal_nodes",
   "workflow_employee_task_requires_employee_id", "workflow_join_requires_multiple_inputs", "workflow_join_requires_downstream",
