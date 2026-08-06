@@ -3,6 +3,7 @@ import {
   cancelQueuedTaskSync,
   getDatabase,
   listWorkflowNodeRunsSync,
+  lockWorkflowRunForUpdateSync,
   readWorkflowNodeRunSync,
   readQueuedTaskSync,
   readWorkflowNodeRunByApprovalIdSync,
@@ -35,10 +36,12 @@ export function completeWorkflowNodeSync(input: CompleteWorkflowNodeInput): Work
   const db = getDatabase();
   const now = input.now ?? new Date().toISOString();
   return withTransaction(db, () => {
+    const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!candidate) throw new Error("workflow_node_run_not_found");
+    const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
     const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
     if (!nodeRun) throw new Error("workflow_node_run_not_found");
-    const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
-    if (!run) throw new Error("workflow_run_not_found");
     if (nodeRun.status === "succeeded" || nodeRun.status === "failed" || nodeRun.status === "cancelled") return run;
     if (nodeRun.taskQueueId !== input.taskQueueId) throw new Error("workflow_task_queue_mismatch");
     const taskWorkspace = db.prepare("SELECT workspace_id AS workspaceId FROM agent_task_queue WHERE id = ?")
@@ -72,10 +75,12 @@ export function failWorkflowNodeSync(input: {
   const db = getDatabase();
   const now = input.now ?? new Date().toISOString();
   return withTransaction(db, () => {
+    const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!candidate) throw new Error("workflow_node_run_not_found");
+    const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
     const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
     if (!nodeRun) throw new Error("workflow_node_run_not_found");
-    const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
-    if (!run) throw new Error("workflow_run_not_found");
     if (["succeeded", "failed", "cancelled"].includes(nodeRun.status)) return run;
     if (nodeRun.taskQueueId !== input.taskQueueId) throw new Error("workflow_task_queue_mismatch");
     const updated = transitionWorkflowNodeRunSync({
@@ -108,10 +113,12 @@ export function failStaleWorkflowNodeSync(input: {
   now: string;
 }): WorkflowNodeRunRecord {
   return withTransaction(getDatabase(), () => {
+    const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!candidate) throw new Error("workflow_node_run_not_found");
+    const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
     const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
     if (!nodeRun) throw new Error("workflow_node_run_not_found");
-    const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
-    if (!run) throw new Error("workflow_run_not_found");
     const failed = transitionWorkflowNodeRunSync({
       workspaceId: input.workspaceId,
       nodeRunId: nodeRun.id,
@@ -150,10 +157,12 @@ export function failWorkflowNodeBeforeDispatchSync(input: {
   now: string;
 }): WorkflowNodeRunRecord {
   return withTransaction(getDatabase(), () => {
+    const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!candidate) throw new Error("workflow_node_run_not_found");
+    const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
     const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
     if (!nodeRun) throw new Error("workflow_node_run_not_found");
-    const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
-    if (!run) throw new Error("workflow_run_not_found");
     const failed = transitionWorkflowNodeRunSync({
       workspaceId: input.workspaceId,
       nodeRunId: nodeRun.id,
@@ -190,10 +199,12 @@ export function completeWorkflowApprovalNodeSync(input: {
   const db = getDatabase();
   const now = input.now ?? new Date().toISOString();
   return withTransaction(db, () => {
+    const candidate = readWorkflowNodeRunByApprovalIdSync(input.approvalId, input.workspaceId);
+    if (!candidate) throw new Error("workflow_approval_not_linked");
+    const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
     const nodeRun = readWorkflowNodeRunByApprovalIdSync(input.approvalId, input.workspaceId);
     if (!nodeRun) throw new Error("workflow_approval_not_linked");
-    const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
-    if (!run) throw new Error("workflow_run_not_found");
     if (nodeRun.status !== "waiting_approval") return run;
     const updated = transitionWorkflowNodeRunSync({
       workspaceId: input.workspaceId,

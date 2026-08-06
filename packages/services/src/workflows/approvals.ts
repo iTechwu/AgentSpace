@@ -2,8 +2,9 @@ import {
   appendWorkflowRunEventSync,
   getDatabase,
   listWorkflowNodeRunsSync,
+  lockWorkflowRunForUpdateSync,
   readStoredEmployeeByIdSync,
-  readWorkflowRunSync,
+  readWorkflowNodeRunByApprovalIdSync,
   transitionWorkflowNodeRunSync,
   transitionWorkflowRunSync,
   withTransaction,
@@ -24,37 +25,39 @@ export interface CreateWorkflowApprovalInput {
 }
 
 export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): ApprovalRequest {
-  const run = readWorkflowRunSync(input.runId, input.workspaceId);
-  if (!run) throw new Error("workflow_run_not_found");
-  const node = listWorkflowNodeRunsSync(input.workspaceId, input.runId).find((item) => item.nodeId === input.nodeId);
-  if (!node || node.nodeType !== "approval") throw new Error("workflow_approval_node_not_found");
-  if (node.approvalId) throw new Error("workflow_approval_already_created");
-  const employee = readStoredEmployeeByIdSync(input.employeeId, input.workspaceId);
-  if (!employee) throw new Error("workflow_approval_employee_not_ready");
-  const approval = listApprovalsSync(input.workspaceId).find((item) => (
-    item.sourceId === node.id && item.status === "pending" && item.metadata?.kind === "workflow_node"
-  )) ?? createApprovalRequestSync({
-      type: "task_output",
-      sourceId: node.id,
-      agentId: employee.name,
-      channelName: input.channelName,
-      contentPreview: input.contentPreview,
-      metadata: { kind: "workflow_node", workflowRunId: run.id, workflowNodeRunId: node.id, workflowNodeId: node.nodeId },
-    }, input.workspaceId).approvals[0];
-  if (!approval) throw new Error("workflow_approval_create_failed");
-  const updated = transitionWorkflowNodeRunSync({
-    workspaceId: input.workspaceId,
-    nodeRunId: node.id,
-    from: ["pending", "ready"],
-    to: "waiting_approval",
-    approvalId: approval.id,
-    clearError: true,
-    now: input.now,
+  return withTransaction(getDatabase(), () => {
+    const run = lockWorkflowRunForUpdateSync(input.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
+    const node = listWorkflowNodeRunsSync(input.workspaceId, input.runId).find((item) => item.nodeId === input.nodeId);
+    if (!node || node.nodeType !== "approval") throw new Error("workflow_approval_node_not_found");
+    if (node.approvalId) throw new Error("workflow_approval_already_created");
+    const employee = readStoredEmployeeByIdSync(input.employeeId, input.workspaceId);
+    if (!employee) throw new Error("workflow_approval_employee_not_ready");
+    const approval = listApprovalsSync(input.workspaceId).find((item) => (
+      item.sourceId === node.id && item.status === "pending" && item.metadata?.kind === "workflow_node"
+    )) ?? createApprovalRequestSync({
+        type: "task_output",
+        sourceId: node.id,
+        agentId: employee.name,
+        channelName: input.channelName,
+        contentPreview: input.contentPreview,
+        metadata: { kind: "workflow_node", workflowRunId: run.id, workflowNodeRunId: node.id, workflowNodeId: node.nodeId },
+      }, input.workspaceId).approvals[0];
+    if (!approval) throw new Error("workflow_approval_create_failed");
+    const updated = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: node.id,
+      from: ["pending", "ready"],
+      to: "waiting_approval",
+      approvalId: approval.id,
+      clearError: true,
+      now: input.now,
+    });
+    if (!updated) throw new Error("workflow_approval_node_conflict");
+    transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["created", "queued", "running"], to: "waiting_approval", now: input.now });
+    appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: node.id, type: "approval.requested", actorType: "system", dataJson: JSON.stringify({ approvalId: approval.id }), now: input.now });
+    return approval;
   });
-  if (!updated) throw new Error("workflow_approval_node_conflict");
-  transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["created", "queued", "running"], to: "waiting_approval", now: input.now });
-  appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: node.id, type: "approval.requested", actorType: "system", dataJson: JSON.stringify({ approvalId: approval.id }), now: input.now });
-  return approval;
 }
 
 export function workflowApprovalInputFromNodeConfig(config: Record<string, unknown>): {
@@ -96,6 +99,9 @@ export function reviewWorkflowApprovalSync(input: {
   return withTransaction(getDatabase(), () => {
     const approval = listApprovalsSync(input.workspaceId).find((item) => item.id === input.approvalId);
     if (!approval || approval.metadata?.kind !== "workflow_node") throw new Error("workflow_approval_not_linked");
+    const nodeRun = readWorkflowNodeRunByApprovalIdSync(input.approvalId, input.workspaceId);
+    if (!nodeRun) throw new Error("workflow_approval_not_linked");
+    if (!lockWorkflowRunForUpdateSync(nodeRun.runId, input.workspaceId)) throw new Error("workflow_run_not_found");
     reviewApprovalSync(input.approvalId, input.decision, input.comment, input.workspaceId);
     const run = continueWorkflowAfterApprovalSync(input);
     if (input.decision === "rejected") {

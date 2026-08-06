@@ -34,6 +34,7 @@ import {
   applyFeishuLarkCliResultManifestOperations,
   applyFeishuRuntimeDataOperationRequests,
   listFeishuLarkCliResourceGrantsForChannelSync,
+  lockWorkflowRunForTaskIfLinkedSync,
   postMessageSync,
   promoteTaskOutputsToWorkspaceSync,
   queueFeishuAgentStatusCardOutboxSync,
@@ -409,6 +410,7 @@ export async function POST(
     }
 
     withTransaction(getDatabase(), () => {
+      lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
       completeCommittedTaskSync({
         taskId: task.id,
         resultJson: {
@@ -608,6 +610,7 @@ export async function POST(
         }
       : undefined;
     withTransaction(getDatabase(), () => {
+      lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
       failQueuedTaskSync({
         taskId: task.id,
         errorText: message,

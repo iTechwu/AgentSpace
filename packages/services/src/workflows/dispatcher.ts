@@ -4,9 +4,9 @@ import {
   getDatabase,
   appendWorkflowRunEventSync,
   listWorkflowNodeRunsSync,
+  lockWorkflowRunForUpdateSync,
   readStoredEmployeeByIdSync,
   readWorkflowNodeRunSync,
-  readWorkflowRunSync,
   readWorkflowVersionSync,
   transitionWorkflowNodeRunSync,
   withTransaction,
@@ -34,10 +34,12 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
 }
 
 function dispatchReadyWorkflowNodeInTransactionSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {
+  const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+  if (!candidate) throw new Error("workflow_node_run_not_found");
+  const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+  if (!run) throw new Error("workflow_run_not_found");
   const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
   if (!nodeRun) throw new Error("workflow_node_run_not_found");
-  const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
-  if (!run) throw new Error("workflow_run_not_found");
   if (isWorkflowRunDispatchBlocked(run.status)) {
     return { nodeRunId: nodeRun.id, taskQueueId: nodeRun.taskQueueId, status: nodeRun.status };
   }

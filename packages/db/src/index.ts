@@ -200,6 +200,7 @@ export {
 export {
   createWorkflowRunSync,
   readWorkflowRunSync,
+  lockWorkflowRunForUpdateSync,
   readWorkflowRunSyncByTriggerKey,
   listWorkflowRunsSync,
   materializeWorkflowNodeRunsSync,

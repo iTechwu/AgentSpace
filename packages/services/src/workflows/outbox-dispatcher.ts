@@ -2,11 +2,11 @@ import {
   appendWorkflowRunEventSync,
   claimWorkflowOutboxBatchSync,
   getDatabase,
+  lockWorkflowRunForUpdateSync,
   readWorkflowNodeRunSync,
   listWorkflowNodeRunsSync,
   markWorkflowOutboxFailedSync,
   markWorkflowOutboxPublishedSync,
-  readWorkflowRunSync,
   transitionWorkflowNodeRunSync,
   withTransaction,
 } from "@dofe-agent/db";
@@ -84,10 +84,12 @@ function dispatchReadyWorkflowNodeByTypeSync(input: { workspaceId: string; nodeR
 }
 
 function dispatchReadyWorkflowNodeByTypeInTransactionSync(input: { workspaceId: string; nodeRunId: string; now: string }): { taskQueueId?: string } {
+  const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+  if (!candidate) throw new Error("workflow_node_run_not_found");
+  const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+  if (!run) throw new Error("workflow_run_not_found");
   const node = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
   if (!node) throw new Error("workflow_node_run_not_found");
-  const run = readWorkflowRunSync(node.runId, input.workspaceId);
-  if (!run) throw new Error("workflow_run_not_found");
   if (isWorkflowRunDispatchBlocked(run.status)) return {};
   if (node.nodeType === "approval") {
     if (node.status !== "ready") return {};

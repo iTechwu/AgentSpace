@@ -120,6 +120,12 @@ export function readWorkflowRunSync(id: string, workspaceId: string): WorkflowRu
   return row ? mapRun(row) : null;
 }
 
+export function lockWorkflowRunForUpdateSync(id: string, workspaceId: string): WorkflowRunRecord | null {
+  const row = getDatabase().prepare(`${RUN_SELECT} WHERE id = ? AND workspace_id = ? FOR UPDATE`)
+    .get(id, workspaceId) as Record<string, unknown> | undefined;
+  return row ? mapRun(row) : null;
+}
+
 export function readWorkflowRunSyncByTriggerKey(workspaceId: string, triggerKey: string): WorkflowRunRecord | null {
   const row = getDatabase().prepare(`${RUN_SELECT} WHERE workspace_id = ? AND trigger_key = ?`)
     .get(workspaceId, triggerKey) as Record<string, unknown> | undefined;
@@ -191,12 +197,14 @@ export function claimWorkflowNodeForDispatchSync(
 ): ClaimWorkflowNodeForDispatchResult {
   const db = getDatabase();
   return withTransaction(db, () => {
+    const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!candidate || candidate.status !== "ready") return { nodeRun: candidate, reason: "not_ready" };
+    const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+    if (!run) return { nodeRun: null, reason: "not_ready" };
     const row = db.prepare(`${NODE_RUN_SELECT} WHERE id = ? AND workspace_id = ? FOR UPDATE`)
       .get(input.nodeRunId, input.workspaceId) as Record<string, unknown> | undefined;
     const nodeRun = row ? mapNodeRun(row) : null;
     if (!nodeRun || nodeRun.status !== "ready") return { nodeRun, reason: "not_ready" };
-    db.prepare("SELECT id FROM workflow_run WHERE id = ? AND workspace_id = ? FOR UPDATE")
-      .get(nodeRun.runId, input.workspaceId);
     const active = db.prepare(
       `SELECT COUNT(*)::integer AS count
          FROM workflow_node_run

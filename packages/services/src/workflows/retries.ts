@@ -4,6 +4,7 @@ import {
   enqueueWorkflowOutboxSync,
   getDatabase,
   listWorkflowNodeRunsSync,
+  lockWorkflowRunForUpdateSync,
   readWorkflowNodeRunSync,
   readQueuedTaskSync,
   readWorkflowRunSync,
@@ -39,7 +40,7 @@ export interface ControlWorkflowRunInput {
 
 export function retryWorkflowNodeSync(input: RetryWorkflowNodeInput): WorkflowNodeRunRecord {
   return withTransaction(getDatabase(), () => {
-    const run = readWorkflowRunSync(input.runId, input.workspaceId);
+    const run = lockWorkflowRunForUpdateSync(input.runId, input.workspaceId);
     if (!run) throw new Error("workflow_run_not_found");
     if (input.manualOverride && run.status !== "failed" && run.status !== "partially_succeeded") {
       throw new Error("workflow_run_control_conflict");
@@ -115,7 +116,7 @@ export function pauseWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowRu
 
 export function resumeWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowRunRecord {
   return withTransaction(getDatabase(), () => {
-    const current = readWorkflowRunSync(input.runId, input.workspaceId);
+    const current = lockWorkflowRunForUpdateSync(input.runId, input.workspaceId);
     if (!current) throw new Error("workflow_run_not_found");
     const nodes = listWorkflowNodeRunsSync(input.workspaceId, input.runId);
     const version = readWorkflowVersionSync(current.versionId, input.workspaceId);
@@ -135,7 +136,7 @@ export function resumeWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
 export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowRunRecord {
   return withTransaction(getDatabase(), () => {
     const now = input.now ?? new Date().toISOString();
-    const current = readWorkflowRunSync(input.runId, input.workspaceId);
+    const current = lockWorkflowRunForUpdateSync(input.runId, input.workspaceId);
     if (!current) throw new Error("workflow_run_not_found");
     if (current.status === "cancelled") return current;
     const cancellableStatuses = ["created", "queued", "running", "waiting_approval", "paused"];
@@ -145,7 +146,7 @@ export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
       runId: input.runId,
       reason: input.reason,
     });
-    // Match daemon completion's queue -> node -> run lock order to avoid cancellation deadlocks.
+    // The Run row serializes dispatch, completion, approval, retry, and cancellation for this aggregate.
     for (const node of listWorkflowNodeRunsSync(input.workspaceId, input.runId)) {
       if (["succeeded", "failed", "skipped", "cancelled"].includes(node.status)) continue;
       if (node.taskQueueId && readQueuedTaskSync(node.taskQueueId)) {

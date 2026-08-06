@@ -206,6 +206,7 @@ export {
   type CompleteWorkflowNodeInput,
 } from "./workflows/coordinator.ts";
 export {
+  lockWorkflowRunForTaskIfLinkedSync,
   completeWorkflowTaskIfLinkedSync,
   failWorkflowTaskIfLinkedSync,
 } from "./workflows/completion.ts";

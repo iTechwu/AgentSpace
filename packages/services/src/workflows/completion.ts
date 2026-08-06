@@ -1,6 +1,23 @@
-import { getDatabase, readWorkflowNodeRunByTaskQueueIdSync, withTransaction } from "@dofe-agent/db";
+import {
+  getDatabase,
+  lockWorkflowRunForUpdateSync,
+  readWorkflowNodeRunByTaskQueueIdSync,
+  withTransaction,
+} from "@dofe-agent/db";
 import { completeWorkflowNodeSync, failWorkflowNodeSync } from "./coordinator.ts";
 import { retryWorkflowNodeSync } from "./retries.ts";
+
+export function lockWorkflowRunForTaskIfLinkedSync(input: {
+  workspaceId: string;
+  taskQueueId: string;
+}): boolean {
+  const nodeRun = readWorkflowNodeRunByTaskQueueIdSync(input.taskQueueId, input.workspaceId);
+  if (!nodeRun) return false;
+  if (!lockWorkflowRunForUpdateSync(nodeRun.runId, input.workspaceId)) {
+    throw new Error("workflow_run_not_found");
+  }
+  return true;
+}
 
 export function completeWorkflowTaskIfLinkedSync(input: {
   workspaceId: string;

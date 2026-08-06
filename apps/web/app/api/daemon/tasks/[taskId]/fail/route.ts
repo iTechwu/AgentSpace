@@ -8,6 +8,7 @@ import {
   formatConversationFailureSummary,
   formatTaskFailureSummary,
   handleManagedRuntimeProviderFailureAsync,
+  lockWorkflowRunForTaskIfLinkedSync,
   postMessageSync,
   queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
@@ -53,6 +54,7 @@ export async function POST(
     payload.channelName
       ?? (payload.contactId ? resolveCompatibleDirectChannelRecord(workspaceState, payload.contactId)?.name : undefined);
   withTransaction(getDatabase(), () => {
+    lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
     failQueuedTaskSync({
       taskId: task.id,
       errorText,
