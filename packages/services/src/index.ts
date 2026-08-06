@@ -232,6 +232,17 @@ export {
   type WorkflowTriggerOwner,
 } from "./workflows/feature-flags.ts";
 export {
+  redactWorkflowDiagnostic,
+  type WorkflowDiagnosticRedactionOptions,
+} from "./workflows/security.ts";
+export {
+  buildWorkflowLogRecord,
+  buildWorkflowMetricLabels,
+  WORKFLOW_METRICS,
+  type WorkflowLogInput,
+  type WorkflowMetricLabelInput,
+} from "./workflows/observability.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,
