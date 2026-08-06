@@ -29,6 +29,7 @@ const STEPS = ["目标", "触发", "流程", "治理", "预览"] as const;
 
 type TriggerType = "manual" | "schedule" | "event";
 type ScheduleMode = "once" | "daily" | "cron";
+type MisfirePolicy = "skip" | "fire_once";
 
 export function WorkflowBuilderClient({
   workspaceSlug,
@@ -60,6 +61,7 @@ export function WorkflowBuilderClient({
   const [dailyAt, setDailyAt] = useState(stringConfig(initial?.trigger.config.dailyAt, "09:00"));
   const [eventName, setEventName] = useState(stringConfig(initial?.trigger.config.eventName, ""));
   const [timezone, setTimezone] = useState(initial?.trigger.timezone ?? "Asia/Shanghai");
+  const [misfirePolicy, setMisfirePolicy] = useState<MisfirePolicy>(initial?.trigger.misfirePolicy ?? "skip");
   const [maxConcurrency, setMaxConcurrency] = useState(initial?.governance.maxConcurrency ?? 4);
   const [budgetUsd, setBudgetUsd] = useState(initial?.governance.budgetUsd ? String(initial.governance.budgetUsd) : "");
   const [configurationDirty, setConfigurationDirty] = useState(false);
@@ -184,7 +186,7 @@ export function WorkflowBuilderClient({
       expectedDraftVersion: draft.draftVersion,
       graph,
       governance: governancePayload(maxConcurrency, budgetUsd),
-      trigger: triggerPayload(triggerType, scheduleMode, schedule, onceAt, dailyAt, eventName, timezone),
+      trigger: triggerPayload(triggerType, scheduleMode, schedule, onceAt, dailyAt, eventName, timezone, misfirePolicy),
     });
     setPendingAction(null);
     if (!result.ok) {
@@ -275,6 +277,7 @@ export function WorkflowBuilderClient({
               {scheduleMode === "daily" ? <label><span>每天执行时间</span><input onChange={(event) => updateConfiguration(() => setDailyAt(event.target.value))} type="time" value={dailyAt} /></label> : null}
               {scheduleMode === "cron" ? <label><span>Cron 表达式</span><input onChange={(event) => updateConfiguration(() => setSchedule(event.target.value))} value={schedule} /></label> : null}
               <label><span>时区</span><input onChange={(event) => updateConfiguration(() => setTimezone(event.target.value))} value={timezone} /></label>
+              <label><span>错过执行</span><select onChange={(event) => updateConfiguration(() => setMisfirePolicy(event.target.value as MisfirePolicy))} value={misfirePolicy}><option value="skip">跳过过期执行</option><option value="fire_once">仅补最近一次</option></select></label>
             </> : null}
             {triggerType === "event" ? <label><span>事件名称</span><input onChange={(event) => updateConfiguration(() => setEventName(event.target.value))} value={eventName} /></label> : null}
           </div>
@@ -341,14 +344,14 @@ function triggerLabel(type: TriggerType): string {
   return type === "manual" ? "手动触发" : type === "schedule" ? "定时触发" : "事件触发";
 }
 
-function triggerPayload(type: TriggerType, scheduleMode: ScheduleMode, schedule: string, onceAt: string, dailyAt: string, eventName: string, timezone: string) {
+function triggerPayload(type: TriggerType, scheduleMode: ScheduleMode, schedule: string, onceAt: string, dailyAt: string, eventName: string, timezone: string, misfirePolicy: MisfirePolicy) {
   if (type === "schedule") {
     const config = scheduleMode === "once"
       ? { onceAt: onceAt.trim() }
       : scheduleMode === "daily"
         ? { dailyAt }
         : { cronExpression: schedule.trim() };
-    return { type, config, timezone };
+    return { type, config, timezone, misfirePolicy };
   }
   if (type === "event") return { type, config: { eventName } };
   return { type, config: {} };

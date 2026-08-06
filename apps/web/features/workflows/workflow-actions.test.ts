@@ -132,7 +132,7 @@ describe("workflow actions", () => {
 
     expect(result).toMatchObject({ ok: true, data: { versionId: "version-1" } });
     expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
-      trigger: expect.objectContaining({ id: "trigger-1", type: "schedule" }),
+      trigger: expect.objectContaining({ id: "trigger-1", type: "schedule", misfirePolicy: undefined }),
     }));
   });
 

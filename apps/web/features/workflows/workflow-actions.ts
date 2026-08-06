@@ -61,6 +61,7 @@ export interface PublishWorkflowActionInput {
     config: Record<string, unknown>;
     timezone?: string;
     nextFireAt?: string;
+    misfirePolicy?: "skip" | "fire_once";
   };
 }
 
@@ -172,6 +173,7 @@ export async function publishWorkflowAction(
         configJson: JSON.stringify(input.trigger.config),
         timezone: input.trigger.timezone,
         nextFireAt: input.trigger.nextFireAt,
+        misfirePolicy: input.trigger.misfirePolicy,
         status: "active",
       } : undefined,
     });
@@ -269,6 +271,7 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_concurrency_invalid",
   "workflow_approval_employee_not_ready", "workflow_approval_channel_not_ready",
   "workflow_schedule_invalid", "workflow_schedule_in_past", "workflow_schedule_timezone_invalid",
+  "workflow_misfire_policy_invalid",
   "workflow_event_invalid",
   "workflow_graph_invalid", "workflow_graph_requires_employee_task", "workflow_graph_cycle", "workflow_graph_disconnected",
   "workflow_graph_multiple_entry_nodes", "workflow_graph_multiple_terminal_nodes",
@@ -287,6 +290,7 @@ function workflowErrorMessage(code: string): string {
     workflow_schedule_invalid: "定时配置无效，请检查时间或 Cron 表达式。",
     workflow_schedule_in_past: "一次性执行时间必须晚于当前时间。",
     workflow_schedule_timezone_invalid: "时区无效，请填写标准 IANA 时区。",
+    workflow_misfire_policy_invalid: "错过执行策略无效，请重新选择。",
     workflow_event_invalid: "事件名称无效，请检查后重试。",
     workflow_run_not_found: "未找到运行记录。",
     workflow_run_control_conflict: "运行状态已变化，请刷新后重试。",

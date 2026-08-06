@@ -163,6 +163,7 @@ export function getWorkflowBuilderPageData(
         type: trigger?.type ?? "manual",
         config: triggerConfig,
         ...(trigger?.timezone ? { timezone: trigger.timezone } : {}),
+        misfirePolicy: trigger?.misfirePolicy ?? "skip",
       },
       governance: {
         maxConcurrency: numberInRange(governance.maxConcurrency, 1, 20, 4),

@@ -37,15 +37,14 @@ export function tickWorkflowSchedulerSync(input: {
       continue;
     }
     const oneTime = isOneTimeWorkflowTrigger(trigger);
-    const next = computeNextWorkflowFireAt(trigger, scheduledAt, input.now);
-    if (!next && !oneTime) {
+    const decision = resolveWorkflowScheduleDecision(trigger, input.now);
+    if (!decision.nextFireAt && !oneTime) {
       releaseTrigger(trigger, input.workerId, input.now, null, "paused");
       result.misfiredTriggerIds.push(trigger.id);
       continue;
     }
-    const misfired = !oneTime && trigger.misfirePolicy === "skip" && next !== null && Date.parse(next) <= Date.parse(input.now);
-    if (misfired) {
-      releaseTrigger(trigger, input.workerId, input.now, advanceAfter(trigger, next, input.now), undefined, scheduledAt);
+    if (!decision.runScheduledAt) {
+      releaseTrigger(trigger, input.workerId, input.now, decision.nextFireAt, oneTime ? "paused" : undefined, scheduledAt);
       result.misfiredTriggerIds.push(trigger.id);
       continue;
     }
@@ -53,10 +52,10 @@ export function tickWorkflowSchedulerSync(input: {
       const materialized = materializeWorkflowRunSync({
         workspaceId: trigger.workspaceId,
         trigger,
-        scheduledAt,
+        scheduledAt: decision.runScheduledAt,
         now: input.now,
       });
-      releaseTrigger(trigger, input.workerId, input.now, next, oneTime ? "paused" : undefined, scheduledAt);
+      releaseTrigger(trigger, input.workerId, input.now, decision.nextFireAt, oneTime ? "paused" : undefined, decision.runScheduledAt);
       if (materialized.created) result.createdRunIds.push(materialized.runId);
       else result.deduplicatedTriggerIds.push(trigger.id);
     } catch {
@@ -65,6 +64,80 @@ export function tickWorkflowSchedulerSync(input: {
     }
   }
   return result;
+}
+
+export function resolveWorkflowScheduleDecision(
+  trigger: WorkflowTriggerRecord,
+  now: string,
+): { runScheduledAt: string | null; nextFireAt: string | null; misfired: boolean } {
+  const scheduledAt = trigger.nextFireAt;
+  if (!scheduledAt) return { runScheduledAt: null, nextFireAt: null, misfired: true };
+  const nowMillis = Date.parse(now);
+  const scheduledMillis = Date.parse(scheduledAt);
+  if (!Number.isFinite(nowMillis) || !Number.isFinite(scheduledMillis)) {
+    return { runScheduledAt: null, nextFireAt: null, misfired: true };
+  }
+  const config = parseScheduleConfig(trigger.configJson);
+  const configuredGrace = Number(config?.misfireGraceSeconds);
+  const graceSeconds = Number.isInteger(configuredGrace) && configuredGrace >= 0 && configuredGrace <= 86_400
+    ? configuredGrace
+    : 60;
+  const misfired = nowMillis - scheduledMillis > graceSeconds * 1_000;
+  if (isOneTimeWorkflowTrigger(trigger)) {
+    return {
+      runScheduledAt: !misfired || trigger.misfirePolicy === "fire_once" ? scheduledAt : null,
+      nextFireAt: null,
+      misfired,
+    };
+  }
+
+  const window = recurringWindowAroundNow(trigger, scheduledAt, now);
+  if (!window) return { runScheduledAt: null, nextFireAt: null, misfired: true };
+  return {
+    runScheduledAt: misfired
+      ? trigger.misfirePolicy === "fire_once" ? window.latestDueAt : null
+      : scheduledAt,
+    nextFireAt: window.nextFireAt,
+    misfired,
+  };
+}
+
+function recurringWindowAroundNow(
+  trigger: WorkflowTriggerRecord,
+  scheduledAt: string,
+  now: string,
+): { latestDueAt: string; nextFireAt: string } | null {
+  const config = parseScheduleConfig(trigger.configJson);
+  if (!config) return null;
+  const scheduledMillis = Date.parse(scheduledAt);
+  const nowMillis = Date.parse(now);
+  const repeatSeconds = Number(config.repeatSeconds ?? config.intervalSeconds);
+  if (Number.isFinite(repeatSeconds) && repeatSeconds > 0) {
+    const intervalMillis = repeatSeconds * 1_000;
+    const elapsedIntervals = Math.max(0, Math.floor((nowMillis - scheduledMillis) / intervalMillis));
+    const latestDueMillis = scheduledMillis + elapsedIntervals * intervalMillis;
+    return {
+      latestDueAt: new Date(latestDueMillis).toISOString(),
+      nextFireAt: new Date(latestDueMillis + intervalMillis).toISOString(),
+    };
+  }
+  const dailyAt = typeof config.dailyAt === "string" ? config.dailyAt : undefined;
+  const dailyMatch = dailyAt ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(dailyAt) : null;
+  const cronExpression = dailyMatch
+    ? `${Number(dailyAt!.slice(3, 5))} ${Number(dailyAt!.slice(0, 2))} * * *`
+    : typeof config.cronExpression === "string"
+      ? config.cronExpression
+      : typeof config.cron === "string" ? config.cron : undefined;
+  if (!cronExpression) return null;
+  try {
+    const options = { currentDate: now, tz: trigger.timezone ?? "UTC" };
+    const latestDueAt = CronExpressionParser.parse(cronExpression, options).prev().toISOString();
+    const nextFireAt = CronExpressionParser.parse(cronExpression, options).next().toISOString();
+    if (!latestDueAt || !nextFireAt) return null;
+    return Date.parse(latestDueAt) >= scheduledMillis ? { latestDueAt, nextFireAt } : null;
+  } catch {
+    return null;
+  }
 }
 
 export function computeNextWorkflowFireAt(trigger: WorkflowTriggerRecord, scheduledAt: string, now: string): string | null {
@@ -93,13 +166,17 @@ export function normalizeWorkflowTriggerForPublish(
   input: PublishWorkflowTriggerInput,
   now = input.now ?? new Date().toISOString(),
 ): PublishWorkflowTriggerInput {
+  const misfirePolicy = input.misfirePolicy ?? "skip";
+  if (misfirePolicy !== "skip" && misfirePolicy !== "fire_once") {
+    throw new Error("workflow_misfire_policy_invalid");
+  }
   if (input.type === "event") {
     const config = parseScheduleConfig(input.configJson);
     const eventName = typeof config?.eventName === "string" ? config.eventName.trim() : "";
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(eventName)) throw new Error("workflow_event_invalid");
-    return { ...input, configJson: JSON.stringify({ ...config, eventName }), nextFireAt: undefined };
+    return { ...input, misfirePolicy, configJson: JSON.stringify({ ...config, eventName }), nextFireAt: undefined };
   }
-  if (input.type !== "schedule") return { ...input, nextFireAt: undefined };
+  if (input.type !== "schedule") return { ...input, misfirePolicy, nextFireAt: undefined };
   const config = parseScheduleConfig(input.configJson);
   if (!config) throw new Error("workflow_schedule_invalid");
   const timezone = input.timezone ?? "UTC";
@@ -127,17 +204,7 @@ export function normalizeWorkflowTriggerForPublish(
     }
   }
   if (!nextFireAt) throw new Error("workflow_schedule_invalid");
-  return { ...input, timezone, nextFireAt };
-}
-
-function advanceAfter(trigger: WorkflowTriggerRecord, candidate: string, now: string): string | null {
-  let next = candidate;
-  for (let attempt = 0; attempt < 1000 && Date.parse(next) <= Date.parse(now); attempt += 1) {
-    const advanced = computeNextWorkflowFireAt(trigger, next, now);
-    if (!advanced || advanced === next) return null;
-    next = advanced;
-  }
-  return next;
+  return { ...input, misfirePolicy, timezone, nextFireAt };
 }
 
 function nextDailyAt(scheduledAt: string, dailyAt: string, timezone: string): string | null {

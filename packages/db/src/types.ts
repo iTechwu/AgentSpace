@@ -1994,7 +1994,7 @@ export interface WorkflowTriggerRecord {
   status: string;
   nextFireAt?: string;
   lastFireAt?: string;
-  misfirePolicy: string;
+  misfirePolicy: "skip" | "fire_once";
   dedupeWindowSeconds: number;
   leaseOwner?: string;
   leaseExpiresAt?: string;

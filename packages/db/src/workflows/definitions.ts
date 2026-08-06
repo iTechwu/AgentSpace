@@ -57,7 +57,7 @@ export interface UpsertWorkflowTriggerInput {
   status?: string;
   nextFireAt?: string;
   lastFireAt?: string;
-  misfirePolicy?: string;
+  misfirePolicy?: "skip" | "fire_once";
   dedupeWindowSeconds?: number;
   leaseOwner?: string;
   leaseExpiresAt?: string;
@@ -303,6 +303,10 @@ function upsertWorkflowTriggerWithDatabase(
   if (!workflow) throw new Error("workflow_definition_not_found");
   const id = input.id ?? `workflow-trigger-${randomLikeId()}`;
   const now = input.now ?? new Date().toISOString();
+  const misfirePolicy = input.misfirePolicy ?? "skip";
+  if (misfirePolicy !== "skip" && misfirePolicy !== "fire_once") {
+    throw new Error("workflow_misfire_policy_invalid");
+  }
   db.prepare(
     `INSERT INTO workflow_trigger (
        id, workspace_id, workflow_id, type, config_json, timezone, status,
@@ -333,7 +337,7 @@ function upsertWorkflowTriggerWithDatabase(
     input.status ?? "active",
     input.nextFireAt ?? null,
     input.lastFireAt ?? null,
-    input.misfirePolicy ?? "skip",
+    misfirePolicy,
     input.dedupeWindowSeconds ?? 0,
     input.leaseOwner ?? null,
     input.leaseExpiresAt ?? null,

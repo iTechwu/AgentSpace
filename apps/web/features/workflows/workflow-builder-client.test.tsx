@@ -67,7 +67,7 @@ function renderBuilder(entry: "automations" | "calendar" | "task-board" = "autom
         status: "draft",
         graph,
         draftVersion: 1,
-        trigger: { type: "manual", config: {} },
+        trigger: { type: "manual", config: {}, misfirePolicy: "skip" },
         governance: { maxConcurrency: 4 },
       }}
       workspaceSlug="default"
@@ -139,6 +139,20 @@ describe("workflow builder", () => {
 
     await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
       governance: { maxConcurrency: 2, budgetUsd: 12.5 },
+    })));
+  });
+
+  it("publishes the selected missed-run policy for schedules", async () => {
+    const user = userEvent.setup();
+    renderBuilder("calendar");
+    await user.click(screen.getByRole("radio", { name: "定时触发" }));
+    await user.selectOptions(screen.getByLabelText("错过执行"), "fire_once");
+    await user.click(screen.getByRole("button", { name: /5.*预览/ }));
+    await user.click(screen.getByRole("button", { name: "运行预检" }));
+    await user.click(await screen.findByRole("button", { name: "发布" }));
+
+    await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: expect.objectContaining({ type: "schedule", misfirePolicy: "fire_once" }),
     })));
   });
 });

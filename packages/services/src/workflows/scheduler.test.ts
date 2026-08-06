@@ -4,6 +4,7 @@ import {
   computeNextWorkflowFireAt,
   isOneTimeWorkflowTrigger,
   normalizeWorkflowTriggerForPublish,
+  resolveWorkflowScheduleDecision,
 } from "./scheduler.ts";
 
 function trigger(configJson: string, timezone = "UTC") {
@@ -63,6 +64,7 @@ test("normalizes the first cron fire time on publish", () => {
       type: "schedule",
       configJson: '{"cronExpression":"0 9 * * 1-5"}',
       timezone: "Asia/Shanghai",
+      misfirePolicy: "skip",
       nextFireAt: "2026-08-06T01:00:00.000Z",
     },
   );
@@ -114,4 +116,75 @@ test("normalizes valid event names and rejects unsafe names", () => {
 
 test("rejects unbounded schedule configuration", () => {
   assert.equal(computeNextWorkflowFireAt(trigger("{}"), "2026-08-07T01:00:00.000Z", "2026-08-07T01:00:30.000Z"), null);
+});
+
+test("skip misfire advances directly to the next future occurrence", () => {
+  assert.deepEqual(
+    resolveWorkflowScheduleDecision(
+      trigger('{"repeatSeconds":3600}'),
+      "2026-08-07T04:10:00.000Z",
+    ),
+    {
+      runScheduledAt: null,
+      nextFireAt: "2026-08-07T05:00:00.000Z",
+      misfired: true,
+    },
+  );
+});
+
+test("fire-once misfire runs only the latest missed occurrence", () => {
+  assert.deepEqual(
+    resolveWorkflowScheduleDecision(
+      { ...trigger('{"repeatSeconds":3600}'), misfirePolicy: "fire_once" },
+      "2026-08-07T04:10:00.000Z",
+    ),
+    {
+      runScheduledAt: "2026-08-07T04:00:00.000Z",
+      nextFireAt: "2026-08-07T05:00:00.000Z",
+      misfired: true,
+    },
+  );
+});
+
+test("fire-once cron recovery selects the latest occurrence after a long outage", () => {
+  assert.deepEqual(
+    resolveWorkflowScheduleDecision(
+      {
+        ...trigger('{"cronExpression":"0 9 * * 1-5"}', "Asia/Shanghai"),
+        misfirePolicy: "fire_once",
+        nextFireAt: "2026-07-01T01:00:00.000Z",
+      },
+      "2026-08-07T02:10:00.000Z",
+    ),
+    {
+      runScheduledAt: "2026-08-07T01:00:00.000Z",
+      nextFireAt: "2026-08-10T01:00:00.000Z",
+      misfired: true,
+    },
+  );
+});
+
+test("misfire grace executes a slightly delayed occurrence without historical catch-up", () => {
+  assert.deepEqual(
+    resolveWorkflowScheduleDecision(
+      trigger('{"repeatSeconds":10,"misfireGraceSeconds":60}'),
+      "2026-08-07T01:00:30.000Z",
+    ),
+    {
+      runScheduledAt: "2026-08-07T01:00:00.000Z",
+      nextFireAt: "2026-08-07T01:00:40.000Z",
+      misfired: false,
+    },
+  );
+});
+
+test("rejects unsupported misfire policies at publish", () => {
+  assert.throws(
+    () => normalizeWorkflowTriggerForPublish({
+      type: "schedule",
+      configJson: '{"repeatSeconds":3600}',
+      misfirePolicy: "catch_all" as never,
+    }),
+    /workflow_misfire_policy_invalid/,
+  );
 });

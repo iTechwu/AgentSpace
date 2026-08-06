@@ -206,7 +206,8 @@ export function getPostgresSchemaStatements(): string[] {
         status TEXT NOT NULL DEFAULT 'active',
         next_fire_at TIMESTAMPTZ,
         last_fire_at TIMESTAMPTZ,
-        misfire_policy TEXT NOT NULL DEFAULT 'skip',
+        misfire_policy TEXT NOT NULL DEFAULT 'skip'
+          CHECK (misfire_policy IN ('skip', 'fire_once')),
         dedupe_window_seconds INTEGER NOT NULL DEFAULT 0,
         lease_owner TEXT,
         lease_expires_at TIMESTAMPTZ,
@@ -214,6 +215,8 @@ export function getPostgresSchemaStatements(): string[] {
         updated_at TIMESTAMPTZ NOT NULL
       )
     `,
+    `ALTER TABLE workflow_trigger DROP CONSTRAINT IF EXISTS workflow_trigger_misfire_policy_check`,
+    `ALTER TABLE workflow_trigger ADD CONSTRAINT workflow_trigger_misfire_policy_check CHECK (misfire_policy IN ('skip', 'fire_once'))`,
     `
       CREATE TABLE IF NOT EXISTS workflow_run (
         id TEXT PRIMARY KEY,

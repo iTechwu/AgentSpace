@@ -55,6 +55,7 @@ export interface WorkflowBuilderInitialValue {
     type: "manual" | "schedule" | "event";
     config: Record<string, unknown>;
     timezone?: string;
+    misfirePolicy: "skip" | "fire_once";
   };
   governance: {
     maxConcurrency: number;
