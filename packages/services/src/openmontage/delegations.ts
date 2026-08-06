@@ -103,6 +103,11 @@ export async function bindOpenMontageJobDelegationAsync(
   input: BindOpenMontageJobDelegationInput,
   options: {
     resolveScope?: (workspaceId: string) => { tenantId: string; teamId: string };
+    resolveModelsTeamId?: (input: {
+      runtimeCredentialId: string;
+      tenantId: string;
+      ssoTeamId: string;
+    }) => Promise<string>;
     createDelegation?: (input: CreateDelegationRequest) => Promise<ModelsDelegationProvision>;
     vault?: RuntimeCredentialVault;
     createLink?: typeof createOpenMontageJobLinkSync;
@@ -114,14 +119,20 @@ export async function bindOpenMontageJobDelegationAsync(
   // canonical key for delegation scope, vault namespaces, and later billing
   // credential requests. Tests can inject a fake creator without a network
   // lookup and retain their synthetic scope IDs.
-  const modelsTeamId = options.createDelegation
-    ? scope.teamId
-    : (
-      await getModelsInternalClient().runtimeCredentials.get({
-        params: { id: input.runtimeCredentialId },
-        query: { tenantId: scope.tenantId, teamId: scope.teamId },
-      })
-    ).teamId;
+  const modelsTeamId = options.resolveModelsTeamId
+    ? await options.resolveModelsTeamId({
+      runtimeCredentialId: input.runtimeCredentialId,
+      tenantId: scope.tenantId,
+      ssoTeamId: scope.teamId,
+    })
+    : options.createDelegation
+      ? scope.teamId
+      : (
+        await getModelsInternalClient().runtimeCredentials.get({
+          params: { id: input.runtimeCredentialId },
+          query: { tenantId: scope.tenantId, teamId: scope.teamId },
+        })
+      ).teamId;
   const expiresAt = new Date(new Date(input.snapshot.createdAt).getTime() + DELEGATION_TTL_MS).toISOString();
   const request: CreateDelegationRequest = {
     runtimeCredentialId: input.runtimeCredentialId,

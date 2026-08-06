@@ -13,6 +13,7 @@ const IDS = {
   delegation: "00000000-0000-4000-8000-000000000002",
   tenant: "00000000-0000-4000-8000-000000000003",
   team: "00000000-0000-4000-8000-000000000004",
+  modelsTeam: "00000000-0000-4000-8000-000000000005",
 };
 
 const ATTRIBUTION = {
@@ -38,9 +39,10 @@ test("binds a models delegation to the immutable Job and escrows only its one-ti
     snapshot: snapshot(),
   }, {
     resolveScope: () => ({ tenantId: IDS.tenant, teamId: IDS.team }),
+    resolveModelsTeamId: async () => IDS.modelsTeam,
     createDelegation: async (input) => {
       modelsBody = input;
-      return provisionResponse();
+      return provisionResponse(IDS.modelsTeam);
     },
     vault: {
       store: (_id, secret) => {
@@ -59,11 +61,13 @@ test("binds a models delegation to the immutable Job and escrows only its one-ti
   assert.equal(modelsBody?.runtimeCredentialId, IDS.credential);
   assert.equal(modelsBody?.sourceInvocationId, "invocation-1");
   assert.equal(modelsBody?.externalJobId, "om_job_1");
+  assert.equal(modelsBody?.teamId, IDS.modelsTeam);
   assert.equal(modelsBody?.spendLimit, "20.00");
   assert.equal(modelsBody?.expiresAt, "2026-08-06T09:00:01.000Z");
   assert.deepEqual(modelsBody?.allowedCapabilities, ["image", "video", "tts", "music", "stt"]);
   assert.equal(storedSecret, "delegated-api-key");
   assert.equal((persisted?.delegation as Record<string, unknown>).secretRef, "vault://delegation/1");
+  assert.equal((persisted?.delegation as Record<string, unknown>).modelsTeamId, IDS.modelsTeam);
   assert.doesNotMatch(JSON.stringify(persisted), /delegated-api-key/);
   assert.equal(result.delegation.delegationId, IDS.delegation);
 });
@@ -139,13 +143,13 @@ function snapshot() {
   };
 }
 
-function provisionResponse() {
+function provisionResponse(teamId = IDS.team) {
   return {
     delegation: {
       id: IDS.delegation,
       runtimeCredentialId: IDS.credential,
       tenantId: IDS.tenant,
-      teamId: IDS.team,
+      teamId,
       employeeId: "employee-1",
       conversationId: "conversation-1",
       rootTaskId: "task-1",
