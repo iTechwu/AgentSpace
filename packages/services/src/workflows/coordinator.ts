@@ -145,38 +145,84 @@ function advanceDownstream(input: { workspaceId: string; run: WorkflowRunRecord;
   const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
   const allRuns = listWorkflowNodeRunsSync(input.workspaceId, input.run.id);
   const byId = new Map(allRuns.map((node) => [node.nodeId, node]));
-  for (const edge of graph.edges.filter((edge) => edge.source === input.completed.nodeId)) {
-    const target = byId.get(edge.target);
-    if (!target || target.status !== "pending") continue;
-    const predecessors = graph.edges.filter((candidate) => candidate.target === target.nodeId).map((candidate) => byId.get(candidate.source)).filter((node): node is WorkflowNodeRunRecord => Boolean(node));
-    const terminal = predecessors.every((node) => ["succeeded", "failed", "skipped", "cancelled"].includes(node.status));
-    if (!terminal) continue;
-    const success = predecessors.filter((node) => node.status === "succeeded");
-    const targetConfig = parseConfig(target.inputJson);
-    const policy = targetConfig.policy === "allow_partial" ? "allow_partial" : "all_success";
-    const decision = decideWorkflowDownstreamTransition({
-      nodeType: target.nodeType,
-      policy,
-      predecessorStatuses: predecessors.map((node) => node.status),
-    });
-    if (target.nodeType === "join") {
-      if (decision === "fail") {
-        const failed = transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "failed", errorCode: "workflow_join_upstream_failed", finishedAt: input.now, now: input.now });
-        if (failed) appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: input.run.id, nodeRunId: target.id, type: "join.failed", actorType: "coordinator", severity: "error", dataJson: JSON.stringify({ policy }), now: input.now });
-        skipWorkflowDescendants(input, graph, byId, target.nodeId);
-      } else if (decision === "succeed_join") {
-        const outputs = Object.fromEntries(success.map((node) => [node.nodeId, parseJson(node.outputJson)]));
-        const artifacts = mergeWorkflowArtifactManifests(success.map((node) => node.artifactManifestJson));
-        transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "succeeded", outputJson: JSON.stringify({ outputs }), artifactManifestJson: JSON.stringify(artifacts), finishedAt: input.now, now: input.now });
-        appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: input.run.id, nodeRunId: target.id, type: "join.succeeded", actorType: "coordinator", dataJson: JSON.stringify({ policy }), now: input.now });
-        activateSuccessors(input, graph, byId, target.nodeId);
+  const sources = [input.completed.nodeId];
+  while (sources.length > 0) {
+    const sourceId = sources.shift();
+    if (!sourceId) continue;
+    for (const edge of graph.edges.filter((candidate) => candidate.source === sourceId)) {
+      const target = byId.get(edge.target);
+      if (!target || target.status !== "pending") continue;
+      const predecessors = graph.edges
+        .filter((candidate) => candidate.target === target.nodeId)
+        .map((candidate) => byId.get(candidate.source))
+        .filter((node): node is WorkflowNodeRunRecord => Boolean(node));
+      const targetConfig = parseConfig(target.inputJson);
+      const policy = targetConfig.policy === "allow_partial" ? "allow_partial" : "all_success";
+      const decision = decideWorkflowDownstreamTransition({
+        nodeType: target.nodeType,
+        policy,
+        predecessorStatuses: predecessors.map((node) => node.status),
+      });
+      if (decision === "wait") continue;
+
+      if (decision === "ready") {
+        const runtimeContext = buildWorkflowNodeRuntimeContext({
+          graph,
+          nodeId: target.nodeId,
+          runInput: parseRecord(input.run.inputJson),
+          nodeRuns: [...byId.values()],
+        });
+        const ready = transitionWorkflowNodeRunSync({
+          workspaceId: input.workspaceId,
+          nodeRunId: target.id,
+          from: ["pending"],
+          to: "ready",
+          availableAt: input.now,
+          inputJson: JSON.stringify({ ...targetConfig, input: runtimeContext.resolvedInput }),
+          now: input.now,
+        });
+        if (ready) {
+          byId.set(ready.nodeId, ready);
+          enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_node_run", aggregateId: target.id, eventType: "workflow.node.ready", payloadJson: JSON.stringify({ nodeRunId: target.id }), now: input.now });
+        }
+        continue;
       }
-    } else if (decision === "ready") {
-      const runtimeContext = buildWorkflowNodeRuntimeContext({ graph, nodeId: target.nodeId, runInput: parseRecord(input.run.inputJson), nodeRuns: allRuns });
-      transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "ready", availableAt: input.now, inputJson: JSON.stringify({ ...targetConfig, input: runtimeContext.resolvedInput }), now: input.now });
-      enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_node_run", aggregateId: target.id, eventType: "workflow.node.ready", payloadJson: JSON.stringify({ nodeRunId: target.id }), now: input.now });
-    } else if (decision === "fail") {
-      skipWorkflowDescendants(input, graph, byId, input.completed.nodeId);
+
+      if (decision === "succeed_join") {
+        const succeeded = predecessors.filter((node) => node.status === "succeeded");
+        const outputs = Object.fromEntries(succeeded.map((node) => [node.nodeId, parseJson(node.outputJson)]));
+        const artifacts = mergeWorkflowArtifactManifests(succeeded.map((node) => node.artifactManifestJson));
+        const joined = transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "succeeded", outputJson: JSON.stringify({ outputs }), artifactManifestJson: JSON.stringify(artifacts), finishedAt: input.now, now: input.now });
+        if (joined) {
+          byId.set(joined.nodeId, joined);
+          appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: input.run.id, nodeRunId: target.id, type: "join.succeeded", actorType: "coordinator", dataJson: JSON.stringify({ policy }), now: input.now });
+          sources.push(joined.nodeId);
+        }
+        continue;
+      }
+
+      const failed = transitionWorkflowNodeRunSync({
+        workspaceId: input.workspaceId,
+        nodeRunId: target.id,
+        from: ["pending"],
+        to: target.nodeType === "join" ? "failed" : "skipped",
+        errorCode: target.nodeType === "join" ? "workflow_join_upstream_failed" : "workflow_upstream_failed",
+        finishedAt: input.now,
+        now: input.now,
+      });
+      if (!failed) continue;
+      byId.set(failed.nodeId, failed);
+      appendWorkflowRunEventSync({
+        workspaceId: input.workspaceId,
+        runId: input.run.id,
+        nodeRunId: target.id,
+        type: target.nodeType === "join" ? "join.failed" : "node.skipped",
+        actorType: "coordinator",
+        severity: target.nodeType === "join" ? "error" : undefined,
+        dataJson: JSON.stringify(target.nodeType === "join" ? { policy } : { reasonCode: "workflow_upstream_failed" }),
+        now: input.now,
+      });
+      sources.push(failed.nodeId);
     }
   }
 }
@@ -194,36 +240,6 @@ export function decideWorkflowDownstreamTransition(input: {
   return succeeded > 0 ? "succeed_join" : "fail";
 }
 
-function skipWorkflowDescendants(
-  input: { workspaceId: string; run: WorkflowRunRecord; now: string },
-  graph: WorkflowGraphDefinition,
-  byId: Map<string, WorkflowNodeRunRecord>,
-  nodeId: string,
-): void {
-  for (const descendantId of collectWorkflowDescendantNodeIds(graph, nodeId)) {
-    const descendant = byId.get(descendantId);
-    if (!descendant || descendant.status !== "pending") continue;
-    const skipped = transitionWorkflowNodeRunSync({
-      workspaceId: input.workspaceId,
-      nodeRunId: descendant.id,
-      from: ["pending"],
-      to: "skipped",
-      errorCode: "workflow_upstream_failed",
-      finishedAt: input.now,
-      now: input.now,
-    });
-    if (skipped) appendWorkflowRunEventSync({
-      workspaceId: input.workspaceId,
-      runId: input.run.id,
-      nodeRunId: descendant.id,
-      type: "node.skipped",
-      actorType: "coordinator",
-      dataJson: JSON.stringify({ reasonCode: "workflow_upstream_failed" }),
-      now: input.now,
-    });
-  }
-}
-
 export function collectWorkflowDescendantNodeIds(
   graph: WorkflowGraphDefinition,
   nodeId: string,
@@ -239,15 +255,6 @@ export function collectWorkflowDescendantNodeIds(
     pending.push(...graph.edges.filter((edge) => edge.source === current).map((edge) => edge.target));
   }
   return descendants;
-}
-
-function activateSuccessors(input: { workspaceId: string; run: WorkflowRunRecord; now: string }, graph: WorkflowGraphDefinition, byId: Map<string, WorkflowNodeRunRecord>, nodeId: string): void {
-  for (const edge of graph.edges.filter((edge) => edge.source === nodeId)) {
-    const target = byId.get(edge.target);
-    if (!target || target.status !== "pending") continue;
-    transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "ready", availableAt: input.now, now: input.now });
-    enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_node_run", aggregateId: target.id, eventType: "workflow.node.ready", payloadJson: JSON.stringify({ nodeRunId: target.id }), now: input.now });
-  }
 }
 
 function finalizeRunIfTerminal(workspaceId: string, run: WorkflowRunRecord, now: string): WorkflowRunRecord {
