@@ -8,6 +8,10 @@
     "@dofe-agent/cli#test": {
       "dependsOn": ["^test", "@dofe-agent/web#test"],
       "outputs": []
+    },
+    "@dofe-agent/workflow-worker#test": {
+      "dependsOn": ["^test"],
+      "outputs": []
     }
   }
 }
