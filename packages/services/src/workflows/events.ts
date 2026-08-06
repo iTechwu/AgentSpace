@@ -34,14 +34,20 @@ export function fireWorkflowEventSync(rawInput: WorkflowEventInput): WorkflowEve
     deduplicatedTriggerIds: [],
   };
   for (const trigger of triggers) {
-    const materialized = materializeWorkflowRunSync({
-      workspaceId: input.workspaceId,
-      trigger,
-      scheduledAt: `event:${input.eventId}`,
-      inputJson: JSON.stringify(input.input ?? {}),
-      createdBy: rawInput.createdBy,
-      now,
-    });
+    let materialized;
+    try {
+      materialized = materializeWorkflowRunSync({
+        workspaceId: input.workspaceId,
+        trigger,
+        scheduledAt: `event:${input.eventId}`,
+        inputJson: JSON.stringify(input.input ?? {}),
+        createdBy: rawInput.createdBy,
+        now,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "workflow_definition_not_published") continue;
+      throw error;
+    }
     if (materialized.created) result.createdRunIds.push(materialized.runId);
     else result.deduplicatedTriggerIds.push(trigger.id);
   }

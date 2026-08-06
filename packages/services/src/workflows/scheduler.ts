@@ -58,12 +58,19 @@ export function tickWorkflowSchedulerSync(input: {
       releaseTrigger(trigger, input.workerId, input.now, decision.nextFireAt, oneTime ? "paused" : undefined, decision.runScheduledAt);
       if (materialized.created) result.createdRunIds.push(materialized.runId);
       else result.deduplicatedTriggerIds.push(trigger.id);
-    } catch {
-      releaseTrigger(trigger, input.workerId, input.now, scheduledAt, "paused");
+    } catch (error) {
+      const status = workflowSchedulerFailureStatus(error);
+      releaseTrigger(trigger, input.workerId, input.now, scheduledAt, status);
       result.misfiredTriggerIds.push(trigger.id);
     }
   }
   return result;
+}
+
+export function workflowSchedulerFailureStatus(error: unknown): "paused" | undefined {
+  return error instanceof Error && error.message === "workflow_definition_not_published"
+    ? undefined
+    : "paused";
 }
 
 export function resolveWorkflowScheduleDecision(

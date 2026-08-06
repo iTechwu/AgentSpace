@@ -5,6 +5,7 @@ import {
   isOneTimeWorkflowTrigger,
   normalizeWorkflowTriggerForPublish,
   resolveWorkflowScheduleDecision,
+  workflowSchedulerFailureStatus,
 } from "./scheduler.ts";
 
 function trigger(configJson: string, timezone = "UTC") {
@@ -201,4 +202,9 @@ test("rejects unsupported misfire policies at publish", () => {
     }),
     /workflow_misfire_policy_invalid/,
   );
+});
+
+test("a concurrently paused definition preserves its suspended trigger status", () => {
+  assert.equal(workflowSchedulerFailureStatus(new Error("workflow_definition_not_published")), undefined);
+  assert.equal(workflowSchedulerFailureStatus(new Error("workflow_active_version_missing")), "paused");
 });
