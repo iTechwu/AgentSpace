@@ -14,7 +14,11 @@ import {
   type WorkflowRunRecord,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
-import { buildWorkflowNodeRuntimeContext, mergeWorkflowArtifactManifests } from "./inputs.ts";
+import {
+  buildWorkflowNodeRuntimeContext,
+  getWorkflowInputResolutionErrorCode,
+  mergeWorkflowArtifactManifests,
+} from "./inputs.ts";
 
 export interface CompleteWorkflowNodeInput {
   workspaceId: string;
@@ -137,6 +141,43 @@ export function failStaleWorkflowNodeSync(input: {
   });
 }
 
+export function failWorkflowNodeBeforeDispatchSync(input: {
+  workspaceId: string;
+  nodeRunId: string;
+  errorCode: "workflow_input_reference_missing" | "workflow_version_node_missing";
+  now: string;
+}): WorkflowNodeRunRecord {
+  return withTransaction(getDatabase(), () => {
+    const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!nodeRun) throw new Error("workflow_node_run_not_found");
+    const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
+    const failed = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: nodeRun.id,
+      from: ["ready"],
+      to: "failed",
+      errorCode: input.errorCode,
+      finishedAt: input.now,
+      now: input.now,
+    });
+    if (!failed) return readWorkflowNodeRunSync(nodeRun.id, input.workspaceId)!;
+    appendWorkflowRunEventSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      nodeRunId: failed.id,
+      type: "node.failed",
+      actorType: "dispatcher",
+      severity: "error",
+      dataJson: JSON.stringify({ code: input.errorCode }),
+      now: input.now,
+    });
+    advanceDownstream({ workspaceId: input.workspaceId, run, completed: failed, now: input.now });
+    finalizeRunIfTerminal(input.workspaceId, run, input.now);
+    return failed;
+  });
+}
+
 export function completeWorkflowApprovalNodeSync(input: {
   workspaceId: string;
   approvalId: string;
@@ -211,12 +252,42 @@ function advanceDownstream(input: { workspaceId: string; run: WorkflowRunRecord;
       if (decision === "wait") continue;
 
       if (decision === "ready") {
-        const runtimeContext = buildWorkflowNodeRuntimeContext({
-          graph,
-          nodeId: target.nodeId,
-          runInput: parseRecord(input.run.inputJson),
-          nodeRuns: [...byId.values()],
-        });
+        let runtimeContext;
+        try {
+          runtimeContext = buildWorkflowNodeRuntimeContext({
+            graph,
+            nodeId: target.nodeId,
+            runInput: parseRecord(input.run.inputJson),
+            nodeRuns: [...byId.values()],
+          });
+        } catch (error) {
+          const errorCode = getWorkflowInputResolutionErrorCode(error);
+          if (!errorCode) throw error;
+          const failed = transitionWorkflowNodeRunSync({
+            workspaceId: input.workspaceId,
+            nodeRunId: target.id,
+            from: ["pending"],
+            to: "failed",
+            errorCode,
+            finishedAt: input.now,
+            now: input.now,
+          });
+          if (failed) {
+            byId.set(failed.nodeId, failed);
+            appendWorkflowRunEventSync({
+              workspaceId: input.workspaceId,
+              runId: input.run.id,
+              nodeRunId: failed.id,
+              type: "node.failed",
+              actorType: "coordinator",
+              severity: "error",
+              dataJson: JSON.stringify({ code: errorCode }),
+              now: input.now,
+            });
+            sources.push(failed.nodeId);
+          }
+          continue;
+        }
         const ready = transitionWorkflowNodeRunSync({
           workspaceId: input.workspaceId,
           nodeRunId: target.id,

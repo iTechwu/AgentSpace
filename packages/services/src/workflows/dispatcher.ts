@@ -11,7 +11,8 @@ import {
   type WorkflowTaskMetadata,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition, WorkflowNodeDefinition } from "@dofe-agent/domain";
-import { buildWorkflowNodeRuntimeContext } from "./inputs.ts";
+import { failWorkflowNodeBeforeDispatchSync } from "./coordinator.ts";
+import { buildWorkflowNodeRuntimeContext, getWorkflowInputResolutionErrorCode } from "./inputs.ts";
 import { validateWorkflowNodeForDispatchSync } from "./validation.ts";
 
 export interface DispatchWorkflowNodeInput {
@@ -44,12 +45,25 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
   const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
   if (!version) throw new Error("workflow_version_not_found");
   const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
-  const runtimeContext = buildWorkflowNodeRuntimeContext({
-    graph,
-    nodeId: nodeRun.nodeId,
-    runInput: parseConfig(run.inputJson),
-    nodeRuns: listWorkflowNodeRunsSync(input.workspaceId, run.id),
-  });
+  let runtimeContext;
+  try {
+    runtimeContext = buildWorkflowNodeRuntimeContext({
+      graph,
+      nodeId: nodeRun.nodeId,
+      runInput: parseConfig(run.inputJson),
+      nodeRuns: listWorkflowNodeRunsSync(input.workspaceId, run.id),
+    });
+  } catch (error) {
+    const errorCode = getWorkflowInputResolutionErrorCode(error);
+    if (!errorCode) throw error;
+    const failed = failWorkflowNodeBeforeDispatchSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: nodeRun.id,
+      errorCode,
+      now,
+    });
+    return { nodeRunId: failed.id, status: failed.status };
+  }
   const config = runtimeContext.nodeConfig;
   const governance = parseConfig(version.governanceJson);
   const maxConcurrency = resolveWorkflowMaxConcurrency(governance.maxConcurrency);

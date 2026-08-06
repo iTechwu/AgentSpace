@@ -3,10 +3,19 @@ import test from "node:test";
 import {
   buildWorkflowNodeRuntimeContext,
   collectWorkflowArtifactRefs,
+  getWorkflowInputResolutionErrorCode,
   mergeWorkflowArtifactManifests,
   resolveWorkflowNodeInput,
   validateWorkflowInputReferences,
 } from "./inputs.ts";
+
+test("input resolution exposes only stable permanent error codes", () => {
+  assert.equal(
+    getWorkflowInputResolutionErrorCode(new Error("workflow_input_reference_missing")),
+    "workflow_input_reference_missing",
+  );
+  assert.equal(getWorkflowInputResolutionErrorCode(new Error("sensitive runtime detail")), undefined);
+});
 
 test("resolves only declared run, node, and join references", () => {
   const result = resolveWorkflowNodeInput({

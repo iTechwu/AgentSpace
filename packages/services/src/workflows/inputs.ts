@@ -60,6 +60,16 @@ export interface WorkflowNodeRuntimeContext {
   artifactRefs: string[];
 }
 
+export function getWorkflowInputResolutionErrorCode(error: unknown):
+  | "workflow_input_reference_missing"
+  | "workflow_version_node_missing"
+  | undefined {
+  if (!(error instanceof Error)) return undefined;
+  return error.message === "workflow_input_reference_missing" || error.message === "workflow_version_node_missing"
+    ? error.message
+    : undefined;
+}
+
 export function buildWorkflowNodeRuntimeContext(input: {
   graph: WorkflowGraphDefinition;
   nodeId: string;
