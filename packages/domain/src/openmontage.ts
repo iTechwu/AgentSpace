@@ -161,7 +161,7 @@ export function parseOpenMontageSubmittedJob(value: unknown): OpenMontageSubmitt
     "lastSequence",
     "createdAt",
     "updatedAt",
-  ], ["currentStage"]);
+  ], ["currentStage", "artifacts", "usageSummary", "error"]);
   if (source.schemaVersion !== 1) {
     throw new Error("OpenMontage snapshot schemaVersion must be 1.");
   }
