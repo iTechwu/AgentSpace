@@ -1,6 +1,6 @@
 # Self-hosted Docker Stack
 
-This Compose stack starts the Next.js web/API service, a database initializer, and two local execution daemons: Claude Code and Codex. PostgreSQL is external to this stack and must be available before startup. The Claude daemon owns the Feishu WebSocket supervisor. It automatically discovers active Feishu Bot bindings, so do not also start `deploy/feishu-worker` for this stack.
+This Compose stack starts the Next.js web/API service, Workflow Worker, a database initializer, and two local execution daemons: Claude Code and Codex. PostgreSQL is external to this stack and must be available before startup. The Claude daemon owns the Feishu WebSocket supervisor. It automatically discovers active Feishu Bot bindings, so do not also start `deploy/feishu-worker` for this stack.
 
 ## Start
 
@@ -15,8 +15,10 @@ The first run initializes the external database schema before the web service an
 
 ```bash
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml ps
-docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml logs -f daemon-claude daemon-codex web
+docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml logs -f workflow-worker daemon-claude daemon-codex web
 ```
+
+Keep `WORKFLOW_CUTOVER_MODE=legacy_only` until the migration dry-run is reviewed. Advance selected workspaces through `WORKFLOW_CUTOVER_MODES` to `dual_read`, then `workflow_engine`, and finally `legacy_archived`. The Worker and Web service must use the same external `DATABASE_URL`; this stack never creates a PostgreSQL, Redis, or RabbitMQ service.
 
 ## Managed Runtime network gate
 
