@@ -29,9 +29,13 @@ export function recoverStaleWorkflowWorkSync(input: {
   ).all(input.now, limit) as Array<{ id?: string; workspaceId?: string }>;
   for (const row of retryRows) {
     if (!row.id || !row.workspaceId) continue;
-    const ready = transitionWorkflowNodeRunSync({ workspaceId: row.workspaceId, nodeRunId: row.id, from: ["retry_wait"], to: "ready", availableAt: input.now, now: input.now });
+    const ready = withTransaction(db, () => {
+      const transitioned = transitionWorkflowNodeRunSync({ workspaceId: row.workspaceId!, nodeRunId: row.id!, from: ["retry_wait"], to: "ready", availableAt: input.now, now: input.now });
+      if (!transitioned) return null;
+      enqueueWorkflowOutboxSync({ workspaceId: row.workspaceId!, aggregateType: "workflow_node_run", aggregateId: row.id!, eventType: "workflow.node.ready", payloadJson: JSON.stringify({ nodeRunId: row.id }), now: input.now });
+      return transitioned;
+    });
     if (!ready) continue;
-    enqueueWorkflowOutboxSync({ workspaceId: row.workspaceId, aggregateType: "workflow_node_run", aggregateId: row.id, eventType: "workflow.node.ready", payloadJson: JSON.stringify({ nodeRunId: row.id }), now: input.now });
     result.readyNodeRunIds.push(row.id);
   }
   const staleBefore = new Date(Date.parse(input.now) - 5 * 60_000).toISOString();
