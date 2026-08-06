@@ -38,7 +38,7 @@ ARG PROVIDER_PATH=""
 RUN groupadd --gid 10001 dofe-agent \
   && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent \
   && apt-get update \
-  && apt-get install --yes --no-install-recommends chromium python3 python3-pip \
+  && apt-get install --yes --no-install-recommends ca-certificates chromium curl python3 python3-pip \
   && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update \

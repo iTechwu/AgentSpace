@@ -29,7 +29,11 @@ test("managed-node image does not embed shared data-plane services", () => {
   assert.doesNotMatch(dockerfile, /FROM\s+(?:postgres|redis|rabbitmq)(?::|\s)/i);
 });
 
-test("provider runtime image includes Git for controlled VCS package installs", () => {
+test("provider runtime image includes operational tools required by provider checks and installs", () => {
+  assert.match(
+    providerDockerfile,
+    /apt-get install --yes --no-install-recommends ca-certificates chromium curl python3 python3-pip/,
+  );
   assert.match(providerDockerfile, /apt-get install --yes --no-install-recommends git/);
 });
 
