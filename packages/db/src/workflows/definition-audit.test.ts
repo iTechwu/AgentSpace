@@ -55,7 +55,7 @@ test("draft changes only report values that differ from the persisted definition
     description: "每日汇总",
     ownerUserId: "user-1",
     channelName: "管理群",
-    graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+    graphJson: '{"edges":[],"nodes":[],"schemaVersion":1}',
     changedFields: ["channelName"],
   });
 
