@@ -10,7 +10,7 @@ import {
 import { isWorkflowEventName } from "@dofe-agent/domain";
 import { CronExpressionParser } from "cron-parser";
 import { materializeWorkflowRunSync } from "./materialization.ts";
-import { expireWorkflowApprovalsSync } from "./coordinator.ts";
+import { expireWorkflowApprovalsSync, type WorkflowApprovalExpiryFailure } from "./coordinator.ts";
 
 type PublishWorkflowTriggerInput = Omit<UpsertWorkflowTriggerInput, "workspaceId" | "workflowId">;
 
@@ -22,6 +22,9 @@ export interface WorkflowSchedulerTickResult {
   failedTriggerIds: string[];
   // 本轮扫描中因审批限时到期而自动驳回的审批 ID。
   expiredApprovalIds: string[];
+  // 本轮审批限时扫描中处理失败（事务回滚/并发冲突）的审批，含 workspaceId/runId/
+  // approvalId/errorCode，供告警与值班定位。持续性失败不再被静默重试。
+  expiredApprovalFailures: WorkflowApprovalExpiryFailure[];
 }
 
 export function tickWorkflowSchedulerSync(input: {
@@ -38,6 +41,7 @@ export function tickWorkflowSchedulerSync(input: {
     misfiredTriggerIds: [],
     failedTriggerIds: [],
     expiredApprovalIds: [],
+    expiredApprovalFailures: [],
   };
   for (const trigger of triggers) {
     const scheduledAt = trigger.nextFireAt;
@@ -105,12 +109,15 @@ export function tickWorkflowSchedulerSync(input: {
   }
   // 审批限时扫描：与触发器物化解耦，统一在本轮 tick 末尾执行，避免等待中的审批无限期挂起。
   // 当调度器以工作区范围调用（workspaceId）时，扫描必须同样限定在该工作区内，
-  // 不得越界处理其他工作区的审批。
+  // 不得越界处理其他工作区的审批。单条审批失败以结构化 failures 上报（已各自写审计日志），
+  // 不再静默；非法时钟等整轮失败同样记录审计日志，便于告警与值班定位。
   try {
     const expiry = expireWorkflowApprovalsSync({ now: input.now, limit: input.limit, ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}) });
     result.expiredApprovalIds = expiry.expiredApprovalIds;
-  } catch {
-    // 扫描失败不阻断本轮触发器处理结果，下一轮 tick 会继续重试。
+    result.expiredApprovalFailures = expiry.failures;
+  } catch (error) {
+    // 整轮扫描失败（如非法时钟）不阻断本轮触发器处理结果；记录审计日志后下一轮 tick 重试。
+    recordApprovalScanFailureBestEffort(input.workspaceId, error, input.now);
   }
   return result;
 }
@@ -383,6 +390,28 @@ function recordSchedulerOutcomeBestEffort(trigger: WorkflowTriggerRecord, now: s
     recordSchedulerOutcome(trigger, now, outcome);
   } catch {
     // A transient storage failure must not convert a retryable trigger into a permanent failure.
+  }
+}
+
+/**
+ * 整轮审批限时扫描失败（如非法时钟）的尽力争力记录：写入审计日志，供告警与值班定位。
+ * 审计写入本身失败不放大故障，下一轮 tick 仍会重试扫描。
+ */
+function recordApprovalScanFailureBestEffort(workspaceId: string | undefined, error: unknown, now: string): void {
+  try {
+    const code = error instanceof Error && /^workflow_[a-z0-9_]+$/.test(error.message)
+      ? error.message
+      : "workflow_approval_scan_failed";
+    recordAuditLogSync({
+      ...(workspaceId ? { workspaceId } : {}),
+      title: "Workflow approval deadline scan failed",
+      note: "approval_deadline_scan_failed",
+      code,
+      source: "runtime_lifecycle",
+      data: { reasonCode: code, occurredAt: now },
+    });
+  } catch {
+    // 审计不可写时不应放大故障；下一轮 tick 仍会重试。
   }
 }
 

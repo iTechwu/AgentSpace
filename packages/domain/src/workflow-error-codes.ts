@@ -64,9 +64,12 @@ export const WORKFLOW_ERROR_CODES = [
   "workflow_approval_not_linked",
   "workflow_approval_rejected",
   "workflow_approval_deadline_exceeded",
+  "workflow_approval_reviewer_unauthorized",
+  "workflow_approval_scan_failed",
 
   // Schedule, event & trigger
   "workflow_schedule_invalid",
+  "workflow_now_invalid",
   "workflow_schedule_in_past",
   "workflow_schedule_timezone_invalid",
   "workflow_misfire_policy_invalid",
@@ -196,9 +199,12 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   workflow_approval_not_linked: "审批请求未关联到运行步骤。",
   workflow_approval_rejected: "审批已被驳回。",
   workflow_approval_deadline_exceeded: "审批限时已到，未在规定时间内完成审批。",
+  workflow_approval_reviewer_unauthorized: "当前成员没有审批此步骤的权限。",
+  workflow_approval_scan_failed: "审批限时扫描处理失败，将在下一轮重试。",
 
   // Schedule, event & trigger
   workflow_schedule_invalid: "定时配置无效，请检查时间或 Cron 表达式。",
+  workflow_now_invalid: "调度时钟无效，请检查传入的时间参数。",
   workflow_schedule_in_past: "一次性执行时间必须晚于当前时间。",
   workflow_schedule_timezone_invalid: "时区无效，请填写标准 IANA 时区。",
   workflow_misfire_policy_invalid: "错过执行策略无效，请重新选择。",

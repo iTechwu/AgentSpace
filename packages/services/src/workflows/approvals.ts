@@ -72,7 +72,22 @@ export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): 
       now: input.now,
     });
     if (!updated) throw new Error("workflow_approval_node_conflict");
-    transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["created", "queued", "running"], to: "waiting_approval", now: input.now });
+    // Run 生命周期（业务架构文档:88）：审批作为根节点时也必须经过 created/queued → running，
+    // 并补发 run.started 事实事件，再由 running → waiting_approval。原先直接 created/queued
+    // → waiting_approval，跳过 running，导致审批首节点运行的 run.started 缺失。
+    // transitionWorkflowRunSync 在已是 running 时返回 null，保证 run.started 只发一次。
+    const runStarted = transitionWorkflowRunSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      from: ["created", "queued"],
+      to: "running",
+      startedAt: input.now,
+      now: input.now,
+    });
+    if (runStarted) {
+      appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, type: "run.started", actorType: "daemon", now: input.now });
+    }
+    transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["running"], to: "waiting_approval", now: input.now });
     appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: node.id, type: "approval.requested", actorType: "system", dataJson: JSON.stringify({ approvalId: approval.id }), now: input.now });
     return approval;
   });
@@ -146,9 +161,16 @@ export function reviewWorkflowApprovalSync(input: {
     //   · 未指定 reviewerUserId：仅工作区管理员可审批（与 UI「默认（管理员/负责人）」、
     //     Web Action 的管理员要求一致），避免服务层导出接口被任意成员绕过。
     const reviewerUserId = typeof approval.metadata?.reviewerUserId === "string" ? approval.metadata.reviewerUserId.trim() : "";
-    const actorIsManager = listWorkspaceMembershipsSync(input.workspaceId).some((membership) =>
+    // 审批授权闭环（UIUX:82）：指定审批人在创建时校验过成员身份，但审批可能挂起较久，
+    // 期间该成员可能被移出工作区。审批时必须以「当前成员身份」复核，避免被移除的指定
+    // 审批人仍能审批。管理员（owner/admin）天然是当前成员，无需额外复核。
+    const memberships = listWorkspaceMembershipsSync(input.workspaceId);
+    const actorIsManager = memberships.some((membership) =>
       membership.userId === input.actorUserId && (membership.role === "owner" || membership.role === "admin"));
-    const actorIsDesignatedReviewer = Boolean(reviewerUserId) && reviewerUserId === input.actorUserId;
+    const actorIsCurrentMember = memberships.some((membership) => membership.userId === input.actorUserId);
+    const actorIsDesignatedReviewer = Boolean(reviewerUserId)
+      && reviewerUserId === input.actorUserId
+      && actorIsCurrentMember;
     if (!actorIsManager && !actorIsDesignatedReviewer) {
       throw new Error("workflow_approval_reviewer_unauthorized");
     }

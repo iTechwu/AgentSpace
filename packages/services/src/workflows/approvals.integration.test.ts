@@ -5,6 +5,7 @@ import {
   createWorkflowRunSync,
   getDatabase,
   listWorkflowNodeRunsSync,
+  listWorkflowRunEventsSync,
   materializeWorkflowNodeRunsSync,
   publishWorkflowVersionSync,
   readWorkflowRunSync,
@@ -27,12 +28,14 @@ const hasTestDatabase = Boolean(
 const REVIEWER = "approval-reviewer";
 const ADMIN = "approval-admin";
 const MEMBER = "approval-member";
-const EMPLOYEE_ID = "approval-employee";
 
 interface Fixture {
   workspaceId: string;
   workflowId: string;
   versionId: string;
+  // 每个测试夹具使用独立的员工 id：idx_workspace_employee_id 是全局唯一约束，
+  // 复用同一 id 会在多夹具测试（如工作区隔离）中触发重复键冲突。
+  employeeId: string;
 }
 
 /** 种入工作区、成员（指定审批人=member、管理员、普通成员）、审批员工与单审批节点工作流版本。 */
@@ -41,6 +44,7 @@ function seedFixture(): Fixture {
   const workspaceId = `workflow-approval-auth-${suffix}`;
   const workflowId = `wf-approval-${suffix}`;
   const versionId = `wv-approval-${suffix}`;
+  const employeeId = `approval-employee-${suffix}`;
   const now = "2026-08-07T01:00:00.000Z";
   const db = getDatabase();
   db.prepare(
@@ -59,14 +63,14 @@ function seedFixture(): Fixture {
   upsertWorkspaceMembershipSync({ workspaceId, userId: MEMBER, role: "member" });
   // 把审批挂载员工与渠道写入工作区状态快照；writeWorkspaceStateSync 同时落
   // workspace_employee 表与 state_json，使 createApprovalRequestSync 的校验通过，
-  // 并以 EMPLOYEE_ID 作为员工主键供 createWorkflowApprovalSync 取用。
+  // 并以 employeeId 作为员工主键供 createWorkflowApprovalSync 取用。
   const base = ensureWorkspaceStateSync(workspaceId);
   writeWorkspaceStateSync(
     {
       ...base,
       activeEmployees: [
         {
-          id: EMPLOYEE_ID,
+          id: employeeId,
           name: "审批员工",
           role: "Agent",
           remarkName: "审批员工",
@@ -103,11 +107,11 @@ function seedFixture(): Fixture {
     publishedBy: REVIEWER,
     now,
   });
-  return { workspaceId, workflowId, versionId };
+  return { workspaceId, workflowId, versionId, employeeId };
 }
 
 /** 创建一条运行并把审批节点推进到 waiting_approval，绑定指定审批人。返回审批 id。 */
-function createPendingApproval(fixture: Fixture): { runId: string; approvalId: string } {
+function createPendingApproval(fixture: Fixture, options?: { deadlineSeconds?: number }): { runId: string; approvalId: string } {
   const now = "2026-08-07T01:00:00.000Z";
   const run = createWorkflowRunSync({
     workspaceId: fixture.workspaceId,
@@ -126,10 +130,11 @@ function createPendingApproval(fixture: Fixture): { runId: string; approvalId: s
     workspaceId: fixture.workspaceId,
     runId: run.id,
     nodeId: "approval",
-    employeeId: EMPLOYEE_ID,
+    employeeId: fixture.employeeId,
     channelName: "审批群",
     contentPreview: "请审批发布内容。",
     reviewerUserId: REVIEWER,
+    ...(options?.deadlineSeconds ? { deadlineSeconds: options.deadlineSeconds } : {}),
     now,
   });
   return { runId: run.id, approvalId: approval.id };
@@ -188,7 +193,7 @@ test("approval without a designated reviewer falls back to managers only", {
       workspaceId: fixture.workspaceId,
       runId: first.id,
       nodeId: "approval",
-      employeeId: EMPLOYEE_ID,
+      employeeId: fixture.employeeId,
       channelName: "审批群",
       contentPreview: "请审批发布内容。",
       now,
@@ -233,7 +238,7 @@ test("auto-rejects an approval after its deadline elapses and distinguishes the 
       workspaceId: fixture.workspaceId,
       runId: run.id,
       nodeId: "approval",
-      employeeId: EMPLOYEE_ID,
+      employeeId: fixture.employeeId,
       channelName: "审批群",
       contentPreview: "请审批发布内容。",
       deadlineSeconds: 3600,
@@ -261,6 +266,119 @@ test("auto-rejects an approval after its deadline elapses and distinguishes the 
     // 3) 幂等：再次扫描同一工作区不会重复处理已驳回的审批。
     const secondSweep = expireWorkflowApprovalsSync({ now: "2026-08-07T04:00:00.000Z" });
     assert.deepEqual(secondSweep.expiredApprovalIds, []);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("approval as the root node emits run.started and traverses running before waiting_approval", {
+  skip: !hasTestDatabase,
+}, () => {
+  // Run 生命周期（业务架构文档:88）：审批作为根节点也必须 created → running → waiting_approval，
+  // 并在 running 处补发 run.started 事实事件。原先直接 created/queued → waiting_approval，
+  // 跳过 running，导致审批首节点运行的 run.started 缺失。
+  const fixture = seedFixture();
+  try {
+    const now = "2026-08-07T01:00:00.000Z";
+    const run = createWorkflowRunSync({
+      workspaceId: fixture.workspaceId,
+      workflowId: fixture.workflowId,
+      versionId: fixture.versionId,
+      triggerType: "manual",
+      triggerKey: `approval-root-started:${fixture.workspaceId}:${Math.random().toString(36).slice(2, 8)}`,
+      inputJson: "{}",
+    });
+    materializeWorkflowNodeRunsSync({ workspaceId: fixture.workspaceId, runId: run.id, nodes: [{ nodeId: "approval", nodeType: "approval" }] });
+    const approval = createWorkflowApprovalSync({
+      workspaceId: fixture.workspaceId,
+      runId: run.id,
+      nodeId: "approval",
+      employeeId: fixture.employeeId,
+      channelName: "审批群",
+      contentPreview: "请审批发布内容。",
+      now,
+    });
+
+    assert.equal(readWorkflowRunSync(run.id, fixture.workspaceId)?.status, "waiting_approval");
+    const types = listWorkflowRunEventsSync(fixture.workspaceId, run.id).map((event) => event.type);
+    assert.ok(types.includes("run.started"), `expected run.started in ${JSON.stringify(types)}`);
+    assert.equal(types.filter((type) => type === "run.started").length, 1, "run.started must be emitted exactly once");
+    assert.ok(types.includes("approval.requested"), `expected approval.requested in ${JSON.stringify(types)}`);
+    // 生命周期顺序：run.started 必须早于 approval.requested。
+    assert.ok(types.indexOf("run.started") < types.indexOf("approval.requested"), "run.started must precede approval.requested");
+    assert.ok(approval.id);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("approval deadline scan rejects an unparseable clock without mass-rejecting", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 非法时钟回归：Date.parse("not-a-valid-date") 返回 NaN，原先 `expiresAt > NaN` 恒为 false，
+  // 会导致所有合法限时审批在扫描时被批量误驳回。现在必须在进入扫描前拒绝扫描本身，
+  // 并保证审批与运行状态不受影响。
+  const fixture = seedFixture();
+  try {
+    const { runId, approvalId } = createPendingApproval(fixture, { deadlineSeconds: 3600 });
+    assert.throws(
+      () => expireWorkflowApprovalsSync({ now: "not-a-valid-date" }),
+      /workflow_now_invalid/,
+    );
+    const approvalRecord = listApprovalsSync(fixture.workspaceId).find((item) => item.id === approvalId);
+    assert.equal(approvalRecord?.status, "pending");
+    assert.equal(readWorkflowRunSync(runId, fixture.workspaceId)?.status, "waiting_approval");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("approval deadline scan stays within the requested workspace", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 工作区隔离：调度器以工作区范围调用扫描时，绝不能越界处理其他工作区的审批。
+  const ws1 = seedFixture();
+  const ws2 = seedFixture();
+  try {
+    const a = createPendingApproval(ws1, { deadlineSeconds: 3600 });
+    const b = createPendingApproval(ws2, { deadlineSeconds: 3600 });
+    const sweep = expireWorkflowApprovalsSync({ now: "2026-08-07T03:00:00.000Z", workspaceId: ws1.workspaceId });
+    assert.deepEqual(sweep.expiredApprovalIds, [a.approvalId]);
+    // ws2 的审批与运行保持原状，未被越界驳回。
+    assert.equal(readWorkflowRunSync(b.runId, ws2.workspaceId)?.status, "waiting_approval");
+    const ws2Approval = listApprovalsSync(ws2.workspaceId).find((item) => item.id === b.approvalId);
+    assert.equal(ws2Approval?.status, "pending");
+  } finally {
+    cleanup(ws1);
+    cleanup(ws2);
+  }
+});
+
+test("approval deadline scan rolls back and reports a structured failure when finalization conflicts", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 事务原子性 + 可观测性：当终结审批时 run 状态冲突（completeWorkflowApprovalNodeSync 抛
+  // workflow_run_control_conflict），整个审批事务回滚（审批仍 pending），失败以结构化 failures
+  // 上报（含 workspaceId/runId/approvalId/errorCode）并写入审计日志，不再被静默吞掉。
+  const fixture = seedFixture();
+  try {
+    const now = "2026-08-07T01:00:00.000Z";
+    const { runId, approvalId } = createPendingApproval(fixture, { deadlineSeconds: 3600 });
+    // 人为把 run 置为终态 succeeded（节点仍 waiting_approval）：终结时 transitionWorkflowRunSync
+    // 的 from 列表不含 succeeded → 返回 null → 抛 workflow_run_control_conflict。
+    getDatabase().prepare("UPDATE workflow_run SET status = 'succeeded', updated_at = ? WHERE id = ?").run(now, runId);
+
+    const sweep = expireWorkflowApprovalsSync({ now: "2026-08-07T03:00:00.000Z", workspaceId: fixture.workspaceId });
+    assert.deepEqual(sweep.expiredApprovalIds, []);
+    assert.equal(sweep.failures.length, 1);
+    assert.equal(sweep.failures[0]?.approvalId, approvalId);
+    assert.equal(sweep.failures[0]?.errorCode, "workflow_run_control_conflict");
+    assert.equal(sweep.failures[0]?.workspaceId, fixture.workspaceId);
+    assert.equal(sweep.failures[0]?.runId, runId);
+    // 事务回滚：审批仍是 pending，run 仍为 succeeded（未被部分驳回），下一轮 tick 可重试。
+    const approvalRecord = listApprovalsSync(fixture.workspaceId).find((item) => item.id === approvalId);
+    assert.equal(approvalRecord?.status, "pending");
+    assert.equal(readWorkflowRunSync(runId, fixture.workspaceId)?.status, "succeeded");
   } finally {
     cleanup(fixture);
   }

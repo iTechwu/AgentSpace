@@ -10,6 +10,7 @@ import {
   readWorkflowRunSync,
   readWorkflowVersionSync,
   enqueueWorkflowOutboxSync,
+  recordAuditLogSync,
   transitionWorkflowNodeRunSync,
   transitionWorkflowRunSync,
   withTransaction,
@@ -288,16 +289,31 @@ export function completeWorkflowApprovalNodeSync(input: {
  * 扫描范围以 `workflow_run.status = 'waiting_approval'` 的工作区为界，避免全量遍历；
  * 由调度器周期性调用（见 scheduler.ts 的 tick）。可选 `workspaceId` 将扫描限定在单个
  * 工作区内——当调度器以工作区范围调用时，绝不能越界处理其他工作区的审批。
+ *
+ * 可观测性：单条审批处理失败不再被静默吞掉，而是记录为结构化失败（含 workspaceId/
+ * runId/approvalId/errorCode）并写入审计日志，供告警与值班定位；失败不阻断其余审批
+ * 的扫描，下一轮 tick 重试。非法调度时钟（now 不可解析）在扫描前直接拒绝——否则
+ * `expiresAt > NaN` 恒为 false，会导致所有合法限时审批被批量误驳回。
  */
+export interface WorkflowApprovalExpiryFailure {
+  approvalId: string;
+  workspaceId: string;
+  runId?: string;
+  errorCode: string;
+}
+
 export function expireWorkflowApprovalsSync(input: {
   now?: string;
   limit?: number;
   workspaceId?: string;
-}): { expiredApprovalIds: string[] } {
+}): { expiredApprovalIds: string[]; failures: WorkflowApprovalExpiryFailure[] } {
   const db = getDatabase();
   const now = input.now ?? new Date().toISOString();
   const nowMs = Date.parse(now);
+  // 时钟校验：now 不可解析时必须拒绝扫描，避免 NaN 比较导致批量误驳回。
+  if (!Number.isFinite(nowMs)) throw new Error("workflow_now_invalid");
   const expiredApprovalIds: string[] = [];
+  const failures: WorkflowApprovalExpiryFailure[] = [];
   const reachedLimit = (): boolean => Boolean(input.limit) && expiredApprovalIds.length >= (input.limit ?? 0);
   // 工作区范围：传入 workspaceId 时只处理该工作区，避免越权/越界处理其他工作区的审批。
   const workspaces = input.workspaceId
@@ -332,12 +348,55 @@ export function expireWorkflowApprovalsSync(input: {
           });
         });
         expiredApprovalIds.push(approval.id);
-      } catch {
-        // 并发冲突或运行已被其它路径终结：整体回滚（审批仍为 pending），下一轮 tick 再处理。
+      } catch (error) {
+        // 并发冲突或运行已被其它路径终结：整体回滚（审批仍 pending）。不再静默——
+        // 记录结构化失败并写入审计日志，供告警/值班定位；继续扫描其余审批。
+        const errorCode = error instanceof Error && /^workflow_[a-z0-9_]+$/.test(error.message)
+          ? error.message
+          : "workflow_approval_scan_failed";
+        const runId = resolveApprovalRunIdBestEffort(approval.id, workspaceId);
+        failures.push({ approvalId: approval.id, workspaceId, ...(runId ? { runId } : {}), errorCode });
+        recordApprovalExpiryFailureBestEffort({ workspaceId, runId, approvalId: approval.id, errorCode, now });
       }
     }
   }
-  return { expiredApprovalIds };
+  return { expiredApprovalIds, failures };
+}
+
+/** 尽力解析审批关联的 runId，供失败记录定位；解析本身失败不影响扫描。 */
+function resolveApprovalRunIdBestEffort(approvalId: string, workspaceId: string): string | undefined {
+  try {
+    return readWorkflowNodeRunByApprovalIdSync(approvalId, workspaceId)?.runId;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 尽力把审批扫描失败写入审计日志；审计写入失败不得阻断扫描其余审批。 */
+function recordApprovalExpiryFailureBestEffort(input: {
+  workspaceId: string;
+  runId?: string;
+  approvalId: string;
+  errorCode: string;
+  now: string;
+}): void {
+  try {
+    recordAuditLogSync({
+      workspaceId: input.workspaceId,
+      title: "Workflow approval deadline scan failed",
+      note: "approval_deadline_scan_failed",
+      code: input.errorCode,
+      source: "runtime_lifecycle",
+      data: {
+        approvalId: input.approvalId,
+        ...(input.runId ? { runId: input.runId } : {}),
+        reasonCode: input.errorCode,
+        occurredAt: input.now,
+      },
+    });
+  } catch {
+    // 审计日志不可写时不应放大故障；结构化失败仍随返回值上报给调度器。
+  }
 }
 
 function advanceDownstream(input: { workspaceId: string; run: WorkflowRunRecord; completed: WorkflowNodeRunRecord; now: string }): void {
