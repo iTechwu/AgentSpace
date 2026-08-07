@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildWorkflowDefinitionAuditInput } from "./definitions.ts";
+import {
+  buildWorkflowDefinitionAuditInput,
+  resolveWorkflowDefinitionDraftChanges,
+} from "./definitions.ts";
 
 test("definition audit records creation and draft updates with the acting user", () => {
   assert.deepEqual(buildWorkflowDefinitionAuditInput({
@@ -30,4 +33,37 @@ test("definition audit records creation and draft updates with the acting user",
     occurredAt: "2026-08-07T00:01:00.000Z",
     changedFields: ["channelName"],
   }).code, "workflow.definition.updated");
+});
+
+test("draft changes only report values that differ from the persisted definition", () => {
+  const current = {
+    name: "客户日报",
+    description: "每日汇总",
+    ownerUserId: "user-1",
+    channelName: "运营群",
+    draftGraphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+  };
+
+  assert.deepEqual(resolveWorkflowDefinitionDraftChanges(current, {
+    name: "客户日报",
+    description: "每日汇总",
+    ownerUserId: "user-1",
+    channelName: "管理群",
+    graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+  }), {
+    name: "客户日报",
+    description: "每日汇总",
+    ownerUserId: "user-1",
+    channelName: "管理群",
+    graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+    changedFields: ["channelName"],
+  });
+
+  assert.deepEqual(resolveWorkflowDefinitionDraftChanges(current, {
+    name: "客户日报",
+    description: "每日汇总",
+    ownerUserId: "user-1",
+    channelName: "运营群",
+    graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+  }).changedFields, []);
 });

@@ -33,6 +33,20 @@ export interface UpdateWorkflowDraftInput {
   updatedBy: string;
 }
 
+type WorkflowDefinitionDraftValues = Pick<
+  WorkflowDefinitionRecord,
+  "name" | "description" | "ownerUserId" | "channelName" | "draftGraphJson"
+>;
+
+export interface ResolvedWorkflowDefinitionDraftChanges {
+  name: string;
+  description: string | null;
+  ownerUserId: string;
+  channelName: string | null;
+  graphJson: string;
+  changedFields: string[];
+}
+
 export interface TransitionWorkflowDefinitionStatusInput {
   id: string;
   workspaceId: string;
@@ -131,17 +145,18 @@ export function updateWorkflowDraftSync(input: UpdateWorkflowDraftInput): Workfl
       throw new Error("workflow_draft_version_conflict");
     }
     const updatedAt = input.updatedAt ?? new Date().toISOString();
+    const changes = resolveWorkflowDefinitionDraftChanges(current, input);
     const result = db.prepare(
       `UPDATE workflow_definition
           SET name = ?, description = ?, owner_user_id = ?, channel_name = ?,
               draft_graph_json = ?, draft_version = draft_version + 1, updated_at = ?
         WHERE id = ? AND workspace_id = ? AND status <> 'archived' AND draft_version = ?`,
     ).run(
-      input.name ?? current.name,
-      input.description === undefined ? current.description ?? null : input.description,
-      input.ownerUserId ?? current.ownerUserId,
-      input.channelName === undefined ? current.channelName ?? null : input.channelName,
-      input.graphJson ?? current.draftGraphJson,
+      changes.name,
+      changes.description,
+      changes.ownerUserId,
+      changes.channelName,
+      changes.graphJson,
       updatedAt,
       input.id,
       input.workspaceId,
@@ -154,16 +169,38 @@ export function updateWorkflowDraftSync(input: UpdateWorkflowDraftInput): Workfl
       workflowId: input.id,
       actorUserId: input.updatedBy,
       occurredAt: updatedAt,
-      changedFields: [
-        ...(input.name !== undefined ? ["name"] : []),
-        ...(input.description !== undefined ? ["description"] : []),
-        ...(input.ownerUserId !== undefined ? ["ownerUserId"] : []),
-        ...(input.channelName !== undefined ? ["channelName"] : []),
-        ...(input.graphJson !== undefined ? ["graph"] : []),
-      ],
+      changedFields: changes.changedFields,
     }));
     return readWorkflowDefinitionSync(input.id, input.workspaceId)!;
   });
+}
+
+export function resolveWorkflowDefinitionDraftChanges(
+  current: WorkflowDefinitionDraftValues,
+  input: Pick<
+    UpdateWorkflowDraftInput,
+    "name" | "description" | "ownerUserId" | "channelName" | "graphJson"
+  >,
+): ResolvedWorkflowDefinitionDraftChanges {
+  const description = input.description === undefined ? current.description ?? null : input.description;
+  const channelName = input.channelName === undefined ? current.channelName ?? null : input.channelName;
+  const resolved = {
+    name: input.name ?? current.name,
+    description,
+    ownerUserId: input.ownerUserId ?? current.ownerUserId,
+    channelName,
+    graphJson: input.graphJson ?? current.draftGraphJson,
+  };
+  return {
+    ...resolved,
+    changedFields: [
+      ...(resolved.name !== current.name ? ["name"] : []),
+      ...(resolved.description !== (current.description ?? null) ? ["description"] : []),
+      ...(resolved.ownerUserId !== current.ownerUserId ? ["ownerUserId"] : []),
+      ...(resolved.channelName !== (current.channelName ?? null) ? ["channelName"] : []),
+      ...(resolved.graphJson !== current.draftGraphJson ? ["graph"] : []),
+    ],
+  };
 }
 
 export function buildWorkflowDefinitionAuditInput(input: {
