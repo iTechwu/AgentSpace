@@ -18,6 +18,11 @@ export async function GET(request: Request): Promise<Response> {
   const now = new Date().toISOString();
   const limit = 20;
   const scheduled = tickWorkflowSchedulerSync({ workerId, now, limit });
+  // 非法时钟：outbox/recovery 同样依赖 now，强行推进只会再次抛错。提前返回，确保
+  // schedulerFailures（含 invalidClock）可观测、整轮不被非结构化异常中断。
+  if (scheduled.invalidClock) {
+    return Response.json({ scheduled: 0, schedulerFailures: 1, dispatched: 0, recovered: 0 });
+  }
   const dispatched = dispatchWorkflowOutboxBatchSync({ workerId, now, limit });
   const recovered = recoverStaleWorkflowWorkSync({ workerId, now, limit });
   return Response.json({

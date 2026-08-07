@@ -28,6 +28,10 @@ export interface WorkflowSchedulerTickResult {
   // 整轮审批限时扫描本身失败（如调度时钟非法）。这是一个系统级事件，没有单一工作区
   // 归属；由 Worker/reconcile 计入 schedulerFailures 供告警，避免被静默或误归到默认工作区。
   approvalScanFailed: boolean;
+  // 调度器入口校验到非法 now（无法解析）。此时 claim（lease 计算调用 toISOString）与
+  // 审批扫描都无法安全推进，本轮 tick 提前返回空结果并置位该标记，由 Worker/reconcile
+  // 计入 schedulerFailures——而不是让 claim 层的 RangeError 逸出、中断后续 outbox/recovery。
+  invalidClock: boolean;
 }
 
 export function tickWorkflowSchedulerSync(input: {
@@ -36,6 +40,23 @@ export function tickWorkflowSchedulerSync(input: {
   limit: number;
   workspaceId?: string;
 }): WorkflowSchedulerTickResult {
+  // 入口时钟校验：claim 的 lease 计算（new Date(...).toISOString()）与审批扫描都依赖 now，
+  // 非法值会让 claim 层直接抛 RangeError，早于审批扫描的 try/catch，导致 Worker/reconcile
+  // 既收不到 schedulerFailures、后续 outbox/recovery 也被中断。这里统一校验并返回结构化
+  // 失败结果，由消费者计入 schedulerFailures（invalidClock），不再逸出非结构化异常。
+  if (!Number.isFinite(Date.parse(input.now))) {
+    return {
+      claimedTriggerIds: [],
+      createdRunIds: [],
+      deduplicatedTriggerIds: [],
+      misfiredTriggerIds: [],
+      failedTriggerIds: [],
+      expiredApprovalIds: [],
+      expiredApprovalFailures: [],
+      approvalScanFailed: false,
+      invalidClock: true,
+    };
+  }
   const triggers = claimDueWorkflowTriggersSync({ ...input, leaseSeconds: 60 });
   const result: WorkflowSchedulerTickResult = {
     claimedTriggerIds: triggers.map((trigger) => trigger.id),
@@ -46,6 +67,7 @@ export function tickWorkflowSchedulerSync(input: {
     expiredApprovalIds: [],
     expiredApprovalFailures: [],
     approvalScanFailed: false,
+    invalidClock: false,
   };
   for (const trigger of triggers) {
     const scheduledAt = trigger.nextFireAt;

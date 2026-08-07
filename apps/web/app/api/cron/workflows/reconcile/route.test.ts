@@ -11,7 +11,7 @@ import { GET } from "./route";
 const originalSecret = process.env.CRON_SECRET;
 beforeEach(() => {
   vi.clearAllMocks();
-  services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"], expiredApprovalFailures: [], approvalScanFailed: false });
+  services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"], expiredApprovalFailures: [], approvalScanFailed: false, invalidClock: false });
   services.dispatchWorkflowOutboxBatchSync.mockReturnValue({ dispatchedTaskIds: ["task-1"] });
   services.recoverStaleWorkflowWorkSync.mockReturnValue({
     readyNodeRunIds: ["node-1"],
@@ -56,11 +56,24 @@ describe("workflow reconcile route", () => {
       failedTriggerIds: [],
       expiredApprovalFailures: [{ approvalId: "a-1" }, { approvalId: "a-2" }],
       approvalScanFailed: true,
+      invalidClock: false,
     });
     const response = await GET(new Request("http://localhost/api/cron/workflows/reconcile", { headers: { authorization: "Bearer expected" } }));
     expect(response.status).toBe(200);
     const body = await response.json();
     // 0 触发器失败 + 2 审批限时失败 + 1 整轮扫描失败 = 3。
     expect(body.schedulerFailures).toBe(3);
+  });
+
+  it("reports an invalid clock in schedulerFailures and skips outbox/recovery", async () => {
+    // 非法时钟：reconcile 必须把 invalidClock 计入 schedulerFailures 并提前返回，
+    // 不再调用同样依赖 now 的 outbox/recovery，避免非结构化异常中断整轮。
+    process.env.CRON_SECRET = "expected";
+    services.tickWorkflowSchedulerSync.mockReturnValue({ invalidClock: true });
+    const response = await GET(new Request("http://localhost/api/cron/workflows/reconcile", { headers: { authorization: "Bearer expected" } }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ scheduled: 0, schedulerFailures: 1, dispatched: 0, recovered: 0 });
+    expect(services.dispatchWorkflowOutboxBatchSync).not.toHaveBeenCalled();
+    expect(services.recoverStaleWorkflowWorkSync).not.toHaveBeenCalled();
   });
 });

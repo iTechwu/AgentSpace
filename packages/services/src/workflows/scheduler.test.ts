@@ -5,6 +5,7 @@ import {
   isOneTimeWorkflowTrigger,
   normalizeWorkflowTriggerForPublish,
   resolveWorkflowScheduleDecision,
+  tickWorkflowSchedulerSync,
   workflowSchedulerFailureDisposition,
 } from "./scheduler.ts";
 
@@ -232,4 +233,15 @@ test("scheduler failures distinguish stale claims, deterministic defects and tra
   assert.equal(workflowSchedulerFailureDisposition(new Error("workflow_active_version_missing")), "suspend");
   assert.equal(workflowSchedulerFailureDisposition(new SyntaxError("bad graph")), "suspend");
   assert.equal(workflowSchedulerFailureDisposition(new Error("connection reset")), "retry");
+});
+
+test("tickWorkflowSchedulerSync reports an invalid clock structurally instead of throwing", () => {
+  // 非法 now：claim 的 lease 计算（toISOString）与审批扫描都依赖 now。入口必须统一校验并
+  // 返回 invalidClock 结构化结果，而不是让 RangeError 逸出（会早于审批扫描的 try/catch，
+  // 导致 Worker/reconcile 收不到 schedulerFailures、后续 outbox/recovery 被中断）。
+  const result = tickWorkflowSchedulerSync({ now: "not-a-valid-date", workerId: "w1", limit: 20 });
+  assert.equal(result.invalidClock, true);
+  assert.deepEqual(result.createdRunIds, []);
+  assert.deepEqual(result.failedTriggerIds, []);
+  assert.equal(result.approvalScanFailed, false);
 });
