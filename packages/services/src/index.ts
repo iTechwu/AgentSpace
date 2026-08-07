@@ -169,8 +169,10 @@ export {
   materializeWorkflowRunSync,
   materializeManualWorkflowRunSync,
   releaseWorkflowTriggerLeaseSync,
+  rerunWorkflowRunSync,
   type MaterializeWorkflowRunInput,
   type MaterializeManualWorkflowRunInput,
+  type RerunWorkflowRunInput,
 } from "./workflows/materialization.ts";
 export {
   tickWorkflowSchedulerSync,

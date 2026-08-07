@@ -10,7 +10,7 @@ import {
   translateWorkflowTriggerType,
 } from "@/features/i18n/presentation";
 import { useLanguage } from "@/features/i18n/language-provider";
-import { controlWorkflowRunAction, runWorkflowAction } from "./workflow-actions";
+import { controlWorkflowRunAction, rerunWorkflowRunAction } from "./workflow-actions";
 import { WorkflowRunTimeline } from "./workflow-run-timeline";
 import type { WorkflowRunEventItem, WorkflowRunPageData } from "./workflow-types";
 
@@ -121,15 +121,14 @@ export function WorkflowRunClient({
   }
 
   async function rerun(): Promise<void> {
-    if (!projection.canRunManually || !TERMINAL_STATUSES.has(projection.status)) return;
-    if (!window.confirm("确认重新运行该工作流？将创建一个新的运行。")) return;
+    if (!projection.canRerun || !TERMINAL_STATUSES.has(projection.status)) return;
+    if (!window.confirm("确认重新运行该工作流？将以原版本与输入重新创建一个运行。")) return;
     setPendingControl("rerun");
     setNotice(undefined);
     try {
-      const result = await runWorkflowAction({
-        workflowId: projection.workflowId,
+      const result = await rerunWorkflowRunAction({
+        runId: projection.id,
         idempotencyKey: `rerun-${projection.id}-${Date.now()}`,
-        input: {},
       });
       if (!result.ok) {
         setNotice(translateWorkflowErrorCode(result.error.code, tx));
@@ -151,7 +150,7 @@ export function WorkflowRunClient({
   const canPause = projection.canControl && (projection.status === "running" || projection.status === "queued" || projection.status === "waiting_approval");
   const canResume = projection.canControl && projection.status === "paused";
   const canCancel = projection.canControl && !TERMINAL_STATUSES.has(projection.status);
-  const canRerun = Boolean(projection.canRunManually) && TERMINAL_STATUSES.has(projection.status);
+  const canRerun = Boolean(projection.canRerun) && TERMINAL_STATUSES.has(projection.status);
 
   return (
     <main className="workflow-run">

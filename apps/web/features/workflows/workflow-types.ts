@@ -126,7 +126,7 @@ export interface WorkflowRunPageData {
   triggerType: string;
   currentSequence: number;
   canControl: boolean;
-  canRunManually?: boolean;
+  canRerun?: boolean;
   startedAt?: string;
   finishedAt?: string;
   createdAt: string;

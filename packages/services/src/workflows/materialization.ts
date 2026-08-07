@@ -7,6 +7,7 @@ import {
   listStoredEmployeesSync,
   listWorkflowNodeRunsSync,
   lockWorkflowDefinitionForUpdateSync,
+  lockWorkflowRunForUpdateSync,
   lockWorkflowTriggerForUpdateSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowVersionSync,
@@ -105,25 +106,12 @@ export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): 
       createdBy: input.createdBy,
       now: input.now,
     });
-    const existingNodes = listWorkflowNodeRunsSync(input.workspaceId, run.id);
-    if (existingNodes.length === 0) {
-      const employees = buildWorkflowEmployeeNameSnapshots(listStoredEmployeesSync(input.workspaceId));
-      materializeWorkflowNodeRunsSync({
-        workspaceId: input.workspaceId,
-        runId: run.id,
-        now: input.now,
-        nodes: graph.nodes.map((node) => ({
-          nodeId: node.id,
-          nodeType: node.type,
-          employeeId: node.employeeId,
-          employeeNameSnapshot: node.employeeId ? employees.get(node.employeeId) : undefined,
-          maxAttempts: typeof node.config.retry === "object" && node.config.retry && typeof (node.config.retry as { maxAttempts?: unknown }).maxAttempts === "number"
-            ? (node.config.retry as { maxAttempts: number }).maxAttempts
-            : 1,
-          inputJson: JSON.stringify(node.config),
-        })),
-      });
-    }
+    const created = seedWorkflowRunNodesSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      graph,
+      now: input.now,
+    });
 
     if (run.status === "created") {
       const nodeRuns = listWorkflowNodeRunsSync(input.workspaceId, run.id);
@@ -182,7 +170,7 @@ export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): 
         });
       }
     }
-    return { runId: run.id, created: existingNodes.length === 0 };
+    return { runId: run.id, created };
   });
 }
 
@@ -207,6 +195,104 @@ export function assertWorkflowTriggerCanMaterialize(
   )) {
     throw new Error("workflow_trigger_stale_snapshot");
   }
+}
+
+const RERUN_TERMINAL_RUN_STATUSES = new Set(["succeeded", "partially_succeeded", "failed", "cancelled"]);
+
+export interface RerunWorkflowRunInput {
+  workspaceId: string;
+  runId: string;
+  idempotencyKey: string;
+  createdBy: string;
+  now?: string;
+}
+
+/**
+ * 重跑一条已终结的运行：固定复用原运行落库时的版本（versionId）与输入快照
+ * （inputJson），不受工作流后续重发布或触发器类型变更影响；不经过触发器租约
+ * 与 manual-trigger 校验，因此定时/事件触发的运行也可由用户手动重跑。
+ */
+export function rerunWorkflowRunSync(input: RerunWorkflowRunInput): { runId: string; created: boolean } {
+  return withTransaction(getDatabase(), () => {
+    const now = input.now ?? new Date().toISOString();
+    const original = lockWorkflowRunForUpdateSync(input.runId, input.workspaceId);
+    if (!original) throw new Error("workflow_run_not_found");
+    if (!RERUN_TERMINAL_RUN_STATUSES.has(original.status)) throw new Error("workflow_run_not_terminal");
+    const definition = lockWorkflowDefinitionForUpdateSync(original.workflowId, input.workspaceId);
+    if (!definition) throw new Error("workflow_definition_not_found");
+    const version = readWorkflowVersionSync(original.versionId, input.workspaceId);
+    if (!version) throw new Error("workflow_version_not_found");
+    const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
+    const run = createWorkflowRunSync({
+      workspaceId: input.workspaceId,
+      workflowId: original.workflowId,
+      versionId: version.id,
+      triggerType: "manual",
+      triggerKey: `rerun:${original.id}:${input.idempotencyKey}`,
+      inputJson: original.inputJson ?? "{}",
+      budgetJson: version.governanceJson,
+      createdBy: input.createdBy,
+      now,
+    });
+    const created = seedWorkflowRunNodesSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      graph,
+      now,
+    });
+    if (run.status === "created") {
+      const nodeRuns = listWorkflowNodeRunsSync(input.workspaceId, run.id);
+      const incoming = new Set(graph.edges.map((edge) => edge.target));
+      for (const node of graph.nodes) {
+        if (!incoming.has(node.id)) {
+          const nodeRun = nodeRuns.find((item) => item.nodeId === node.id);
+          if (nodeRun) transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: nodeRun.id, from: ["pending"], to: "ready", availableAt: now, now });
+        }
+      }
+      const queued = transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["created"], to: "queued", now });
+      if (!queued) throw new Error("workflow_run_materialization_conflict");
+      appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, type: "run.created", actorType: "scheduler", dataJson: JSON.stringify({ rerunFrom: original.id }), now });
+      appendWorkflowRunEventSync({
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        type: "trigger.fired",
+        actorType: "system",
+        actorId: input.createdBy,
+        dataJson: JSON.stringify({ rerunFrom: original.id, scheduledAt: now }),
+        now,
+      });
+      enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_run", aggregateId: run.id, eventType: "workflow.run.ready", payloadJson: JSON.stringify({ runId: run.id, rerunFrom: original.id }), now });
+    }
+    return { runId: run.id, created };
+  });
+}
+
+/** 按 graph 物化运行节点（幂等：已存在节点则跳过），返回是否实际新建。 */
+function seedWorkflowRunNodesSync(args: {
+  workspaceId: string;
+  runId: string;
+  graph: WorkflowGraphDefinition;
+  now: string;
+}): boolean {
+  const existingNodes = listWorkflowNodeRunsSync(args.workspaceId, args.runId);
+  if (existingNodes.length > 0) return false;
+  const employees = buildWorkflowEmployeeNameSnapshots(listStoredEmployeesSync(args.workspaceId));
+  materializeWorkflowNodeRunsSync({
+    workspaceId: args.workspaceId,
+    runId: args.runId,
+    now: args.now,
+    nodes: args.graph.nodes.map((node) => ({
+      nodeId: node.id,
+      nodeType: node.type,
+      employeeId: node.employeeId,
+      employeeNameSnapshot: node.employeeId ? employees.get(node.employeeId) : undefined,
+      maxAttempts: typeof node.config.retry === "object" && node.config.retry && typeof (node.config.retry as { maxAttempts?: unknown }).maxAttempts === "number"
+        ? (node.config.retry as { maxAttempts: number }).maxAttempts
+        : 1,
+      inputJson: JSON.stringify(node.config),
+    })),
+  });
+  return true;
 }
 
 export function buildWorkflowEmployeeNameSnapshots(

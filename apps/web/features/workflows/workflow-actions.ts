@@ -15,6 +15,7 @@ import {
   pauseWorkflowDefinitionSync,
   pauseWorkflowRunSync,
   publishWorkflowSync,
+  rerunWorkflowRunSync,
   resumeWorkflowDefinitionSync,
   resumeWorkflowRunSync,
   retryWorkflowNodeSync,
@@ -86,6 +87,11 @@ export interface ControlWorkflowRunActionInput {
   action: "pause" | "resume" | "cancel" | "retry_node";
   nodeId?: string;
   reason?: string;
+}
+
+export interface RerunWorkflowRunActionInput {
+  runId: string;
+  idempotencyKey: string;
 }
 
 export interface ControlWorkflowDefinitionActionInput {
@@ -224,6 +230,25 @@ export async function runWorkflowAction(
       workflowId: input.workflowId,
       idempotencyKey: input.idempotencyKey,
       inputJson: JSON.stringify(input.input),
+      createdBy: context.currentUser.id,
+    });
+    revalidateWorkflowPages(context.currentWorkspace.slug);
+    return success(context.currentWorkspace.id, { runId: result.runId });
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function rerunWorkflowRunAction(
+  input: RerunWorkflowRunActionInput,
+): Promise<WorkflowActionResult<{ runId: string }>> {
+  const context = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(context, "member");
+  try {
+    const result = rerunWorkflowRunSync({
+      workspaceId: context.currentWorkspace.id,
+      runId: input.runId,
+      idempotencyKey: input.idempotencyKey,
       createdBy: context.currentUser.id,
     });
     revalidateWorkflowPages(context.currentWorkspace.slug);

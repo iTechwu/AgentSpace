@@ -7,12 +7,17 @@ import type { WorkflowRunPageData } from "./workflow-types";
 const mocks = vi.hoisted(() => ({
   control: vi.fn(),
   run: vi.fn(),
+  rerun: vi.fn(),
   refresh: vi.fn(),
   push: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh, push: mocks.push }) }));
-vi.mock("./workflow-actions", () => ({ controlWorkflowRunAction: mocks.control, runWorkflowAction: mocks.run }));
+vi.mock("./workflow-actions", () => ({
+  controlWorkflowRunAction: mocks.control,
+  runWorkflowAction: mocks.run,
+  rerunWorkflowRunAction: mocks.rerun,
+}));
 
 import { WorkflowRunClient, mergeWorkflowRunEvents, selectLatestWorkflowProjection } from "./workflow-run-client";
 
@@ -136,16 +141,18 @@ describe("workflow run client", () => {
     expect(screen.getByText(/风险：高/)).toBeInTheDocument();
   });
 
-  it("offers a rerun action for terminal manual workflows", async () => {
+  it("offers a rerun action for terminal runs and replays by run id", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ events: [], hasMore: false, projection: initial })));
-    mocks.run.mockResolvedValue({ ok: true, data: { runId: "run-2" }, invalidation: { workspaceId: "workspace-1", modules: ["automations"] } });
-    const terminal: WorkflowRunPageData = { ...initial, status: "succeeded", canRunManually: true };
+    mocks.rerun.mockResolvedValue({ ok: true, data: { runId: "run-2" }, invalidation: { workspaceId: "workspace-1", modules: ["automations"] } });
+    // 即便是定时触发的运行（triggerType: schedule），只要已终结即可重跑。
+    const terminal: WorkflowRunPageData = { ...initial, status: "succeeded", canRerun: true };
     renderRun(terminal);
 
     const rerunButton = screen.getByRole("button", { name: "重新运行" });
     await user.click(rerunButton);
-    await waitFor(() => expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-1" })));
+    // 重跑按原运行 id 回放（复用原版本与输入快照），而非按工作流新建空输入运行。
+    await waitFor(() => expect(mocks.rerun).toHaveBeenCalledWith(expect.objectContaining({ runId: "run-1" })));
     // 重跑成功后应跳转到新运行，而非停留在旧运行。
     expect(mocks.push).toHaveBeenCalledWith("/w/default/automations/runs/run-2");
   });
