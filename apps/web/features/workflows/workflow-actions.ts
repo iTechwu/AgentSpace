@@ -127,6 +127,7 @@ export async function updateWorkflowDraftAction(
       description: input.patch.description,
       channelName: input.patch.channelName,
       graphJson: input.patch.graph ? JSON.stringify(input.patch.graph) : undefined,
+      updatedBy: context.currentUser.id,
     });
     revalidateWorkflowPages(context.currentWorkspace.slug);
     return success(context.currentWorkspace.id, {
@@ -305,13 +306,14 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_output_invalid", "workflow_output_too_large",
   "workflow_input_reference_invalid", "workflow_input_reference_not_upstream", "workflow_join_reference_missing", "workflow_output_field_invalid", "workflow_output_field_unsupported",
   "workflow_skill_not_ready", "workflow_channel_not_ready", "workflow_budget_invalid",
-  "workflow_concurrency_invalid",
+  "workflow_concurrency_invalid", "workflow_retry_policy_invalid",
   "workflow_approval_employee_not_ready", "workflow_approval_channel_not_ready",
   "workflow_schedule_invalid", "workflow_schedule_in_past", "workflow_schedule_timezone_invalid",
   "workflow_misfire_policy_invalid",
   "workflow_event_invalid",
-  "workflow_graph_invalid", "workflow_graph_requires_employee_task", "workflow_graph_cycle", "workflow_graph_disconnected",
-  "workflow_graph_multiple_entry_nodes", "workflow_graph_multiple_terminal_nodes",
+  "workflow_graph_invalid", "workflow_graph_requires_employee_task", "workflow_graph_cycle",
+  "workflow_graph_requires_single_entry_node", "workflow_graph_requires_single_terminal_node",
+  "workflow_graph_edge_endpoint_missing", "workflow_graph_isolated_node", "workflow_node_unreachable",
   "workflow_employee_task_requires_employee_id", "workflow_node_type_unsupported", "workflow_join_requires_multiple_inputs", "workflow_join_requires_downstream",
 ]);
 
@@ -342,6 +344,7 @@ function workflowErrorMessage(code: string): string {
     workflow_output_too_large: "步骤输出超过 256 KiB，请缩小摘要或改用产物引用。",
     workflow_output_field_invalid: "输出字段名称无效、重复或数量超限。",
     workflow_output_field_unsupported: "输入映射引用了上游未声明的输出字段。",
+    workflow_retry_policy_invalid: "最大尝试次数必须是 1 到 10 之间的整数。",
   };
   return messages[code] ?? "工作流操作未完成，请稍后重试。";
 }

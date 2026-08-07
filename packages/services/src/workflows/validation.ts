@@ -184,6 +184,23 @@ export function validateWorkflowNodeDependencies(
   if (node.type === "approval") return validateApprovalDependencies(node, inventory);
   if (node.type !== "employee_task" || !node.employeeId) return [];
   const blockers: WorkflowPublishBlocker[] = [];
+  if (node.config.retry !== undefined) {
+    const retry = node.config.retry;
+    const retryRecord = retry && typeof retry === "object" && !Array.isArray(retry)
+      ? retry as Record<string, unknown>
+      : undefined;
+    const maxAttempts = retryRecord?.maxAttempts;
+    if (!retryRecord || (maxAttempts !== undefined && (
+      typeof maxAttempts !== "number" || !Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10
+    ))) {
+      blockers.push({
+        code: "workflow_retry_policy_invalid",
+        nodeId: node.id,
+        employeeId: node.employeeId,
+        detail: "max_attempts_must_be_integer_1_to_10",
+      });
+    }
+  }
   const requiredSkillIds = Array.isArray(node.config.requiredSkillIds)
     ? node.config.requiredSkillIds.filter((value): value is string => typeof value === "string" && value.length > 0)
     : [];

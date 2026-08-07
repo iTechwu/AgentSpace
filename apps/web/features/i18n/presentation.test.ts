@@ -61,3 +61,15 @@ describe("workflow presentation translations", () => {
     expect(translateWorkflowTriggerType("schedule", en)).toBe("Scheduled trigger");
   });
 });
+
+describe("workflow graph validation translations", () => {
+  it.each([
+    ["workflow_graph_requires_single_entry_node", "流程只能有一个起点"],
+    ["workflow_graph_requires_single_terminal_node", "流程只能有一个终点"],
+    ["workflow_graph_edge_endpoint_missing", "连接线引用了不存在的步骤"],
+    ["workflow_graph_isolated_node", "存在未连接到主流程的步骤"],
+    ["workflow_node_unreachable", "存在无法从起点到达的步骤"],
+  ])("translates %s", (code, expected) => {
+    expect(translateWorkflowErrorCode(code)).toBe(expected);
+  });
+});

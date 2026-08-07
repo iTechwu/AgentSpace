@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after, before } from "node:test";
 import { getDatabase, resetDatabaseForTests } from "../database.ts";
+import { listAuditLogsSync } from "../audit-log.ts";
 import {
   createWorkflowDefinitionSync,
   pauseWorkflowTriggersForDefinitionSync,
@@ -69,9 +70,12 @@ test("published versions are immutable and scoped to workspace", () => {
     workspaceId: WORKSPACE_ID,
     expectedDraftVersion: draft.draftVersion,
     graphJson: '{"schemaVersion":1,"nodes":[{"id":"next"}],"edges":[]}',
+    updatedBy: "u2",
   });
   assert.equal(changedDraft.draftVersion, draft.draftVersion + 1);
   assert.equal(readWorkflowVersionSync(version.id, WORKSPACE_ID)?.graphJson, version.graphJson);
+  assert.equal(listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.created" })[0]?.dataJson.includes('"actorUserId":"u1"'), true);
+  assert.equal(listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.updated" })[0]?.dataJson.includes('"actorUserId":"u2"'), true);
   assert.throws(
     () => updateWorkflowDraftSync({
       id: draft.id,

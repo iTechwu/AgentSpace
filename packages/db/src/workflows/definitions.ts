@@ -1,4 +1,5 @@
 import { getDatabase, randomLikeId, withTransaction, type PostgresSyncDatabase } from "../database.ts";
+import { recordAuditLogSync, type RecordAuditLogInput } from "../audit-log.ts";
 import type {
   WorkflowDefinitionRecord,
   WorkflowTriggerRecord,
@@ -29,6 +30,7 @@ export interface UpdateWorkflowDraftInput {
   graphJson?: string;
   expectedDraftVersion?: number;
   updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface TransitionWorkflowDefinitionStatusInput {
@@ -78,57 +80,97 @@ export function createWorkflowDefinitionSync(
   const db = getDatabase();
   const id = input.id ?? `workflow-${randomLikeId()}`;
   const now = input.now ?? new Date().toISOString();
-  db.prepare(
-    `INSERT INTO workflow_definition (
-       id, workspace_id, name, description, owner_user_id, channel_name, status, draft_graph_json,
-       legacy_source_type, legacy_source_id, created_by, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.workspaceId,
-    input.name,
-    input.description ?? null,
-    input.ownerUserId,
-    input.channelName ?? null,
-    input.draftGraphJson ?? '{"schemaVersion":1,"nodes":[],"edges":[]}',
-    input.legacySourceType ?? null,
-    input.legacySourceId ?? null,
-    input.createdBy,
-    now,
-    now,
-  );
-  return readWorkflowDefinitionSync(id, input.workspaceId)!;
+  return withTransaction(db, () => {
+    db.prepare(
+      `INSERT INTO workflow_definition (
+         id, workspace_id, name, description, owner_user_id, channel_name, status, draft_graph_json,
+         legacy_source_type, legacy_source_id, created_by, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      input.workspaceId,
+      input.name,
+      input.description ?? null,
+      input.ownerUserId,
+      input.channelName ?? null,
+      input.draftGraphJson ?? '{"schemaVersion":1,"nodes":[],"edges":[]}',
+      input.legacySourceType ?? null,
+      input.legacySourceId ?? null,
+      input.createdBy,
+      now,
+      now,
+    );
+    recordAuditLogSync(buildWorkflowDefinitionAuditInput({
+      action: "created",
+      workspaceId: input.workspaceId,
+      workflowId: id,
+      actorUserId: input.createdBy,
+      occurredAt: now,
+    }));
+    return readWorkflowDefinitionSync(id, input.workspaceId)!;
+  });
 }
 
 export function updateWorkflowDraftSync(input: UpdateWorkflowDraftInput): WorkflowDefinitionRecord {
-  const current = readWorkflowDefinitionSync(input.id, input.workspaceId);
-  if (!current) throw new Error("workflow_definition_not_found");
-  if (current.status === "archived") throw new Error("workflow_definition_archived");
-  if (
-    input.expectedDraftVersion !== undefined &&
-    input.expectedDraftVersion !== current.draftVersion
-  ) {
-    throw new Error("workflow_draft_version_conflict");
-  }
-  const updatedAt = input.updatedAt ?? new Date().toISOString();
-  const result = getDatabase().prepare(
-    `UPDATE workflow_definition
-        SET name = ?, description = ?, owner_user_id = ?, channel_name = ?,
-            draft_graph_json = ?, draft_version = draft_version + 1, updated_at = ?
-      WHERE id = ? AND workspace_id = ? AND status <> 'archived' AND draft_version = ?`,
-  ).run(
-    input.name ?? current.name,
-    input.description === undefined ? current.description ?? null : input.description,
-    input.ownerUserId ?? current.ownerUserId,
-    input.channelName === undefined ? current.channelName ?? null : input.channelName,
-    input.graphJson ?? current.draftGraphJson,
-    updatedAt,
-    input.id,
-    input.workspaceId,
-    current.draftVersion,
-  );
-  if (result.changes !== 1) throw new Error("workflow_definition_conflict");
-  return readWorkflowDefinitionSync(input.id, input.workspaceId)!;
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const current = readWorkflowDefinitionSync(input.id, input.workspaceId);
+    if (!current) throw new Error("workflow_definition_not_found");
+    if (current.status === "archived") throw new Error("workflow_definition_archived");
+    if (
+      input.expectedDraftVersion !== undefined &&
+      input.expectedDraftVersion !== current.draftVersion
+    ) {
+      throw new Error("workflow_draft_version_conflict");
+    }
+    const updatedAt = input.updatedAt ?? new Date().toISOString();
+    const result = db.prepare(
+      `UPDATE workflow_definition
+          SET name = ?, description = ?, owner_user_id = ?, channel_name = ?,
+              draft_graph_json = ?, draft_version = draft_version + 1, updated_at = ?
+        WHERE id = ? AND workspace_id = ? AND status <> 'archived' AND draft_version = ?`,
+    ).run(
+      input.name ?? current.name,
+      input.description === undefined ? current.description ?? null : input.description,
+      input.ownerUserId ?? current.ownerUserId,
+      input.channelName === undefined ? current.channelName ?? null : input.channelName,
+      input.graphJson ?? current.draftGraphJson,
+      updatedAt,
+      input.id,
+      input.workspaceId,
+      current.draftVersion,
+    );
+    if (result.changes !== 1) throw new Error("workflow_definition_conflict");
+    recordAuditLogSync(buildWorkflowDefinitionAuditInput({
+      action: "updated",
+      workspaceId: input.workspaceId,
+      workflowId: input.id,
+      actorUserId: input.updatedBy ?? "system:workflow-draft",
+      occurredAt: updatedAt,
+    }));
+    return readWorkflowDefinitionSync(input.id, input.workspaceId)!;
+  });
+}
+
+export function buildWorkflowDefinitionAuditInput(input: {
+  action: "created" | "updated";
+  workspaceId: string;
+  workflowId: string;
+  actorUserId: string;
+  occurredAt: string;
+}): RecordAuditLogInput {
+  const created = input.action === "created";
+  return {
+    workspaceId: input.workspaceId,
+    title: created ? "工作流已创建" : "工作流草稿已修改",
+    note: input.workflowId,
+    code: created ? "workflow.definition.created" : "workflow.definition.updated",
+    data: {
+      workflowId: input.workflowId,
+      actorUserId: input.actorUserId,
+      occurredAt: input.occurredAt,
+    },
+  };
 }
 
 export function readWorkflowDefinitionSync(

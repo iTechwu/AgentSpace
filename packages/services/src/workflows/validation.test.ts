@@ -85,6 +85,37 @@ test("dependency preflight accepts assigned skills and employee display names", 
   assert.deepEqual(blockers, []);
 });
 
+test("dependency preflight rejects retry limits outside the supported range", () => {
+  const inventory = {
+    employees: new Map([["emp-1", { id: "emp-1", name: "Researcher" }]]),
+    assignedSkills: new Set<string>(),
+    channels: new Map<string, { employeeNames: string[] }>(),
+  };
+  for (const maxAttempts of [0, 1.5, 11, 1_000_000_000]) {
+    const blockers = validateWorkflowNodeDependencies({
+      id: "research",
+      type: "employee_task",
+      employeeId: "emp-1",
+      config: { retry: { maxAttempts } },
+    }, inventory);
+    assert.equal(blockers[0]?.code, "workflow_retry_policy_invalid");
+  }
+});
+
+test("dependency preflight keeps an empty retry object on the default single attempt", () => {
+  const blockers = validateWorkflowNodeDependencies({
+    id: "research",
+    type: "employee_task",
+    employeeId: "emp-1",
+    config: { retry: {} },
+  }, {
+    employees: new Map([["emp-1", { id: "emp-1", name: "Researcher" }]]),
+    assignedSkills: new Set<string>(),
+    channels: new Map<string, { employeeNames: string[] }>(),
+  });
+  assert.deepEqual(blockers, []);
+});
+
 test("approval preflight requires a known employee and a joined channel", () => {
   const inventory = {
     employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
