@@ -47,10 +47,23 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.equal((agentSkillTable.match(/\bemployee_name TEXT\b/g) ?? []).length, 1);
 });
 
+test("postgres schema makes SSO team and tenant scopes unique", () => {
+  const sql = getPostgresSchemaStatements().join("\n");
+
+  assert.match(
+    sql,
+    /CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_sso_binding_team_unique[\s\S]*ON workspace_sso_binding\(team_id\)[\s\S]*WHERE team_id IS NOT NULL/,
+  );
+  assert.match(
+    sql,
+    /CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_sso_binding_tenant_unique[\s\S]*ON workspace_sso_binding\(tenant_id\)[\s\S]*WHERE source = 'tenant'/,
+  );
+});
+
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "102");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "105");
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_token TEXT/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_expires_at TIMESTAMPTZ/);
   assert.match(statements, /runtime_workspace_mount_operation\s+ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ/);

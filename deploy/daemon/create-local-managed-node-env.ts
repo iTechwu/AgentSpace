@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,10 +19,16 @@ if (!WORKSPACE_ID?.startsWith("sso-team-")) {
 
 const daemonDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(daemonDirectory, "../..");
-const envPath = resolve(daemonDirectory, ".env.managed-node");
+const envPath = resolve(
+  repositoryRoot,
+  process.env.MANAGED_NODE_ENV_PATH?.trim() || "deploy/daemon/.env.managed-node",
+);
 const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 const daemonId = `local-docker-managed-node-${timestamp}`;
-const stateDirectory = resolve(repositoryRoot, `data/${daemonId}`);
+const stateDirectory = resolve(
+  repositoryRoot,
+  process.env.MANAGED_NODE_STATE_DIR?.trim() || `data/${daemonId}`,
+);
 const tlsCaPath = resolve(homedir(), "Library/Application Support/mkcert/rootCA.pem");
 const previousSource = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
 // Validate all non-identity settings before revoking the currently usable token.
@@ -63,6 +69,7 @@ const lines = [
 ];
 
 const temporaryPath = `${envPath}.tmp`;
+mkdirSync(dirname(envPath), { recursive: true });
 writeFileSync(temporaryPath, lines.join("\n"), { encoding: "utf8", mode: 0o600 });
 chmodSync(temporaryPath, 0o600);
 renameSync(temporaryPath, envPath);

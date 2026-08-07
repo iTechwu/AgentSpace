@@ -78,6 +78,7 @@ export interface ChannelMentionParseResult {
 export interface CompleteAgentChannelReplyResult {
   state: DofeAgentState;
   message: WorkspaceMessage;
+  created: boolean;
   warnings: string[];
   queuedTaskIds: string[];
   dispatchedAgentIds: string[];
@@ -674,6 +675,27 @@ export function completeAgentChannelReplySync(input: {
     throw new Error(`Channel "${input.channel}" does not exist.`);
   }
 
+  const sourceTaskQueueId = input.sourceTaskQueueId?.trim();
+  const existingMessage = sourceTaskQueueId
+    ? state.messages.find((message) =>
+        sameValue(message.channel ?? "", channel.name) &&
+        message.role === "agent" &&
+        message.status === "completed" &&
+        message.kind !== "process" &&
+        message.data?.source_task_queue_id === sourceTaskQueueId,
+      )
+    : undefined;
+  if (existingMessage) {
+    return {
+      state,
+      message: existingMessage,
+      created: false,
+      warnings: [],
+      queuedTaskIds: [],
+      dispatchedAgentIds: [],
+    };
+  }
+
   if (input.pendingSpeaker?.trim()) {
     const pendingReplies = state.messages.filter((message) =>
       sameValue(message.channel ?? "", channel.name) &&
@@ -681,7 +703,6 @@ export function completeAgentChannelReplySync(input: {
       message.status === "pending" &&
       message.kind !== "process",
     );
-    const sourceTaskQueueId = input.sourceTaskQueueId?.trim();
     const taskBoundReplies = sourceTaskQueueId
       ? pendingReplies.filter((message) => message.data?.source_task_queue_id === sourceTaskQueueId)
       : [];
@@ -722,6 +743,7 @@ export function completeAgentChannelReplySync(input: {
     status: "completed",
     attachments: input.attachments,
     mentions: mentionParse.allMentions,
+    ...(sourceTaskQueueId ? { data: { source_task_queue_id: sourceTaskQueueId } } : {}),
   }, effectiveWorkspaceId);
 
   const dispatchResult = shouldProcessMentions
@@ -780,6 +802,7 @@ export function completeAgentChannelReplySync(input: {
   return {
     state: nextState,
     message,
+    created: true,
     warnings,
     queuedTaskIds: dispatchResult.queuedTaskIds,
     dispatchedAgentIds: dispatchResult.dispatchedAgentIds,
@@ -959,17 +982,25 @@ export function replacePendingChannelMessageSync(input: {
   attachments?: MessageAttachment[];
 }, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
-
-  state.messages = state.messages.filter(
-    (message) =>
-      !(
-        sameValue(message.channel ?? "", input.channel) &&
-        message.role === "agent" &&
-        message.status === "pending" &&
-        sameValue(message.speaker, input.pendingSpeaker) &&
-        (!input.pendingTaskId || message.data?.source_task_queue_id === input.pendingTaskId)
-      ),
+  const speakerPendingMessages = state.messages.filter((message) =>
+    sameValue(message.channel ?? "", input.channel) &&
+    message.role === "agent" &&
+    message.status === "pending" &&
+    sameValue(message.speaker, input.pendingSpeaker),
   );
+  const taskBoundMessages = input.pendingTaskId
+    ? speakerPendingMessages.filter((message) => message.data?.source_task_queue_id === input.pendingTaskId)
+    : [];
+  const legacyMessages = speakerPendingMessages.filter((message) => !message.data?.source_task_queue_id);
+  const messagesToReplace = taskBoundMessages.length > 0
+    ? taskBoundMessages
+    : input.pendingTaskId && legacyMessages.length === 1
+      ? legacyMessages
+      : input.pendingTaskId
+        ? []
+        : speakerPendingMessages;
+  const messageIdsToReplace = new Set(messagesToReplace.map((message) => message.id));
+  state.messages = state.messages.filter((message) => !messageIdsToReplace.has(message.id));
 
   const message = pushWorkspaceMessageToChannel(state, input.channel, {
     speaker: input.speaker,
@@ -1068,8 +1099,13 @@ function dispatchAgentOutputMentionsSync(
       warnings.push(`Agent output mentioned itself as @${mention.token}; self-mentions do not create follow-up tasks.`);
       continue;
     }
-    if (hasQueuedAgentOutputMentionForSource(input.workspaceId, input.sourceMessage.id, mention.agentId)) {
-      warnings.push(`Agent output already dispatched @${mention.token} for source message ${input.sourceMessage.id}.`);
+    if (hasQueuedAgentOutputMentionForSource(
+      input.workspaceId,
+      input.sourceMessage.id,
+      input.sourceTaskQueueId,
+      mention.agentId,
+    )) {
+      warnings.push(`Agent output already dispatched @${mention.token} for this task result.`);
       continue;
     }
 
@@ -1115,6 +1151,9 @@ function dispatchAgentOutputMentionsSync(
     const resumedWorkDir = existingExecutionWorkspace?.workDir ?? lastExecution?.workDir;
     const queued = enqueueNativeTaskSync({
       workspaceId: input.workspaceId,
+      ...(input.sourceTaskQueueId ? {
+        idempotencyKey: `agent-output-mention:${input.sourceTaskQueueId}:${agent.name.toLocaleLowerCase()}`,
+      } : {}),
       assignee: agent.name,
       title: `Agent @提及 · ${input.channelName} · ${mention.label}`,
       channel: input.channelName,
@@ -1193,13 +1232,20 @@ function countAgentOutputMentionTasksForRoot(workspaceId: string, mentionRootMes
   }).length;
 }
 
-function hasQueuedAgentOutputMentionForSource(workspaceId: string, sourceMessageId: string, targetAgentId: string): boolean {
+function hasQueuedAgentOutputMentionForSource(
+  workspaceId: string,
+  sourceMessageId: string,
+  sourceTaskQueueId: string | undefined,
+  targetAgentId: string,
+): boolean {
   return listQueuedTasksSync({ workspaceId }).some((task) => {
     const payload = safeParseQueuePayload(task.inputJson);
     return (
       task.agentId === targetAgentId &&
       payload?.mentionSource === "agent_output" &&
-      payload.sourceMessageId === sourceMessageId
+      (sourceTaskQueueId
+        ? payload.sourceTaskQueueId === sourceTaskQueueId
+        : payload.sourceMessageId === sourceMessageId)
     );
   });
 }

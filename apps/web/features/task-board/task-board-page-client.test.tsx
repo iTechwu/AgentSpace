@@ -163,4 +163,19 @@ describe("TaskBoardPageClient", () => {
     );
     expect(screen.queryByRole("heading", { name: "Todo" })).not.toBeInTheDocument();
   });
+
+  it("opens the shared workflow builder from the task board", () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <TaskBoardPageClient data={data} workspaceSlug="workspace-alpha" />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: "编排任务" })).toHaveAttribute(
+      "href",
+      "/w/workspace-alpha/automations/new?entry=task-board",
+    );
+  });
 });

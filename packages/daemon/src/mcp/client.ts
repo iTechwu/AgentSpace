@@ -21,7 +21,7 @@ const CLIENT_NAME = "dofe-agent-daemon";
 const CLIENT_VERSION = "1";
 
 function enforceEgressError(connection: ResolvedMcpConnection): { code: McpErrorCode; safeMessage: string } | undefined {
-  if (connection.transport === "managed_stdio") return undefined;
+  if (connection.transport === "managed_stdio" || connection.transport === "managed_service") return undefined;
   const enforceEgress = process.env.MCP_EGRESS_ENFORCE === "true";
   const hasProxyLease = Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
   if (enforceEgress && !hasProxyLease) {
@@ -132,10 +132,23 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
       await client.close().catch(() => undefined);
     }
   }
-  if (connection.transport !== "streamable_http") {
+  if (connection.transport !== "streamable_http" && connection.transport !== "managed_service") {
     throw new Error(`Unsupported MCP transport: ${connection.transport}`);
   }
-  const endpointUrl = new URL(connection.endpoint);
+  const endpointUrl = new URL(connection.transport === "managed_service" ? connection.managedServiceEndpoint! : connection.endpoint);
+  if (connection.transport === "managed_service") {
+    const transport = new StreamableHTTPClientTransport(endpointUrl, {
+      requestInit: { headers: buildHeaders(connection) },
+      fetch: (input, init) => timeoutFetch(input, init, { fetchImpl: globalThis.fetch }),
+    });
+    const client = new Client({ name: CLIENT_NAME, version: CLIENT_VERSION }, { capabilities: {} });
+    try {
+      await withProtocolTimeout(client.connect(transport));
+      return await withProtocolTimeout(fn(client));
+    } finally {
+      await client.close().catch(() => undefined);
+    }
+  }
   const useProxy = Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
   const enforceEgress = process.env.MCP_EGRESS_ENFORCE === "true";
 
@@ -401,6 +414,11 @@ function guardEndpoint(connection: ResolvedMcpConnection): { ok: true } | { ok: 
     return connection.managedStdioLaunch
       ? { ok: true }
       : { ok: false, code: "mcp.policy_denied", message: "Managed stdio launch is unavailable." };
+  }
+  if (connection.transport === "managed_service") {
+    return connection.endpoint === "managed-service://openmontage" && Boolean(connection.managedServiceEndpoint)
+      ? { ok: true }
+      : { ok: false, code: "mcp.policy_denied", message: "Managed service endpoint is unavailable." };
   }
   if (connection.transport !== "streamable_http") {
     return { ok: false, code: "mcp.policy_denied", message: "MCP transport is not supported." };

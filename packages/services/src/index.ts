@@ -147,6 +147,140 @@ export {
 export { parseSkillDependencyDeclaration } from "./skills/dependencies.ts";
 export type { SkillDependencyDeclaration } from "./skills/dependencies.ts";
 export {
+  canonicalizeWorkflowGraph,
+  canonicalizeJson,
+  hashWorkflowGraph,
+  validateWorkflowForPublishSync,
+  validateWorkflowGovernance,
+  validateWorkflowEmployeeReadiness,
+  validateWorkflowNodeForDispatchSync,
+  type ValidateWorkflowForPublishInput,
+  type WorkflowActorRole,
+  type WorkflowPublishBlocker,
+  type WorkflowPublishValidation,
+  type WorkflowRuntimeBindingInventory,
+} from "./workflows/validation.ts";
+export {
+  publishWorkflowSync,
+  type PublishWorkflowInput,
+  type PublishWorkflowResult,
+} from "./workflows/publishing.ts";
+export {
+  materializeWorkflowRunSync,
+  materializeManualWorkflowRunSync,
+  releaseWorkflowTriggerLeaseSync,
+  type MaterializeWorkflowRunInput,
+  type MaterializeManualWorkflowRunInput,
+} from "./workflows/materialization.ts";
+export {
+  tickWorkflowSchedulerSync,
+  computeNextWorkflowFireAt,
+  isOneTimeWorkflowTrigger,
+  normalizeWorkflowTriggerForPublish,
+  type WorkflowSchedulerTickResult,
+} from "./workflows/scheduler.ts";
+export {
+  fireWorkflowEventSync,
+  normalizeWorkflowEventInput,
+  workflowTriggerMatchesEvent,
+  type WorkflowEventInput,
+  type WorkflowEventResult,
+} from "./workflows/events.ts";
+export {
+  dispatchReadyWorkflowNodeSync,
+  resolveWorkflowMaxConcurrency,
+  workflowNodeOutputSchema,
+  type DispatchWorkflowNodeInput,
+  type DispatchWorkflowNodeResult,
+} from "./workflows/dispatcher.ts";
+export {
+  buildWorkflowNodeRuntimeContext,
+  collectWorkflowArtifactRefs,
+  mergeWorkflowArtifactManifests,
+  resolveWorkflowNodeInput,
+  validateWorkflowInputReferences,
+  workflowNodeOutputFields,
+} from "./workflows/inputs.ts";
+export {
+  completeWorkflowNodeSync,
+  failWorkflowNodeSync,
+  completeWorkflowApprovalNodeSync,
+  type CompleteWorkflowNodeInput,
+} from "./workflows/coordinator.ts";
+export {
+  startQueuedTaskWithWorkflowSync,
+  beginWorkflowTaskCommitSync,
+  isWorkflowTaskInputAvailableSync,
+  isWorkflowTaskStartBlocked,
+  type StartQueuedTaskWithWorkflowResult,
+  lockWorkflowRunForTaskIfLinkedSync,
+  completeWorkflowTaskIfLinkedSync,
+  prepareWorkflowTaskOutputSync,
+  getWorkflowCompletionErrorCode,
+  resolveWorkflowCompletionFailureCode,
+  failWorkflowTaskIfLinkedSync,
+} from "./workflows/completion.ts";
+export {
+  retryWorkflowNodeSync,
+  pauseWorkflowRunSync,
+  resumeWorkflowRunSync,
+  cancelWorkflowRunSync,
+  computeWorkflowRetryAvailableAt,
+  type RetryWorkflowNodeInput,
+  type ControlWorkflowRunInput,
+} from "./workflows/retries.ts";
+export {
+  pauseWorkflowDefinitionSync,
+  resumeWorkflowDefinitionSync,
+  type ControlWorkflowDefinitionInput,
+} from "./workflows/definition-control.ts";
+export {
+  createWorkflowApprovalSync,
+  cancelPendingWorkflowApprovalsSync,
+  continueWorkflowAfterApprovalSync,
+  reviewWorkflowApprovalSync,
+  reviewApprovalWithWorkflowSync,
+  workflowApprovalInputFromNodeConfig,
+  type CreateWorkflowApprovalInput,
+} from "./workflows/approvals.ts";
+export {
+  recoverStaleWorkflowWorkSync,
+  type WorkflowRecoveryResult,
+} from "./workflows/recovery.ts";
+export {
+  dispatchWorkflowOutboxBatchSync,
+  type WorkflowOutboxDispatchResult,
+} from "./workflows/outbox-dispatcher.ts";
+export {
+  planLegacyMigration,
+  applyLegacyMigrationSync,
+  type LegacyMigrationAction,
+  type LegacyMigrationInput,
+  type LegacyMigrationPlan,
+  type MigrationReport,
+  projectLegacySchedulesForCutover,
+  type CalendarWorkflowProjectionItem,
+} from "./workflows/migration.ts";
+export {
+  resolveTriggerOwner,
+  readWorkflowCutoverModeSync,
+  assertTriggerWriteOwnerSync,
+  shouldReadLegacyWorkflowSources,
+  type WorkflowCutoverMode,
+  type WorkflowTriggerOwner,
+} from "./workflows/feature-flags.ts";
+export {
+  redactWorkflowDiagnostic,
+  type WorkflowDiagnosticRedactionOptions,
+} from "./workflows/security.ts";
+export {
+  buildWorkflowLogRecord,
+  buildWorkflowMetricLabels,
+  WORKFLOW_METRICS,
+  type WorkflowLogInput,
+  type WorkflowMetricLabelInput,
+} from "./workflows/observability.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,
@@ -608,6 +742,7 @@ export {
 export {
   publishChannelMessageCreatedEvent,
   publishChannelThreadChangedEvent,
+  publishOpenMontageJobChangedEvent,
   subscribeWorkspaceRealtimeEvents,
   type WorkspaceRealtimeEvent,
   type WorkspaceRealtimeListener,
@@ -1336,7 +1471,12 @@ export {
   requestManagedRuntimeCleanupSync,
 } from "@dofe-agent/db";
 export {
+  listOpenMontageChannelProjectionVersionsSync,
+  listOpenMontageSyncingJobIdsSync,
+} from "@dofe-agent/db";
+export {
   createRuntimeCredentialVaultFromEnvironment,
+  buildRuntimeCredentialSecretRef,
   EncryptedFileRuntimeCredentialVault,
   getRuntimeCredentialVault,
   resetRuntimeCredentialVaultForTests,
@@ -1356,3 +1496,41 @@ export {
   type ManagedProvisioningCommandContext,
   type ManagedRuntimeProviderTemplate,
 } from "./runtime-provisioning/provider-templates.ts";
+export {
+  callOpenMontageJobActionAsync,
+  dispatchOpenMontageProjectionNotificationSync,
+  ingestSignedOpenMontageEventSync,
+  reconcileOpenMontageJobAsync,
+  reconcileSyncingOpenMontageJobsAsync,
+  sanitizeOpenMontageEventForStorage,
+  verifyOpenMontageEventRequest,
+  OpenMontageEventAuthenticationError,
+  OpenMontageEventValidationError,
+  type OpenMontageJobActionInput,
+  type VerifiedOpenMontageEventRequest,
+} from "./openmontage/events.ts";
+export {
+  issueOpenMontageArtifactReadGrant,
+  issueOpenMontageArtifactWriteGrant,
+  publishOpenMontageArtifactUpload,
+  resolveOpenMontageArtifactReadDownload,
+  OpenMontageArtifactAuthenticationError,
+  OpenMontageArtifactConfigurationError,
+  OpenMontageArtifactValidationError,
+  type OpenMontageArtifactReadDownload,
+  type OpenMontageArtifactReadGrantDocument,
+  type OpenMontageArtifactWriteGrantDocument,
+  type OpenMontageOutputArtifactMetadata,
+  type OpenMontagePublishedArtifactDocument,
+} from "./openmontage/artifacts.ts";
+export {
+  bindOpenMontageJobDelegationAsync,
+  drainPendingOpenMontageJobDelegationsAsync,
+  drainOpenMontageJobDelegationAsync,
+  issueOpenMontageModelCredential,
+  OpenMontageDelegationAuthenticationError,
+  OpenMontageDelegationConfigurationError,
+  OpenMontageDelegationValidationError,
+  type BindOpenMontageJobDelegationInput,
+  type OpenMontageModelCredentialDocument,
+} from "./openmontage/delegations.ts";

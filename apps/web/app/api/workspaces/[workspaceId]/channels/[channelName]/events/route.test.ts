@@ -1,19 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WorkspaceRealtimeEvent } from "@dofe-agent/services";
 
 const {
   mockCanReadChannelForActorSync,
   mockGetWorkspaceAccessForIdentifier,
+  mockListOpenMontageChannelProjectionVersionsSync,
   mockReadWorkspaceStateSnapshotSync,
   mockSubscribeWorkspaceRealtimeEvents,
 } = vi.hoisted(() => ({
   mockCanReadChannelForActorSync: vi.fn(),
   mockGetWorkspaceAccessForIdentifier: vi.fn(),
+  mockListOpenMontageChannelProjectionVersionsSync: vi.fn(),
   mockReadWorkspaceStateSnapshotSync: vi.fn(),
   mockSubscribeWorkspaceRealtimeEvents: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/services", () => ({
   canReadChannelForActorSync: mockCanReadChannelForActorSync,
+  listOpenMontageChannelProjectionVersionsSync: mockListOpenMontageChannelProjectionVersionsSync,
   readWorkspaceStateSnapshotSync: mockReadWorkspaceStateSnapshotSync,
   subscribeWorkspaceRealtimeEvents: mockSubscribeWorkspaceRealtimeEvents,
 }));
@@ -28,6 +32,7 @@ describe("channel realtime events route", () => {
   beforeEach(() => {
     mockCanReadChannelForActorSync.mockReset();
     mockGetWorkspaceAccessForIdentifier.mockReset();
+    mockListOpenMontageChannelProjectionVersionsSync.mockReset();
     mockReadWorkspaceStateSnapshotSync.mockReset();
     mockSubscribeWorkspaceRealtimeEvents.mockReset();
     mockCanReadChannelForActorSync.mockReturnValue(true);
@@ -36,6 +41,7 @@ describe("channel realtime events route", () => {
       context: buildWorkspaceContext(),
     });
     mockReadWorkspaceStateSnapshotSync.mockReturnValue({ messages: [] });
+    mockListOpenMontageChannelProjectionVersionsSync.mockReturnValue([]);
   });
 
   afterEach(() => {
@@ -65,14 +71,7 @@ describe("channel realtime events route", () => {
   });
 
   it("streams matching channel events without leaking other channels", async () => {
-    let listener: ((event: {
-      type: "channel.message.created";
-      workspaceId: string;
-      channelName: string;
-      messageId: string;
-      sequence: number;
-      createdAt: string;
-    }) => void) | null = null;
+    let listener: ((event: WorkspaceRealtimeEvent) => void) | null = null;
     mockSubscribeWorkspaceRealtimeEvents.mockImplementation((_workspaceId, nextListener) => {
       listener = nextListener;
       return vi.fn();
@@ -116,6 +115,38 @@ describe("channel realtime events route", () => {
     await reader.cancel();
   });
 
+  it("streams OpenMontage invalidation metadata without a full Job payload", async () => {
+    let listener: ((event: WorkspaceRealtimeEvent) => void) | null = null;
+    mockSubscribeWorkspaceRealtimeEvents.mockImplementation((_workspaceId, nextListener) => {
+      listener = nextListener;
+      return vi.fn();
+    });
+
+    const response = await GET(new Request("http://localhost/events"), {
+      params: Promise.resolve({ workspaceId: "workspace-1", channelName: "general" }),
+    });
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    await reader.read();
+
+    listener!({
+      type: "openmontage.job.changed",
+      workspaceId: "workspace-1",
+      channelName: "general",
+      jobId: "om_job_1",
+      lastAppliedSequence: 7,
+      sequence: 3,
+      changedAt: "2026-08-05T10:00:07Z",
+    });
+
+    const chunk = decoder.decode((await reader.read()).value);
+    expect(chunk).toContain("event: openmontage.job.changed");
+    expect(chunk).toContain('"jobId":"om_job_1"');
+    expect(chunk).toContain('"lastAppliedSequence":7');
+    expect(chunk).not.toContain("payload");
+    await reader.cancel();
+  });
+
   it("notifies the client when shared persisted state changes without an in-process event", async () => {
     vi.useFakeTimers();
     let snapshot = {
@@ -149,6 +180,36 @@ describe("channel realtime events route", () => {
     const eventText = decoder.decode(eventChunk.value);
     expect(eventText).toContain("event: channel.thread.changed");
     expect(eventText).toContain('"source":"persisted_state"');
+    await reader.cancel();
+  });
+
+  it("recovers OpenMontage invalidations from persisted projections across web processes", async () => {
+    vi.useFakeTimers();
+    let versions = [{
+      jobId: "om_job_1",
+      lastAppliedSequence: 1,
+      changedAt: "2026-08-05T10:00:01Z",
+    }];
+    mockListOpenMontageChannelProjectionVersionsSync.mockImplementation(() => versions);
+
+    const response = await GET(new Request("http://localhost/events"), {
+      params: Promise.resolve({ workspaceId: "workspace-1", channelName: "general" }),
+    });
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    await reader.read();
+
+    versions = [{
+      jobId: "om_job_1",
+      lastAppliedSequence: 2,
+      changedAt: "2026-08-05T10:00:02Z",
+    }];
+    await vi.advanceTimersByTimeAsync(750);
+
+    const chunk = decoder.decode((await reader.read()).value);
+    expect(chunk).toContain("event: openmontage.job.changed");
+    expect(chunk).toContain('"lastAppliedSequence":2');
+    expect(chunk).toContain('"source":"persisted_projection"');
     await reader.cancel();
   });
 });

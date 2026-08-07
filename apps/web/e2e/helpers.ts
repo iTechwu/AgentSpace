@@ -8,9 +8,9 @@ import {
   createWorkspaceMembershipSync,
   createWorkspaceSync,
   removeWorkspaceMembershipSync,
-} from "../../../packages/db/src/index.ts";
-import { createDefaultWorkspaceState } from "../../../packages/domain/src/workspace.ts";
-import { writeWorkspaceStateSync } from "../../../packages/services/src/index.ts";
+} from "@dofe-agent/db";
+import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
+import { writeWorkspaceStateSync } from "@dofe-agent/services";
 
 const AUTH_COOKIE_NAME = "dofe_agent_session";
 const WORKSPACE_SELECTION_COOKIE = "dofe_agent_workspace";
@@ -74,6 +74,7 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
   state.humanMembers = [{ name: user.displayName, role: "Owner" }];
   state.activeEmployees = [
     {
+      id: `employee-${suffix}`,
       name: agentName,
       role: "Agent",
       remarkName: agentName,

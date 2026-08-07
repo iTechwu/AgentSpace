@@ -156,6 +156,39 @@ describe("RuntimeCapabilitiesPanel", () => {
     expect(actionMocks.requestMcp).not.toHaveBeenCalled();
   });
 
+  it("connects a managed OpenMontage service without exposing an editable private endpoint", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      ...data,
+      mcpCatalog: [{
+        ...data.mcpCatalog[0]!,
+        id: "mcp-openmontage",
+        slug: "official-openmontage",
+        displayName: "OpenMontage",
+        transport: "managed_service",
+        risk: "high",
+        endpointTemplate: "managed-service://openmontage",
+        declaredTools: [{ name: "submit_video_job", description: "Submit a video Job", risk: "high" }],
+        defaultApprovedTools: ["submit_video_job"],
+      }],
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "连接 MCP" }).at(-1)!);
+    await user.click(screen.getByRole("button", { name: "配置并连接" }));
+    const endpoint = screen.getByRole("textbox", { name: "受管服务" });
+    expect(endpoint).toHaveValue("managed-service://openmontage");
+    expect(endpoint).toHaveAttribute("readonly");
+    await user.click(screen.getByRole("checkbox", { name: "确认此 Runtime 将访问声明的数据域" }));
+    await user.click(screen.getByRole("button", { name: "继续：验证并连接" }));
+
+    await waitFor(() => expect(actionMocks.requestMcp).toHaveBeenCalledWith(expect.objectContaining({
+      catalogItemId: "mcp-openmontage",
+      endpoint: "managed-service://openmontage",
+      approvedTools: ["submit_video_job"],
+      confirmHighRisk: true,
+    })));
+  });
+
   it("requires explicit confirmation before installing a high-risk CLI", async () => {
     const user = userEvent.setup();
     renderPanel({ ...data, catalog: [{ ...data.catalog[0]!, risk: "high" }] });

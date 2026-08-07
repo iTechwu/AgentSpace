@@ -55,6 +55,7 @@ import {
   useWorkspaceModuleCacheScope,
 } from "@/features/dashboard/workspace-module-cache";
 import { ChannelDocumentsPanel } from "@/features/channels/channel-documents-panel";
+import { OpenMontageChannelJobs } from "@/features/channels/openmontage-channel-jobs";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import { FeishuChannelSummaryPanel } from "@/features/integrations/feishu/feishu-channel-summary-panel";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -384,22 +385,26 @@ function useChannelRealtimeRefresh({
   channelName,
   enabled,
   onInvalidation,
+  onOpenMontageChange,
   refresh,
 }: {
   workspaceId: string;
   channelName?: string | null;
   enabled: boolean;
   onInvalidation?: (event: WorkspaceInvalidationEvent) => void;
+  onOpenMontageChange?: (event: { jobId: string; lastAppliedSequence?: number }) => void;
   refresh: () => void;
 }): void {
   const refreshTimerRef = useRef<number | null>(null);
   const onInvalidationRef = useRef(onInvalidation);
+  const onOpenMontageChangeRef = useRef(onOpenMontageChange);
   const refreshRef = useRef(refresh);
 
   useEffect(() => {
     onInvalidationRef.current = onInvalidation;
+    onOpenMontageChangeRef.current = onOpenMontageChange;
     refreshRef.current = refresh;
-  }, [onInvalidation, refresh]);
+  }, [onInvalidation, onOpenMontageChange, refresh]);
 
   useEffect(() => {
     if (!enabled || !channelName?.trim() || typeof window.EventSource !== "function") {
@@ -433,13 +438,36 @@ function useChannelRealtimeRefresh({
         refreshRef.current();
       }, CHANNEL_REALTIME_REFRESH_DEBOUNCE_MS);
     };
+    const refreshOpenMontageJob = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          channelName?: string;
+          jobId?: string;
+          lastAppliedSequence?: number;
+        };
+        if (payload.channelName && payload.channelName !== channelName) {
+          return;
+        }
+        if (!payload.jobId) {
+          return;
+        }
+        onOpenMontageChangeRef.current?.({
+          jobId: payload.jobId,
+          lastAppliedSequence: payload.lastAppliedSequence,
+        });
+      } catch {
+        return;
+      }
+    };
 
     source.addEventListener("channel.message.created", scheduleRefresh as EventListener);
     source.addEventListener("channel.thread.changed", scheduleRefresh as EventListener);
+    source.addEventListener("openmontage.job.changed", refreshOpenMontageJob as EventListener);
 
     return () => {
       source.removeEventListener("channel.message.created", scheduleRefresh as EventListener);
       source.removeEventListener("channel.thread.changed", scheduleRefresh as EventListener);
+      source.removeEventListener("openmontage.job.changed", refreshOpenMontageJob as EventListener);
       source.close();
       if (refreshTimerRef.current !== null) {
         window.clearTimeout(refreshTimerRef.current);
@@ -597,6 +625,8 @@ export function ChannelsPageClient({
   );
   const [loadingDetailChannelName, setLoadingDetailChannelName] = useState<string | null>(null);
   const [detailLoadError, setDetailLoadError] = useState<string | null>(null);
+  const [openMontageRefreshVersion, setOpenMontageRefreshVersion] = useState(0);
+  const [hasOpenMontageJobs, setHasOpenMontageJobs] = useState(false);
   const [isPending, startTransition] = useTransition();
   const fileUploadInputRef = useRef<HTMLInputElement>(null);
   const fileSearchInputRef = useRef<HTMLInputElement>(null);
@@ -1050,8 +1080,13 @@ export function ChannelsPageClient({
       Boolean(selectedConversationChannelName) &&
       !selectedChannelRequiresAccess,
     onInvalidation,
+    onOpenMontageChange: () => setOpenMontageRefreshVersion((version) => version + 1),
     refresh: () => refreshChannelData({ allowWhileInputActive: true }),
   });
+
+  useEffect(() => {
+    setHasOpenMontageJobs(false);
+  }, [selectedConversationChannelName]);
 
   useEffect(() => {
     if (selectedChannel?.kind === "direct" && !selectedConversationChannelName && activeTab !== "messages") {
@@ -1971,6 +2006,17 @@ export function ChannelsPageClient({
         emptyListTitle={isContactDirectoryContext ? tx("暂无数字员工", "No digital employees") : tx("会话为空", "No conversations")}
         emptyThreadBody={emptyThreadBody}
         emptyThreadTitle={emptyThreadTitle}
+        threadHasSupplementaryContent={hasOpenMontageJobs}
+        threadAfterMessages={
+          !isContactDirectoryContext && activeTab === "messages" && selectedConversationChannelName && !selectedChannelRequiresAccess ? (
+            <OpenMontageChannelJobs
+              channelName={selectedConversationChannelName}
+              onPresenceChange={setHasOpenMontageJobs}
+              refreshVersion={openMontageRefreshVersion}
+              workspaceId={data.workspaceId}
+            />
+          ) : undefined
+        }
         customThreadHeader={
           selectedChannel
             ? ({ backButton }) => isContactDirectoryContext ? (

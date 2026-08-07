@@ -166,7 +166,10 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(launcher, /readonly/);
     assert.match(launcher, /dst=\/dofe-home/);
     assert.match(launcher, /--env HOME=\/dofe-home/);
-    assert.match(launcher, /PATH=\/workspace\/\.dofe-runtime\/skill-runner-bin:\/dofe-home\/\.local\/bin/);
+    assert.match(
+      launcher,
+      /PATH=\/workspace\/\.dofe-runtime\/skill-runner-bin:\/dofe-home\/\.local\/bin:\/pnpm:\/usr\/local\/sbin/,
+    );
     assert.match(launcher, /--env OPENAI_BASE_URL/);
     assert.match(launcher, /--entrypoint node/);
     assert.match(launcher, /--env DOFE_AGENT_RUNTIME_CREDENTIAL_ID/);
@@ -184,6 +187,7 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(proxy, /process\.env\[runtimeKeyName\] = runtimeKey/);
     assert.match(proxy, /model_provider=\\\"dofe-managed\\\"/);
     assert.match(proxy, /model_providers\.dofe-managed\.base_url/);
+    assert.match(proxy, /model_providers\.dofe-managed\.supports_websockets=false/);
     assert.match(proxy, /DOFE_AGENT_GATEWAY_REQUEST_LOG/);
     assert.match(proxy, /x-request-id/);
     assert.match(proxy, /statusCode >= 200/);

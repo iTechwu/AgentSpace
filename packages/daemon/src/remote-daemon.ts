@@ -819,7 +819,7 @@ async function pollRemoteTasks(
       if (mcpOperation?.operation) {
         activeRuntimes.add(runtime.id);
         void executeMcpConnectionOperation(client, mcpOperation.operation, {
-          resolveConnection: (connection) => attachManagedStdioLaunch(connection, config, runtime),
+          resolveConnection: (connection) => attachManagedMcpConnection(connection, config, runtime),
         })
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
@@ -1112,7 +1112,11 @@ async function executeRemoteTask(
         taskId: task.id,
         runtimeId: runtime.id,
         workspaceId: task.workspaceId,
-        connections: claimed.connections.map((connection) => attachTaskManagedStdioLaunch(connection, config, runtime)),
+        employeeId: task.employeeId?.trim() || task.agentId,
+        conversationId: task.routerSessionId?.trim()
+          || resolveConversationThreadId({ triggerType: task.triggerType, payload: parseTaskInputJson(task.inputJson) })
+          || task.id,
+        connections: claimed.connections.map((connection) => attachTaskManagedMcpConnection(connection, config, runtime)),
       });
     }
 
@@ -1334,22 +1338,62 @@ function ensureManagedRuntimeHomeDir(stateDir: string, runtimeId: string): strin
   return homeDir;
 }
 
-function attachTaskManagedStdioLaunch(
+function attachTaskManagedMcpConnection(
   connection: McpTaskSessionConnection,
   config: RemoteDaemonConfig,
   runtime: RemoteRuntimeRecord,
 ): McpTaskSessionConnection {
-  if (connection.transport !== "managed_stdio") return connection;
-  return { ...connection, managedStdioLaunch: buildManagedStdioLaunch(connection, config, runtime) };
+  if (connection.transport === "managed_stdio") {
+    return { ...connection, managedStdioLaunch: buildManagedStdioLaunch(connection, config, runtime) };
+  }
+  return resolveManagedServiceConnection(connection);
 }
 
-function attachManagedStdioLaunch(
+function attachManagedMcpConnection(
   connection: ResolvedMcpConnection,
   config: RemoteDaemonConfig,
   runtime: RemoteRuntimeRecord,
 ): ResolvedMcpConnection {
-  if (connection.transport !== "managed_stdio") return connection;
-  return { ...connection, managedStdioLaunch: buildManagedStdioLaunch(connection, config, runtime) };
+  if (connection.transport === "managed_stdio") {
+    return { ...connection, managedStdioLaunch: buildManagedStdioLaunch(connection, config, runtime) };
+  }
+  return resolveManagedServiceConnection(connection);
+}
+
+export function resolveManagedServiceConnection<T extends McpTaskSessionConnection | ResolvedMcpConnection>(
+  connection: T,
+  environment: Record<string, string | undefined> = process.env,
+): T {
+  if (connection.transport !== "managed_service") return connection;
+  if (connection.endpoint !== "managed-service://openmontage") {
+    throw new Error("OpenMontage managed service reference is not trusted.");
+  }
+  const rawEndpoint = environment.OPENMONTAGE_MCP_URL?.trim();
+  if (!rawEndpoint) throw new Error("OPENMONTAGE_MCP_URL is required for the OpenMontage managed service.");
+  const token = environment.OPENMONTAGE_SERVICE_TOKEN?.trim();
+  if (!token) throw new Error("OPENMONTAGE_SERVICE_TOKEN is required for the OpenMontage managed service.");
+  let endpoint: URL;
+  try {
+    endpoint = new URL(rawEndpoint);
+  } catch {
+    throw new Error("OPENMONTAGE_MCP_URL must be a valid HTTP URL ending in /mcp.");
+  }
+  if (
+    !["http:", "https:"].includes(endpoint.protocol)
+    || !endpoint.hostname
+    || endpoint.pathname !== "/mcp"
+    || endpoint.search
+    || endpoint.hash
+    || endpoint.username
+    || endpoint.password
+  ) {
+    throw new Error("OPENMONTAGE_MCP_URL must be a credential-free HTTP URL ending in /mcp.");
+  }
+  return {
+    ...connection,
+    managedServiceEndpoint: endpoint.toString(),
+    secrets: { Authorization: `Bearer ${token}` },
+  };
 }
 
 export function buildManagedStdioLaunch(
@@ -1476,6 +1520,10 @@ async function getMcpGatewayForTask(
         }
       },
       { listenHost: gatewayHost, advertisedHost: gatewayHost },
+      (report) => client.reportOpenMontageJob(report.taskId, {
+        connectionId: report.connectionId,
+        snapshot: report.snapshot,
+      }).then(() => undefined),
     );
     await gateway.start();
     return gateway;

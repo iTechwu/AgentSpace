@@ -13,6 +13,7 @@ export function enqueueExternalOutboundMessageSync(input: {
   outbound: ExternalOutboundMessagePayload;
   metadataJson?: string | Record<string, unknown> | unknown[];
   nextAttemptAt?: string;
+  idempotencyKey?: string;
 }): ExternalMessageOutboxRecord {
   return createExternalMessageOutboxSync({
     workspaceId: input.context.workspaceId,
@@ -24,6 +25,7 @@ export function enqueueExternalOutboundMessageSync(input: {
     payloadJson: input.outbound.payload,
     metadataJson: input.metadataJson,
     nextAttemptAt: input.nextAttemptAt,
+    idempotencyKey: input.idempotencyKey,
   });
 }
 

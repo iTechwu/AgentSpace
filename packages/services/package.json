@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "test": "sh -c 'node --experimental-strip-types scripts/verify-test-coverage.mjs && for file in src/skills/*.test.ts src/skills/package/*.test.ts src/mcp-center/*.test.ts src/skill-services/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
+    "test": "sh -c 'node --experimental-strip-types scripts/verify-test-coverage.mjs && for file in src/skills/*.test.ts src/skills/package/*.test.ts src/mcp-center/*.test.ts src/skill-services/*.test.ts src/openmontage/*.test.ts src/workflows/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false"
   },
   "dependencies": {
@@ -16,6 +16,7 @@
     "@volcengine/tos-sdk": "^2.9.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "cron-parser": "^5.7.0",
     "fflate": "^0.8.2",
     "yaml": "^2.7.0"
   },

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveTaskToColumnAction } from "@/features/task-board/actions";
@@ -115,6 +116,14 @@ export function TaskBoardPageClient({
   return (
     <section className={`task-board-shell${isCompactLayout ? " task-board-shell--compact" : ""}`}>
       <WorkbenchPageHeader
+        actions={(
+          <Link
+            className="knowledge-btn knowledge-btn--primary"
+            href={buildWorkspacePath(workspaceSlug, "/automations/new?entry=task-board")}
+          >
+            {tx("编排任务", "Orchestrate task")}
+          </Link>
+        )}
         description={tx("集中查看进行中、阻塞和待处理的任务。任务由消息与自动化流程产生。", "Review active, blocked, and pending work in one place. Tasks are created from messages and automations.")}
         eyebrow={tx("协作", "Collaboration")}
         meta={(

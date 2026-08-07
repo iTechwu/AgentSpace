@@ -211,7 +211,7 @@ test("loadTaskOutputEnvelope accepts relative workDir attachments", () => {
   const result = loadTaskOutputEnvelope(workDir, "fallback", "default");
 
   assert.equal(result.text, "这是图表。");
-  assert.equal(result.warnings.length, 0);
+  assert.deepEqual(result.warnings, []);
   assert.equal(result.attachments.length, 1);
   assert.equal(result.attachments[0]?.fileName, "chart.png");
   assert.equal(result.attachments[0]?.mediaType, "image/png");
@@ -244,6 +244,22 @@ test("loadTaskOutputEnvelope stores output attachments under the owning TOS work
     result.attachments[0]?.storedPath ?? "",
     /^tos:\/\/test-bucket\/workspaces\/workspace-mars\/attachments\/att-.*\/workspace-chart\.png$/,
   );
+  rmSync(workDir, { recursive: true, force: true });
+});
+
+test("loadTaskOutputEnvelope reuses a stable attachment identity when completion is replayed", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
+  mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
+  writeFileSync(join(workDir, "runtime-output", "artifacts", "report.txt"), "report", "utf8");
+  writeFileSync(join(workDir, "runtime-output", "agent-output.json"), JSON.stringify({
+    attachments: [{ path: "runtime-output/artifacts/report.txt", name: "report.txt" }],
+  }), "utf8");
+
+  const first = loadTaskOutputEnvelope(workDir, "fallback", "workspace-mars", { attachmentNamespace: "task-1" });
+  const replay = loadTaskOutputEnvelope(workDir, "fallback", "workspace-mars", { attachmentNamespace: "task-1" });
+
+  assert.equal(first.attachments[0]?.id, replay.attachments[0]?.id);
+  assert.equal(first.attachments[0]?.storageKey, replay.attachments[0]?.storageKey);
   rmSync(workDir, { recursive: true, force: true });
 });
 

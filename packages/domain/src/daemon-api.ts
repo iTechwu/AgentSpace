@@ -644,6 +644,8 @@ export interface ResolvedMcpConnection {
   managedStdioLaunch?: McpManagedStdioLaunch;
   /** Trusted launch profile resolved only from a platform-owned catalog release. */
   managedStdioProfile?: McpManagedStdioProfile;
+  /** Daemon-resolved private endpoint for a platform-owned managed service. */
+  managedServiceEndpoint?: string;
 }
 
 export interface McpManagedStdioProfile {
@@ -750,6 +752,8 @@ export interface McpTaskSessionConnection {
   managedStdioLaunch?: McpManagedStdioLaunch;
   /** Trusted platform profile consumed by the remote daemon. */
   managedStdioProfile?: McpManagedStdioProfile;
+  /** Daemon-resolved private endpoint; never delivered by the control plane. */
+  managedServiceEndpoint?: string;
 }
 
 export interface ClaimMcpTaskSessionResponse {
@@ -789,6 +793,15 @@ export interface McpToolAuditReport {
 export interface ReportMcpToolAuditsResponse {
   recorded: number;
   acceptedEventIds: string[];
+}
+
+export interface ReportOpenMontageJobRequest {
+  connectionId: string;
+  snapshot: unknown;
+}
+
+export interface ReportOpenMontageJobResponse {
+  jobId: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -961,6 +974,7 @@ export interface DaemonTaskUsage {
 
 export interface CompleteTaskRequest {
   outputText?: string;
+  structuredOutput?: Record<string, unknown>;
   sessionId?: string;
   routerSessionId?: string;
   workDir?: string;

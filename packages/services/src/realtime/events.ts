@@ -24,6 +24,15 @@ export type WorkspaceRealtimeEvent =
       eventId: string;
       sequence: number;
       createdAt: string;
+    }
+  | {
+      type: "openmontage.job.changed";
+      workspaceId: string;
+      channelName: string;
+      jobId: string;
+      lastAppliedSequence: number;
+      sequence: number;
+      changedAt: string;
     };
 
 export type WorkspaceRealtimeListener = (event: WorkspaceRealtimeEvent) => void;
@@ -81,6 +90,26 @@ export function publishTaskExecutionEventCreatedEvent(input: {
     eventId: input.eventId,
     sequence: nextSequence(),
     createdAt: input.createdAt,
+  };
+  emitter.emit(event.workspaceId, event);
+  return event;
+}
+
+export function publishOpenMontageJobChangedEvent(input: {
+  workspaceId: string;
+  channelName: string;
+  jobId: string;
+  lastAppliedSequence: number;
+  changedAt: string;
+}): WorkspaceRealtimeEvent {
+  const event: WorkspaceRealtimeEvent = {
+    type: "openmontage.job.changed",
+    workspaceId: input.workspaceId,
+    channelName: input.channelName,
+    jobId: input.jobId,
+    lastAppliedSequence: input.lastAppliedSequence,
+    sequence: nextSequence(),
+    changedAt: input.changedAt,
   };
   emitter.emit(event.workspaceId, event);
   return event;

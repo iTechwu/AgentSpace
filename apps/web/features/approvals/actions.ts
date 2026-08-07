@@ -12,7 +12,7 @@ import {
   rejectDocumentPermissionRequestSync,
   rejectKnowledgeProposalForActorSync,
   reviewFeishuDataOperationApproval,
-  reviewApprovalSync,
+  reviewApprovalWithWorkflowSync,
 } from "@dofe-agent/services";
 import type { ApprovalRequest } from "@dofe-agent/domain/workspace";
 import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
@@ -50,7 +50,13 @@ export async function reviewApprovalAction(
   if (!approvalId.trim()) {
     throw new Error("Missing approval id.");
   }
-  reviewApprovalSync(approvalId, decision, comment, workspaceContext.currentWorkspace.id);
+  reviewApprovalWithWorkflowSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    approvalId: approvalId.trim(),
+    decision,
+    actorUserId: workspaceContext.currentUser.id,
+    comment,
+  });
   revalidateApprovalRoutes(workspaceContext.currentWorkspace.slug);
   return actionToastResult(
     undefined,
@@ -97,7 +103,13 @@ export async function reviewApprovalQueueItemAction(
         reviewerComment: comment,
       });
     } else {
-      reviewApprovalSync(trimmedActionId, decision, comment, workspaceContext.currentWorkspace.id);
+      reviewApprovalWithWorkflowSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        approvalId: trimmedActionId,
+        decision,
+        actorUserId: workspaceContext.currentUser.id,
+        comment,
+      });
     }
   } else if (kind === "channel_access") {
     if (decision === "approved") {

@@ -319,6 +319,7 @@ class MockEventSource {
 describe("ChannelsPageClient", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible",
@@ -343,6 +344,7 @@ describe("ChannelsPageClient", () => {
     sendChannelMessageActionMock.mockClear();
     sendContactMessageActionMock.mockClear();
     updateDigitalContactRemarkActionMock.mockClear();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ jobs: [] })));
   });
 
   it("keeps conversation switching and group creation in the list container", async () => {
@@ -521,6 +523,8 @@ describe("ChannelsPageClient", () => {
 
   it("subscribes to channel realtime events and debounces refreshes without clearing the draft", async () => {
     const eventSources: MockEventSource[] = [];
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ jobs: [] }));
+    vi.stubGlobal("fetch", fetchMock);
     Object.defineProperty(window, "EventSource", {
       configurable: true,
       writable: true,
@@ -543,6 +547,7 @@ describe("ChannelsPageClient", () => {
     composer.focus();
     expect(eventSources).toHaveLength(1);
     expect(eventSources[0]?.url).toBe("/api/workspaces/workspace-1/channels/tour%20visit/events");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     const activeSource = eventSources.at(-1);
     activeSource?.emit("channel.message.created", {
@@ -561,6 +566,16 @@ describe("ChannelsPageClient", () => {
     expect(eventSources).toHaveLength(1);
     expect(activeSource?.close).not.toHaveBeenCalled();
     expect(composer).toHaveValue("草稿");
+
+    act(() => {
+      activeSource?.emit("openmontage.job.changed", {
+        channelName: "tour visit",
+        jobId: "om_job_1",
+        lastAppliedSequence: 3,
+      });
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(routerRefreshMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the composer draft when switching between messages and files", async () => {

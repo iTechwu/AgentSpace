@@ -1,12 +1,14 @@
-import { appendTaskMessageSync, failQueuedTaskSync } from "@dofe-agent/db";
+import { appendTaskMessageSync, failQueuedTaskSync, getDatabase, withTransaction } from "@dofe-agent/db";
 import { parseTaskPayload } from "dofe-agent-daemon";
 import type { FailTaskRequest } from "@dofe-agent/domain";
 import {
   continueAutoContinuationAfterTaskSync,
+  failWorkflowTaskIfLinkedSync,
   failChannelDocumentRunStepSync,
   formatConversationFailureSummary,
   formatTaskFailureSummary,
   handleManagedRuntimeProviderFailureAsync,
+  lockWorkflowRunForTaskIfLinkedSync,
   postMessageSync,
   queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
@@ -44,22 +46,37 @@ export async function POST(
   if (!body.errorText?.trim()) {
     return Response.json({ error: "errorText is required." }, { status: 400 });
   }
+  const errorText = body.errorText.trim();
 
   const payload = parseTaskPayload(task);
   const workspaceState = readWorkspaceStateSync(task.workspaceId);
   const effectiveChannelName =
     payload.channelName
       ?? (payload.contactId ? resolveCompatibleDirectChannelRecord(workspaceState, payload.contactId)?.name : undefined);
-  failQueuedTaskSync({
-    taskId: task.id,
-    errorText: body.errorText.trim(),
-    sessionId: body.sessionId,
-    workDir: body.workDir,
-    errorCode: body.errorCode,
-    errorCategory: body.errorCategory,
-    provider: body.provider,
-    rawProviderMessage: body.rawProviderMessage,
+  const failure = withTransaction(getDatabase(), () => {
+    const fence = lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+    if (fence.ignored) return { applied: false, status: fence.taskStatus ?? task.status };
+    failQueuedTaskSync({
+      taskId: task.id,
+      errorText,
+      sessionId: body.sessionId,
+      workDir: body.workDir,
+      errorCode: body.errorCode,
+      errorCategory: body.errorCategory,
+      provider: body.provider,
+      rawProviderMessage: body.rawProviderMessage,
+    });
+    failWorkflowTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      errorCode: body.errorCode,
+      errorText,
+    });
+    return { applied: true, status: "failed" };
   });
+  if (!failure.applied) {
+    return Response.json({ task: { id: task.id, status: failure.status }, ignored: true });
+  }
   const providerDiagnosticMessage = formatProviderDiagnosticMessage(body);
   if (providerDiagnosticMessage) {
     appendTaskMessageSync({
@@ -91,6 +108,7 @@ export async function POST(
     replacePendingChannelMessageSync({
       channel: payload.channel,
       pendingSpeaker: payload.assignee ?? task.agentId,
+      pendingTaskId: task.id,
       speaker: "系统提示",
       role: "agent",
       summary: failureSummary,

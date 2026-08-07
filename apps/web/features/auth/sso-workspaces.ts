@@ -1,13 +1,18 @@
 import { createHash } from "node:crypto";
 import {
+  archiveWorkspaceSync,
   createWorkspaceMembershipSync,
   createWorkspaceSync,
+  getDatabase,
+  listWorkspaceSsoBindingsSync,
   listUserWorkspacesSync,
   readWorkspaceSync,
   removeWorkspaceMembershipSync,
+  restoreWorkspaceSync,
   updateWorkspaceMembershipRoleSync,
   updateWorkspaceSync,
   upsertWorkspaceSsoBindingSync,
+  withTransaction,
   type WorkspaceRole,
 } from "@dofe-agent/db";
 import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
@@ -132,74 +137,90 @@ export function buildSsoAdminWorkspaceScopes(input: {
 export function syncSsoWorkspacesForUserSync(input: {
   displayName: string;
   materializeMemberships?: boolean;
+  reconcileDirectory?: boolean;
   scopes: readonly SsoWorkspaceScope[];
   userId: string;
 }): SsoWorkspaceScope[] {
-  const materializeMemberships = input.materializeMemberships !== false;
-  const activeScopeIds = new Set(input.scopes.map((scope) => scope.id));
-  for (const membership of listUserWorkspacesSync(input.userId)) {
-    if (
-      membership.workspaceId.startsWith("sso-") &&
-      (!materializeMemberships || !activeScopeIds.has(membership.workspaceId))
-    ) {
-      removeWorkspaceMembershipSync(membership.workspaceId, input.userId);
-    }
-  }
-
-  for (const scope of input.scopes) {
-    const existingWorkspace = readWorkspaceSync(scope.id);
-    if (!existingWorkspace) {
-      createWorkspaceSync({
-        id: scope.id,
-        slug: ssoWorkspaceSlug(scope),
-        name: scope.name,
-        createdBy: input.userId,
-      });
-      const state = createDefaultWorkspaceState();
-      state.organizationName = scope.name;
-      state.humanMembers = materializeMemberships
-        ? [{ name: input.displayName, role: workspaceRoleLabel(scope.role) }]
-        : [];
-      state.channels = [];
-      writeWorkspaceStateSync(state, scope.id);
-    } else {
-      const nextSlug = ssoWorkspaceSlug(scope);
-      if (existingWorkspace.name !== scope.name || existingWorkspace.slug !== nextSlug) {
-        updateWorkspaceSync(scope.id, {
-          ...(existingWorkspace.name !== scope.name ? { name: scope.name } : {}),
-          ...(existingWorkspace.slug !== nextSlug ? { slug: nextSlug } : {}),
-        });
-      }
-      if (existingWorkspace.name !== scope.name) {
-        const state = readWorkspaceStateSync(scope.id);
-        writeWorkspaceStateSync({ ...state, organizationName: scope.name }, scope.id);
-      }
-    }
-
-    if (materializeMemberships) {
-      const membership = listUserWorkspacesSync(input.userId).find((item) => item.workspaceId === scope.id);
-      if (membership) {
-        updateWorkspaceMembershipRoleSync(scope.id, input.userId, scope.role);
-      } else {
-        createWorkspaceMembershipSync({ workspaceId: scope.id, userId: input.userId, role: scope.role });
-      }
-    }
-
-    // Persist the SSO tenant/team scope so managed-runtime provisioning can
-    // resolve the models.dofe.ai tenantId/teamId without re-hitting the IdP.
-    upsertWorkspaceSsoBindingSync({
-      workspaceId: scope.id,
-      tenantId: scope.tenantId,
-      tenantSlug: scope.tenantSlug,
-      tenantName: scope.tenantName,
-      teamId: scope.teamId,
-      teamSlug: scope.teamSlug,
-      teamName: scope.teamName,
-      source: scope.teamId ? "team" : "tenant",
+  return withTransaction(getDatabase(), () => {
+    const materializeMemberships = input.materializeMemberships !== false;
+    const synchronizedScopes = input.scopes.filter((scope) => {
+      if (input.reconcileDirectory === true) return true;
+      return !readWorkspaceSync(scope.id)?.archivedAt;
     });
-  }
+    const activeScopeIds = new Set(synchronizedScopes.map((scope) => scope.id));
+    for (const membership of listUserWorkspacesSync(input.userId)) {
+      if (
+        membership.workspaceId.startsWith("sso-") &&
+        (!materializeMemberships || !activeScopeIds.has(membership.workspaceId))
+      ) {
+        removeWorkspaceMembershipSync(membership.workspaceId, input.userId);
+      }
+    }
 
-  return [...input.scopes];
+    for (const scope of synchronizedScopes) {
+      const existingWorkspace = readWorkspaceSync(scope.id);
+      if (!existingWorkspace) {
+        createWorkspaceSync({
+          id: scope.id,
+          slug: ssoWorkspaceSlug(scope),
+          name: scope.name,
+          createdBy: input.userId,
+        });
+        const state = createDefaultWorkspaceState();
+        state.organizationName = scope.name;
+        state.humanMembers = materializeMemberships
+          ? [{ name: input.displayName, role: workspaceRoleLabel(scope.role) }]
+          : [];
+        state.channels = [];
+        writeWorkspaceStateSync(state, scope.id);
+      } else {
+        restoreWorkspaceSync(scope.id);
+        const nextSlug = ssoWorkspaceSlug(scope);
+        if (existingWorkspace.name !== scope.name || existingWorkspace.slug !== nextSlug) {
+          updateWorkspaceSync(scope.id, {
+            ...(existingWorkspace.name !== scope.name ? { name: scope.name } : {}),
+            ...(existingWorkspace.slug !== nextSlug ? { slug: nextSlug } : {}),
+          });
+        }
+        if (existingWorkspace.name !== scope.name) {
+          const state = readWorkspaceStateSync(scope.id);
+          writeWorkspaceStateSync({ ...state, organizationName: scope.name }, scope.id);
+        }
+      }
+
+      if (materializeMemberships) {
+        const membership = listUserWorkspacesSync(input.userId).find((item) => item.workspaceId === scope.id);
+        if (membership) {
+          updateWorkspaceMembershipRoleSync(scope.id, input.userId, scope.role);
+        } else {
+          createWorkspaceMembershipSync({ workspaceId: scope.id, userId: input.userId, role: scope.role });
+        }
+      }
+
+      // Persist the SSO tenant/team scope so managed-runtime provisioning can
+      // resolve the models.dofe.ai tenantId/teamId without re-hitting the IdP.
+      upsertWorkspaceSsoBindingSync({
+        workspaceId: scope.id,
+        tenantId: scope.tenantId,
+        tenantSlug: scope.tenantSlug,
+        tenantName: scope.tenantName,
+        teamId: scope.teamId,
+        teamSlug: scope.teamSlug,
+        teamName: scope.teamName,
+        source: scope.teamId ? "team" : "tenant",
+      });
+    }
+
+    if (input.reconcileDirectory === true) {
+      for (const binding of listWorkspaceSsoBindingsSync()) {
+        if (!activeScopeIds.has(binding.workspaceId)) {
+          archiveWorkspaceSync(binding.workspaceId);
+        }
+      }
+    }
+
+    return synchronizedScopes;
+  });
 }
 
 function ssoWorkspaceId(kind: "team" | "tenant", sourceId: string): string {
@@ -247,7 +268,7 @@ function workspaceRoleLabel(role: WorkspaceRole): string {
   return role === "owner" ? "Owner" : role === "admin" ? "Admin" : "Member";
 }
 
-async function listAllSsoDirectoryItems<TItem>(
+export async function listAllSsoDirectoryItems<TItem>(
   loadPage: (query: { limit: number; page: number; status: string }) => Promise<{
     list: TItem[];
     total: number;
@@ -258,7 +279,12 @@ async function listAllSsoDirectoryItems<TItem>(
   for (let page = 1; ; page += 1) {
     const result = await loadPage({ limit, page, status: "ACTIVE" });
     items.push(...result.list);
-    if (result.list.length === 0 || items.length >= result.total) {
+    if (result.list.length === 0 && items.length < result.total) {
+      throw new Error(
+        `SSO directory pagination ended early after ${items.length} of ${result.total} items.`,
+      );
+    }
+    if (items.length >= result.total) {
       return items;
     }
   }

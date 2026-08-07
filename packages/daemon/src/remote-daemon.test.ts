@@ -14,11 +14,40 @@ import {
   reconcileRemoteRuntimesWithHeartbeat,
   restoreManagedRuntimesFromHeartbeat,
   resolveManagedProviderVerificationEnvironments,
+  resolveManagedServiceConnection,
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
   runRemoteDaemonCommand,
   watchRemoteTaskCancellation,
 } from "./remote-daemon.ts";
+import type { ResolvedMcpConnection } from "@dofe-agent/domain";
+
+test("resolveManagedServiceConnection binds only the official OpenMontage service from daemon environment", () => {
+  const connection = {
+    connectionId: "connection-1",
+    runtimeId: "runtime-1",
+    workspaceId: "workspace-1",
+    transport: "managed_service",
+    endpoint: "managed-service://openmontage",
+    allowedHosts: [],
+    approvedTools: ["submit_video_job"],
+    secrets: {},
+    nonSecretParams: {},
+  } satisfies ResolvedMcpConnection;
+
+  const resolved = resolveManagedServiceConnection(connection, {
+    OPENMONTAGE_MCP_URL: "http://openmontage:8080/mcp",
+    OPENMONTAGE_SERVICE_TOKEN: "service-token",
+  });
+
+  assert.equal(resolved.managedServiceEndpoint, "http://openmontage:8080/mcp");
+  assert.deepEqual(resolved.secrets, { Authorization: "Bearer service-token" });
+  assert.throws(() => resolveManagedServiceConnection(connection, {}), /OPENMONTAGE_MCP_URL/);
+  assert.throws(() => resolveManagedServiceConnection(
+    { ...connection, endpoint: "managed-service://other" },
+    { OPENMONTAGE_MCP_URL: "http://openmontage:8080/mcp", OPENMONTAGE_SERVICE_TOKEN: "service-token" },
+  ), /reference/);
+});
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError } from "./daemon-client.ts";
 import { isProcessRunning } from "./state.ts";
 

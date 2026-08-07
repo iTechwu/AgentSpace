@@ -4,6 +4,7 @@ import {
   type TaskSkillExecutionSnapshot,
   type TaskSkillExecutionSnapshotEntry,
 } from "@dofe-agent/domain";
+import { createHash } from "node:crypto";
 import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID, withTransaction } from "./database.ts";
 import { type QueuedTaskRecord, type EnqueueTaskInput, isNativeTaskStatus, priorityToNumber } from "./types.ts";
 import { readEmployeeBindingGenerationSync, readEmployeeRuntimeBindingSync } from "./employee-bindings.ts";
@@ -32,7 +33,10 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
   }
 
   const now = new Date().toISOString();
-  const queueId = `queue-${randomLikeId()}`;
+  const idempotencyKey = input.idempotencyKey?.trim();
+  const queueId = idempotencyKey
+    ? `queue-idem-${createHash("sha256").update(`${workspaceId}\0${idempotencyKey}`).digest("hex").slice(0, 32)}`
+    : `queue-${randomLikeId()}`;
   const payload = {
     taskId: input.taskId,
     assignee: input.assignee,
@@ -40,6 +44,7 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
     channel: input.channel,
     priority: input.priority,
     ...(input.metadata ?? {}),
+    ...(input.workflow ? { workflow: input.workflow } : {}),
     requester:
       input.requestedByUserId || input.requestedByDisplayName
         ? {
@@ -57,7 +62,7 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
     issueId: input.taskId,
   });
 
-  db.prepare(
+  const inserted = db.prepare(
     `INSERT INTO agent_task_queue (
       id,
       workspace_id,
@@ -76,7 +81,8 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
       queued_at,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (id) DO NOTHING`,
   ).run(
     queueId,
     workspaceId,
@@ -94,10 +100,10 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
     now,
     now,
     now,
-  );
+  ).changes > 0;
 
   const task = readQueuedTaskSync(queueId);
-  if (task) {
+  if (task && inserted) {
     recordRouterLifecycleEvent(task, {
       type: "task_queued",
       actorType: "system",
@@ -150,6 +156,7 @@ export function listQueuedTasksSync(options?: {
         COALESCE(employee_name, agent_id) AS employeeName,
         agent_id AS agentId,
         runtime_id AS runtimeId,
+        runtime_credential_id AS "runtimeCredentialId",
         router_session_id AS routerSessionId,
         issue_id AS issueId,
         trigger_type AS triggerType,
@@ -233,6 +240,7 @@ export function readQueuedTaskSync(taskId: string): QueuedTaskRecord | null {
         COALESCE(employee_name, agent_id) AS employeeName,
         agent_id AS agentId,
         runtime_id AS runtimeId,
+        runtime_credential_id AS "runtimeCredentialId",
         router_session_id AS routerSessionId,
         issue_id AS issueId,
         trigger_type AS triggerType,
@@ -332,9 +340,18 @@ export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId
          SET status = 'claimed',
              claimed_at = ?,
              binding_generation = ?,
+             runtime_credential_id = COALESCE(
+               runtime_credential_id,
+               (SELECT managed_credential_id FROM agent_runtime WHERE id = agent_task_queue.runtime_id)
+             ),
              updated_at = ?
          WHERE id = ? AND status = 'queued'`,
-      ).run(now, bindingGeneration ?? null, now, row.id);
+      ).run(
+        now,
+        bindingGeneration ?? null,
+        now,
+        row.id,
+      );
       claimedId = row.id;
     }
     db.exec("COMMIT");
@@ -399,14 +416,14 @@ export function startQueuedTaskSync(taskId: string): QueuedTaskRecord {
      SET status = 'running',
          started_at = COALESCE(started_at, ?),
          updated_at = ?
-     WHERE id = ?`,
+     WHERE id = ? AND status IN ('queued', 'claimed', 'running')`,
   ).run(now, now, taskId);
 
   const task = readQueuedTaskSync(taskId);
   if (!task) {
     throw new Error(`Queued task "${taskId}" does not exist.`);
   }
-  if (previous?.status !== "running") {
+  if (previous?.status !== "running" && task.status === "running") {
     const attempt = readLatestAgentTaskAttemptForTaskSync(task.id);
     if (attempt && attempt.status !== "running") {
       updateAgentTaskAttemptSync({ attemptId: attempt.id, status: "running" });
@@ -477,6 +494,7 @@ export function markTaskPreparingCommitSync(taskId: string): QueuedTaskRecord {
   if (!task) {
     throw new Error(`Queued task "${taskId}" does not exist.`);
   }
+  if (task.status !== "preparing_commit") throw new Error("workflow_task_commit_conflict");
   if (previous && previous.status !== "preparing_commit" && task.status === "preparing_commit") {
     recordQueueLifecycleEvent(task, {
       type: "commit_preparing",
@@ -506,12 +524,13 @@ export function markTaskCommittedSync(input: {
   const task = withTransaction(db, () => {
     db.prepare(
       `UPDATE agent_task_queue SET status = 'committed', updated_at = ?
-       WHERE id = ? AND status IN ('preparing_commit', 'committed', 'running')`,
+       WHERE id = ? AND status IN ('preparing_commit', 'committed')`,
     ).run(now, input.taskId);
     const current = readQueuedTaskSync(input.taskId);
     if (!current) {
       throw new Error(`Queued task "${input.taskId}" does not exist.`);
     }
+    if (current.status !== "committed") throw new Error("workflow_task_commit_conflict");
     upsertTaskCommitJournalSync({
       taskId: current.id,
       workspaceId: current.workspaceId,
@@ -565,7 +584,7 @@ function completeQueuedTaskInternalSync(
            work_dir = ?,
            finished_at = ?,
            updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status NOT IN ('completed', 'failed', 'cancelled')`,
     ).run(
       input.resultJson ? JSON.stringify(input.resultJson) : null,
       input.sessionId ?? null,
@@ -581,7 +600,7 @@ function completeQueuedTaskInternalSync(
     deleteMcpTaskSessionGrantSync(current.id, current.workspaceId);
     return current;
   });
-  if (previous?.status !== "completed") {
+  if (previous && !["completed", "failed", "cancelled"].includes(previous.status) && task.status === "completed") {
     const attempt = readLatestAgentTaskAttemptForTaskSync(task.id);
     const runtime = readAgentRuntimeSync(task.runtimeId);
     if (attempt) {
@@ -674,7 +693,7 @@ export function failQueuedTaskSync(input: {
            work_dir = COALESCE(?, work_dir),
            finished_at = ?,
            updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status NOT IN ('completed', 'failed', 'cancelled', 'committed')`,
     ).run(input.errorText, input.sessionId ?? null, input.workDir ?? null, now, now, input.taskId);
     const current = readQueuedTaskSync(input.taskId);
     if (!current) {
@@ -683,7 +702,7 @@ export function failQueuedTaskSync(input: {
     deleteMcpTaskSessionGrantSync(current.id, current.workspaceId);
     return current;
   });
-  if (previous?.status !== "failed") {
+  if (previous && previous.status !== "failed" && task.status === "failed") {
     const blocked = isBlockedFailure(input);
     const attempt = readLatestAgentTaskAttemptForTaskSync(task.id);
     const runtime = readAgentRuntimeSync(task.runtimeId);
@@ -1018,7 +1037,8 @@ function selectQueuedTaskForRuntime(
   return db
     .prepare(
       `SELECT queue.id, COALESCE(queue.employee_id, queue.agent_id) AS employeeId,
-              queue.agent_id AS agentId, queue.workspace_id AS workspaceId
+              queue.agent_id AS agentId, queue.workspace_id AS workspaceId,
+              runtime.managed_credential_id AS "runtimeCredentialId"
        FROM agent_task_queue queue
        JOIN agent_runtime runtime ON runtime.id = queue.runtime_id
        JOIN employee_runtime_binding binding
@@ -1256,6 +1276,7 @@ function mapQueuedTaskRecord(value: Record<string, unknown>): QueuedTaskRecord |
     employeeName: value.employeeName,
     agentId: value.agentId,
     runtimeId: value.runtimeId,
+    runtimeCredentialId: typeof value.runtimeCredentialId === "string" ? value.runtimeCredentialId : undefined,
     routerSessionId: typeof value.routerSessionId === "string" ? value.routerSessionId : undefined,
     issueId: typeof value.issueId === "string" ? value.issueId : undefined,
     triggerType: value.triggerType,

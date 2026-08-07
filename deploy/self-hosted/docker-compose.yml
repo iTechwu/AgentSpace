@@ -57,6 +57,23 @@ services:
     init: true
     restart: unless-stopped
 
+  workflow-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/workflow-worker/Dockerfile
+    env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      WORKFLOW_CUTOVER_MODE: ${WORKFLOW_CUTOVER_MODE:-legacy_only}
+      WORKFLOW_CUTOVER_MODES: ${WORKFLOW_CUTOVER_MODES:-{}}
+      WORKFLOW_WORKER_ID: ${WORKFLOW_WORKER_ID:-workflow-worker-compose}
+      WORKFLOW_WORKER_POLL_MS: ${WORKFLOW_WORKER_POLL_MS:-1000}
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   daemon-claude:
     build:
       context: ../..

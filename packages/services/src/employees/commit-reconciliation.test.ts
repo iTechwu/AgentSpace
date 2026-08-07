@@ -8,11 +8,14 @@ import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storag
 import {
   bindEmployeeRuntimeSync,
   claimNextQueuedTaskForRuntimeSync,
+  completeCommittedTaskSync,
   enqueueNativeTaskSync,
   getDatabase,
   readTaskCommitJournalSync,
   readQueuedTaskSync,
   registerDaemonRuntimesSync,
+  markTaskCommittedSync,
+  markTaskPreparingCommitSync,
   startQueuedTaskSync,
   upsertTaskCommitJournalSync,
 } from "@dofe-agent/db";
@@ -75,7 +78,7 @@ after(() => {
   process.chdir(originalCwd);
 });
 
-/** Claims and starts a task so it lands in `running`; the journal drives the rest. */
+/** Claims and starts a task, then crosses the prepare boundary; the journal drives the rest. */
 function createRunningTask(): { taskId: string; runtimeId: string } {
   const snapshot = registerDaemonRuntimesSync({
     daemonKey: `daemon-reconcile-${Date.now()}`,
@@ -93,6 +96,7 @@ function createRunningTask(): { taskId: string; runtimeId: string } {
   assert.ok(queued);
   claimNextQueuedTaskForRuntimeSync(runtimeId);
   startQueuedTaskSync(queued.id);
+  markTaskPreparingCommitSync(queued.id);
   return { taskId: queued.id, runtimeId };
 }
 
@@ -134,6 +138,7 @@ test("reconciliation retries when outputs are unrecoverable and attempts remain"
     workspaceId: "default",
     employeeName: "Alice",
     commitState: "preparing",
+    errorCode: "workspace_promotion_failed",
   });
   getDatabase().prepare(
     `UPDATE task_commit_journal SET updated_at = ?, attempt = 1 WHERE task_id = ?`,
@@ -152,6 +157,54 @@ test("reconciliation retries when outputs are unrecoverable and attempts remain"
   assert.equal(journal?.attempt, 2, "attempt must be bumped");
 });
 
+test("checkpoint state writes preserve all configured reconciliation attempts", () => {
+  const { taskId } = createRunningTask();
+  for (const errorCode of [
+    "workflow_completion_effects_pending",
+    "workflow_completion_effects_checkpointed",
+    "workspace_promotion_failed",
+  ]) {
+    upsertTaskCommitJournalSync({
+      taskId,
+      workspaceId: "default",
+      employeeName: "Alice",
+      commitState: "preparing",
+      errorCode,
+    });
+  }
+  expectJournalAttempt(taskId, 0);
+
+  for (const expectedAttempt of [1, 2]) {
+    ageJournal(taskId);
+    const result = reconcileStaleCommitJournalsSync({
+      workspaceId: "default",
+      staleBeforeSeconds: 3600,
+      maxAttempts: 3,
+      deriveOutputs: () => null,
+    });
+    assert.equal(result.retried, 1);
+    expectJournalAttempt(taskId, expectedAttempt);
+  }
+  ageJournal(taskId);
+  const exhausted = reconcileStaleCommitJournalsSync({
+    workspaceId: "default",
+    staleBeforeSeconds: 3600,
+    maxAttempts: 3,
+    deriveOutputs: () => null,
+  });
+  assert.equal(exhausted.rolledBack, 1);
+  assert.equal(readTaskCommitJournalSync(taskId, "default")?.commitState, "rolled_back");
+});
+
+function ageJournal(taskId: string): void {
+  getDatabase().prepare("UPDATE task_commit_journal SET updated_at = ? WHERE task_id = ?")
+    .run(new Date(Date.now() - 7200 * 1000).toISOString(), taskId);
+}
+
+function expectJournalAttempt(taskId: string, expected: number): void {
+  assert.equal(readTaskCommitJournalSync(taskId, "default")?.attempt, expected);
+}
+
 test("reconciliation rolls back when attempts are exhausted and outputs are unrecoverable", () => {
   const { taskId } = createRunningTask();
   upsertTaskCommitJournalSync({
@@ -159,6 +212,7 @@ test("reconciliation rolls back when attempts are exhausted and outputs are unre
     workspaceId: "default",
     employeeName: "Alice",
     commitState: "preparing",
+    errorCode: "workspace_promotion_failed",
   });
   getDatabase().prepare(
     `UPDATE task_commit_journal SET updated_at = ?, attempt = 3 WHERE task_id = ?`,
@@ -185,6 +239,7 @@ test("reconciliation rolls back a stale-lease promotion that cannot commit", () 
     workspaceId: "default",
     employeeName: "Alice",
     commitState: "preparing",
+    errorCode: "workspace_promotion_failed",
   });
   getDatabase().prepare(
     `UPDATE task_commit_journal SET updated_at = ?, attempt = 3 WHERE task_id = ?`,
@@ -256,4 +311,127 @@ test("duplicate reconciliation runs are idempotent (no double-commit across repl
     `SELECT COUNT(*) AS c FROM employee_workspace_revision WHERE workspace_id = 'default'`,
   ).get();
   assert.equal(Number(revisionCount?.c), 1, "exactly one revision is created despite two runs");
+});
+
+test("a complete effects snapshot recovers a journal left at effects-pending by a process crash", () => {
+  const { taskId } = createRunningTask();
+  upsertTaskCommitJournalSync({
+    taskId,
+    workspaceId: "default",
+    employeeName: "Alice",
+    commitState: "preparing",
+    errorCode: "workflow_completion_effects_pending",
+  });
+  getDatabase().prepare("UPDATE task_commit_journal SET updated_at = ? WHERE task_id = ?")
+    .run(new Date(Date.now() - 7200 * 1000).toISOString(), taskId);
+
+  const result = reconcileStaleCommitJournalsSync({
+    workspaceId: "default",
+    staleBeforeSeconds: 3600,
+    isReplaySafe: () => true,
+    deriveOutputs: () => ({
+      outputs: [{ path: "checkpointed.txt", bytes: new TextEncoder().encode("safe") }],
+      deletedPaths: [],
+    }),
+  });
+
+  assert.equal(result.committed, 1);
+  assert.equal(readQueuedTaskSync(taskId)?.status, "committed");
+  assert.equal(readTaskCommitJournalSync(taskId, "default")?.commitState, "committed");
+});
+
+test("completed tasks retry only the idempotent finalizer without re-promoting outputs", () => {
+  const { taskId } = createRunningTask();
+  markTaskPreparingCommitSync(taskId);
+  markTaskCommittedSync({ taskId, employeeName: "Alice" });
+  completeCommittedTaskSync({ taskId, resultJson: { output: "done" } });
+  upsertTaskCommitJournalSync({
+    taskId,
+    workspaceId: "default",
+    employeeName: "Alice",
+    commitState: "preparing",
+    errorCode: "commit_reconciliation_retrying",
+    errorMessage: "projection failed",
+  });
+  getDatabase().prepare("UPDATE task_commit_journal SET updated_at = ? WHERE task_id = ?")
+    .run(new Date(Date.now() - 7200 * 1000).toISOString(), taskId);
+  let finalized = 0;
+
+  const result = reconcileStaleCommitJournalsSync({
+    workspaceId: "default",
+    staleBeforeSeconds: 3600,
+    deriveOutputs: () => {
+      throw new Error("completed task must not be promoted again");
+    },
+    finalizeTask: (task) => {
+      assert.equal(task.status, "completed");
+      finalized += 1;
+    },
+  });
+
+  assert.equal(result.committed, 1);
+  assert.equal(finalized, 1);
+  assert.equal(readQueuedTaskSync(taskId)?.status, "completed");
+  assert.equal(readTaskCommitJournalSync(taskId, "default")?.commitState, "committed");
+});
+
+test("a committed task left by a crash resumes finalization without re-promoting outputs", () => {
+  const { taskId } = createRunningTask();
+  markTaskPreparingCommitSync(taskId);
+  markTaskCommittedSync({
+    taskId,
+    employeeName: "Alice",
+    workspaceRevisionId: "ewr-before-crash",
+    artifactIds: ["eart-before-crash"],
+  });
+  getDatabase().prepare("UPDATE task_commit_journal SET updated_at = ? WHERE task_id = ?")
+    .run(new Date(Date.now() - 7200 * 1000).toISOString(), taskId);
+  let finalized = 0;
+
+  const result = reconcileStaleCommitJournalsSync({
+    workspaceId: "default",
+    staleBeforeSeconds: 3600,
+    deriveOutputs: () => {
+      throw new Error("a committed task must not be promoted again");
+    },
+    finalizeTask: (task) => {
+      assert.equal(task.status, "committed");
+      finalized += 1;
+    },
+  });
+
+  assert.equal(result.committed, 1);
+  assert.equal(finalized, 1);
+  assert.equal(readTaskCommitJournalSync(taskId, "default")?.workspaceRevisionId, "ewr-before-crash");
+  assert.equal(readTaskCommitJournalSync(taskId, "default")?.artifactIdsJson, '["eart-before-crash"]');
+});
+
+test("a failed completed-task finalizer remains retryable and is never rolled back", () => {
+  const { taskId } = createRunningTask();
+  markTaskPreparingCommitSync(taskId);
+  markTaskCommittedSync({ taskId, employeeName: "Alice" });
+  completeCommittedTaskSync({ taskId });
+  upsertTaskCommitJournalSync({
+    taskId,
+    workspaceId: "default",
+    employeeName: "Alice",
+    commitState: "preparing",
+    errorCode: "commit_reconciliation_retrying",
+  });
+  getDatabase().prepare("UPDATE task_commit_journal SET updated_at = ?, attempt = 99 WHERE task_id = ?")
+    .run(new Date(Date.now() - 7200 * 1000).toISOString(), taskId);
+
+  const result = reconcileStaleCommitJournalsSync({
+    workspaceId: "default",
+    staleBeforeSeconds: 3600,
+    maxAttempts: 1,
+    finalizeTask: () => {
+      throw new Error("projection dependency unavailable");
+    },
+  });
+
+  assert.equal(result.retried, 1);
+  assert.equal(result.rolledBack, 0);
+  assert.equal(readQueuedTaskSync(taskId)?.status, "completed");
+  assert.equal(readTaskCommitJournalSync(taskId, "default")?.commitState, "preparing");
 });

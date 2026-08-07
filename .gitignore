@@ -27,6 +27,8 @@ data/
 runtime-output/
 agent-output.json
 artifacts/
+!apps/web/app/api/**/artifacts/
+!apps/web/app/api/**/artifacts/**
 administrator/
 Design/
 example/
@@ -40,6 +42,7 @@ scripts/loadtest/
 scripts/record
 # Added by code-review-graph
 .code-review-graph/
+.worktrees/
 
 # macOS
 .DS_Store

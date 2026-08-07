@@ -33,7 +33,7 @@ test("HttpDaemonClient retries retryable requests after transient server failure
   }
 });
 
-test("HttpDaemonClient does not retry non-retryable task completion requests", async () => {
+test("HttpDaemonClient retries task completion after transient server failures", async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;
 
@@ -58,7 +58,7 @@ test("HttpDaemonClient does not retry non-retryable task completion requests", a
         }),
       /boom/,
     );
-    assert.equal(attempts, 1);
+    assert.equal(attempts, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }

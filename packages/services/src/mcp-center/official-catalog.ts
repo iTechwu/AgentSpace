@@ -5,7 +5,7 @@ import {
   type McpCatalogItemRecord,
   type RuntimeAppCatalogSource,
 } from "@dofe-agent/db";
-import type { McpManagedStdioProfile } from "@dofe-agent/domain";
+import { OPENMONTAGE_MCP_CATALOG_SLUG, type McpManagedStdioProfile } from "@dofe-agent/domain";
 
 export const CHROME_DEVTOOLS_MCP_SLUG = "official-chrome-devtools";
 export const CHROME_DEVTOOLS_MCP_VERSION = "1.6.0";
@@ -14,6 +14,8 @@ export const MINIMAX_TOKEN_PLAN_MCP_SLUG = "official-minimax-token-plan";
 export const MINIMAX_TOKEN_PLAN_MCP_VERSION = "0.0.4";
 export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE = "minimax-coding-plan-mcp";
 export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC = `${MINIMAX_TOKEN_PLAN_MCP_PACKAGE}==${MINIMAX_TOKEN_PLAN_MCP_VERSION}`;
+export const OPENMONTAGE_MCP_SLUG = OPENMONTAGE_MCP_CATALOG_SLUG;
+export const OPENMONTAGE_MCP_VERSION = "0.3.0";
 
 export interface OfficialMcpRuntimeAppRequirement {
   source: "clihub_public";
@@ -66,6 +68,16 @@ const DEFAULT_APPROVED_TOOLS = CHROME_DEVTOOLS_TOOLS
 const MINIMAX_TOKEN_PLAN_TOOLS = [
   { name: "web_search", description: "Search the public web through the MiniMax Token Plan API.", risk: "medium" as const },
   { name: "understand_image", description: "Analyze an image through the MiniMax Token Plan API.", risk: "high" as const },
+] as const;
+
+const OPENMONTAGE_TOOLS = [
+  { name: "openmontage_capabilities", description: "Inspect available video production providers and composition capabilities.", risk: "low" as const },
+  { name: "submit_video_job", description: "Create an asynchronous, attributable video production Job.", risk: "high" as const },
+  { name: "get_video_job", description: "Read the durable state of a video production Job.", risk: "low" as const },
+  { name: "cancel_video_job", description: "Request cancellation of a running video production Job.", risk: "high" as const },
+  { name: "approve_video_stage", description: "Approve or reject a pending video production stage.", risk: "high" as const },
+  { name: "list_video_job_events", description: "Replay ordered events for a video production Job.", risk: "low" as const },
+  { name: "list_video_artifacts", description: "List durable outputs published for a video production Job.", risk: "low" as const },
 ] as const;
 
 const CHROME_DEVTOOLS_STDIO_PROFILE: McpManagedStdioProfile = {
@@ -177,6 +189,27 @@ export function syncOfficialMcpCatalogForWorkspaceSync(workspaceId: string): Mcp
     risk: "high",
     endpointTemplate: `stdio://${MINIMAX_TOKEN_PLAN_MCP_PACKAGE}`,
     documentationUrl: "https://platform.minimaxi.com/docs/guides/token-plan-mcp-guide",
+  });
+
+  readOfficialReleaseOrCreate(workspaceId, OPENMONTAGE_MCP_SLUG, OPENMONTAGE_MCP_VERSION, {
+    workspaceId,
+    source: "official",
+    slug: OPENMONTAGE_MCP_SLUG,
+    version: OPENMONTAGE_MCP_VERSION,
+    category: "productivity",
+    transport: "managed_service",
+    displayName: "OpenMontage",
+    description: "Create, inspect, approve, cancel, and audit attributable video production Jobs.",
+    allowedHostsJson: "[]",
+    configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, required: [], additionalProperties: false }),
+    declaredToolsJson: JSON.stringify(OPENMONTAGE_TOOLS),
+    defaultApprovedToolsJson: JSON.stringify(["openmontage_capabilities", "get_video_job", "list_video_job_events", "list_video_artifacts"]),
+    secretFieldsJson: "[]",
+    requiredRuntimeCapabilitiesJson: "[]",
+    dataDomainsJson: JSON.stringify(["video_inputs", "video_artifacts", "model_usage"]),
+    risk: "high",
+    endpointTemplate: "managed-service://openmontage",
+    documentationUrl: "/docs/0805/montage",
   });
 
   return chrome;

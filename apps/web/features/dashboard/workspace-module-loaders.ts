@@ -1,7 +1,6 @@
 import type {
   AgentsPageData,
   ApprovalsPageData,
-  AutomationsPageData,
   BudgetPageData,
   CalendarPageData,
   ChannelsPageData,
@@ -17,7 +16,6 @@ import type {
 import {
   getAgentsPageData,
   getApprovalsPageData,
-  getAutomationsPageData,
   getBudgetPageData,
   getCalendarPageData,
   getChannelListPageData,
@@ -51,6 +49,8 @@ import {
 } from "@/features/settings/settings-page-loader";
 import { readWorkspaceSync, type WorkspaceRole } from "@dofe-agent/db";
 import type { PerformanceDashboardData } from "@dofe-agent/services";
+import { getWorkflowCenterPageData } from "@/features/workflows/workflow-data";
+import type { WorkflowCenterPageData } from "@/features/workflows/workflow-types";
 
 export type WorkspaceModuleLoaderData =
   | {
@@ -63,7 +63,7 @@ export type WorkspaceModuleLoaderData =
     }
   | {
       moduleId: "automations";
-      data: AutomationsPageData;
+      data: WorkflowCenterPageData;
     }
   | {
       moduleId: "calendar";
@@ -198,7 +198,7 @@ async function loadWorkspaceModuleDataUncached(
     case "automations":
       return {
         moduleId,
-        data: getAutomationsPageData(workspaceId),
+        data: getWorkflowCenterPageData(workspaceId),
       };
     case "calendar":
       return {

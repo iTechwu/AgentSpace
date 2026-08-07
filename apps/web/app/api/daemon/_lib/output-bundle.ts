@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { getWorkspaceDaemonRemoteStagingDirPath } from "@dofe-agent/db";
 import type { DaemonTaskOutputBundle } from "@dofe-agent/domain";
@@ -20,6 +20,7 @@ const OUTPUT_BUNDLE_ALLOWED_PREFIX = "runtime-output/";
 const WORKDIR_BUNDLE_ALLOWED_PREFIXES = WORKDIR_CAPTURE_INCLUDE_DIRS.map((dir) => `${dir}/`);
 /** Staging-side marker carrying the paths the provider deleted this task. */
 const DELETED_PATHS_META_FILE = ".workdir-deleted.json";
+const COMPLETION_EFFECTS_META_FILE = ".completion-effects.json";
 
 export function getDaemonTaskOutputStagingDir(taskId: string, workspaceId: string): string {
   return getWorkspaceDaemonRemoteStagingDirPath(taskId, workspaceId);
@@ -33,12 +34,34 @@ export function clearDaemonTaskOutputStaging(taskId: string, workspaceId: string
   rmSync(getDaemonTaskOutputStagingDir(taskId, workspaceId), { recursive: true, force: true });
 }
 
+export function readTaskCompletionEffectsSnapshot<T>(taskId: string, workspaceId: string): T | null {
+  const path = join(getDaemonTaskOutputStagingDir(taskId, workspaceId), COMPLETION_EFFECTS_META_FILE);
+  if (!existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, "utf8")) as T;
+}
+
+export function writeTaskCompletionEffectsSnapshot<T>(taskId: string, workspaceId: string, value: T): void {
+  const stagingDir = getDaemonTaskOutputStagingDir(taskId, workspaceId);
+  mkdirSync(stagingDir, { recursive: true });
+  const path = join(stagingDir, COMPLETION_EFFECTS_META_FILE);
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, JSON.stringify(value), { encoding: "utf8", mode: 0o600 });
+  renameSync(temporaryPath, path);
+}
+
 export function materializeOutputBundleToStaging(
   taskId: string,
   workspaceId: string,
   bundle: DaemonTaskOutputBundle,
 ): string {
   const stagingDir = getDaemonTaskOutputStagingDir(taskId, workspaceId);
+  const completionSnapshot = readTaskCompletionEffectsSnapshot<unknown>(taskId, workspaceId);
+  if (completionSnapshot !== null) {
+    // Once effects are checkpointed, this exact staging tree is the commit
+    // candidate. A retry may re-send the request body, but it must never mix a
+    // new bundle with the already-applied effects snapshot.
+    return stagingDir;
+  }
   clearDaemonTaskOutputStaging(taskId, workspaceId);
 
   try {

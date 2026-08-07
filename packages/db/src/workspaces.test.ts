@@ -5,10 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DEFAULT_WORKSPACE_ID,
+  archiveWorkspaceSync,
   createWorkspaceSync,
   getDatabase,
   hardDeleteWorkspaceSync,
+  listActiveSsoWorkspacesSync,
+  listAllWorkspacesSync,
+  listWorkspacesSync,
   readWorkspaceSync,
+  restoreWorkspaceSync,
+  upsertWorkspaceSsoBindingSync,
   writeWorkspaceStateRecordSync,
 } from "./index.ts";
 
@@ -49,9 +55,90 @@ beforeEach(() => {
     DELETE FROM workspace_employee;
     DELETE FROM workspace_membership;
     DELETE FROM workspace_snapshot;
+    DELETE FROM workspace_sso_binding;
     DELETE FROM workspace;
     DELETE FROM users;
   `);
+});
+
+test("restoreWorkspaceSync makes an archived workspace active again", () => {
+  const workspace = createWorkspaceSync({
+    id: "sso-team-restored",
+    slug: "restored",
+    name: "Restored",
+    createdBy: "system",
+  });
+
+  archiveWorkspaceSync(workspace.id);
+  assert.equal(listWorkspacesSync().some((item) => item.id === workspace.id), false);
+
+  restoreWorkspaceSync(workspace.id);
+
+  assert.equal(listWorkspacesSync().some((item) => item.id === workspace.id), true);
+});
+
+test("listAllWorkspacesSync includes active and archived workspaces", () => {
+  createWorkspaceSync({
+    id: "workspace-active",
+    slug: "workspace-active",
+    name: "Active",
+    createdBy: "system",
+  });
+  createWorkspaceSync({
+    id: "workspace-archived",
+    slug: "workspace-archived",
+    name: "Archived",
+    createdBy: "system",
+  });
+  archiveWorkspaceSync("workspace-archived");
+
+  assert.deepEqual(
+    new Set(listAllWorkspacesSync().map((workspace) => workspace.id)),
+    new Set(["workspace-active", "workspace-archived"]),
+  );
+});
+
+test("listActiveSsoWorkspacesSync excludes unbound and archived workspaces", () => {
+  const active = createWorkspaceSync({
+    id: "sso-team-active",
+    slug: "active",
+    name: "Active",
+    createdBy: "system",
+  });
+  const archived = createWorkspaceSync({
+    id: "sso-team-archived",
+    slug: "archived",
+    name: "Archived",
+    createdBy: "system",
+  });
+  createWorkspaceSync({
+    id: "sso-team-e2e-unbound",
+    slug: "unbound",
+    name: "E2E Workspace unbound",
+    createdBy: "system",
+  });
+  upsertWorkspaceSsoBindingSync({
+    workspaceId: active.id,
+    tenantId: "tenant-active",
+    tenantName: "Active Tenant",
+    teamId: "team-active",
+    teamName: "Active Team",
+    source: "team",
+  });
+  upsertWorkspaceSsoBindingSync({
+    workspaceId: archived.id,
+    tenantId: "tenant-archived",
+    tenantName: "Archived Tenant",
+    teamId: "team-archived",
+    teamName: "Archived Team",
+    source: "team",
+  });
+  archiveWorkspaceSync(archived.id);
+
+  assert.deepEqual(
+    listActiveSsoWorkspacesSync().map((item) => item.id),
+    [active.id],
+  );
 });
 
 test("hardDeleteWorkspaceSync removes all workspace-scoped records without touching other workspaces", () => {

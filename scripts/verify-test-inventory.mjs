@@ -7,7 +7,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // The deferred set is existing debt, not default coverage. Hashing the exact
 // sorted paths prevents it from growing or changing without explicit review.
-const EXPECTED_DEFERRED_DIGEST = "b2177fe172d59c540bf4bbc4a40fb9d0e208ffcf11c5319dabf80901ce1cc983";
+const EXPECTED_DEFERRED_DIGEST = "1f7817f44ddd43002d1ff2a58d88e3c311706fccd702e68fe79ed75e00b12919";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -34,6 +34,7 @@ function isDefaultOwned(file) {
     file.startsWith("packages/services/src/skills/")
     || file.startsWith("packages/services/src/mcp-center/")
     || file.startsWith("packages/services/src/skill-services/")
+    || file.startsWith("packages/services/src/openmontage/")
   ) return true;
 
   if (file.startsWith("packages/daemon/src/skill-install/") || file.startsWith("packages/daemon/src/skill-service/")) {
@@ -50,6 +51,7 @@ function isDefaultOwned(file) {
 
   if (new Set([
     "packages/db/src/employee-data-legal-holds.test.ts",
+    "packages/db/src/openmontage-jobs.test.ts",
     "packages/db/src/skill-runner-invocations.test.ts",
     "packages/db/src/skill-service-operations.test.ts",
     "packages/db/src/skill-services.test.ts",

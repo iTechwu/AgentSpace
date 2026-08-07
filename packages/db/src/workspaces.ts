@@ -1,6 +1,16 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 import type { StoredWorkspaceRecord } from "./types.ts";
 
+type WorkspaceRow = {
+  id: string;
+  slug: string;
+  name: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
 export type HardDeleteWorkspaceResult = {
   deletedWorkspace: boolean;
   removedWorkspaceRows: number;
@@ -83,44 +93,41 @@ export function readWorkspaceSync(idOrSlug: string): StoredWorkspaceRecord | nul
     `SELECT id, slug, name, created_by, created_at, updated_at, archived_at
      FROM workspace
      WHERE id = ? OR slug = ?`,
-  ).get(idOrSlug, idOrSlug) as {
-    id: string; slug: string; name: string; created_by: string;
-    created_at: string; updated_at: string; archived_at: string | null;
-  } | undefined) ?? null;
+  ).get(idOrSlug, idOrSlug) as WorkspaceRow | undefined) ?? null;
 
   if (!row) return null;
-  return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    archivedAt: row.archived_at ?? undefined,
-  };
+  return mapWorkspaceRecord(row);
 }
 
 export function listWorkspacesSync(): StoredWorkspaceRecord[] {
-  const db = getDatabase();
-  const rows = db.prepare(
+  return listWorkspaceRecordsSync(false);
+}
+
+export function listAllWorkspacesSync(): StoredWorkspaceRecord[] {
+  return listWorkspaceRecordsSync(true);
+}
+
+function listWorkspaceRecordsSync(includeArchived: boolean): StoredWorkspaceRecord[] {
+  const rows = getDatabase().prepare(
     `SELECT id, slug, name, created_by, created_at, updated_at, archived_at
      FROM workspace
-     WHERE archived_at IS NULL
+     ${includeArchived ? "" : "WHERE archived_at IS NULL"}
      ORDER BY created_at DESC`,
-  ).all() as Array<{
-    id: string; slug: string; name: string; created_by: string;
-    created_at: string; updated_at: string; archived_at: string | null;
-  }>;
+  ).all() as WorkspaceRow[];
 
-  return rows.map((row) => ({
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    archivedAt: row.archived_at ?? undefined,
-  }));
+  return rows.map(mapWorkspaceRecord);
+}
+
+export function listActiveSsoWorkspacesSync(): StoredWorkspaceRecord[] {
+  const rows = getDatabase().prepare(
+    `SELECT w.id, w.slug, w.name, w.created_by, w.created_at, w.updated_at, w.archived_at
+     FROM workspace w
+     INNER JOIN workspace_sso_binding b ON b.workspace_id = w.id
+     WHERE w.archived_at IS NULL
+     ORDER BY w.created_at DESC`,
+  ).all() as WorkspaceRow[];
+
+  return rows.map(mapWorkspaceRecord);
 }
 
 export function updateWorkspaceSync(
@@ -149,6 +156,25 @@ export function archiveWorkspaceSync(id: string): void {
   const db = getDatabase();
   const now = new Date().toISOString();
   db.prepare(`UPDATE workspace SET archived_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id);
+}
+
+export function restoreWorkspaceSync(id: string): void {
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    "UPDATE workspace SET archived_at = NULL, updated_at = ? WHERE id = ?",
+  ).run(now, id);
+}
+
+function mapWorkspaceRecord(row: WorkspaceRow): StoredWorkspaceRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    archivedAt: row.archived_at ?? undefined,
+  };
 }
 
 export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {

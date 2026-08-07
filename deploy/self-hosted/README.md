@@ -1,6 +1,6 @@
 # Self-hosted Docker Stack
 
-This Compose stack starts the Next.js web/API service, a database initializer, and two local execution daemons: Claude Code and Codex. PostgreSQL is external to this stack and must be available before startup. The Claude daemon owns the Feishu WebSocket supervisor. It automatically discovers active Feishu Bot bindings, so do not also start `deploy/feishu-worker` for this stack.
+This Compose stack starts the Next.js web/API service, Workflow Worker, a database initializer, and two local execution daemons: Claude Code and Codex. PostgreSQL is external to this stack and must be available before startup. The Claude daemon owns the Feishu WebSocket supervisor. It automatically discovers active Feishu Bot bindings, so do not also start `deploy/feishu-worker` for this stack.
 
 ## Start
 
@@ -11,12 +11,14 @@ cp deploy/self-hosted/.env.example deploy/self-hosted/.env
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml up --build -d
 ```
 
-The first run initializes the external database schema before the web service and daemons start. The `runtime-maintenance` service periodically resumes durable provisioning and cleanup work through the authenticated internal cron route. Inspect all long-running components with:
+The first run initializes the external database schema before the web service and daemons start. The `runtime-maintenance` service always runs the authenticated task-commit reconciliation route, and additionally resumes remote runtime provisioning only when `DOFE_AGENT_RUNTIME_MODE=remote`; OpenMontage reconciliation is enabled only when its credentials are configured. This means local Compose can recover a daemon crash without enabling managed-runtime provisioning. Inspect all long-running components with:
 
 ```bash
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml ps
-docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml logs -f daemon-claude daemon-codex web
+docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml logs -f workflow-worker daemon-claude daemon-codex web
 ```
+
+Keep `WORKFLOW_CUTOVER_MODE=legacy_only` until the migration dry-run is reviewed. Advance selected workspaces through `WORKFLOW_CUTOVER_MODES` to `dual_read`, then `workflow_engine`, and finally `legacy_archived`. The Worker and Web service must use the same external `DATABASE_URL`; this stack never creates a PostgreSQL, Redis, or RabbitMQ service.
 
 ## Managed Runtime network gate
 

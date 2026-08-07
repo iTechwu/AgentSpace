@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "../database.ts";
 import type {
   ExternalBindingStatus,
@@ -1274,6 +1275,7 @@ export function createExternalMessageOutboxSync(input: {
   payloadJson: JsonInput;
   metadataJson?: JsonInput;
   nextAttemptAt?: string;
+  idempotencyKey?: string;
 }): ExternalMessageOutboxRecord {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const integrationId = normalizeRequiredText(input.integrationId, "External message outbox integration id is required.");
@@ -1283,7 +1285,13 @@ export function createExternalMessageOutboxSync(input: {
     integrationId,
     metadataJson: input.metadataJson,
   });
-  const id = `external-message-outbox-${randomLikeId()}`;
+  const idempotencyKey = input.idempotencyKey?.trim();
+  const id = idempotencyKey
+    ? `external-message-outbox-${createHash("sha256")
+      .update(`${workspaceId}\0${integrationId}\0${idempotencyKey}`)
+      .digest("hex")
+      .slice(0, 48)}`
+    : `external-message-outbox-${randomLikeId()}`;
   const now = new Date().toISOString();
 
   getDatabase().prepare(
@@ -1302,7 +1310,8 @@ export function createExternalMessageOutboxSync(input: {
        next_attempt_at,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
   ).run(
     id,
     workspaceId,

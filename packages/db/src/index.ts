@@ -130,6 +130,7 @@ export type {
   TaskExecutionEventSeverity,
   TaskExecutionEventStatus,
   EnqueueTaskInput,
+  WorkflowTaskMetadata,
   ModelPricingRecord,
   TokenUsageRecord,
   TokenUsageBillingStatus,
@@ -168,7 +169,76 @@ export type {
   ExternalThreadBindingRecord,
   ExternalThreadBindingStatus,
   ExternalUserBindingRecord,
+  WorkflowDefinitionRecord,
+  WorkflowVersionRecord,
+  WorkflowTriggerRecord,
+  WorkflowRunRecord,
+  WorkflowNodeRunRecord,
+  WorkflowRunEventRecord,
+  WorkflowOutboxRecord,
 } from "./types.ts";
+
+export {
+  createWorkflowDefinitionSync,
+  updateWorkflowDraftSync,
+  readWorkflowDefinitionSync,
+  lockWorkflowDefinitionForUpdateSync,
+  listWorkflowDefinitionsSync,
+  transitionWorkflowDefinitionStatusSync,
+  pauseWorkflowTriggersForDefinitionSync,
+  publishWorkflowVersionSync,
+  readWorkflowVersionSync,
+  listWorkflowVersionsSync,
+  upsertWorkflowTriggerSync,
+  readWorkflowTriggerSync,
+  lockWorkflowTriggerForUpdateSync,
+  readWorkflowTriggerForWorkflowSync,
+  listWorkflowTriggersForWorkflowSync,
+  listActiveWorkflowEventTriggersSync,
+  claimDueWorkflowTriggersSync,
+  advanceWorkflowTriggerSync,
+  type CreateWorkflowDefinitionInput,
+  type UpdateWorkflowDraftInput,
+  type TransitionWorkflowDefinitionStatusInput,
+  type PublishWorkflowVersionInput,
+  type UpsertWorkflowTriggerInput,
+} from "./workflows/definitions.ts";
+export {
+  createWorkflowRunSync,
+  readWorkflowRunSync,
+  lockWorkflowRunForUpdateSync,
+  readWorkflowRunSyncByTriggerKey,
+  listWorkflowRunsSync,
+  materializeWorkflowNodeRunsSync,
+  readWorkflowNodeRunSync,
+  readWorkflowNodeRunByTaskQueueIdSync,
+  readWorkflowNodeRunByApprovalIdSync,
+  listWorkflowNodeRunsSync,
+  resetWorkflowDescendantNodeRunsForRetrySync,
+  claimWorkflowNodeForDispatchSync,
+  transitionWorkflowRunSync,
+  transitionWorkflowNodeRunSync,
+  type CreateWorkflowRunInput,
+  type ClaimWorkflowNodeForDispatchInput,
+  type ClaimWorkflowNodeForDispatchResult,
+  type MaterializeNodeRunsInput,
+  type TransitionWorkflowRunInput,
+  type TransitionWorkflowNodeRunInput,
+  type WorkflowNodeSeed,
+} from "./workflows/runs.ts";
+export {
+  appendWorkflowRunEventSync,
+  listWorkflowRunEventsSync,
+  type AppendWorkflowRunEventInput,
+} from "./workflows/events.ts";
+export {
+  enqueueWorkflowOutboxSync,
+  readWorkflowOutboxSync,
+  claimWorkflowOutboxBatchSync,
+  markWorkflowOutboxFailedSync,
+  markWorkflowOutboxPublishedSync,
+  type EnqueueWorkflowOutboxInput,
+} from "./workflows/outbox.ts";
 
 export {
   appendTokenUsageBillingEventSync,
@@ -193,6 +263,7 @@ export {
 
 // Managed-runtime SSO tenant/team bindings + provisioning tasks + audit log (Phase 2)
 export {
+  listWorkspaceSsoBindingsSync,
   readWorkspaceSsoBindingSync,
   upsertWorkspaceSsoBindingSync,
   type UpsertWorkspaceSsoBindingInput,
@@ -264,6 +335,29 @@ export {
   getWorkspaceDataDirPath,
   getDatabaseConnectionLabel,
 } from "./database.ts";
+export {
+  createOpenMontageJobLinkSync,
+  ingestOpenMontageJobEventSync,
+  listOpenMontageChannelProjectionsSync,
+  listOpenMontageChannelProjectionVersionsSync,
+  listOpenMontageNotificationOutboxSync,
+  listOpenMontageDelegationDrainPendingJobIdsSync,
+  listOpenMontageSyncingJobIdsSync,
+  markOpenMontageNotificationDeliveredSync,
+  readOpenMontageChatBindingSync,
+  readOpenMontageJobLinkSync,
+  readOpenMontageModelDelegationSync,
+  readOpenMontageJobProjectionSync,
+  updateOpenMontageModelDelegationStatusSync,
+  OpenMontageEventConflictError,
+  OpenMontageEventNonceReplayError,
+  OpenMontageJobBindingError,
+  type CreateOpenMontageJobLinkInput,
+  type OpenMontageChatBindingRecord,
+  type OpenMontageJobLinkRecord,
+  type OpenMontageModelDelegationRecord,
+  type OpenMontageNotificationOutboxRecord,
+} from "./openmontage-jobs.ts";
 export {
   findRepositoryRoot,
   loadRepositoryEnvIntoProcess,
@@ -655,6 +749,16 @@ export {
   type WriteMcpTaskSessionGrantInput,
 } from "./mcp-session-grant.ts";
 
+export {
+  consumeOpenMontageArtifactReadGrantSync,
+  consumeOpenMontageArtifactWriteGrantSync,
+  issueOpenMontageArtifactReadGrantSync,
+  issueOpenMontageArtifactWriteGrantSync,
+  OpenMontageArtifactGrantError,
+  type OpenMontageArtifactReadGrantRecord,
+  type OpenMontageArtifactWriteGrantRecord,
+} from "./openmontage-artifacts.ts";
+
 // Skills
 export {
   listStoredWorkspaceSkillsSync,
@@ -801,8 +905,11 @@ export {
 export {
   createWorkspaceSync,
   hardDeleteWorkspaceSync,
+  listActiveSsoWorkspacesSync,
+  listAllWorkspacesSync,
   readWorkspaceSync,
   listWorkspacesSync,
+  restoreWorkspaceSync,
   updateWorkspaceSync,
   archiveWorkspaceSync,
   type HardDeleteWorkspaceResult,

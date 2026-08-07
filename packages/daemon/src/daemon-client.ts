@@ -37,6 +37,8 @@ import type {
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportMcpToolAuditsResponse,
+  ReportOpenMontageJobRequest,
+  ReportOpenMontageJobResponse,
   ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
   SkillRunnerInvocationReport,
@@ -85,6 +87,8 @@ export type {
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportMcpToolAuditsResponse,
+  ReportOpenMontageJobRequest,
+  ReportOpenMontageJobResponse,
   ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
   SkillRunnerInvocationReport,
@@ -357,6 +361,17 @@ export class HttpDaemonClient {
     }
   }
 
+  async reportOpenMontageJob(
+    taskId: string,
+    body: ReportOpenMontageJobRequest,
+  ): Promise<ReportOpenMontageJobResponse> {
+    return this.postJson(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/openmontage/jobs`,
+      body,
+      { retryable: true },
+    );
+  }
+
   async reportSkillRunnerInvocations(taskId: string, invocations: SkillRunnerInvocationReport[]): Promise<void> {
     if (invocations.length === 0) return;
     const response = await this.postJson<ReportSkillRunnerInvocationsResponse>(
@@ -485,7 +500,7 @@ export class HttpDaemonClient {
   }
 
   async completeTask(taskId: string, body: CompleteTaskRequest): Promise<void> {
-    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/complete`, body);
+    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/complete`, body, { retryable: true });
   }
 
   async failTask(taskId: string, body: FailTaskRequest): Promise<void> {

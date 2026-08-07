@@ -26,12 +26,40 @@ import {
   normalizeFeishuOutboundError,
   resolveFeishuOutboundFileKey,
   resolveFeishuOutboundImageKey,
+  resolveFeishuStatusCardIdempotencyKey,
   resolveFeishuReplyTargetExternalMessageId,
   resolveFeishuOutboundMessageId,
   selectFeishuOutboundChannelBindingForReply,
   sendFeishuOutboxPayload,
   splitFeishuTextMessageChunks,
 } from "../outbound.ts";
+
+test("status card idempotency keys isolate approvals sharing one task", () => {
+  const first = resolveFeishuStatusCardIdempotencyKey({
+    sourceDofeAgentMessageId: "source-1",
+    status: "approval_required",
+    taskId: "task-1",
+    idempotencyScope: "approval-1",
+  });
+  assert.equal(first, "agent-status-card:source-1:approval_required:task-1:approval-1");
+  assert.equal(resolveFeishuStatusCardIdempotencyKey({
+    sourceDofeAgentMessageId: "source-1",
+    status: "approval_required",
+    taskId: "task-1",
+    idempotencyScope: "approval-1",
+  }), first);
+  assert.notEqual(resolveFeishuStatusCardIdempotencyKey({
+    sourceDofeAgentMessageId: "source-1",
+    status: "approval_required",
+    taskId: "task-1",
+    idempotencyScope: "approval-2",
+  }), first);
+  assert.equal(resolveFeishuStatusCardIdempotencyKey({
+    status: "approval_required",
+    taskId: "task-1",
+    idempotencyScope: "approval-1",
+  }), "agent-status-card:scope-approval-1:approval_required:task-1:approval-1");
+});
 
 const tosObjects = new Map<string, Uint8Array>();
 const testTosStorage: AttachmentStorageClient = {

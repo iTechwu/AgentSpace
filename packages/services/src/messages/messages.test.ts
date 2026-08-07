@@ -484,6 +484,38 @@ test("completeAgentChannelReplySync dispatches mentioned agents and records sour
   assert.equal(readWorkspaceStateSync().messages.some((message) => message.speaker === "Nova" && message.status === "pending"), true);
 });
 
+test("completeAgentChannelReplySync is idempotent for the same task output", () => {
+  seedWorkspace();
+  addAgentToTourVisit("Nova");
+  bindRuntimeForAgent("Nova");
+
+  const first = completeAgentChannelReplySync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    summary: "@Nova 请生成草案。",
+    sourceTaskQueueId: "queue-idempotent",
+  });
+  const second = completeAgentChannelReplySync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    summary: "@Nova 请生成草案。",
+    sourceTaskQueueId: "queue-idempotent",
+  });
+
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(second.message.id, first.message.id);
+  assert.equal(
+    readWorkspaceStateSync().messages.filter((message) =>
+      message.data?.source_task_queue_id === "queue-idempotent" &&
+      message.role === "agent" &&
+      message.status === "completed",
+    ).length,
+    1,
+  );
+  assert.equal(listQueuedTasksSync().filter((task) => task.agentId === "Nova").length, 1);
+});
+
 test("completeAgentChannelReplySync keeps bad mentions non-fatal and writes warnings", () => {
   seedWorkspace();
   addAgentToTourVisit("Nova");
@@ -1217,6 +1249,32 @@ test("replacePendingChannelMessageSync can stop one task without removing the ne
   assert.equal(
     state.messages.some((message) => message.data?.source_task_queue_id === "task-atlas-next" && message.status === "pending"),
     true,
+  );
+});
+
+test("replacePendingChannelMessageSync falls back only to one unambiguous legacy pending reply", () => {
+  seedWorkspace();
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Legacy thinking",
+    status: "pending",
+  });
+
+  replacePendingChannelMessageSync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    pendingTaskId: "task-atlas-current",
+    speaker: "系统提示",
+    role: "agent",
+    summary: "Atlas 执行失败。",
+    status: "error",
+  });
+
+  assert.equal(
+    readWorkspaceStateSync().messages.some((message) => message.summary === "Legacy thinking"),
+    false,
   );
 });
 

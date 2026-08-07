@@ -1,5 +1,6 @@
 import {
   canReadChannelForActorSync,
+  listOpenMontageChannelProjectionVersionsSync,
   readWorkspaceStateSnapshotSync,
   subscribeWorkspaceRealtimeEvents,
 } from "@dofe-agent/services";
@@ -90,6 +91,15 @@ export async function GET(
                   sequence: event.sequence,
                   changedAt: event.changedAt,
                 }
+            : event.type === "openmontage.job.changed"
+              ? {
+                  type: event.type,
+                  channelName: event.channelName,
+                  jobId: event.jobId,
+                  lastAppliedSequence: event.lastAppliedSequence,
+                  sequence: event.sequence,
+                  changedAt: event.changedAt,
+                }
             : {
                 type: event.type,
                 channelName: event.channelName,
@@ -108,18 +118,38 @@ export async function GET(
         send(`: heartbeat ${Date.now()}\n\n`);
       }, HEARTBEAT_MS);
       let persistedSignature = channelMessageSignature(workspaceId, channelName);
+      let persistedJobVersions = channelJobVersions(workspaceId, channelName);
       persistedChannelPoll = setInterval(() => {
         const nextSignature = channelMessageSignature(workspaceId, channelName);
-        if (nextSignature === persistedSignature) {
-          return;
+        if (nextSignature !== persistedSignature) {
+          persistedSignature = nextSignature;
+          send(`event: channel.thread.changed\ndata: ${JSON.stringify({
+            type: "channel.thread.changed",
+            channelName,
+            changedAt: new Date().toISOString(),
+            source: "persisted_state",
+          })}\n\n`);
         }
-        persistedSignature = nextSignature;
-        send(`event: channel.thread.changed\ndata: ${JSON.stringify({
-          type: "channel.thread.changed",
-          channelName,
-          changedAt: new Date().toISOString(),
-          source: "persisted_state",
-        })}\n\n`);
+        const nextJobVersions = channelJobVersions(workspaceId, channelName);
+        for (const [jobId, version] of nextJobVersions) {
+          const previous = persistedJobVersions.get(jobId);
+          if (
+            previous
+            && previous.lastAppliedSequence === version.lastAppliedSequence
+            && previous.changedAt === version.changedAt
+          ) {
+            continue;
+          }
+          send(`event: openmontage.job.changed\ndata: ${JSON.stringify({
+            type: "openmontage.job.changed",
+            channelName,
+            jobId,
+            lastAppliedSequence: version.lastAppliedSequence,
+            changedAt: version.changedAt,
+            source: "persisted_projection",
+          })}\n\n`);
+        }
+        persistedJobVersions = nextJobVersions;
       }, PERSISTED_CHANNEL_POLL_MS);
     },
     cancel() {
@@ -154,5 +184,19 @@ function channelMessageSignature(workspaceId: string, channelName: string): stri
   } catch {
     // The regular client polling remains the reliability fallback if a state read is transiently unavailable.
     return "";
+  }
+}
+
+function channelJobVersions(
+  workspaceId: string,
+  channelName: string,
+): Map<string, { lastAppliedSequence: number; changedAt: string }> {
+  try {
+    return new Map(
+      listOpenMontageChannelProjectionVersionsSync(workspaceId, channelName)
+        .map((item) => [item.jobId, item] as const),
+    );
+  } catch {
+    return new Map();
   }
 }

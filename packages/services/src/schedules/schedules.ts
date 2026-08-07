@@ -1,6 +1,7 @@
 import type { DofeAgentState, ScheduledTask } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId } from "../shared/helpers.ts";
+import { assertTriggerWriteOwnerSync } from "../workflows/feature-flags.ts";
 
 export function listScheduledTasksSync(workspaceId?: string): ScheduledTask[] {
   const state = ensureWorkspaceStateSync(workspaceId);
@@ -22,6 +23,7 @@ export function createScheduledTaskSync(input: {
   scheduledAt: string;
   createdBy?: string;
 }, workspaceId?: string): DofeAgentState {
+  assertTriggerWriteOwnerSync(workspaceId ?? "default", "calendar");
   const state = ensureWorkspaceStateSync(workspaceId);
   const title = input.title.trim();
   if (!title) {
@@ -73,6 +75,7 @@ export function updateScheduledTaskSync(
   },
   workspaceId?: string,
 ): DofeAgentState {
+  assertTriggerWriteOwnerSync(workspaceId ?? "default", "calendar");
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = (state.scheduledTasks ?? []).find((t) => t.id === id);
   if (!task) {
@@ -123,6 +126,7 @@ export function updateScheduledTaskSync(
 }
 
 export function toggleScheduledTaskSync(id: string, status: "active" | "paused", workspaceId?: string): DofeAgentState {
+  assertTriggerWriteOwnerSync(workspaceId ?? "default", "calendar");
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = (state.scheduledTasks ?? []).find((t) => t.id === id);
   if (!task) {
@@ -136,6 +140,7 @@ export function toggleScheduledTaskSync(id: string, status: "active" | "paused",
 }
 
 export function deleteScheduledTaskSync(id: string, workspaceId?: string): DofeAgentState {
+  assertTriggerWriteOwnerSync(workspaceId ?? "default", "calendar");
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = (state.scheduledTasks ?? []).find((t) => t.id === id);
   if (!task) {

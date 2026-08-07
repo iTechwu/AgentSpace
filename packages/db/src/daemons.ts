@@ -761,6 +761,7 @@ export function markStaleDaemonsOfflineSync(options?: {
   const maxHeartbeatAgeMs = options?.maxHeartbeatAgeMs ?? DEFAULT_DAEMON_HEARTBEAT_STALE_MS;
   const now = options?.now ?? new Date();
   const cutoff = now.getTime() - maxHeartbeatAgeMs;
+  const cutoffIso = new Date(cutoff).toISOString();
   const candidates = db
     .prepare(
       `SELECT daemon_key AS daemonKey, last_heartbeat_at AS lastHeartbeatAt
@@ -784,17 +785,24 @@ export function markStaleDaemonsOfflineSync(options?: {
   }
 
   const updatedAt = now.toISOString();
+  let markedCount = 0;
   withTransaction(db, () => {
     for (const daemonKey of staleDaemonKeys) {
       const daemon = readDaemonConnectionRow(db, daemonKey);
       if (!daemon || daemon.status !== "online") {
         continue;
       }
-      db.prepare(
+      const markedOffline = db.prepare(
         `UPDATE daemon_connection
          SET status = 'offline', updated_at = ?
-         WHERE id = ?`,
-      ).run(updatedAt, daemon.id);
+         WHERE id = ?
+           AND status = 'online'
+           AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?)`,
+      ).run(updatedAt, daemon.id, cutoffIso).changes > 0;
+      if (!markedOffline) {
+        continue;
+      }
+      markedCount += 1;
       db.prepare(
         `UPDATE agent_runtime
          SET status = 'offline',
@@ -808,7 +816,7 @@ export function markStaleDaemonsOfflineSync(options?: {
     }
   });
 
-  return staleDaemonKeys.length;
+  return markedCount;
 }
 
 export function pruneOfflineDaemonsSync(maxOfflineAgeMs: number, options?: { workspaceId?: string }): number {

@@ -1,4 +1,6 @@
 import {
+  chmodSync,
+  cpSync,
   createReadStream,
   existsSync,
   lstatSync,
@@ -6,6 +8,7 @@ import {
   openSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -14,6 +17,8 @@ import { spawn } from "node:child_process";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { arch, platform, version as nodeVersion } from "node:process";
+import { buildTaskCompletionTokenUsage } from "../lib/task-completion-token-usage.ts";
+import { enqueueTaskCompletionFeishuOutbox } from "../lib/task-completion-outbox.ts";
 import {
   detectProviders as detectSharedProviders,
   collectRuntimeOutputBundle,
@@ -47,12 +52,13 @@ import {
   completeCommittedTaskSync,
   createDaemonApiTokenSync,
   failQueuedTaskSync,
+  getDatabase,
   markTaskCommittedSync,
-  markTaskPreparingCommitSync,
   upsertTaskCommitJournalSync,
   getDaemonChannelWorkDirPath,
   getDaemonRemoteTaskWorkDirPath,
   getDaemonTaskWorkDirPath,
+  getWorkspaceDaemonRemoteStagingDirPath,
   getLocalDaemonStateDirPath,
   heartbeatDaemonSync,
   listDaemonApiTokensSync,
@@ -61,34 +67,36 @@ import {
   listAgentTaskAttemptsSync,
   markDaemonOfflineSync,
   pruneOfflineDaemonsSync,
+  readQueuedTaskSync,
   readAgentRouterSessionForTaskSync,
   readDaemonSnapshotSync,
   readLatestAgentRouterContextSnapshotSync,
   registerDaemonRuntimesSync,
   revokeDaemonApiTokenSync,
-  startQueuedTaskSync,
   recordTokenUsageSync,
+  withTransaction,
   type AgentRuntimeRecord,
   type QueuedTaskRecord,
 } from "@dofe-agent/db";
 import {
   buildContactAgentContext,
+  beginWorkflowTaskCommitSync,
   buildSkillRunnerEntrypointsForSnapshotSync,
   checkAllBudgetsForAgentSync,
   completeAgentChannelReplySync,
   completeChannelDocumentRunStepSync,
+  completeWorkflowTaskIfLinkedSync,
   deleteWorkspaceAttachmentsSync,
   promoteTaskOutputsToWorkspaceSync,
   readWorkspaceAttachmentBytesSync,
   AgentDocumentPermissionError,
   failChannelDocumentRunStepSync,
+  failWorkflowTaskIfLinkedSync,
   formatConversationFailureSummary,
   formatTaskFailureSummary,
   markChannelDocumentRunStepRunningSync,
   persistWorkspaceAttachmentFromFileSync,
   postMessageSync,
-  queueFeishuAgentStatusCardOutboxSync,
-  queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveAgentDocumentContextSync,
@@ -96,14 +104,17 @@ import {
   resolveEffectiveModelForTaskAsync,
   startFeishuWebSocketWorkerSupervisor,
   resolveCompatibleDirectChannelRecord,
+  resolveWorkflowCompletionFailureCode,
   listFeishuLarkCliResourceGrantsForChannelSync,
+  lockWorkflowRunForTaskIfLinkedSync,
   applyFeishuLarkCliResultManifestOperations,
   applyFeishuRuntimeDataOperationRequests,
+  prepareWorkflowTaskOutputSync,
+  startQueuedTaskWithWorkflowSync,
   writeConversationExecutionWorkspaceStateSync,
   upsertDirectConversationStateSync,
   updateTaskStatusSync,
   writeWorkspaceStateSync,
-  type FeishuAgentStatusCardStatus,
   type FeishuWebSocketWorkerSupervisorHandle,
 } from "@dofe-agent/services";
 import type { ActiveEmployee, MessageAttachment } from "@dofe-agent/domain/workspace";
@@ -824,46 +835,6 @@ interface TokenAccumulator {
   gatewayRequestId?: string;
 }
 
-function enqueueFeishuReplyOutboxBestEffort(input: {
-  workspaceId: string;
-  channelName: string;
-  agentId?: string;
-  text: string;
-  attachments?: MessageAttachment[];
-  dofeAgentMessageId?: string;
-  sourceDofeAgentMessageId?: string;
-  statusCard?: {
-    status: FeishuAgentStatusCardStatus;
-    agentNames: string[];
-    message?: string;
-    taskId?: string;
-  };
-}): string[] {
-  try {
-    const statusCardItems = input.statusCard
-      ? queueFeishuAgentStatusCardOutboxSync({
-          workspaceId: input.workspaceId,
-          channelName: input.channelName,
-          agentId: input.agentId,
-          status: input.statusCard.status,
-          agentNames: input.statusCard.agentNames,
-          message: input.statusCard.message,
-          taskId: input.statusCard.taskId,
-          dofeAgentMessageId: input.dofeAgentMessageId,
-          sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
-        })
-      : [];
-    const replyOutboxItems = queueFeishuChannelReplyOutboxSync(input);
-    const queuedCount = statusCardItems.length + replyOutboxItems.length;
-    return queuedCount > 0
-      ? [`Feishu outbound queued: ${queuedCount} message(s).`]
-      : [];
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return [`Feishu outbound enqueue failed: ${message}`];
-  }
-}
-
 interface ProviderTaskEvent {
   type: string;
   content?: string;
@@ -1022,7 +993,95 @@ async function executeRemoteQueuedTask(
 }
 
 async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: QueuedTaskRecord): Promise<void> {
-  const task = startQueuedTaskSync(queuedTask.id);
+  try {
+    await executeQueuedTaskCore(runtime, queuedTask);
+  } catch (error) {
+    const task = readQueuedTaskSync(queuedTask.id);
+    if (!task || !["claimed", "running"].includes(task.status)) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const payload = parseTaskPayload(task);
+    const failureApplied = withTransaction(getDatabase(), () => {
+      const fence = lockWorkflowRunForTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+      });
+      if (fence.ignored) return false;
+      failQueuedTaskSync({
+        taskId: task.id,
+        errorText: message,
+        errorCode: "workflow_task_setup_failed",
+      });
+      failWorkflowTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        errorCode: "workflow_task_setup_failed",
+        errorText: message,
+      });
+      return true;
+    });
+    if (!failureApplied) return;
+    appendTaskMessageSync({ taskId: task.id, type: "error", content: message });
+    if (payload.taskId) updateTaskStatusSync(payload.taskId, "blocked", task.workspaceId);
+    if (payload.orchestrationStepId) {
+      writeWorkspaceStateSync(failChannelDocumentRunStepSync({
+        queuedTaskId: task.id,
+        errorText: message,
+      }, task.workspaceId), task.workspaceId);
+    }
+    if (payload.channel) {
+      replacePendingChannelMessageSync({
+        channel: payload.channel,
+        pendingSpeaker: payload.assignee ?? task.agentId,
+        pendingTaskId: task.id,
+        speaker: "系统提示",
+        role: "agent",
+        summary: formatConversationFailureSummary({
+          agentName: payload.assignee ?? task.agentId,
+          channelName: payload.channel,
+          errorText: message,
+          isDirectConversation: Boolean(payload.contactId),
+        }),
+        status: "error",
+      }, task.workspaceId);
+    }
+    try {
+      const workspaceState = readWorkspaceStateSync(task.workspaceId);
+      const compatibleDirectChannelName = payload.contactId && !payload.channelName
+        ? resolveCompatibleDirectChannelRecord(workspaceState, payload.contactId)?.name
+        : undefined;
+      const channelThreadId = resolveConversationThreadId({
+        triggerType: task.triggerType,
+        payload: {
+          channel: payload.channel,
+          channelName: payload.channelName ?? compatibleDirectChannelName,
+          contactId: payload.contactId,
+        },
+      });
+      const workDir = resolveWorkspaceTaskWorkDir({
+        workspaceId: task.workspaceId,
+        taskId: task.id,
+        agentId: task.agentId,
+        channelThreadId,
+      });
+      clearTaskOutputArtifacts(workDir);
+      if (!channelThreadId) rmSync(workDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: `清理启动失败上下文时出现警告：${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+      });
+    }
+  }
+}
+
+async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: QueuedTaskRecord): Promise<void> {
+  const startResult = startQueuedTaskWithWorkflowSync({
+    workspaceId: queuedTask.workspaceId,
+    taskQueueId: queuedTask.id,
+  });
+  if (startResult.ignored) return;
+  const task = startResult.task;
   writeWorkspaceStateSync(markChannelDocumentRunStepRunningSync(task.id, task.workspaceId), task.workspaceId);
   const payload = parseTaskPayload(task);
 
@@ -1035,7 +1094,17 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     const pct = Math.round(budgetCheck.percentUsed * 100);
     const msg = `Budget exceeded (${pct}% of $${budgetCheck.budget.limitUsd.toFixed(2)}). Task paused.`;
     appendTaskMessageSync({ taskId: task.id, type: "status", content: msg });
-    failQueuedTaskSync({ taskId: task.id, errorText: msg });
+    withTransaction(getDatabase(), () => {
+      const fence = lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+      if (fence.ignored) return;
+      failQueuedTaskSync({ taskId: task.id, errorText: msg });
+      failWorkflowTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        errorCode: "workflow_budget_exceeded",
+        errorText: msg,
+      });
+    });
     if (payload.taskId) updateTaskStatusSync(payload.taskId, "blocked", task.workspaceId);
     return;
   }
@@ -1153,6 +1222,10 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     runtimeCredentialId = resolution.runtimeCredentialId;
   }
   let persistedOutputAttachments: MessageAttachment[] = [];
+  let taskCompletionCommitted = false;
+  let taskCommitBoundaryCrossed = false;
+  let completionEffectsCheckpointed = false;
+  const recoveryStagingDir = getWorkspaceDaemonRemoteStagingDirPath(task.id, task.workspaceId);
   const runnerEntrypoints = buildSkillRunnerEntrypointsForSnapshotSync(preparedContext.skillExecutionSnapshot);
   const skillEnvironment = partitionSkillEnvironment(preparedContext.skillEnv, runnerEntrypoints);
   let skillRunner: SkillRunnerBroker | undefined;
@@ -1214,6 +1287,27 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         },
       },
     );
+    const outputEnvelope = loadTaskOutputEnvelope(workDir, result.output, task.workspaceId, {
+      attachmentNamespace: task.id,
+    });
+    const conversationSessionId = runtime.provider === "hermes" ? null : result.sessionId ?? null;
+    persistedOutputAttachments = outputEnvelope.attachments;
+    const normalizedWorkflowOutput = prepareWorkflowTaskOutputSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      outputText: outputEnvelope.text,
+    });
+    const commitBoundary = withTransaction(getDatabase(), () => (
+      beginWorkflowTaskCommitSync({ workspaceId: task.workspaceId, taskQueueId: task.id })
+    ));
+    if (commitBoundary.ignored) {
+      if (!["preparing_commit", "committed", "completed"].includes(commitBoundary.taskStatus)) {
+        deleteWorkspaceAttachmentsSync(persistedOutputAttachments);
+        persistedOutputAttachments = [];
+      }
+      return;
+    }
+    taskCommitBoundaryCrossed = true;
     const documentOperations = channelThreadId
       ? applyChannelDocumentOperations(workDir, {
         channelName: channelThreadId,
@@ -1259,8 +1353,6 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       sourceTaskQueueId: task.id,
       sourceChannelName: effectiveChannelName,
     });
-    const outputEnvelope = loadTaskOutputEnvelope(workDir, result.output, task.workspaceId);
-    persistedOutputAttachments = outputEnvelope.attachments;
     appendTaskMessageSync({
       taskId: task.id,
       type: "text",
@@ -1349,26 +1441,65 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     // task is NOT completed nor announced — the journal drives reconciliation.
     // The lease generation was captured at claim time.
     const bindingGeneration = task.bindingGeneration;
+    const workDirCapture = collectWorkDirChanges(
+      workDir,
+      readEmployeeHeadManifestSync(task.workspaceId, agentName),
+    );
+    if (workDirCapture.unsafePaths.length > 0) {
+      throw new Error(
+        `workdir_capture_unsafe: refused ${workDirCapture.unsafePaths.length} unsafe path(s): ${workDirCapture.unsafePaths.slice(0, 3).join(", ")}`,
+      );
+    }
+    if (workDirCapture.truncated) {
+      throw new Error("output_limit_exceeded: workDir capture exceeded its file/size budget and was truncated");
+    }
+    const completionTokenUsage = buildTaskCompletionTokenUsage({
+      taskId: task.id,
+      modelId: tokenAcc.modelId,
+      inputTokens: tokenAcc.inputTokens,
+      outputTokens: tokenAcc.outputTokens,
+      gatewayRequestId: tokenAcc.gatewayRequestId,
+      providerAccountId: runtime.providerAccountId,
+      runtimeCredentialId,
+      routerSessionId: task.routerSessionId,
+      channelName: payload.channelName ?? payload.channel,
+    });
+    persistLocalCompletionRecoverySnapshot({
+      stagingDir: recoveryStagingDir,
+      workDir,
+      workDirFiles: workDirCapture.files,
+      deletedPaths: workDirCapture.deletedPaths,
+      snapshot: {
+        finalOutputText: outputEnvelope.text,
+        ...(normalizedWorkflowOutput ? { normalizedWorkflowOutput } : {}),
+        provider: runtime.provider,
+        runtimeName: runtime.name,
+        ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+        conversationSessionId,
+        workDir,
+        ...(completionTokenUsage ? { tokenUsage: completionTokenUsage } : {}),
+        effects: {
+          documentOperations,
+          skillImportOperations,
+          documentRuntimeOutputOperations,
+          feishuLarkCliResultOperations,
+          feishuRuntimeDataOperationRequests,
+          knowledgeProposalOperations,
+        },
+      },
+    });
+    completionEffectsCheckpointed = true;
+    upsertTaskCommitJournalSync({
+      taskId: task.id,
+      workspaceId: task.workspaceId,
+      employeeName: agentName,
+      commitState: "preparing",
+      errorCode: "workflow_completion_effects_checkpointed",
+    });
     let promotionError: string | undefined;
     try {
-      markTaskPreparingCommitSync(task.id);
       let workspaceRevisionId: string | undefined;
       let committedArtifactIds: string[] = [];
-      const workDirCapture = collectWorkDirChanges(
-        workDir,
-        readEmployeeHeadManifestSync(task.workspaceId, agentName),
-      );
-      if (workDirCapture.unsafePaths.length > 0) {
-        throw new Error(
-          `workdir_capture_unsafe: refused ${workDirCapture.unsafePaths.length} unsafe path(s): ${workDirCapture.unsafePaths.slice(0, 3).join(", ")}`,
-        );
-      }
-      if (workDirCapture.truncated) {
-        // Fail closed: never commit a partial workspace snapshot. Until chunked
-        // upload exists, any truncation aborts the promotion with an explicit
-        // limit error instead of silently dropping files into the revision.
-        throw new Error("output_limit_exceeded: workDir capture exceeded its file/size budget and was truncated");
-      }
       const outputs = [
         ...workDirCapture.files.map((file) => ({ path: file.path, bytes: file.bytes, mode: file.mode })),
         ...outputEnvelope.attachments.map((attachment) => ({
@@ -1409,49 +1540,69 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       console.error(`[daemon] task ${task.id} outputs NOT committed; keeping preparing_commit: ${promotionError}`);
     }
 
-    if (!promotionError) {
-      completeCommittedTaskSync({
-      taskId: task.id,
-      resultJson: {
-        provider: runtime.provider,
-        output: outputEnvelope.text,
-        attachments: outputEnvelope.attachments.map((attachment) => ({
-          id: attachment.id,
-          fileName: attachment.fileName,
-          mediaType: attachment.mediaType,
-          kind: attachment.kind,
-          sizeBytes: attachment.sizeBytes,
-        })),
-        skillImports: skillImportOperations.imports,
-        documentUpdates: documentOperations.documentUpdates,
-        feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
-        feishuRuntimeDataOperationRunIds: feishuRuntimeDataOperationRequests.operationRunIds,
-        feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,
-        documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
-        knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
-      },
-      sessionId: result.sessionId,
-      workDir,
-      });
-    }
-
-    if (tokenAcc.modelId && (tokenAcc.inputTokens > 0 || tokenAcc.outputTokens > 0)) {
-      recordTokenUsageSync({
+    if (promotionError) return;
+    const completion = withTransaction(getDatabase(), () => {
+      const fence = lockWorkflowRunForTaskIfLinkedSync({
         workspaceId: task.workspaceId,
         taskQueueId: task.id,
-        agentId: agentName,
-        modelId: tokenAcc.modelId,
-        providerAccountId: runtime.providerAccountId,
-        runtimeCredentialId,
-        routerSessionId: task.routerSessionId,
-        gatewayRequestId: tokenAcc.gatewayRequestId,
-        inputTokens: tokenAcc.inputTokens,
-        outputTokens: tokenAcc.outputTokens,
-        channelName: payload.channelName ?? payload.channel,
+        allowPreparingCommit: true,
+        allowCommitted: true,
       });
-    }
+      if (fence.ignored) return false;
+      if (completionTokenUsage) {
+        recordTokenUsageSync({
+          workspaceId: task.workspaceId,
+          taskQueueId: task.id,
+          agentId: agentName,
+          modelId: completionTokenUsage.modelId,
+          providerAccountId: completionTokenUsage.providerAccountId,
+          runtimeCredentialId: completionTokenUsage.runtimeCredentialId,
+          routerSessionId: completionTokenUsage.routerSessionId,
+          gatewayRequestId: completionTokenUsage.gatewayRequestId,
+          inputTokens: completionTokenUsage.inputTokens,
+          outputTokens: completionTokenUsage.outputTokens,
+          channelName: completionTokenUsage.channelName,
+        });
+      }
+      completeCommittedTaskSync({
+        taskId: task.id,
+        resultJson: {
+          provider: runtime.provider,
+          output: outputEnvelope.text,
+          attachments: outputEnvelope.attachments,
+          skillImports: skillImportOperations.imports,
+          documentUpdates: documentOperations.documentUpdates,
+          feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
+          feishuRuntimeDataOperationRunIds: feishuRuntimeDataOperationRequests.operationRunIds,
+          feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,
+          documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
+          knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
+          ...(completionTokenUsage ? { tokenUsage: completionTokenUsage } : {}),
+        },
+        sessionId: result.sessionId,
+        workDir,
+      });
+      completeWorkflowTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        outputText: outputEnvelope.text,
+        normalizedOutput: normalizedWorkflowOutput,
+        artifactManifest: outputEnvelope.attachments,
+      });
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "commit_reconciliation_retrying",
+        errorMessage: "Durable outputs are committed; business projections are pending.",
+      });
+      return true;
+    });
+    if (!completion) return;
+    taskCompletionCommitted = true;
 
-    if (!promotionError && payload.taskId) {
+    if (payload.taskId) {
       updateTaskStatusSync(payload.taskId, "done", task.workspaceId);
     }
     if (payload.orchestrationStepId) {
@@ -1464,7 +1615,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         task.workspaceId,
       );
     }
-    if (!promotionError && channelThreadId && payload.channel) {
+    if (channelThreadId && payload.channel) {
       const replyResult = completeAgentChannelReplySync({
         channel: payload.channel,
         pendingSpeaker: agentName,
@@ -1476,7 +1627,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         requestedByDisplayName: task.requestedByDisplayName,
         mentionCascadeDepth: payload.mentionCascadeDepth,
         mentionRootMessageId: payload.mentionRootMessageId ?? payload.sourceMessageId,
-        sessionId: result.sessionId,
+        sessionId: conversationSessionId ?? undefined,
         workDir,
       }, task.workspaceId);
       for (const warning of replyResult.warnings) {
@@ -1486,7 +1637,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           content: warning,
         });
       }
-      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of enqueueTaskCompletionFeishuOutbox({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         agentId: agentName,
@@ -1512,7 +1663,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           channelName: payload.channel,
           agentId: payload.contactId,
           contactId: payload.contactId,
-          sessionId: result.sessionId,
+          sessionId: conversationSessionId,
           workDir,
           lastTaskQueueId: task.id,
           lastError: null,
@@ -1520,13 +1671,13 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         upsertDirectConversationStateSync(
           {
             contactId: payload.contactId,
-            sessionId: result.sessionId,
+            sessionId: conversationSessionId,
             workDir,
           },
           task.workspaceId,
         );
       }
-    } else if (!promotionError && payload.channel) {
+    } else if (payload.channel) {
       const replyResult = completeAgentChannelReplySync({
         channel: payload.channel,
         speaker: runtime.name,
@@ -1537,7 +1688,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         requestedByDisplayName: task.requestedByDisplayName,
         mentionCascadeDepth: payload.mentionCascadeDepth,
         mentionRootMessageId: payload.mentionRootMessageId ?? payload.sourceMessageId,
-        sessionId: result.sessionId,
+        sessionId: conversationSessionId ?? undefined,
         workDir,
       }, task.workspaceId);
       for (const warning of replyResult.warnings) {
@@ -1547,7 +1698,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           content: warning,
         });
       }
-      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of enqueueTaskCompletionFeishuOutbox({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         agentId: agentName,
@@ -1571,25 +1722,54 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       writeConversationExecutionWorkspaceStateSync({
         channelName: payload.channel,
         agentId: agentName,
-        sessionId: result.sessionId,
+        sessionId: conversationSessionId,
         workDir,
         lastTaskQueueId: task.id,
         lastError: null,
       }, task.workspaceId);
     }
+    upsertTaskCommitJournalSync({
+      taskId: task.id,
+      workspaceId: task.workspaceId,
+      employeeName: agentName,
+      commitState: "committed",
+    });
+    rmSync(recoveryStagingDir, { recursive: true, force: true });
   } catch (error) {
-    if (persistedOutputAttachments.length > 0) {
-      deleteWorkspaceAttachmentsSync(persistedOutputAttachments);
-      persistedOutputAttachments = [];
+    if (taskCompletionCommitted) {
+      console.error(`[daemon] task ${task.id} completed, but a post-completion action failed: ${error instanceof Error ? error.message : String(error)}`);
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "commit_reconciliation_retrying",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    if (taskCommitBoundaryCrossed && completionEffectsCheckpointed) {
+      const currentTask = readQueuedTaskSync(task.id);
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: currentTask?.status === "committed" || currentTask?.status === "completed"
+          ? "commit_reconciliation_retrying"
+          : "workflow_completion_effects_checkpointed",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      return;
     }
     const message = error instanceof Error ? error.message : String(error);
-    appendTaskMessageSync({
-      taskId: task.id,
-      type: "error",
-      content: message,
-    });
     const failureMetadata = readProviderTaskFailureMetadata(error);
     const providerError = failureMetadata?.providerError;
+    const workflowErrorCode = resolveWorkflowCompletionFailureCode({
+      commitBoundaryCrossed: taskCommitBoundaryCrossed,
+      effectsCheckpointed: completionEffectsCheckpointed,
+      errorCode: providerError?.code,
+    });
     if (providerError) {
       appendTaskMessageSync({
         taskId: task.id,
@@ -1597,16 +1777,46 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         content: `provider diagnostic: ${providerError.code}${providerError.rawProviderMessage ? ` · ${providerError.rawProviderMessage}` : ""}`,
       });
     }
-    failQueuedTaskSync({
-      taskId: task.id,
-      errorText: message,
-      errorCode: providerError?.code,
-      errorCategory: providerError?.category,
-      provider: providerError?.provider,
-      rawProviderMessage: providerError?.rawProviderMessage,
-      sessionId: failureMetadata?.sessionId ?? payload.channelSessionId,
-      workDir: failureMetadata?.workDir ?? workDir,
+    const failureApplied = withTransaction(getDatabase(), () => {
+      const fence = lockWorkflowRunForTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        allowPreparingCommit: true,
+      });
+      if (fence.ignored) return false;
+      failQueuedTaskSync({
+        taskId: task.id,
+        errorText: message,
+        errorCode: workflowErrorCode,
+        errorCategory: providerError?.category,
+        provider: providerError?.provider,
+        rawProviderMessage: providerError?.rawProviderMessage,
+        sessionId: failureMetadata?.sessionId ?? payload.channelSessionId,
+        workDir: failureMetadata?.workDir ?? workDir,
+      });
+      failWorkflowTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        errorCode: workflowErrorCode,
+        errorText: message,
+      });
+      if (taskCommitBoundaryCrossed) {
+        upsertTaskCommitJournalSync({
+          taskId: task.id,
+          workspaceId: task.workspaceId,
+          commitState: "rolled_back",
+          errorCode: workflowErrorCode ?? "workflow_completion_failed",
+          errorMessage: message,
+        });
+      }
+      return true;
     });
+    if (!failureApplied) return;
+    if (persistedOutputAttachments.length > 0) {
+      deleteWorkspaceAttachmentsSync(persistedOutputAttachments);
+      persistedOutputAttachments = [];
+    }
+    appendTaskMessageSync({ taskId: task.id, type: "error", content: message });
 
     if (payload.taskId) {
       updateTaskStatusSync(payload.taskId, "blocked", task.workspaceId);
@@ -1624,6 +1834,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       replacePendingChannelMessageSync({
         channel: payload.channel,
         pendingSpeaker: agentName,
+        pendingTaskId: task.id,
         speaker: "系统提示",
         role: "agent",
         summary: formatConversationFailureSummary({
@@ -1689,6 +1900,9 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         type: "status",
         content: `清理任务产物时出现警告：${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
       });
+    }
+    if (!channelThreadId) {
+      rmSync(workDir, { recursive: true, force: true });
     }
   }
 }
@@ -1938,4 +2152,38 @@ function resolveWorkspaceTaskWorkDir(input: {
     workspaceId: input.workspaceId,
     taskId: input.taskId,
   });
+}
+
+function persistLocalCompletionRecoverySnapshot(input: {
+  stagingDir: string;
+  workDir: string;
+  workDirFiles: Array<{ path: string; bytes: Uint8Array; mode?: string }>;
+  deletedPaths: string[];
+  snapshot: unknown;
+}): void {
+  rmSync(input.stagingDir, { recursive: true, force: true });
+  mkdirSync(input.stagingDir, { recursive: true });
+  for (const file of input.workDirFiles) {
+    const targetPath = join(input.stagingDir, file.path);
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, file.bytes);
+    if (file.mode && /^[0-7]{3,4}$/.test(file.mode)) {
+      chmodSync(targetPath, Number.parseInt(file.mode, 8));
+    }
+  }
+  const runtimeOutputDir = join(input.workDir, "runtime-output");
+  if (existsSync(runtimeOutputDir)) {
+    cpSync(runtimeOutputDir, join(input.stagingDir, "runtime-output"), { recursive: true });
+  }
+  if (input.deletedPaths.length > 0) {
+    writeFileSync(
+      join(input.stagingDir, ".workdir-deleted.json"),
+      JSON.stringify({ deletedPaths: input.deletedPaths }),
+      { encoding: "utf8", mode: 0o600 },
+    );
+  }
+  const snapshotPath = join(input.stagingDir, ".completion-effects.json");
+  const temporaryPath = `${snapshotPath}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, JSON.stringify(input.snapshot), { encoding: "utf8", mode: 0o600 });
+  renameSync(temporaryPath, snapshotPath);
 }

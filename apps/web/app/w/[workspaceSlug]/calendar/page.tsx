@@ -19,7 +19,7 @@ export default async function WorkspaceCalendarPage({
       serverDurationMs={result.meta.durationMs}
       workspaceId={workspaceContext.currentWorkspace.id}
     >
-      <CalendarPageClient data={result.data.data} />
+      <CalendarPageClient data={result.data.data} workspaceSlug={workspaceSlug} />
     </WorkspaceInitialModuleData>
   );
 }

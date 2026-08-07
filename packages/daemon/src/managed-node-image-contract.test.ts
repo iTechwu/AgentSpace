@@ -14,6 +14,18 @@ const providerDockerfile = readFileSync(
   new URL("../../../deploy/daemon/Dockerfile.provider-runtime", import.meta.url),
   "utf8",
 );
+const localRuntimeDockerfile = readFileSync(
+  new URL("../../../deploy/daemon/Dockerfile", import.meta.url),
+  "utf8",
+);
+const runtimeBuildScript = readFileSync(
+  new URL("../../../deploy/staging/build-managed-runtime-images.sh", import.meta.url),
+  "utf8",
+);
+const managedNodeCompose = readFileSync(
+  new URL("../../../deploy/daemon/docker-compose.managed-node.yml", import.meta.url),
+  "utf8",
+);
 
 test("managed-node image installs a checksum-pinned multi-arch cosign binary", () => {
   assert.match(dockerfile, /ARG COSIGN_VERSION=v\d+\.\d+\.\d+/);
@@ -25,12 +37,52 @@ test("managed-node image installs a checksum-pinned multi-arch cosign binary", (
   assert.match(dockerfile, /COPY --from=cosign-download \/usr\/local\/bin\/cosign \/usr\/local\/bin\/cosign/);
 });
 
+test("managed-node runtime stage includes provider probe tools and cached package installs", () => {
+  assert.match(
+    dockerfile,
+    /apt-get install --yes --no-install-recommends ca-certificates curl docker\.io iptables/,
+  );
+  assert.match(dockerfile, /npm_config_registry=https:\/\/registry\.npmmirror\.com/);
+  assert.match(dockerfile, /--mount=type=cache,id=dofe-managed-node-pnpm,target=\/pnpm\/store/);
+  assert.match(
+    managedNodeCompose,
+    /\$\{MANAGED_NODE_MODELS_GATEWAY_HOST:-model\.local\.dofe\.ai\}:host-gateway/,
+  );
+  assert.match(
+    managedNodeCompose,
+    /CURL_CA_BUNDLE: \$\{MANAGED_RUNTIME_TLS_CA_PATH:\+\/run\/dofe-agent-runtime-ca\.pem\}/,
+  );
+  assert.match(
+    managedNodeCompose,
+    /\$\{MANAGED_RUNTIME_TLS_CA_PATH:-\/dev\/null\}:\/run\/dofe-agent-runtime-ca\.pem:ro/,
+  );
+});
+
 test("managed-node image does not embed shared data-plane services", () => {
   assert.doesNotMatch(dockerfile, /FROM\s+(?:postgres|redis|rabbitmq)(?::|\s)/i);
 });
 
-test("provider runtime image includes Git for controlled VCS package installs", () => {
+test("provider runtime image includes operational tools required by provider checks and installs", () => {
+  assert.match(
+    providerDockerfile,
+    /apt-get install --yes --no-install-recommends ca-certificates chromium curl python3 python3-pip/,
+  );
   assert.match(providerDockerfile, /apt-get install --yes --no-install-recommends git/);
+  assert.match(providerDockerfile, /npm_config_registry=https:\/\/registry\.npmmirror\.com/);
+  assert.match(providerDockerfile, /--mount=type=cache,id=dofe-provider-runtime-pnpm,target=\/pnpm\/store/);
+});
+
+test("local runtime builds include provider probe tools and a pinned Codex CLI", () => {
+  assert.match(localRuntimeDockerfile, /apt-get install --yes --no-install-recommends ca-certificates curl/);
+  assert.match(localRuntimeDockerfile, /npm install --global pnpm@10\.26\.2/);
+  assert.match(localRuntimeDockerfile, /--mount=type=cache,id=dofe-local-runtime-pnpm,target=\/pnpm\/store/);
+  assert.match(localRuntimeDockerfile, /--mount=type=cache,id=dofe-local-runtime-provider-cli,target=\/pnpm\/store/);
+  assert.equal(
+    localRuntimeDockerfile.match(/npm_config_registry=https:\/\/registry\.npmmirror\.com/g)?.length,
+    2,
+  );
+  assert.match(runtimeBuildScript, /@openai\/codex@0\.145\.0/);
+  assert.doesNotMatch(runtimeBuildScript, /codex\).*@openai\/codex@latest/);
 });
 
 test("local managed-node recovery preserves required operational settings", () => {
@@ -56,6 +108,37 @@ test("local managed-node recovery preserves required operational settings", () =
   assert.equal(resolved.DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS, "720000");
   assert.ok(formatManagedNodeOperationalEnv(resolved).includes("MCP_EGRESS_PROXY_ADMIN_TOKEN=existing-secret"));
   assert.ok(formatManagedNodeOperationalEnv(resolved).includes("DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS=720000"));
+});
+
+test("local managed-node recovery preserves paired OpenMontage service settings", () => {
+  const resolved = resolveManagedNodeOperationalEnv(
+    [
+      "MCP_EGRESS_PROXY_URL=http://172.31.240.2:8080",
+      "MCP_EGRESS_PROXY_ADMIN_TOKEN=existing-secret",
+      "OPENMONTAGE_MCP_URL=http://host.docker.internal:8765/mcp",
+      "OPENMONTAGE_SERVICE_TOKEN=openmontage-secret",
+    ].join("\n"),
+  );
+
+  assert.equal(resolved.OPENMONTAGE_MCP_URL, "http://host.docker.internal:8765/mcp");
+  assert.equal(resolved.OPENMONTAGE_SERVICE_TOKEN, "openmontage-secret");
+});
+
+test("local managed-node recovery fails closed for partial or unsafe OpenMontage settings", () => {
+  assert.throws(
+    () =>
+      resolveManagedNodeOperationalEnv(
+        "MCP_EGRESS_PROXY_URL=http://127.0.0.1:8080\nMCP_EGRESS_PROXY_ADMIN_TOKEN=secret\nOPENMONTAGE_MCP_URL=http://openmontage:8765/mcp",
+      ),
+    /must be configured together/,
+  );
+  assert.throws(
+    () =>
+      resolveManagedNodeOperationalEnv(
+        "MCP_EGRESS_PROXY_URL=http://127.0.0.1:8080\nMCP_EGRESS_PROXY_ADMIN_TOKEN=secret\nOPENMONTAGE_MCP_URL=http://user:pass@openmontage:8765/mcp\nOPENMONTAGE_SERVICE_TOKEN=secret",
+      ),
+    /credential-free HTTP\(S\) URL/,
+  );
 });
 
 test("local managed-node recovery fails before rotation when proxy settings are incomplete", () => {

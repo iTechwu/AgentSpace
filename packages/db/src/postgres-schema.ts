@@ -1,8 +1,15 @@
-export const POSTGRES_SCHEMA_VERSION = "104";
+export const POSTGRES_SCHEMA_VERSION = "110";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
   "workspace",
+  "workflow_definition",
+  "workflow_version",
+  "workflow_trigger",
+  "workflow_run",
+  "workflow_node_run",
+  "workflow_run_event",
+  "workflow_outbox",
   "users",
   "auth_identity",
   "session",
@@ -59,6 +66,13 @@ export const POSTGRES_TABLE_NAMES = [
   "agent_router_context_snapshot",
   "task_execution_event",
   "task_message",
+  "openmontage_job_link",
+  "openmontage_job_event",
+  "openmontage_job_projection",
+  "openmontage_chat_binding",
+  "openmontage_event_nonce",
+  "openmontage_notification_outbox",
+  "openmontage_artifact_grant",
   "model_pricing",
   "token_usage",
   "token_usage_billing_event",
@@ -130,6 +144,198 @@ export function getPostgresSchemaStatements(): string[] {
         updated_at TIMESTAMPTZ NOT NULL,
         archived_at TIMESTAMPTZ
       )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_definition (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT,
+        owner_user_id TEXT NOT NULL,
+        channel_name TEXT,
+        status TEXT NOT NULL DEFAULT 'draft'
+          CHECK (status IN ('draft', 'published', 'paused', 'archived')),
+        draft_graph_json JSONB NOT NULL DEFAULT '{"schemaVersion":1,"nodes":[],"edges":[]}'::jsonb,
+        draft_version INTEGER NOT NULL DEFAULT 1,
+        active_version_id TEXT,
+        legacy_source_type TEXT,
+        legacy_source_id TEXT,
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        archived_at TIMESTAMPTZ,
+        UNIQUE(workspace_id, id)
+      )
+    `,
+    `
+      ALTER TABLE workflow_definition
+        ADD COLUMN IF NOT EXISTS draft_graph_json JSONB NOT NULL
+        DEFAULT '{"schemaVersion":1,"nodes":[],"edges":[]}'::jsonb
+    `,
+    `
+      ALTER TABLE workflow_definition
+        ADD COLUMN IF NOT EXISTS draft_version INTEGER NOT NULL DEFAULT 1
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_version (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        workflow_id TEXT NOT NULL REFERENCES workflow_definition(id),
+        version_number INTEGER NOT NULL,
+        schema_version INTEGER NOT NULL,
+        graph_json JSONB NOT NULL,
+        input_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        output_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        governance_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        content_hash TEXT NOT NULL,
+        published_by TEXT NOT NULL,
+        published_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workflow_id, version_number),
+        UNIQUE(workflow_id, content_hash)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_trigger (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        workflow_id TEXT NOT NULL REFERENCES workflow_definition(id),
+        type TEXT NOT NULL CHECK (type IN ('manual', 'schedule', 'event')),
+        config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        timezone TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        next_fire_at TIMESTAMPTZ,
+        last_fire_at TIMESTAMPTZ,
+        misfire_policy TEXT NOT NULL DEFAULT 'skip'
+          CHECK (misfire_policy IN ('skip', 'fire_once')),
+        dedupe_window_seconds INTEGER NOT NULL DEFAULT 0,
+        lease_owner TEXT,
+        lease_expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `ALTER TABLE workflow_trigger DROP CONSTRAINT IF EXISTS workflow_trigger_misfire_policy_check`,
+    `ALTER TABLE workflow_trigger ADD CONSTRAINT workflow_trigger_misfire_policy_check CHECK (misfire_policy IN ('skip', 'fire_once'))`,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_run (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        workflow_id TEXT NOT NULL REFERENCES workflow_definition(id),
+        version_id TEXT NOT NULL REFERENCES workflow_version(id),
+        root_task_id TEXT,
+        trigger_id TEXT REFERENCES workflow_trigger(id) ON DELETE SET NULL,
+        trigger_type TEXT NOT NULL,
+        trigger_key TEXT NOT NULL,
+        input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL DEFAULT 'created',
+        current_sequence INTEGER NOT NULL DEFAULT 0,
+        budget_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, trigger_key)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_node_run (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+        node_id TEXT NOT NULL,
+        node_type TEXT NOT NULL,
+        employee_id TEXT,
+        employee_name_snapshot TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 1,
+        available_at TIMESTAMPTZ,
+        task_queue_id TEXT,
+        approval_id TEXT,
+        input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        output_json JSONB,
+        artifact_manifest_json JSONB,
+        error_code TEXT,
+        error_message TEXT,
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(run_id, node_id)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_run_event (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+        node_run_id TEXT REFERENCES workflow_node_run(id) ON DELETE SET NULL,
+        sequence INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        actor_type TEXT NOT NULL,
+        actor_id TEXT,
+        severity TEXT NOT NULL DEFAULT 'info',
+        data_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(run_id, sequence)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workflow_outbox (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        available_at TIMESTAMPTZ NOT NULL,
+        locked_at TIMESTAMPTZ,
+        locked_by TEXT,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        published_at TIMESTAMPTZ
+      )
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_definition_legacy_source
+        ON workflow_definition(workspace_id, legacy_source_type, legacy_source_id)
+        WHERE legacy_source_id IS NOT NULL
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_run_trigger_key
+        ON workflow_run(workspace_id, trigger_key)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_trigger_due
+        ON workflow_trigger(status, next_fire_at)
+        WHERE status = 'active'
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_node_run_ready
+        ON workflow_node_run(status, available_at)
+        WHERE status IN ('ready', 'retry_wait')
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_run_workspace_created
+        ON workflow_run(workspace_id, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_run_event_run_sequence
+        ON workflow_run_event(run_id, sequence ASC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_node_run_task_queue
+        ON workflow_node_run(workspace_id, task_queue_id)
+        WHERE task_queue_id IS NOT NULL
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_outbox_due
+        ON workflow_outbox(status, available_at)
+        WHERE status = 'pending'
     `,
     `
       CREATE TABLE IF NOT EXISTS users (
@@ -1226,6 +1432,7 @@ export function getPostgresSchemaStatements(): string[] {
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         agent_id TEXT NOT NULL,
         runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        runtime_credential_id TEXT,
         router_session_id TEXT,
         issue_id TEXT,
         trigger_type TEXT NOT NULL DEFAULT 'manual',
@@ -1255,6 +1462,9 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS binding_generation INTEGER
     `,
     `
+      ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT
+    `,
+    `
       ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS employee_id TEXT
     `,
     `
@@ -1272,6 +1482,137 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_agent_task_queue_employee
         ON agent_task_queue(workspace_id, employee_id, created_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_job_link (
+        job_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
+        runtime_credential_id TEXT NOT NULL,
+        root_task_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        source_invocation_id TEXT NOT NULL,
+        trace_id TEXT NOT NULL,
+        workflow_name TEXT NOT NULL,
+        workflow_version TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, source_invocation_id)
+      )
+    `,
+    `ALTER TABLE openmontage_job_link ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT`,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_model_delegation (
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        delegation_id TEXT NOT NULL UNIQUE,
+        runtime_credential_id TEXT NOT NULL,
+        models_tenant_id TEXT NOT NULL,
+        models_team_id TEXT NOT NULL,
+        mcp_connection_id TEXT NOT NULL,
+        secret_ref TEXT NOT NULL,
+        spend_limit TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        status TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_model_delegation_credential
+        ON openmontage_model_delegation(runtime_credential_id, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_job_link_workspace_conversation
+        ON openmontage_job_link(workspace_id, conversation_id, created_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_job_projection (
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        status TEXT NOT NULL,
+        current_stage TEXT,
+        snapshot_json JSONB NOT NULL,
+        last_applied_sequence INTEGER NOT NULL DEFAULT 0 CHECK (last_applied_sequence >= 0),
+        sync_status TEXT NOT NULL DEFAULT 'CURRENT' CHECK (sync_status IN ('CURRENT', 'SYNCING')),
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_job_projection_workspace_updated
+        ON openmontage_job_projection(workspace_id, updated_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_job_event (
+        event_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        event_type TEXT NOT NULL,
+        event_json JSONB NOT NULL,
+        application_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (application_status IN ('pending', 'applied', 'ignored_terminal')),
+        received_at TIMESTAMPTZ NOT NULL,
+        applied_at TIMESTAMPTZ,
+        failure_reason TEXT,
+        UNIQUE(job_id, sequence)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_job_event_pending
+        ON openmontage_job_event(job_id, sequence)
+        WHERE application_status = 'pending'
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_chat_binding (
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        channel_name TEXT NOT NULL,
+        conversation_message_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_chat_binding_workspace_channel
+        ON openmontage_chat_binding(workspace_id, channel_name, created_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_event_nonce (
+        nonce TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        received_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_event_nonce_expiry
+        ON openmontage_event_nonce(expires_at)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_notification_outbox (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        channel_name TEXT NOT NULL,
+        event_sequence INTEGER NOT NULL CHECK (event_sequence > 0),
+        event_type TEXT NOT NULL DEFAULT 'openmontage.job.changed',
+        payload_json JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'delivered', 'failed')),
+        delivery_attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TIMESTAMPTZ,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        delivered_at TIMESTAMPTZ,
+        UNIQUE(job_id, event_sequence, event_type)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_notification_outbox_due
+        ON openmontage_notification_outbox(status, next_attempt_at, created_at)
+        WHERE status IN ('pending', 'failed')
     `,
     `
       CREATE TABLE IF NOT EXISTS external_thread_binding (
@@ -1754,6 +2095,75 @@ export function getPostgresSchemaStatements(): string[] {
         ALTER COLUMN storage_key SET NOT NULL
     `,
     `
+      CREATE TABLE IF NOT EXISTS openmontage_artifact_grant (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        attachment_id TEXT,
+        operation TEXT NOT NULL,
+        artifact_role TEXT,
+        file_name TEXT,
+        media_type TEXT,
+        size_bytes BIGINT,
+        sha256 TEXT,
+        token_hash TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        consumed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        FOREIGN KEY (workspace_id, attachment_id)
+          REFERENCES attachment(workspace_id, id) ON DELETE CASCADE
+      )
+    `,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS artifact_role TEXT`,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS file_name TEXT`,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS media_type TEXT`,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS size_bytes BIGINT`,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS sha256 TEXT`,
+    `ALTER TABLE openmontage_artifact_grant ALTER COLUMN attachment_id DROP NOT NULL`,
+    `
+      ALTER TABLE openmontage_artifact_grant
+        DROP CONSTRAINT IF EXISTS openmontage_artifact_grant_operation_check
+    `,
+    `
+      ALTER TABLE openmontage_artifact_grant
+        DROP CONSTRAINT IF EXISTS openmontage_artifact_grant_shape_check
+    `,
+    `
+      ALTER TABLE openmontage_artifact_grant
+        ADD CONSTRAINT openmontage_artifact_grant_operation_check
+        CHECK (operation IN ('READ', 'WRITE'))
+    `,
+    `
+      ALTER TABLE openmontage_artifact_grant
+        ADD CONSTRAINT openmontage_artifact_grant_shape_check
+        CHECK (
+          (
+            operation = 'READ'
+            AND attachment_id IS NOT NULL
+            AND artifact_role IS NULL
+            AND file_name IS NULL
+            AND media_type IS NULL
+            AND size_bytes IS NULL
+            AND sha256 IS NULL
+          )
+          OR
+          (
+            operation = 'WRITE'
+            AND attachment_id IS NULL
+            AND artifact_role IS NOT NULL
+            AND file_name IS NOT NULL
+            AND media_type IS NOT NULL
+            AND size_bytes > 0
+            AND sha256 IS NOT NULL
+          )
+        )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_artifact_grant_expiry
+        ON openmontage_artifact_grant(expires_at)
+        WHERE consumed_at IS NULL
+    `,
+    `
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -2069,8 +2479,14 @@ export function getPostgresSchemaStatements(): string[] {
         ON agent_runtime(workspace_id, managed_credential_id)
     `,
     `
-      CREATE INDEX IF NOT EXISTS idx_workspace_sso_binding_team
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_sso_binding_team_unique
         ON workspace_sso_binding(team_id)
+        WHERE team_id IS NOT NULL
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_sso_binding_tenant_unique
+        ON workspace_sso_binding(tenant_id)
+        WHERE source = 'tenant'
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_runtime_provisioning_task_workspace_status
@@ -3824,6 +4240,55 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE employee_recovery_operation
         ADD COLUMN IF NOT EXISTS approvers_json JSONB NOT NULL DEFAULT '[]'::jsonb
     `,
+    // 单实例触发器去重：每个工作流只保留一个触发器（按读取优先级保留最优的一条），
+    // 再加上 (workspace_id, workflow_id) 唯一约束作为兜底，防止历史重复数据或绕过逻辑的写入。
+    // 第一步：把指向将被删除的重复触发器的工作流运行，重新指向该工作流保留的触发器。
+    `
+      WITH ranked AS (
+        SELECT id, workspace_id, workflow_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, workflow_id
+            ORDER BY CASE
+              WHEN type <> 'manual' AND status = 'active' THEN 0
+              WHEN type <> 'manual' AND status = 'suspended' THEN 1
+              WHEN type <> 'manual' THEN 2
+              WHEN status = 'active' THEN 3
+              WHEN status = 'suspended' THEN 4
+              ELSE 5
+            END, id
+          ) AS rn
+        FROM workflow_trigger
+      )
+      UPDATE workflow_run
+      SET trigger_id = (
+        SELECT keep.id FROM ranked keep
+        WHERE keep.workspace_id = workflow_run.workspace_id
+          AND keep.workflow_id = workflow_run.workflow_id
+          AND keep.rn = 1
+      )
+      WHERE trigger_id IN (SELECT id FROM ranked WHERE rn > 1)
+    `,
+    // 第二步：删除每个工作流的重复触发器，仅保留优先级最高的一条。
+    `
+      WITH ranked AS (
+        SELECT id,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, workflow_id
+            ORDER BY CASE
+              WHEN type <> 'manual' AND status = 'active' THEN 0
+              WHEN type <> 'manual' AND status = 'suspended' THEN 1
+              WHEN type <> 'manual' THEN 2
+              WHEN status = 'active' THEN 3
+              WHEN status = 'suspended' THEN 4
+              ELSE 5
+            END, id
+          ) AS rn
+        FROM workflow_trigger
+      )
+      DELETE FROM workflow_trigger WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+    `,
+    `ALTER TABLE workflow_trigger DROP CONSTRAINT IF EXISTS workflow_trigger_workspace_workflow_unique`,
+    `ALTER TABLE workflow_trigger ADD CONSTRAINT workflow_trigger_workspace_workflow_unique UNIQUE (workspace_id, workflow_id)`,
     `
       INSERT INTO app_metadata (key, value)
       VALUES ('schema_version', '${POSTGRES_SCHEMA_VERSION}')

@@ -72,7 +72,7 @@ import {
   signMcpEgressLeaseForOperation,
   signMcpEgressLeaseForTaskCall,
 } from "./egress.ts";
-import { resolveMcpRuntimeAppRequirement, resolveOfficialManagedStdioProfile } from "./official-catalog.ts";
+import { OPENMONTAGE_MCP_SLUG, resolveMcpRuntimeAppRequirement, resolveOfficialManagedStdioProfile } from "./official-catalog.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
 export { listReadyMcpConnectionsForTaskSync } from "./readiness.ts";
 
@@ -116,7 +116,7 @@ export function requestMcpConnectionSync(input: RequestMcpConnectionInput): Requ
     throw new Error("mcp.runtime_app_required");
   }
   const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
-  const endpointCheck = validateConnectionEndpoint(catalog.transport, input.endpoint, allowedHosts, catalog.endpointTemplate);
+  const endpointCheck = validateConnectionEndpoint(catalog, input.endpoint, allowedHosts);
   if (!endpointCheck.ok) {
     throw new Error(endpointCheck.code ?? "mcp.policy_denied");
   }
@@ -352,7 +352,7 @@ export function updateMcpConnectionConfigServiceSync(input: UpdateMcpConnectionC
     throw new Error("mcp_catalog.not_found");
   }
   if (input.endpoint !== undefined) {
-    const check = validateConnectionEndpoint(catalog.transport, input.endpoint, parseJsonArray(catalog.allowedHostsJson), catalog.endpointTemplate);
+    const check = validateConnectionEndpoint(catalog, input.endpoint, parseJsonArray(catalog.allowedHostsJson));
     if (!check.ok) {
       throw new Error(check.code ?? "mcp.policy_denied");
     }
@@ -518,7 +518,7 @@ export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfig
     throw new Error("mcp_catalog.not_found");
   }
   if (input.endpoint !== undefined) {
-    const check = validateConnectionEndpoint(catalog.transport, input.endpoint, parseJsonArray(catalog.allowedHostsJson), catalog.endpointTemplate);
+    const check = validateConnectionEndpoint(catalog, input.endpoint, parseJsonArray(catalog.allowedHostsJson));
     if (!check.ok) {
       throw new Error(check.code ?? "mcp.policy_denied");
     }
@@ -919,7 +919,7 @@ export function resolveClaimedMcpOperationSync(input: {
   if (!isRequiredRuntimeAppReady(input.workspaceId, input.operation.runtimeId, catalog)) return null;
   const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
   const nonSecretParams = parseJsonObject(connection.nonSecretParamsJson);
-  const endpointCheck = validateConnectionEndpoint(catalog.transport, connection.endpoint, allowedHosts, catalog.endpointTemplate);
+  const endpointCheck = validateConnectionEndpoint(catalog, connection.endpoint, allowedHosts);
   const headerCheck = validateConnectionParameters(catalog.transport, nonSecretParams);
   const configurationCheck = validateMcpConnectionConfiguration(parseJsonObject(catalog.configurationSchemaJson), nonSecretParams);
   const declaredTools = parseDeclaredTools(catalog.declaredToolsJson);
@@ -1127,7 +1127,7 @@ function resolveClaimedMcpTaskSessionResult(input: {
     const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
     const nonSecretParams = parseJsonObject(resolved.fresh.nonSecretParamsJson);
     if (
-      !validateConnectionEndpoint(resolved.catalog.transport, resolved.fresh.endpoint, allowedHosts, resolved.catalog.endpointTemplate).ok ||
+      !validateConnectionEndpoint(resolved.catalog, resolved.fresh.endpoint, allowedHosts).ok ||
       !validateConnectionParameters(resolved.catalog.transport, nonSecretParams).ok
     ) continue;
     const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, input.workspaceId));
@@ -1190,10 +1190,10 @@ export function validateMcpConnectionForGatewaySync(input: {
   const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
   const nonSecretParams = parseJsonObject(resolved.fresh.nonSecretParamsJson);
   if (
-    !validateConnectionEndpoint(resolved.catalog.transport, resolved.fresh.endpoint, allowedHosts, resolved.catalog.endpointTemplate).ok ||
+    !validateConnectionEndpoint(resolved.catalog, resolved.fresh.endpoint, allowedHosts).ok ||
     !validateConnectionParameters(resolved.catalog.transport, nonSecretParams).ok
   ) return { ok: false };
-  if (resolved.catalog.transport === "managed_stdio") {
+  if (resolved.catalog.transport !== "streamable_http") {
     return { ok: true, approvedTools: resolved.approved };
   }
 
@@ -1317,18 +1317,26 @@ function parseJsonObject(value: string): Record<string, unknown> {
 }
 
 function validateConnectionEndpoint(
-  transport: McpTransport,
+  catalog: Pick<McpCatalogItemRecord, "source" | "slug" | "transport" | "endpointTemplate">,
   endpoint: string,
   allowedHosts: string[],
-  endpointTemplate?: string | null,
 ) {
-  if (transport === "streamable_http") return validateMcpEndpoint(endpoint, allowedHosts);
-  if (transport === "managed_stdio") {
+  if (catalog.transport === "streamable_http") return validateMcpEndpoint(endpoint, allowedHosts);
+  if (catalog.transport === "managed_stdio") {
     const validation = validateManagedStdioEndpoint(endpoint);
     if (!validation.ok) return validation;
-    return endpoint === endpointTemplate
+    return endpoint === catalog.endpointTemplate
       ? validation
       : { ok: false, code: "mcp.policy_denied" as const, message: "Managed stdio entrypoint must match the immutable catalog release." };
+  }
+  if (catalog.transport === "managed_service") {
+    const trusted = catalog.source === "official"
+      && catalog.slug === OPENMONTAGE_MCP_SLUG
+      && catalog.endpointTemplate === "managed-service://openmontage"
+      && endpoint === catalog.endpointTemplate;
+    return trusted
+      ? { ok: true as const }
+      : { ok: false as const, code: "mcp.policy_denied" as const, message: "Managed service reference is not trusted." };
   }
   return { ok: false, code: "mcp.policy_denied" as const, message: "MCP transport is not supported." };
 }
@@ -1336,6 +1344,11 @@ function validateConnectionEndpoint(
 function validateConnectionParameters(transport: McpTransport, params: Record<string, unknown>) {
   if (transport === "streamable_http") return validateMcpRequestHeaders(params);
   if (transport === "managed_stdio") return validateManagedStdioEnvironmentConfiguration(params);
+  if (transport === "managed_service") {
+    return Object.keys(params).length === 0
+      ? { ok: true as const }
+      : { ok: false as const, code: "mcp.policy_denied" as const, message: "Managed service configuration is platform-owned." };
+  }
   return { ok: false, code: "mcp.policy_denied" as const, message: "MCP transport is not supported." };
 }
 

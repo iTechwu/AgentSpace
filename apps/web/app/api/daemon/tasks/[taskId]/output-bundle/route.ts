@@ -22,6 +22,9 @@ export async function POST(
   if (task instanceof Response) {
     return task;
   }
+  if (!["claimed", "running"].includes(task.status)) {
+    return Response.json({ task: { id: task.id, status: task.status }, ignored: true });
+  }
 
   const body = (await request.json()) as Partial<DaemonTaskOutputBundle>;
   if (

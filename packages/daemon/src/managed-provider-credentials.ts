@@ -297,7 +297,7 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     `  --mount ${shellQuote(`type=bind,src=${runtimeHomeDir},dst=/dofe-home`)} \\`,
     "  --workdir /workspace \\",
     "  --env HOME=/dofe-home \\",
-    "  --env PATH=/workspace/.dofe-runtime/skill-runner-bin:/dofe-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \\",
+    "  --env PATH=/workspace/.dofe-runtime/skill-runner-bin:/dofe-home/.local/bin:/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \\",
     "  --entrypoint node \\",
     environmentArgs.trimEnd(),
     `  ${shellQuote(image)} /dofe-profile/attribution-proxy.mjs ${shellQuote(PROVIDER_BASE_URL_KEYS[provider])} ${shellQuote(getManagedProviderCredentialEnvironmentKey(provider))} /dofe-profile/runtime-key ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,
@@ -563,6 +563,7 @@ server.listen(0, "127.0.0.1", () => {
       "-c", "model_providers.dofe-managed.name=\\\"Dofe managed gateway\\\"",
       "-c", "model_providers.dofe-managed.base_url=" + JSON.stringify(localBaseUrl),
       "-c", "model_providers.dofe-managed.wire_api=\\\"responses\\\"",
+      "-c", "model_providers.dofe-managed.supports_websockets=false",
       "-c", "model_providers.dofe-managed.requires_openai_auth=true",
       ...args,
     ]

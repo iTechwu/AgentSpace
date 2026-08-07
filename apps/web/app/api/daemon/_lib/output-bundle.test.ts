@@ -5,8 +5,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setAttachmentStorageClientForTests } from "@dofe-agent/services";
 import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 import {
+  clearDaemonTaskOutputStaging,
   getDaemonTaskOutputStagingDir,
   materializeOutputBundleToStaging,
+  readTaskCompletionEffectsSnapshot,
+  writeTaskCompletionEffectsSnapshot,
 } from "./output-bundle";
 
 const workspaceId = "workspace-output-bundle-test";
@@ -86,5 +89,39 @@ describe("materializeOutputBundleToStaging", () => {
       workspaceBlobFiles: [{ path: "repository/missing.txt", sha256: "0".repeat(64), size: 1 }],
     })).toThrow();
     expect(existsSync(getDaemonTaskOutputStagingDir(taskId, workspaceId))).toBe(false);
+  });
+
+  it("persists replay-only completion effects until staging is cleared", () => {
+    writeTaskCompletionEffectsSnapshot(taskId, workspaceId, { documentUpdates: ["version-1"] });
+
+    expect(readTaskCompletionEffectsSnapshot(taskId, workspaceId)).toEqual({ documentUpdates: ["version-1"] });
+
+    clearDaemonTaskOutputStaging(taskId, workspaceId);
+    expect(readTaskCompletionEffectsSnapshot(taskId, workspaceId)).toBeNull();
+  });
+
+  it("preserves the completion checkpoint when a promotion retry rematerializes its bundle", () => {
+    materializeOutputBundleToStaging(taskId, workspaceId, {
+      version: 1,
+      format: "json-inline-v1",
+      files: [{
+        path: "runtime-output/agent-output.json",
+        contentBase64: Buffer.from(JSON.stringify({ text: "original" }), "utf8").toString("base64"),
+      }],
+    });
+    writeTaskCompletionEffectsSnapshot(taskId, workspaceId, { documentUpdates: ["version-1"] });
+
+    materializeOutputBundleToStaging(taskId, workspaceId, {
+      version: 1,
+      format: "json-inline-v1",
+      files: [{
+        path: "runtime-output/agent-output.json",
+        contentBase64: Buffer.from(JSON.stringify({ text: "tampered" }), "utf8").toString("base64"),
+      }],
+    });
+
+    expect(readTaskCompletionEffectsSnapshot(taskId, workspaceId)).toEqual({ documentUpdates: ["version-1"] });
+    expect(JSON.parse(readFileSync(join(getDaemonTaskOutputStagingDir(taskId, workspaceId), "runtime-output", "agent-output.json"), "utf8")))
+      .toEqual({ text: "original" });
   });
 });

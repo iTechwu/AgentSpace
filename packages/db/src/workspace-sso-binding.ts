@@ -61,6 +61,13 @@ export function readWorkspaceSsoBindingSync(
   return row ? mapWorkspaceSsoBinding(row) : null;
 }
 
+export function listWorkspaceSsoBindingsSync(): WorkspaceSsoBindingRecord[] {
+  const rows = getDatabase().prepare(
+    "SELECT * FROM workspace_sso_binding ORDER BY workspace_id",
+  ).all() as RawWorkspaceSsoBinding[];
+  return rows.map(mapWorkspaceSsoBinding);
+}
+
 type RawWorkspaceSsoBinding = {
   workspace_id: string;
   tenant_id: string;

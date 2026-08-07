@@ -13,6 +13,8 @@ const {
   mockRejectKnowledgeProposalForActorSync,
   mockReviewFeishuDataOperationApproval,
   mockReviewApprovalSync,
+  mockReviewApprovalWithWorkflowSync,
+  mockReviewWorkflowApprovalSync,
   mockRequireCurrentWorkspaceContext,
   mockRevalidateWorkspacePaths,
 } = vi.hoisted(() => ({
@@ -28,6 +30,8 @@ const {
   mockRejectKnowledgeProposalForActorSync: vi.fn(),
   mockReviewFeishuDataOperationApproval: vi.fn(),
   mockReviewApprovalSync: vi.fn(),
+  mockReviewApprovalWithWorkflowSync: vi.fn(),
+  mockReviewWorkflowApprovalSync: vi.fn(),
   mockRequireCurrentWorkspaceContext: vi.fn(),
   mockRevalidateWorkspacePaths: vi.fn(),
 }));
@@ -45,6 +49,8 @@ vi.mock("@dofe-agent/services", () => ({
   rejectKnowledgeProposalForActorSync: mockRejectKnowledgeProposalForActorSync,
   reviewFeishuDataOperationApproval: mockReviewFeishuDataOperationApproval,
   reviewApprovalSync: mockReviewApprovalSync,
+  reviewApprovalWithWorkflowSync: mockReviewApprovalWithWorkflowSync,
+  reviewWorkflowApprovalSync: mockReviewWorkflowApprovalSync,
 }));
 
 vi.mock("@/features/auth/server-workspace", () => ({
@@ -72,6 +78,8 @@ describe("approval actions", () => {
     mockRejectKnowledgeProposalForActorSync.mockReset();
     mockReviewFeishuDataOperationApproval.mockReset();
     mockReviewApprovalSync.mockReset();
+    mockReviewApprovalWithWorkflowSync.mockReset();
+    mockReviewWorkflowApprovalSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockReset();
     mockRevalidateWorkspacePaths.mockReset();
   });
@@ -108,7 +116,13 @@ describe("approval actions", () => {
 
     const result = await reviewApprovalAction("approval-1", "approved", "Ship it");
 
-    expect(mockReviewApprovalSync).toHaveBeenCalledWith("approval-1", "approved", "Ship it", "workspace-1");
+    expect(mockReviewApprovalWithWorkflowSync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      approvalId: "approval-1",
+      decision: "approved",
+      actorUserId: "user-1",
+      comment: "Ship it",
+    });
     expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", [
       "/approvals",
       "/inbox",
@@ -124,6 +138,32 @@ describe("approval actions", () => {
       resources: [{ type: "approval", id: "approval-1" }],
       shell: "counters",
     });
+  });
+
+  it("uses the atomic workflow review service for workflow approvals", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin"));
+    mockListApprovalsSync.mockReturnValue([{
+      id: "approval-workflow-1",
+      type: "task_output",
+      sourceId: "node-run-1",
+      agentId: "Atlas",
+      channelName: "tour-visit",
+      status: "pending",
+      contentPreview: "Review workflow output",
+      metadata: { kind: "workflow_node" },
+      createdAt: "2026-08-06T00:00:00.000Z",
+    }]);
+
+    await reviewApprovalAction("approval-workflow-1", "rejected", "Needs changes");
+
+    expect(mockReviewApprovalWithWorkflowSync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      approvalId: "approval-workflow-1",
+      decision: "rejected",
+      actorUserId: "user-1",
+      comment: "Needs changes",
+    });
+    expect(mockReviewApprovalSync).not.toHaveBeenCalled();
   });
 
   it("executes Feishu data operation approvals from the merged approval queue", async () => {

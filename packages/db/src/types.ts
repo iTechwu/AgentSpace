@@ -1275,6 +1275,8 @@ export interface QueuedTaskRecord {
   /** @deprecated Legacy display-name field. Use employeeId for identity. */
   agentId: string;
   runtimeId: string;
+  /** Runtime credential captured when the task is claimed; immutable for billing attribution. */
+  runtimeCredentialId?: string;
   routerSessionId?: string;
   issueId?: string;
   triggerType: string;
@@ -1330,6 +1332,8 @@ export interface TaskExecutionEventRecord {
 
 export interface EnqueueTaskInput {
   workspaceId?: string;
+  /** Stable operation key for retry-safe queue creation. */
+  idempotencyKey?: string;
   taskId?: string;
   assignee: string;
   title: string;
@@ -1339,6 +1343,18 @@ export interface EnqueueTaskInput {
   requestedByUserId?: string;
   requestedByDisplayName?: string;
   metadata?: Record<string, unknown>;
+  workflow?: WorkflowTaskMetadata;
+}
+
+export interface WorkflowTaskMetadata {
+  workflowId: string;
+  workflowVersionId: string;
+  workflowRunId: string;
+  workflowNodeId: string;
+  workflowNodeRunId: string;
+  attempt: number;
+  artifactRefs: string[];
+  outputSchema?: Record<string, unknown>;
 }
 
 export function isNativeTaskStatus(value: unknown): value is NativeTaskStatus {
@@ -1933,6 +1949,135 @@ export interface EmployeeRecoveryOperationRecord {
   actorUserId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface WorkflowDefinitionRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description?: string;
+  ownerUserId: string;
+  channelName?: string;
+  status: "draft" | "published" | "paused" | "archived";
+  draftGraphJson: string;
+  draftVersion: number;
+  activeVersionId?: string;
+  legacySourceType?: string;
+  legacySourceId?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface WorkflowVersionRecord {
+  id: string;
+  workspaceId: string;
+  workflowId: string;
+  versionNumber: number;
+  schemaVersion: number;
+  graphJson: string;
+  inputSchemaJson: string;
+  outputSchemaJson: string;
+  governanceJson: string;
+  contentHash: string;
+  publishedBy: string;
+  publishedAt: string;
+  createdAt: string;
+}
+
+export interface WorkflowTriggerRecord {
+  id: string;
+  workspaceId: string;
+  workflowId: string;
+  type: "manual" | "schedule" | "event";
+  configJson: string;
+  timezone?: string;
+  status: string;
+  nextFireAt?: string;
+  lastFireAt?: string;
+  misfirePolicy: "skip" | "fire_once";
+  dedupeWindowSeconds: number;
+  leaseOwner?: string;
+  leaseExpiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowRunRecord {
+  id: string;
+  workspaceId: string;
+  workflowId: string;
+  versionId: string;
+  rootTaskId?: string;
+  triggerId?: string;
+  triggerType: string;
+  triggerKey: string;
+  inputJson: string;
+  status: string;
+  currentSequence: number;
+  budgetJson: string;
+  startedAt?: string;
+  finishedAt?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowNodeRunRecord {
+  id: string;
+  workspaceId: string;
+  runId: string;
+  nodeId: string;
+  nodeType: string;
+  employeeId?: string;
+  employeeNameSnapshot?: string;
+  status: string;
+  attemptCount: number;
+  maxAttempts: number;
+  availableAt?: string;
+  taskQueueId?: string;
+  approvalId?: string;
+  inputJson: string;
+  outputJson?: string;
+  artifactManifestJson?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowRunEventRecord {
+  id: string;
+  workspaceId: string;
+  runId: string;
+  nodeRunId?: string;
+  sequence: number;
+  type: string;
+  actorType: string;
+  actorId?: string;
+  severity: string;
+  dataJson: string;
+  createdAt: string;
+}
+
+export interface WorkflowOutboxRecord {
+  id: string;
+  workspaceId: string;
+  aggregateType: string;
+  aggregateId: string;
+  eventType: string;
+  payloadJson: string;
+  status: string;
+  attempts: number;
+  availableAt: string;
+  lockedAt?: string;
+  lockedBy?: string;
+  lastError?: string;
+  createdAt: string;
+  publishedAt?: string;
 }
 
 export function isWorkspaceRevisionStatus(value: unknown): value is WorkspaceRevisionStatus {

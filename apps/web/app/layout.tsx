@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
+import "@xyflow/react/dist/style.css";
 import "./globals.css";
 
 const configuredLanguage = process.env.DOFE_AGENT_UI_LANGUAGE;

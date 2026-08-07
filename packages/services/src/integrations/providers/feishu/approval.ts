@@ -288,6 +288,7 @@ function queueFeishuDataOperationApprovalCardBestEffort(input: {
       taskId: input.taskId,
       sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
       approvalAction: buildFeishuApprovalCardAction(input.approval),
+      idempotencyScope: input.approval.id,
     });
   } catch {
     // Feishu cards are external notifications; approval creation and audit remain the source of truth.
@@ -310,6 +311,7 @@ function queueFeishuDataOperationReviewStatusCardBestEffort(input: {
       message: input.message,
       taskId: input.metadata.taskId,
       sourceDofeAgentMessageId: input.metadata.sourceDofeAgentMessageId,
+      idempotencyScope: input.approval.id,
     });
   } catch {
     // Feishu review receipts are external notifications; approval/run state remains authoritative.

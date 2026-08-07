@@ -8,6 +8,7 @@ import {
   heartbeatDaemonSync,
   listDaemonSnapshotsSync,
   markDaemonOfflineSync,
+  markStaleDaemonsOfflineSync,
   pruneOfflineDaemonsSync,
   readDaemonSnapshotSync,
   registerDaemonRuntimesSync,
@@ -79,6 +80,22 @@ test("marks daemon runtimes offline when their heartbeat exceeds the liveness wi
   assert.equal(snapshot?.daemon.status, "offline");
   assert.equal(snapshot?.runtimes.every((runtime) => runtime.status === "offline"), true);
   assert.equal(snapshot?.runtimes.every((runtime) => runtime.lastError === "Daemon heartbeat timed out."), true);
+});
+
+test("a refreshed heartbeat wins over an earlier stale observation", () => {
+  registerDaemon("stale-race", "default");
+  const db = getDatabase();
+  const now = new Date();
+  const staleHeartbeat = new Date(now.getTime() - DEFAULT_DAEMON_HEARTBEAT_STALE_MS - 1_000).toISOString();
+  db.prepare("UPDATE daemon_connection SET last_heartbeat_at = ? WHERE daemon_key = ?")
+    .run(staleHeartbeat, "stale-race");
+
+  heartbeatDaemonSync("stale-race");
+  const marked = markStaleDaemonsOfflineSync({ now });
+
+  assert.equal(marked, 0);
+  assert.equal(readDaemonSnapshotSync("stale-race").daemon.status, "online");
+  assert.equal(readDaemonSnapshotSync("stale-race").runtimes.every((runtime) => runtime.status === "online"), true);
 });
 
 test("heartbeat can refresh daemon metadata without changing runtimes", () => {
