@@ -185,12 +185,13 @@ export function WorkflowRunClient({
                 <small>{node.nodeType} · 尝试 {node.attemptCount}/{node.maxAttempts} · {durationLabel(node.startedAt, node.finishedAt)}</small>
               </div>
               <span>{node.artifactCount} 个产物{node.costUsd !== undefined ? ` · $${node.costUsd.toFixed(4)}` : ""}</span>
-              {node.nodeType === "approval" && (node.approvalId || node.approvalRisk || node.approvalReviewerLabel) ? (
+              {node.nodeType === "approval" && (node.approvalId || node.approvalRisk || node.approvalReviewerLabel || node.approvalDeadlineLabel) ? (
                 <div className="workflow-run__approval-detail">
                   <small>
                     {node.approvalSource ? <span>来源：{node.approvalSource} · </span> : null}
                     {node.approvalRisk ? <span>风险：{translateApprovalRisk(node.approvalRisk, tx)} · </span> : null}
                     {node.approvalReviewerLabel ? <span>审批人：{node.approvalReviewerLabel}</span> : null}
+                    {node.approvalDeadlineLabel ? <span> · {node.approvalDeadlineLabel}</span> : null}
                   </small>
                   {node.approvalId ? (
                     <a className="knowledge-btn" href={workspaceSlug ? `/w/${encodeURIComponent(workspaceSlug)}/approvals?focus=${encodeURIComponent(node.approvalId)}` : "/approvals"}>前往审批中心</a>

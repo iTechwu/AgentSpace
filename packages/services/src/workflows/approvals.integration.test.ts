@@ -4,12 +4,15 @@ import {
   createWorkflowDefinitionSync,
   createWorkflowRunSync,
   getDatabase,
+  listWorkflowNodeRunsSync,
   materializeWorkflowNodeRunsSync,
   publishWorkflowVersionSync,
   readWorkflowRunSync,
   upsertWorkspaceMembershipSync,
 } from "@dofe-agent/db";
+import { listApprovalsSync } from "../approvals/approvals.ts";
 import { createWorkflowApprovalSync, reviewWorkflowApprovalSync } from "./approvals.ts";
+import { expireWorkflowApprovalsSync } from "./coordinator.ts";
 // 审批闭环走的是遗留 workspace-state 快照（workspace_snapshot.state_json），
 // createApprovalRequestSync 会校验 agentId∈activeEmployees、channel∈channels，
 // 因此必须在快照里写入员工与渠道，而不是只写 workspace_employee 表。
@@ -193,6 +196,63 @@ test("approval without a designated reviewer is open to any member", {
     // 未指定审批人时，任意普通成员都可审批（闭环仅在设置 reviewerUserId 时生效）。
     const result = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: approval.id, decision: "approved", actorUserId: MEMBER });
     assert.equal(result.status, "succeeded");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("auto-rejects an approval after its deadline elapses and distinguishes the failure code", {
+  skip: !hasTestDatabase,
+}, () => {
+  const fixture = seedFixture();
+  try {
+    const now = "2026-08-07T01:00:00.000Z";
+    // 创建一条带 1 小时限时的审批，并推进到 waiting_approval。
+    const run = createWorkflowRunSync({
+      workspaceId: fixture.workspaceId,
+      workflowId: fixture.workflowId,
+      versionId: fixture.versionId,
+      triggerType: "manual",
+      triggerKey: `approval-deadline:${fixture.workspaceId}:${Math.random().toString(36).slice(2, 8)}`,
+      inputJson: "{}",
+    });
+    materializeWorkflowNodeRunsSync({
+      workspaceId: fixture.workspaceId,
+      runId: run.id,
+      nodes: [{ nodeId: "approval", nodeType: "approval" }],
+    });
+    const approval = createWorkflowApprovalSync({
+      workspaceId: fixture.workspaceId,
+      runId: run.id,
+      nodeId: "approval",
+      employeeId: EMPLOYEE_ID,
+      channelName: "审批群",
+      contentPreview: "请审批发布内容。",
+      deadlineSeconds: 3600,
+      now,
+    });
+
+    // 1) 限时未到（now 仅过 30 分钟）：扫描不应处理该审批。
+    const beforeExpiry = expireWorkflowApprovalsSync({ now: "2026-08-07T01:30:00.000Z" });
+    assert.deepEqual(beforeExpiry.expiredApprovalIds, []);
+    assert.equal(readWorkflowRunSync(run.id, fixture.workspaceId)?.status, "waiting_approval");
+
+    // 2) 限时已过（now 推进到 2 小时后）：扫描应自动驳回。
+    const sweep = expireWorkflowApprovalsSync({ now: "2026-08-07T03:00:00.000Z" });
+    assert.deepEqual(sweep.expiredApprovalIds, [approval.id]);
+
+    const failedRun = readWorkflowRunSync(run.id, fixture.workspaceId);
+    assert.equal(failedRun?.status, "failed");
+    const nodeRun = listWorkflowNodeRunsSync(fixture.workspaceId, run.id).find((item) => item.nodeId === "approval");
+    assert.equal(nodeRun?.status, "failed");
+    assert.equal(nodeRun?.errorCode, "workflow_approval_deadline_exceeded");
+    // 审批记录自身被标记为 rejected，避免下一轮重复扫描。
+    const approvalRecord = listApprovalsSync(fixture.workspaceId).find((item) => item.id === approval.id);
+    assert.equal(approvalRecord?.status, "rejected");
+
+    // 3) 幂等：再次扫描同一工作区不会重复处理已驳回的审批。
+    const secondSweep = expireWorkflowApprovalsSync({ now: "2026-08-07T04:00:00.000Z" });
+    assert.deepEqual(secondSweep.expiredApprovalIds, []);
   } finally {
     cleanup(fixture);
   }

@@ -207,6 +207,7 @@ export {
   completeWorkflowNodeSync,
   failWorkflowNodeSync,
   completeWorkflowApprovalNodeSync,
+  expireWorkflowApprovalsSync,
   type CompleteWorkflowNodeInput,
 } from "./workflows/coordinator.ts";
 export {

@@ -25,6 +25,8 @@ export interface CreateWorkflowApprovalInput {
   // 指定审批人与风险等级（UIUX:82）：可选，落地到审批记录 metadata 供鉴权与展示。
   reviewerUserId?: string;
   risk?: "low" | "medium" | "high";
+  // 审批限时（秒）：落地为 metadata.expiresAt，到期后由调度扫描自动驳回。
+  deadlineSeconds?: number;
   now?: string;
 }
 
@@ -37,6 +39,10 @@ export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): 
     if (node.approvalId) throw new Error("workflow_approval_already_created");
     const employee = readStoredEmployeeByIdSync(input.employeeId, input.workspaceId);
     if (!employee) throw new Error("workflow_approval_employee_not_ready");
+  // 审批限时：以运行时钟 now 为基准计算 expiresAt，写入 metadata 供调度扫描自动驳回。
+  const expiresAt = input.deadlineSeconds && input.deadlineSeconds > 0
+    ? new Date(Date.parse(input.now ?? new Date().toISOString()) + input.deadlineSeconds * 1000).toISOString()
+    : undefined;
     const approval = listApprovalsSync(input.workspaceId).find((item) => (
       item.sourceId === node.id && item.status === "pending" && item.metadata?.kind === "workflow_node"
     )) ?? createApprovalRequestSync({
@@ -52,6 +58,7 @@ export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): 
         workflowNodeId: node.nodeId,
         ...(input.reviewerUserId ? { reviewerUserId: input.reviewerUserId } : {}),
         ...(input.risk ? { risk: input.risk } : {}),
+        ...(expiresAt ? { expiresAt } : {}),
       },
       }, input.workspaceId).approvals[0];
     if (!approval) throw new Error("workflow_approval_create_failed");
@@ -77,6 +84,7 @@ export function workflowApprovalInputFromNodeConfig(config: Record<string, unkno
   contentPreview: string;
   reviewerUserId?: string;
   risk?: "low" | "medium" | "high";
+  deadlineSeconds?: number;
 } {
   const employeeId = typeof config.employeeId === "string" ? config.employeeId.trim() : "";
   const channelName = typeof config.channelName === "string" ? config.channelName.trim() : "";
@@ -88,13 +96,25 @@ export function workflowApprovalInputFromNodeConfig(config: Record<string, unkno
   // 风险等级：仅接受合法枚举，其余忽略（校验已在 publishing 阶段完成）。
   const risk = config.risk === "low" || config.risk === "medium" || config.risk === "high" ? config.risk : undefined;
   const reviewerUserId = typeof config.reviewerUserId === "string" ? config.reviewerUserId.trim() : "";
+  // 审批限时（秒）：仅接受 1..2592000（最长 30 天）的正整数，其余忽略。
+  const deadlineSeconds = parseApprovalDeadlineSeconds(config.deadlineSeconds);
   return {
     employeeId,
     channelName,
     contentPreview,
     ...(reviewerUserId ? { reviewerUserId } : {}),
     ...(risk ? { risk } : {}),
+    ...(deadlineSeconds ? { deadlineSeconds } : {}),
   };
+}
+
+const APPROVAL_DEADLINE_MAX_SECONDS = 30 * 24 * 60 * 60;
+
+function parseApprovalDeadlineSeconds(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  const seconds = Math.floor(numeric);
+  return seconds >= 1 && seconds <= APPROVAL_DEADLINE_MAX_SECONDS ? seconds : undefined;
 }
 
 export function continueWorkflowAfterApprovalSync(input: {

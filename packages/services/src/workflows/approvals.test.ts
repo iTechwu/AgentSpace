@@ -41,3 +41,26 @@ test("ignores invalid risk values in the approval node config", () => {
     risk: "critical",
   }).risk, undefined);
 });
+
+test("parses the approval deadline from number or string seconds", () => {
+  assert.equal(workflowApprovalInputFromNodeConfig({
+    employeeId: "emp-1",
+    channelName: "项目审批群",
+    deadlineSeconds: 3600,
+  }).deadlineSeconds, 3600);
+  assert.equal(workflowApprovalInputFromNodeConfig({
+    employeeId: "emp-1",
+    channelName: "项目审批群",
+    deadlineSeconds: "7200",
+  }).deadlineSeconds, 7200);
+});
+
+test("rejects out-of-range or non-finite approval deadlines", () => {
+  for (const invalid of [0, -1, 30 * 24 * 60 * 60 + 1, NaN, "", "abc", null]) {
+    assert.equal(workflowApprovalInputFromNodeConfig({
+      employeeId: "emp-1",
+      channelName: "项目审批群",
+      deadlineSeconds: invalid as unknown as number,
+    }).deadlineSeconds, undefined);
+  }
+});

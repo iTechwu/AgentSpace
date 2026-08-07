@@ -140,6 +140,21 @@ export function WorkflowNodeConfigPanel({
               {(members ?? []).map((member) => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}
             </select>
           </label>
+          <label>
+            <span>审批限时（秒，留空表示不限时）</span>
+            <input
+              max={2592000}
+              min={1}
+              onChange={(event) => onEvent({
+                type: "updateNode",
+                nodeId: node.id,
+                patch: { config: { ...node.config, deadlineSeconds: event.target.value ? Number(event.target.value) : undefined } },
+              })}
+              placeholder="例如 3600 表示 1 小时"
+              type="number"
+              value={typeof node.config.deadlineSeconds === "number" ? node.config.deadlineSeconds : ""}
+            />
+          </label>
         </>
       ) : null}
       <label>

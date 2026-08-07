@@ -40,7 +40,7 @@ const WORKFLOW_RUN_STATUSES = new Set<WorkflowRunStatus>([
   "cancelled",
 ]);
 
-const TERMINAL_RUN_STATUSES = new Set<WorkflowRunStatus>([
+const TERMINAL_RUN_STATUSES = new Set<string>([
   "succeeded",
   "partially_succeeded",
   "failed",
@@ -459,6 +459,7 @@ function buildApprovalNodeFields(
   approvalRisk?: "low" | "medium" | "high";
   approvalReviewerLabel?: string;
   approvalSource?: string;
+  approvalDeadlineLabel?: string;
 } {
   const config = parseRecord(node.inputJson);
   const fields: {
@@ -466,6 +467,7 @@ function buildApprovalNodeFields(
     approvalRisk?: "low" | "medium" | "high";
     approvalReviewerLabel?: string;
     approvalSource?: string;
+    approvalDeadlineLabel?: string;
   } = { approvalSource: "工作流审批" };
   if (node.approvalId) fields.approvalId = node.approvalId;
   const risk = config.risk;
@@ -474,7 +476,26 @@ function buildApprovalNodeFields(
   if (reviewerUserId) {
     fields.approvalReviewerLabel = memberLabels.get(reviewerUserId) ?? reviewerUserId;
   }
+  const deadlineLabel = formatApprovalDeadlineLabel(config.deadlineSeconds);
+  if (deadlineLabel) fields.approvalDeadlineLabel = deadlineLabel;
   return fields;
+}
+
+/**
+ * 将审批限时（秒）格式化为易读的中文标签，如「限时：1 小时」「限时：2 天 3 小时」。
+ * 仅接受 1..2592000（最长 30 天）的正数，与发布侧 parseApprovalDeadlineSeconds 对齐。
+ */
+function formatApprovalDeadlineLabel(value: unknown): string | undefined {
+  const seconds = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(seconds) || seconds < 1 || seconds > 30 * 24 * 60 * 60) return undefined;
+  const whole = Math.floor(seconds);
+  const days = Math.floor(whole / 86_400);
+  const hours = Math.floor((whole % 86_400) / 3_600);
+  const minutes = Math.floor((whole % 3_600) / 60);
+  if (days > 0) return `限时：${days} 天${hours > 0 ? ` ${hours} 小时` : ""}`;
+  if (hours > 0) return `限时：${hours} 小时${minutes > 0 ? ` ${minutes} 分钟` : ""}`;
+  if (minutes > 0) return `限时：${minutes} 分钟`;
+  return `限时：${whole} 秒`;
 }
 
 function numberInRange(value: unknown, min: number, max: number, fallback: number): number {

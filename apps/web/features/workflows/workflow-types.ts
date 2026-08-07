@@ -111,11 +111,12 @@ export interface WorkflowNodeRunItem {
   errorCode?: string;
   startedAt?: string;
   finishedAt?: string;
-  // 审批等待详情（UIUX:82）：审批 id（用于跳转审批中心）、风险等级、审批人姓名、来源。
+  // 审批等待详情（UIUX:82）：审批 id（用于跳转审批中心）、风险等级、审批人姓名、来源、限时标签。
   approvalId?: string;
   approvalRisk?: "low" | "medium" | "high";
   approvalReviewerLabel?: string;
   approvalSource?: string;
+  approvalDeadlineLabel?: string;
 }
 
 export interface WorkflowRunPageData {

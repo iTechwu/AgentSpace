@@ -94,6 +94,7 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_approval_node_not_found: ["未找到对应的审批步骤", "Approval step not found"],
     workflow_approval_not_linked: ["审批请求未关联到运行步骤", "The approval request is not linked to a run step"],
     workflow_approval_rejected: ["审批已被驳回", "The approval was rejected"],
+    workflow_approval_deadline_exceeded: ["审批限时已到，未在规定时间内完成审批", "The approval deadline elapsed before a decision was made"],
     workflow_schedule_invalid: ["定时配置无效，请检查时间或 Cron 表达式", "The schedule is invalid. Check the time or cron expression"],
     workflow_schedule_in_past: ["一次性执行时间必须晚于当前时间", "The one-time schedule must be in the future"],
     workflow_schedule_timezone_invalid: ["时区无效，请填写标准 IANA 时区", "Enter a valid IANA timezone"],

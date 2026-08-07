@@ -61,6 +61,7 @@ export const WORKFLOW_ERROR_CODES = [
   "workflow_approval_node_not_found",
   "workflow_approval_not_linked",
   "workflow_approval_rejected",
+  "workflow_approval_deadline_exceeded",
 
   // Schedule, event & trigger
   "workflow_schedule_invalid",
@@ -190,6 +191,7 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   workflow_approval_node_not_found: "未找到对应的审批步骤。",
   workflow_approval_not_linked: "审批请求未关联到运行步骤。",
   workflow_approval_rejected: "审批已被驳回。",
+  workflow_approval_deadline_exceeded: "审批限时已到，未在规定时间内完成审批。",
 
   // Schedule, event & trigger
   workflow_schedule_invalid: "定时配置无效，请检查时间或 Cron 表达式。",

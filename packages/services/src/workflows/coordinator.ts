@@ -17,6 +17,7 @@ import {
   type WorkflowRunRecord,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
+import { listApprovalsSync, reviewApprovalSync } from "../approvals/approvals.ts";
 import {
   buildWorkflowNodeRuntimeContext,
   getWorkflowInputResolutionErrorCode,
@@ -196,9 +197,14 @@ export function completeWorkflowApprovalNodeSync(input: {
   actorUserId: string;
   approved: boolean;
   now?: string;
+  // 驳回时使用的错误码（默认 workflow_approval_rejected）；审批限时到期自动驳回时
+  // 传 workflow_approval_deadline_exceeded，使运行失败原因可区分。
+  errorCode?: string;
+  actorType?: "human" | "system";
 }): WorkflowRunRecord {
   const db = getDatabase();
   const now = input.now ?? new Date().toISOString();
+  const rejectErrorCode = input.approved ? undefined : (input.errorCode ?? "workflow_approval_rejected");
   return withTransaction(db, () => {
     const candidate = readWorkflowNodeRunByApprovalIdSync(input.approvalId, input.workspaceId);
     if (!candidate) throw new Error("workflow_approval_not_linked");
@@ -213,7 +219,7 @@ export function completeWorkflowApprovalNodeSync(input: {
       from: ["waiting_approval"],
       to: input.approved ? "succeeded" : "failed",
       outputJson: input.approved ? JSON.stringify({ approved: true, actorUserId: input.actorUserId }) : undefined,
-      errorCode: input.approved ? undefined : "workflow_approval_rejected",
+      errorCode: rejectErrorCode,
       finishedAt: now,
       now,
     });
@@ -223,24 +229,24 @@ export function completeWorkflowApprovalNodeSync(input: {
       runId: run.id,
       nodeRunId: nodeRun.id,
       type: input.approved ? "approval.approved" : "approval.rejected",
-      actorType: "human",
+      actorType: input.actorType ?? "human",
       actorId: input.actorUserId,
       severity: input.approved ? "info" : "error",
-      dataJson: JSON.stringify({ approvalId: input.approvalId }),
+      dataJson: JSON.stringify({ approvalId: input.approvalId, ...(rejectErrorCode ? { code: rejectErrorCode } : {}) }),
       now,
     });
     if (!input.approved) {
       for (const candidate of listWorkflowNodeRunsSync(input.workspaceId, run.id)) {
         if (candidate.id === updated.id || ["succeeded", "failed", "skipped", "cancelled"].includes(candidate.status)) continue;
         if (candidate.taskQueueId && readQueuedTaskSync(candidate.taskQueueId)) {
-          cancelQueuedTaskSync({ taskId: candidate.taskQueueId, errorText: "workflow_approval_rejected" });
+          cancelQueuedTaskSync({ taskId: candidate.taskQueueId, errorText: rejectErrorCode! });
         }
         transitionWorkflowNodeRunSync({
           workspaceId: input.workspaceId,
           nodeRunId: candidate.id,
           from: [candidate.status],
           to: "cancelled",
-          errorCode: "workflow_approval_rejected",
+          errorCode: rejectErrorCode,
           finishedAt: now,
           now,
         });
@@ -260,7 +266,7 @@ export function completeWorkflowApprovalNodeSync(input: {
         type: "run.failed",
         actorType: "coordinator",
         severity: "error",
-        dataJson: JSON.stringify({ code: "workflow_approval_rejected" }),
+        dataJson: JSON.stringify({ code: rejectErrorCode }),
         now,
       });
       return failedRun;
@@ -273,6 +279,57 @@ export function completeWorkflowApprovalNodeSync(input: {
     advanceDownstream({ workspaceId: input.workspaceId, run, completed: updated, now });
     return finalizeRunIfTerminal(input.workspaceId, run, now);
   });
+}
+
+/**
+ * 审批限时扫描：找出所有 `metadata.expiresAt` 已到期、且节点仍在等待审批的工作流审批，
+ * 以 `workflow_approval_deadline_exceeded` 错误码自动驳回并终结运行。
+ *
+ * 扫描范围以 `workflow_run.status = 'waiting_approval'` 的工作区为界，避免全量遍历；
+ * 由调度器周期性调用（见 scheduler.ts 的 tick）。
+ */
+export function expireWorkflowApprovalsSync(input: {
+  now?: string;
+  limit?: number;
+}): { expiredApprovalIds: string[] } {
+  const db = getDatabase();
+  const now = input.now ?? new Date().toISOString();
+  const nowMs = Date.parse(now);
+  const expiredApprovalIds: string[] = [];
+  const reachedLimit = (): boolean => Boolean(input.limit) && expiredApprovalIds.length >= (input.limit ?? 0);
+  const workspaces = db.prepare(
+    "SELECT DISTINCT workspace_id AS workspaceId FROM workflow_run WHERE status = 'waiting_approval'",
+  ).all() as Array<{ workspaceId: string }>;
+  for (const { workspaceId } of workspaces) {
+    if (reachedLimit()) break;
+    for (const approval of listApprovalsSync(workspaceId)) {
+      if (reachedLimit()) break;
+      if (approval.status !== "pending") continue;
+      if (approval.metadata?.kind !== "workflow_node") continue;
+      const expiresAtRaw = typeof approval.metadata?.expiresAt === "string" ? approval.metadata.expiresAt : undefined;
+      if (!expiresAtRaw) continue;
+      const expiresAtMs = Date.parse(expiresAtRaw);
+      if (!Number.isFinite(expiresAtMs) || expiresAtMs > nowMs) continue;
+      try {
+        // 先把审批记录标记为已驳回（不触发会话消息），避免下一轮重复扫描到同一记录。
+        reviewApprovalSync(approval.id, "rejected", "workflow_approval_deadline_exceeded", workspaceId, { suppressConversationMessage: true });
+        // 再以「限时到期」错误码终结审批节点及其运行，区别于人工驳回。
+        completeWorkflowApprovalNodeSync({
+          workspaceId,
+          approvalId: approval.id,
+          actorUserId: "system",
+          approved: false,
+          errorCode: "workflow_approval_deadline_exceeded",
+          actorType: "system",
+          now,
+        });
+        expiredApprovalIds.push(approval.id);
+      } catch {
+        // 并发冲突或运行已被其它路径终结：跳过该条，下一轮 tick 再处理。
+      }
+    }
+  }
+  return { expiredApprovalIds };
 }
 
 function advanceDownstream(input: { workspaceId: string; run: WorkflowRunRecord; completed: WorkflowNodeRunRecord; now: string }): void {

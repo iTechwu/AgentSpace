@@ -10,6 +10,7 @@ import {
 import { isWorkflowEventName } from "@dofe-agent/domain";
 import { CronExpressionParser } from "cron-parser";
 import { materializeWorkflowRunSync } from "./materialization.ts";
+import { expireWorkflowApprovalsSync } from "./coordinator.ts";
 
 type PublishWorkflowTriggerInput = Omit<UpsertWorkflowTriggerInput, "workspaceId" | "workflowId">;
 
@@ -19,6 +20,8 @@ export interface WorkflowSchedulerTickResult {
   deduplicatedTriggerIds: string[];
   misfiredTriggerIds: string[];
   failedTriggerIds: string[];
+  // 本轮扫描中因审批限时到期而自动驳回的审批 ID。
+  expiredApprovalIds: string[];
 }
 
 export function tickWorkflowSchedulerSync(input: {
@@ -34,6 +37,7 @@ export function tickWorkflowSchedulerSync(input: {
     deduplicatedTriggerIds: [],
     misfiredTriggerIds: [],
     failedTriggerIds: [],
+    expiredApprovalIds: [],
   };
   for (const trigger of triggers) {
     const scheduledAt = trigger.nextFireAt;
@@ -98,6 +102,13 @@ export function tickWorkflowSchedulerSync(input: {
       }
       if (disposition !== "stale") result.failedTriggerIds.push(trigger.id);
     }
+  }
+  // 审批限时扫描：与触发器物化解耦，统一在本轮 tick 末尾执行，避免等待中的审批无限期挂起。
+  try {
+    const expiry = expireWorkflowApprovalsSync({ now: input.now, limit: input.limit });
+    result.expiredApprovalIds = expiry.expiredApprovalIds;
+  } catch {
+    // 扫描失败不阻断本轮触发器处理结果，下一轮 tick 会继续重试。
   }
   return result;
 }
