@@ -12,6 +12,7 @@ import {
   listOpenMontageChannelProjectionsSync,
   listOpenMontageChannelProjectionVersionsSync,
   listOpenMontageNotificationOutboxSync,
+  listOpenMontageReconciliationJobIdsSync,
   listOpenMontageSyncingJobIdsSync,
   readOpenMontageChatBindingSync,
   readOpenMontageJobProjectionSync,
@@ -464,6 +465,51 @@ test("event inbox deduplicates events and rejects attribution changes", () => {
     ),
     /attribution/,
   );
+});
+
+test("reconciliation candidates include syncing and stale non-terminal Jobs only", () => {
+  createLink();
+  createLink({
+    sourceInvocationId: "invocation-2",
+    snapshot: {
+      ...snapshot(),
+      jobId: "om_job_2",
+      status: "RUNNING",
+      updatedAt: "2026-08-05T09:00:00Z",
+    },
+    delegation: {
+      delegationId: "00000000-0000-4000-8000-000000000012",
+      runtimeCredentialId: "00000000-0000-4000-8000-000000000001",
+      modelsTenantId: "00000000-0000-4000-8000-000000000003",
+      modelsTeamId: "00000000-0000-4000-8000-000000000004",
+      mcpConnectionId: "connection-1",
+      secretRef: "vault://runtime-credential/delegation-2",
+      spendLimit: "20.00",
+      currency: "CNY",
+      status: "active",
+      expiresAt: "2026-08-06T09:00:00.000Z",
+    },
+  });
+  const db = getDatabase();
+  db.prepare(
+    "UPDATE openmontage_job_projection SET sync_status = 'SYNCING' WHERE job_id = ?",
+  ).run("om_job_1");
+  db.prepare(
+    "UPDATE openmontage_job_projection SET status = 'RUNNING', updated_at = ? WHERE job_id = ?",
+  ).run("2026-08-05T09:00:00Z", "om_job_2");
+
+  assert.deepEqual(listOpenMontageReconciliationJobIdsSync({
+    staleBefore: "2026-08-05T09:05:00Z",
+    limit: 10,
+  }), ["om_job_1", "om_job_2"]);
+
+  db.prepare(
+    "UPDATE openmontage_job_projection SET status = 'FAILED' WHERE job_id = ?",
+  ).run("om_job_2");
+  assert.deepEqual(listOpenMontageReconciliationJobIdsSync({
+    staleBefore: "2026-08-05T09:05:00Z",
+    limit: 10,
+  }), ["om_job_1"]);
 });
 
 test("out-of-order events remain pending until the missing sequence arrives", () => {

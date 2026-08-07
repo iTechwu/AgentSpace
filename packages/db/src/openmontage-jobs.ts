@@ -424,6 +424,30 @@ export function listOpenMontageSyncingJobIdsSync(options: { limit?: number } = {
   return rows.map((row) => String(row.jobId));
 }
 
+export function listOpenMontageReconciliationJobIdsSync(options: {
+  limit?: number;
+  staleBefore: string;
+}): string[] {
+  const limit = Math.min(500, Math.max(1, Math.floor(options.limit ?? 100)));
+  const staleBefore = new Date(options.staleBefore);
+  if (Number.isNaN(staleBefore.getTime())) {
+    throw new Error("staleBefore must be a valid timestamp");
+  }
+  const rows = getDatabase().prepare(
+    `SELECT job_id AS "jobId"
+       FROM openmontage_job_projection
+      WHERE sync_status = 'SYNCING'
+         OR (
+           status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL')
+           AND updated_at <= ?
+         )
+      ORDER BY CASE WHEN sync_status = 'SYNCING' THEN 0 ELSE 1 END,
+               updated_at ASC, job_id ASC
+      LIMIT ?`,
+  ).all(staleBefore.toISOString(), limit) as Array<Record<string, unknown>>;
+  return rows.map((row) => String(row.jobId));
+}
+
 export function ingestOpenMontageJobEventSync(
   event: OpenMontageJobEvent,
   input: { nonce: string; receivedAt?: string; nonceExpiresAt?: string },

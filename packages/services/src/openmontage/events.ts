@@ -2,7 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { parseOpenMontageJobEvent, type OpenMontageJobEvent } from "@dofe-agent/domain";
 import {
   ingestOpenMontageJobEventSync,
-  listOpenMontageSyncingJobIdsSync,
+  listOpenMontageReconciliationJobIdsSync,
   markOpenMontageNotificationDeliveredSync,
   readOpenMontageJobLinkSync,
   readOpenMontageJobProjectionSync,
@@ -89,7 +89,7 @@ export function verifyOpenMontageEventRequest(input: {
   }
   let event: OpenMontageJobEvent;
   try {
-    event = parseOpenMontageJobEvent(decoded);
+    event = parseOpenMontageJobEvent(normalizeLegacyFailureSummary(decoded));
   } catch (error) {
     throw new OpenMontageEventValidationError("OpenMontage event does not match schema v1.", {
       cause: error,
@@ -187,7 +187,9 @@ export async function reconcileOpenMontageJobAsync(
   const replay = parseReplayResponse(body);
   let lastAppliedSequence = projection.lastAppliedSequence;
   for (const candidate of replay.events) {
-    const event = sanitizeOpenMontageEventForStorage(parseOpenMontageJobEvent(candidate));
+    const event = sanitizeOpenMontageEventForStorage(
+      parseOpenMontageJobEvent(normalizeLegacyFailureSummary(candidate)),
+    );
     const result = ingest(event, {
       nonce: `reconcile-${event.eventId}-${randomUUID()}`,
     });
@@ -214,11 +216,15 @@ export async function reconcileOpenMontageJobAsync(
 
 export async function reconcileSyncingOpenMontageJobsAsync(options: {
   limit?: number;
-  listJobIds?: typeof listOpenMontageSyncingJobIdsSync;
+  staleBefore?: string;
+  listJobIds?: typeof listOpenMontageReconciliationJobIdsSync;
   reconcile?: typeof reconcileOpenMontageJobAsync;
 } = {}): Promise<{ attempted: number; succeeded: number; failed: number }> {
-  const jobIds = (options.listJobIds ?? listOpenMontageSyncingJobIdsSync)({
+  const staleBefore = options.staleBefore
+    ?? new Date(Date.now() - 5 * 60_000).toISOString();
+  const jobIds = (options.listJobIds ?? listOpenMontageReconciliationJobIdsSync)({
     limit: options.limit ?? 50,
+    staleBefore,
   });
   let succeeded = 0;
   let failed = 0;
@@ -371,6 +377,35 @@ function parseReplayResponse(value: unknown): { events: unknown[]; lastSequence:
     throw new Error("OpenMontage reconciliation response sequence is invalid.");
   }
   return { events: source.events, lastSequence: source.lastSequence };
+}
+
+function normalizeLegacyFailureSummary(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const event = value as Record<string, unknown>;
+  const payload = event.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return value;
+  }
+  const error = (payload as Record<string, unknown>).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) {
+    return value;
+  }
+  const message = (error as Record<string, unknown>).message;
+  if (typeof message !== "string" || message.length <= 500) {
+    return value;
+  }
+  return {
+    ...event,
+    payload: {
+      ...(payload as Record<string, unknown>),
+      error: {
+        ...(error as Record<string, unknown>),
+        message: message.slice(-500),
+      },
+    },
+  };
 }
 
 function sanitizePayload(payload: Record<string, unknown>): Record<string, unknown> {

@@ -289,6 +289,7 @@ export {
   listOpenMontageModelDelegationsForMcpConnectionSync,
   listOpenMontageModelDelegationsForRuntimeSync,
   listOpenMontageSyncingJobIdsSync,
+  listOpenMontageReconciliationJobIdsSync,
   markOpenMontageNotificationDeliveredSync,
   readOpenMontageChatBindingSync,
   readOpenMontageJobLinkSync,

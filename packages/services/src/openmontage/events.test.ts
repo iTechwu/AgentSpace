@@ -77,6 +77,24 @@ test("verifies the exact signed bytes and redacts unsafe payload strings", () =>
   assert.match(JSON.stringify(result.event), /\[redacted\]/);
 });
 
+test("accepts legacy signed failure events and bounds their summary before validation", () => {
+  const legacy = event();
+  legacy.payload.error.message = `legacy-prefix-${"x".repeat(700)}-root-cause`;
+  const request = signedRequest({
+    body: new TextEncoder().encode(JSON.stringify(legacy)),
+  });
+
+  const result = verifyOpenMontageEventRequest({
+    ...request,
+    secret: SECRET,
+    now: NOW,
+  });
+
+  const error = result.event.payload.error as { message: string };
+  assert.equal(error.message.length, 500);
+  assert.match(error.message, /root-cause$/);
+});
+
 test("rejects tampered bodies, stale timestamps, and mismatched event ids", () => {
   const valid = signedRequest();
   const tampered = new Uint8Array([...valid.body, 32]);
@@ -192,6 +210,21 @@ test("scheduled reconciliation isolates one Job failure from the remaining batch
 
   assert.deepEqual(attempted, ["om_job_1", "om_job_2"]);
   assert.deepEqual(result, { attempted: 2, succeeded: 1, failed: 1 });
+});
+
+test("scheduled reconciliation includes stale non-terminal Job projections", async () => {
+  const attempted: string[] = [];
+  const result = await reconcileSyncingOpenMontageJobsAsync({
+    limit: 10,
+    listJobIds: () => ["om_job_syncing", "om_job_stale_running"],
+    reconcile: async (jobId) => {
+      attempted.push(jobId);
+      return { received: 1, lastAppliedSequence: 3, remoteLastSequence: 3 };
+    },
+  });
+
+  assert.deepEqual(attempted, ["om_job_syncing", "om_job_stale_running"]);
+  assert.deepEqual(result, { attempted: 2, succeeded: 2, failed: 0 });
 });
 
 test("submits Job actions with trusted attribution, sequence fencing, and immediate reconciliation", async () => {
