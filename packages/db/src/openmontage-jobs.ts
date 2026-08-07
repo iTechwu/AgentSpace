@@ -330,17 +330,20 @@ function readOpenMontagePurgeGuardSync(
     targetType,
     targetId,
   }));
-  const credentialIds = [...new Set(rows.map((row) => String(row.runtimeCredentialId)))];
+  const usageScopeIds = targetType === "runtime"
+    ? [...new Set(rows.map((row) => String(row.runtimeCredentialId)))]
+    : [...new Set(rows.map((row) => String(row.delegationId)))];
   let unreconciledUsageCount = 0;
-  if (credentialIds.length > 0) {
-    const placeholders = credentialIds.map(() => "?").join(", ");
+  if (usageScopeIds.length > 0) {
+    const placeholders = usageScopeIds.map(() => "?").join(", ");
+    const usageScopeColumn = targetType === "runtime" ? "runtime_credential_id" : "delegation_id";
     const count = db.prepare(
       `SELECT COUNT(*) AS count
          FROM token_usage
         WHERE workspace_id = ?
-          AND runtime_credential_id IN (${placeholders})
+          AND ${usageScopeColumn} IN (${placeholders})
           AND billing_status IN ('pending_reconciliation', 'unallocated')`,
-    ).get(workspaceId, ...credentialIds) as { count?: unknown } | undefined;
+    ).get(workspaceId, ...usageScopeIds) as { count?: unknown } | undefined;
     unreconciledUsageCount = Number(count?.count ?? 0);
   }
   return {
