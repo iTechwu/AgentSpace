@@ -175,7 +175,9 @@ export async function publishWorkflowAction(
     const result = publishWorkflowSync({
       workspaceId: context.currentWorkspace.id,
       workflowId: definition.id,
-      graph: input.graph ?? parseWorkflowGraph(definition.draftGraphJson),
+      // 发布必须基于已持久化的草稿图，不能直接使用客户端传来的 graph，
+      // 否则调用者可用当前修订号发布一个从未保存、也没有草稿修改审计的图。
+      graph: parseWorkflowGraph(definition.draftGraphJson),
       governance: input.governance,
       actor: actorFromContext(context),
       expectedDraftVersion: input.expectedDraftVersion,
