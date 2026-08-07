@@ -18104,6 +18104,9 @@ textarea:focus {
 }
 
 .workflow-center__row:hover { background: var(--panel); }
+.workflow-center__load-more { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 16px 0; }
+.workflow-center__load-more span { color: var(--muted); font-size: 12px; }
+.workflow-center__load-more-summary { margin: 12px 0; color: var(--muted); font-size: 12px; text-align: center; }
 
 .workflow-center__identity { display: grid; gap: 4px; min-width: 0; }
 .workflow-center__identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

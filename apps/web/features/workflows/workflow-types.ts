@@ -50,6 +50,7 @@ export interface WorkflowCenterPageData {
     blocked: number;
   };
   recentRuns: WorkflowRunSummary[];
+  recentRunsTotal: number;
 }
 
 export type WorkflowBuilderEntry = "automations" | "calendar" | "task-board";

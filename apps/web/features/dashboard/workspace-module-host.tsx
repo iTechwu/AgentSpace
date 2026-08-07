@@ -244,6 +244,7 @@ export function WorkspaceModuleHost({
     routeState,
     tx,
     workspaceSlug,
+    workspaceId,
   });
   const isColdLoading = !cachedEntry?.data && cachedEntry?.status !== "error" && cachedEntry?.status !== "forbidden";
   const lastResolvedModule = lastResolvedModuleRef.current?.cacheScopeSignature === cacheScopeSignature
@@ -256,6 +257,7 @@ export function WorkspaceModuleHost({
         refreshActiveModuleData,
         handleWorkspaceInvalidation,
         workspaceSlug,
+        workspaceId,
       )
     : null;
   const showPreservedContent = Boolean(
@@ -327,6 +329,7 @@ function renderActiveModuleContent({
   routeState,
   tx,
   workspaceSlug,
+  workspaceId,
 }: {
   cachedEntry?: WorkspaceModuleCacheEntry<WorkspaceModuleLoaderData>;
   onInvalidation: (event: WorkspaceInvalidationEvent) => void;
@@ -334,6 +337,7 @@ function renderActiveModuleContent({
   routeState: WorkspaceModuleRouteState;
   tx: (zh: string, en: string) => string;
   workspaceSlug: string;
+  workspaceId: string;
 }) {
   if (cachedEntry?.data) {
     return (
@@ -350,7 +354,7 @@ function renderActiveModuleContent({
             </button>
           </FeedbackBanner>
         ) : null}
-        {renderWorkspaceModuleData(cachedEntry.data, routeState, onDataChanged, onInvalidation, workspaceSlug)}
+        {renderWorkspaceModuleData(cachedEntry.data, routeState, onDataChanged, onInvalidation, workspaceSlug, workspaceId)}
       </>
     );
   }
@@ -379,6 +383,7 @@ function renderWorkspaceModuleData(
   onDataChanged: (options?: { refreshCounters?: boolean }) => void,
   onInvalidation: (event: WorkspaceInvalidationEvent) => void,
   workspaceSlug: string,
+  workspaceId: string,
 ): React.ReactNode {
   switch (data.moduleId) {
     case "agents":
@@ -393,7 +398,7 @@ function renderWorkspaceModuleData(
     case "approvals":
       return <ApprovalsPageClient data={data.data as ApprovalsPageData} onDataChanged={onDataChanged} onInvalidation={onInvalidation} />;
     case "automations":
-      return <WorkflowListClient data={data.data} workspaceSlug={workspaceSlug} />;
+      return <WorkflowListClient data={data.data} workspaceSlug={workspaceSlug} workspaceId={workspaceId} />;
     case "calendar":
       return <CalendarPageClient data={data.data as CalendarPageData} workspaceSlug={workspaceSlug} />;
     case "contacts":

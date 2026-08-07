@@ -4,6 +4,7 @@ const {
   mockGetDatabase,
   mockListWorkflowDefinitionsSync,
   mockListWorkflowRunsSync,
+  mockCountWorkflowRunsSync,
   mockListWorkspaceMemberUsersSync,
   mockReadCutoverMode,
   mockReadWorkspaceState,
@@ -11,6 +12,7 @@ const {
   mockGetDatabase: vi.fn(),
   mockListWorkflowDefinitionsSync: vi.fn(),
   mockListWorkflowRunsSync: vi.fn(),
+  mockCountWorkflowRunsSync: vi.fn(),
   mockListWorkspaceMemberUsersSync: vi.fn(),
   mockReadCutoverMode: vi.fn(),
   mockReadWorkspaceState: vi.fn(),
@@ -20,6 +22,7 @@ vi.mock("@dofe-agent/db", () => ({
   getDatabase: mockGetDatabase,
   listWorkflowDefinitionsSync: mockListWorkflowDefinitionsSync,
   listWorkflowRunsSync: mockListWorkflowRunsSync,
+  countWorkflowRunsSync: mockCountWorkflowRunsSync,
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
 }));
 vi.mock("@dofe-agent/services", () => ({
@@ -28,18 +31,20 @@ vi.mock("@dofe-agent/services", () => ({
   shouldReadLegacyWorkflowSources: (mode: string) => mode === "legacy_only" || mode === "dual_read",
 }));
 
-import { getWorkflowCenterPageData } from "./workflow-data";
+import { getWorkflowCenterPageData, getWorkflowRunsPageSync } from "./workflow-data";
 
 describe("getWorkflowCenterPageData", () => {
   beforeEach(() => {
     mockListWorkflowDefinitionsSync.mockReset();
     mockListWorkflowRunsSync.mockReset();
+    mockCountWorkflowRunsSync.mockReset();
     mockListWorkspaceMemberUsersSync.mockReset();
     mockGetDatabase.mockReset();
     mockReadCutoverMode.mockReset();
     mockReadWorkspaceState.mockReset();
     mockReadCutoverMode.mockReturnValue("legacy_archived");
     mockReadWorkspaceState.mockReturnValue({ automationRules: [] });
+    mockCountWorkflowRunsSync.mockReturnValue(0);
     mockGetDatabase.mockReturnValue({
       prepare: vi.fn(() => ({ all: vi.fn(() => []) })),
     });
@@ -288,5 +293,46 @@ describe("getWorkflowCenterPageData", () => {
       triggerLabelCode: "schedule",
       nextFireAt: "2026-08-08T01:00:00.000Z",
     });
+  });
+});
+
+describe("getWorkflowRunsPageSync", () => {
+  beforeEach(() => {
+    mockListWorkflowDefinitionsSync.mockReset();
+    mockListWorkflowRunsSync.mockReset();
+    mockCountWorkflowRunsSync.mockReset();
+    mockListWorkflowDefinitionsSync.mockReturnValue([
+      { id: "workflow-daily", name: "Daily brief" },
+    ]);
+  });
+
+  it("paginates runs by limit/offset and reports total and hasMore", () => {
+    // 运行历史分页（UIUX:运行历史分页）：limit/offset 推进，hasMore 由累计已加载是否覆盖 total 决定。
+    mockListWorkflowRunsSync.mockImplementation((_workspaceId: string, limit: number, offset: number) => [
+      { id: `run-${offset}`, workflowId: "workflow-daily", triggerType: "schedule", status: "succeeded", createdAt: "2026-08-06T01:00:00.000Z" },
+      { id: `run-${offset + 1}`, workflowId: "workflow-daily", triggerType: "schedule", status: "failed", createdAt: "2026-08-06T00:00:00.000Z" },
+    ].slice(0, limit));
+    mockCountWorkflowRunsSync.mockReturnValue(5);
+
+    const first = getWorkflowRunsPageSync("default", { limit: 2, offset: 0 });
+    expect(mockListWorkflowRunsSync).toHaveBeenCalledWith("default", 2, 0);
+    expect(first.runs).toHaveLength(2);
+    expect(first.total).toBe(5);
+    expect(first.hasMore).toBe(true);
+
+    const next = getWorkflowRunsPageSync("default", { limit: 2, offset: 2 });
+    expect(mockListWorkflowRunsSync).toHaveBeenLastCalledWith("default", 2, 2);
+    expect(next.hasMore).toBe(true); // 2 + 2 < 5
+
+    const last = getWorkflowRunsPageSync("default", { limit: 2, offset: 4 });
+    // 累计 offset(4) + runs.length(2) = 6 已覆盖 total(5) → 无更多。
+    expect(last.hasMore).toBe(false);
+  });
+
+  it("clamps limit into the supported range and ignores invalid offset", () => {
+    mockListWorkflowRunsSync.mockReturnValue([]);
+    mockCountWorkflowRunsSync.mockReturnValue(0);
+    getWorkflowRunsPageSync("default", { limit: 9999, offset: -3 });
+    expect(mockListWorkflowRunsSync).toHaveBeenCalledWith("default", 200, 0);
   });
 });

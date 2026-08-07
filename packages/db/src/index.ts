@@ -209,6 +209,7 @@ export {
   lockWorkflowRunForUpdateSync,
   readWorkflowRunSyncByTriggerKey,
   listWorkflowRunsSync,
+  countWorkflowRunsSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
   readWorkflowNodeRunByTaskQueueIdSync,

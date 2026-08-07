@@ -19,7 +19,7 @@ export default async function WorkspaceAutomationsPage({
       serverDurationMs={result.meta.durationMs}
       workspaceId={workspaceContext.currentWorkspace.id}
     >
-      <WorkflowListClient data={result.data.data} workspaceSlug={workspaceSlug} />
+      <WorkflowListClient data={result.data.data} workspaceId={workspaceContext.currentWorkspace.id} workspaceSlug={workspaceSlug} />
     </WorkspaceInitialModuleData>
   );
 }

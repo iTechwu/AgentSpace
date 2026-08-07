@@ -7,7 +7,9 @@ import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 import { useManualWorkflowRun } from "./use-manual-workflow-run";
-import type { WorkflowCenterPageData, WorkflowListItem } from "./workflow-types";
+import type { WorkflowCenterPageData, WorkflowListItem, WorkflowRunSummary } from "./workflow-types";
+
+const RUNS_PAGE_SIZE = 50;
 
 type WorkflowCenterTab = "plans" | "runs" | "templates";
 type WorkflowStatusFilter = "all" | WorkflowListItem["status"];
@@ -20,15 +22,23 @@ const TABS: Array<{ id: WorkflowCenterTab; zh: string; en: string }> = [
 
 export function WorkflowListClient({
   data,
+  workspaceId,
   workspaceSlug,
 }: {
   data: WorkflowCenterPageData;
+  workspaceId: string;
   workspaceSlug: string;
 }) {
   const { tx } = useLanguage();
   const [tab, setTab] = useState<WorkflowCenterTab>("plans");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<WorkflowStatusFilter>("all");
+  // 运行历史分页（UIUX:运行历史分页）：SSR 已下发首页 recentRuns，其余通过分页接口懒加载，
+  // 不再硬限制为最近 50 条。runs 按已加载顺序追加，loadMore 在末尾追加下一页。
+  const [runs, setRuns] = useState<WorkflowRunSummary[]>(data.recentRuns);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const hasMoreRuns = runs.length < data.recentRunsTotal;
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     return data.workflows.filter((workflow) =>
@@ -36,6 +46,28 @@ export function WorkflowListClient({
       (!normalizedQuery || workflow.name.toLocaleLowerCase().includes(normalizedQuery)),
     );
   }, [data.workflows, query, status]);
+
+  async function loadMoreRuns(): Promise<void> {
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const response = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}&offset=${runs.length}`,
+        { headers: { accept: "application/json" } },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const page = (await response.json()) as { runs: WorkflowRunSummary[]; total: number; hasMore: boolean };
+      // 去重防御：分页接口以 offset 推进，正常不会重叠；若与 SSR 首页或并发刷新产生重复则按 id 合并。
+      setRuns((previous) => {
+        const seen = new Set(previous.map((run) => run.id));
+        return [...previous, ...page.runs.filter((run) => !seen.has(run.id))];
+      });
+    } catch {
+      setLoadMoreError(tx("加载更多运行记录失败，请稍后重试。", "Failed to load more runs. Please try again."));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   return (
     <section className="page-shell workflow-center">
@@ -106,18 +138,38 @@ export function WorkflowListClient({
 
       {tab === "runs" ? (
         <div aria-labelledby="workflow-tab-runs" id="workflow-panel-runs" role="tabpanel">
-          {data.recentRuns.length > 0 ? (
-            <div aria-label={tx("最近运行", "Recent runs")} className="workflow-center__list" role="list">
-              {data.recentRuns.map((run) => (
-                <div key={run.id} role="listitem">
-                  <Link className="workflow-center__row" href={`/w/${workspaceSlug}/automations/runs/${run.id}`}>
-                    <strong>{run.workflowName}</strong>
-                    <span>{runStatusLabel(run.status, tx)}</span>
-                    <span>{run.finishedAt ? formatCompactTimestamp(run.finishedAt) : tx("进行中", "In progress")}</span>
-                  </Link>
+          {runs.length > 0 ? (
+            <>
+              <div aria-label={tx("最近运行", "Recent runs")} className="workflow-center__list" role="list">
+                {runs.map((run) => (
+                  <div key={run.id} role="listitem">
+                    <Link className="workflow-center__row" href={`/w/${workspaceSlug}/automations/runs/${run.id}`}>
+                      <strong>{run.workflowName}</strong>
+                      <span>{runStatusLabel(run.status, tx)}</span>
+                      <span>{run.finishedAt ? formatCompactTimestamp(run.finishedAt) : tx("进行中", "In progress")}</span>
+                    </Link>
+                  </div>
+                ))}
+              </div>
+              {hasMoreRuns ? (
+                <div className="workflow-center__load-more">
+                  <button
+                    className="knowledge-btn"
+                    disabled={loadingMore}
+                    onClick={() => void loadMoreRuns()}
+                    type="button"
+                  >
+                    {loadingMore ? tx("加载中…", "Loading…") : tx("加载更多", "Load more")}
+                  </button>
+                  <span>
+                    {tx(`已加载 ${runs.length} / ${data.recentRunsTotal} 条`, `${runs.length} of ${data.recentRunsTotal} loaded`)}
+                  </span>
                 </div>
-              ))}
-            </div>
+              ) : (
+                <p className="workflow-center__load-more-summary">{tx(`共 ${data.recentRunsTotal} 条运行记录`, `${data.recentRunsTotal} runs in total`)}</p>
+              )}
+              {loadMoreError ? <p className="workflow-run__notice" role="alert">{loadMoreError}</p> : null}
+            </>
           ) : (
             <EmptyState body={tx("当前工作区还没有运行记录。", "This workspace has no run history yet.")} title={tx("暂无运行", "No runs")} />
           )}

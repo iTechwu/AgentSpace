@@ -20,13 +20,14 @@ const data: WorkflowCenterPageData = {
     { id: "run-2", workflowId: "wf-1", workflowName: "每日简报", status: "failed" as const, triggerType: "schedule", createdAt: "2026-08-06T02:00:00.000Z", finishedAt: "2026-08-06T02:30:00.000Z" },
     { id: "run-1", workflowId: "wf-1", workflowName: "每日简报", status: "succeeded" as const, triggerType: "schedule", createdAt: "2026-08-06T00:00:00.000Z", finishedAt: "2026-08-06T01:00:00.000Z" },
   ],
+  recentRunsTotal: 2,
 };
 
 describe("WorkflowListClient", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("shows plan run template tabs and links to the shared builder", () => {
-    render(<WorkflowListClient data={data} workspaceSlug="default" />);
+    render(<WorkflowListClient data={data} workspaceId="ws-1" workspaceSlug="default" />);
     expect(screen.getByRole("tab", { name: "计划" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "运行" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "模板" })).toBeVisible();
@@ -35,7 +36,7 @@ describe("WorkflowListClient", () => {
 
   it("filters plans and exposes the recent run history on the runs tab", async () => {
     const user = userEvent.setup();
-    render(<WorkflowListClient data={data} workspaceSlug="default" />);
+    render(<WorkflowListClient data={data} workspaceId="ws-1" workspaceSlug="default" />);
     await user.type(screen.getByRole("searchbox", { name: "搜索" }), "不存在");
     expect(screen.getByText("暂无计划")).toBeVisible();
     await user.click(screen.getByRole("tab", { name: "运行" }));
@@ -48,9 +49,42 @@ describe("WorkflowListClient", () => {
 
   it("shows an empty state when there is no run history", async () => {
     const user = userEvent.setup();
-    render(<WorkflowListClient data={{ ...data, recentRuns: [] }} workspaceSlug="default" />);
+    render(<WorkflowListClient data={{ ...data, recentRuns: [] }} workspaceId="ws-1" workspaceSlug="default" />);
     await user.click(screen.getByRole("tab", { name: "运行" }));
     expect(screen.getByText("暂无运行")).toBeVisible();
+  });
+
+  it("loads more runs on demand via the paginated runs API", async () => {
+    // 运行历史分页（UIUX:运行历史分页）：SSR 首页不足 total 时展示「加载更多」，
+    // 点击后按 offset 请求分页接口并追加，不重复已加载运行。
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        runs: [
+          { id: "run-3", workflowId: "wf-1", workflowName: "每日简报", status: "cancelled", triggerType: "schedule", createdAt: "2026-08-05T00:00:00.000Z" },
+        ],
+        total: 3,
+        hasMore: false,
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const paginated: WorkflowCenterPageData = { ...data, recentRunsTotal: 3 };
+    const user = userEvent.setup();
+    render(<WorkflowListClient data={paginated} workspaceId="ws-1" workspaceSlug="default" />);
+    await user.click(screen.getByRole("tab", { name: "运行" }));
+
+    // 首页 2 条 + total 3 → 展示「加载更多」与已加载计数。
+    expect(screen.getByRole("button", { name: "加载更多" })).toBeEnabled();
+    expect(screen.getByText(/已加载 2 \/ 3 条/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "加载更多" }));
+
+    // 追加 run-3 后，加载更多消失（已覆盖 total），并按 offset=2 请求下一页。
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workspaces/ws-1/workflow-runs?limit=50&offset=2",
+      expect.objectContaining({ headers: { accept: "application/json" } }),
+    );
+    expect(screen.getByText(/共 3 条运行记录/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "加载更多" })).not.toBeInTheDocument();
+    fetchMock.mockRestore();
   });
 
   it("surfaces a translated notice when a manual run fails", async () => {
@@ -67,7 +101,7 @@ describe("WorkflowListClient", () => {
       error: { code: "workflow_manual_trigger_required", message: "" },
     });
     const user = userEvent.setup();
-    render(<WorkflowListClient data={manualData} workspaceSlug="default" />);
+    render(<WorkflowListClient data={manualData} workspaceId="ws-1" workspaceSlug="default" />);
 
     await user.click(screen.getByRole("button", { name: "立即运行" }));
 

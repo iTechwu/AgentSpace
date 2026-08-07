@@ -1,4 +1,5 @@
 import {
+  countWorkflowRunsSync,
   getDatabase,
   listEmployeeRuntimeBindingsSync,
   listStoredChannelsSync,
@@ -13,6 +14,7 @@ import {
   readWorkflowTriggerForWorkflowSync,
   readWorkflowVersionSync,
 } from "@dofe-agent/db";
+import type { WorkflowRunRecord } from "@dofe-agent/db";
 import {
   readWorkflowCutoverModeSync,
   readWorkspaceStateSnapshotSync,
@@ -98,19 +100,10 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
   const recentRuns: WorkflowRunSummary[] = [];
   const workflowNamesById = new Map(definitions.map((definition) => [definition.id, definition.name]));
   for (const run of listWorkflowRunsSync(workspaceId, 500)) {
-    if (!isWorkflowRunStatus(run.status)) continue;
+    if (!isStatusfulWorkflowRun(run)) continue;
     // 运行历史（UIUX:140）：收集最近运行用于中心「运行」标签，名称以当前定义为准、
     // 缺失（已归档/删除）时回退 workflowId，避免历史记录随定义消失。
-    recentRuns.push({
-      id: run.id,
-      workflowId: run.workflowId,
-      workflowName: workflowNamesById.get(run.workflowId) ?? run.workflowId,
-      status: run.status,
-      triggerType: run.triggerType,
-      createdAt: run.createdAt,
-      ...(run.startedAt ? { startedAt: run.startedAt } : {}),
-      ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
-    });
+    recentRuns.push(toWorkflowRunSummary(run, workflowNamesById));
     if (!definitionIds.has(run.workflowId) || latestRuns.has(run.workflowId)) {
       continue;
     }
@@ -121,6 +114,9 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
     });
   }
   recentRuns.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  // 运行历史总数（UIUX:运行历史分页）：中心页 SSR 只下发首页（RECENT_RUNS_PAGE_SIZE），
+  // 其余通过 GET /api/workspaces/:id/workflow-runs 分页加载。total 让前端判断是否展示「加载更多」。
+  const recentRunsTotal = countWorkflowRunsSync(workspaceId);
 
   const triggersByWorkflowId = new Map<string, WorkflowTriggerSummary>();
   for (const trigger of listWorkflowTriggerSummaries(workspaceId)) {
@@ -195,7 +191,50 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       paused: workflows.filter((workflow) => workflow.status === "paused").length,
       blocked: workflows.filter((workflow) => workflow.latestRun?.status === "waiting_approval").length,
     },
-    recentRuns: recentRuns.slice(0, 50),
+    recentRuns: recentRuns.slice(0, RECENT_RUNS_PAGE_SIZE),
+    recentRunsTotal,
+  };
+}
+
+/**
+ * 运行历史分页（UIUX:运行历史分页）：中心页 SSR 只下发首页，前端通过此分页函数
+ * （经 GET /api/workspaces/:id/workflow-runs）按 limit/offset 加载更多。
+ *
+ * 排序与 listWorkflowRunsSync 一致（created_at DESC, id DESC），offset 以同一口径推进，
+ * 保证分页连续无重叠无遗漏。total 为工作区运行总数，hasMore = 当前页累计未覆盖 total。
+ */
+export function getWorkflowRunsPageSync(
+  workspaceId: string,
+  input: { limit: number; offset: number },
+): { runs: WorkflowRunSummary[]; total: number; hasMore: boolean } {
+  const limit = Math.max(1, Math.min(Math.trunc(input.limit), 200));
+  const offset = Math.max(0, Math.trunc(input.offset));
+  const workflowNamesById = new Map(
+    listWorkflowDefinitionsSync(workspaceId).map((definition) => [definition.id, definition.name]),
+  );
+  const runs = listWorkflowRunsSync(workspaceId, limit, offset)
+    .filter(isStatusfulWorkflowRun)
+    .map((run) => toWorkflowRunSummary(run, workflowNamesById));
+  const total = countWorkflowRunsSync(workspaceId);
+  return { runs, total, hasMore: offset + runs.length < total };
+}
+
+const RECENT_RUNS_PAGE_SIZE = 50;
+
+/** 把运行记录映射为运行历史摘要，名称以当前定义为准、缺失时回退 workflowId。 */
+function toWorkflowRunSummary(
+  run: { id: string; workflowId: string; status: WorkflowRunStatus; triggerType: string; createdAt: string; startedAt?: string; finishedAt?: string },
+  workflowNamesById: Map<string, string>,
+): WorkflowRunSummary {
+  return {
+    id: run.id,
+    workflowId: run.workflowId,
+    workflowName: workflowNamesById.get(run.workflowId) ?? run.workflowId,
+    status: run.status,
+    triggerType: run.triggerType,
+    createdAt: run.createdAt,
+    ...(run.startedAt ? { startedAt: run.startedAt } : {}),
+    ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
   };
 }
 
@@ -457,6 +496,13 @@ function summarizeWorkflowTopology(graphJson: string): WorkflowTopologySummary {
 
 function isWorkflowRunStatus(value: string): value is WorkflowRunStatus {
   return WORKFLOW_RUN_STATUSES.has(value as WorkflowRunStatus);
+}
+
+// 对象级收窄：isWorkflowRunStatus 只收窄 status 属性，无法让 `run` 本身满足
+// toWorkflowRunSummary 形参（status: WorkflowRunStatus）。此守卫把整条运行收窄为
+// 带 WorkflowRunStatus 的记录，供循环 continue 与 .filter 复用。
+function isStatusfulWorkflowRun(run: WorkflowRunRecord): run is WorkflowRunRecord & { status: WorkflowRunStatus } {
+  return isWorkflowRunStatus(run.status);
 }
 
 function isWorkflowTriggerType(value: unknown): value is WorkflowTriggerSummary["type"] {

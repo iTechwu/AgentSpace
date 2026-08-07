@@ -160,11 +160,23 @@ export function readWorkflowRunSyncByTriggerKey(workspaceId: string, triggerKey:
   return row ? mapRun(row) : null;
 }
 
-export function listWorkflowRunsSync(workspaceId: string, limit = 100): WorkflowRunRecord[] {
+export function listWorkflowRunsSync(workspaceId: string, limit = 100, offset = 0): WorkflowRunRecord[] {
   const safeLimit = Math.max(1, Math.min(limit, 500));
+  const safeOffset = Math.max(0, Math.trunc(offset));
   return (getDatabase().prepare(
-    `${RUN_SELECT} WHERE workspace_id = ? ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`,
+    `${RUN_SELECT} WHERE workspace_id = ? ORDER BY created_at DESC, id DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
   ).all(workspaceId) as Array<Record<string, unknown>>).map(mapRun);
+}
+
+/**
+ * 工作区运行总数，供运行历史分页展示「共 N 条」与判断是否还有更多。
+ * offset/limit 复用 listWorkflowRunsSync 的同一排序口径，保证分页连续无重叠无遗漏。
+ */
+export function countWorkflowRunsSync(workspaceId: string): number {
+  const row = getDatabase().prepare(
+    "SELECT COUNT(*)::integer AS count FROM workflow_run WHERE workspace_id = ?",
+  ).get(workspaceId) as { count?: unknown } | undefined;
+  return typeof row?.count === "number" ? row.count : 0;
 }
 
 export function materializeWorkflowNodeRunsSync(input: MaterializeNodeRunsInput): WorkflowNodeRunRecord[] {
