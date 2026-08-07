@@ -141,13 +141,16 @@ export function reviewWorkflowApprovalSync(input: {
   return withTransaction(getDatabase(), () => {
     const approval = listApprovalsSync(input.workspaceId).find((item) => item.id === input.approvalId);
     if (!approval || approval.metadata?.kind !== "workflow_node") throw new Error("workflow_approval_not_linked");
-    // 指定审批人闭环（UIUX:82）：若设置了 reviewerUserId，仅该成员或工作区管理员可审批；
-    // 其他成员（含未指定的管理员以外角色）一律拒绝，避免「被指定者无法审批、未指定者反可审批」。
+    // 审批授权闭环（UIUX:82）：审批权限与服务层、UI、Web Action 保持一致——
+    //   · 指定了 reviewerUserId：仅该成员或工作区管理员（owner/admin）可审批；
+    //   · 未指定 reviewerUserId：仅工作区管理员可审批（与 UI「默认（管理员/负责人）」、
+    //     Web Action 的管理员要求一致），避免服务层导出接口被任意成员绕过。
     const reviewerUserId = typeof approval.metadata?.reviewerUserId === "string" ? approval.metadata.reviewerUserId.trim() : "";
-    if (reviewerUserId && reviewerUserId !== input.actorUserId) {
-      const actorIsManager = listWorkspaceMembershipsSync(input.workspaceId).some((membership) =>
-        membership.userId === input.actorUserId && (membership.role === "owner" || membership.role === "admin"));
-      if (!actorIsManager) throw new Error("workflow_approval_reviewer_unauthorized");
+    const actorIsManager = listWorkspaceMembershipsSync(input.workspaceId).some((membership) =>
+      membership.userId === input.actorUserId && (membership.role === "owner" || membership.role === "admin"));
+    const actorIsDesignatedReviewer = Boolean(reviewerUserId) && reviewerUserId === input.actorUserId;
+    if (!actorIsManager && !actorIsDesignatedReviewer) {
+      throw new Error("workflow_approval_reviewer_unauthorized");
     }
     const nodeRun = readWorkflowNodeRunByApprovalIdSync(input.approvalId, input.workspaceId);
     if (!nodeRun) throw new Error("workflow_approval_not_linked");

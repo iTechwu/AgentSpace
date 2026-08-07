@@ -286,20 +286,25 @@ export function completeWorkflowApprovalNodeSync(input: {
  * 以 `workflow_approval_deadline_exceeded` 错误码自动驳回并终结运行。
  *
  * 扫描范围以 `workflow_run.status = 'waiting_approval'` 的工作区为界，避免全量遍历；
- * 由调度器周期性调用（见 scheduler.ts 的 tick）。
+ * 由调度器周期性调用（见 scheduler.ts 的 tick）。可选 `workspaceId` 将扫描限定在单个
+ * 工作区内——当调度器以工作区范围调用时，绝不能越界处理其他工作区的审批。
  */
 export function expireWorkflowApprovalsSync(input: {
   now?: string;
   limit?: number;
+  workspaceId?: string;
 }): { expiredApprovalIds: string[] } {
   const db = getDatabase();
   const now = input.now ?? new Date().toISOString();
   const nowMs = Date.parse(now);
   const expiredApprovalIds: string[] = [];
   const reachedLimit = (): boolean => Boolean(input.limit) && expiredApprovalIds.length >= (input.limit ?? 0);
-  const workspaces = db.prepare(
-    "SELECT DISTINCT workspace_id AS workspaceId FROM workflow_run WHERE status = 'waiting_approval'",
-  ).all() as Array<{ workspaceId: string }>;
+  // 工作区范围：传入 workspaceId 时只处理该工作区，避免越权/越界处理其他工作区的审批。
+  const workspaces = input.workspaceId
+    ? [{ workspaceId: input.workspaceId }]
+    : (db.prepare(
+        "SELECT DISTINCT workspace_id AS workspaceId FROM workflow_run WHERE status = 'waiting_approval'",
+      ).all() as Array<{ workspaceId: string }>);
   for (const { workspaceId } of workspaces) {
     if (reachedLimit()) break;
     for (const approval of listApprovalsSync(workspaceId)) {
@@ -311,21 +316,24 @@ export function expireWorkflowApprovalsSync(input: {
       const expiresAtMs = Date.parse(expiresAtRaw);
       if (!Number.isFinite(expiresAtMs) || expiresAtMs > nowMs) continue;
       try {
-        // 先把审批记录标记为已驳回（不触发会话消息），避免下一轮重复扫描到同一记录。
-        reviewApprovalSync(approval.id, "rejected", "workflow_approval_deadline_exceeded", workspaceId, { suppressConversationMessage: true });
-        // 再以「限时到期」错误码终结审批节点及其运行，区别于人工驳回。
-        completeWorkflowApprovalNodeSync({
-          workspaceId,
-          approvalId: approval.id,
-          actorUserId: "system",
-          approved: false,
-          errorCode: "workflow_approval_deadline_exceeded",
-          actorType: "system",
-          now,
+        // 原子性约束：审批状态、节点状态与运行状态必须在同一事务内推进。若终结节点
+        // 或运行失败，整个事务回滚——审批记录仍是 pending，下一轮 tick 会重试，避免
+        // 出现「审批已驳回但运行永久卡在 waiting_approval」的悬挂态。
+        withTransaction(db, () => {
+          reviewApprovalSync(approval.id, "rejected", "workflow_approval_deadline_exceeded", workspaceId, { suppressConversationMessage: true });
+          completeWorkflowApprovalNodeSync({
+            workspaceId,
+            approvalId: approval.id,
+            actorUserId: "system",
+            approved: false,
+            errorCode: "workflow_approval_deadline_exceeded",
+            actorType: "system",
+            now,
+          });
         });
         expiredApprovalIds.push(approval.id);
       } catch {
-        // 并发冲突或运行已被其它路径终结：跳过该条，下一轮 tick 再处理。
+        // 并发冲突或运行已被其它路径终结：整体回滚（审批仍为 pending），下一轮 tick 再处理。
       }
     }
   }

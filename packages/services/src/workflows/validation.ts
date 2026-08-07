@@ -310,6 +310,14 @@ function validateApprovalDependencies(
       blockers.push({ code: "workflow_approval_reviewer_not_ready", nodeId: node.id, employeeId, detail: "reviewer_not_workspace_member" });
     }
   }
+  // 审批限时：可选，但指定时必须是 1..2592000（最长 30 天）的正整数；与运行侧
+  // parseApprovalDeadlineSeconds 保持同一范围，避免非法值发布后被静默降级为无限期。
+  if (node.config.deadlineSeconds !== undefined && node.config.deadlineSeconds !== null && node.config.deadlineSeconds !== "") {
+    const raw = typeof node.config.deadlineSeconds === "number" ? node.config.deadlineSeconds : Number(node.config.deadlineSeconds);
+    if (!Number.isFinite(raw) || Math.floor(raw) !== raw || raw < 1 || raw > 30 * 24 * 60 * 60) {
+      blockers.push({ code: "workflow_approval_deadline_invalid", nodeId: node.id, employeeId, detail: "deadline_seconds_out_of_range" });
+    }
+  }
   return blockers;
 }
 

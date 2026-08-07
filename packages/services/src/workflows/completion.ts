@@ -67,7 +67,9 @@ export function startQueuedTaskWithWorkflowSync(input: {
       now,
     });
     if (transitioned) {
-      transitionWorkflowRunSync({
+      // Run 首次由 created/queued 进入 running 的真实启动路径：transitionWorkflowRunSync 在
+      // 已是 running 时返回 null，因此 run.started 事实事件只会发出一次。
+      const runStarted = transitionWorkflowRunSync({
         workspaceId: input.workspaceId,
         runId: run.id,
         from: ["created", "queued"],
@@ -75,6 +77,15 @@ export function startQueuedTaskWithWorkflowSync(input: {
         startedAt: now,
         now,
       });
+      if (runStarted) {
+        appendWorkflowRunEventSync({
+          workspaceId: input.workspaceId,
+          runId: run.id,
+          type: "run.started",
+          actorType: "daemon",
+          now,
+        });
+      }
       appendWorkflowRunEventSync({
         workspaceId: input.workspaceId,
         runId: run.id,

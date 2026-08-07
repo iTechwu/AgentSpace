@@ -169,33 +169,41 @@ test("approval auth closure blocks non-designated members and admits the designa
   }
 });
 
-test("approval without a designated reviewer is open to any member", {
+test("approval without a designated reviewer falls back to managers only", {
   skip: !hasTestDatabase,
 }, () => {
   const fixture = seedFixture();
   try {
     const now = "2026-08-07T01:00:00.000Z";
-    const run = createWorkflowRunSync({
+    const first = createWorkflowRunSync({
       workspaceId: fixture.workspaceId,
       workflowId: fixture.workflowId,
       versionId: fixture.versionId,
       triggerType: "manual",
-      triggerKey: `approval-open:${fixture.workspaceId}:${Math.random().toString(36).slice(2, 8)}`,
+      triggerKey: `approval-open-block:${fixture.workspaceId}:${Math.random().toString(36).slice(2, 8)}`,
       inputJson: "{}",
     });
-    materializeWorkflowNodeRunsSync({ workspaceId: fixture.workspaceId, runId: run.id, nodes: [{ nodeId: "approval", nodeType: "approval" }] });
-    const approval = createWorkflowApprovalSync({
+    materializeWorkflowNodeRunsSync({ workspaceId: fixture.workspaceId, runId: first.id, nodes: [{ nodeId: "approval", nodeType: "approval" }] });
+    const firstApproval = createWorkflowApprovalSync({
       workspaceId: fixture.workspaceId,
-      runId: run.id,
+      runId: first.id,
       nodeId: "approval",
       employeeId: EMPLOYEE_ID,
       channelName: "审批群",
       contentPreview: "请审批发布内容。",
       now,
     });
-    // 未指定审批人时，任意普通成员都可审批（闭环仅在设置 reviewerUserId 时生效）。
-    const result = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: approval.id, decision: "approved", actorUserId: MEMBER });
-    assert.equal(result.status, "succeeded");
+    // 未指定审批人时，与 UI「默认（管理员/负责人）」、Web Action 管理员要求一致：
+    // 普通成员无权审批，审批仍处于 pending。
+    assert.throws(
+      () => reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: firstApproval.id, decision: "approved", actorUserId: MEMBER }),
+      /workflow_approval_reviewer_unauthorized/,
+    );
+    assert.equal(readWorkflowRunSync(first.id, fixture.workspaceId)?.status, "waiting_approval");
+
+    // 管理员可作为默认审批人放行，运行推进到终态 succeeded。
+    const firstRun = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: firstApproval.id, decision: "approved", actorUserId: ADMIN });
+    assert.equal(firstRun.status, "succeeded");
   } finally {
     cleanup(fixture);
   }

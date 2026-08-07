@@ -7,6 +7,7 @@ import {
   listWorkflowRunEventsSync,
   publishWorkflowVersionSync,
   readWorkflowRunSync,
+  transitionWorkflowDefinitionStatusSync,
   transitionWorkflowRunSync,
 } from "@dofe-agent/db";
 import { rerunWorkflowRunSync } from "./materialization.ts";
@@ -169,5 +170,43 @@ test("rerun rejects a run that has not reached a terminal state", {
     );
   } finally {
     cleanup(seed.workspaceId);
+  }
+});
+
+test("rerun is blocked when the workflow definition is paused or archived (紧急停用)", {
+  skip: !hasTestDatabase,
+}, () => {
+  for (const blockedStatus of ["paused", "archived"] as const) {
+    const seed = seedWorkspace(`wv-rerun-${blockedStatus}-v1`, GRAPH_V1);
+    try {
+      const now = "2026-08-07T01:00:00.000Z";
+      const original = createWorkflowRunSync({
+        workspaceId: seed.workspaceId,
+        workflowId: seed.workflowId,
+        versionId: seed.versionId,
+        triggerType: "manual",
+        triggerKey: `${seed.workflowId}:${blockedStatus}-original:${now}`,
+        inputJson: "{}",
+      });
+      transitionWorkflowRunSync({ workspaceId: seed.workspaceId, runId: original.id, from: ["created"], to: "failed", finishedAt: now, now });
+
+      // 将定义切换到 paused/archived：紧急停用后，已终结运行的重跑也必须被拒绝，
+      // 否则暂停/归档无法真正阻止新的运行（业务架构文档:79）。
+      const transitioned = transitionWorkflowDefinitionStatusSync({
+        id: seed.workflowId,
+        workspaceId: seed.workspaceId,
+        from: ["published"],
+        to: blockedStatus,
+        now,
+      });
+      assert.ok(transitioned, `definition should transition to ${blockedStatus}`);
+
+      assert.throws(
+        () => rerunWorkflowRunSync({ workspaceId: seed.workspaceId, runId: original.id, idempotencyKey: `${blockedStatus}-k1`, createdBy: "u1", now }),
+        /workflow_definition_not_runnable/,
+      );
+    } finally {
+      cleanup(seed.workspaceId);
+    }
   }
 });

@@ -209,6 +209,33 @@ test("approval preflight validates risk enum and designated reviewer membership"
   }, inventory), []);
 });
 
+test("approval preflight validates deadlineSeconds range (1s..30d positive integer)", () => {
+  const inventory = {
+    employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
+    assignedSkills: new Set<string>(),
+    channels: new Map([["项目审批群", { employeeNames: ["研究员"] }]]),
+    memberUserIds: new Set(["user-1"]),
+  };
+  const base = { employeeId: "emp-1", channelName: "项目审批群" };
+  // 非法：0、负数、小数、超出 30 天上限、非数字。
+  for (const bad of [0, -1, 0.5, 30 * 24 * 60 * 60 + 1, "abc"]) {
+    assert.deepEqual(validateWorkflowNodeDependencies({
+      id: "approval", type: "approval", config: { ...base, deadlineSeconds: bad },
+    }, inventory).map((blocker) => blocker.code), ["workflow_approval_deadline_invalid"],
+      `deadlineSeconds=${String(bad)} should be invalid`);
+  }
+  // 合法：1 秒、1 小时、正好 30 天；数字与数字字符串都接受。
+  for (const ok of [1, 3600, 30 * 24 * 60 * 60, "60"]) {
+    assert.deepEqual(validateWorkflowNodeDependencies({
+      id: "approval", type: "approval", config: { ...base, deadlineSeconds: ok },
+    }, inventory), [], `deadlineSeconds=${String(ok)} should be valid`);
+  }
+  // 不设置 deadlineSeconds 时不报错。
+  assert.deepEqual(validateWorkflowNodeDependencies({
+    id: "approval", type: "approval", config: { ...base },
+  }, inventory), []);
+});
+
 test("dispatch readiness detects deleted and offline employees", () => {
   const node = { id: "research", type: "employee_task" as const, employeeId: "emp-1", config: {} };
   assert.equal(validateWorkflowEmployeeReadiness(node, new Map(), new Map())?.detail, "employee_not_found");

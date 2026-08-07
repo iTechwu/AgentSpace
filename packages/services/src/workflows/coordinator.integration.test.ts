@@ -11,6 +11,7 @@ import {
   transitionWorkflowNodeRunSync,
 } from "@dofe-agent/db";
 import { completeWorkflowNodeSync, failWorkflowNodeSync } from "./coordinator.ts";
+import { startQueuedTaskWithWorkflowSync } from "./completion.ts";
 
 const hasTestDatabase = Boolean(
   process.env.DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE
@@ -146,6 +147,62 @@ test("run.started and run.succeeded are emitted across the run lifecycle", {
     assert.equal(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "succeeded");
     // run.started 只应出现一次（幂等）。
     assert.equal(types.filter((type) => type === "run.started").length, 1);
+  } finally {
+    cleanup(seed.workspaceId);
+  }
+});
+
+test("run.started is emitted on the real daemon start path (startQueuedTaskWithWorkflowSync)", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 单节点图：daemon 领取 queued 任务并调用 startQueuedTaskWithWorkflowSync 时，
+  // run 首次由 created → running 的真实启动路径必须补发 run.started（原先只在
+  // finalizeRunIfTerminal 兜底补发，节点完成时才触发，导致生命周期事实事件缺失）。
+  const graphJson = JSON.stringify({
+    schemaVersion: 1,
+    nodes: [{ id: "solo", type: "employee_task", employeeId: "emp-a", config: {} }],
+    edges: [],
+  });
+  const seed = seedWorkspace(graphJson, 1);
+  try {
+    const run = createWorkflowRunSync({
+      workspaceId: seed.workspaceId,
+      workflowId: seed.workflowId,
+      versionId: seed.versionId,
+      triggerType: "manual",
+      triggerKey: `coordinator:realstart-${seed.workspaceId}`,
+      inputJson: "{}",
+    });
+    const [node] = materializeWorkflowNodeRunsSync({
+      workspaceId: seed.workspaceId,
+      runId: run.id,
+      nodes: [{ nodeId: "solo", nodeType: "employee_task", employeeId: "emp-a" }],
+    });
+    const taskId = seedQueuedTask(seed.workspaceId, `${seed.workspaceId}-solo`);
+    transitionWorkflowNodeRunSync({
+      workspaceId: seed.workspaceId,
+      nodeRunId: node!.id,
+      from: ["pending"],
+      to: "queued",
+      taskQueueId: taskId,
+    });
+
+    // daemon 真实启动：此时 run 仍为 created，应在此处推进到 running 并补发 run.started。
+    const result = startQueuedTaskWithWorkflowSync({ workspaceId: seed.workspaceId, taskQueueId: taskId });
+    assert.equal(result.startedNow, true);
+    assert.equal(result.ignored, false);
+    assert.equal(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "running");
+
+    const types = listWorkflowRunEventsSync(seed.workspaceId, run.id).map((event) => event.type);
+    assert.ok(types.includes("run.started"), `expected run.started in ${JSON.stringify(types)}`);
+    assert.equal(types.filter((type) => type === "run.started").length, 1, "run.started must be emitted exactly once");
+    // node.started 同样在真实启动路径补发。
+    assert.ok(types.includes("node.started"), `expected node.started in ${JSON.stringify(types)}`);
+
+    // 再次启动同一任务：node 已是 running，run 已是 running，幂等返回且不再重复发 run.started。
+    startQueuedTaskWithWorkflowSync({ workspaceId: seed.workspaceId, taskQueueId: taskId });
+    const typesAfterRepeat = listWorkflowRunEventsSync(seed.workspaceId, run.id).map((event) => event.type);
+    assert.equal(typesAfterRepeat.filter((type) => type === "run.started").length, 1, "run.started must not be duplicated on repeat start");
   } finally {
     cleanup(seed.workspaceId);
   }

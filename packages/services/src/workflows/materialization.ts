@@ -220,6 +220,11 @@ export function rerunWorkflowRunSync(input: RerunWorkflowRunInput): { runId: str
     if (!RERUN_TERMINAL_RUN_STATUSES.has(original.status)) throw new Error("workflow_run_not_terminal");
     const definition = lockWorkflowDefinitionForUpdateSync(original.workflowId, input.workspaceId);
     if (!definition) throw new Error("workflow_definition_not_found");
+    // 重跑也受「暂停/归档」约束（业务架构：暂停与归档规则、紧急停用能力）：归档或暂停的
+    // 工作流不允许发起新运行，避免重跑绕过紧急停用。
+    if (definition.status === "archived" || definition.status === "paused") {
+      throw new Error("workflow_definition_not_runnable");
+    }
     const version = readWorkflowVersionSync(original.versionId, input.workspaceId);
     if (!version) throw new Error("workflow_version_not_found");
     const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;

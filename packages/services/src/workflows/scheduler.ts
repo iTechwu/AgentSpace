@@ -104,8 +104,10 @@ export function tickWorkflowSchedulerSync(input: {
     }
   }
   // 审批限时扫描：与触发器物化解耦，统一在本轮 tick 末尾执行，避免等待中的审批无限期挂起。
+  // 当调度器以工作区范围调用（workspaceId）时，扫描必须同样限定在该工作区内，
+  // 不得越界处理其他工作区的审批。
   try {
-    const expiry = expireWorkflowApprovalsSync({ now: input.now, limit: input.limit });
+    const expiry = expireWorkflowApprovalsSync({ now: input.now, limit: input.limit, ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}) });
     result.expiredApprovalIds = expiry.expiredApprovalIds;
   } catch {
     // 扫描失败不阻断本轮触发器处理结果，下一轮 tick 会继续重试。
