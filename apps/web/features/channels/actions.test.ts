@@ -25,7 +25,6 @@ const {
   mockReviewApprovalSync,
   mockReviewApprovalWithWorkflowSync,
   mockCancelWorkflowRunSync,
-  mockReplacePendingChannelMessageSync,
   mockCancelQueuedTaskSync,
   mockReadQueuedTaskSync,
   mockReadWorkflowDefinitionSync,
@@ -40,8 +39,6 @@ const {
   mockSendHumanDirectMessageSync,
   mockUnpinMessageSync,
   mockValidateSessionModelOverrideForChatCommandAsync,
-  mockCancelQueuedTaskSync,
-  mockReadQueuedTaskSync,
 } = vi.hoisted(() => ({
   mockAddChannelEmployeesSync: vi.fn(),
   mockAddWorkspaceMemberToChannelForActorSync: vi.fn(),
@@ -67,7 +64,6 @@ const {
   mockReviewApprovalSync: vi.fn(),
   mockReviewApprovalWithWorkflowSync: vi.fn(),
   mockCancelWorkflowRunSync: vi.fn(),
-  mockReplacePendingChannelMessageSync: vi.fn(),
   mockCancelQueuedTaskSync: vi.fn(),
   mockReadQueuedTaskSync: vi.fn(),
   mockReadWorkflowDefinitionSync: vi.fn(),
@@ -82,8 +78,6 @@ const {
   mockSendHumanDirectMessageSync: vi.fn(),
   mockUnpinMessageSync: vi.fn(),
   mockValidateSessionModelOverrideForChatCommandAsync: vi.fn(),
-  mockCancelQueuedTaskSync: vi.fn(),
-  mockReadQueuedTaskSync: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/services", () => ({
@@ -127,8 +121,6 @@ vi.mock("@dofe-agent/services", () => ({
   reviewApprovalSync: mockReviewApprovalSync,
   reviewApprovalWithWorkflowSync: mockReviewApprovalWithWorkflowSync,
   cancelWorkflowRunSync: mockCancelWorkflowRunSync,
-  replacePendingChannelMessageSync: mockReplacePendingChannelMessageSync,
-  listApprovalsSync: vi.fn(() => []),
   approveChannelAccessRequestForActorSync: vi.fn(),
   rejectChannelAccessRequestForActorSync: vi.fn(),
   inviteUserToChannelForActorSync: vi.fn(),
@@ -184,7 +176,6 @@ import {
   sendChannelMessageAction,
   sendHumanDirectMessageAction,
   getChannelDetailDataAction,
-  stopChannelTaskAction,
 } from "./actions";
 
 describe("channel actions", () => {
@@ -732,6 +723,15 @@ describe("channel actions", () => {
     mockReadWorkflowNodeRunByTaskQueueIdSync.mockReturnValue({ id: "node-run-1", runId: "run-1" });
     mockReadWorkflowRunSync.mockReturnValue({ id: "run-1", workflowId: "workflow-1" });
     mockReadWorkflowDefinitionSync.mockReturnValue({ id: "workflow-1", ownerUserId: "another-user" });
+    mockReadWorkspaceStateSync.mockReturnValue({
+      channels: [{ name: "general", humanMemberNames: ["techwu"] }],
+      messages: [{
+        id: "message-pending",
+        channel: "general",
+        status: "pending",
+        data: { source_task_queue_id: "queue-1" },
+      }],
+    });
 
     await stopChannelTaskAction("queue-1");
 

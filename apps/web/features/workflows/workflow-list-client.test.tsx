@@ -2,12 +2,13 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowListClient } from "./workflow-list-client";
+import type { WorkflowCenterPageData } from "./workflow-types";
 
 vi.mock("@/features/i18n/language-provider", () => ({ useLanguage: () => ({ tx: (zh: string) => zh }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("./workflow-actions", () => ({ runWorkflowAction: vi.fn() }));
 
-const data = {
+const data: WorkflowCenterPageData = {
   workflows: [{
     id: "wf-1", name: "每日简报", status: "published" as const, ownerLabel: "负责人", triggerLabelCode: "schedule",
     topology: { employeeNodeCount: 4, parallelGroupCount: 1, hasApproval: false },
