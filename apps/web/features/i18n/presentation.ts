@@ -1,5 +1,6 @@
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import type { LedgerItem, WorkspaceMessage } from "@/shared/types/workspace";
+import type { WorkflowErrorCode } from "@dofe-agent/domain";
 
 export type TxFn = (zh: string, en: string) => string;
 
@@ -46,7 +47,7 @@ export function translateWorkflowTriggerType(value: string | undefined, tx: TxFn
 }
 
 export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = zhTx): string {
-  const labels: Record<string, [string, string]> = {
+  const labels: Record<WorkflowErrorCode, [string, string]> = {
     workflow_actor_forbidden: ["当前成员没有执行此操作的权限", "You do not have permission to perform this operation"],
     workflow_version_conflict: ["草稿已被其他编辑者更新，请刷新后重试", "The draft was updated elsewhere. Refresh and try again"],
     workflow_definition_not_found: ["未找到工作流", "Workflow not found"],
@@ -110,8 +111,13 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_output_too_large: ["步骤输出超过 256 KiB，请缩小摘要或改用产物引用", "The step output exceeds 256 KiB. Shorten it or use an artifact reference"],
     workflow_output_field_invalid: ["输出字段名称无效、重复或数量超限", "Output field names are invalid, duplicated, or over the limit"],
     workflow_output_field_unsupported: ["输入映射引用了上游未声明的输出字段", "The input mapping references an undeclared upstream output field"],
+    workflow_definition_control_conflict: ["工作流状态已变化，请刷新后重试", "The workflow state changed. Refresh and try again"],
+    workflow_misfire_policy_invalid: ["错过执行策略无效，请重新选择", "The misfire policy is invalid. Choose again"],
+    workflow_channel_not_found: ["所选频道不存在或不在当前工作空间内", "The selected channel does not exist in this workspace"],
+    workflow_approval_risk_invalid: ["审批风险等级无效，请重新选择", "The approval risk level is invalid. Choose again"],
+    workflow_approval_reviewer_not_ready: ["指定的审批人不在当前工作空间内", "The selected reviewer is not a member of this workspace"],
   };
-  const label = code ? labels[code] : undefined;
+  const label = code ? labels[code as WorkflowErrorCode] : undefined;
   return label ? tx(label[0], label[1]) : tx("工作流操作未完成，请稍后重试", "The workflow operation did not complete. Try again later");
 }
 

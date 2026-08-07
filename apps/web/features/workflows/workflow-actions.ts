@@ -7,7 +7,7 @@ import {
   readWorkflowTriggerForWorkflowSync,
   updateWorkflowDraftSync,
 } from "@dofe-agent/db";
-import { WORKFLOW_GRAPH_ERROR_CODES, type WorkflowGraphDefinition } from "@dofe-agent/domain";
+import { WORKFLOW_ERROR_CODE_SET, workflowErrorMessageZh, type WorkflowGraphDefinition } from "@dofe-agent/domain";
 import {
   assertTriggerWriteOwnerSync,
   cancelWorkflowRunSync,
@@ -280,7 +280,7 @@ function failure(error: unknown): WorkflowActionResult<never> {
   const rawCode = error instanceof Error ? error.message : "workflow_unknown_error";
   const code = rawCode === "workflow_draft_version_conflict" || rawCode === "workflow_definition_conflict"
     ? "workflow_version_conflict"
-    : STABLE_ERROR_CODES.has(rawCode) ? rawCode : "workflow_operation_failed";
+    : WORKFLOW_ERROR_CODE_SET.has(rawCode) ? rawCode : "workflow_operation_failed";
   const validation = error && typeof error === "object" && "validation" in error
     ? (error as { validation?: WorkflowPublishValidation }).validation
     : undefined;
@@ -289,66 +289,10 @@ function failure(error: unknown): WorkflowActionResult<never> {
     ok: false,
     error: {
       code: blocker?.code ?? code,
-      message: workflowErrorMessage(blocker?.code ?? code),
+      message: workflowErrorMessageZh(blocker?.code ?? code),
       ...(blocker?.nodeId ? { nodeId: blocker.nodeId } : {}),
     },
   };
-}
-
-const STABLE_ERROR_CODES = new Set([
-  ...WORKFLOW_GRAPH_ERROR_CODES,
-  "workflow_definition_not_found", "workflow_definition_archived", "workflow_definition_not_published",
-  "workflow_definition_control_conflict",
-  "workflow_manual_trigger_required",
-  "workflow_actor_forbidden", "workflow_employee_not_ready", "workflow_run_not_found", "workflow_run_control_conflict",
-  "workflow_run_commit_in_progress", "workflow_run_not_startable", "workflow_task_commit_conflict",
-  "workflow_completion_effect_uncertain", "workflow_node_manual_compensation_required",
-  "workflow_node_run_not_found", "workflow_node_not_retryable", "workflow_node_retry_exhausted", "workflow_node_retry_conflict",
-  "workflow_trigger_cross_workspace_conflict", "workflow_trigger_duplicate", "workflow_active_version_missing", "workflow_workspace_mismatch",
-  "workflow_trigger_owner_conflict",
-  "workflow_cross_workspace_reference", "workflow_budget_exceeded", "workflow_input_reference_missing",
-  "workflow_output_invalid", "workflow_output_too_large",
-  "workflow_input_reference_invalid", "workflow_input_reference_not_upstream", "workflow_join_reference_missing", "workflow_output_field_invalid", "workflow_output_field_unsupported",
-  "workflow_skill_not_ready", "workflow_channel_not_ready", "workflow_budget_invalid",
-  "workflow_concurrency_invalid", "workflow_retry_policy_invalid",
-  "workflow_approval_employee_not_ready", "workflow_approval_channel_not_ready",
-  "workflow_schedule_invalid", "workflow_schedule_in_past", "workflow_schedule_timezone_invalid",
-  "workflow_misfire_policy_invalid",
-  "workflow_event_invalid",
-  "workflow_graph_invalid",
-]);
-
-function workflowErrorMessage(code: string): string {
-  const messages: Record<string, string> = {
-    workflow_version_conflict: "草稿已被其他编辑者更新，请刷新后重试。",
-    workflow_definition_not_found: "未找到工作流。",
-    workflow_definition_archived: "已归档的工作流不能编辑。",
-    workflow_definition_not_published: "请先发布工作流。",
-    workflow_definition_control_conflict: "工作流状态已变化，请刷新后重试。",
-    workflow_manual_trigger_required: "只有已发布的手动触发工作流可以立即运行。",
-    workflow_employee_not_ready: "工作流中的 AI 员工尚未就绪。",
-    workflow_approval_employee_not_ready: "请选择提交审批的 AI 员工。",
-    workflow_approval_channel_not_ready: "提交审批的 AI 员工尚未加入审批频道。",
-    workflow_schedule_invalid: "定时配置无效，请检查时间或 Cron 表达式。",
-    workflow_schedule_in_past: "一次性执行时间必须晚于当前时间。",
-    workflow_schedule_timezone_invalid: "时区无效，请填写标准 IANA 时区。",
-    workflow_misfire_policy_invalid: "错过执行策略无效，请重新选择。",
-    workflow_event_invalid: "事件名称无效，请检查后重试。",
-    workflow_run_not_found: "未找到运行记录。",
-    workflow_run_control_conflict: "运行状态已变化，请刷新后重试。",
-    workflow_run_commit_in_progress: "步骤结果正在提交，请稍后再取消运行。",
-    workflow_run_not_startable: "运行已暂停或结束，当前步骤不能开始执行。",
-    workflow_task_commit_conflict: "步骤提交状态已变化，请刷新后重试。",
-    workflow_completion_effect_uncertain: "外部操作状态不确定，请先检查并补偿。",
-    workflow_node_manual_compensation_required: "请先检查并补偿外部操作，再处理此步骤。",
-    workflow_node_retry_exhausted: "该步骤已达到最大重试次数。",
-    workflow_output_invalid: "AI 员工未返回步骤声明的输出字段，请检查输出字段或任务说明。",
-    workflow_output_too_large: "步骤输出超过 256 KiB，请缩小摘要或改用产物引用。",
-    workflow_output_field_invalid: "输出字段名称无效、重复或数量超限。",
-    workflow_output_field_unsupported: "输入映射引用了上游未声明的输出字段。",
-    workflow_retry_policy_invalid: "最大尝试次数必须是 1 到 10 之间的整数。",
-  };
-  return messages[code] ?? "工作流操作未完成，请稍后重试。";
 }
 
 function requireDefinition(workflowId: string, workspaceId: string) {

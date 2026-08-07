@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WORKFLOW_GRAPH_ERROR_CODES } from "@dofe-agent/domain";
+import { WORKFLOW_ERROR_CODES } from "@dofe-agent/domain";
 import {
   translateWorkflowErrorCode,
   translateWorkflowNodeStatus,
@@ -64,8 +64,8 @@ describe("workflow presentation translations", () => {
   });
 });
 
-describe("workflow graph validation translations", () => {
-  it.each(WORKFLOW_GRAPH_ERROR_CODES)("provides a non-generic translation for %s", (code) => {
+describe("workflow error-code translations", () => {
+  it.each(WORKFLOW_ERROR_CODES)("provides a non-generic translation for %s", (code) => {
     expect(translateWorkflowErrorCode(code)).not.toBe("工作流操作未完成，请稍后重试");
   });
 
