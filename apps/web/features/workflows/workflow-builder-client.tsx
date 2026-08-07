@@ -9,6 +9,7 @@ import {
   createWorkflowDraftAction,
   controlWorkflowDefinitionAction,
   publishWorkflowAction,
+  runWorkflowAction,
   updateWorkflowDraftAction,
   validateWorkflowAction,
 } from "./workflow-actions";
@@ -36,11 +37,15 @@ export function WorkflowBuilderClient({
   workspaceSlug,
   entry,
   employees,
+  channels,
+  ownerLabel,
   initial,
 }: {
   workspaceSlug: string;
   entry: WorkflowBuilderEntry;
   employees: WorkflowBuilderEmployee[];
+  channels: string[];
+  ownerLabel: string;
   initial?: WorkflowBuilderInitialValue;
 }) {
   const router = useRouter();
@@ -48,7 +53,8 @@ export function WorkflowBuilderClient({
   const [definitionStatus, setDefinitionStatus] = useState(initial?.status ?? "draft");
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
-  const [savedMetadata, setSavedMetadata] = useState({ name: initial?.name ?? "", description: initial?.description ?? "" });
+  const [channelName, setChannelName] = useState(initial?.channelName ?? "");
+  const [savedMetadata, setSavedMetadata] = useState({ name: initial?.name ?? "", description: initial?.description ?? "", channelName: initial?.channelName ?? "" });
   const [draft, dispatch] = useReducer(
     workflowDraftReducer,
     undefined,
@@ -68,7 +74,7 @@ export function WorkflowBuilderClient({
   const [budgetUsd, setBudgetUsd] = useState(initial?.governance.budgetUsd ? String(initial.governance.budgetUsd) : "");
   const [configurationDirty, setConfigurationDirty] = useState(false);
   const [validation, setValidation] = useState<WorkflowPublishValidation | null>(null);
-  const [pendingAction, setPendingAction] = useState<"save" | "preflight" | "publish" | "pause" | "resume" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"save" | "preflight" | "publish" | "pause" | "resume" | "run" | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [parallelSource, setParallelSource] = useState("");
   const [parallelEmployeeA, setParallelEmployeeA] = useState("");
@@ -78,7 +84,7 @@ export function WorkflowBuilderClient({
     () => ({ schemaVersion: 1, nodes: draft.nodes, edges: draft.edges }),
     [draft.edges, draft.nodes],
   );
-  const metadataDirty = name !== savedMetadata.name || description !== savedMetadata.description;
+  const metadataDirty = name !== savedMetadata.name || description !== savedMetadata.description || channelName !== savedMetadata.channelName;
   const draftDirty = draft.dirty || metadataDirty;
   const isDirty = draftDirty || configurationDirty;
   const errorNodeIds = validation?.blockers.flatMap((blocker) => blocker.nodeId ? [blocker.nodeId] : []) ?? [];
@@ -128,7 +134,7 @@ export function WorkflowBuilderClient({
       const result = await updateWorkflowDraftAction({
           workflowId,
           expectedDraftVersion: draft.draftVersion,
-          patch: { name, description, graph },
+          patch: { name, description, channelName: channelName.trim() || null, graph },
         });
       setPendingAction(null);
       if (!result.ok) {
@@ -137,7 +143,7 @@ export function WorkflowBuilderClient({
       }
       saved = { workflowId, draftVersion: result.data.draftVersion, graph: result.data.graph };
     } else {
-      const result = await createWorkflowDraftAction({ name, description, graph });
+      const result = await createWorkflowDraftAction({ name, description, channelName: channelName.trim() || undefined, graph });
       setPendingAction(null);
       if (!result.ok) {
         setNotice({ tone: "error", message: translateWorkflowErrorCode(result.error.code) });
@@ -147,7 +153,7 @@ export function WorkflowBuilderClient({
     }
     setWorkflowId(saved.workflowId);
     dispatch({ type: "markSaved", canonical: saved.graph, draftVersion: saved.draftVersion });
-    setSavedMetadata({ name, description });
+    setSavedMetadata({ name, description, channelName });
     setValidation(null);
     setNotice({ tone: "success", message: "草稿已保存。" });
     if (!workflowId) router.replace(`/w/${encodeURIComponent(workspaceSlug)}/automations/${encodeURIComponent(saved.workflowId)}`);
@@ -216,6 +222,22 @@ export function WorkflowBuilderClient({
     router.refresh();
   }
 
+  async function runNow(): Promise<void> {
+    if (!workflowId || definitionStatus !== "published" || triggerType !== "manual") return;
+    setPendingAction("run");
+    const result = await runWorkflowAction({
+      workflowId,
+      idempotencyKey: createManualRunKey(workflowId),
+      input: {},
+    });
+    setPendingAction(null);
+    if (!result.ok) {
+      setNotice({ tone: "error", message: translateWorkflowErrorCode(result.error.code) });
+      return;
+    }
+    router.push(`/w/${encodeURIComponent(workspaceSlug)}/automations/runs/${encodeURIComponent(result.data.runId)}`);
+  }
+
   function focusNode(nodeId: string): void {
     setSelectedNodeId(nodeId);
     setActiveStep(2);
@@ -247,6 +269,7 @@ export function WorkflowBuilderClient({
         </div>
         <div className="workflow-wizard__header-actions">
           <span className="workflow-wizard__save-state">{draftDirty ? "有未保存修改" : configurationDirty ? "有待发布配置" : "草稿已同步"}</span>
+          {definitionStatus === "published" && triggerType === "manual" ? <button className="knowledge-btn knowledge-btn--primary" disabled={pendingAction !== null} onClick={() => void runNow()} type="button">{pendingAction === "run" ? "启动中" : "立即运行"}</button> : null}
           {definitionStatus === "published" ? <button className="knowledge-btn" disabled={pendingAction !== null} onClick={() => void controlDefinition("pause")} title="暂停新触发" type="button">{pendingAction === "pause" ? "暂停中" : "暂停"}</button> : null}
           {definitionStatus === "paused" ? <button className="knowledge-btn" disabled={pendingAction !== null} onClick={() => void controlDefinition("resume")} title="恢复未来触发" type="button">{pendingAction === "resume" ? "恢复中" : "恢复"}</button> : null}
           <button className="knowledge-btn" disabled={pendingAction !== null || !draftDirty} onClick={() => void saveDraft()} type="button">
@@ -271,6 +294,9 @@ export function WorkflowBuilderClient({
           <div className="workflow-wizard__form">
             <label><span>工作流名称</span><input autoFocus onChange={(event) => updateDraftMetadata(() => setName(event.target.value))} value={name} /></label>
             <label><span>目标与交付说明</span><textarea onChange={(event) => updateDraftMetadata(() => setDescription(event.target.value))} rows={7} value={description} /></label>
+            <label><span>负责人</span><input aria-label="负责人" readOnly value={ownerLabel} /></label>
+            <label><span>通知方式</span><select aria-label="通知方式" onChange={(event) => updateDraftMetadata(() => setChannelName(event.target.value === "channel" ? channels[0] ?? "" : ""))} value={channelName ? "channel" : "in_app"}><option value="in_app">仅站内状态</option><option disabled={channels.length === 0} value="channel">频道通知</option></select></label>
+            {channelName ? <label><span>通知频道</span><select aria-label="通知频道" onChange={(event) => updateDraftMetadata(() => setChannelName(event.target.value))} value={channelName}>{channels.map((channel) => <option key={channel} value={channel}>{channel}</option>)}</select></label> : null}
           </div>
         ) : null}
         {activeStep === 1 ? (
@@ -323,7 +349,7 @@ export function WorkflowBuilderClient({
         ) : null}
         {activeStep === 4 ? (
           <div className="workflow-wizard__preview">
-            <dl><div><dt>名称</dt><dd>{name || "未填写"}</dd></div><div><dt>触发</dt><dd>{triggerLabel(triggerType)}</dd></div><div><dt>AI 员工步骤</dt><dd>{draft.nodes.filter((node) => node.type === "employee_task").length}</dd></div><div><dt>并行汇聚</dt><dd>{draft.nodes.filter((node) => node.type === "join").length}</dd></div></dl>
+            <dl><div><dt>名称</dt><dd>{name || "未填写"}</dd></div><div><dt>负责人</dt><dd>{ownerLabel}</dd></div><div><dt>通知</dt><dd>{channelName ? `#${channelName}` : "仅站内状态"}</dd></div><div><dt>触发</dt><dd>{triggerLabel(triggerType)}</dd></div><div><dt>最大并发</dt><dd>{maxConcurrency}</dd></div><div><dt>AI 员工步骤</dt><dd>{draft.nodes.filter((node) => node.type === "employee_task").length}</dd></div><div><dt>并行汇聚</dt><dd>{draft.nodes.filter((node) => node.type === "join").length}</dd></div></dl>
             <WorkflowPreflightPanel isPending={pendingAction === "preflight"} onFocusNode={focusNode} onRun={() => void runPreflight()} validation={validation} />
           </div>
         ) : null}
@@ -349,6 +375,11 @@ function governancePayload(
     maxConcurrency,
     ...(budgetUsd ? { budgetUsd: Number(budgetUsd) } : {}),
   };
+}
+
+function createManualRunKey(workflowId: string): string {
+  const nonce = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `manual:${workflowId}:${nonce}`;
 }
 
 function EmployeeOptions({ employees }: { employees: WorkflowBuilderEmployee[] }) {

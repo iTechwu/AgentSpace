@@ -9,16 +9,19 @@ const mocks = vi.hoisted(() => ({
   validate: vi.fn(),
   publish: vi.fn(),
   controlDefinition: vi.fn(),
+  run: vi.fn(),
+  push: vi.fn(),
   replace: vi.fn(),
   refresh: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace, refresh: mocks.refresh }),
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace, refresh: mocks.refresh }),
 }));
 vi.mock("./workflow-actions", () => ({
   createWorkflowDraftAction: mocks.createDraft,
   controlWorkflowDefinitionAction: mocks.controlDefinition,
+  runWorkflowAction: mocks.run,
   updateWorkflowDraftAction: mocks.updateDraft,
   validateWorkflowAction: mocks.validate,
   publishWorkflowAction: mocks.publish,
@@ -62,6 +65,8 @@ function renderBuilder(entry: "automations" | "calendar" | "task-board" = "autom
     <WorkflowBuilderClient
       employees={employees}
       entry={entry}
+      channels={["项目通知群", "审计通知群"]}
+      ownerLabel="负责人甲"
       initial={{
         id: "wf-1",
         name: "并行审计",
@@ -71,6 +76,7 @@ function renderBuilder(entry: "automations" | "calendar" | "task-board" = "autom
         draftVersion: 1,
         trigger: { type: "manual", config: {}, misfirePolicy: "skip" },
         governance: { maxConcurrency: 4 },
+        channelName: undefined,
       }}
       workspaceSlug="default"
     />,
@@ -93,6 +99,16 @@ describe("workflow builder", () => {
     mocks.controlDefinition.mockResolvedValue({
       ok: true,
       data: { workflowId: "wf-1", status: "paused" },
+      invalidation: { workspaceId: "workspace-1", modules: ["automations"] },
+    });
+    mocks.run.mockResolvedValue({
+      ok: true,
+      data: { runId: "run-1", status: "queued" },
+      invalidation: { workspaceId: "workspace-1", modules: ["automations"] },
+    });
+    mocks.updateDraft.mockResolvedValue({
+      ok: true,
+      data: { workflowId: "wf-1", draftVersion: 2, graph },
       invalidation: { workspaceId: "workspace-1", modules: ["automations"] },
     });
   });
@@ -171,5 +187,34 @@ describe("workflow builder", () => {
 
     await waitFor(() => expect(mocks.controlDefinition).toHaveBeenCalledWith({ workflowId: "wf-1", action: "pause" }));
     expect(await screen.findByRole("button", { name: "恢复" })).toBeVisible();
+  });
+
+  it("starts a published manual workflow and opens its run", async () => {
+    const user = userEvent.setup();
+    renderBuilder("automations", "published");
+
+    await user.click(screen.getByRole("button", { name: "立即运行" }));
+
+    await waitFor(() => expect(mocks.run).toHaveBeenCalledWith({
+      workflowId: "wf-1",
+      input: {},
+      idempotencyKey: expect.stringMatching(/^manual:wf-1:/),
+    }));
+    expect(mocks.push).toHaveBeenCalledWith("/w/default/automations/runs/run-1");
+  });
+
+  it("configures the workflow owner and notification target", async () => {
+    const user = userEvent.setup();
+    renderBuilder();
+
+    expect(screen.getByLabelText("负责人")).toHaveValue("负责人甲");
+    await user.selectOptions(screen.getByLabelText("通知方式"), "channel");
+    await user.selectOptions(screen.getByLabelText("通知频道"), "审计通知群");
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    await waitFor(() => expect(mocks.updateDraft).toHaveBeenCalledWith(expect.objectContaining({
+      workflowId: "wf-1",
+      patch: expect.objectContaining({ channelName: "审计通知群" }),
+    })));
   });
 });

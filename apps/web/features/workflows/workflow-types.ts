@@ -65,10 +65,13 @@ export interface WorkflowBuilderInitialValue {
     maxConcurrency: number;
     budgetUsd?: number;
   };
+  channelName?: string;
 }
 
 export interface WorkflowBuilderPageData {
   employees: WorkflowBuilderEmployee[];
+  channels: string[];
+  ownerLabel: string;
   workflow?: WorkflowBuilderInitialValue;
 }
 

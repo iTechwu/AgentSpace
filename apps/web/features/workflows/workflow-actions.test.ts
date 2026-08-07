@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireContext: vi.fn(),
+  createDefinition: vi.fn(),
   readDefinition: vi.fn(),
   readRun: vi.fn(),
   updateDraft: vi.fn(),
@@ -18,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/features/auth/server-workspace", () => ({ requireCurrentWorkspaceContext: mocks.requireContext }));
 vi.mock("@/features/auth/workspace-revalidation", () => ({ revalidateWorkspacePaths: mocks.revalidate }));
 vi.mock("@dofe-agent/db", () => ({
-  createWorkflowDefinitionSync: vi.fn(),
+  createWorkflowDefinitionSync: mocks.createDefinition,
   readWorkflowDefinitionSync: mocks.readDefinition,
   readWorkflowRunSync: mocks.readRun,
   readWorkflowTriggerForWorkflowSync: mocks.readTrigger,
@@ -37,7 +38,7 @@ vi.mock("@dofe-agent/services", () => ({
   validateWorkflowForPublishSync: vi.fn(),
 }));
 
-import { controlWorkflowDefinitionAction, controlWorkflowRunAction, publishWorkflowAction, runWorkflowAction, updateWorkflowDraftAction } from "./workflow-actions";
+import { controlWorkflowDefinitionAction, controlWorkflowRunAction, createWorkflowDraftAction, publishWorkflowAction, runWorkflowAction, updateWorkflowDraftAction } from "./workflow-actions";
 
 const graph = {
   schemaVersion: 1 as const,
@@ -65,6 +66,7 @@ describe("workflow actions", () => {
       draftGraphJson: JSON.stringify(graph),
     });
     mocks.manualRun.mockReturnValue({ runId: "run-1", created: true });
+    mocks.createDefinition.mockReturnValue({ id: "wf-new", draftVersion: 1, draftGraphJson: JSON.stringify(graph) });
     mocks.readRun.mockReturnValue({ id: "run-1", workflowId: "wf-1", status: "running" });
     mocks.readTrigger.mockReturnValue(null);
     mocks.publish.mockReturnValue({ version: { id: "version-1" } });
@@ -77,6 +79,23 @@ describe("workflow actions", () => {
     await expect(publishWorkflowAction({ workflowId: "wf-1", expectedDraftVersion: 2 })).rejects.toThrow(/workspace role/i);
     await expect(runWorkflowAction({ workflowId: "wf-1", idempotencyKey: "manual:u1:1", input: {} }))
       .resolves.toMatchObject({ ok: true, data: { runId: "run-1" } });
+  });
+
+  it("persists the selected notification channel when creating a draft", async () => {
+    mockContext("member");
+
+    const result = await createWorkflowDraftAction({
+      name: "审计流程",
+      description: "汇总结果",
+      channelName: " 审计通知群 ",
+      graph,
+    });
+
+    expect(result).toMatchObject({ ok: true, data: { workflowId: "wf-new" } });
+    expect(mocks.createDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      channelName: "审计通知群",
+      ownerUserId: "user-1",
+    }));
   });
 
   it("returns a stable conflict code for stale drafts", async () => {

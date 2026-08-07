@@ -1,6 +1,7 @@
 import {
   getDatabase,
   listEmployeeRuntimeBindingsSync,
+  listStoredChannelsSync,
   listStoredEmployeesSync,
   listWorkflowDefinitionsSync,
   listWorkflowNodeRunsSync,
@@ -150,6 +151,7 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
 export function getWorkflowBuilderPageData(
   workspaceId: string,
   workflowId?: string,
+  actor?: { userId: string; displayName: string },
 ): WorkflowBuilderPageData | null {
   const bindings = new Map(
     listEmployeeRuntimeBindingsSync(workspaceId).map((binding) => [binding.employeeId, binding.status]),
@@ -159,7 +161,11 @@ export function getWorkflowBuilderPageData(
     name: employee.remarkName?.trim() || employee.name,
     status: bindings.get(employee.id) ?? "unbound",
   }));
-  if (!workflowId) return { employees };
+  const channels = listStoredChannelsSync(workspaceId).map((channel) => channel.name);
+  const ownerLabels = new Map(
+    listWorkspaceMemberUsersSync(workspaceId).map((member) => [member.userId, member.displayName]),
+  );
+  if (!workflowId) return { employees, channels, ownerLabel: actor?.displayName ?? "当前用户" };
 
   const workflow = readWorkflowDefinitionSync(workflowId, workspaceId);
   if (!workflow) return null;
@@ -171,6 +177,9 @@ export function getWorkflowBuilderPageData(
   const governance = parseRecord(activeVersion?.governanceJson);
   return {
     employees,
+    channels,
+    ownerLabel: ownerLabels.get(workflow.ownerUserId)
+      ?? (workflow.ownerUserId === actor?.userId ? actor.displayName : workflow.ownerUserId),
     workflow: {
       id: workflow.id,
       name: workflow.name,
@@ -188,6 +197,7 @@ export function getWorkflowBuilderPageData(
         maxConcurrency: numberInRange(governance.maxConcurrency, 1, 20, 4),
         ...(positiveNumber(governance.budgetUsd) ? { budgetUsd: positiveNumber(governance.budgetUsd) } : {}),
       },
+      ...(workflow.channelName ? { channelName: workflow.channelName } : {}),
     },
   };
 }

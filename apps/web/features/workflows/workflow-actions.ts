@@ -33,6 +33,7 @@ export type WorkflowActionResult<T> =
 export interface CreateWorkflowDraftInput {
   name: string;
   description?: string;
+  channelName?: string;
   graph?: WorkflowGraphDefinition;
 }
 
@@ -96,6 +97,7 @@ export async function createWorkflowDraftAction(
       workspaceId: context.currentWorkspace.id,
       name: input.name.trim(),
       description: input.description?.trim(),
+      channelName: input.channelName?.trim() || undefined,
       ownerUserId: context.currentUser.id,
       createdBy: context.currentUser.id,
       draftGraphJson: JSON.stringify(input.graph ?? emptyWorkflowGraph()),

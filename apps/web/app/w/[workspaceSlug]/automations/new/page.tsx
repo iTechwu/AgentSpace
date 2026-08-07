@@ -14,8 +14,11 @@ export default async function NewWorkflowPage({
 }) {
   const [{ workspaceSlug }, query] = await Promise.all([params, searchParams]);
   const context = await getWorkspacePageContext(workspaceSlug);
-  const data = getWorkflowBuilderPageData(context.currentWorkspace.id)!;
-  return <WorkflowBuilderClient employees={data.employees} entry={normalizeEntry(query.entry)} workspaceSlug={workspaceSlug} />;
+  const data = getWorkflowBuilderPageData(context.currentWorkspace.id, undefined, {
+    userId: context.currentUser.id,
+    displayName: context.currentUser.displayName,
+  })!;
+  return <WorkflowBuilderClient channels={data.channels} employees={data.employees} entry={normalizeEntry(query.entry)} ownerLabel={data.ownerLabel} workspaceSlug={workspaceSlug} />;
 }
 
 function normalizeEntry(value: string | undefined): WorkflowBuilderEntry {

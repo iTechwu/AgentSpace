@@ -12,7 +12,10 @@ export default async function EditWorkflowPage({
 }) {
   const { workspaceSlug, workflowId } = await params;
   const context = await getWorkspacePageContext(workspaceSlug);
-  const data = getWorkflowBuilderPageData(context.currentWorkspace.id, workflowId);
+  const data = getWorkflowBuilderPageData(context.currentWorkspace.id, workflowId, {
+    userId: context.currentUser.id,
+    displayName: context.currentUser.displayName,
+  });
   if (!data?.workflow) notFound();
-  return <WorkflowBuilderClient employees={data.employees} entry="automations" initial={data.workflow} workspaceSlug={workspaceSlug} />;
+  return <WorkflowBuilderClient channels={data.channels} employees={data.employees} entry="automations" initial={data.workflow} ownerLabel={data.ownerLabel} workspaceSlug={workspaceSlug} />;
 }

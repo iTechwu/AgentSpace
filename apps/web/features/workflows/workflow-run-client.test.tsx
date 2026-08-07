@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh }) }));
 vi.mock("./workflow-actions", () => ({ controlWorkflowRunAction: mocks.control }));
 
-import { WorkflowRunClient, mergeWorkflowRunEvents } from "./workflow-run-client";
+import { WorkflowRunClient, mergeWorkflowRunEvents, selectLatestWorkflowProjection } from "./workflow-run-client";
 
 const initial: WorkflowRunPageData = {
   id: "run-1",
@@ -93,11 +93,31 @@ describe("workflow run client", () => {
     await waitFor(() => expect(mocks.control).toHaveBeenCalledWith({ runId: "run-1", action: "pause", nodeId: undefined }));
   });
 
+  it("allows a workflow waiting for approval to be paused", async () => {
+    const user = userEvent.setup();
+    const waiting: WorkflowRunPageData = { ...initial, status: "waiting_approval" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ events: [], hasMore: false, projection: waiting })));
+    renderRun(waiting);
+
+    await user.click(screen.getByRole("button", { name: "暂停" }));
+    await waitFor(() => expect(mocks.control).toHaveBeenCalledWith({ runId: "run-1", action: "pause", nodeId: undefined }));
+  });
+
   it("detects gaps without applying out-of-order events", () => {
     const merged = mergeWorkflowRunEvents(initial.events, [{
       id: "event-6", sequence: 6, type: "workflow.node.succeeded", severity: "info", createdAt: "2026-08-06T00:00:06.000Z",
     }]);
     expect(merged).toEqual({ events: initial.events, gapAfter: 4 });
+  });
+
+  it("does not replace a newer projection with a stale polling response", () => {
+    const current = { ...initial, currentSequence: 6, status: "succeeded" as const };
+    const stale = { ...initial, currentSequence: 5, status: "running" as const };
+    const sameSequenceStaleRequest = { ...initial, currentSequence: 6, status: "running" as const };
+
+    expect(selectLatestWorkflowProjection(current, stale)).toBe(current);
+    expect(selectLatestWorkflowProjection(stale, current)).toBe(current);
+    expect(selectLatestWorkflowProjection(current, sameSequenceStaleRequest, 2, 1)).toBe(current);
   });
 
   it("allows a manual retry after automatic attempts are exhausted", async () => {

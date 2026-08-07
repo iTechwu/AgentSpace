@@ -31,8 +31,11 @@ export function WorkflowRunClient({
   const [pendingControl, setPendingControl] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const lastSequenceRef = useRef(lastSequence(data.events));
+  const refreshRequestRef = useRef(0);
+  const appliedProjectionRequestRef = useRef(0);
 
   const refreshFrom = useCallback(async (after: number): Promise<void> => {
+    const requestId = ++refreshRequestRef.current;
     setIsSyncing(true);
     try {
       let cursor = after;
@@ -53,7 +56,11 @@ export function WorkflowRunClient({
           lastSequenceRef.current = lastSequence(merged.events);
           return merged.events;
         });
-        if (page.projection) setProjection(page.projection);
+        if (page.projection) {
+          const previousRequestId = appliedProjectionRequestRef.current;
+          setProjection((current) => selectLatestWorkflowProjection(current, page.projection!, previousRequestId, requestId));
+          appliedProjectionRequestRef.current = Math.max(previousRequestId, requestId);
+        }
         cursor = Math.max(cursor, ...page.events.map((event) => event.sequence));
         hasMore = page.hasMore && page.events.length > 0;
       }
@@ -107,7 +114,7 @@ export function WorkflowRunClient({
     }
   }
 
-  const canPause = projection.canControl && (projection.status === "running" || projection.status === "queued");
+  const canPause = projection.canControl && (projection.status === "running" || projection.status === "queued" || projection.status === "waiting_approval");
   const canResume = projection.canControl && projection.status === "paused";
   const canCancel = projection.canControl && !TERMINAL_STATUSES.has(projection.status);
 
@@ -168,6 +175,22 @@ export function mergeWorkflowRunEvents(
   const bySequence = new Map(current.map((event) => [event.sequence, event]));
   for (const event of next) bySequence.set(event.sequence, event);
   return { events: [...bySequence.values()].sort((left, right) => left.sequence - right.sequence) };
+}
+
+export function selectLatestWorkflowProjection(
+  current: WorkflowRunPageData,
+  incoming: WorkflowRunPageData,
+  currentRequestId = 0,
+  incomingRequestId = 0,
+): WorkflowRunPageData {
+  if (incoming.currentSequence < current.currentSequence) return current;
+  if (incoming.currentSequence === current.currentSequence && incomingRequestId < currentRequestId) return current;
+  if (
+    incoming.currentSequence === current.currentSequence
+    && TERMINAL_STATUSES.has(current.status)
+    && !TERMINAL_STATUSES.has(incoming.status)
+  ) return current;
+  return incoming;
 }
 
 function lastSequence(events: WorkflowRunEventItem[]): number {
