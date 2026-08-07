@@ -69,6 +69,8 @@ export interface ApprovalItem {
     currentMarkdown?: string;
   };
   reviewerComment?: string;
+  reviewerLabel?: string;
+  reviewerRisk?: "low" | "medium" | "high";
   createdAt: string;
   reviewedAt?: string;
 }
@@ -116,6 +118,8 @@ function buildApprovalItems(workspaceId: string, actor?: ApprovalQueueActor): Ap
     .filter((approval) => approval.type !== "knowledge_proposal")
     .map((approval) => {
     const employee = employeeIndex.get(normalizeKey(approval.agentId));
+    const reviewerUserId = readMetadataStringValue(approval.metadata, "reviewerUserId");
+    const reviewerUser = reviewerUserId ? readUserCached(reviewerUserId) : undefined;
     return {
       id: `workspace-approval:${approval.id}`,
       actionId: approval.id,
@@ -129,6 +133,11 @@ function buildApprovalItems(workspaceId: string, actor?: ApprovalQueueActor): Ap
       contentPreview: approval.contentPreview,
       metadata: sanitizeApprovalMetadata(approval),
       reviewerComment: approval.reviewerComment,
+      // 指定审批人/风险（工作流审批）：解析为展示名与枚举，供审批中心展示。
+      reviewerLabel: reviewerUserId
+        ? (reviewerUser?.displayName?.trim() || reviewerUser?.primaryEmail?.trim() || reviewerUserId)
+        : undefined,
+      reviewerRisk: readApprovalRiskValue(approval.metadata),
       createdAt: approval.createdAt,
       reviewedAt: approval.reviewedAt,
     };
@@ -354,6 +363,16 @@ function compareByDateDesc(left: string, right: string): number {
 
 function normalizeKey(value: string): string {
   return value.trim().toLocaleLowerCase("en-US");
+}
+
+function readMetadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readApprovalRiskValue(metadata: Record<string, unknown> | undefined): "low" | "medium" | "high" | undefined {
+  const value = metadata?.risk;
+  return value === "low" || value === "medium" || value === "high" ? value : undefined;
 }
 
 function sameText(left: string, right: string): boolean {

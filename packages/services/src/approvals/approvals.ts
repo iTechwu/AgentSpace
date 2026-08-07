@@ -208,10 +208,18 @@ function recordApprovalExecutionEvent(approval: ApprovalRequest, workspaceId?: s
 }
 
 function createApprovalRequestedNotifications(approval: ApprovalRequest, workspaceId: string): void {
-  const recipients = listWorkspaceMembershipsSync(workspaceId)
+  const adminRecipients = listWorkspaceMembershipsSync(workspaceId)
     .filter((membership) => membership.role === "owner" || membership.role === "admin")
     .map((membership) => readUserSync(membership.userId))
     .filter((user): user is NonNullable<ReturnType<typeof readUserSync>> => Boolean(user));
+
+  // 指定审批人（工作流审批场景）也纳入通知收件人，使其能收到审批请求。
+  const reviewerUserId = readMetadataString(approval.metadata, "reviewerUserId");
+  const reviewerUser = reviewerUserId ? readUserSync(reviewerUserId) : null;
+  const recipients = reviewerUser && !adminRecipients.some((recipient) => recipient.id === reviewerUser.id)
+    ? [...adminRecipients, reviewerUser]
+    : adminRecipients;
+  const risk = readMetadataString(approval.metadata, "risk");
 
   createNotificationsSync(recipients.map((recipient) => ({
     workspaceId,
@@ -234,6 +242,8 @@ function createApprovalRequestedNotifications(approval: ApprovalRequest, workspa
       agentId: approval.agentId,
       channelName: approval.channelName,
       sourceId: approval.sourceId,
+      ...(reviewerUserId ? { reviewerUserId } : {}),
+      ...(risk ? { risk } : {}),
     },
   })));
 }

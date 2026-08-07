@@ -1,6 +1,7 @@
 import {
   appendWorkflowRunEventSync,
   getDatabase,
+  listWorkspaceMembershipsSync,
   listWorkflowNodeRunsSync,
   lockWorkflowRunForUpdateSync,
   readStoredEmployeeByIdSync,
@@ -21,6 +22,9 @@ export interface CreateWorkflowApprovalInput {
   employeeId: string;
   channelName: string;
   contentPreview: string;
+  // 指定审批人与风险等级（UIUX:82）：可选，落地到审批记录 metadata 供鉴权与展示。
+  reviewerUserId?: string;
+  risk?: "low" | "medium" | "high";
   now?: string;
 }
 
@@ -41,7 +45,14 @@ export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): 
         agentId: employee.name,
         channelName: input.channelName,
         contentPreview: input.contentPreview,
-        metadata: { kind: "workflow_node", workflowRunId: run.id, workflowNodeRunId: node.id, workflowNodeId: node.nodeId },
+        metadata: {
+        kind: "workflow_node",
+        workflowRunId: run.id,
+        workflowNodeRunId: node.id,
+        workflowNodeId: node.nodeId,
+        ...(input.reviewerUserId ? { reviewerUserId: input.reviewerUserId } : {}),
+        ...(input.risk ? { risk: input.risk } : {}),
+      },
       }, input.workspaceId).approvals[0];
     if (!approval) throw new Error("workflow_approval_create_failed");
     const updated = transitionWorkflowNodeRunSync({
@@ -64,6 +75,8 @@ export function workflowApprovalInputFromNodeConfig(config: Record<string, unkno
   employeeId: string;
   channelName: string;
   contentPreview: string;
+  reviewerUserId?: string;
+  risk?: "low" | "medium" | "high";
 } {
   const employeeId = typeof config.employeeId === "string" ? config.employeeId.trim() : "";
   const channelName = typeof config.channelName === "string" ? config.channelName.trim() : "";
@@ -72,7 +85,16 @@ export function workflowApprovalInputFromNodeConfig(config: Record<string, unkno
     : "请审批此工作流步骤的上游交付结果。";
   if (!employeeId) throw new Error("workflow_approval_employee_not_ready");
   if (!channelName) throw new Error("workflow_approval_channel_not_ready");
-  return { employeeId, channelName, contentPreview };
+  // 风险等级：仅接受合法枚举，其余忽略（校验已在 publishing 阶段完成）。
+  const risk = config.risk === "low" || config.risk === "medium" || config.risk === "high" ? config.risk : undefined;
+  const reviewerUserId = typeof config.reviewerUserId === "string" ? config.reviewerUserId.trim() : "";
+  return {
+    employeeId,
+    channelName,
+    contentPreview,
+    ...(reviewerUserId ? { reviewerUserId } : {}),
+    ...(risk ? { risk } : {}),
+  };
 }
 
 export function continueWorkflowAfterApprovalSync(input: {
@@ -99,6 +121,14 @@ export function reviewWorkflowApprovalSync(input: {
   return withTransaction(getDatabase(), () => {
     const approval = listApprovalsSync(input.workspaceId).find((item) => item.id === input.approvalId);
     if (!approval || approval.metadata?.kind !== "workflow_node") throw new Error("workflow_approval_not_linked");
+    // 指定审批人闭环（UIUX:82）：若设置了 reviewerUserId，仅该成员或工作区管理员可审批；
+    // 其他成员（含未指定的管理员以外角色）一律拒绝，避免「被指定者无法审批、未指定者反可审批」。
+    const reviewerUserId = typeof approval.metadata?.reviewerUserId === "string" ? approval.metadata.reviewerUserId.trim() : "";
+    if (reviewerUserId && reviewerUserId !== input.actorUserId) {
+      const actorIsManager = listWorkspaceMembershipsSync(input.workspaceId).some((membership) =>
+        membership.userId === input.actorUserId && (membership.role === "owner" || membership.role === "admin"));
+      if (!actorIsManager) throw new Error("workflow_approval_reviewer_unauthorized");
+    }
     const nodeRun = readWorkflowNodeRunByApprovalIdSync(input.approvalId, input.workspaceId);
     if (!nodeRun) throw new Error("workflow_approval_not_linked");
     if (!lockWorkflowRunForUpdateSync(nodeRun.runId, input.workspaceId)) throw new Error("workflow_run_not_found");

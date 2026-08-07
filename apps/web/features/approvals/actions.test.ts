@@ -166,6 +166,49 @@ describe("approval actions", () => {
     expect(mockReviewApprovalSync).not.toHaveBeenCalled();
   });
 
+  it("allows a designated reviewer to review a workflow approval even as a member", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+    mockListApprovalsSync.mockReturnValue([{
+      id: "approval-designated",
+      type: "task_output",
+      sourceId: "node-run-1",
+      agentId: "Atlas",
+      channelName: "tour-visit",
+      status: "pending",
+      contentPreview: "Review workflow output",
+      metadata: { kind: "workflow_node", reviewerUserId: "user-1", risk: "medium" },
+      createdAt: "2026-08-06T00:00:00.000Z",
+    }]);
+
+    await reviewApprovalAction("approval-designated", "approved", "Looks good");
+
+    expect(mockReviewApprovalWithWorkflowSync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      approvalId: "approval-designated",
+      decision: "approved",
+      actorUserId: "user-1",
+      comment: "Looks good",
+    });
+  });
+
+  it("blocks a member who is not the designated reviewer of a workflow approval", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+    mockListApprovalsSync.mockReturnValue([{
+      id: "approval-designated",
+      type: "task_output",
+      sourceId: "node-run-1",
+      agentId: "Atlas",
+      channelName: "tour-visit",
+      status: "pending",
+      contentPreview: "Review workflow output",
+      metadata: { kind: "workflow_node", reviewerUserId: "someone-else" },
+      createdAt: "2026-08-06T00:00:00.000Z",
+    }]);
+
+    await expect(reviewApprovalAction("approval-designated", "approved")).rejects.toThrow("Forbidden.");
+    expect(mockReviewApprovalWithWorkflowSync).not.toHaveBeenCalled();
+  });
+
   it("executes Feishu data operation approvals from the merged approval queue", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin"));
     mockListApprovalsSync.mockReturnValue([{

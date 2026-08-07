@@ -46,10 +46,12 @@ export async function reviewApprovalAction(
   comment?: string,
 ): Promise<ActionToastResult<void>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
-  assertWorkspaceRoleForContext(workspaceContext, "admin");
   if (!approvalId.trim()) {
     throw new Error("Missing approval id.");
   }
+  const approval = listApprovalsSync(workspaceContext.currentWorkspace.id)
+    .find((item) => item.id === approvalId.trim());
+  assertCanReviewWorkspaceApproval(workspaceContext, approval);
   reviewApprovalWithWorkflowSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     approvalId: approvalId.trim(),
@@ -92,9 +94,9 @@ export async function reviewApprovalQueueItemAction(
   const trimmedActionId = actionId.trim();
   let knowledgePageId: string | undefined;
   if (kind === "workspace_approval") {
-    assertWorkspaceRoleForContext(workspaceContext, "admin");
     const approval = listApprovalsSync(workspaceContext.currentWorkspace.id)
       .find((item) => item.id === trimmedActionId);
+    assertCanReviewWorkspaceApproval(workspaceContext, approval);
     if (approval?.type === "external_data_operation" && approval.metadata?.provider === "feishu") {
       await reviewFeishuDataOperationApproval({
         workspaceId: workspaceContext.currentWorkspace.id,
@@ -199,6 +201,19 @@ export async function reviewApprovalQueueItemAction(
       knowledgePageId,
     }),
   );
+}
+
+function assertCanReviewWorkspaceApproval(
+  workspaceContext: Awaited<ReturnType<typeof requireCurrentWorkspaceContext>>,
+  approval: ApprovalRequest | undefined,
+): void {
+  const reviewerUserId = typeof approval?.metadata?.reviewerUserId === "string"
+    ? approval.metadata.reviewerUserId.trim()
+    : "";
+  // 指定审批人闭环（UIUX:82）：被指定的成员可审批；其余情况维持工作区管理员门禁，
+  // 服务层 reviewWorkflowApprovalSync 仍会再次校验 reviewerUserId，形成双重约束。
+  if (reviewerUserId && reviewerUserId === workspaceContext.currentUser.id) return;
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
 }
 
 function revalidateApprovalRoutes(workspaceSlug: string): void {

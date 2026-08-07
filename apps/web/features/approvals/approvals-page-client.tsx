@@ -9,6 +9,7 @@ import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-
 import { useWorkspaceModuleNavigation } from "@/features/dashboard/workspace-module-navigation";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
+import { translateApprovalRisk } from "@/features/i18n/presentation";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { runToastAction } from "@/shared/lib/toast-action";
@@ -292,6 +293,18 @@ export function ApprovalsPageClient({
                   <span className="approvals-detail__label">{tx("提交时间", "Submitted")}</span>
                   <span>{formatDateTime(selected.createdAt)}</span>
                 </div>
+                {selected.reviewerLabel ? (
+                  <div className="approvals-detail__meta-row">
+                    <span className="approvals-detail__label">{tx("指定审批人", "Designated reviewer")}</span>
+                    <span>{selected.reviewerLabel}</span>
+                  </div>
+                ) : null}
+                {selected.reviewerRisk ? (
+                  <div className="approvals-detail__meta-row">
+                    <span className="approvals-detail__label">{tx("风险", "Risk")}</span>
+                    <span>{translateApprovalRisk(selected.reviewerRisk, tx)}</span>
+                  </div>
+                ) : null}
                 {selected.reviewedAt ? (
                   <div className="approvals-detail__meta-row">
                     <span className="approvals-detail__label">{tx("审批时间", "Reviewed")}</span>
