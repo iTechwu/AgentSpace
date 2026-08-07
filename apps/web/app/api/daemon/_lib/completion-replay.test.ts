@@ -3,7 +3,7 @@ import {
   resolveManagedTaskUsageGatewayRequestId,
   shouldPersistManagedTaskUsages,
 } from "./completion-replay";
-import { persistManagedTaskUsagesBestEffort } from "../tasks/[taskId]/complete/route";
+import { persistManagedTaskUsagesBestEffort } from "./task-usage";
 
 describe("completion replay usage boundary", () => {
   it("does not replay request-body usage during preparing-commit recovery", () => {
