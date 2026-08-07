@@ -13,6 +13,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { controlWorkflowRunAction, rerunWorkflowRunAction } from "./workflow-actions";
 import { WorkflowRunFlowchart } from "./workflow-run-flowchart";
 import { WorkflowRunTimeline } from "./workflow-run-timeline";
+import { WorkflowStatusIndicator } from "./workflow-status-indicator";
 import type { WorkflowRunEventItem, WorkflowRunPageData } from "./workflow-types";
 
 const POLL_INTERVAL_MS = 2_500;
@@ -164,7 +165,7 @@ export function WorkflowRunClient({
           <p>运行 ID {projection.id} · {translateWorkflowTriggerType(projection.triggerType, tx)}</p>
         </div>
         <div className="workflow-run__header-state">
-          <strong data-status={projection.status}>{translateWorkflowRunStatus(projection.status, tx)}</strong>
+          <WorkflowStatusIndicator className="workflow-run__header-status" status={projection.status} label={translateWorkflowRunStatus(projection.status, tx)} />
           <div className="workflow-run__controls">
             {canPause ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("pause")} type="button">暂停</button> : null}
             {canResume ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("resume")} type="button">恢复</button> : null}
@@ -192,7 +193,7 @@ export function WorkflowRunClient({
         <ol>
           {projection.nodes.map((node) => (
             <li key={node.id}>
-              <span className="workflow-run__node-status" data-status={node.status}>{translateWorkflowNodeStatus(node.status, tx)}</span>
+              <WorkflowStatusIndicator className="workflow-run__node-status" status={node.status} label={translateWorkflowNodeStatus(node.status, tx)} />
               <div className="workflow-run__node-copy">
                 <strong>{node.employeeName}</strong>
                 <small>{node.nodeType} · 尝试 {node.attemptCount}/{node.maxAttempts} · {durationLabel(node.startedAt, node.finishedAt)}</small>

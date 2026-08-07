@@ -3,8 +3,9 @@
 import { useMemo } from "react";
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import { translateWorkflowNodeStatus, type TxFn } from "@/features/i18n/presentation";
-import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
+import { AppIcon } from "@/shared/ui/app-icon";
 import type { WorkflowNodeRunItem } from "./workflow-types";
+import { WORKFLOW_STATUS_ICON } from "./workflow-status-indicator";
 
 /**
  * 运行详情只读流程图（UIUX:运行详情可扩展流程图）。
@@ -65,19 +66,6 @@ const STATUS_SOFT: Record<string, string> = {
   waiting_approval: "var(--warning-soft)",
 };
 
-// 节点状态 → 共享 AppIcon 图标名（UIUX:91：状态须同时有文字、图标和 aria-label）。
-// 统一使用项目共享 AppIcon，避免零散 Unicode 字形在不同字体下渲染不一致。图标仅作视觉
-// 强化，AppIcon 内部已设 aria-hidden，完整状态由节点 aria-label + 状态文字提供。
-const STATUS_ICON_NAME: Record<string, AppIconName> = {
-  running: "loader",
-  ready: "loader",
-  succeeded: "checkCircle",
-  failed: "alertCircle",
-  waiting_approval: "approvals",
-  cancelled: "stop",
-  skipped: "close",
-};
-
 function buildRunFlow(
   nodes: WorkflowNodeRunItem[],
   edges: Array<{ source: string; target: string }>,
@@ -98,7 +86,7 @@ function buildRunFlow(
           <div className="workflow-run-flow-node__label">
             <span className="workflow-run-flow-node__name">{name}</span>
             <span className="workflow-run-flow-node__status" data-status={node.status}>
-              <AppIcon className="workflow-run-flow-node__icon" name={STATUS_ICON_NAME[node.status] ?? "loader"} />
+              <AppIcon className="workflow-run-flow-node__icon" name={WORKFLOW_STATUS_ICON[node.status] ?? "loader"} />
               {statusText}
             </span>
           </div>

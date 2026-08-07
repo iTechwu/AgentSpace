@@ -18462,10 +18462,10 @@ textarea:focus {
 .workflow-run__header h1 { margin: 5px 0; font-size: 24px; letter-spacing: 0; }
 .workflow-run__header p { margin: 0; color: var(--muted); }
 .workflow-run__header-state { display: grid; justify-items: end; gap: 10px; }
-.workflow-run__header-state > strong { padding: 5px 9px; border-radius: 6px; background: var(--panel-strong); font-size: 13px; }
-.workflow-run__header-state > strong[data-status="running"],
-.workflow-run__header-state > strong[data-status="succeeded"] { background: var(--success-soft); color: var(--success); }
-.workflow-run__header-state > strong[data-status="failed"] { background: var(--danger-soft); color: var(--danger); }
+.workflow-run__header-status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 6px; background: var(--panel-strong); font-size: 13px; }
+.workflow-run__header-status[data-status="running"],
+.workflow-run__header-status[data-status="succeeded"] { background: var(--success-soft); color: var(--success); }
+.workflow-run__header-status[data-status="failed"] { background: var(--danger-soft); color: var(--danger); }
 .workflow-run__controls { display: flex; gap: 8px; }
 .workflow-run__sync,
 .workflow-run__notice { margin: -12px 0 0; border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--warning-soft); }
@@ -18481,7 +18481,8 @@ textarea:focus {
 .workflow-run__steps ol,
 .workflow-run-timeline ol { margin: 0; padding: 0; list-style: none; }
 .workflow-run__steps li { display: grid; grid-template-columns: 88px minmax(220px, 1fr) minmax(140px, auto) minmax(100px, auto); align-items: center; gap: 14px; min-height: 68px; border-bottom: 1px solid var(--line); }
-.workflow-run__node-status { width: fit-content; padding: 3px 7px; border-radius: 5px; background: var(--panel-strong); color: var(--muted); font-size: 12px; }
+.workflow-run__node-status { display: inline-flex; align-items: center; gap: 4px; width: fit-content; padding: 3px 7px; border-radius: 5px; background: var(--panel-strong); color: var(--muted); font-size: 12px; }
+.workflow-status-indicator__icon { width: 14px; height: 14px; flex: none; }
 .workflow-run__node-status[data-status="running"],
 .workflow-run__node-status[data-status="succeeded"] { background: var(--success-soft); color: var(--success); }
 .workflow-run__node-status[data-status="failed"] { background: var(--danger-soft); color: var(--danger); }
@@ -18529,7 +18530,7 @@ textarea:focus {
   .workflow-run { width: calc(100% - 28px); padding-block: 18px 28px; }
   .workflow-run__header { align-items: stretch; flex-direction: column; }
   .workflow-run__header-state { justify-items: stretch; }
-  .workflow-run__header-state > strong { width: fit-content; }
+  .workflow-run__header-state > .workflow-run__header-status { width: fit-content; }
   .workflow-run__steps li { grid-template-columns: 72px minmax(0, 1fr); gap: 8px; padding-block: 10px; }
   .workflow-run__steps li > span:nth-child(3),
   .workflow-run__steps li > button,
