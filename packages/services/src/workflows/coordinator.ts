@@ -423,10 +423,21 @@ export function collectWorkflowDescendantNodeIds(
   return descendants;
 }
 
+const WORKFLOW_RUN_TERMINAL_EVENT: Record<"succeeded" | "partially_succeeded" | "failed", string> = {
+  succeeded: "run.succeeded",
+  partially_succeeded: "run.partially_succeeded",
+  failed: "run.failed",
+};
+
 function finalizeRunIfTerminal(workspaceId: string, run: WorkflowRunRecord, now: string): WorkflowRunRecord {
   const nodes = listWorkflowNodeRunsSync(workspaceId, run.id);
   if (nodes.some((node) => ["pending", "ready", "queued", "running", "waiting_approval", "retry_wait"].includes(node.status))) {
-    transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued"], to: "running", now });
+    // 首次由 created/queued 进入 running 时补发 run.started；transitionWorkflowRunSync 在
+    // 已是 running 时返回 null，因此该事实事件只会发出一次。
+    const started = transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued"], to: "running", now });
+    if (started) {
+      appendWorkflowRunEventSync({ workspaceId, runId: run.id, type: "run.started", actorType: "coordinator", now });
+    }
     return readWorkflowRunSync(run.id, workspaceId)!;
   }
   const version = readWorkflowVersionSync(run.versionId, workspaceId);
@@ -435,7 +446,19 @@ function finalizeRunIfTerminal(workspaceId: string, run: WorkflowRunRecord, now:
     nodes,
     JSON.parse(version.graphJson) as WorkflowGraphDefinition,
   );
-  transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued", "running", "waiting_approval"], to: terminalStatus, finishedAt: now, now });
+  const finalized = transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued", "running", "waiting_approval"], to: terminalStatus, finishedAt: now, now });
+  // 终态事实事件只发一次：终态后 status 不在 from 列表，transition 返回 null 即跳过。
+  if (finalized) {
+    appendWorkflowRunEventSync({
+      workspaceId,
+      runId: run.id,
+      type: WORKFLOW_RUN_TERMINAL_EVENT[terminalStatus],
+      actorType: "coordinator",
+      severity: terminalStatus === "failed" ? "error" : undefined,
+      dataJson: JSON.stringify({ status: terminalStatus }),
+      now,
+    });
+  }
   return readWorkflowRunSync(run.id, workspaceId)!;
 }
 
