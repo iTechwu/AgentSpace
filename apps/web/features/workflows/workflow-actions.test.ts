@@ -81,6 +81,14 @@ describe("workflow actions", () => {
       .resolves.toMatchObject({ ok: true, data: { runId: "run-1" } });
   });
 
+  it("returns a stable error when the published trigger is not manual", async () => {
+    mockContext("member");
+    mocks.manualRun.mockImplementation(() => { throw new Error("workflow_manual_trigger_required"); });
+
+    await expect(runWorkflowAction({ workflowId: "wf-1", idempotencyKey: "manual:u1:2", input: {} }))
+      .resolves.toMatchObject({ ok: false, error: { code: "workflow_manual_trigger_required" } });
+  });
+
   it("persists the selected notification channel when creating a draft", async () => {
     mockContext("member");
 

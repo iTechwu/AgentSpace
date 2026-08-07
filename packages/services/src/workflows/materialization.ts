@@ -10,10 +10,10 @@ import {
   lockWorkflowTriggerForUpdateSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowVersionSync,
+  readWorkflowTriggerForWorkflowSync,
   recordAuditLogSync,
   transitionWorkflowNodeRunSync,
   transitionWorkflowRunSync,
-  upsertWorkflowTriggerSync,
   withTransaction,
   type WorkflowTriggerRecord,
 } from "@dofe-agent/db";
@@ -55,16 +55,8 @@ export function materializeManualWorkflowRunSync(input: MaterializeManualWorkflo
     const now = input.now ?? new Date().toISOString();
     const definition = lockWorkflowDefinitionForUpdateSync(input.workflowId, input.workspaceId);
     if (!definition) throw new Error("workflow_definition_not_found");
-    if (definition.status !== "published") throw new Error("workflow_definition_not_published");
-    const trigger = upsertWorkflowTriggerSync({
-      id: `workflow-trigger-manual-${input.workflowId}`,
-      workspaceId: input.workspaceId,
-      workflowId: input.workflowId,
-      type: "manual",
-      configJson: "{}",
-      status: "active",
-      now,
-    });
+    const trigger = readWorkflowTriggerForWorkflowSync(input.workflowId, input.workspaceId);
+    assertManualWorkflowTriggerAvailable(definition.status, trigger);
     return materializeWorkflowRunSync({
       workspaceId: input.workspaceId,
       trigger,
@@ -74,6 +66,16 @@ export function materializeManualWorkflowRunSync(input: MaterializeManualWorkflo
       now,
     });
   });
+}
+
+export function assertManualWorkflowTriggerAvailable(
+  definitionStatus: string,
+  trigger: Pick<WorkflowTriggerRecord, "type" | "status"> | null,
+): asserts trigger is Pick<WorkflowTriggerRecord, "type" | "status"> & { type: "manual" } {
+  if (definitionStatus !== "published") throw new Error("workflow_definition_not_published");
+  if (!trigger || trigger.type !== "manual" || trigger.status !== "active") {
+    throw new Error("workflow_manual_trigger_required");
+  }
 }
 
 export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): {

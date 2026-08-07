@@ -298,6 +298,7 @@ function failure(error: unknown): WorkflowActionResult<never> {
 const STABLE_ERROR_CODES = new Set([
   "workflow_definition_not_found", "workflow_definition_archived", "workflow_definition_not_published",
   "workflow_definition_control_conflict",
+  "workflow_manual_trigger_required",
   "workflow_actor_forbidden", "workflow_employee_not_ready", "workflow_run_not_found", "workflow_run_control_conflict",
   "workflow_run_commit_in_progress", "workflow_run_not_startable", "workflow_task_commit_conflict",
   "workflow_completion_effect_uncertain", "workflow_node_manual_compensation_required",
@@ -326,6 +327,7 @@ function workflowErrorMessage(code: string): string {
     workflow_definition_archived: "已归档的工作流不能编辑。",
     workflow_definition_not_published: "请先发布工作流。",
     workflow_definition_control_conflict: "工作流状态已变化，请刷新后重试。",
+    workflow_manual_trigger_required: "只有已发布的手动触发工作流可以立即运行。",
     workflow_employee_not_ready: "工作流中的 AI 员工尚未就绪。",
     workflow_approval_employee_not_ready: "请选择提交审批的 AI 员工。",
     workflow_approval_channel_not_ready: "提交审批的 AI 员工尚未加入审批频道。",
