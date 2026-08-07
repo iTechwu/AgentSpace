@@ -53,8 +53,9 @@ export async function POST(
   const effectiveChannelName =
     payload.channelName
       ?? (payload.contactId ? resolveCompatibleDirectChannelRecord(workspaceState, payload.contactId)?.name : undefined);
-  withTransaction(getDatabase(), () => {
-    lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+  const failure = withTransaction(getDatabase(), () => {
+    const fence = lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+    if (fence.ignored) return { applied: false, status: fence.taskStatus ?? task.status };
     failQueuedTaskSync({
       taskId: task.id,
       errorText,
@@ -71,7 +72,11 @@ export async function POST(
       errorCode: body.errorCode,
       errorText,
     });
+    return { applied: true, status: "failed" };
   });
+  if (!failure.applied) {
+    return Response.json({ task: { id: task.id, status: failure.status }, ignored: true });
+  }
   const providerDiagnosticMessage = formatProviderDiagnosticMessage(body);
   if (providerDiagnosticMessage) {
     appendTaskMessageSync({
@@ -103,6 +108,7 @@ export async function POST(
     replacePendingChannelMessageSync({
       channel: payload.channel,
       pendingSpeaker: payload.assignee ?? task.agentId,
+      pendingTaskId: task.id,
       speaker: "系统提示",
       role: "agent",
       summary: failureSummary,

@@ -143,9 +143,10 @@ export function WorkflowRunClient({
                 <small>{node.nodeType} · 尝试 {node.attemptCount}/{node.maxAttempts} · {durationLabel(node.startedAt, node.finishedAt)}</small>
               </div>
               <span>{node.artifactCount} 个产物{node.costUsd !== undefined ? ` · $${node.costUsd.toFixed(4)}` : ""}</span>
-              {projection.canControl && node.status === "failed" && (projection.status === "failed" || projection.status === "partially_succeeded") && node.nodeType === "employee_task" ? (
+              {node.errorCode ? <span>{translateWorkflowErrorCode(node.errorCode, tx)}</span> : null}
+              {projection.canControl && node.status === "failed" && node.errorCode !== "workflow_completion_effect_uncertain" && (projection.status === "failed" || projection.status === "partially_succeeded") && node.nodeType === "employee_task" ? (
                 <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("retry_node", node.nodeId)} type="button">重试步骤</button>
-              ) : <span>{node.errorCode ? translateWorkflowErrorCode(node.errorCode, tx) : ""}</span>}
+              ) : null}
             </li>
           ))}
         </ol>

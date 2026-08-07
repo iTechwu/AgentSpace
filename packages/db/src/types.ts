@@ -1332,6 +1332,8 @@ export interface TaskExecutionEventRecord {
 
 export interface EnqueueTaskInput {
   workspaceId?: string;
+  /** Stable operation key for retry-safe queue creation. */
+  idempotencyKey?: string;
   taskId?: string;
   assignee: string;
   title: string;

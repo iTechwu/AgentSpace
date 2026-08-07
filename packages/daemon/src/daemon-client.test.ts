@@ -88,7 +88,7 @@ test("HttpDaemonClient reports a created OpenMontage Job through the daemon task
   }
 });
 
-test("HttpDaemonClient does not retry non-retryable task completion requests", async () => {
+test("HttpDaemonClient retries task completion while the server preserves commit staging", async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;
 
@@ -109,7 +109,7 @@ test("HttpDaemonClient does not retry non-retryable task completion requests", a
       () => client.completeTask("task-1", { outputText: "done" }),
       /boom/,
     );
-    assert.equal(attempts, 1);
+    assert.equal(attempts, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }

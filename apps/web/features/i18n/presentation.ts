@@ -84,6 +84,11 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_join_reference_missing: ["使用汇聚输出前需要连接汇聚步骤", "Connect a join before referencing its outputs"],
     workflow_run_not_found: ["未找到运行记录", "Workflow run not found"],
     workflow_run_control_conflict: ["运行状态已变化，请刷新后重试", "The run state changed. Refresh and try again"],
+    workflow_run_commit_in_progress: ["步骤结果正在提交，请稍后再取消运行", "A step result is being committed. Try cancelling again shortly"],
+    workflow_run_not_startable: ["运行已暂停或结束，当前步骤不能开始执行", "The run is paused or finished, so this step cannot start"],
+    workflow_task_commit_conflict: ["步骤提交状态已变化，请刷新后重试", "The step commit state changed. Refresh and try again"],
+    workflow_completion_effect_uncertain: ["外部操作状态不确定，请先检查并补偿", "External operation state is uncertain. Inspect and compensate before continuing"],
+    workflow_node_manual_compensation_required: ["请先检查并补偿外部操作，再处理此步骤", "Inspect and compensate external operations before handling this step"],
     workflow_run_events_unavailable: ["运行状态同步失败，将自动重试", "Run synchronization failed and will retry automatically"],
     workflow_event_sequence_gap: ["正在同步缺失事件", "Synchronizing missing events"],
     workflow_node_run_not_found: ["未找到步骤运行记录", "Workflow step run not found"],
@@ -91,6 +96,13 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_node_retry_conflict: ["步骤状态已变化，请刷新后重试", "The step state changed. Refresh and try again"],
     workflow_node_retry_exhausted: ["该步骤已达到最大重试次数", "This step reached its retry limit"],
     workflow_node_execution_failed: ["步骤执行失败", "Step execution failed"],
+    workflow_task_failed: ["步骤执行失败", "Step execution failed"],
+    workflow_task_setup_failed: ["AI 员工执行环境准备失败", "The AI employee execution environment could not be prepared"],
+    workflow_runtime_offline: ["AI 员工运行时离线，任务已由恢复流程收敛", "The AI employee runtime went offline and recovery closed the task"],
+    workflow_output_invalid: ["AI 员工未返回步骤声明的输出字段", "The AI employee did not return the declared output fields"],
+    workflow_output_too_large: ["步骤输出超过 256 KiB，请缩小摘要或改用产物引用", "The step output exceeds 256 KiB. Shorten it or use an artifact reference"],
+    workflow_output_field_invalid: ["输出字段名称无效、重复或数量超限", "Output field names are invalid, duplicated, or over the limit"],
+    workflow_output_field_unsupported: ["输入映射引用了上游未声明的输出字段", "The input mapping references an undeclared upstream output field"],
   };
   const label = code ? labels[code] : undefined;
   return label ? tx(label[0], label[1]) : tx("工作流操作未完成，请稍后重试", "The workflow operation did not complete. Try again later");

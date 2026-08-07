@@ -31,6 +31,18 @@ describe("workflow presentation translations", () => {
     "workflow_node_retry_exhausted",
     "workflow_event_sequence_gap",
     "workflow_cross_workspace_reference",
+    "workflow_run_commit_in_progress",
+    "workflow_run_not_startable",
+    "workflow_task_commit_conflict",
+    "workflow_output_invalid",
+    "workflow_output_too_large",
+    "workflow_output_field_invalid",
+    "workflow_output_field_unsupported",
+    "workflow_task_failed",
+    "workflow_task_setup_failed",
+    "workflow_runtime_offline",
+    "workflow_completion_effect_uncertain",
+    "workflow_node_manual_compensation_required",
   ])("localizes the stable error code %s without exposing it", (code) => {
     const label = translateWorkflowErrorCode(code, en);
     expect(label).not.toBe(code);

@@ -48,6 +48,9 @@ export function retryWorkflowNodeSync(input: RetryWorkflowNodeInput): WorkflowNo
     const node = listWorkflowNodeRunsSync(input.workspaceId, input.runId).find((item) => item.nodeId === input.nodeId);
     if (!node) throw new Error("workflow_node_run_not_found");
     if (node.status !== "failed" || node.nodeType !== "employee_task") throw new Error("workflow_node_not_retryable");
+    if (isWorkflowNodeManualCompensationRequired(node.errorCode)) {
+      throw new Error("workflow_node_manual_compensation_required");
+    }
     const attempt = node.attemptCount + 1;
     if (!input.manualOverride && attempt > node.maxAttempts) throw new Error("workflow_node_retry_exhausted");
     const now = input.now ?? new Date().toISOString();
@@ -103,6 +106,10 @@ export function retryWorkflowNodeSync(input: RetryWorkflowNodeInput): WorkflowNo
   });
 }
 
+export function isWorkflowNodeManualCompensationRequired(errorCode?: string): boolean {
+  return errorCode === "workflow_completion_effect_uncertain";
+}
+
 export function computeWorkflowRetryAvailableAt(now: string, attempt: number): string {
   const delaySeconds = Math.min(900, 5 * 2 ** Math.max(0, attempt - 2));
   return new Date(Date.parse(now) + delaySeconds * 1000).toISOString();
@@ -141,13 +148,21 @@ export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
     if (current.status === "cancelled") return current;
     const cancellableStatuses = ["created", "queued", "running", "waiting_approval", "paused"];
     if (!cancellableStatuses.includes(current.status)) throw new Error("workflow_run_control_conflict");
+    const nodes = listWorkflowNodeRunsSync(input.workspaceId, input.runId);
+    if (nodes.some((node) => {
+      if (!node.taskQueueId) return false;
+      const task = readQueuedTaskSync(node.taskQueueId);
+      return task?.status === "preparing_commit" || task?.status === "committed";
+    })) {
+      throw new Error("workflow_run_commit_in_progress");
+    }
     cancelPendingWorkflowApprovalsSync({
       workspaceId: input.workspaceId,
       runId: input.runId,
       reason: input.reason,
     });
     // The Run row serializes dispatch, completion, approval, retry, and cancellation for this aggregate.
-    for (const node of listWorkflowNodeRunsSync(input.workspaceId, input.runId)) {
+    for (const node of nodes) {
       if (["succeeded", "failed", "skipped", "cancelled"].includes(node.status)) continue;
       if (node.taskQueueId && readQueuedTaskSync(node.taskQueueId)) {
         cancelQueuedTaskSync({ taskId: node.taskQueueId, errorText: input.reason });

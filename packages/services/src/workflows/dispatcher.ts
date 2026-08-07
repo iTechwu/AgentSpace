@@ -141,7 +141,6 @@ function dispatchReadyWorkflowNodeInTransactionSync(input: DispatchWorkflowNodeI
   }
   const task = enqueueNativeTaskSync({
     workspaceId: input.workspaceId,
-    taskId: nodeRun.id,
     assignee: employee,
     title: typeof config.title === "string"
       ? config.title

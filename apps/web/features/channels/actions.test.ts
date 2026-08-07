@@ -690,6 +690,27 @@ describe("channel actions", () => {
     expect(mockReplacePendingChannelMessageSync).toHaveBeenCalled();
   });
 
+  it("explains why a linked workflow task cannot be stopped during commit", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin"));
+    mockReadQueuedTaskSync.mockReturnValue(workflowTask());
+    mockReadWorkflowNodeRunByTaskQueueIdSync.mockReturnValue({ id: "node-run-1", runId: "run-1" });
+    mockReadWorkflowRunSync.mockReturnValue({ id: "run-1", workflowId: "workflow-1" });
+    mockReadWorkflowDefinitionSync.mockReturnValue({ id: "workflow-1", ownerUserId: "another-user" });
+    mockCancelWorkflowRunSync.mockImplementation(() => { throw new Error("workflow_run_commit_in_progress"); });
+
+    await expect(stopChannelTaskAction("queue-1")).rejects.toThrow("步骤结果正在提交，请稍后再停止任务");
+    expect(mockReplacePendingChannelMessageSync).not.toHaveBeenCalled();
+  });
+
+  it("does not report a committed queue task as stopped", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin"));
+    mockReadQueuedTaskSync.mockReturnValue({ ...workflowTask(), status: "preparing_commit" });
+
+    await expect(stopChannelTaskAction("queue-1")).rejects.toThrow("步骤结果正在提交，请稍后再停止任务");
+    expect(mockCancelQueuedTaskSync).not.toHaveBeenCalled();
+    expect(mockReplacePendingChannelMessageSync).not.toHaveBeenCalled();
+  });
+
   it("allows members to rename channels they can access", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
 

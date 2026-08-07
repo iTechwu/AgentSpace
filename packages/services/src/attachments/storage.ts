@@ -153,12 +153,14 @@ export function buildAttachmentStorageKey(input: {
   const createdAt = input.createdAt ?? new Date();
   const year = String(createdAt.getUTCFullYear());
   const month = String(createdAt.getUTCMonth() + 1).padStart(2, "0");
+  const timePartition = input.attachmentId.startsWith("att-idem-")
+    ? ["idempotent"]
+    : [year, month];
   return [
     "workspaces",
     sanitizeObjectKeySegment(input.workspaceId),
     "attachments",
-    year,
-    month,
+    ...timePartition,
     sanitizeObjectKeySegment(input.attachmentId),
     sanitizeObjectKeySegment(input.fileName) || "attachment.bin",
   ].join("/");
@@ -490,8 +492,14 @@ class LocalAttachmentStorageClient implements AttachmentStorageClient {
   putObjectSync(input: AttachmentStoragePutInput): StoredAttachmentObject {
     const key = buildAttachmentStorageKey(input);
     const targetPath = this.resolveObjectPath(key);
+    const temporaryPath = `${targetPath}.${randomBytes(8).toString("hex")}.upload`;
     mkdirSync(dirname(targetPath), { recursive: true });
-    writeFileSync(targetPath, input.contentBytes, { flag: "wx" });
+    try {
+      writeFileSync(temporaryPath, input.contentBytes, { flag: "wx" });
+      renameSync(temporaryPath, targetPath);
+    } finally {
+      rmSync(temporaryPath, { force: true });
+    }
     return this.toStoredObject(key, input.contentBytes);
   }
 

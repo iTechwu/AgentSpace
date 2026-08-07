@@ -24,6 +24,7 @@ export async function GET(request: Request): Promise<Response> {
     scheduled: scheduled.createdRunIds.length,
     schedulerFailures: scheduled.failedTriggerIds.length,
     dispatched: dispatched.dispatchedTaskIds.length,
-    recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length + recovered.failedNodeRunIds.length,
+    recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length +
+      recovered.failedNodeRunIds.length + recovered.orphanedTaskIds.length,
   });
 }

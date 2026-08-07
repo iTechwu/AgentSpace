@@ -82,7 +82,7 @@ test("daemon consumes CLI-generated agent-output manifests", async () => {
 
     const output = loadTaskOutputEnvelope(workDir, "fallback", "default");
     assert.equal(output.text, "图表已生成。");
-    assert.equal(output.warnings.length, 0);
+    assert.deepEqual(output.warnings, []);
     assert.equal(output.attachments[0]?.fileName, "chart.png");
     discardTaskOutputAttachments(output.attachments);
   } finally {

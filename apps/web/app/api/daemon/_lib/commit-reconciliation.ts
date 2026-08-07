@@ -1,12 +1,41 @@
-import { readWorkspaceAttachmentBytesSync, reconcileStaleCommitJournalsSync } from "@dofe-agent/services";
-import type { QueuedTaskRecord } from "@dofe-agent/db";
-import { loadTaskOutputEnvelope } from "dofe-agent-daemon";
+import {
+  completeAgentChannelReplySync,
+  completeChannelDocumentRunStepSync,
+  completeWorkflowTaskIfLinkedSync,
+  continueAutoContinuationAfterTaskSync,
+  failWorkflowTaskIfLinkedSync,
+  lockWorkflowRunForTaskIfLinkedSync,
+  prepareWorkflowTaskOutputSync,
+  queueFeishuAgentStatusCardOutboxSync,
+  queueFeishuChannelReplyOutboxSync,
+  readWorkspaceStateSync,
+  readWorkspaceAttachmentBytesSync,
+  reconcileStaleCommitJournalsSync,
+  resolveCompatibleDirectChannelRecord,
+  updateTaskStatusSync,
+  upsertDirectConversationStateSync,
+  writeConversationExecutionWorkspaceStateSync,
+  writeWorkspaceStateSync,
+} from "@dofe-agent/services";
+import {
+  appendTaskMessageSync,
+  completeCommittedTaskSync,
+  failQueuedTaskSync,
+  getDatabase,
+  readAgentRuntimeSync,
+  type QueuedTaskRecord,
+  withTransaction,
+} from "@dofe-agent/db";
+import { loadTaskOutputEnvelope, parseTaskPayload } from "dofe-agent-daemon";
 import {
   getDaemonTaskOutputStagingDir,
+  clearDaemonTaskOutputStaging,
+  readTaskCompletionEffectsSnapshot,
   readStagedWorkDirDeletedPaths,
   readStagedWorkDirFiles,
 } from "./output-bundle";
 import { existsSync } from "node:fs";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 
 /**
  * Derives a task's durable outputs from the daemon output staging dir, for the
@@ -25,7 +54,9 @@ function deriveStagedTaskOutputsForReconciliation(task: QueuedTaskRecord): {
     return null;
   }
   try {
-    const envelope = loadTaskOutputEnvelope(stagingDir, "", task.workspaceId);
+    const envelope = loadTaskOutputEnvelope(stagingDir, "", task.workspaceId, {
+      attachmentNamespace: task.id,
+    });
     return {
       outputs: [
         ...readStagedWorkDirFiles(task.id, task.workspaceId),
@@ -42,6 +73,11 @@ function deriveStagedTaskOutputsForReconciliation(task: QueuedTaskRecord): {
   }
 }
 
+function isTaskCompletionReplaySafe(task: QueuedTaskRecord): boolean {
+  const snapshot = readTaskCompletionEffectsSnapshot<ReconciledTaskCompletionSnapshot>(task.id, task.workspaceId);
+  return Boolean(snapshot?.effects);
+}
+
 /** Maintenance-cron stage: re-drives stale preparing_commit journals. */
 export function runCommitReconciliationStage(): {
   committed: number;
@@ -53,5 +89,357 @@ export function runCommitReconciliationStage(): {
     staleBeforeSeconds: 3600,
     maxAttempts: 3,
     deriveOutputs: deriveStagedTaskOutputsForReconciliation,
+    isReplaySafe: isTaskCompletionReplaySafe,
+    finalizeTask: finalizeReconciledTask,
+    abortTask: abortReconciledTask,
   });
+}
+
+function abortReconciledTask(task: QueuedTaskRecord, message: string): void {
+  const aborted = withTransaction(getDatabase(), () => {
+    const fence = lockWorkflowRunForTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      allowPreparingCommit: true,
+    });
+    if (fence.ignored) return false;
+    failQueuedTaskSync({ taskId: task.id, errorText: message, errorCode: "workflow_completion_effect_uncertain" });
+    failWorkflowTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      errorCode: "workflow_completion_effect_uncertain",
+      errorText: message,
+    });
+    return true;
+  });
+  if (!aborted) throw new Error("workflow_commit_abort_conflict");
+  clearDaemonTaskOutputStaging(task.id, task.workspaceId);
+}
+
+interface ReconciledTaskCompletionSnapshot {
+  finalOutputText?: string;
+  normalizedWorkflowOutput?: Record<string, unknown>;
+  provider?: string;
+  runtimeName?: string;
+  sessionId?: string;
+  conversationSessionId?: string | null;
+  workDir?: string;
+  effects?: {
+    documentOperations: { warnings: string[]; documentUpdates: Array<{ documentId: string; documentVersionId: string }> };
+    skillImportOperations: { imports: unknown[] };
+    documentRuntimeOutputOperations: { permissionRequests: unknown[] };
+    feishuLarkCliResultOperations: { operationRunIds: string[] };
+    feishuRuntimeDataOperationRequests: { operationRunIds: string[]; approvalIds: string[] };
+    knowledgeProposalOperations: { knowledgeProposals: unknown[] };
+  };
+}
+
+export function finalizeReconciledTask(task: QueuedTaskRecord): void {
+  const stagingDir = getDaemonTaskOutputStagingDir(task.id, task.workspaceId);
+  const stagedSnapshot = readTaskCompletionEffectsSnapshot<ReconciledTaskCompletionSnapshot>(task.id, task.workspaceId);
+  const storedCompletion = task.status === "completed" ? readStoredTaskCompletion(task) : null;
+  const snapshot = stagedSnapshot?.effects ? stagedSnapshot : storedCompletion?.snapshot;
+  if (!snapshot || typeof snapshot.finalOutputText !== "string" || !snapshot.effects) {
+    throw new Error("workflow_commit_snapshot_missing");
+  }
+  const envelope = stagedSnapshot?.effects
+    ? loadTaskOutputEnvelope(stagingDir, snapshot.finalOutputText, task.workspaceId, {
+        attachmentNamespace: task.id,
+      })
+    : { text: snapshot.finalOutputText, attachments: storedCompletion?.attachments ?? [] };
+  const normalizedOutput = snapshot.normalizedWorkflowOutput ?? (task.status === "completed" ? undefined : prepareWorkflowTaskOutputSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      outputText: envelope.text,
+    }));
+  const finalized = withTransaction(getDatabase(), () => {
+    const fence = lockWorkflowRunForTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      allowPreparingCommit: true,
+      allowCommitted: true,
+    });
+    if (fence.ignored) return fence.taskStatus === "completed";
+    completeCommittedTaskSync({
+      taskId: task.id,
+      resultJson: {
+        provider: snapshot.provider,
+        output: envelope.text,
+        attachments: envelope.attachments,
+        skillImports: snapshot.effects!.skillImportOperations.imports,
+        documentUpdates: snapshot.effects!.documentOperations.documentUpdates,
+        feishuLarkCliDataOperationRunIds: snapshot.effects!.feishuLarkCliResultOperations.operationRunIds,
+        feishuRuntimeDataOperationRunIds: snapshot.effects!.feishuRuntimeDataOperationRequests.operationRunIds,
+        feishuRuntimeDataOperationApprovalIds: snapshot.effects!.feishuRuntimeDataOperationRequests.approvalIds,
+        documentPermissionRequests: snapshot.effects!.documentRuntimeOutputOperations.permissionRequests,
+        knowledgeProposals: snapshot.effects!.knowledgeProposalOperations.knowledgeProposals,
+        recoveredFromCommitJournal: true,
+      },
+      sessionId: snapshot.sessionId,
+      workDir: snapshot.workDir,
+    });
+    completeWorkflowTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      outputText: envelope.text,
+      normalizedOutput,
+      artifactManifest: envelope.attachments,
+    });
+    return true;
+  });
+  if (!finalized) throw new Error("workflow_commit_finalization_conflict");
+  projectReconciledTaskCompletion(task, snapshot, envelope.attachments);
+  clearDaemonTaskOutputStaging(task.id, task.workspaceId);
+}
+
+function readStoredTaskCompletion(task: QueuedTaskRecord): {
+  snapshot: ReconciledTaskCompletionSnapshot;
+  attachments: MessageAttachment[];
+} | null {
+  if (!task.resultJson) return null;
+  try {
+    const result = JSON.parse(task.resultJson) as Record<string, unknown>;
+    if (typeof result.output !== "string" || !Array.isArray(result.attachments)) return null;
+    const attachments = result.attachments.filter(isMessageAttachment);
+    if (attachments.length !== result.attachments.length) return null;
+    const documentUpdates = Array.isArray(result.documentUpdates)
+      ? result.documentUpdates.filter(isDocumentUpdate)
+      : [];
+    return {
+      attachments,
+      snapshot: {
+        finalOutputText: result.output,
+        provider: typeof result.provider === "string" ? result.provider : undefined,
+        sessionId: task.sessionId,
+        conversationSessionId: result.provider === "hermes" ? null : task.sessionId ?? null,
+        workDir: task.workDir,
+        effects: {
+          documentOperations: { warnings: [], documentUpdates },
+          skillImportOperations: { imports: Array.isArray(result.skillImports) ? result.skillImports : [] },
+          documentRuntimeOutputOperations: {
+            permissionRequests: Array.isArray(result.documentPermissionRequests) ? result.documentPermissionRequests : [],
+          },
+          feishuLarkCliResultOperations: {
+            operationRunIds: readStringArray(result.feishuLarkCliDataOperationRunIds),
+          },
+          feishuRuntimeDataOperationRequests: {
+            operationRunIds: readStringArray(result.feishuRuntimeDataOperationRunIds),
+            approvalIds: readStringArray(result.feishuRuntimeDataOperationApprovalIds),
+          },
+          knowledgeProposalOperations: {
+            knowledgeProposals: Array.isArray(result.knowledgeProposals) ? result.knowledgeProposals : [],
+          },
+        },
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isMessageAttachment(value: unknown): value is MessageAttachment {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const attachment = value as Record<string, unknown>;
+  return typeof attachment.id === "string" && typeof attachment.fileName === "string" &&
+    typeof attachment.mediaType === "string" && typeof attachment.sizeBytes === "number" &&
+    (attachment.kind === "image" || attachment.kind === "file") && typeof attachment.storedPath === "string";
+}
+
+function isDocumentUpdate(value: unknown): value is { documentId: string; documentVersionId: string } {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value) &&
+    typeof (value as Record<string, unknown>).documentId === "string" &&
+    typeof (value as Record<string, unknown>).documentVersionId === "string";
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function projectReconciledTaskCompletion(
+  task: QueuedTaskRecord,
+  snapshot: ReconciledTaskCompletionSnapshot,
+  attachments: ReturnType<typeof loadTaskOutputEnvelope>["attachments"],
+): void {
+  const payload = parseTaskPayload(task);
+  const runtime = readAgentRuntimeSync(task.runtimeId);
+  const agentName = payload.assignee ?? task.agentId;
+  const runtimeName = snapshot.runtimeName ?? runtime?.name ?? agentName;
+  const workspaceState = readWorkspaceStateSync(task.workspaceId);
+  const effectiveChannelName = payload.channelName
+    ?? (payload.contactId ? resolveCompatibleDirectChannelRecord(workspaceState, payload.contactId)?.name : undefined);
+  const conversationSessionId = resolveReconciledConversationSessionId({
+    snapshot,
+    runtimeProvider: runtime?.provider,
+  });
+  const documentOperations = snapshot.effects!.documentOperations;
+
+  if (payload.taskId) updateTaskStatusSync(payload.taskId, "done", task.workspaceId);
+  if (payload.orchestrationStepId) {
+    writeWorkspaceStateSync(completeChannelDocumentRunStepSync({
+      queuedTaskId: task.id,
+      documentUpdates: documentOperations.documentUpdates,
+      warningText: documentOperations.warnings[0],
+    }, task.workspaceId), task.workspaceId);
+  }
+
+  if (effectiveChannelName && payload.channel) {
+    const reply = completeAgentChannelReplySync({
+      channel: payload.channel,
+      pendingSpeaker: agentName,
+      speaker: agentName,
+      summary: snapshot.finalOutputText!,
+      attachments,
+      sourceTaskQueueId: task.id,
+      requestedByUserId: task.requestedByUserId,
+      requestedByDisplayName: task.requestedByDisplayName,
+      mentionCascadeDepth: payload.mentionCascadeDepth,
+      mentionRootMessageId: payload.mentionRootMessageId ?? payload.sourceMessageId,
+      sessionId: conversationSessionId ?? undefined,
+      workDir: snapshot.workDir,
+    }, task.workspaceId);
+    recordRecoveredReplyEffects(
+      task,
+      payload.channel,
+      agentName,
+      snapshot.finalOutputText!,
+      attachments,
+      reply,
+      payload.sourceMessageId,
+    );
+    writeConversationExecutionWorkspaceStateSync({
+      channelName: payload.channel,
+      agentId: agentName,
+      contactId: payload.contactId,
+      sessionId: conversationSessionId,
+      workDir: snapshot.workDir,
+      lastTaskQueueId: task.id,
+      lastError: null,
+    }, task.workspaceId);
+    if (payload.contactId) {
+      upsertDirectConversationStateSync({
+        contactId: payload.contactId,
+        sessionId: conversationSessionId,
+        workDir: snapshot.workDir,
+      }, task.workspaceId);
+    }
+  } else if (payload.contactId) {
+    writeConversationExecutionWorkspaceStateSync({
+      channelName: effectiveChannelName ?? payload.channel ?? payload.contactId,
+      agentId: payload.contactId,
+      contactId: payload.contactId,
+      sessionId: conversationSessionId,
+      workDir: snapshot.workDir,
+      lastTaskQueueId: task.id,
+      lastError: null,
+    }, task.workspaceId);
+    upsertDirectConversationStateSync({
+      contactId: payload.contactId,
+      sessionId: conversationSessionId,
+      workDir: snapshot.workDir,
+    }, task.workspaceId);
+  } else if (payload.channel) {
+    const reply = completeAgentChannelReplySync({
+      channel: payload.channel,
+      speaker: runtimeName,
+      summary: snapshot.finalOutputText!,
+      attachments,
+      sourceTaskQueueId: task.id,
+      requestedByUserId: task.requestedByUserId,
+      requestedByDisplayName: task.requestedByDisplayName,
+      mentionCascadeDepth: payload.mentionCascadeDepth,
+      mentionRootMessageId: payload.mentionRootMessageId ?? payload.sourceMessageId,
+      sessionId: conversationSessionId ?? undefined,
+      workDir: snapshot.workDir,
+    }, task.workspaceId);
+    recordRecoveredReplyEffects(
+      task,
+      payload.channel,
+      agentName,
+      snapshot.finalOutputText!,
+      attachments,
+      reply,
+      payload.sourceMessageId,
+    );
+    writeConversationExecutionWorkspaceStateSync({
+      channelName: payload.channel,
+      agentId: agentName,
+      sessionId: conversationSessionId,
+      workDir: snapshot.workDir,
+      lastTaskQueueId: task.id,
+      lastError: null,
+    }, task.workspaceId);
+  }
+
+  try {
+    continueAutoContinuationAfterTaskSync({
+      taskId: task.id,
+      workspaceId: task.workspaceId,
+      sessionId: conversationSessionId ?? undefined,
+      workDir: snapshot.workDir,
+    });
+  } catch {
+    // The original completion path also treats automatic continuation as best effort.
+  }
+}
+
+export function resolveReconciledConversationSessionId(input: {
+  snapshot: Pick<ReconciledTaskCompletionSnapshot, "provider" | "sessionId" | "conversationSessionId">;
+  runtimeProvider?: string;
+}): string | null {
+  if (Object.hasOwn(input.snapshot, "conversationSessionId")) {
+    return input.snapshot.conversationSessionId ?? null;
+  }
+  return (input.snapshot.provider ?? input.runtimeProvider) === "hermes"
+    ? null
+    : input.snapshot.sessionId ?? null;
+}
+
+function recordRecoveredReplyEffects(
+  task: QueuedTaskRecord,
+  channelName: string,
+  agentName: string,
+  text: string,
+  attachments: ReturnType<typeof loadTaskOutputEnvelope>["attachments"],
+  reply: ReturnType<typeof completeAgentChannelReplySync>,
+  sourceDofeAgentMessageId?: string,
+): void {
+  if (!reply.created) return;
+  for (const warning of reply.warnings) {
+    appendTaskMessageSync({ taskId: task.id, type: "status", content: warning });
+  }
+  try {
+    const statusCards = queueFeishuAgentStatusCardOutboxSync({
+      workspaceId: task.workspaceId,
+      channelName,
+      agentId: agentName,
+      status: "complete",
+      agentNames: [agentName],
+      message: text,
+      taskId: task.id,
+      dofeAgentMessageId: reply.message.id,
+      sourceDofeAgentMessageId,
+    });
+    const replies = queueFeishuChannelReplyOutboxSync({
+      workspaceId: task.workspaceId,
+      channelName,
+      agentId: agentName,
+      text,
+      attachments,
+      dofeAgentMessageId: reply.message.id,
+      sourceDofeAgentMessageId,
+    });
+    if (statusCards.length + replies.length > 0) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: `Feishu outbound queued during commit recovery: ${statusCards.length + replies.length} message(s).`,
+      });
+    }
+  } catch (error) {
+    appendTaskMessageSync({
+      taskId: task.id,
+      type: "status",
+      content: `Feishu outbound enqueue failed during commit recovery: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
 }

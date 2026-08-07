@@ -32,6 +32,12 @@ export interface ReconcileCommitJournalsOptions {
   maxAttempts?: number;
   /** Output deriver; when absent, unrecoverable journals are rolled back. */
   deriveOutputs?: CommitReconciliationOutputDeriver;
+  /** Confirms that completion effects reached a durable replay-safe checkpoint. */
+  isReplaySafe?: (task: QueuedTaskRecord) => boolean;
+  /** Finalizes queue/workflow state after durable promotion. Must be idempotent. */
+  finalizeTask?: (task: QueuedTaskRecord) => void;
+  /** Converges queue/workflow state when effects never reached a replay-safe checkpoint. */
+  abortTask?: (task: QueuedTaskRecord, message: string) => void;
 }
 
 export interface ReconcileCommitJournalsResult {
@@ -68,8 +74,51 @@ export function reconcileStaleCommitJournalsSync(
     const task = readQueuedTaskSync(journal.taskId);
     if (!task) {
       // Task row gone — nothing to reconcile; record the journal as rolled back.
-      rollbackJournal(journal, "Task no longer exists; nothing to commit.");
-      result.rolledBack += 1;
+      if (rollbackJournal(journal, "Task no longer exists; nothing to commit.")) result.rolledBack += 1;
+      else result.retried += 1;
+      continue;
+    }
+    if (task.status === "committed" || task.status === "completed") {
+      try {
+        markFinalizationPending(journal);
+        options.finalizeTask?.(task);
+        upsertTaskCommitJournalSync({
+          taskId: journal.taskId,
+          workspaceId: journal.workspaceId,
+          employeeName: journal.employeeName,
+          workspaceRevisionId: journal.workspaceRevisionId,
+          artifactIdsJson: journal.artifactIdsJson,
+          commitState: "committed",
+        });
+        result.committed += 1;
+      } catch (error) {
+        bumpJournalAttempt(journal, error instanceof Error ? error.message : String(error));
+        result.retried += 1;
+      }
+      continue;
+    }
+    if (task.status === "failed" || task.status === "cancelled") {
+      if (rollbackJournal(journal, `Task is already ${task.status}; commit recovery is no longer applicable.`)) {
+        result.rolledBack += 1;
+      } else {
+        result.retried += 1;
+      }
+      continue;
+    }
+    const replaySafe = [
+      "workspace_promotion_failed",
+      "workflow_completion_effects_checkpointed",
+      "commit_reconciliation_retrying",
+    ].includes(journal.errorCode ?? "") || options.isReplaySafe?.(task) === true;
+    if (!replaySafe) {
+      const rolledBack = rollbackJournal(
+        journal,
+        "Completion effects did not reach a replay-safe checkpoint; manual compensation may be required.",
+        task,
+        options.abortTask,
+      );
+      if (rolledBack) result.rolledBack += 1;
+      else result.retried += 1;
       continue;
     }
 
@@ -78,9 +127,9 @@ export function reconcileStaleCommitJournalsSync(
       // Original outputs are unrecoverable (staging cleared/expired). Roll back
       // only when attempts are exhausted; otherwise keep the journal for another
       // reconciliation round so a slow daemon can still deliver.
-      if (journal.attempt >= maxAttempts) {
-        rollbackJournal(journal, "Original task outputs are unrecoverable and retries are exhausted.");
-        result.rolledBack += 1;
+      if (journal.attempt + 1 >= maxAttempts) {
+        if (rollbackJournal(journal, "Original task outputs are unrecoverable and retries are exhausted.", task, options.abortTask)) result.rolledBack += 1;
+        else result.retried += 1;
       } else {
         bumpJournalAttempt(journal, "Outputs not yet available; awaiting another reconciliation round.");
         result.retried += 1;
@@ -107,12 +156,28 @@ export function reconcileStaleCommitJournalsSync(
         workspaceRevisionId: promoted.revision.id,
         artifactIds: promoted.artifactIds,
       });
+      markFinalizationPending(journal);
+      options.finalizeTask?.(readQueuedTaskSync(task.id) ?? task);
+      upsertTaskCommitJournalSync({
+        taskId: journal.taskId,
+        workspaceId: journal.workspaceId,
+        employeeName: task.employeeName,
+        workspaceRevisionId: promoted.revision.id,
+        artifactIdsJson: JSON.stringify(promoted.artifactIds),
+        commitState: "committed",
+      });
       result.committed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (journal.attempt >= maxAttempts) {
-        rollbackJournal(journal, `Promotion failed permanently after ${maxAttempts} attempts: ${message}`);
-        result.rolledBack += 1;
+      const currentTask = readQueuedTaskSync(journal.taskId);
+      if (currentTask?.status === "committed" || currentTask?.status === "completed") {
+        // Promotion won. Never roll back durable outputs because projection
+        // finalization failed; keep retrying the idempotent finalizer.
+        bumpJournalAttempt(journal, message);
+        result.retried += 1;
+      } else if (journal.attempt + 1 >= maxAttempts) {
+        if (rollbackJournal(journal, `Promotion failed permanently after ${maxAttempts} attempts: ${message}`, task, options.abortTask)) result.rolledBack += 1;
+        else result.retried += 1;
       } else {
         bumpJournalAttempt(journal, message);
         result.retried += 1;
@@ -122,6 +187,21 @@ export function reconcileStaleCommitJournalsSync(
   return result;
 }
 
+function markFinalizationPending(journal: {
+  taskId: string;
+  workspaceId: string;
+  employeeName?: string;
+}): void {
+  upsertTaskCommitJournalSync({
+    taskId: journal.taskId,
+    workspaceId: journal.workspaceId,
+    employeeName: journal.employeeName,
+    commitState: "preparing",
+    errorCode: "commit_reconciliation_retrying",
+    errorMessage: "Durable outputs are committed; business projections are pending.",
+  });
+}
+
 function bumpJournalAttempt(journal: { taskId: string; workspaceId: string }, message: string): void {
   upsertTaskCommitJournalSync({
     taskId: journal.taskId,
@@ -129,10 +209,37 @@ function bumpJournalAttempt(journal: { taskId: string; workspaceId: string }, me
     commitState: "preparing",
     errorCode: "commit_reconciliation_retrying",
     errorMessage: message,
+    incrementAttempt: true,
   });
 }
 
-function rollbackJournal(journal: { taskId: string; workspaceId: string; employeeName?: string }, message: string): void {
+function rollbackJournal(
+  journal: { taskId: string; workspaceId: string; employeeName?: string },
+  message: string,
+  task?: QueuedTaskRecord,
+  abortTask?: (task: QueuedTaskRecord, message: string) => void,
+): boolean {
+  if (task && abortTask) {
+    try {
+      abortTask(task, message);
+    } catch (error) {
+      bumpJournalAttempt(journal, error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }
+  // The task can never be committed by anyone; fail it so the queue backlog is
+  // actionable instead of stuck in `preparing_commit` forever.
+  if (!(task && abortTask)) {
+    try {
+      failQueuedTaskSync({
+        taskId: journal.taskId,
+        errorText: message,
+        errorCode: "task.commit_rolled_back",
+      });
+    } catch {
+      // The task may already be in a terminal state; the journal remains useful.
+    }
+  }
   upsertTaskCommitJournalSync({
     taskId: journal.taskId,
     workspaceId: journal.workspaceId,
@@ -141,15 +248,5 @@ function rollbackJournal(journal: { taskId: string; workspaceId: string; employe
     errorCode: "commit_reconciliation_rolled_back",
     errorMessage: message,
   });
-  // The task can never be committed by anyone; fail it so the queue backlog is
-  // actionable instead of stuck in `preparing_commit` forever.
-  try {
-    failQueuedTaskSync({
-      taskId: journal.taskId,
-      errorText: message,
-      errorCode: "task.commit_rolled_back",
-    });
-  } catch {
-    // The task may already be in a terminal state; the journal is the record.
-  }
+  return true;
 }

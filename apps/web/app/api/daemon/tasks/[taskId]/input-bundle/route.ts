@@ -31,6 +31,7 @@ import type {
 import {
   buildSkillRunnerEntrypointsForSnapshotSync,
   buildContactAgentContext,
+  isWorkflowTaskInputAvailableSync,
   readWorkspaceStateSync,
   resolveAgentDocumentContextSync,
   resolveAgentRuntimeMode,
@@ -58,6 +59,9 @@ export async function GET(
   const task = readTaskForDaemon(taskId, auth);
   if (task instanceof Response) {
     return task;
+  }
+  if (!isWorkflowTaskInputAvailableSync({ workspaceId: task.workspaceId, taskQueueId: task.id })) {
+    return Response.json({ error: "workflow_run_not_startable" }, { status: 409 });
   }
 
   const runtime = readAgentRuntimeSync(task.runtimeId);

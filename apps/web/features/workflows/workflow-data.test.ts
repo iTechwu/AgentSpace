@@ -169,7 +169,11 @@ describe("getWorkflowCenterPageData", () => {
             reasonCode: "sensitive-database-message",
           },
           { workflowId: "workflow-daily", code: "unrecognized.code", createdAt: "2026-08-07T05:00:00.000Z" },
-        ] : []),
+        ] : sql.includes("FROM workflow_trigger") ? [{
+          workflowId: "workflow-daily",
+          type: "schedule",
+          updatedAt: "2026-08-07T03:00:00.000Z",
+        }] : []),
       })),
     });
 
@@ -180,6 +184,40 @@ describe("getWorkflowCenterPageData", () => {
       createdAt: "2026-08-07T04:00:00.000Z",
     });
     expect(JSON.stringify(data)).not.toContain("sensitive-database-message");
+  });
+
+  it("hides an obsolete trigger failure after the trigger advances", () => {
+    mockGetDatabase.mockReturnValue({
+      prepare: vi.fn((sql: string) => ({
+        all: vi.fn(() => sql.includes("FROM audit_log") ? [{
+          workflowId: "workflow-daily",
+          code: "workflow.trigger.materialization_failed",
+          createdAt: "2026-08-07T04:00:00.000Z",
+        }] : sql.includes("FROM workflow_trigger") ? [{
+          workflowId: "workflow-daily",
+          type: "schedule",
+          updatedAt: "2026-08-07T05:00:00.000Z",
+        }] : []),
+      })),
+    });
+
+    expect(getWorkflowCenterPageData("default").workflows[0]?.lastTriggerOutcome).toBeUndefined();
+  });
+
+  it("limits trigger outcomes only after selecting the latest row per workflow", () => {
+    const observedSql: string[] = [];
+    mockGetDatabase.mockReturnValue({
+      prepare: vi.fn((sql: string) => {
+        observedSql.push(sql);
+        return { all: vi.fn(() => []) };
+      }),
+    });
+
+    getWorkflowCenterPageData("default");
+
+    const auditSql = observedSql.find((sql) => sql.includes("FROM audit_log"));
+    expect(auditSql).toContain("PARTITION BY data_json ->> 'workflowId'");
+    expect(auditSql).toMatch(/outcome_rank\s*=\s*1[\s\S]*LIMIT 1000/);
   });
 
   it("preserves a suspended schedule trigger when the workflow is paused", () => {
@@ -201,6 +239,7 @@ describe("getWorkflowCenterPageData", () => {
           workflowId: "workflow-daily",
           type: "schedule",
           nextFireAt: "2026-08-08T01:00:00.000Z",
+          updatedAt: "2026-08-07T00:00:00.000Z",
         }] : []),
       })),
     });

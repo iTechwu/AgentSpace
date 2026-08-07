@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { type DofeAgentState, type MessageAttachment, type WorkspaceMessage } from "@dofe-agent/domain/workspace";
@@ -10,6 +11,7 @@ import { createAttachmentStorageClient } from "./storage.ts";
 
 type PersistWorkspaceAttachmentInput = {
   workspaceId?: string;
+  idempotencyKey?: string;
   fileName: string;
   mediaType?: string;
   sizeBytes: number;
@@ -29,6 +31,7 @@ export function persistWorkspaceAttachmentFromFileSync(input: {
   sourcePath: string;
   fileName?: string;
   mediaType?: string;
+  idempotencyKey?: string;
 }): MessageAttachment {
   if (!existsSync(input.sourcePath)) {
     throw new Error(`Attachment source "${input.sourcePath}" does not exist.`);
@@ -44,6 +47,7 @@ export function persistWorkspaceAttachmentFromFileSync(input: {
     contentBytes: readFileSync(input.sourcePath),
     fileName: input.fileName?.trim() || basename(input.sourcePath),
     mediaType: input.mediaType,
+    idempotencyKey: input.idempotencyKey,
   });
 }
 
@@ -52,6 +56,7 @@ export function persistWorkspaceAttachmentFromBytesSync(input: {
   contentBytes: Uint8Array;
   fileName: string;
   mediaType?: string;
+  idempotencyKey?: string;
 }): MessageAttachment {
   const contentBytes = input.contentBytes;
   const sizeBytes = contentBytes.byteLength;
@@ -61,6 +66,7 @@ export function persistWorkspaceAttachmentFromBytesSync(input: {
 
   return persistWorkspaceAttachmentSync({
     workspaceId: input.workspaceId,
+    idempotencyKey: input.idempotencyKey,
     fileName: input.fileName,
     mediaType: input.mediaType,
     sizeBytes,
@@ -221,8 +227,11 @@ export function deleteUnreferencedWorkspaceAttachmentsSync(
 }
 
 function persistWorkspaceAttachmentSync(input: PersistWorkspaceAttachmentInput): MessageAttachment {
-  const id = `att-${createOpaqueId()}`;
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const idempotencyKey = input.idempotencyKey?.trim();
+  const id = idempotencyKey
+    ? `att-idem-${createHash("sha256").update(workspaceId).update("\0").update(idempotencyKey).digest("hex").slice(0, 32)}`
+    : `att-${createOpaqueId()}`;
   const fileName = normalizeAttachmentDisplayName(input.fileName);
   const mediaType = resolveAttachmentMediaType(fileName, input.mediaType);
   const storedFileName = basename(sanitizeAttachmentFileName(fileName));

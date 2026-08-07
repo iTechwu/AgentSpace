@@ -13,7 +13,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"] });
   services.dispatchWorkflowOutboxBatchSync.mockReturnValue({ dispatchedTaskIds: ["task-1"] });
-  services.recoverStaleWorkflowWorkSync.mockReturnValue({ readyNodeRunIds: ["node-1"], retriedNodeRunIds: [], failedNodeRunIds: [] });
+  services.recoverStaleWorkflowWorkSync.mockReturnValue({
+    readyNodeRunIds: ["node-1"],
+    retriedNodeRunIds: [],
+    failedNodeRunIds: [],
+    orphanedTaskIds: [],
+  });
 });
 afterEach(() => {
   if (originalSecret === undefined) delete process.env.CRON_SECRET;

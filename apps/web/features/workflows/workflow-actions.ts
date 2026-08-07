@@ -296,6 +296,8 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_definition_not_found", "workflow_definition_archived", "workflow_definition_not_published",
   "workflow_definition_control_conflict",
   "workflow_actor_forbidden", "workflow_employee_not_ready", "workflow_run_not_found", "workflow_run_control_conflict",
+  "workflow_run_commit_in_progress", "workflow_run_not_startable", "workflow_task_commit_conflict",
+  "workflow_completion_effect_uncertain", "workflow_node_manual_compensation_required",
   "workflow_node_run_not_found", "workflow_node_not_retryable", "workflow_node_retry_exhausted", "workflow_node_retry_conflict",
   "workflow_trigger_cross_workspace_conflict", "workflow_trigger_duplicate", "workflow_active_version_missing",
   "workflow_trigger_owner_conflict",
@@ -330,7 +332,16 @@ function workflowErrorMessage(code: string): string {
     workflow_event_invalid: "事件名称无效，请检查后重试。",
     workflow_run_not_found: "未找到运行记录。",
     workflow_run_control_conflict: "运行状态已变化，请刷新后重试。",
+    workflow_run_commit_in_progress: "步骤结果正在提交，请稍后再取消运行。",
+    workflow_run_not_startable: "运行已暂停或结束，当前步骤不能开始执行。",
+    workflow_task_commit_conflict: "步骤提交状态已变化，请刷新后重试。",
+    workflow_completion_effect_uncertain: "外部操作状态不确定，请先检查并补偿。",
+    workflow_node_manual_compensation_required: "请先检查并补偿外部操作，再处理此步骤。",
     workflow_node_retry_exhausted: "该步骤已达到最大重试次数。",
+    workflow_output_invalid: "AI 员工未返回步骤声明的输出字段，请检查输出字段或任务说明。",
+    workflow_output_too_large: "步骤输出超过 256 KiB，请缩小摘要或改用产物引用。",
+    workflow_output_field_invalid: "输出字段名称无效、重复或数量超限。",
+    workflow_output_field_unsupported: "输入映射引用了上游未声明的输出字段。",
   };
   return messages[code] ?? "工作流操作未完成，请稍后重试。";
 }

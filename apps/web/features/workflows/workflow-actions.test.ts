@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   pauseDefinition: vi.fn(),
   resumeDefinition: vi.fn(),
   readTrigger: vi.fn(),
+  cancelRun: vi.fn(),
   retryNode: vi.fn(),
   revalidate: vi.fn(),
 }));
@@ -25,7 +26,7 @@ vi.mock("@dofe-agent/db", () => ({
 }));
 vi.mock("@dofe-agent/services", () => ({
   assertTriggerWriteOwnerSync: vi.fn(),
-  cancelWorkflowRunSync: vi.fn(),
+  cancelWorkflowRunSync: mocks.cancelRun,
   materializeManualWorkflowRunSync: mocks.manualRun,
   pauseWorkflowRunSync: vi.fn(),
   pauseWorkflowDefinitionSync: mocks.pauseDefinition,
@@ -154,6 +155,21 @@ describe("workflow actions", () => {
       nodeId: "audit",
       manualOverride: true,
     }));
+  });
+
+  it("returns an actionable error while a node result is being committed", async () => {
+    mockContext("owner");
+    mocks.cancelRun.mockImplementation(() => { throw new Error("workflow_run_commit_in_progress"); });
+
+    const result = await controlWorkflowRunAction({ runId: "run-1", action: "cancel" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "workflow_run_commit_in_progress",
+        message: "步骤结果正在提交，请稍后再取消运行。",
+      },
+    });
   });
 
   it("lets the workflow manager pause and resume future triggers", async () => {

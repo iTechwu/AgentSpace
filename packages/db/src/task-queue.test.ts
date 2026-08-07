@@ -15,6 +15,7 @@ import {
   getDatabase,
   listTaskExecutionEventsSync,
   markTaskCommittedSync,
+  markTaskPreparingCommitSync,
   readMcpTaskSessionGrantSync,
   registerDaemonRuntimesSync,
   startQueuedTaskSync,
@@ -88,6 +89,28 @@ function createRuntimeAndBinding(employeeName = "Atlas"): string {
   return runtimeId;
 }
 
+test("idempotent queue creation returns the original task without duplicate lifecycle events", () => {
+  createRuntimeAndBinding();
+  const input = {
+    idempotencyKey: "agent-output-mention:source-task:atlas",
+    assignee: "Atlas",
+    title: "Follow up",
+    channel: "general",
+    priority: "medium" as const,
+    triggerType: "mention_chat",
+  };
+
+  const first = enqueueNativeTaskSync(input);
+  const second = enqueueNativeTaskSync(input);
+
+  assert.ok(first);
+  assert.equal(second?.id, first.id);
+  const queueCount = getDatabase().prepare("SELECT COUNT(*) AS count FROM agent_task_queue WHERE id = ?")
+    .get(first.id) as { count?: number } | undefined;
+  assert.equal(Number(queueCount?.count), 1);
+  assert.equal(listTaskExecutionEventsSync({ taskId: first.id }).filter((event) => event.type === "queued").length, 1);
+});
+
 test("completeCommittedTaskSync requires committed status (EAD §7)", () => {
   const runtimeId = createRuntimeAndBinding();
   const queued = enqueueNativeTaskSync({
@@ -105,6 +128,7 @@ test("completeCommittedTaskSync requires committed status (EAD §7)", () => {
     /cannot be completed while status is "running"/,
   );
 
+  markTaskPreparingCommitSync(queued.id);
   markTaskCommittedSync({ taskId: queued.id });
   const completed = completeCommittedTaskSync({ taskId: queued.id });
   assert.equal(completed.status, "completed");
@@ -124,6 +148,34 @@ test("completeQueuedTaskSync still allows legacy completion from running for com
 
   const completed = completeQueuedTaskSync({ taskId: queued.id });
   assert.equal(completed.status, "completed");
+});
+
+test("late start callbacks do not reopen completed or failed tasks", () => {
+  const runtimeId = createRuntimeAndBinding();
+  const completedTask = enqueueNativeTaskSync({ assignee: "Atlas", title: "Completed", channel: "general", priority: "high" });
+  const failedTask = enqueueNativeTaskSync({ assignee: "Atlas", title: "Failed", channel: "general", priority: "high" });
+  assert.ok(completedTask);
+  assert.ok(failedTask);
+
+  claimNextQueuedTaskForRuntimeSync(runtimeId);
+  startQueuedTaskSync(completedTask.id);
+  completeQueuedTaskSync({ taskId: completedTask.id });
+  failQueuedTaskSync({ taskId: failedTask.id, errorText: "Provider failed." });
+
+  assert.equal(startQueuedTaskSync(completedTask.id).status, "completed");
+  assert.equal(startQueuedTaskSync(failedTask.id).status, "failed");
+});
+
+test("late completion and failure callbacks do not overwrite cancellation", () => {
+  const runtimeId = createRuntimeAndBinding();
+  const queued = enqueueNativeTaskSync({ assignee: "Atlas", title: "Cancelled", channel: "general", priority: "high" });
+  assert.ok(queued);
+  claimNextQueuedTaskForRuntimeSync(runtimeId);
+  startQueuedTaskSync(queued.id);
+  cancelQueuedTaskSync({ taskId: queued.id });
+
+  assert.equal(completeQueuedTaskSync({ taskId: queued.id }).status, "cancelled");
+  assert.equal(failQueuedTaskSync({ taskId: queued.id, errorText: "Late failure." }).status, "cancelled");
 });
 
 test("queued task identity survives employee rename through employeeId", () => {
@@ -214,6 +266,7 @@ test("markTaskCommittedSync removes the MCP session grant from the task workspac
   claimNextQueuedTaskForRuntimeSync(runtimeId);
   startQueuedTaskSync(queued.id);
 
+  markTaskPreparingCommitSync(queued.id);
   markTaskCommittedSync({ taskId: queued.id });
 
   assert.equal(readMcpTaskSessionGrantSync(queued.id, workspaceId), null);

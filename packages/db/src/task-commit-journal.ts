@@ -15,6 +15,8 @@ export interface UpsertTaskCommitJournalInput {
   commitState: TaskCommitState;
   errorCode?: string;
   errorMessage?: string;
+  /** Increment only after an actual reconciliation attempt fails. */
+  incrementAttempt?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -43,15 +45,18 @@ export function upsertTaskCommitJournalSync(input: UpsertTaskCommitJournalInput)
       `INSERT INTO task_commit_journal (
         task_id, workspace_id, employee_id, employee_name, workspace_revision_id, artifact_ids_json,
         commit_state, attempt, error_code, error_message, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (task_id) DO UPDATE SET
         workspace_id = excluded.workspace_id,
         employee_id = COALESCE(excluded.employee_id, task_commit_journal.employee_id),
         employee_name = COALESCE(excluded.employee_name, task_commit_journal.employee_name),
         workspace_revision_id = COALESCE(excluded.workspace_revision_id, task_commit_journal.workspace_revision_id),
-        artifact_ids_json = COALESCE(excluded.artifact_ids_json, task_commit_journal.artifact_ids_json),
+        artifact_ids_json = CASE
+          WHEN ? = 1 THEN task_commit_journal.artifact_ids_json
+          ELSE excluded.artifact_ids_json
+        END,
         commit_state = excluded.commit_state,
-        attempt = task_commit_journal.attempt + 1,
+        attempt = task_commit_journal.attempt + excluded.attempt,
         error_code = excluded.error_code,
         error_message = excluded.error_message,
         updated_at = excluded.updated_at`,
@@ -63,10 +68,12 @@ export function upsertTaskCommitJournalSync(input: UpsertTaskCommitJournalInput)
       input.workspaceRevisionId?.trim() || null,
       input.artifactIdsJson ?? "[]",
       input.commitState,
+      input.incrementAttempt ? 1 : 0,
       input.errorCode?.trim() || null,
       input.errorMessage?.trim() || null,
       now,
       now,
+      input.artifactIdsJson === undefined ? 1 : 0,
     );
   });
   const record = readTaskCommitJournalSync(input.taskId, workspaceId);
@@ -86,7 +93,7 @@ export function readTaskCommitJournalSync(
   return row ? mapTaskCommitJournalRecord(row) : null;
 }
 
-/** Tasks stuck in `preparing_commit` longer than the threshold — drives alerting + reconciliation. */
+/** Tasks with unfinished commit/finalization work older than the threshold. */
 export function listStaleCommitJournalsSync(options: {
   workspaceId?: string;
   staleBeforeSeconds?: number;
@@ -94,17 +101,28 @@ export function listStaleCommitJournalsSync(options: {
   limit?: number;
 } = {}): TaskCommitJournalRecord[] {
   const db = getDatabase();
-  const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const limit = Math.max(1, Math.min(options.limit ?? 100, 500));
   const staleBeforeSeconds = options.staleBeforeSeconds ?? 300;
   const cutoff = new Date(
     Date.parse(options.now ?? new Date().toISOString()) - staleBeforeSeconds * 1000,
   ).toISOString();
+  const workspaceId = options.workspaceId?.trim();
+  const workspaceFilter = workspaceId ? "workspace_id = ? AND " : "";
   const rows = db.prepare(
     `${JOURNAL_COLUMNS} FROM task_commit_journal
-     WHERE workspace_id = ? AND commit_state = 'preparing' AND updated_at < ?
+     WHERE ${workspaceFilter}(
+       commit_state = 'preparing'
+       OR (
+         commit_state = 'committed'
+         AND EXISTS (
+           SELECT 1 FROM agent_task_queue
+            WHERE agent_task_queue.id = task_commit_journal.task_id
+              AND agent_task_queue.status = 'committed'
+         )
+       )
+     ) AND updated_at < ?
      ORDER BY updated_at ASC LIMIT ${limit}`,
-  ).all(workspaceId, cutoff) as Array<Record<string, unknown>>;
+  ).all(...(workspaceId ? [workspaceId, cutoff] : [cutoff])) as Array<Record<string, unknown>>;
   return rows.map(mapTaskCommitJournalRecord).filter((r): r is TaskCommitJournalRecord => r !== null);
 }
 

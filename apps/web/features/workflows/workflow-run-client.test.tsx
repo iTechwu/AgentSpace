@@ -116,6 +116,9 @@ describe("workflow run client", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ events: [], hasMore: false, projection: failed })));
     renderRun(failed);
 
+    expect(screen.getByText("步骤执行失败")).toBeVisible();
+    expect(screen.getByRole("button", { name: "重试步骤" })).toBeVisible();
+
     await user.click(screen.getByRole("button", { name: "重试步骤" }));
 
     await waitFor(() => expect(mocks.control).toHaveBeenCalledWith({
@@ -135,6 +138,17 @@ describe("workflow run client", () => {
     renderRun(partial);
 
     expect(screen.getByRole("button", { name: "重试步骤" })).toBeVisible();
+  });
+
+  it("requires manual compensation instead of retrying uncertain external effects", () => {
+    renderRun({
+      ...initial,
+      status: "failed",
+      nodes: [{ ...initial.nodes[0], status: "failed", errorCode: "workflow_completion_effect_uncertain" }],
+    });
+
+    expect(screen.getByText("外部操作状态不确定，请先检查并补偿")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "重试步骤" })).not.toBeInTheDocument();
   });
 
   it("does not render run controls for read-only members", () => {

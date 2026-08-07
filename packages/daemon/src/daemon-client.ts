@@ -500,7 +500,7 @@ export class HttpDaemonClient {
   }
 
   async completeTask(taskId: string, body: CompleteTaskRequest): Promise<void> {
-    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/complete`, body);
+    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/complete`, body, { retryable: true });
   }
 
   async failTask(taskId: string, body: FailTaskRequest): Promise<void> {

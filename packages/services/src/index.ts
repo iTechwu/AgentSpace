@@ -209,9 +209,15 @@ export {
 } from "./workflows/coordinator.ts";
 export {
   startQueuedTaskWithWorkflowSync,
+  beginWorkflowTaskCommitSync,
+  isWorkflowTaskInputAvailableSync,
+  isWorkflowTaskStartBlocked,
+  type StartQueuedTaskWithWorkflowResult,
   lockWorkflowRunForTaskIfLinkedSync,
   completeWorkflowTaskIfLinkedSync,
+  prepareWorkflowTaskOutputSync,
   getWorkflowCompletionErrorCode,
+  resolveWorkflowCompletionFailureCode,
   failWorkflowTaskIfLinkedSync,
 } from "./workflows/completion.ts";
 export {

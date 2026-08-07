@@ -32,6 +32,22 @@ test("object storage keys are workspace-scoped, date-partitioned, and sanitized"
   );
 });
 
+test("idempotent attachment keys remain stable across calendar partitions", () => {
+  const input = {
+    workspaceId: "workspace-mars",
+    attachmentId: "att-idem-task-output",
+    fileName: "report.txt",
+  };
+  const january = buildAttachmentStorageKey({ ...input, createdAt: new Date("2026-01-31T23:59:59.000Z") });
+  const february = buildAttachmentStorageKey({ ...input, createdAt: new Date("2026-02-01T00:00:01.000Z") });
+
+  assert.equal(january, february);
+  assert.equal(
+    january,
+    "workspaces/workspace-mars/attachments/idempotent/att-idem-task-output/report.txt",
+  );
+});
+
 test("explicit local fallback persists an attachment below its configured root", async () => {
   const root = mkdtempSync(join(tmpdir(), "dofe-agent-local-attachments-"));
   try {
@@ -60,6 +76,36 @@ test("explicit local fallback persists an attachment below its configured root",
 
     storage.deleteObjectSync({ storedPath: stored.storedPath, storageKey: stored.key });
     assert.equal(await storage.headObject({ storedPath: stored.storedPath, storageKey: stored.key }), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("local attachment storage atomically replays a deterministic object key", () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-local-attachment-replay-"));
+  try {
+    const storage = createAttachmentStorageClient({ provider: "local", local: { root } });
+    const input = {
+      workspaceId: "workspace-mars",
+      attachmentId: "att-idem-task-1",
+      fileName: "report.txt",
+      contentBytes: Buffer.from("first", "utf8"),
+      mediaType: "text/plain",
+    };
+    const first = storage.putObjectSync(input);
+    const replay = storage.putObjectSync(input);
+    assert.equal(replay.key, first.key);
+    assert.deepEqual(
+      storage.getObjectSync({ storedPath: replay.storedPath, storageKey: replay.key }),
+      new Uint8Array(Buffer.from("first", "utf8")),
+    );
+
+    const replaced = storage.putObjectSync({ ...input, contentBytes: Buffer.from("second", "utf8") });
+    assert.equal(replaced.key, first.key);
+    assert.deepEqual(
+      storage.getObjectSync({ storedPath: replaced.storedPath, storageKey: replaced.key }),
+      new Uint8Array(Buffer.from("second", "utf8")),
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

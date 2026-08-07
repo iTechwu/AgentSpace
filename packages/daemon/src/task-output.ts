@@ -24,6 +24,7 @@ export function loadTaskOutputEnvelope(
   workDir: string,
   fallbackText: string,
   workspaceId: string,
+  options: { attachmentNamespace?: string } = {},
 ): {
   text: string;
   attachments: MessageAttachment[];
@@ -92,6 +93,9 @@ export function loadTaskOutputEnvelope(
         sourcePath: normalized.absolutePath,
         fileName: normalized.fileName,
         mediaType: normalized.mediaType,
+        ...(options.attachmentNamespace ? {
+          idempotencyKey: `task-output\0${options.attachmentNamespace}\0${normalized.relativePath}`,
+        } : {}),
       });
       persistedAttachments.push(persisted);
       totalAcceptedBytes += normalized.sizeBytes;
@@ -120,6 +124,7 @@ function normalizeOutputAttachmentEntry(
 ):
   | {
       absolutePath: string;
+      relativePath: string;
       fileName: string;
       mediaType?: string;
       sizeBytes: number;
@@ -174,6 +179,7 @@ function normalizeOutputAttachmentEntry(
   ) {
     return {
       absolutePath: realFilePath,
+      relativePath,
       fileName:
         typeof candidate.name === "string" && candidate.name.trim().length > 0
           ? candidate.name.trim()

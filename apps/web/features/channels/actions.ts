@@ -283,6 +283,9 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
   if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
     return;
   }
+  if (task.status === "preparing_commit" || task.status === "committed") {
+    throw new Error("步骤结果正在提交，请稍后再停止任务。");
+  }
 
   const payload = parseQueuedTaskPayload(task.inputJson);
   const channelName = readPayloadString(payload, "channelName") ?? readPayloadString(payload, "channel");
@@ -301,12 +304,19 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
     if (!canManageAllTasks && workflowDefinition.ownerUserId !== workspaceContext.currentUser.id) {
       throw new Error("Only the workflow owner or a workspace administrator can stop this task.");
     }
-    cancelWorkflowRunSync({
-      workspaceId: task.workspaceId,
-      runId: workflowRun.id,
-      actorUserId: workspaceContext.currentUser.id,
-      reason: `Stopped by ${workspaceContext.currentUser.displayName.trim() || "the user"}.`,
-    });
+    try {
+      cancelWorkflowRunSync({
+        workspaceId: task.workspaceId,
+        runId: workflowRun.id,
+        actorUserId: workspaceContext.currentUser.id,
+        reason: `Stopped by ${workspaceContext.currentUser.displayName.trim() || "the user"}.`,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "workflow_run_commit_in_progress") {
+        throw new Error("步骤结果正在提交，请稍后再停止任务。");
+      }
+      throw error;
+    }
     replaceStoppedChannelTaskMessage(task, channelName);
     revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals", "/automations", "/calendar", "/task-board"]);
     return;

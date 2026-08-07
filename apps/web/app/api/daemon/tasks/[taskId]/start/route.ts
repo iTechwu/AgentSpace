@@ -23,10 +23,18 @@ export async function POST(
     return Response.json({ task: { id: task.id, status: task.status }, ignored: true });
   }
 
-  const shouldPostStartNotice = task.status !== "running";
-  const started = startQueuedTaskWithWorkflowSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+  let startResult;
+  try {
+    startResult = startQueuedTaskWithWorkflowSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+  } catch (error) {
+    if (error instanceof Error && error.message === "workflow_run_not_startable") {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
+    throw error;
+  }
+  const started = startResult.task;
   const payload = parseTaskPayload(started);
-  if (shouldPostStartNotice && payload.channel && !payload.contactId) {
+  if (startResult.startedNow && payload.channel && !payload.contactId) {
     postMessageSync({
       channel: payload.channel,
       speaker: "系统提示",
@@ -41,5 +49,6 @@ export async function POST(
       startedAt: started.startedAt,
       updatedAt: started.updatedAt,
     },
+    ...(startResult.ignored ? { ignored: true } : {}),
   });
 }

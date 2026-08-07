@@ -4,6 +4,7 @@ import {
   cancelWorkflowRunSync,
   collectWorkflowRetryResetNodeRunIds,
   computeWorkflowRetryAvailableAt,
+  isWorkflowNodeManualCompensationRequired,
   resolveWorkflowResumeStatus,
 } from "./retries.ts";
 
@@ -11,6 +12,11 @@ test("retry backoff is exponential and capped at fifteen minutes", () => {
   const now = "2026-08-07T00:00:00.000Z";
   assert.equal(computeWorkflowRetryAvailableAt(now, 2), "2026-08-07T00:00:05.000Z");
   assert.equal(computeWorkflowRetryAvailableAt(now, 20), "2026-08-07T00:15:00.000Z");
+});
+
+test("uncertain external effects require compensation before any retry", () => {
+  assert.equal(isWorkflowNodeManualCompensationRequired("workflow_completion_effect_uncertain"), true);
+  assert.equal(isWorkflowNodeManualCompensationRequired("workflow_task_failed"), false);
 });
 
 test("control rejects an unknown run without mutating queues", () => {

@@ -1,8 +1,11 @@
 # 工作流引擎首期发布清单
 
-更新时间：2026-08-06  
-目标分支：`codex/agent-team-workflow`  
-代码基线：`2f12c3a`（本轮最终验证前的代码基线）
+更新时间：2026-08-07
+
+目标分支：`codex/agent-team-workflow`
+
+代码证据：本轮深审起点 `d0e8b5e`；待发布 SHA 必须取本目录所在最终提交
+
 发布策略：按 workspace 从 `legacy_only` 逐步切换到 `dual_read`、`workflow_engine`、`legacy_archived`
 
 ## 放行结论
@@ -13,12 +16,13 @@
 
 | 检查项 | 当前状态 | 证据 / 放行条件 |
 | --- | --- | --- |
-| 目标提交 | 代码基线 `2f12c3a`；最终文档提交 SHA 待环境固化 | 发布只能使用已提交 SHA，不得使用未提交工作树 |
+| 目标提交 | 最终 SHA 待本轮提交后固化 | 发布只能使用本目录所在已提交 SHA，不得使用未提交工作树 |
 | PostgreSQL schema 版本 | 代码为 `109`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `109` |
 | Workflow 表与唯一约束 | 静态测试已覆盖 | 7 张 workspace-scoped 表；`workspace_id + trigger_key`、`run_id + node_id`、`run_id + sequence` 唯一 |
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |
 | 单一调度 owner | 代码测试通过，环境待抽查 | 每个 workspace 只能由 legacy 或 workflow 一方创建 trigger |
 | 历史保留 | 设计通过，环境待抽查 | archive/disable 不删除 Workflow Run、Event、Artifact 和 Audit |
+| 提交日志完整性 | 静态实现与测试入口已完成，实库待验证 | 状态更新保留 revision/artifact；只有实际失败增加 attempt；全局扫描覆盖非默认 workspace |
 
 真实迁移 dry-run 结果：
 
@@ -71,16 +75,19 @@ reviewer: PENDING
 | Playwright 数据库 E2E | `BLOCKED_TEST_ENV` | 本机无 `DOFE_AGENT_TEST_DATABASE_URL`；五个场景已编译，待测试环境执行 |
 | 真实负载测试 | `PENDING` | 需 `NODE_ENV=test`、`WORKFLOW_TEST_DATABASE_URL` 和受审 adapter；P95 <= 60s |
 | 真实故障演练 | `PENDING` | 必须在隔离 workspace 执行并确认 finally cleanup |
+| 提交崩溃矩阵 | `BLOCKED_TEST_ENV` | 在 effects checkpoint、promotion、queue completion、business projection 四个边界终止进程；验证自动收敛或人工补偿 |
+| 并行消息隔离 | `BLOCKED_TEST_ENV` | 同员工两个并行节点只更新各自 `taskQueueId` 的等待/终态消息和 mention follow-up |
 
-本地回归快照（2026-08-06）：
+本地回归快照（2026-08-07）：
 
 ```text
-Domain Workflow: 9 passed
-Service Workflow: 56 passed
-Web Workflow/API/审批入口: 42 passed
-Workflow Worker: 2 passed
-Services/Web/Worker TypeScript: passed
-Web test TypeScript + ESLint: passed
+Web Workflow/Completion/Reconcile/i18n: 68 passed
+Completion/Dispatcher/Storage/Daemon Client: 29 passed
+CLI Output/Daemon Client: 10 passed
+Stable attachment replay: 1 passed
+Web + CLI + dependency TypeScript: passed
+Web ESLint: passed
+PostgreSQL-backed Journal/Queue/Message/Route/Reconciliation/Recovery: BLOCKED_TEST_ENV
 Markdown local links + git diff check: passed
 ```
 

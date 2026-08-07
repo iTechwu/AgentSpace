@@ -42,6 +42,7 @@ interface WorkflowTriggerSummary {
   workflowId: string;
   type: "manual" | "schedule" | "event";
   nextFireAt?: string;
+  updatedAt: string;
 }
 
 interface WorkflowTopologySummary {
@@ -85,6 +86,10 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
 
   const workflows = definitions.map((definition): WorkflowListItem => {
     const trigger = triggersByWorkflowId.get(definition.id);
+    const triggerOutcome = outcomesByWorkflowId.get(definition.id);
+    const currentTriggerOutcome = trigger && triggerOutcome && triggerOutcome.createdAt >= trigger.updatedAt
+      ? triggerOutcome
+      : undefined;
     return {
       id: definition.id,
       name: definition.name,
@@ -92,10 +97,10 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       ownerLabel: ownerLabels.get(definition.ownerUserId) ?? definition.ownerUserId,
       triggerLabelCode: trigger?.type ?? "manual",
       ...(trigger?.nextFireAt ? { nextFireAt: trigger.nextFireAt } : {}),
-      ...(outcomesByWorkflowId.has(definition.id) ? {
+      ...(currentTriggerOutcome ? {
         lastTriggerOutcome: {
-          code: outcomesByWorkflowId.get(definition.id)!.code,
-          createdAt: outcomesByWorkflowId.get(definition.id)!.createdAt,
+          code: currentTriggerOutcome.code,
+          createdAt: currentTriggerOutcome.createdAt,
         },
       } : {}),
       ...(latestRuns.has(definition.id) ? { latestRun: latestRuns.get(definition.id)! } : {}),
@@ -247,7 +252,7 @@ export function getWorkflowRunEventsPage(
 
 function listWorkflowTriggerSummaries(workspaceId: string): WorkflowTriggerSummary[] {
   const rows = getDatabase().prepare(
-    `SELECT workflow_id AS "workflowId", type, next_fire_at AS "nextFireAt"
+    `SELECT workflow_id AS "workflowId", type, next_fire_at AS "nextFireAt", updated_at AS "updatedAt"
      FROM workflow_trigger
      WHERE workspace_id = ? AND status IN ('active', 'suspended', 'paused')
      ORDER BY workflow_id ASC,
@@ -263,12 +268,13 @@ function listWorkflowTriggerSummaries(workspaceId: string): WorkflowTriggerSumma
   ).all(workspaceId) as Array<Record<string, unknown>>;
 
   return rows.flatMap((row) => {
-    if (typeof row.workflowId !== "string" || !isWorkflowTriggerType(row.type)) {
+    if (typeof row.workflowId !== "string" || !isWorkflowTriggerType(row.type) || typeof row.updatedAt !== "string") {
       return [];
     }
     return [{
       workflowId: row.workflowId,
       type: row.type,
+      updatedAt: row.updatedAt,
       ...(typeof row.nextFireAt === "string" ? { nextFireAt: row.nextFireAt } : {}),
     }];
   });
@@ -276,16 +282,27 @@ function listWorkflowTriggerSummaries(workspaceId: string): WorkflowTriggerSumma
 
 function listLatestWorkflowTriggerOutcomes(workspaceId: string): WorkflowTriggerOutcome[] {
   const rows = getDatabase().prepare(
-    `SELECT data_json ->> 'workflowId' AS "workflowId", code, created_at AS "createdAt"
-       FROM audit_log
-      WHERE workspace_id = ?
-        AND code IN (
-          'workflow.trigger.misfire_skipped',
-          'workflow.trigger.misfire_fire_once',
-          'workflow.trigger.invalid',
-          'workflow.trigger.materialization_failed'
-        )
-      ORDER BY created_at DESC, source_index DESC`,
+    `SELECT "workflowId", code, "createdAt"
+       FROM (
+         SELECT data_json ->> 'workflowId' AS "workflowId",
+                code,
+                created_at AS "createdAt",
+                ROW_NUMBER() OVER (
+                  PARTITION BY data_json ->> 'workflowId'
+                  ORDER BY created_at DESC, source_index DESC
+                ) AS outcome_rank
+           FROM audit_log
+          WHERE workspace_id = ?
+            AND code IN (
+              'workflow.trigger.misfire_skipped',
+              'workflow.trigger.misfire_fire_once',
+              'workflow.trigger.invalid',
+              'workflow.trigger.materialization_failed'
+            )
+       ) AS latest_workflow_outcomes
+      WHERE outcome_rank = 1
+      ORDER BY "createdAt" DESC
+      LIMIT 1000`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
   return rows.flatMap((row) => (
     typeof row.workflowId === "string"

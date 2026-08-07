@@ -6,8 +6,8 @@ import {
   failQueuedTaskSync,
   enqueueTokenUsageRetrySync,
   markTaskCommittedSync,
-  markTaskPreparingCommitSync,
   readAgentRuntimeSync,
+  readTaskCommitJournalSync,
   recordTokenUsageSync,
   upsertTaskCommitJournalSync,
   withTransaction,
@@ -27,6 +27,7 @@ import {
   completeChannelDocumentRunStepSync,
   completeAgentChannelReplySync,
   completeWorkflowTaskIfLinkedSync,
+  beginWorkflowTaskCommitSync,
   continueAutoContinuationAfterTaskSync,
   failChannelDocumentRunStepSync,
   formatConversationFailureSummary,
@@ -37,12 +38,14 @@ import {
   listFeishuLarkCliResourceGrantsForChannelSync,
   lockWorkflowRunForTaskIfLinkedSync,
   postMessageSync,
+  prepareWorkflowTaskOutputSync,
   promoteTaskOutputsToWorkspaceSync,
   queueFeishuAgentStatusCardOutboxSync,
   queueFeishuChannelReplyOutboxSync,
   readWorkspaceAttachmentBytesSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
+  resolveWorkflowCompletionFailureCode,
   resolveCompatibleDirectChannelRecord,
   AgentDocumentPermissionError,
   resolveAgentRuntimeMode,
@@ -53,19 +56,40 @@ import {
   writeWorkspaceStateSync,
   type FeishuAgentStatusCardStatus,
 } from "@dofe-agent/services";
+import { finalizeReconciledTask } from "../../../_lib/commit-reconciliation";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import {
   clearDaemonTaskOutputStaging,
   getDaemonTaskOutputStagingDir,
   materializeOutputBundleToStaging,
+  readTaskCompletionEffectsSnapshot,
   readStagedWorkDirDeletedPaths,
   readStagedWorkDirFiles,
+  writeTaskCompletionEffectsSnapshot,
 } from "../../../_lib/output-bundle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CompleteTaskUsage = NonNullable<CompleteTaskRequest["usages"]>[number];
+type TaskCompletionEffects = {
+  documentOperations: Awaited<ReturnType<typeof applyChannelDocumentOperations>>;
+  skillImportOperations: Awaited<ReturnType<typeof applySkillImportOperations>>;
+  documentRuntimeOutputOperations: Awaited<ReturnType<typeof applyDocumentRuntimeOutputOperations>>;
+  feishuLarkCliResultOperations: Awaited<ReturnType<typeof applyFeishuLarkCliResultManifestOperations>>;
+  feishuRuntimeDataOperationRequests: Awaited<ReturnType<typeof applyFeishuRuntimeDataOperationRequests>>;
+  knowledgeProposalOperations: Awaited<ReturnType<typeof applyKnowledgeProposalOperations>>;
+};
+type TaskCompletionSnapshot = {
+  finalOutputText: string;
+  normalizedWorkflowOutput?: Record<string, unknown>;
+  effects?: TaskCompletionEffects;
+  provider?: string;
+  runtimeName?: string;
+  sessionId?: string;
+  conversationSessionId?: string | null;
+  workDir?: string;
+};
 
 export function persistManagedTaskUsagesBestEffort(input: {
   usages: CompleteTaskUsage[];
@@ -146,7 +170,47 @@ export async function POST(
   if (task instanceof Response) {
     return task;
   }
-  if (task.status === "cancelled") {
+  if (task.status === "committed" || task.status === "completed") {
+    const journal = readTaskCommitJournalSync(task.id, task.workspaceId);
+    const finalizationPending = task.status === "committed"
+      || (journal?.commitState === "preparing" && journal.errorCode === "commit_reconciliation_retrying");
+    if (!finalizationPending) {
+      return Response.json({ task: { id: task.id, status: task.status }, ignored: true });
+    }
+    try {
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: task.employeeName,
+        commitState: "preparing",
+        errorCode: "commit_reconciliation_retrying",
+        errorMessage: "Retrying durable business projections.",
+      });
+      finalizeReconciledTask(task);
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: task.employeeName,
+        commitState: "committed",
+      });
+      return Response.json({ task: { id: task.id, status: "completed" }, recovered: true });
+    } catch (error) {
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: task.employeeName,
+        commitState: "preparing",
+        errorCode: "commit_reconciliation_retrying",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        incrementAttempt: true,
+      });
+      return Response.json(
+        { error: "Task outputs are durable, but business projections are still being reconciled.", taskId: task.id },
+        { status: 503, headers: { "retry-after": "5" } },
+      );
+    }
+  }
+  if (["failed", "cancelled"].includes(task.status)) {
     return Response.json({ task: { id: task.id, status: task.status }, ignored: true });
   }
 
@@ -189,6 +253,10 @@ export async function POST(
   const fallbackOutput = body.outputText?.trim() ?? "";
   const stagingDir = getDaemonTaskOutputStagingDir(task.id, task.workspaceId);
   let persistedAttachments: Awaited<ReturnType<typeof loadTaskOutputEnvelope>>["attachments"] = [];
+  let taskCompletionCommitted = false;
+  let preserveOutputStaging = false;
+  let taskCommitBoundaryCrossed = task.status === "preparing_commit";
+  let completionEffectsCheckpointed = false;
 
   // EAD-005 write-lease gate: validate the claim-time binding generation BEFORE
   // any side effect (document/skill/feishu operations, message writes, output
@@ -202,8 +270,7 @@ export async function POST(
     );
   }
   assertEmployeeBindingGenerationSync(agentName, task.bindingGeneration, task.workspaceId);
-
-  if (body.outputBundle) {
+  if (body.outputBundle && !["preparing_commit", "committed"].includes(task.status)) {
     try {
       materializeOutputBundleToStaging(task.id, task.workspaceId, body.outputBundle);
     } catch (error) {
@@ -216,132 +283,156 @@ export async function POST(
   }
 
   try {
-    const documentOperations = effectiveChannelName
-      ? applyChannelDocumentOperations(stagingDir, {
-          channelName: effectiveChannelName,
-          sourceMessageId: payload.sourceMessageId,
-          sourceTaskQueueId: task.id,
-          actorName: payload.assignee ?? task.agentId,
-          workspaceId: task.workspaceId,
-        })
-      : { warnings: [] as string[], documentUpdates: [] as Array<{ documentId: string; documentVersionId: string }> };
-    const skillImportOperations = await applySkillImportOperations(stagingDir, {
-      workspaceId: task.workspaceId,
-      agentName: payload.assignee ?? task.agentId,
-    });
-    const documentRuntimeOutputOperations = applyDocumentRuntimeOutputOperations({
-      workDir: stagingDir,
-      workspaceId: task.workspaceId,
-      actorName: payload.assignee ?? task.agentId,
-      sourceTaskQueueId: task.id,
-      sourceChannelName: effectiveChannelName,
-      requestedByUserId: task.requestedByUserId,
-      requestedByDisplayName: task.requestedByDisplayName,
-    });
-    const feishuLarkCliResourceGrants = listFeishuLarkCliResourceGrantsForChannelSync({
-      workspaceId: task.workspaceId,
-      channelName: effectiveChannelName,
-    });
-    const feishuLarkCliResultOperations = applyFeishuLarkCliResultManifestOperations({
-      workDir: stagingDir,
-      workspaceId: task.workspaceId,
-      actorName: payload.assignee ?? task.agentId,
-      resourceGrants: feishuLarkCliResourceGrants,
-    });
-    const feishuRuntimeDataOperationRequests = await applyFeishuRuntimeDataOperationRequests({
-      workDir: stagingDir,
-      workspaceId: task.workspaceId,
-      actorName: payload.assignee ?? task.agentId,
-      sourceTaskQueueId: task.id,
-      sourceChannelName: effectiveChannelName,
-      sourceDofeAgentMessageId: payload.sourceMessageId,
-      resourceGrants: feishuLarkCliResourceGrants,
-    });
-    const knowledgeProposalOperations = applyKnowledgeProposalOperations({
-      workDir: stagingDir,
-      workspaceId: task.workspaceId,
-      actorName: payload.assignee ?? task.agentId,
-      sourceTaskQueueId: task.id,
-      sourceChannelName: effectiveChannelName,
-    });
-    const outputEnvelope = loadTaskOutputEnvelope(stagingDir, fallbackOutput, task.workspaceId);
-    const finalOutputText = outputEnvelope.text;
+    const replaySnapshot = task.status === "preparing_commit"
+      ? readTaskCompletionEffectsSnapshot<TaskCompletionSnapshot>(task.id, task.workspaceId)
+      : null;
+    const replaySafeSnapshot = replaySnapshot?.effects ? replaySnapshot : null;
+    completionEffectsCheckpointed = Boolean(replaySafeSnapshot);
+    const outputEnvelope = loadTaskOutputEnvelope(
+      stagingDir,
+      replaySafeSnapshot?.finalOutputText ?? fallbackOutput,
+      task.workspaceId,
+      {
+        attachmentNamespace: task.id,
+      },
+    );
+    const finalOutputText = replaySafeSnapshot?.finalOutputText ?? outputEnvelope.text;
     persistedAttachments = outputEnvelope.attachments;
-
-    appendTaskMessageSync({
-      taskId: task.id,
-      type: "text",
-      content: finalOutputText,
-    });
-    for (const warning of outputEnvelope.warnings) {
-      appendTaskMessageSync({
+    const normalizedWorkflowOutput = replaySafeSnapshot
+      ? replaySafeSnapshot.normalizedWorkflowOutput
+      : prepareWorkflowTaskOutputSync({
+          workspaceId: task.workspaceId,
+          taskQueueId: task.id,
+          outputText: finalOutputText,
+          structuredOutput: body.structuredOutput,
+        });
+    const commitBoundary = withTransaction(getDatabase(), () => (
+      beginWorkflowTaskCommitSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        completionEffectsCheckpointed: Boolean(replaySafeSnapshot),
+      })
+    ));
+    if (commitBoundary.ignored) {
+      preserveOutputStaging = ["preparing_commit", "committed", "completed"].includes(commitBoundary.taskStatus);
+      if (!preserveOutputStaging && persistedAttachments.length > 0) discardTaskOutputAttachments(persistedAttachments);
+      return Response.json({ task: { id: task.id, status: commitBoundary.taskStatus }, ignored: true });
+    }
+    taskCommitBoundaryCrossed = true;
+    const completionSnapshot = commitBoundary.resumed
+      ? replaySnapshot ?? readTaskCompletionEffectsSnapshot<TaskCompletionSnapshot>(task.id, task.workspaceId)
+      : {
+          finalOutputText,
+          ...(normalizedWorkflowOutput ? { normalizedWorkflowOutput } : {}),
+          provider: runtime.provider,
+          runtimeName: runtime.name,
+          ...(body.sessionId ? { sessionId: body.sessionId } : {}),
+          conversationSessionId,
+          ...(body.workDir ? { workDir: body.workDir } : {}),
+        };
+    if (commitBoundary.resumed && !completionSnapshot?.effects) {
+      throw new Error("workflow_completion_effect_uncertain");
+    }
+    if (!completionSnapshot) throw new Error("workflow_commit_snapshot_missing");
+    completionEffectsCheckpointed = Boolean(completionSnapshot.effects);
+    if (completionEffectsCheckpointed) {
+      upsertTaskCommitJournalSync({
         taskId: task.id,
-        type: "status",
-        content: warning,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "workflow_completion_effects_checkpointed",
       });
     }
-    for (const message of skillImportOperations.statusMessages) {
-      appendTaskMessageSync({
+    if (!commitBoundary.resumed) {
+      writeTaskCompletionEffectsSnapshot(task.id, task.workspaceId, completionSnapshot);
+    }
+    let effects = completionSnapshot.effects ?? null;
+    if (!effects) {
+      const feishuLarkCliResourceGrants = listFeishuLarkCliResourceGrantsForChannelSync({
+        workspaceId: task.workspaceId,
+        channelName: effectiveChannelName,
+      });
+      effects = {
+        documentOperations: effectiveChannelName
+          ? applyChannelDocumentOperations(stagingDir, {
+              channelName: effectiveChannelName,
+              sourceMessageId: payload.sourceMessageId,
+              sourceTaskQueueId: task.id,
+              actorName: payload.assignee ?? task.agentId,
+              workspaceId: task.workspaceId,
+            })
+          : { warnings: [], documentUpdates: [] },
+        skillImportOperations: await applySkillImportOperations(stagingDir, {
+          workspaceId: task.workspaceId,
+          agentName: payload.assignee ?? task.agentId,
+        }),
+        documentRuntimeOutputOperations: applyDocumentRuntimeOutputOperations({
+          workDir: stagingDir,
+          workspaceId: task.workspaceId,
+          actorName: payload.assignee ?? task.agentId,
+          sourceTaskQueueId: task.id,
+          sourceChannelName: effectiveChannelName,
+          requestedByUserId: task.requestedByUserId,
+          requestedByDisplayName: task.requestedByDisplayName,
+        }),
+        feishuLarkCliResultOperations: applyFeishuLarkCliResultManifestOperations({
+          workDir: stagingDir,
+          workspaceId: task.workspaceId,
+          actorName: payload.assignee ?? task.agentId,
+          resourceGrants: feishuLarkCliResourceGrants,
+        }),
+        feishuRuntimeDataOperationRequests: await applyFeishuRuntimeDataOperationRequests({
+          workDir: stagingDir,
+          workspaceId: task.workspaceId,
+          actorName: payload.assignee ?? task.agentId,
+          sourceTaskQueueId: task.id,
+          sourceChannelName: effectiveChannelName,
+          sourceDofeAgentMessageId: payload.sourceMessageId,
+          resourceGrants: feishuLarkCliResourceGrants,
+        }),
+        knowledgeProposalOperations: applyKnowledgeProposalOperations({
+          workDir: stagingDir,
+          workspaceId: task.workspaceId,
+          actorName: payload.assignee ?? task.agentId,
+          sourceTaskQueueId: task.id,
+          sourceChannelName: effectiveChannelName,
+        }),
+      };
+      writeTaskCompletionEffectsSnapshot(task.id, task.workspaceId, { ...completionSnapshot, effects });
+      completionEffectsCheckpointed = true;
+      upsertTaskCommitJournalSync({
         taskId: task.id,
-        type: "status",
-        content: message,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "workflow_completion_effects_checkpointed",
       });
     }
-    for (const warning of skillImportOperations.warnings) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: warning,
-      });
-    }
-    for (const message of documentRuntimeOutputOperations.statusMessages) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: message,
-      });
-    }
-    for (const message of feishuLarkCliResultOperations.statusMessages) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: message,
-      });
-    }
-    for (const warning of feishuLarkCliResultOperations.warnings) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: warning,
-      });
-    }
-    for (const message of feishuRuntimeDataOperationRequests.statusMessages) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: message,
-      });
-    }
-    for (const warning of feishuRuntimeDataOperationRequests.warnings) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: warning,
-      });
-    }
-    for (const message of knowledgeProposalOperations.statusMessages) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: message,
-      });
-    }
-    for (const warning of documentOperations.warnings) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: warning,
-      });
+    const {
+      documentOperations,
+      skillImportOperations,
+      documentRuntimeOutputOperations,
+      feishuLarkCliResultOperations,
+      feishuRuntimeDataOperationRequests,
+      knowledgeProposalOperations,
+    } = effects;
+    if (!commitBoundary.resumed) {
+      appendTaskMessageSync({ taskId: task.id, type: "text", content: finalOutputText });
+      for (const content of [
+        ...outputEnvelope.warnings,
+        ...skillImportOperations.statusMessages,
+        ...skillImportOperations.warnings,
+        ...documentRuntimeOutputOperations.statusMessages,
+        ...feishuLarkCliResultOperations.statusMessages,
+        ...feishuLarkCliResultOperations.warnings,
+        ...feishuRuntimeDataOperationRequests.statusMessages,
+        ...feishuRuntimeDataOperationRequests.warnings,
+        ...knowledgeProposalOperations.statusMessages,
+        ...documentOperations.warnings,
+      ]) {
+        appendTaskMessageSync({ taskId: task.id, type: "status", content });
+      }
     }
 
     // Durability commit phases (EAD §7): preparing → promote to the employee's
@@ -354,7 +445,6 @@ export async function POST(
     const bindingGeneration = task.bindingGeneration;
     let promotionError: string | undefined;
     try {
-      markTaskPreparingCommitSync(task.id);
       let workspaceRevisionId: string | undefined;
       let committedArtifactIds: string[] = [];
       const workDirFiles = readStagedWorkDirFiles(task.id, task.workspaceId);
@@ -399,6 +489,7 @@ export async function POST(
     }
 
     if (promotionError) {
+      preserveOutputStaging = true;
       return Response.json(
         {
           error: `Task outputs were received but not durably committed (${promotionError}). ` +
@@ -410,20 +501,20 @@ export async function POST(
       );
     }
 
-    withTransaction(getDatabase(), () => {
-      lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+    const completion = withTransaction(getDatabase(), () => {
+      const fence = lockWorkflowRunForTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        allowPreparingCommit: true,
+        allowCommitted: true,
+      });
+      if (fence.ignored) return { applied: false, status: fence.taskStatus ?? task.status };
       completeCommittedTaskSync({
         taskId: task.id,
         resultJson: {
           provider: runtime.provider,
           output: finalOutputText,
-          attachments: outputEnvelope.attachments.map((attachment) => ({
-            id: attachment.id,
-            fileName: attachment.fileName,
-            mediaType: attachment.mediaType,
-            kind: attachment.kind,
-            sizeBytes: attachment.sizeBytes,
-          })),
+          attachments: outputEnvelope.attachments,
           skillImports: skillImportOperations.imports,
           documentUpdates: documentOperations.documentUpdates,
           feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
@@ -440,9 +531,24 @@ export async function POST(
         taskQueueId: task.id,
         outputText: finalOutputText,
         structuredOutput: body.structuredOutput,
+        normalizedOutput: normalizedWorkflowOutput,
         artifactManifest: outputEnvelope.attachments,
       });
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "commit_reconciliation_retrying",
+        errorMessage: "Durable outputs are committed; business projections are pending.",
+      });
+      return { applied: true, status: "completed" };
     });
+    if (!completion.applied) {
+      if (persistedAttachments.length > 0) discardTaskOutputAttachments(persistedAttachments);
+      return Response.json({ task: { id: task.id, status: completion.status }, ignored: true });
+    }
+    taskCompletionCommitted = true;
 
     if (payload.taskId) {
       updateTaskStatusSync(payload.taskId, "done", task.workspaceId);
@@ -479,7 +585,7 @@ export async function POST(
           content: warning,
         });
       }
-      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of replyResult.created ? enqueueFeishuReplyOutboxBestEffort({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         text: finalOutputText,
@@ -492,7 +598,7 @@ export async function POST(
           message: finalOutputText,
           taskId: task.id,
         },
-      })) {
+      }) : []) {
         appendTaskMessageSync({
           taskId: task.id,
           type: "status",
@@ -551,7 +657,7 @@ export async function POST(
           content: warning,
         });
       }
-      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of replyResult.created ? enqueueFeishuReplyOutboxBestEffort({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         text: finalOutputText,
@@ -564,7 +670,7 @@ export async function POST(
           message: finalOutputText,
           taskId: task.id,
         },
-      })) {
+      }) : []) {
         appendTaskMessageSync({
           taskId: task.id,
           type: "status",
@@ -586,6 +692,12 @@ export async function POST(
       sessionId: conversationSessionId ?? undefined,
       workDir: body.workDir,
     });
+    upsertTaskCommitJournalSync({
+      taskId: task.id,
+      workspaceId: task.workspaceId,
+      employeeName: agentName,
+      commitState: "committed",
+    });
 
     return Response.json({
       task: {
@@ -595,15 +707,42 @@ export async function POST(
       },
     });
   } catch (error) {
-    if (persistedAttachments.length > 0) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (taskCompletionCommitted) {
+      preserveOutputStaging = true;
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "commit_reconciliation_retrying",
+        errorMessage: message,
+      });
+      return Response.json(
+        { error: "Task completed, but its business projections are still being reconciled.", taskId: task.id },
+        { status: 503, headers: { "retry-after": "5" } },
+      );
+    }
+    if (taskCommitBoundaryCrossed && completionEffectsCheckpointed) {
+      preserveOutputStaging = true;
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "workflow_completion_effects_checkpointed",
+        errorMessage: message,
+      });
+      return Response.json(
+        { error: "Task effects were checkpointed and completion will be retried safely.", taskId: task.id },
+        { status: 503, headers: { "retry-after": "5" } },
+      );
+    }
+    const preserveUncertainEffects = taskCommitBoundaryCrossed && !completionEffectsCheckpointed;
+    if (preserveUncertainEffects) preserveOutputStaging = true;
+    if (!preserveUncertainEffects && persistedAttachments.length > 0) {
       discardTaskOutputAttachments(persistedAttachments);
     }
-    const message = error instanceof Error ? error.message : String(error);
-    appendTaskMessageSync({
-      taskId: task.id,
-      type: "error",
-      content: message,
-    });
     const providerError = error instanceof AgentDocumentPermissionError
       ? {
           code: error.code,
@@ -611,13 +750,22 @@ export async function POST(
           rawProviderMessage: error.message,
         }
       : undefined;
-    const workflowErrorCode = getWorkflowCompletionErrorCode(error);
-    withTransaction(getDatabase(), () => {
-      lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+    const workflowErrorCode = resolveWorkflowCompletionFailureCode({
+      commitBoundaryCrossed: taskCommitBoundaryCrossed,
+      effectsCheckpointed: completionEffectsCheckpointed,
+      errorCode: getWorkflowCompletionErrorCode(error),
+    });
+    const failure = withTransaction(getDatabase(), () => {
+      const fence = lockWorkflowRunForTaskIfLinkedSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        allowPreparingCommit: true,
+      });
+      if (fence.ignored) return { applied: false, status: fence.taskStatus ?? task.status };
       failQueuedTaskSync({
         taskId: task.id,
         errorText: message,
-        errorCode: providerError?.code ?? workflowErrorCode,
+        errorCode: workflowErrorCode ?? providerError?.code,
         errorCategory: providerError?.category,
         rawProviderMessage: providerError?.rawProviderMessage,
         sessionId: body.sessionId,
@@ -626,9 +774,27 @@ export async function POST(
       failWorkflowTaskIfLinkedSync({
         workspaceId: task.workspaceId,
         taskQueueId: task.id,
-        errorCode: providerError?.code ?? workflowErrorCode,
+        errorCode: workflowErrorCode ?? providerError?.code,
         errorText: message,
       });
+      if (taskCommitBoundaryCrossed) {
+        upsertTaskCommitJournalSync({
+          taskId: task.id,
+          workspaceId: task.workspaceId,
+          commitState: "rolled_back",
+          errorCode: workflowErrorCode ?? "workflow_completion_failed",
+          errorMessage: message,
+        });
+      }
+      return { applied: true, status: "failed" };
+    });
+    if (!failure.applied) {
+      return Response.json({ task: { id: task.id, status: failure.status }, ignored: true });
+    }
+    appendTaskMessageSync({
+      taskId: task.id,
+      type: "error",
+      content: message,
     });
 
     if (payload.taskId) {
@@ -653,6 +819,7 @@ export async function POST(
       replacePendingChannelMessageSync({
         channel: payload.channel,
         pendingSpeaker: payload.assignee ?? task.agentId,
+        pendingTaskId: task.id,
         speaker: "系统提示",
         role: "agent",
         summary: failureSummary,
@@ -743,7 +910,7 @@ export async function POST(
 
     return Response.json({ error: message }, { status: 500 });
   } finally {
-    clearDaemonTaskOutputStaging(task.id, task.workspaceId);
+    if (!preserveOutputStaging) clearDaemonTaskOutputStaging(task.id, task.workspaceId);
   }
 }
 

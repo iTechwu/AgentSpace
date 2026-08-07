@@ -51,6 +51,7 @@ import {
   initializeOrganizationSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
+  readWorkspaceAttachmentBytesSync,
   reviewApprovalSync,
   sendChannelHumanMessageSync,
   sendContactMessageSync,
@@ -1871,6 +1872,53 @@ describe("daemon API routes", () => {
     const timelineTypes = listTaskExecutionEventsSync({ taskId: queued!.id }).map((event) => event.type);
     expect(timelineTypes).toContain("artifact_collected");
     expect(timelineTypes).toContain("completed");
+
+    const attachment = state.messages[0]?.attachments?.[0];
+    expect(attachment).toBeDefined();
+    const eventCount = timelineTypes.length;
+    const lateComplete = await completePOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued!.id}/complete`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          outputText: "tampered",
+          outputBundle: {
+            version: 1,
+            format: "json-inline-v1",
+            files: [{
+              path: "runtime-output/artifacts/chart.png",
+              contentBase64: Buffer.from("tampered-image", "utf8").toString("base64"),
+            }],
+          },
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+    await expect(lateComplete.json()).resolves.toMatchObject({
+      task: { id: queued!.id, status: "completed" },
+      ignored: true,
+    });
+    const lateUpload = await outputBundlePOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued!.id}/output-bundle`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          version: 1,
+          format: "json-inline-v1",
+          files: [{
+            path: "runtime-output/artifacts/chart.png",
+            contentBase64: Buffer.from("tampered-image", "utf8").toString("base64"),
+          }],
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+    await expect(lateUpload.json()).resolves.toMatchObject({
+      task: { id: queued!.id, status: "completed" },
+      ignored: true,
+    });
+    expect(Buffer.from(readWorkspaceAttachmentBytesSync(attachment!)).toString("utf8")).toBe("fake-image-content");
+    expect(listTaskExecutionEventsSync({ taskId: queued!.id })).toHaveLength(eventCount);
   });
 
   it("processes Feishu lark-cli result manifests into data operation evidence", async () => {
@@ -2073,6 +2121,9 @@ describe("daemon API routes", () => {
       },
     });
 
+    expect((await claimDaemonTaskForTest(daemonToken.token, runtimeId)).id).toBe(queued!.id);
+    await startDaemonTaskForTest(daemonToken.token, queued!.id);
+
     const response = await outputBundlePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/output-bundle`, {
         method: "POST",
@@ -2137,6 +2188,9 @@ describe("daemon API routes", () => {
         title: "Bad bundle prefix",
       },
     });
+
+    expect((await claimDaemonTaskForTest(daemonToken.token, runtimeId)).id).toBe(queued!.id);
+    await startDaemonTaskForTest(daemonToken.token, queued!.id);
 
     const response = await outputBundlePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/output-bundle`, {
