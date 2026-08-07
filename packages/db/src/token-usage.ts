@@ -389,6 +389,13 @@ export function listTokenUsageSync(filters?: {
     router_session_id: string | null;
     gateway_request_id: string | null;
     gateway_usage_id: string | null;
+    delegation_id: string | null;
+    employee_id: string | null;
+    runtime_id: string | null;
+    job_id: string | null;
+    pipeline_stage: string | null;
+    source_invocation_id: string | null;
+    model_invocation_id: string | null;
     protocol: string | null;
     input_tokens: number;
     output_tokens: number;
@@ -416,6 +423,13 @@ export function listTokenUsageSync(filters?: {
     routerSessionId: row.router_session_id ?? undefined,
     gatewayRequestId: row.gateway_request_id ?? undefined,
     gatewayUsageId: row.gateway_usage_id ?? undefined,
+    delegationId: row.delegation_id ?? undefined,
+    employeeId: row.employee_id ?? undefined,
+    runtimeId: row.runtime_id ?? undefined,
+    jobId: row.job_id ?? undefined,
+    pipelineStage: row.pipeline_stage ?? undefined,
+    sourceInvocationId: row.source_invocation_id ?? undefined,
+    modelInvocationId: row.model_invocation_id ?? undefined,
     protocol: row.protocol ?? undefined,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
@@ -870,6 +884,8 @@ export function voidOpenMontagePendingTokenUsageSync(input: {
 export function markTokenUsageReconciledSync(
   id: string,
   input: {
+    taskQueueId?: string;
+    agentId?: string;
     actualCostUsd: number;
     currency: string;
     gatewayRequestId?: string;
@@ -897,7 +913,9 @@ export function markTokenUsageReconciledSync(
   const costUsd = 0;
   db.prepare(
     `UPDATE token_usage
-     SET billing_status = ?,
+     SET task_queue_id = COALESCE(task_queue_id, ?),
+         agent_id = COALESCE(?, agent_id),
+         billing_status = ?,
          actual_cost_usd = ?,
          currency = ?,
          gateway_request_id = CASE
@@ -924,6 +942,8 @@ export function markTokenUsageReconciledSync(
          reconciled_at = ?
      WHERE id = ?`,
   ).run(
+    input.taskQueueId ?? null,
+    input.agentId ?? null,
     input.billingStatus ?? "reconciled",
     input.actualCostUsd,
     input.currency,
@@ -954,6 +974,7 @@ export function markTokenUsageReconciledSync(
 
 interface InsertRemoteTokenUsageInput {
   workspaceId: string;
+  taskQueueId?: string;
   agentId: string;
   modelId: string;
   runtimeCredentialId: string;
@@ -1032,11 +1053,18 @@ export function insertRemoteTokenUsageIfAbsentSync(
       delegation_id, employee_id, runtime_id, job_id, pipeline_stage, source_invocation_id, model_invocation_id,
       input_tokens, output_tokens, cache_tokens, cost_usd, actual_cost_usd, currency,
       billing_status, request_started_at, request_ended_at, source_updated_at, channel_name, created_at
-     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (
+       ?, ?, ?, ?, ?,
+       ?, ?, ?, ?,
+       ?, ?, ?, ?, ?, ?, ?,
+       ?, ?, ?, 0, ?, ?,
+       ?, ?, ?, ?, ?, ?
+     )
      ON CONFLICT DO NOTHING`,
   ).run(
     id,
     input.workspaceId,
+    input.taskQueueId ?? null,
     input.agentId,
     input.modelId,
     input.runtimeCredentialId,

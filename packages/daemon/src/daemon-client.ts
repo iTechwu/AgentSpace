@@ -41,6 +41,8 @@ import type {
   ReportOpenMontageJobResponse,
   ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
+  ReportTaskUsagesRequest,
+  ReportTaskUsagesResponse,
   SkillRunnerInvocationReport,
   StartMcpConnectionOperationRequest,
   UpdateMcpConnectionOperationStageRequest,
@@ -91,6 +93,8 @@ export type {
   ReportOpenMontageJobResponse,
   ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
+  ReportTaskUsagesRequest,
+  ReportTaskUsagesResponse,
   SkillRunnerInvocationReport,
   StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
@@ -452,6 +456,10 @@ export class HttpDaemonClient {
 
   async reportMessages(taskId: string, body: ReportTaskMessagesRequest): Promise<void> {
     await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/messages`, body);
+  }
+
+  async reportTaskUsages(taskId: string, body: ReportTaskUsagesRequest): Promise<ReportTaskUsagesResponse> {
+    return this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/usage`, body, { retryable: true });
   }
 
   async createRuntimeApproval(taskId: string, body: CreateRuntimeApprovalRequest): Promise<CreateRuntimeApprovalResponse> {

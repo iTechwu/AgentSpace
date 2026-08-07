@@ -861,6 +861,46 @@ test("Codex preflight accepts a protocol-compatible Responses model before verif
   assert.equal(preflight.allowed, true);
 });
 
+test("usage reconciliation restores task attribution from a signed root task snapshot", () => {
+  const runtime = registerDaemonRuntimesSync({
+    workspaceId: TEAM_WS,
+    daemonKey: "root-task-reconciliation-node",
+    deviceName: "Root task reconciliation node",
+    metadata: { managedNode: true },
+    runtimes: [{ provider: "claude", name: "Root task runtime" }],
+  }).runtimes[0]!;
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, input_json, queued_at, created_at, updated_at)
+     VALUES ('queue-root-task-reconciliation', ?, 'atlas', ?, 'running', '{}'::jsonb, ?, ?, ?)`,
+  ).run(TEAM_WS, runtime.id, now, now, now);
+  const result = { reconciledCount: 0, unallocatedCount: 0, skippedCount: 0, totalRemoteCount: 1 };
+
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-root-task", {
+    id: "usage-root-task",
+    requestId: "gateway-root-task",
+    runtimeId: runtime.id,
+    rootTaskId: "queue-root-task-reconciliation",
+    employeeId: "atlas",
+    model: "glm-5.2",
+    protocol: "anthropic",
+    billingStatus: "reconciled",
+    inputTokens: 40,
+    outputTokens: 8,
+    totalSalePrice: 0.25,
+    currency: "USD",
+    timestamp: now,
+  } as never, result, runtime.id);
+
+  const usage = findTokenUsageByGatewayRequestIdSync("gateway-root-task", TEAM_WS);
+  assert.equal(usage?.taskQueueId, "queue-root-task-reconciliation");
+  assert.equal(usage?.agentId, "atlas");
+  assert.equal(usage?.runtimeId, runtime.id);
+  assert.equal(usage?.billingStatus, "reconciled");
+  assert.equal(result.reconciledCount, 1);
+  assert.equal(result.unallocatedCount, 0);
+});
+
 test("usage reconciliation keeps provisional billing pending until models finalizes it", async () => {
   recordTokenUsageSync({
     workspaceId: TEAM_WS,

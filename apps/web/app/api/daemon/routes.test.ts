@@ -67,7 +67,9 @@ import { GET as installScriptGET } from "./install-script/route";
 import { GET as packageGET } from "./package/route";
 import { POST as claimPOST } from "./runtimes/[runtimeId]/tasks/claim/route";
 import { GET as credentialBundleGET } from "./runtimes/[runtimeId]/credential-bundle/route";
-import { persistManagedTaskUsagesBestEffort, POST as completePOST } from "./tasks/[taskId]/complete/route";
+import { persistManagedTaskUsagesBestEffort } from "./_lib/task-usage";
+import { POST as completePOST } from "./tasks/[taskId]/complete/route";
+import { POST as usagePOST } from "./tasks/[taskId]/usage/route";
 import { POST as failPOST } from "./tasks/[taskId]/fail/route";
 import { GET as inputBundleGET } from "./tasks/[taskId]/input-bundle/route";
 import { POST as outputBundlePOST } from "./tasks/[taskId]/output-bundle/route";
@@ -2494,6 +2496,53 @@ describe("daemon API routes", () => {
     expect((await claimDaemonTaskForTest(daemonToken.token, runtimeId)).id).toBe(queued!.id);
     await startDaemonTaskForTest(daemonToken.token, queued!.id);
 
+    const invalidUsageResponse = await usagePOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/usage`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          usages: [{
+            modelId: "gpt-5.4",
+            runtimeCredentialId: "runtime-credential-direct",
+            gatewayRequestId: "gateway-request-fractional",
+            inputTokens: 1.5,
+            outputTokens: 1,
+          }],
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+    expect(invalidUsageResponse.status).toBe(400);
+
+    const incrementalUsageResponse = await usagePOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/usage`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          usages: [{
+            modelId: "gpt-5.4",
+            runtimeCredentialId: "runtime-credential-direct",
+            gatewayRequestId: "gateway-request-direct-1",
+            inputTokens: 120,
+            outputTokens: 45,
+          }],
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+    expect(incrementalUsageResponse.status).toBe(200);
+    await expect(incrementalUsageResponse.json()).resolves.toEqual({
+      accepted: 1,
+      pendingReconciliation: false,
+    });
+    expect(listTokenUsageSync()).toHaveLength(1);
+    expect(listTokenUsageSync()[0]).toMatchObject({
+      taskQueueId: queued!.id,
+      employeeId: queued!.employeeId,
+      runtimeId,
+      sourceInvocationId: "gateway-request-direct-1",
+    });
+
     const completeResponse = await completePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/complete`, {
         method: "POST",
@@ -2522,6 +2571,7 @@ describe("daemon API routes", () => {
     );
 
     expect(completeResponse.status).toBe(200);
+    expect(listTokenUsageSync()).toHaveLength(2);
     const state = readWorkspaceStateSync();
     const directChannel = state.channels.find(
       (channel) => channel.kind === "direct" && channel.employeeNames.some((name) => name === "Atlas"),

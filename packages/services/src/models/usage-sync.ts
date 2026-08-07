@@ -9,6 +9,7 @@ import {
   completeRuntimeCredentialReconciliationTargetSync,
   readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
   readRuntimeCredentialReconciliationTargetSync,
+  readQueuedTaskSync,
   readTokenUsageReconciliationCursorSync,
   recordAuditLogSync,
   recordRuntimeCredentialReconciliationFailureSync,
@@ -338,6 +339,8 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     result.skippedCount += 1;
     return;
   }
+  const attributedTask = resolveAttributedTask(workspaceId, entry, runtimeId);
+  const attributedEmployeeId = decodeAttributionIdentifier(entry.employeeId);
 
   const existing = (entry.id ? findTokenUsageByGatewayUsageIdSync(entry.id, workspaceId) : null)
     ?? findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId)
@@ -355,7 +358,7 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     }
     const remoteStatus = resolveRemoteBillingStatus(
       entry.billingStatus,
-      Boolean(existing.taskQueueId) || hasMatchingOpenMontageAttribution(existing, entry, runtimeId),
+      Boolean(existing.taskQueueId || attributedTask) || hasMatchingOpenMontageAttribution(existing, entry, runtimeId),
     );
     const actualCostUsd = parseBillableAmount(entry);
     const modelId = entry.model.trim() || existing.modelId;
@@ -377,11 +380,14 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       && existing.requestStartedAt === requestStartedAt
       && existing.requestEndedAt === requestEndedAt
       && existing.sourceUpdatedAt === sourceUpdatedAt
+      && (!attributedTask || existing.taskQueueId === attributedTask.id)
     ) {
       result.skippedCount += 1;
       return;
     }
     markTokenUsageReconciledSync(existing.id, {
+      taskQueueId: attributedTask?.id,
+      agentId: attributedTask?.employeeId,
       actualCostUsd,
       currency: entry.currency,
       gatewayRequestId,
@@ -396,7 +402,7 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       sourceUpdatedAt,
       billingStatus: remoteStatus,
       delegationId: entry.runtimeCredentialDelegationId ?? undefined,
-      employeeId: decodeAttributionIdentifier(entry.employeeId),
+      employeeId: attributedEmployeeId,
       runtimeId: entry.runtimeId ?? runtimeId,
       jobId: entry.externalJobId ?? undefined,
       pipelineStage: entry.pipelineStage ?? undefined,
@@ -410,11 +416,12 @@ export function reconcileRuntimeCredentialUsageEntrySync(
 
   const remoteStatus = resolveRemoteBillingStatus(
     entry.billingStatus,
-    hasCompleteOpenMontageAttribution(entry),
+    Boolean(attributedTask) || hasCompleteOpenMontageAttribution(entry),
   );
   const inserted = insertRemoteTokenUsageIfAbsentSync({
     workspaceId,
-    agentId: decodeAttributionIdentifier(entry.employeeId) ?? entry.runtimeId ?? runtimeId ?? "__unattributed__",
+    taskQueueId: attributedTask?.id,
+    agentId: attributedTask?.employeeId ?? attributedEmployeeId ?? entry.runtimeId ?? runtimeId ?? "__unattributed__",
     modelId: entry.model,
     runtimeCredentialId,
     gatewayRequestId,
@@ -431,7 +438,7 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     sourceUpdatedAt: entry.updatedAt ?? entry.timestamp,
     billingStatus: remoteStatus,
     delegationId: entry.runtimeCredentialDelegationId ?? undefined,
-    employeeId: decodeAttributionIdentifier(entry.employeeId),
+    employeeId: attributedEmployeeId,
     runtimeId: entry.runtimeId ?? runtimeId,
     jobId: entry.externalJobId ?? undefined,
     pipelineStage: entry.pipelineStage ?? undefined,
@@ -444,6 +451,22 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     result.reconciledCount += 1;
   } else if (inserted.inserted) result.unallocatedCount += 1;
   else result.skippedCount += 1;
+}
+
+function resolveAttributedTask(
+  workspaceId: string,
+  entry: ReconciliationUsageLogEntry,
+  fallbackRuntimeId?: string,
+) {
+  const rootTaskId = entry.rootTaskId?.trim();
+  if (!rootTaskId) return null;
+  const task = readQueuedTaskSync(rootTaskId);
+  if (!task || task.workspaceId !== workspaceId) return null;
+  const expectedRuntimeId = entry.runtimeId?.trim() || fallbackRuntimeId;
+  if (!expectedRuntimeId || task.runtimeId !== expectedRuntimeId) return null;
+  const employeeId = decodeAttributionIdentifier(entry.employeeId);
+  if (employeeId && task.employeeId !== employeeId && task.agentId !== employeeId) return null;
+  return task;
 }
 
 function resolveRemoteBillingStatus(

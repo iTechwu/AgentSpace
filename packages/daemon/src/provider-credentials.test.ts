@@ -174,6 +174,7 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(launcher, /--entrypoint node/);
     assert.match(launcher, /--env DOFE_AGENT_RUNTIME_CREDENTIAL_ID/);
     assert.match(launcher, /--env DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID/);
+    assert.match(launcher, /--env DOFE_AGENT_ATTRIBUTION_ROOT_TASK_ID/);
     assert.match(launcher, /--read-only/);
     assert.match(launcher, /--security-opt no-new-privileges/);
     assert.match(launcher, /--cap-drop ALL/);
@@ -274,6 +275,7 @@ test("managed runtime attribution follows the models HMAC contract", () => {
     runtimeId: "runtime-1",
     employeeId: "employee-1",
     conversationId: "conversation-1",
+    rootTaskId: "task-1",
     timestampSeconds: 1_800_000_000,
   });
   assert.deepEqual(headers, {
@@ -281,8 +283,9 @@ test("managed runtime attribution follows the models HMAC contract", () => {
     "x-dofe-runtime-id": "runtime-1",
     "x-dofe-employee-id": "employee-1",
     "x-dofe-conversation-id": "conversation-1",
+    "x-dofe-root-task-id": "task-1",
     "x-dofe-attribution-timestamp": "1800000000",
-    "x-dofe-attribution-signature": "c32f43facc0776838604d8bfbb3f95bf04c93c47af895a16e6ca9407bd3490db",
+    "x-dofe-attribution-signature": "8ff4edf5a41ee26158f4a8bdee88196040456d09baa432e4e6920646762eeb6c",
   });
   const localizedHeaders = buildManagedRuntimeAttributionHeaders({
     runtimeKey: "runtime-key",
@@ -290,6 +293,7 @@ test("managed runtime attribution follows the models HMAC contract", () => {
     runtimeId: "runtime-1",
     employeeId: "研究 助手",
     conversationId: "conversation-1",
+    rootTaskId: "task-1",
     timestampSeconds: 1_800_000_000,
   });
   assert.equal(localizedHeaders["x-dofe-employee-id"], "utf8.56CU56m2IOWKqeaJiw");

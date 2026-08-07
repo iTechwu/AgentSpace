@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   buildManagedStdioLaunch,
   claimRemoteQueue,
   classifyRemoteLoopError,
+  createRemoteGatewayUsageReporter,
   mergeRemoteGatewayUsages,
   reconcileRemoteRuntimesWithHeartbeat,
   restoreManagedRuntimesFromHeartbeat,
@@ -385,6 +386,41 @@ test("managed task usage is driven by billable gateway responses, not provider e
     ["gateway-1", 10, 2],
     ["gateway-2", 20, 4],
   ]);
+});
+
+test("incremental gateway usage reporter retries failed delivery and acknowledges each request once", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-usage-reporter-"));
+  const usagePath = join(root, "usage.jsonl");
+  writeFileSync(usagePath, `${JSON.stringify({ requestId: "gateway-1", inputTokens: 10, outputTokens: 2 })}\n`);
+  let attempts = 0;
+  const batches: string[][] = [];
+  const reporter = createRemoteGatewayUsageReporter({
+    path: usagePath,
+    pollIntervalMs: 0,
+    context: {
+      modelId: "gpt-5",
+      runtimeCredentialId: "credential-1",
+      routerSessionId: "session-1",
+    },
+    report: async (usages) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("temporary network failure");
+      batches.push(usages.map((usage) => usage.gatewayRequestId!));
+    },
+  });
+
+  try {
+    await assert.rejects(() => reporter.flush(), /temporary network failure/);
+    await reporter.flush();
+    appendFileSync(usagePath, `${JSON.stringify({ requestId: "gateway-2", inputTokens: 20, outputTokens: 4 })}\n`);
+    await reporter.flush();
+    await reporter.flush();
+    assert.equal(attempts, 3);
+    assert.deepEqual(batches, [["gateway-1"], ["gateway-2"]]);
+  } finally {
+    await reporter.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("classifyRemoteLoopError routes auth failures to shutdown and 404 to skip-runtime", () => {

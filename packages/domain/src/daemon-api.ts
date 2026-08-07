@@ -982,6 +982,16 @@ export interface CompleteTaskRequest {
   usages?: DaemonTaskUsage[];
 }
 
+/** Idempotent usage snapshots reported while a managed task is still running. */
+export interface ReportTaskUsagesRequest {
+  usages: DaemonTaskUsage[];
+}
+
+export interface ReportTaskUsagesResponse {
+  accepted: number;
+  pendingReconciliation: boolean;
+}
+
 export interface RuntimeApprovalRequest {
   approvalId: string;
   status: "pending" | "approved" | "rejected";
