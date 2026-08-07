@@ -74,6 +74,7 @@ function renderBuilder(entry: "automations" | "calendar" | "task-board" = "autom
         status,
         graph,
         draftVersion: 1,
+        publishedVersionNumber: status === "draft" ? undefined : 2,
         trigger: { type: "manual", config: {}, misfirePolicy: "skip" },
         governance: { maxConcurrency: 4 },
         channelName: undefined,
@@ -229,14 +230,25 @@ describe("workflow builder", () => {
     })));
   });
 
-  it("shows the version, impact scope and estimated cost before publishing", async () => {
+  it("distinguishes the draft revision from the published version before publishing", async () => {
     const user = userEvent.setup();
     renderBuilder();
 
     await user.click(screen.getByRole("button", { name: /5.*预览/ }));
 
-    expect(screen.getByText("草稿版本 1")).toBeVisible();
+    expect(screen.getByText("尚未发布")).toBeVisible();
+    expect(screen.getByText("修订 1")).toBeVisible();
     expect(screen.getByText("当前工作区 default")).toBeVisible();
     expect(screen.getByText("未设置预计成本")).toBeVisible();
+  });
+
+  it("shows the immutable published version number in the preview", async () => {
+    const user = userEvent.setup();
+    renderBuilder("automations", "published");
+
+    await user.click(screen.getByRole("button", { name: /5.*预览/ }));
+
+    expect(screen.getByText("版本 2")).toBeVisible();
+    expect(screen.getByText("修订 1")).toBeVisible();
   });
 });

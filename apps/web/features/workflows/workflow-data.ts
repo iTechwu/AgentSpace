@@ -187,6 +187,7 @@ export function getWorkflowBuilderPageData(
       status: workflow.status,
       graph: parseWorkflowGraph(workflow.draftGraphJson),
       draftVersion: workflow.draftVersion,
+      ...(activeVersion ? { publishedVersionNumber: activeVersion.versionNumber } : {}),
       trigger: {
         type: trigger?.type ?? "manual",
         config: triggerConfig,

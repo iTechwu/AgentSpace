@@ -55,6 +55,7 @@ export interface WorkflowBuilderInitialValue {
   status: WorkflowDefinitionStatus;
   graph: WorkflowGraphDefinition;
   draftVersion: number;
+  publishedVersionNumber?: number;
   trigger: {
     type: "manual" | "schedule" | "event";
     config: Record<string, unknown>;
