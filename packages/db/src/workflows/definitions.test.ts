@@ -300,11 +300,12 @@ test("schedule trigger republish preserves nextFireAt and runtime lease state", 
     createdBy: "u1",
   });
   const graphJson = '{"schemaVersion":1,"nodes":[],"edges":[]}';
-  const scheduleTrigger = {
-    type: "schedule" as const,
-    configJson: '{"repeatSeconds":3600}',
-    status: "active" as const,
-  };
+  // 两个键的配置：发布按插入序写入（repeatSeconds 在前），PG JSONB 回读会按键名字典序
+  // 重排（note 在前）。两次发布都用同一插入序字符串，因此 raw 字符串比较恒不等，
+  // 只有规范化（排序后）比较才会判定为相等——这正是本用例要覆盖的 configJson 漂移点。
+  const preservedNextFireAt = "2026-08-07T01:00:00.000Z";
+  const driftedNextFireAt = "2026-08-07T01:30:00.000Z";
+  const scheduleConfigInsertionOrder = '{"repeatSeconds":3600,"note":"v1"}';
 
   publishWorkflowVersionSync({
     workspaceId: WORKSPACE_ID,
@@ -312,28 +313,51 @@ test("schedule trigger republish preserves nextFireAt and runtime lease state", 
     graphJson,
     contentHash: "sha256:schedule-a",
     publishedBy: "u1",
-    trigger: scheduleTrigger,
+    trigger: {
+      type: "schedule",
+      configJson: scheduleConfigInsertionOrder,
+      status: "active",
+      timezone: "UTC",
+      misfirePolicy: "skip",
+      nextFireAt: preservedNextFireAt,
+    },
   });
   const first = readWorkflowTriggerForWorkflowSync(definition.id, WORKSPACE_ID)!;
-  const firstNextFireAt = first.nextFireAt;
+  assert.equal(first.nextFireAt, preservedNextFireAt);
+  // PG 回读的 configJson 键序与写入不同（字典序），证明 raw 比较必然失效。
+  assert.notEqual(first.configJson, scheduleConfigInsertionOrder,
+    "PG JSONB must reorder keys so raw-string comparison cannot hold");
 
   // Simulate the scheduler having claimed the trigger and recorded a fire time.
   getDatabase().prepare(
     "UPDATE workflow_trigger SET lease_owner = ?, lease_expires_at = ?, last_fire_at = ? WHERE id = ?",
   ).run("scheduler-1", "2026-08-10T00:00:00.000Z", "2026-08-09T00:00:00.000Z", first.id);
 
-  // Identical schedule republish must not drift nextFireAt and must preserve lease state.
+  // Identical schedule republish passes a FRESH (drifted) nextFireAt; the db-layer
+  // guard must recognize the canonically-equal config and override it with the
+  // preserved value. If configJson were compared as a raw string, this override
+  // would not fire and after.nextFireAt would equal driftedNextFireAt.
   publishWorkflowVersionSync({
     workspaceId: WORKSPACE_ID,
     workflowId: definition.id,
     graphJson,
     contentHash: "sha256:schedule-a",
     publishedBy: "u1",
-    trigger: scheduleTrigger,
+    trigger: {
+      type: "schedule",
+      configJson: scheduleConfigInsertionOrder,
+      status: "active",
+      timezone: "UTC",
+      misfirePolicy: "skip",
+      nextFireAt: driftedNextFireAt,
+    },
   });
   const after = readWorkflowTriggerForWorkflowSync(definition.id, WORKSPACE_ID)!;
   assert.equal(after.id, first.id);
-  assert.equal(after.nextFireAt, firstNextFireAt, "nextFireAt must not drift on identical schedule republish");
+  assert.equal(after.nextFireAt, preservedNextFireAt,
+    "nextFireAt must be preserved over a canonically-equal config, not drift to the republished value");
+  assert.notEqual(after.nextFireAt, driftedNextFireAt,
+    "a raw-string configJson comparison would let the drifted nextFireAt through");
   assert.equal(after.leaseOwner, "scheduler-1", "lease_owner must be preserved");
   assert.equal(after.leaseExpiresAt, "2026-08-10T00:00:00.000Z", "lease_expires_at must be preserved");
   assert.equal(after.lastFireAt, "2026-08-09T00:00:00.000Z", "last_fire_at must be preserved");

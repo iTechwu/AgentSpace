@@ -499,11 +499,14 @@ function upsertWorkflowTriggerOnPublishWithDatabase(
   let trigger = input.trigger;
   // 循环/定时触发器在配置与时区未变时，保留既有 next_fire_at。否则每次重发都会
   // 基于当前时间重新计算，导致执行点不断后移并产生无意义的 trigger.published 审计。
+  // configJson 必须规范化后再比较：新写入值由服务层规范化（无空格、键已排序），
+  // 而 before 读取自 PG 的 JSONB ::text 输出（冒号后带空格），直接字符串比较会
+  // 恒为不等，导致 nextFireAt 永远不被保留、调度点持续后移。
   if (
     before &&
     before.type === "schedule" &&
     trigger.type === "schedule" &&
-    trigger.configJson === before.configJson &&
+    canonicalizeJsonString(trigger.configJson) === canonicalizeJsonString(before.configJson) &&
     (trigger.timezone ?? null) === (before.timezone ?? null)
   ) {
     trigger = { ...trigger, nextFireAt: before.nextFireAt };
