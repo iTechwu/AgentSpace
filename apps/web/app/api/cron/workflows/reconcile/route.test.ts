@@ -11,7 +11,7 @@ import { GET } from "./route";
 const originalSecret = process.env.CRON_SECRET;
 beforeEach(() => {
   vi.clearAllMocks();
-  services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"] });
+  services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"], expiredApprovalFailures: [], approvalScanFailed: false });
   services.dispatchWorkflowOutboxBatchSync.mockReturnValue({ dispatchedTaskIds: ["task-1"] });
   services.recoverStaleWorkflowWorkSync.mockReturnValue({
     readyNodeRunIds: ["node-1"],
@@ -45,5 +45,22 @@ describe("workflow reconcile route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ scheduled: 1, schedulerFailures: 1, dispatched: 1, recovered: 1 });
     expect(services.tickWorkflowSchedulerSync).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }));
+  });
+
+  it("counts approval expiry failures and whole-scan failures in schedulerFailures", async () => {
+    // schedulerFailures 是告警出口（后端设计文档:119）：触发器物化失败、审批限时扫描单条失败
+    // 与整轮扫描失败都必须计入，否则生产监控会把审批失败报告为 0。
+    process.env.CRON_SECRET = "expected";
+    services.tickWorkflowSchedulerSync.mockReturnValue({
+      createdRunIds: [],
+      failedTriggerIds: [],
+      expiredApprovalFailures: [{ approvalId: "a-1" }, { approvalId: "a-2" }],
+      approvalScanFailed: true,
+    });
+    const response = await GET(new Request("http://localhost/api/cron/workflows/reconcile", { headers: { authorization: "Bearer expected" } }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    // 0 触发器失败 + 2 审批限时失败 + 1 整轮扫描失败 = 3。
+    expect(body.schedulerFailures).toBe(3);
   });
 });

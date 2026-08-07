@@ -25,6 +25,9 @@ export interface WorkflowSchedulerTickResult {
   // 本轮审批限时扫描中处理失败（事务回滚/并发冲突）的审批，含 workspaceId/runId/
   // approvalId/errorCode，供告警与值班定位。持续性失败不再被静默重试。
   expiredApprovalFailures: WorkflowApprovalExpiryFailure[];
+  // 整轮审批限时扫描本身失败（如调度时钟非法）。这是一个系统级事件，没有单一工作区
+  // 归属；由 Worker/reconcile 计入 schedulerFailures 供告警，避免被静默或误归到默认工作区。
+  approvalScanFailed: boolean;
 }
 
 export function tickWorkflowSchedulerSync(input: {
@@ -42,6 +45,7 @@ export function tickWorkflowSchedulerSync(input: {
     failedTriggerIds: [],
     expiredApprovalIds: [],
     expiredApprovalFailures: [],
+    approvalScanFailed: false,
   };
   for (const trigger of triggers) {
     const scheduledAt = trigger.nextFireAt;
@@ -116,8 +120,11 @@ export function tickWorkflowSchedulerSync(input: {
     result.expiredApprovalIds = expiry.expiredApprovalIds;
     result.expiredApprovalFailures = expiry.failures;
   } catch (error) {
-    // 整轮扫描失败（如非法时钟）不阻断本轮触发器处理结果；记录审计日志后下一轮 tick 重试。
-    recordApprovalScanFailureBestEffort(input.workspaceId, error, input.now);
+    // 整轮扫描失败（如非法时钟）是系统级事件，不阻断本轮触发器处理结果。标记到结果，
+    // 由 Worker/reconcile 计入 schedulerFailures 供告警。仅当本轮扫描限定在具体工作区时
+    // 才写审计日志（正确归属该工作区）；全局扫描无单一工作区归属，绝不落到默认工作区。
+    result.approvalScanFailed = true;
+    if (input.workspaceId) recordApprovalScanFailureBestEffort(input.workspaceId, error, input.now);
   }
   return result;
 }

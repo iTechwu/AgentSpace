@@ -22,7 +22,11 @@ export async function GET(request: Request): Promise<Response> {
   const recovered = recoverStaleWorkflowWorkSync({ workerId, now, limit });
   return Response.json({
     scheduled: scheduled.createdRunIds.length,
-    schedulerFailures: scheduled.failedTriggerIds.length,
+    // schedulerFailures 是告警出口（后端设计文档:119）：触发器物化失败、审批限时扫描单条失败
+    // 与整轮扫描失败都计入，确保监控不会把审批失败报告为 0。
+    schedulerFailures: scheduled.failedTriggerIds.length
+      + scheduled.expiredApprovalFailures.length
+      + (scheduled.approvalScanFailed ? 1 : 0),
     dispatched: dispatched.dispatchedTaskIds.length,
     recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length +
       recovered.failedNodeRunIds.length + recovered.orphanedTaskIds.length,
