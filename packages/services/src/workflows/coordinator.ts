@@ -338,7 +338,17 @@ export function expireWorkflowApprovalsSync(input: {
       if (reachedLimit()) break;
       evaluated += 1;
       const expiresAtMs = Date.parse(expiresAtRaw);
-      if (!Number.isFinite(expiresAtMs) || expiresAtMs > nowMs) continue;
+      if (!Number.isFinite(expiresAtMs)) {
+        // 非法截止时间：发布预检会校验新配置，但历史 JSON、迁移数据或人工修改仍可能留下
+        // 无法解析的 expiresAt。原先静默 continue 会让这类审批永久悬挂且不出现在 failures
+        // 或告警出口。改为记为稳定错误码并写入结构化审计、按失败上报——不自动驳回
+        // （没有有效截止时间就没有终结依据），交由 on-call 经告警介入处理。
+        const invalidRunId = resolveApprovalRunIdBestEffort(approval.id, workspaceId);
+        failures.push({ approvalId: approval.id, workspaceId, ...(invalidRunId ? { runId: invalidRunId } : {}), errorCode: "workflow_approval_deadline_invalid" });
+        recordApprovalExpiryFailureBestEffort({ workspaceId, runId: invalidRunId, approvalId: approval.id, errorCode: "workflow_approval_deadline_invalid", now });
+        continue;
+      }
+      if (expiresAtMs > nowMs) continue;
       try {
         // 原子性约束：审批状态、节点状态与运行状态必须在同一事务内推进。若终结节点
         // 或运行失败，整个事务回滚——审批记录仍是 pending，下一轮 tick 会重试，避免

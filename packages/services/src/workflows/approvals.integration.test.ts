@@ -385,3 +385,34 @@ test("approval deadline scan rolls back and reports a structured failure when fi
     cleanup(fixture);
   }
 });
+
+test("approval deadline scan reports an unparseable expiresAt as a structured failure", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 非法 expiresAt 回归：发布预检校验新配置，但历史 JSON、迁移数据或人工修改仍可能留下
+  // 无法解析的截止时间。原先扫描对 Date.parse NaN 静默 continue，这类审批既不会自动终结、
+  // 也不出现在 failures 或告警出口，永久悬挂。现在记为稳定错误码 workflow_approval_deadline_invalid、
+  // 写结构化审计并按失败上报（不自动驳回——没有有效截止时间就没有终结依据），交由 on-call 介入。
+  const fixture = seedFixture();
+  try {
+    // 先建一条合法限时审批并把 run 推进到 waiting_approval，使工作区进入扫描视野。
+    const { approvalId } = createPendingApproval(fixture, { deadlineSeconds: 3600 });
+    // 模拟历史脏数据：把合法 expiresAt 改写为无法解析的字符串。
+    const state = ensureWorkspaceStateSync(fixture.workspaceId);
+    const target = state.approvals.find((item) => item.id === approvalId);
+    assert.ok(target, "approval seed missing");
+    target.metadata = { ...(target.metadata ?? {}), expiresAt: "not-a-valid-date" };
+    writeWorkspaceStateSync(state, fixture.workspaceId, { skipVersionCheck: true });
+
+    const sweep = expireWorkflowApprovalsSync({ now: "2026-08-07T01:30:00.000Z", workspaceId: fixture.workspaceId });
+    assert.deepEqual(sweep.expiredApprovalIds, []);
+    assert.equal(sweep.failures.length, 1);
+    assert.equal(sweep.failures[0]?.approvalId, approvalId);
+    assert.equal(sweep.failures[0]?.errorCode, "workflow_approval_deadline_invalid");
+    // 审批未被自动驳回，仍 pending，等待 on-call 经告警介入。
+    const approvalRecord = listApprovalsSync(fixture.workspaceId).find((item) => item.id === approvalId);
+    assert.equal(approvalRecord?.status, "pending");
+  } finally {
+    cleanup(fixture);
+  }
+});
