@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { WORKFLOW_GRAPH_ERROR_CODES } from "@dofe-agent/domain";
 import {
   translateWorkflowErrorCode,
   translateWorkflowNodeStatus,
@@ -63,9 +64,14 @@ describe("workflow presentation translations", () => {
 });
 
 describe("workflow graph validation translations", () => {
+  it.each(WORKFLOW_GRAPH_ERROR_CODES)("provides a non-generic translation for %s", (code) => {
+    expect(translateWorkflowErrorCode(code)).not.toBe("工作流操作未完成，请稍后重试");
+  });
+
   it.each([
     ["workflow_graph_requires_single_entry_node", "流程只能有一个起点"],
     ["workflow_graph_requires_single_terminal_node", "流程只能有一个终点"],
+    ["workflow_graph_duplicate_node_id", "步骤 ID 不能重复"],
     ["workflow_graph_edge_endpoint_missing", "连接线引用了不存在的步骤"],
     ["workflow_graph_isolated_node", "存在未连接到主流程的步骤"],
     ["workflow_node_unreachable", "存在无法从起点到达的步骤"],

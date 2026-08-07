@@ -58,6 +58,7 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_graph_cycle: ["流程中不能存在循环连接", "Workflow connections cannot contain a cycle"],
     workflow_graph_requires_single_entry_node: ["流程只能有一个起点", "The workflow must have one entry step"],
     workflow_graph_requires_single_terminal_node: ["流程只能有一个终点", "The workflow must have one terminal step"],
+    workflow_graph_duplicate_node_id: ["步骤 ID 不能重复", "Workflow step IDs must be unique"],
     workflow_graph_edge_endpoint_missing: ["连接线引用了不存在的步骤", "A connection references a missing step"],
     workflow_graph_isolated_node: ["存在未连接到主流程的步骤", "A step is disconnected from the main workflow"],
     workflow_node_unreachable: ["存在无法从起点到达的步骤", "A step cannot be reached from the workflow entry"],

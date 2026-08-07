@@ -57,8 +57,24 @@ export interface WorkflowGraphDefinition {
   edges: WorkflowEdgeDefinition[];
 }
 
+export const WORKFLOW_GRAPH_ERROR_CODES = [
+  "workflow_graph_duplicate_node_id",
+  "workflow_graph_edge_endpoint_missing",
+  "workflow_node_type_unsupported",
+  "workflow_employee_task_requires_employee_id",
+  "workflow_join_requires_multiple_inputs",
+  "workflow_join_requires_downstream",
+  "workflow_graph_requires_employee_task",
+  "workflow_graph_requires_single_entry_node",
+  "workflow_graph_requires_single_terminal_node",
+  "workflow_graph_isolated_node",
+  "workflow_node_unreachable",
+  "workflow_graph_cycle",
+] as const;
+export type WorkflowGraphErrorCode = typeof WORKFLOW_GRAPH_ERROR_CODES[number];
+
 export interface WorkflowGraphError {
-  code: string;
+  code: WorkflowGraphErrorCode;
   nodeIds: string[];
 }
 

@@ -7,7 +7,7 @@ import {
   readWorkflowTriggerForWorkflowSync,
   updateWorkflowDraftSync,
 } from "@dofe-agent/db";
-import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
+import { WORKFLOW_GRAPH_ERROR_CODES, type WorkflowGraphDefinition } from "@dofe-agent/domain";
 import {
   assertTriggerWriteOwnerSync,
   cancelWorkflowRunSync,
@@ -296,6 +296,7 @@ function failure(error: unknown): WorkflowActionResult<never> {
 }
 
 const STABLE_ERROR_CODES = new Set([
+  ...WORKFLOW_GRAPH_ERROR_CODES,
   "workflow_definition_not_found", "workflow_definition_archived", "workflow_definition_not_published",
   "workflow_definition_control_conflict",
   "workflow_manual_trigger_required",
@@ -314,10 +315,7 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_schedule_invalid", "workflow_schedule_in_past", "workflow_schedule_timezone_invalid",
   "workflow_misfire_policy_invalid",
   "workflow_event_invalid",
-  "workflow_graph_invalid", "workflow_graph_requires_employee_task", "workflow_graph_cycle",
-  "workflow_graph_requires_single_entry_node", "workflow_graph_requires_single_terminal_node",
-  "workflow_graph_edge_endpoint_missing", "workflow_graph_isolated_node", "workflow_node_unreachable",
-  "workflow_employee_task_requires_employee_id", "workflow_node_type_unsupported", "workflow_join_requires_multiple_inputs", "workflow_join_requires_downstream",
+  "workflow_graph_invalid",
 ]);
 
 function workflowErrorMessage(code: string): string {
