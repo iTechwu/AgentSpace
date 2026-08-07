@@ -15,13 +15,19 @@ export const WORKFLOW_ERROR_CODES = [
 
   // Definition lifecycle & control
   "workflow_version_conflict",
+  "workflow_version_not_found",
+  "workflow_version_node_missing",
   "workflow_definition_not_found",
   "workflow_definition_archived",
   "workflow_definition_not_published",
+  "workflow_definition_conflict",
   "workflow_definition_control_conflict",
+  "workflow_draft_version_conflict",
   "workflow_manual_trigger_required",
   "workflow_active_version_missing",
   "workflow_graph_invalid",
+  "workflow_operation_failed",
+  "workflow_unknown_error",
 
   // Actor, employee readiness & governance preflight
   "workflow_actor_forbidden",
@@ -49,6 +55,12 @@ export const WORKFLOW_ERROR_CODES = [
   "workflow_approval_channel_not_ready",
   "workflow_approval_risk_invalid",
   "workflow_approval_reviewer_not_ready",
+  "workflow_approval_already_created",
+  "workflow_approval_create_failed",
+  "workflow_approval_node_conflict",
+  "workflow_approval_node_not_found",
+  "workflow_approval_not_linked",
+  "workflow_approval_rejected",
 
   // Schedule, event & trigger
   "workflow_schedule_invalid",
@@ -56,9 +68,13 @@ export const WORKFLOW_ERROR_CODES = [
   "workflow_schedule_timezone_invalid",
   "workflow_misfire_policy_invalid",
   "workflow_event_invalid",
+  "workflow_event_payload_too_large",
   "workflow_trigger_cross_workspace_conflict",
   "workflow_trigger_duplicate",
   "workflow_trigger_owner_conflict",
+  "workflow_trigger_not_active",
+  "workflow_trigger_stale_snapshot",
+  "workflow_trigger_lease_conflict",
   "workflow_workspace_mismatch",
   "workflow_cross_workspace_reference",
 
@@ -67,13 +83,23 @@ export const WORKFLOW_ERROR_CODES = [
   "workflow_run_control_conflict",
   "workflow_run_commit_in_progress",
   "workflow_run_not_startable",
+  "workflow_run_create_failed",
+  "workflow_run_event_create_failed",
+  "workflow_run_materialization_conflict",
   "workflow_task_commit_conflict",
+  "workflow_task_queue_mismatch",
   "workflow_completion_effect_uncertain",
   "workflow_node_manual_compensation_required",
   "workflow_node_run_not_found",
   "workflow_node_not_retryable",
   "workflow_node_retry_exhausted",
   "workflow_node_retry_conflict",
+  "workflow_node_queue_link_conflict",
+  "workflow_node_queue_retry_conflict",
+
+  // Outbox
+  "workflow_outbox_lease_conflict",
+  "workflow_outbox_payload_invalid",
 
   // Run-timeline display labels (not thrown by actions, but rendered in the UI)
   "workflow_run_events_unavailable",
@@ -114,13 +140,19 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
 
   // Definition lifecycle & control
   workflow_version_conflict: "草稿已被其他编辑者更新，请刷新后重试。",
+  workflow_version_not_found: "未找到对应的工作流版本。",
+  workflow_version_node_missing: "版本缺少引用的步骤定义。",
   workflow_definition_not_found: "未找到工作流。",
   workflow_definition_archived: "已归档的工作流不能编辑。",
   workflow_definition_not_published: "请先发布工作流。",
+  workflow_definition_conflict: "工作流状态冲突，请刷新后重试。",
   workflow_definition_control_conflict: "工作流状态已变化，请刷新后重试。",
+  workflow_draft_version_conflict: "草稿已被其他编辑者更新，请刷新后重试。",
   workflow_manual_trigger_required: "只有已发布的手动触发工作流可以立即运行。",
   workflow_active_version_missing: "工作流缺少可运行的发布版本。",
   workflow_graph_invalid: "流程结构无效，请检查步骤连接。",
+  workflow_operation_failed: "工作流操作失败，请稍后重试。",
+  workflow_unknown_error: "工作流发生未知错误，请稍后重试。",
 
   // Actor, employee readiness & governance preflight
   workflow_actor_forbidden: "当前成员没有执行此操作的权限。",
@@ -148,6 +180,12 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   workflow_approval_channel_not_ready: "提交审批的 AI 员工尚未加入审批频道。",
   workflow_approval_risk_invalid: "审批风险等级无效，请重新选择。",
   workflow_approval_reviewer_not_ready: "指定的审批人不在当前工作空间内。",
+  workflow_approval_already_created: "该步骤的审批请求已经存在。",
+  workflow_approval_create_failed: "审批请求创建失败，请稍后重试。",
+  workflow_approval_node_conflict: "审批步骤状态冲突，请刷新后重试。",
+  workflow_approval_node_not_found: "未找到对应的审批步骤。",
+  workflow_approval_not_linked: "审批请求未关联到运行步骤。",
+  workflow_approval_rejected: "审批已被驳回。",
 
   // Schedule, event & trigger
   workflow_schedule_invalid: "定时配置无效，请检查时间或 Cron 表达式。",
@@ -155,9 +193,13 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   workflow_schedule_timezone_invalid: "时区无效，请填写标准 IANA 时区。",
   workflow_misfire_policy_invalid: "错过执行策略无效，请重新选择。",
   workflow_event_invalid: "事件名称无效，请检查后重试。",
+  workflow_event_payload_too_large: "事件载荷过大，请减小后重试。",
   workflow_trigger_cross_workspace_conflict: "触发器不能引用其他工作空间。",
   workflow_trigger_duplicate: "相同触发器已经绑定到其他工作流。",
   workflow_trigger_owner_conflict: "当前切流阶段不允许从此入口修改触发器。",
+  workflow_trigger_not_active: "触发器未激活。",
+  workflow_trigger_stale_snapshot: "触发器快照已过期，请刷新后重试。",
+  workflow_trigger_lease_conflict: "触发器已被其他进程领取。",
   workflow_workspace_mismatch: "工作流引用的资源归属不一致，请刷新后重试。",
   workflow_cross_workspace_reference: "工作流不能引用其他工作空间的资源。",
 
@@ -166,13 +208,23 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   workflow_run_control_conflict: "运行状态已变化，请刷新后重试。",
   workflow_run_commit_in_progress: "步骤结果正在提交，请稍后再取消运行。",
   workflow_run_not_startable: "运行已暂停或结束，当前步骤不能开始执行。",
+  workflow_run_create_failed: "运行创建失败，请稍后重试。",
+  workflow_run_event_create_failed: "运行事件创建失败，请稍后重试。",
+  workflow_run_materialization_conflict: "运行物化状态冲突，请刷新后重试。",
   workflow_task_commit_conflict: "步骤提交状态已变化，请刷新后重试。",
+  workflow_task_queue_mismatch: "任务队列不匹配，请刷新后重试。",
   workflow_completion_effect_uncertain: "外部操作状态不确定，请先检查并补偿。",
   workflow_node_manual_compensation_required: "请先检查并补偿外部操作，再处理此步骤。",
   workflow_node_run_not_found: "未找到步骤运行记录。",
   workflow_node_not_retryable: "当前步骤不能重试。",
   workflow_node_retry_exhausted: "该步骤已达到最大重试次数。",
   workflow_node_retry_conflict: "步骤状态已变化，请刷新后重试。",
+  workflow_node_queue_link_conflict: "步骤队列关联冲突，请刷新后重试。",
+  workflow_node_queue_retry_conflict: "步骤队列重试冲突，请刷新后重试。",
+
+  // Outbox
+  workflow_outbox_lease_conflict: "出库事件已被其他进程领取。",
+  workflow_outbox_payload_invalid: "出库事件载荷无效。",
 
   // Run-timeline display labels
   workflow_run_events_unavailable: "运行状态同步失败，将自动重试。",
