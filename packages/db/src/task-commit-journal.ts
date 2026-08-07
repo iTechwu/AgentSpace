@@ -36,7 +36,12 @@ const JOURNAL_COLUMNS = `SELECT
 
 export function upsertTaskCommitJournalSync(input: UpsertTaskCommitJournalInput): TaskCommitJournalRecord {
   const db = getDatabase();
-  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const taskRow = db.prepare("SELECT workspace_id AS workspaceId FROM agent_task_queue WHERE id = ?").get(input.taskId) as { workspaceId?: unknown } | undefined;
+  if (typeof taskRow?.workspaceId !== "string") throw new Error("task_commit_task_not_found");
+  if (input.workspaceId !== undefined && input.workspaceId !== taskRow.workspaceId) {
+    throw new Error("task_commit_workspace_mismatch");
+  }
+  const workspaceId = taskRow.workspaceId;
   const employeeName = input.employeeName?.trim();
   const employeeId = employeeName ? resolveStoredEmployeeIdSync(employeeName, workspaceId) : null;
   const now = new Date().toISOString();

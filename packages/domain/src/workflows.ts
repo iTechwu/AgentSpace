@@ -1,5 +1,21 @@
 export type WorkflowNodeType = "employee_task" | "join" | "approval";
 export type WorkflowJoinPolicy = "all_success" | "allow_partial";
+export const WORKFLOW_NODE_TYPES = ["employee_task", "join", "approval"] as const satisfies readonly WorkflowNodeType[];
+export const WORKFLOW_EVENT_NAMES = [
+  "task.completed",
+  "document.updated",
+  "message.matched",
+] as const;
+export type WorkflowEventName = typeof WORKFLOW_EVENT_NAMES[number];
+
+export function isWorkflowEventName(value: string): value is WorkflowEventName {
+  return (WORKFLOW_EVENT_NAMES as readonly string[]).includes(value);
+}
+
+export function isWorkflowNodeType(value: string): value is WorkflowNodeType {
+  return (WORKFLOW_NODE_TYPES as readonly string[]).includes(value);
+}
+
 export type WorkflowDefinitionStatus = "draft" | "published" | "paused" | "archived";
 export type WorkflowRunStatus =
   | "created"
@@ -104,6 +120,13 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
 
   for (const node of nodes) {
     if (!node || typeof node.id !== "string" || !nodeIndex.has(node.id)) continue;
+    const nodeType = typeof (node as { type?: unknown }).type === "string"
+      ? (node as { type: string }).type
+      : "";
+    if (!isWorkflowNodeType(nodeType)) {
+      errors.push({ code: "workflow_node_type_unsupported", nodeIds: [node.id] });
+      continue;
+    }
     if (
       node.type === "employee_task" &&
       (typeof node.employeeId !== "string" || node.employeeId.trim().length === 0)

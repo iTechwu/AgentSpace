@@ -506,13 +506,13 @@ export function queueFeishuChannelReplyOutboxSync(input: {
       continue;
     }
 
-    for (const outbound of buildFeishuOutboundMessages({
+    for (const [outboundIndex, outbound] of buildFeishuOutboundMessages({
       targetExternalChatId: channelBinding.externalChatId,
       targetExternalThreadId: resolveFeishuReplyTargetExternalMessageId(sourceMapping),
       text: input.text,
       attachments: input.attachments,
       agentId: integration.agentId,
-    })) {
+    }).entries()) {
       outboxItems.push(enqueueExternalOutboundMessageSync({
         context: {
           workspaceId: input.workspaceId,
@@ -522,6 +522,9 @@ export function queueFeishuChannelReplyOutboxSync(input: {
         channelBindingId: channelBinding.id,
         dofeAgentMessageId: input.dofeAgentMessageId,
         outbound,
+        idempotencyKey: input.dofeAgentMessageId
+          ? `agent-reply:${input.dofeAgentMessageId}:${outboundIndex}`
+          : undefined,
         metadataJson: buildFeishuQueuedOutboxMetadata({
           source: "agent_reply",
           outbound,
@@ -589,6 +592,9 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
       channelBindingId: channelBinding.id,
       dofeAgentMessageId: input.dofeAgentMessageId,
       outbound,
+      idempotencyKey: (input.dofeAgentMessageId ?? input.sourceDofeAgentMessageId)
+        ? `agent-status-card:${input.dofeAgentMessageId ?? input.sourceDofeAgentMessageId}:${input.status}:${input.taskId ?? ""}`
+        : undefined,
       metadataJson: buildFeishuQueuedOutboxMetadata({
         source: "agent_status_card",
         outbound,

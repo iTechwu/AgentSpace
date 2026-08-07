@@ -7,37 +7,32 @@ const openMontageEnabled = Boolean(
   && process.env.OPENMONTAGE_SERVICE_TOKEN?.trim(),
 );
 
-if ((runtimeMode === "remote" || openMontageEnabled) && !cronSecret) {
+if (!cronSecret) {
   throw new Error("CRON_SECRET is required by the runtime maintenance worker.");
 }
 
 async function runMaintenance() {
-  try {
-    if (runtimeMode === "remote") {
-      await runEndpoint("Runtime maintenance", "/api/cron/runtime-provisioning");
-    }
-    if (openMontageEnabled) {
-      await runEndpoint("OpenMontage reconciliation", "/api/cron/openmontage-reconcile");
-    }
-  } catch (error) {
-    console.error(`Runtime maintenance request failed: ${error instanceof Error ? error.message : String(error)}`);
-  } finally {
-    setTimeout(runMaintenance, intervalMs);
+  await runEndpoint("Task commit reconciliation", "/api/cron/task-commit-reconcile");
+  if (runtimeMode === "remote") {
+    await runEndpoint("Runtime maintenance", "/api/cron/runtime-provisioning");
   }
+  if (openMontageEnabled) {
+    await runEndpoint("OpenMontage reconciliation", "/api/cron/openmontage-reconcile");
+  }
+  setTimeout(runMaintenance, intervalMs);
 }
 
 async function runEndpoint(label, path) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    headers: { authorization: `Bearer ${cronSecret}` },
-  });
-  if (!response.ok) {
-    console.error(`${label} failed with HTTP ${response.status}.`);
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      headers: { authorization: `Bearer ${cronSecret}` },
+    });
+    if (!response.ok) {
+      console.error(`${label} failed with HTTP ${response.status}.`);
+    }
+  } catch (error) {
+    console.error(`${label} request failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-if (runtimeMode === "remote" || openMontageEnabled) {
-  await runMaintenance();
-} else {
-  console.log("Runtime maintenance is idle because no remote Runtime or OpenMontage integration is configured.");
-  setInterval(() => {}, 24 * 60 * 60 * 1000);
-}
+await runMaintenance();

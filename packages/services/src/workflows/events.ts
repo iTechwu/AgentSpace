@@ -2,6 +2,7 @@ import {
   listActiveWorkflowEventTriggersSync,
   type WorkflowTriggerRecord,
 } from "@dofe-agent/db";
+import { isWorkflowEventName } from "@dofe-agent/domain";
 import { materializeWorkflowRunSync } from "./materialization.ts";
 
 const EVENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -62,7 +63,7 @@ export function normalizeWorkflowEventInput(input: WorkflowEventInput): Required
   const workspaceId = typeof input.workspaceId === "string" ? input.workspaceId.trim() : "";
   const eventName = typeof input.eventName === "string" ? input.eventName.trim() : "";
   const eventId = typeof input.eventId === "string" ? input.eventId.trim() : "";
-  if (!workspaceId || !EVENT_NAME.test(eventName) || !eventId || eventId.length > MAX_EVENT_ID_LENGTH) {
+  if (!workspaceId || !EVENT_NAME.test(eventName) || !isWorkflowEventName(eventName) || !eventId || eventId.length > MAX_EVENT_ID_LENGTH) {
     throw new Error("workflow_event_invalid");
   }
   if (input.input !== undefined && (!input.input || typeof input.input !== "object" || Array.isArray(input.input))) {

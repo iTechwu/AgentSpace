@@ -23,6 +23,7 @@ import {
   failQueuedTaskSync,
   getDatabase,
   readAgentRuntimeSync,
+  recordTokenUsageSync,
   type QueuedTaskRecord,
   withTransaction,
 } from "@dofe-agent/db";
@@ -116,6 +117,17 @@ function abortReconciledTask(task: QueuedTaskRecord, message: string): void {
   clearDaemonTaskOutputStaging(task.id, task.workspaceId);
 }
 
+export interface ReconciledTaskCompletionTokenUsage {
+  modelId: string;
+  inputTokens: number;
+  outputTokens: number;
+  gatewayRequestId?: string;
+  providerAccountId?: string;
+  runtimeCredentialId?: string;
+  routerSessionId?: string;
+  channelName?: string;
+}
+
 interface ReconciledTaskCompletionSnapshot {
   finalOutputText?: string;
   normalizedWorkflowOutput?: Record<string, unknown>;
@@ -124,6 +136,7 @@ interface ReconciledTaskCompletionSnapshot {
   sessionId?: string;
   conversationSessionId?: string | null;
   workDir?: string;
+  tokenUsage?: ReconciledTaskCompletionTokenUsage;
   effects?: {
     documentOperations: { warnings: string[]; documentUpdates: Array<{ documentId: string; documentVersionId: string }> };
     skillImportOperations: { imports: unknown[] };
@@ -152,6 +165,24 @@ export function finalizeReconciledTask(task: QueuedTaskRecord): void {
       taskQueueId: task.id,
       outputText: envelope.text,
     }));
+  const payload = parseTaskPayload(task);
+  const agentName = payload.assignee ?? task.agentId;
+  const tokenUsage = normalizeReconciledTaskCompletionTokenUsage(snapshot.tokenUsage);
+  if (tokenUsage) {
+    recordTokenUsageSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      agentId: agentName,
+      modelId: tokenUsage.modelId,
+      providerAccountId: tokenUsage.providerAccountId,
+      runtimeCredentialId: tokenUsage.runtimeCredentialId,
+      routerSessionId: tokenUsage.routerSessionId ?? task.routerSessionId,
+      gatewayRequestId: tokenUsage.gatewayRequestId ?? `task:${task.id}:completion`,
+      inputTokens: tokenUsage.inputTokens,
+      outputTokens: tokenUsage.outputTokens,
+      channelName: tokenUsage.channelName,
+    });
+  }
   const finalized = withTransaction(getDatabase(), () => {
     const fence = lockWorkflowRunForTaskIfLinkedSync({
       workspaceId: task.workspaceId,
@@ -173,6 +204,7 @@ export function finalizeReconciledTask(task: QueuedTaskRecord): void {
         feishuRuntimeDataOperationApprovalIds: snapshot.effects!.feishuRuntimeDataOperationRequests.approvalIds,
         documentPermissionRequests: snapshot.effects!.documentRuntimeOutputOperations.permissionRequests,
         knowledgeProposals: snapshot.effects!.knowledgeProposalOperations.knowledgeProposals,
+        ...(tokenUsage ? { tokenUsage } : {}),
         recoveredFromCommitJournal: true,
       },
       sessionId: snapshot.sessionId,
@@ -188,7 +220,19 @@ export function finalizeReconciledTask(task: QueuedTaskRecord): void {
     return true;
   });
   if (!finalized) throw new Error("workflow_commit_finalization_conflict");
-  projectReconciledTaskCompletion(task, snapshot, envelope.attachments);
+  const runtime = readAgentRuntimeSync(task.runtimeId);
+  projectTaskCompletion({
+    task,
+    finalOutputText: snapshot.finalOutputText,
+    attachments: envelope.attachments,
+    runtimeName: snapshot.runtimeName,
+    conversationSessionId: resolveReconciledConversationSessionId({
+      snapshot,
+      runtimeProvider: runtime?.provider,
+    }),
+    workDir: snapshot.workDir,
+    documentOperations: snapshot.effects.documentOperations,
+  });
   clearDaemonTaskOutputStaging(task.id, task.workspaceId);
 }
 
@@ -205,6 +249,7 @@ function readStoredTaskCompletion(task: QueuedTaskRecord): {
     const documentUpdates = Array.isArray(result.documentUpdates)
       ? result.documentUpdates.filter(isDocumentUpdate)
       : [];
+    const tokenUsage = normalizeReconciledTaskCompletionTokenUsage(result.tokenUsage);
     return {
       attachments,
       snapshot: {
@@ -213,6 +258,7 @@ function readStoredTaskCompletion(task: QueuedTaskRecord): {
         sessionId: task.sessionId,
         conversationSessionId: result.provider === "hermes" ? null : task.sessionId ?? null,
         workDir: task.workDir,
+        ...(tokenUsage ? { tokenUsage } : {}),
         effects: {
           documentOperations: { warnings: [], documentUpdates },
           skillImportOperations: { imports: Array.isArray(result.skillImports) ? result.skillImports : [] },
@@ -255,23 +301,57 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-function projectReconciledTaskCompletion(
-  task: QueuedTaskRecord,
-  snapshot: ReconciledTaskCompletionSnapshot,
-  attachments: ReturnType<typeof loadTaskOutputEnvelope>["attachments"],
-): void {
+export function normalizeReconciledTaskCompletionTokenUsage(value: unknown): ReconciledTaskCompletionTokenUsage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const usage = value as Record<string, unknown>;
+  if (typeof usage.modelId !== "string" || !usage.modelId.trim()) return undefined;
+  if (typeof usage.inputTokens !== "number"
+    || !Number.isFinite(usage.inputTokens)
+    || !Number.isInteger(usage.inputTokens)
+    || usage.inputTokens < 0
+    || typeof usage.outputTokens !== "number"
+    || !Number.isFinite(usage.outputTokens)
+    || !Number.isInteger(usage.outputTokens)
+    || usage.outputTokens < 0
+    || (usage.inputTokens === 0 && usage.outputTokens === 0)) return undefined;
+  return {
+    modelId: usage.modelId.trim(),
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    ...(typeof usage.gatewayRequestId === "string" && usage.gatewayRequestId.trim()
+      ? { gatewayRequestId: usage.gatewayRequestId.trim() } : {}),
+    ...(typeof usage.providerAccountId === "string" && usage.providerAccountId.trim()
+      ? { providerAccountId: usage.providerAccountId.trim() } : {}),
+    ...(typeof usage.runtimeCredentialId === "string" && usage.runtimeCredentialId.trim()
+      ? { runtimeCredentialId: usage.runtimeCredentialId.trim() } : {}),
+    ...(typeof usage.routerSessionId === "string" && usage.routerSessionId.trim()
+      ? { routerSessionId: usage.routerSessionId.trim() } : {}),
+    ...(typeof usage.channelName === "string" && usage.channelName.trim()
+      ? { channelName: usage.channelName.trim() } : {}),
+  };
+}
+
+export function projectTaskCompletion(input: {
+  task: QueuedTaskRecord;
+  finalOutputText: string;
+  attachments: MessageAttachment[];
+  runtimeName?: string;
+  conversationSessionId: string | null;
+  workDir?: string;
+  documentOperations: {
+    warnings: string[];
+    documentUpdates: Array<{ documentId: string; documentVersionId: string }>;
+  };
+}): void {
+  const { task } = input;
   const payload = parseTaskPayload(task);
   const runtime = readAgentRuntimeSync(task.runtimeId);
   const agentName = payload.assignee ?? task.agentId;
-  const runtimeName = snapshot.runtimeName ?? runtime?.name ?? agentName;
+  const runtimeName = input.runtimeName ?? runtime?.name ?? agentName;
   const workspaceState = readWorkspaceStateSync(task.workspaceId);
   const effectiveChannelName = payload.channelName
     ?? (payload.contactId ? resolveCompatibleDirectChannelRecord(workspaceState, payload.contactId)?.name : undefined);
-  const conversationSessionId = resolveReconciledConversationSessionId({
-    snapshot,
-    runtimeProvider: runtime?.provider,
-  });
-  const documentOperations = snapshot.effects!.documentOperations;
+  const { conversationSessionId, documentOperations } = input;
 
   if (payload.taskId) updateTaskStatusSync(payload.taskId, "done", task.workspaceId);
   if (payload.orchestrationStepId) {
@@ -286,23 +366,23 @@ function projectReconciledTaskCompletion(
     const reply = completeAgentChannelReplySync({
       channel: payload.channel,
       pendingSpeaker: agentName,
-      speaker: agentName,
-      summary: snapshot.finalOutputText!,
-      attachments,
+      speaker: payload.assignee ?? runtimeName,
+      summary: input.finalOutputText,
+      attachments: input.attachments,
       sourceTaskQueueId: task.id,
       requestedByUserId: task.requestedByUserId,
       requestedByDisplayName: task.requestedByDisplayName,
       mentionCascadeDepth: payload.mentionCascadeDepth,
       mentionRootMessageId: payload.mentionRootMessageId ?? payload.sourceMessageId,
       sessionId: conversationSessionId ?? undefined,
-      workDir: snapshot.workDir,
+      workDir: input.workDir,
     }, task.workspaceId);
-    recordRecoveredReplyEffects(
+    recordTaskReplyEffects(
       task,
       payload.channel,
       agentName,
-      snapshot.finalOutputText!,
-      attachments,
+      input.finalOutputText,
+      input.attachments,
       reply,
       payload.sourceMessageId,
     );
@@ -311,7 +391,7 @@ function projectReconciledTaskCompletion(
       agentId: agentName,
       contactId: payload.contactId,
       sessionId: conversationSessionId,
-      workDir: snapshot.workDir,
+      workDir: input.workDir,
       lastTaskQueueId: task.id,
       lastError: null,
     }, task.workspaceId);
@@ -319,7 +399,7 @@ function projectReconciledTaskCompletion(
       upsertDirectConversationStateSync({
         contactId: payload.contactId,
         sessionId: conversationSessionId,
-        workDir: snapshot.workDir,
+        workDir: input.workDir,
       }, task.workspaceId);
     }
   } else if (payload.contactId) {
@@ -328,35 +408,35 @@ function projectReconciledTaskCompletion(
       agentId: payload.contactId,
       contactId: payload.contactId,
       sessionId: conversationSessionId,
-      workDir: snapshot.workDir,
+      workDir: input.workDir,
       lastTaskQueueId: task.id,
       lastError: null,
     }, task.workspaceId);
     upsertDirectConversationStateSync({
       contactId: payload.contactId,
       sessionId: conversationSessionId,
-      workDir: snapshot.workDir,
+      workDir: input.workDir,
     }, task.workspaceId);
   } else if (payload.channel) {
     const reply = completeAgentChannelReplySync({
       channel: payload.channel,
       speaker: runtimeName,
-      summary: snapshot.finalOutputText!,
-      attachments,
+      summary: input.finalOutputText,
+      attachments: input.attachments,
       sourceTaskQueueId: task.id,
       requestedByUserId: task.requestedByUserId,
       requestedByDisplayName: task.requestedByDisplayName,
       mentionCascadeDepth: payload.mentionCascadeDepth,
       mentionRootMessageId: payload.mentionRootMessageId ?? payload.sourceMessageId,
       sessionId: conversationSessionId ?? undefined,
-      workDir: snapshot.workDir,
+      workDir: input.workDir,
     }, task.workspaceId);
-    recordRecoveredReplyEffects(
+    recordTaskReplyEffects(
       task,
       payload.channel,
       agentName,
-      snapshot.finalOutputText!,
-      attachments,
+      input.finalOutputText,
+      input.attachments,
       reply,
       payload.sourceMessageId,
     );
@@ -364,7 +444,7 @@ function projectReconciledTaskCompletion(
       channelName: payload.channel,
       agentId: agentName,
       sessionId: conversationSessionId,
-      workDir: snapshot.workDir,
+      workDir: input.workDir,
       lastTaskQueueId: task.id,
       lastError: null,
     }, task.workspaceId);
@@ -375,7 +455,7 @@ function projectReconciledTaskCompletion(
       taskId: task.id,
       workspaceId: task.workspaceId,
       sessionId: conversationSessionId ?? undefined,
-      workDir: snapshot.workDir,
+      workDir: input.workDir,
     });
   } catch {
     // The original completion path also treats automatic continuation as best effort.
@@ -394,7 +474,22 @@ export function resolveReconciledConversationSessionId(input: {
     : input.snapshot.sessionId ?? null;
 }
 
-function recordRecoveredReplyEffects(
+export function resolveTaskCompletionSnapshotMetadata(input: {
+  snapshot: Pick<ReconciledTaskCompletionSnapshot, "provider" | "sessionId" | "conversationSessionId" | "workDir">;
+  runtimeProvider?: string;
+}): {
+  providerSessionId?: string;
+  conversationSessionId: string | null;
+  workDir?: string;
+} {
+  return {
+    providerSessionId: input.snapshot.sessionId,
+    conversationSessionId: resolveReconciledConversationSessionId(input),
+    workDir: input.snapshot.workDir,
+  };
+}
+
+function recordTaskReplyEffects(
   task: QueuedTaskRecord,
   channelName: string,
   agentName: string,
@@ -403,7 +498,6 @@ function recordRecoveredReplyEffects(
   reply: ReturnType<typeof completeAgentChannelReplySync>,
   sourceDofeAgentMessageId?: string,
 ): void {
-  if (!reply.created) return;
   for (const warning of reply.warnings) {
     appendTaskMessageSync({ taskId: task.id, type: "status", content: warning });
   }
@@ -432,14 +526,12 @@ function recordRecoveredReplyEffects(
       appendTaskMessageSync({
         taskId: task.id,
         type: "status",
-        content: `Feishu outbound queued during commit recovery: ${statusCards.length + replies.length} message(s).`,
+        content: `Feishu outbound queued: ${statusCards.length + replies.length} message(s).`,
       });
     }
   } catch (error) {
-    appendTaskMessageSync({
-      taskId: task.id,
-      type: "status",
-      content: `Feishu outbound enqueue failed during commit recovery: ${error instanceof Error ? error.message : String(error)}`,
-    });
+    const message = `Feishu outbound enqueue failed: ${error instanceof Error ? error.message : String(error)}`;
+    appendTaskMessageSync({ taskId: task.id, type: "status", content: message });
+    throw new Error("workflow_completion_feishu_outbox_failed", { cause: error });
   }
 }

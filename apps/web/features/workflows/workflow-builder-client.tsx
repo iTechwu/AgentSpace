@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
+import { WORKFLOW_EVENT_NAMES, type WorkflowGraphDefinition } from "@dofe-agent/domain";
 import type { WorkflowPublishValidation } from "@dofe-agent/services";
 import { translateWorkflowErrorCode } from "@/features/i18n/presentation";
 import {
@@ -298,7 +298,7 @@ export function WorkflowBuilderClient({
               <label><span>时区</span><input onChange={(event) => updateConfiguration(() => setTimezone(event.target.value))} value={timezone} /></label>
               <label><span>错过执行</span><select onChange={(event) => updateConfiguration(() => setMisfirePolicy(event.target.value as MisfirePolicy))} value={misfirePolicy}><option value="skip">跳过过期执行</option><option value="fire_once">仅补最近一次</option></select></label>
             </> : null}
-            {triggerType === "event" ? <label><span>事件名称</span><input onChange={(event) => updateConfiguration(() => setEventName(event.target.value))} value={eventName} /></label> : null}
+            {triggerType === "event" ? <label><span>事件名称</span><select onChange={(event) => updateConfiguration(() => setEventName(event.target.value))} value={eventName}><option value="">选择事件</option>{WORKFLOW_EVENT_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}</select></label> : null}
           </div>
         ) : null}
         {activeStep === 2 ? (

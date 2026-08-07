@@ -4,7 +4,7 @@
 
 目标分支：`codex/agent-team-workflow`
 
-代码证据：本轮深审起点 `d0e8b5e`；待发布 SHA 必须取本目录所在最终提交
+代码证据：本轮深审起点 `5e3fa1d`；待发布 SHA 必须取本目录所在最终提交
 
 发布策略：按 workspace 从 `legacy_only` 逐步切换到 `dual_read`、`workflow_engine`、`legacy_archived`
 
@@ -22,7 +22,7 @@
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |
 | 单一调度 owner | 代码测试通过，环境待抽查 | 每个 workspace 只能由 legacy 或 workflow 一方创建 trigger |
 | 历史保留 | 设计通过，环境待抽查 | archive/disable 不删除 Workflow Run、Event、Artifact 和 Audit |
-| 提交日志完整性 | 静态实现与测试入口已完成，实库待验证 | 状态更新保留 revision/artifact；只有实际失败增加 attempt；全局扫描覆盖非默认 workspace |
+| 提交日志完整性 | 静态实现与测试入口已完成，实库待验证 | 状态更新保留 revision/artifact；只有实际失败增加 attempt；全局扫描覆盖非默认 workspace；local/remote maintenance 均调用 task-commit-reconcile |
 
 真实迁移 dry-run 结果：
 
@@ -81,11 +81,12 @@ reviewer: PENDING
 本地回归快照（2026-08-07）：
 
 ```text
-Web Workflow/Completion/Reconcile/i18n: 68 passed
-Completion/Dispatcher/Storage/Daemon Client: 29 passed
-CLI Output/Daemon Client: 10 passed
-Stable attachment replay: 1 passed
-Web + CLI + dependency TypeScript: passed
+Domain/Service Workflow: 33 passed
+Web Completion/Reconcile/Cron: 18 passed
+CLI Completion Token Usage/Daemon Client: 4 passed
+Deployment configuration: 13 passed
+CLI Output/Task Context: BLOCKED_TEST_ENV（缺 PostgreSQL URL 与 TOS 配置）
+Web + CLI + dependency TypeScript: passed（含本轮 completion replay、token usage、commit reconcile route）
 Web ESLint: passed
 PostgreSQL-backed Journal/Queue/Message/Route/Reconciliation/Recovery: BLOCKED_TEST_ENV
 Markdown local links + git diff check: passed

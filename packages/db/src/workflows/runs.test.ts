@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test, { after, before } from "node:test";
 import { getDatabase, resetDatabaseForTests } from "../database.ts";
-import { createWorkflowDefinitionSync, publishWorkflowVersionSync } from "./definitions.ts";
+import {
+  createWorkflowDefinitionSync,
+  publishWorkflowVersionSync,
+  upsertWorkflowTriggerSync,
+} from "./definitions.ts";
 import {
   claimWorkflowNodeForDispatchSync,
   createWorkflowRunSync,
@@ -128,6 +132,68 @@ test("materializes one run for a duplicate trigger key and protects terminal nod
     allowTerminalRetry: true,
   }));
   assert.equal(readWorkflowRunSync(first.id, WORKSPACE_ID)?.status, "running");
+});
+
+test("rejects cross-workspace run references and unsupported node types", () => {
+  const seed = seedVersion();
+  assert.throws(() => createWorkflowRunSync({
+    workspaceId: "workflow-runs-other-workspace",
+    workflowId: seed.workflowId,
+    versionId: seed.versionId,
+    triggerType: "manual",
+    triggerKey: "workflow-runs:cross-workspace",
+    inputJson: "{}",
+  }), /workflow_workspace_mismatch/);
+
+  const run = createWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: seed.workflowId,
+    versionId: seed.versionId,
+    triggerType: "manual",
+    triggerKey: "workflow-runs:unsupported-node",
+    inputJson: "{}",
+  });
+  assert.throws(() => materializeWorkflowNodeRunsSync({
+    workspaceId: WORKSPACE_ID,
+    runId: run.id,
+    nodes: [{ nodeId: "script", nodeType: "script" }],
+  }), /workflow_node_type_unsupported/);
+});
+
+test("rejects a trigger owned by another workflow or with a different type", () => {
+  const target = seedVersion();
+  const other = seedVersion();
+  const otherTrigger = upsertWorkflowTriggerSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: other.workflowId,
+    type: "event",
+    configJson: '{"eventName":"task.completed"}',
+  });
+  assert.throws(() => createWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: target.workflowId,
+    versionId: target.versionId,
+    triggerId: otherTrigger.id,
+    triggerType: "event",
+    triggerKey: "workflow-runs:wrong-trigger-owner",
+    inputJson: "{}",
+  }), /workflow_workspace_mismatch/);
+
+  const targetTrigger = upsertWorkflowTriggerSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: target.workflowId,
+    type: "schedule",
+    configJson: '{"kind":"daily"}',
+  });
+  assert.throws(() => createWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: target.workflowId,
+    versionId: target.versionId,
+    triggerId: targetTrigger.id,
+    triggerType: "event",
+    triggerKey: "workflow-runs:wrong-trigger-type",
+    inputJson: "{}",
+  }), /workflow_workspace_mismatch/);
 });
 
 test("dispatch claims serialize against the run concurrency limit", () => {

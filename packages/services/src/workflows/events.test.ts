@@ -18,6 +18,7 @@ test("normalizes a bounded workflow event envelope", () => {
 
 test("rejects malformed or oversized workflow events", () => {
   assert.throws(() => normalizeWorkflowEventInput({ workspaceId: "w", eventName: "contains spaces", eventId: "1" }), /workflow_event_invalid/);
+  assert.throws(() => normalizeWorkflowEventInput({ workspaceId: "w", eventName: "task.created", eventId: "1" }), /workflow_event_invalid/);
   assert.throws(() => normalizeWorkflowEventInput({ workspaceId: "w", eventName: "task.completed", eventId: "x".repeat(201) }), /workflow_event_invalid/);
   assert.throws(() => normalizeWorkflowEventInput({ workspaceId: "w", eventName: "task.completed", eventId: "1", input: { data: "x".repeat(65_537) } }), /workflow_event_payload_too_large/);
 });

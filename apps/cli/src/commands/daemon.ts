@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { arch, platform, version as nodeVersion } from "node:process";
+import { buildTaskCompletionTokenUsage } from "../lib/task-completion-token-usage.ts";
 import {
   detectProviders as detectSharedProviders,
   collectRuntimeOutputBundle,
@@ -1494,6 +1495,17 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
     if (workDirCapture.truncated) {
       throw new Error("output_limit_exceeded: workDir capture exceeded its file/size budget and was truncated");
     }
+    const completionTokenUsage = buildTaskCompletionTokenUsage({
+      taskId: task.id,
+      modelId: tokenAcc.modelId,
+      inputTokens: tokenAcc.inputTokens,
+      outputTokens: tokenAcc.outputTokens,
+      gatewayRequestId: tokenAcc.gatewayRequestId,
+      providerAccountId: runtime.providerAccountId,
+      runtimeCredentialId,
+      routerSessionId: task.routerSessionId,
+      channelName: payload.channelName ?? payload.channel,
+    });
     persistLocalCompletionRecoverySnapshot({
       stagingDir: recoveryStagingDir,
       workDir,
@@ -1507,6 +1519,7 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
         ...(result.sessionId ? { sessionId: result.sessionId } : {}),
         conversationSessionId,
         workDir,
+        ...(completionTokenUsage ? { tokenUsage: completionTokenUsage } : {}),
         effects: {
           documentOperations,
           skillImportOperations,
@@ -1578,6 +1591,21 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
         allowCommitted: true,
       });
       if (fence.ignored) return false;
+      if (completionTokenUsage) {
+        recordTokenUsageSync({
+          workspaceId: task.workspaceId,
+          taskQueueId: task.id,
+          agentId: agentName,
+          modelId: completionTokenUsage.modelId,
+          providerAccountId: completionTokenUsage.providerAccountId,
+          runtimeCredentialId: completionTokenUsage.runtimeCredentialId,
+          routerSessionId: completionTokenUsage.routerSessionId,
+          gatewayRequestId: completionTokenUsage.gatewayRequestId,
+          inputTokens: completionTokenUsage.inputTokens,
+          outputTokens: completionTokenUsage.outputTokens,
+          channelName: completionTokenUsage.channelName,
+        });
+      }
       completeCommittedTaskSync({
         taskId: task.id,
         resultJson: {
@@ -1591,6 +1619,7 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
           feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,
           documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
           knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
+          ...(completionTokenUsage ? { tokenUsage: completionTokenUsage } : {}),
         },
         sessionId: result.sessionId,
         workDir,
@@ -1614,22 +1643,6 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
     });
     if (!completion) return;
     taskCompletionCommitted = true;
-
-    if (tokenAcc.modelId && (tokenAcc.inputTokens > 0 || tokenAcc.outputTokens > 0)) {
-      recordTokenUsageSync({
-        workspaceId: task.workspaceId,
-        taskQueueId: task.id,
-        agentId: agentName,
-        modelId: tokenAcc.modelId,
-        providerAccountId: runtime.providerAccountId,
-        runtimeCredentialId,
-        routerSessionId: task.routerSessionId,
-        gatewayRequestId: tokenAcc.gatewayRequestId,
-        inputTokens: tokenAcc.inputTokens,
-        outputTokens: tokenAcc.outputTokens,
-        channelName: payload.channelName ?? payload.channel,
-      });
-    }
 
     if (payload.taskId) {
       updateTaskStatusSync(payload.taskId, "done", task.workspaceId);

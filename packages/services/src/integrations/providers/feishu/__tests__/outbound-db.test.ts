@@ -154,6 +154,15 @@ test("DofeAgent replies are sent back to the source Feishu thread", databaseTest
     sourceDofeAgentMessageId: "dofe-agent-source-message-1",
   });
   assert.equal(queuedOutbox.length, 1);
+  const replayedOutbox = queueFeishuChannelReplyOutboxSync({
+    workspaceId: workspace.id,
+    channelName: "tour visit",
+    text: "Atlas reply for Feishu",
+    dofeAgentMessageId: "dofe-agent-agent-reply-1",
+    sourceDofeAgentMessageId: "dofe-agent-source-message-1",
+  });
+  assert.equal(replayedOutbox.length, 1);
+  assert.equal(replayedOutbox[0]?.id, queuedOutbox[0]?.id);
   assert.equal(queuedOutbox[0]?.targetExternalChatId, "oc_tour");
   assert.equal(queuedOutbox[0]?.targetExternalThreadId, "om_root");
   const queuedMetadata = JSON.parse(queuedOutbox[0]?.metadataJson ?? "{}") as Record<string, unknown>;

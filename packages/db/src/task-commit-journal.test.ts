@@ -181,3 +181,11 @@ test("rolled_back state is preserved", () => {
   assert.equal(journal.commitState, "rolled_back");
   assert.equal(journal.errorMessage, "orphan reclaimed");
 });
+
+test("rejects a journal workspace that differs from the queue task", () => {
+  const taskId = insertTestTask("default");
+  assert.throws(
+    () => upsertTaskCommitJournalSync({ taskId, workspaceId: "workspace-other", commitState: "preparing" }),
+    /task_commit_workspace_mismatch/,
+  );
+});

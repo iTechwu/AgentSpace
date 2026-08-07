@@ -181,3 +181,12 @@ test("reports non-string employee task IDs without throwing", () => {
 
   assert.ok(result.errors.some((error) => error.code === "workflow_employee_task_requires_employee_id"));
 });
+
+test("rejects node types outside the first-release allowlist", () => {
+  const result = validateWorkflowGraph({
+    schemaVersion: 1,
+    nodes: [{ id: "script", type: "script" as never, config: {} }],
+    edges: [],
+  });
+  assert.ok(result.errors.some((error) => error.code === "workflow_node_type_unsupported"));
+});

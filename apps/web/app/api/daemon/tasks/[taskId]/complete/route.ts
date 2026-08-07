@@ -24,8 +24,6 @@ import {
 } from "dofe-agent-daemon";
 import type { CompleteTaskRequest } from "@dofe-agent/domain";
 import {
-  completeChannelDocumentRunStepSync,
-  completeAgentChannelReplySync,
   completeWorkflowTaskIfLinkedSync,
   beginWorkflowTaskCommitSync,
   continueAutoContinuationAfterTaskSync,
@@ -56,7 +54,15 @@ import {
   writeWorkspaceStateSync,
   type FeishuAgentStatusCardStatus,
 } from "@dofe-agent/services";
-import { finalizeReconciledTask } from "../../../_lib/commit-reconciliation";
+import {
+  finalizeReconciledTask,
+  projectTaskCompletion,
+  resolveTaskCompletionSnapshotMetadata,
+} from "../../../_lib/commit-reconciliation";
+import {
+  resolveManagedTaskUsageGatewayRequestId,
+  shouldPersistManagedTaskUsages,
+} from "../../../_lib/completion-replay";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import {
   clearDaemonTaskOutputStaging,
@@ -105,7 +111,7 @@ export function persistManagedTaskUsagesBestEffort(input: {
   const recordUsage = input.recordUsage ?? recordTokenUsageSync;
   const enqueueRetry = input.enqueueRetry ?? enqueueTokenUsageRetrySync;
   let allPersisted = true;
-  for (const usage of input.usages) {
+  for (const [usageIndex, usage] of input.usages.entries()) {
     if (!(
       input.runtimeCredentialId &&
       usage.runtimeCredentialId === input.runtimeCredentialId &&
@@ -123,7 +129,12 @@ export function persistManagedTaskUsagesBestEffort(input: {
         modelId: usage.modelId.trim(),
         runtimeCredentialId: usage.runtimeCredentialId,
         routerSessionId: input.routerSessionId,
-        gatewayRequestId: usage.gatewayRequestId,
+        gatewayRequestId: resolveManagedTaskUsageGatewayRequestId({
+          taskId: input.taskId,
+          usageIndex,
+          gatewayRequestId: usage.gatewayRequestId,
+          gatewayUsageId: usage.gatewayUsageId,
+        }),
         gatewayUsageId: usage.gatewayUsageId,
         protocol: usage.protocol,
         inputTokens: usage.inputTokens,
@@ -221,7 +232,14 @@ export async function POST(
 
   const body = (await request.json()) as Partial<CompleteTaskRequest>;
   const usages = [...(Array.isArray(body.usages) ? body.usages : []), ...(body.usage ? [body.usage] : [])];
-  if (resolveAgentRuntimeMode() === "remote" && runtime.managedCredentialId) {
+  // Usage is persisted before the first commit boundary. A preparing-commit
+  // retry must consume the durable completion snapshot, not accept a second
+  // request body's usage payload (which may lack an idempotency key).
+  if (shouldPersistManagedTaskUsages({
+    taskStatus: task.status,
+    runtimeMode: resolveAgentRuntimeMode(),
+    hasManagedCredential: Boolean(runtime.managedCredentialId),
+  })) {
     try {
       persistManagedTaskUsagesBestEffort({
         usages,
@@ -334,6 +352,10 @@ export async function POST(
       throw new Error("workflow_completion_effect_uncertain");
     }
     if (!completionSnapshot) throw new Error("workflow_commit_snapshot_missing");
+    const completionMetadata = resolveTaskCompletionSnapshotMetadata({
+      snapshot: completionSnapshot,
+      runtimeProvider: runtime.provider,
+    });
     completionEffectsCheckpointed = Boolean(completionSnapshot.effects);
     if (completionEffectsCheckpointed) {
       upsertTaskCommitJournalSync({
@@ -523,8 +545,8 @@ export async function POST(
           documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
           knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
         },
-        sessionId: body.sessionId,
-        workDir: body.workDir,
+        sessionId: completionMetadata.providerSessionId,
+        workDir: completionMetadata.workDir,
       });
       completeWorkflowTaskIfLinkedSync({
         workspaceId: task.workspaceId,
@@ -550,147 +572,14 @@ export async function POST(
     }
     taskCompletionCommitted = true;
 
-    if (payload.taskId) {
-      updateTaskStatusSync(payload.taskId, "done", task.workspaceId);
-    }
-    if (payload.orchestrationStepId) {
-      writeWorkspaceStateSync(
-        completeChannelDocumentRunStepSync({
-          queuedTaskId: task.id,
-          documentUpdates: documentOperations.documentUpdates,
-          warningText: documentOperations.warnings[0],
-        }, task.workspaceId),
-        task.workspaceId,
-      );
-    }
-    if (effectiveChannelName && payload.channel) {
-      const replyResult = completeAgentChannelReplySync({
-        channel: payload.channel,
-        pendingSpeaker: payload.assignee ?? task.agentId,
-        speaker: payload.assignee ?? runtime.name,
-        summary: finalOutputText,
-        attachments: outputEnvelope.attachments,
-        sourceTaskQueueId: task.id,
-        requestedByUserId: task.requestedByUserId,
-        requestedByDisplayName: task.requestedByDisplayName,
-        mentionCascadeDepth: payload.mentionCascadeDepth,
-        mentionRootMessageId: payload.mentionRootMessageId ?? payload.sourceMessageId,
-        sessionId: conversationSessionId ?? undefined,
-        workDir: body.workDir,
-      }, task.workspaceId);
-      for (const warning of replyResult.warnings) {
-        appendTaskMessageSync({
-          taskId: task.id,
-          type: "status",
-          content: warning,
-        });
-      }
-      for (const statusMessage of replyResult.created ? enqueueFeishuReplyOutboxBestEffort({
-        workspaceId: task.workspaceId,
-        channelName: payload.channel,
-        text: finalOutputText,
-        attachments: outputEnvelope.attachments,
-        dofeAgentMessageId: replyResult.message.id,
-        sourceDofeAgentMessageId: payload.sourceMessageId,
-        statusCard: {
-          status: "complete",
-          agentNames: [payload.assignee ?? task.agentId],
-          message: finalOutputText,
-          taskId: task.id,
-        },
-      }) : []) {
-        appendTaskMessageSync({
-          taskId: task.id,
-          type: "status",
-          content: statusMessage,
-        });
-      }
-      writeConversationExecutionWorkspaceStateSync({
-        channelName: payload.channel,
-        agentId: payload.assignee ?? task.agentId,
-        contactId: payload.contactId,
-        sessionId: conversationSessionId,
-        workDir: body.workDir,
-        lastTaskQueueId: task.id,
-        lastError: null,
-      }, task.workspaceId);
-      if (payload.contactId) {
-        upsertDirectConversationStateSync({
-          contactId: payload.contactId,
-          sessionId: conversationSessionId,
-          workDir: body.workDir,
-        }, task.workspaceId);
-      }
-    } else if (payload.contactId) {
-      writeConversationExecutionWorkspaceStateSync({
-        channelName: effectiveChannelName ?? payload.channel ?? payload.contactId,
-        agentId: payload.contactId,
-        contactId: payload.contactId,
-        sessionId: conversationSessionId,
-        workDir: body.workDir,
-        lastTaskQueueId: task.id,
-        lastError: null,
-      }, task.workspaceId);
-      upsertDirectConversationStateSync({
-        contactId: payload.contactId,
-        sessionId: conversationSessionId,
-        workDir: body.workDir,
-      }, task.workspaceId);
-    } else if (payload.channel) {
-      const replyResult = completeAgentChannelReplySync({
-        channel: payload.channel,
-        speaker: runtime.name,
-        summary: finalOutputText,
-        attachments: outputEnvelope.attachments,
-        sourceTaskQueueId: task.id,
-        requestedByUserId: task.requestedByUserId,
-        requestedByDisplayName: task.requestedByDisplayName,
-        mentionCascadeDepth: payload.mentionCascadeDepth,
-        mentionRootMessageId: payload.mentionRootMessageId ?? payload.sourceMessageId,
-        sessionId: conversationSessionId ?? undefined,
-        workDir: body.workDir,
-      }, task.workspaceId);
-      for (const warning of replyResult.warnings) {
-        appendTaskMessageSync({
-          taskId: task.id,
-          type: "status",
-          content: warning,
-        });
-      }
-      for (const statusMessage of replyResult.created ? enqueueFeishuReplyOutboxBestEffort({
-        workspaceId: task.workspaceId,
-        channelName: payload.channel,
-        text: finalOutputText,
-        attachments: outputEnvelope.attachments,
-        dofeAgentMessageId: replyResult.message.id,
-        sourceDofeAgentMessageId: payload.sourceMessageId,
-        statusCard: {
-          status: "complete",
-          agentNames: [payload.assignee ?? task.agentId],
-          message: finalOutputText,
-          taskId: task.id,
-        },
-      }) : []) {
-        appendTaskMessageSync({
-          taskId: task.id,
-          type: "status",
-          content: statusMessage,
-        });
-      }
-      writeConversationExecutionWorkspaceStateSync({
-        channelName: payload.channel,
-        agentId: payload.assignee ?? task.agentId,
-        sessionId: conversationSessionId,
-        workDir: body.workDir,
-        lastTaskQueueId: task.id,
-        lastError: null,
-      }, task.workspaceId);
-    }
-    tryContinueAutoContinuation({
-      taskId: task.id,
-      workspaceId: task.workspaceId,
-      sessionId: conversationSessionId ?? undefined,
-      workDir: body.workDir,
+    projectTaskCompletion({
+      task,
+      finalOutputText,
+      attachments: outputEnvelope.attachments,
+      runtimeName: runtime.name,
+      conversationSessionId: completionMetadata.conversationSessionId,
+      workDir: completionMetadata.workDir,
+      documentOperations,
     });
     upsertTaskCommitJournalSync({
       taskId: task.id,

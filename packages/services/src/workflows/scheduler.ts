@@ -7,6 +7,7 @@ import {
   type UpsertWorkflowTriggerInput,
   type WorkflowTriggerRecord,
 } from "@dofe-agent/db";
+import { isWorkflowEventName } from "@dofe-agent/domain";
 import { CronExpressionParser } from "cron-parser";
 import { materializeWorkflowRunSync } from "./materialization.ts";
 
@@ -227,7 +228,9 @@ export function normalizeWorkflowTriggerForPublish(
   if (input.type === "event") {
     const config = parseScheduleConfig(input.configJson);
     const eventName = typeof config?.eventName === "string" ? config.eventName.trim() : "";
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(eventName)) throw new Error("workflow_event_invalid");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(eventName) || !isWorkflowEventName(eventName)) {
+      throw new Error("workflow_event_invalid");
+    }
     return { ...input, misfirePolicy, configJson: JSON.stringify({ ...config, eventName }), nextFireAt: undefined };
   }
   if (input.type !== "schedule") return { ...input, misfirePolicy, nextFireAt: undefined };

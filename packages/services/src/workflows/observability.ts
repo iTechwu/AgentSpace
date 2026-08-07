@@ -1,7 +1,6 @@
-import type { WorkflowNodeRunStatus, WorkflowNodeType, WorkflowRunStatus } from "@dofe-agent/domain";
+import { isWorkflowNodeType, type WorkflowNodeRunStatus, type WorkflowNodeType, type WorkflowRunStatus } from "@dofe-agent/domain";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const NODE_TYPES = new Set<WorkflowNodeType>(["employee_task", "join", "approval"]);
 const STATUSES = new Set<WorkflowRunStatus | WorkflowNodeRunStatus>([
   "created", "queued", "running", "waiting_approval", "paused", "succeeded",
   "partially_succeeded", "failed", "cancelled", "pending", "ready", "retry_wait", "skipped",
@@ -26,7 +25,7 @@ export function buildWorkflowMetricLabels(input: WorkflowMetricLabelInput): Reco
   return {
     workspaceId: safeIdentifier(input.workspaceId),
     workflowId: safeIdentifier(input.workflowId),
-    nodeType: NODE_TYPES.has(input.nodeType) ? input.nodeType : "unknown",
+    nodeType: isWorkflowNodeType(input.nodeType) ? input.nodeType : "unknown",
     status: STATUSES.has(input.status) ? input.status : "unknown",
   };
 }
@@ -63,4 +62,3 @@ function safeIdentifier(value: string): string {
 function safeNonNegativeNumber(value: number): number {
   return Number.isFinite(value) && value >= 0 ? value : 0;
 }
-

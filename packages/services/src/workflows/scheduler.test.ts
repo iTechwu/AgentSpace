@@ -113,6 +113,10 @@ test("normalizes valid event names and rejects unsafe names", () => {
     type: "event",
     configJson: '{"eventName":"task completed"}',
   }), /workflow_event_invalid/);
+  assert.throws(() => normalizeWorkflowTriggerForPublish({
+    type: "event",
+    configJson: '{"eventName":"task.created"}',
+  }), /workflow_event_invalid/);
 });
 
 test("rejects unbounded schedule configuration", () => {

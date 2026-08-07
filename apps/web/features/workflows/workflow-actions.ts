@@ -299,7 +299,7 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_run_commit_in_progress", "workflow_run_not_startable", "workflow_task_commit_conflict",
   "workflow_completion_effect_uncertain", "workflow_node_manual_compensation_required",
   "workflow_node_run_not_found", "workflow_node_not_retryable", "workflow_node_retry_exhausted", "workflow_node_retry_conflict",
-  "workflow_trigger_cross_workspace_conflict", "workflow_trigger_duplicate", "workflow_active_version_missing",
+  "workflow_trigger_cross_workspace_conflict", "workflow_trigger_duplicate", "workflow_active_version_missing", "workflow_workspace_mismatch",
   "workflow_trigger_owner_conflict",
   "workflow_cross_workspace_reference", "workflow_budget_exceeded", "workflow_input_reference_missing",
   "workflow_output_invalid", "workflow_output_too_large",
@@ -312,7 +312,7 @@ const STABLE_ERROR_CODES = new Set([
   "workflow_event_invalid",
   "workflow_graph_invalid", "workflow_graph_requires_employee_task", "workflow_graph_cycle", "workflow_graph_disconnected",
   "workflow_graph_multiple_entry_nodes", "workflow_graph_multiple_terminal_nodes",
-  "workflow_employee_task_requires_employee_id", "workflow_join_requires_multiple_inputs", "workflow_join_requires_downstream",
+  "workflow_employee_task_requires_employee_id", "workflow_node_type_unsupported", "workflow_join_requires_multiple_inputs", "workflow_join_requires_downstream",
 ]);
 
 function workflowErrorMessage(code: string): string {

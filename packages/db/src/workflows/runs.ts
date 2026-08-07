@@ -1,4 +1,5 @@
 import { getDatabase, randomLikeId, withTransaction, type PostgresSyncDatabase } from "../database.ts";
+import { isWorkflowNodeType } from "@dofe-agent/domain";
 import type { WorkflowNodeRunRecord, WorkflowRunRecord } from "../types.ts";
 
 export interface CreateWorkflowRunInput {
@@ -88,6 +89,33 @@ export function createWorkflowRunSync(input: CreateWorkflowRunInput): WorkflowRu
   const db = getDatabase();
   const id = input.id ?? `workflow-run-${randomLikeId()}`;
   const now = input.now ?? new Date().toISOString();
+  const references = db.prepare(
+    `SELECT wd.workspace_id AS definition_workspace_id,
+            wv.workspace_id AS version_workspace_id,
+            wv.workflow_id AS version_workflow_id,
+            wt.workspace_id AS trigger_workspace_id,
+            wt.workflow_id AS trigger_workflow_id,
+            wt.type AS trigger_type
+       FROM workflow_definition wd
+       LEFT JOIN workflow_version wv ON wv.id = ?
+       LEFT JOIN workflow_trigger wt ON wt.id = ?
+      WHERE wd.id = ?`,
+  ).get(input.versionId, input.triggerId ?? null, input.workflowId) as Record<string, unknown> | undefined;
+  if (!references
+    || references.definition_workspace_id !== input.workspaceId
+    || references.version_workspace_id !== input.workspaceId
+    || references.version_workflow_id !== input.workflowId
+    || (input.triggerId && (
+      references.trigger_workspace_id !== input.workspaceId
+      || references.trigger_workflow_id !== input.workflowId
+      || references.trigger_type !== input.triggerType
+    ))) {
+    throw new Error("workflow_workspace_mismatch");
+  }
+  if (input.rootTaskId) {
+    const task = db.prepare("SELECT workspace_id FROM agent_task_queue WHERE id = ?").get(input.rootTaskId) as { workspace_id?: unknown } | undefined;
+    if (task?.workspace_id !== input.workspaceId) throw new Error("workflow_workspace_mismatch");
+  }
   db.prepare(
     `INSERT INTO workflow_run (
        id, workspace_id, workflow_id, version_id, root_task_id, trigger_id, trigger_type,
@@ -143,7 +171,11 @@ export function materializeWorkflowNodeRunsSync(input: MaterializeNodeRunsInput)
   const db = getDatabase();
   const now = input.now ?? new Date().toISOString();
   withTransaction(db, () => {
+    if (!readWorkflowRunSync(input.runId, input.workspaceId)) throw new Error("workflow_workspace_mismatch");
     for (const node of input.nodes) {
+      if (!isWorkflowNodeType(node.nodeType)) {
+        throw new Error("workflow_node_type_unsupported");
+      }
       db.prepare(
         `INSERT INTO workflow_node_run (
            id, workspace_id, run_id, node_id, node_type, employee_id, employee_name_snapshot,
