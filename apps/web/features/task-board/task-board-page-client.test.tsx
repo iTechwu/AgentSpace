@@ -19,11 +19,22 @@ const moveTaskToColumnAction = vi.fn<(taskId: string, status: string) => Promise
   data: undefined,
 }));
 const mockRefresh = vi.fn();
+const mockPush = vi.fn();
+const runWorkflowAction = vi.fn(async () => ({
+  ok: true,
+  data: { runId: "run-board-1" },
+  invalidation: { workspaceId: "workspace-alpha", modules: ["automations"] },
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     refresh: mockRefresh,
+    push: mockPush,
   }),
+}));
+
+vi.mock("@/features/workflows/workflow-actions", () => ({
+  runWorkflowAction: (input: unknown) => runWorkflowAction(input),
 }));
 
 vi.mock("@/features/task-board/actions", () => ({
@@ -74,6 +85,7 @@ const data: TaskBoardPageData = {
   columns: [],
   agents: [{ id: "Atlas", name: "Atlas" }],
   channels: [{ name: "travel" }],
+  runnableWorkflows: [],
   totalCount: 2,
   todoCount: 1,
   inProgressCount: 0,
@@ -85,6 +97,13 @@ describe("TaskBoardPageClient", () => {
     mockMatchMedia(false);
     moveTaskToColumnAction.mockClear();
     mockRefresh.mockReset();
+    mockPush.mockReset();
+    runWorkflowAction.mockReset();
+    runWorkflowAction.mockResolvedValue({
+      ok: true,
+      data: { runId: "run-board-1" },
+      invalidation: { workspaceId: "workspace-alpha", modules: ["automations"] },
+    });
   });
 
   it("shows one column at a time and updates status on compact layouts", async () => {
@@ -177,5 +196,29 @@ describe("TaskBoardPageClient", () => {
       "href",
       "/w/workspace-alpha/automations/new?entry=task-board",
     );
+  });
+
+  it("runs an existing published workflow directly from the task board", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <TaskBoardPageClient
+            data={{ ...data, runnableWorkflows: [{ id: "wf-daily", name: "每日简报" }] }}
+            workspaceSlug="workspace-alpha"
+          />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "选择要运行的编排" }), "wf-daily");
+    await user.click(screen.getByRole("button", { name: "运行" }));
+
+    await waitFor(() =>
+      expect(runWorkflowAction).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-daily" })),
+    );
+    // 运行成功后跳转到该运行详情页。
+    expect(mockPush).toHaveBeenCalledWith("/w/workspace-alpha/automations/runs/run-board-1");
   });
 });

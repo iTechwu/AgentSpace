@@ -5,6 +5,9 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveTaskToColumnAction } from "@/features/task-board/actions";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
+import { runWorkflowAction } from "@/features/workflows/workflow-actions";
+import { translateWorkflowErrorCode } from "@/features/i18n/presentation";
+import type { RunnableWorkflowSummary } from "@/features/workflows/workflow-data";
 import type { TaskBoardColumn, TaskBoardGroupBy, TaskBoardPageData } from "@/features/dashboard/data";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
@@ -135,6 +138,10 @@ export function TaskBoardPageClient({
         )}
         title={tx("任务看板", "Task board")}
       />
+
+      {data.runnableWorkflows.length > 0 ? (
+        <RunExistingWorkflow workflows={data.runnableWorkflows} workspaceSlug={workspaceSlug} tx={tx} />
+      ) : null}
 
       {data.totalCount === 0 ? (
         <EmptyState
@@ -346,4 +353,64 @@ function buildClientColumns(
     label: `#${name}`,
     tasks: sorted.filter((t) => t.channel === name),
   }));
+}
+
+/**
+ * 任务看板入口直接运行「已发布且具备激活 manual 触发器」的已有编排，避免用户
+ * 为了触发一个现存自动化而被迫新建编排。
+ */
+function RunExistingWorkflow({
+  workflows,
+  workspaceSlug,
+  tx,
+}: {
+  workflows: RunnableWorkflowSummary[];
+  workspaceSlug: string;
+  tx: (zh: string, en: string) => string;
+}) {
+  const router = useRouter();
+  const [selectedId, setSelectedId] = useState("");
+  const [running, setRunning] = useState(false);
+  const [notice, setNotice] = useState<string>();
+
+  async function run(): Promise<void> {
+    if (!selectedId || running) return;
+    if (!window.confirm(tx("确认立即运行该工作流？", "Run this workflow now?"))) return;
+    setRunning(true);
+    setNotice(undefined);
+    try {
+      const result = await runWorkflowAction({
+        workflowId: selectedId,
+        idempotencyKey: `taskboard-${selectedId}-${Date.now()}`,
+        input: {},
+      });
+      if (!result.ok) {
+        setNotice(translateWorkflowErrorCode(result.error.code, tx));
+        return;
+      }
+      router.push(buildWorkspacePath(workspaceSlug, `/automations/runs/${result.data.runId}`));
+    } catch {
+      setNotice(tx("立即运行未完成，请稍后重试。", "Manual run failed, please retry."));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="task-board__run-existing" style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <span>{tx("运行已有编排", "Run existing workflow")}</span>
+        <select aria-label={tx("选择要运行的编排", "Select a workflow to run")} onChange={(event) => setSelectedId(event.target.value)} value={selectedId}>
+          <option value="">{tx("选择编排…", "Select workflow…")}</option>
+          {workflows.map((workflow) => (
+            <option key={workflow.id} value={workflow.id}>{workflow.name}</option>
+          ))}
+        </select>
+      </label>
+      <button className="knowledge-btn" disabled={!selectedId || running} onClick={() => void run()} style={{ marginTop: 22 }} type="button">
+        {running ? tx("启动中", "Starting") : tx("运行", "Run")}
+      </button>
+      {notice ? <p className="workflow-run__notice" role="status" style={{ flexBasis: "100%" }}>{notice}</p> : null}
+    </div>
+  );
 }

@@ -47,6 +47,26 @@ const TERMINAL_RUN_STATUSES = new Set<WorkflowRunStatus>([
   "cancelled",
 ]);
 
+export interface RunnableWorkflowSummary {
+  id: string;
+  name: string;
+}
+
+/**
+ * 已发布且具备激活 manual 触发器的工作流——可在「立即运行」入口直接触发
+ * （与 materializeManualWorkflowRunSync 的 assertManualWorkflowTriggerAvailable 约束一致）。
+ */
+export function listRunnableWorkflowsSync(workspaceId: string): RunnableWorkflowSummary[] {
+  return listWorkflowDefinitionsSync(workspaceId)
+    .filter((definition) => definition.status === "published")
+    .flatMap((definition) => {
+      const trigger = readWorkflowTriggerForWorkflowSync(definition.id, workspaceId);
+      return trigger && trigger.type === "manual" && trigger.status === "active"
+        ? [{ id: definition.id, name: definition.name }]
+        : [];
+    });
+}
+
 interface WorkflowTriggerSummary {
   workflowId: string;
   type: "manual" | "schedule" | "event";

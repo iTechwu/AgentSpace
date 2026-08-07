@@ -116,6 +116,10 @@ export {
   type ApprovalQueueActor,
   type ApprovalsPageData,
 } from "@/features/approvals/approval-queue-data";
+import {
+  listRunnableWorkflowsSync,
+  type RunnableWorkflowSummary,
+} from "@/features/workflows/workflow-data";
 
 const readWorkspaceStateCached = cache((workspaceId: string) => readWorkspaceStateSnapshotSync(workspaceId));
 const listWorkspaceSkillsCached = cache((workspaceId: string) => listWorkspaceSkillsSync(workspaceId));
@@ -4941,6 +4945,7 @@ export interface TaskBoardPageData {
   columns: TaskBoardColumn[];
   agents: Array<{ id: string; name: string }>;
   channels: Array<{ name: string }>;
+  runnableWorkflows: RunnableWorkflowSummary[];
   totalCount: number;
   todoCount: number;
   inProgressCount: number;
@@ -4986,6 +4991,7 @@ export function getTaskBoardPageData(
       name: employee.remarkName?.trim() || employee.name,
     })),
     channels: visibleChannels.map((channel) => ({ name: channel.name })),
+    runnableWorkflows: listRunnableWorkflowsSync(workspaceId),
     totalCount: tasks.length,
     todoCount: tasks.filter((t) => t.status === "todo").length,
     inProgressCount: tasks.filter((t) => t.status === "in_progress").length,
