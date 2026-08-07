@@ -172,7 +172,7 @@ test("publishing historical content reactivates its immutable version", () => {
   assert.equal(readWorkflowDefinitionSync(definition.id, WORKSPACE_ID)?.activeVersionId, first.id);
 });
 
-test("trigger-only republish records a trigger audit and outbox event", () => {
+test("trigger publish is idempotent and records an audit only on a real change", () => {
   const definition = createWorkflowDefinitionSync({
     id: "workflow-trigger-only-audit-test",
     workspaceId: WORKSPACE_ID,
@@ -181,16 +181,41 @@ test("trigger-only republish records a trigger audit and outbox event", () => {
     createdBy: "u1",
   });
   const graphJson = '{"schemaVersion":1,"nodes":[],"edges":[]}';
-  // First publish with a manual trigger.
+  const manualTrigger = { type: "manual" as const, configJson: "{}", status: "active" as const };
+  const triggerRowCount = () => (getDatabase().prepare(
+    "SELECT count(*) AS n FROM workflow_trigger WHERE workspace_id = ? AND workflow_id = ?",
+  ).get(WORKSPACE_ID, definition.id) as { n: number }).n;
+  const triggerAuditCount = () => listAuditLogsSync(WORKSPACE_ID, { code: "workflow.trigger.published" }).length;
+  const triggerOutboxCount = () => (getDatabase().prepare(
+    "SELECT count(*) AS n FROM workflow_outbox WHERE workspace_id = ? AND event_type = 'workflow.trigger.published'",
+  ).get(WORKSPACE_ID) as { n: number }).n;
+
+  // First publish with a manual trigger → one trigger row + one audit.
   publishWorkflowVersionSync({
     workspaceId: WORKSPACE_ID,
     workflowId: definition.id,
     graphJson,
     contentHash: "sha256:trigger-only-a",
     publishedBy: "u1",
-    trigger: { type: "manual", configJson: "{}", status: "active" },
+    trigger: manualTrigger,
   });
-  // Republish identical content but switch the trigger to a schedule — Trigger-only change.
+  assert.equal(triggerRowCount(), 1, "exactly one trigger row after first publish");
+  assert.equal(triggerAuditCount(), 1, "one trigger.published audit after first publish");
+  assert.equal(triggerOutboxCount(), 0, "no hollow trigger.published outbox row");
+
+  // Identical republish with the SAME trigger → idempotent: no new audit, still one row.
+  publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson,
+    contentHash: "sha256:trigger-only-a",
+    publishedBy: "u1",
+    trigger: manualTrigger,
+  });
+  assert.equal(triggerRowCount(), 1, "still one trigger row after identical republish");
+  assert.equal(triggerAuditCount(), 1, "no duplicate audit on identical republish");
+
+  // Identical content but trigger changes manual → schedule → one new audit, single row reused.
   publishWorkflowVersionSync({
     workspaceId: WORKSPACE_ID,
     workflowId: definition.id,
@@ -204,20 +229,15 @@ test("trigger-only republish records a trigger audit and outbox event", () => {
       status: "active",
     },
   });
+  assert.equal(triggerRowCount(), 1, "single trigger row reused when type changes");
+  assert.equal(triggerAuditCount(), 2, "one new audit only when the trigger actually changes");
+  assert.equal(triggerOutboxCount(), 0, "still no hollow outbox row");
 
-  const triggerAudits = listAuditLogsSync(WORKSPACE_ID, { code: "workflow.trigger.published" });
-  assert.ok(triggerAudits.length >= 1, "expected a workflow.trigger.published audit row");
-  const latest = triggerAudits[0]!;
+  const latest = listAuditLogsSync(WORKSPACE_ID, { code: "workflow.trigger.published" })[0]!;
   const data = JSON.parse(latest.dataJson) as Record<string, unknown>;
   assert.equal(data.workflowId, definition.id);
   assert.equal(data.triggerType, "schedule");
   assert.equal(data.actorUserId, "u1");
-
-  const outboxRows = getDatabase().prepare(
-    `SELECT 1 FROM workflow_outbox
-      WHERE workspace_id = ? AND event_type = 'workflow.trigger.published' LIMIT 1`,
-  ).get(WORKSPACE_ID);
-  assert.ok(outboxRows, "expected a workflow.trigger.published outbox row");
 });
 
 test("republishing a paused workflow preserves its definition and trigger suspension", () => {

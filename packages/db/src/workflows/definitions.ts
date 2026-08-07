@@ -306,18 +306,11 @@ export function publishWorkflowVersionSync(
         });
       }
       if (input.trigger) {
-        const triggerRecord = upsertWorkflowTriggerWithDatabase(db, {
-          ...input.trigger,
-          status: definition.status === "paused" ? "suspended" : input.trigger.status,
+        upsertWorkflowTriggerOnPublishWithDatabase(db, {
+          trigger: input.trigger,
           workspaceId: input.workspaceId,
           workflowId: input.workflowId,
-          now: input.trigger.now ?? now,
-        });
-        recordWorkflowTriggerPublishedWithDatabase(db, {
-          workspaceId: input.workspaceId,
-          workflowId: input.workflowId,
-          triggerId: triggerRecord.id,
-          triggerType: triggerRecord.type,
+          suspended: definition.status === "paused",
           actorUserId: input.publishedBy,
           now,
         });
@@ -368,18 +361,11 @@ export function publishWorkflowVersionSync(
     });
 
     if (input.trigger) {
-      const triggerRecord = upsertWorkflowTriggerWithDatabase(db, {
-        ...input.trigger,
-        status: definition.status === "paused" ? "suspended" : input.trigger.status,
+      upsertWorkflowTriggerOnPublishWithDatabase(db, {
+        trigger: input.trigger,
         workspaceId: input.workspaceId,
         workflowId: input.workflowId,
-        now: input.trigger.now ?? now,
-      });
-      recordWorkflowTriggerPublishedWithDatabase(db, {
-        workspaceId: input.workspaceId,
-        workflowId: input.workflowId,
-        triggerId: triggerRecord.id,
-        triggerType: triggerRecord.type,
+        suspended: definition.status === "paused",
         actorUserId: input.publishedBy,
         now,
       });
@@ -435,42 +421,60 @@ function activateWorkflowVersionWithDatabase(
 }
 
 /**
- * Record the audit + outbox signals for a trigger/schedule change published
- * alongside a workflow version. Required so that a Trigger-only republish
- * (identical content hash) still leaves an auditable, downstream-notifiable
- * trail — without it, schedule changes were silently applied.
+ * Detect whether a publish meaningfully changed the workflow's trigger, so the
+ * trigger.published audit is written only on a real change (identical
+ * republishes stay idempotent). Both records are read back from the DB, so the
+ * JSONB text format is consistent on each side of the comparison.
  */
-function recordWorkflowTriggerPublishedWithDatabase(
+function workflowTriggerChanged(
+  before: WorkflowTriggerRecord | null,
+  after: WorkflowTriggerRecord,
+): boolean {
+  if (!before) return true;
+  return (
+    before.type !== after.type ||
+    before.configJson !== after.configJson ||
+    before.status !== after.status ||
+    before.misfirePolicy !== after.misfirePolicy ||
+    (before.timezone ?? null) !== (after.timezone ?? null) ||
+    (before.nextFireAt ?? null) !== (after.nextFireAt ?? null)
+  );
+}
+
+/**
+ * Upsert the workflow's single trigger on publish and record a
+ * workflow.trigger.published audit only when the trigger actually changed. The
+ * scheduler polls trigger rows directly (claimDueWorkflowTriggersSync), so no
+ * outbox event is emitted here — the audit_log is the durable record, and a
+ * hollow outbox row marked "published" with no consumer would be misleading.
+ */
+function upsertWorkflowTriggerOnPublishWithDatabase(
   db: PostgresSyncDatabase,
   input: {
+    trigger: NonNullable<PublishWorkflowVersionInput["trigger"]>;
     workspaceId: string;
     workflowId: string;
-    triggerId: string;
-    triggerType: string;
+    suspended: boolean;
     actorUserId: string;
     now: string;
   },
 ): void {
+  const before = readWorkflowTriggerForWorkflowSync(input.workflowId, input.workspaceId);
+  const after = upsertWorkflowTriggerWithDatabase(db, {
+    ...input.trigger,
+    status: input.suspended ? "suspended" : input.trigger.status,
+    workspaceId: input.workspaceId,
+    workflowId: input.workflowId,
+    now: input.trigger.now ?? input.now,
+  });
+  if (!workflowTriggerChanged(before, after)) return;
   const dataJson = JSON.stringify({
     workflowId: input.workflowId,
-    triggerId: input.triggerId,
-    triggerType: input.triggerType,
+    triggerId: after.id,
+    triggerType: after.type,
     actorUserId: input.actorUserId,
     occurredAt: input.now,
   });
-  db.prepare(
-    `INSERT INTO workflow_outbox (
-       id, workspace_id, aggregate_type, aggregate_id, event_type, payload_json,
-       status, attempts, available_at, created_at
-     ) VALUES (?, ?, 'workflow_definition', ?, 'workflow.trigger.published', ?, 'pending', 0, ?, ?)`,
-  ).run(
-    `workflow-outbox-${randomLikeId()}`,
-    input.workspaceId,
-    input.workflowId,
-    dataJson,
-    input.now,
-    input.now,
-  );
   db.prepare(
     `INSERT INTO audit_log (
        id, workspace_id, title, note, code, data_json, source, source_index, created_at
@@ -510,7 +514,9 @@ function upsertWorkflowTriggerWithDatabase(
     "SELECT 1 FROM workflow_definition WHERE id = ? AND workspace_id = ?",
   ).get(input.workflowId, input.workspaceId);
   if (!workflow) throw new Error("workflow_definition_not_found");
-  const id = input.id ?? `workflow-trigger-${randomLikeId()}`;
+  const id = input.id
+    ?? readWorkflowTriggerForWorkflowSync(input.workflowId, input.workspaceId)?.id
+    ?? `workflow-trigger-${randomLikeId()}`;
   const now = input.now ?? new Date().toISOString();
   const misfirePolicy = input.misfirePolicy ?? "skip";
   if (misfirePolicy !== "skip" && misfirePolicy !== "fire_once") {
