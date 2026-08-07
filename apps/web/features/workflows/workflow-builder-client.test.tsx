@@ -203,12 +203,23 @@ describe("workflow builder", () => {
     expect(mocks.push).toHaveBeenCalledWith("/w/default/automations/runs/run-1");
   });
 
+  it("keeps manual run availability tied to the published trigger", async () => {
+    const user = userEvent.setup();
+    renderBuilder("automations", "published");
+
+    await user.click(screen.getByRole("button", { name: /2.*触发/ }));
+    await user.click(screen.getByRole("radio", { name: "定时触发" }));
+
+    expect(screen.getByRole("button", { name: "立即运行" })).toBeVisible();
+  });
+
   it("configures the workflow owner and notification target", async () => {
     const user = userEvent.setup();
     renderBuilder();
 
     expect(screen.getByLabelText("负责人")).toHaveValue("负责人甲");
     await user.selectOptions(screen.getByLabelText("通知方式"), "channel");
+    expect(screen.getByLabelText("通知频道")).toHaveValue("");
     await user.selectOptions(screen.getByLabelText("通知频道"), "审计通知群");
     await user.click(screen.getByRole("button", { name: "保存草稿" }));
 
@@ -216,5 +227,16 @@ describe("workflow builder", () => {
       workflowId: "wf-1",
       patch: expect.objectContaining({ channelName: "审计通知群" }),
     })));
+  });
+
+  it("shows the version, impact scope and estimated cost before publishing", async () => {
+    const user = userEvent.setup();
+    renderBuilder();
+
+    await user.click(screen.getByRole("button", { name: /5.*预览/ }));
+
+    expect(screen.getByText("草稿版本 1")).toBeVisible();
+    expect(screen.getByText("当前工作区 default")).toBeVisible();
+    expect(screen.getByText("未设置预计成本")).toBeVisible();
   });
 });

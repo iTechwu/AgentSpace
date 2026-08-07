@@ -32,6 +32,7 @@ const STEPS = ["目标", "触发", "流程", "治理", "预览"] as const;
 type TriggerType = "manual" | "schedule" | "event";
 type ScheduleMode = "once" | "daily" | "cron";
 type MisfirePolicy = "skip" | "fire_once";
+type NotificationMode = "in_app" | "channel";
 
 export function WorkflowBuilderClient({
   workspaceSlug,
@@ -54,7 +55,13 @@ export function WorkflowBuilderClient({
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [channelName, setChannelName] = useState(initial?.channelName ?? "");
-  const [savedMetadata, setSavedMetadata] = useState({ name: initial?.name ?? "", description: initial?.description ?? "", channelName: initial?.channelName ?? "" });
+  const [notificationMode, setNotificationMode] = useState<NotificationMode>(initial?.channelName ? "channel" : "in_app");
+  const [savedMetadata, setSavedMetadata] = useState({
+    name: initial?.name ?? "",
+    description: initial?.description ?? "",
+    channelName: initial?.channelName ?? "",
+    notificationMode: initial?.channelName ? "channel" as const : "in_app" as const,
+  });
   const [draft, dispatch] = useReducer(
     workflowDraftReducer,
     undefined,
@@ -63,6 +70,9 @@ export function WorkflowBuilderClient({
   const [activeStep, setActiveStep] = useState(entry === "calendar" ? 1 : 0);
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [triggerType, setTriggerType] = useState<TriggerType>(initial?.trigger.type ?? (entry === "calendar" ? "schedule" : "manual"));
+  const [publishedTriggerType, setPublishedTriggerType] = useState<TriggerType | undefined>(
+    initial?.status === "published" || initial?.status === "paused" ? initial.trigger.type : undefined,
+  );
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialScheduleMode(initial?.trigger.config));
   const [schedule, setSchedule] = useState(stringConfig(initial?.trigger.config.cronExpression ?? initial?.trigger.config.cron, "0 9 * * 1-5"));
   const [onceAt, setOnceAt] = useState(stringConfig(initial?.trigger.config.onceAt, ""));
@@ -84,7 +94,14 @@ export function WorkflowBuilderClient({
     () => ({ schemaVersion: 1, nodes: draft.nodes, edges: draft.edges }),
     [draft.edges, draft.nodes],
   );
-  const metadataDirty = name !== savedMetadata.name || description !== savedMetadata.description || channelName !== savedMetadata.channelName;
+  const estimatedCostUsd = useMemo(() => draft.nodes.reduce((total, node) => {
+    const estimate = node.config.estimatedCostUsd;
+    return typeof estimate === "number" && Number.isFinite(estimate) && estimate > 0 ? total + estimate : total;
+  }, 0), [draft.nodes]);
+  const metadataDirty = name !== savedMetadata.name
+    || description !== savedMetadata.description
+    || channelName !== savedMetadata.channelName
+    || notificationMode !== savedMetadata.notificationMode;
   const draftDirty = draft.dirty || metadataDirty;
   const isDirty = draftDirty || configurationDirty;
   const errorNodeIds = validation?.blockers.flatMap((blocker) => blocker.nodeId ? [blocker.nodeId] : []) ?? [];
@@ -128,6 +145,11 @@ export function WorkflowBuilderClient({
       setNotice({ tone: "error", message: "请先填写工作流名称。" });
       return null;
     }
+    if (notificationMode === "channel" && !channelName.trim()) {
+      setActiveStep(0);
+      setNotice({ tone: "error", message: "请选择通知频道。" });
+      return null;
+    }
     setPendingAction("save");
     let saved: { workflowId: string; draftVersion: number; graph: WorkflowGraphDefinition };
     if (workflowId) {
@@ -153,7 +175,7 @@ export function WorkflowBuilderClient({
     }
     setWorkflowId(saved.workflowId);
     dispatch({ type: "markSaved", canonical: saved.graph, draftVersion: saved.draftVersion });
-    setSavedMetadata({ name, description, channelName });
+    setSavedMetadata({ name, description, channelName, notificationMode });
     setValidation(null);
     setNotice({ tone: "success", message: "草稿已保存。" });
     if (!workflowId) router.replace(`/w/${encodeURIComponent(workspaceSlug)}/automations/${encodeURIComponent(saved.workflowId)}`);
@@ -204,6 +226,7 @@ export function WorkflowBuilderClient({
     }
     setNotice({ tone: "success", message: "工作流已发布。" });
     setDefinitionStatus(result.data.status === "paused" ? "paused" : "published");
+    setPublishedTriggerType(triggerType);
     setConfigurationDirty(false);
     router.refresh();
   }
@@ -223,7 +246,7 @@ export function WorkflowBuilderClient({
   }
 
   async function runNow(): Promise<void> {
-    if (!workflowId || definitionStatus !== "published" || triggerType !== "manual") return;
+    if (!workflowId || definitionStatus !== "published" || publishedTriggerType !== "manual") return;
     setPendingAction("run");
     const result = await runWorkflowAction({
       workflowId,
@@ -269,7 +292,7 @@ export function WorkflowBuilderClient({
         </div>
         <div className="workflow-wizard__header-actions">
           <span className="workflow-wizard__save-state">{draftDirty ? "有未保存修改" : configurationDirty ? "有待发布配置" : "草稿已同步"}</span>
-          {definitionStatus === "published" && triggerType === "manual" ? <button className="knowledge-btn knowledge-btn--primary" disabled={pendingAction !== null} onClick={() => void runNow()} type="button">{pendingAction === "run" ? "启动中" : "立即运行"}</button> : null}
+          {definitionStatus === "published" && publishedTriggerType === "manual" ? <button className="knowledge-btn knowledge-btn--primary" disabled={pendingAction !== null} onClick={() => void runNow()} type="button">{pendingAction === "run" ? "启动中" : "立即运行"}</button> : null}
           {definitionStatus === "published" ? <button className="knowledge-btn" disabled={pendingAction !== null} onClick={() => void controlDefinition("pause")} title="暂停新触发" type="button">{pendingAction === "pause" ? "暂停中" : "暂停"}</button> : null}
           {definitionStatus === "paused" ? <button className="knowledge-btn" disabled={pendingAction !== null} onClick={() => void controlDefinition("resume")} title="恢复未来触发" type="button">{pendingAction === "resume" ? "恢复中" : "恢复"}</button> : null}
           <button className="knowledge-btn" disabled={pendingAction !== null || !draftDirty} onClick={() => void saveDraft()} type="button">
@@ -295,8 +318,12 @@ export function WorkflowBuilderClient({
             <label><span>工作流名称</span><input autoFocus onChange={(event) => updateDraftMetadata(() => setName(event.target.value))} value={name} /></label>
             <label><span>目标与交付说明</span><textarea onChange={(event) => updateDraftMetadata(() => setDescription(event.target.value))} rows={7} value={description} /></label>
             <label><span>负责人</span><input aria-label="负责人" readOnly value={ownerLabel} /></label>
-            <label><span>通知方式</span><select aria-label="通知方式" onChange={(event) => updateDraftMetadata(() => setChannelName(event.target.value === "channel" ? channels[0] ?? "" : ""))} value={channelName ? "channel" : "in_app"}><option value="in_app">仅站内状态</option><option disabled={channels.length === 0} value="channel">频道通知</option></select></label>
-            {channelName ? <label><span>通知频道</span><select aria-label="通知频道" onChange={(event) => updateDraftMetadata(() => setChannelName(event.target.value))} value={channelName}>{channels.map((channel) => <option key={channel} value={channel}>{channel}</option>)}</select></label> : null}
+            <label><span>通知方式</span><select aria-label="通知方式" onChange={(event) => updateDraftMetadata(() => {
+              const mode = event.target.value as NotificationMode;
+              setNotificationMode(mode);
+              if (mode === "in_app") setChannelName("");
+            })} value={notificationMode}><option value="in_app">仅站内状态</option><option disabled={channels.length === 0} value="channel">频道通知</option></select></label>
+            {notificationMode === "channel" ? <label><span>通知频道</span><select aria-label="通知频道" onChange={(event) => updateDraftMetadata(() => setChannelName(event.target.value))} value={channelName}><option value="">选择通知频道</option>{channels.map((channel) => <option key={channel} value={channel}>{channel}</option>)}</select></label> : null}
           </div>
         ) : null}
         {activeStep === 1 ? (
@@ -349,7 +376,7 @@ export function WorkflowBuilderClient({
         ) : null}
         {activeStep === 4 ? (
           <div className="workflow-wizard__preview">
-            <dl><div><dt>名称</dt><dd>{name || "未填写"}</dd></div><div><dt>负责人</dt><dd>{ownerLabel}</dd></div><div><dt>通知</dt><dd>{channelName ? `#${channelName}` : "仅站内状态"}</dd></div><div><dt>触发</dt><dd>{triggerLabel(triggerType)}</dd></div><div><dt>最大并发</dt><dd>{maxConcurrency}</dd></div><div><dt>AI 员工步骤</dt><dd>{draft.nodes.filter((node) => node.type === "employee_task").length}</dd></div><div><dt>并行汇聚</dt><dd>{draft.nodes.filter((node) => node.type === "join").length}</dd></div></dl>
+            <dl><div><dt>名称</dt><dd>{name || "未填写"}</dd></div><div><dt>版本</dt><dd>{draft.draftVersion > 0 ? `草稿版本 ${draft.draftVersion}` : "未保存草稿"}</dd></div><div><dt>影响范围</dt><dd>当前工作区 {workspaceSlug}</dd></div><div><dt>负责人</dt><dd>{ownerLabel}</dd></div><div><dt>通知</dt><dd>{notificationMode === "channel" ? channelName ? `#${channelName}` : "未选择频道" : "仅站内状态"}</dd></div><div><dt>触发</dt><dd>{triggerLabel(triggerType)}</dd></div><div><dt>最大并发</dt><dd>{maxConcurrency}</dd></div><div><dt>预计成本</dt><dd>{estimatedCostUsd > 0 ? `$${estimatedCostUsd.toFixed(2)}` : "未设置预计成本"}</dd></div><div><dt>AI 员工步骤</dt><dd>{draft.nodes.filter((node) => node.type === "employee_task").length}</dd></div><div><dt>并行汇聚</dt><dd>{draft.nodes.filter((node) => node.type === "join").length}</dd></div></dl>
             <WorkflowPreflightPanel isPending={pendingAction === "preflight"} onFocusNode={focusNode} onRun={() => void runPreflight()} validation={validation} />
           </div>
         ) : null}

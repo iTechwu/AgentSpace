@@ -52,6 +52,7 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_definition_not_found: ["未找到工作流", "Workflow not found"],
     workflow_definition_archived: ["已归档的工作流不能编辑", "Archived workflows cannot be edited"],
     workflow_definition_not_published: ["请先发布工作流", "Publish the workflow first"],
+    workflow_manual_trigger_required: ["只有已发布的手动触发工作流可以立即运行", "Only a published manual workflow can run immediately"],
     workflow_active_version_missing: ["工作流缺少可运行的发布版本", "The workflow has no runnable published version"],
     workflow_graph_invalid: ["流程结构无效，请检查步骤连接", "The workflow structure is invalid. Check its connections"],
     workflow_graph_requires_employee_task: ["至少添加一个 AI 员工步骤", "Add at least one AI employee step"],

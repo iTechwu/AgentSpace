@@ -22,6 +22,7 @@ describe("workflow presentation translations", () => {
     "workflow_schedule_timezone_invalid",
     "workflow_event_invalid",
     "workflow_version_conflict",
+    "workflow_manual_trigger_required",
     "workflow_trigger_duplicate",
     "workflow_budget_exceeded",
     "workflow_budget_invalid",
