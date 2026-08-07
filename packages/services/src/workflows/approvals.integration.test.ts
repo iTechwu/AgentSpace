@@ -416,3 +416,36 @@ test("approval deadline scan reports an unparseable expiresAt as a structured fa
     cleanup(fixture);
   }
 });
+
+test("approval deadline scan reports a broken association when the approval is missing from workspace state", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 关联损坏回归：节点运行绑定了 approval_id 并处于 waiting_approval，但工作区审批状态里找不到该审批
+  // （审批被删除/数据损坏/跨工作区错引）。原先与「他路径已终结」合并静默 continue，该节点会永久悬挂
+  // 且不出现在 failures 或告警出口。现在记稳定错误码 workflow_approval_association_broken、写结构化
+  // 审计并按失败上报（不自动驳回——无审批实体可终结），交由 on-call/reconciliation 介入。
+  const fixture = seedFixture();
+  try {
+    const { runId, approvalId } = createPendingApproval(fixture, { deadlineSeconds: 3600 });
+    // 模拟关联损坏：从工作区审批状态移除该审批，节点运行仍处 waiting_approval 且 approval_id 仍绑定。
+    const state = ensureWorkspaceStateSync(fixture.workspaceId);
+    writeWorkspaceStateSync(
+      { ...state, approvals: state.approvals.filter((item) => item.id !== approvalId) },
+      fixture.workspaceId,
+      { skipVersionCheck: true },
+    );
+
+    const sweep = expireWorkflowApprovalsSync({ now: "2026-08-07T03:00:00.000Z", workspaceId: fixture.workspaceId });
+    assert.deepEqual(sweep.expiredApprovalIds, []);
+    assert.equal(sweep.failures.length, 1);
+    assert.equal(sweep.failures[0]?.approvalId, approvalId);
+    assert.equal(sweep.failures[0]?.errorCode, "workflow_approval_association_broken");
+    assert.equal(sweep.failures[0]?.workspaceId, fixture.workspaceId);
+    assert.equal(sweep.failures[0]?.runId, runId);
+    // 不自动驳回：节点仍处 waiting_approval，等待 reconciliation 把它推进到终态。
+    const nodeRun = listWorkflowNodeRunsSync(fixture.workspaceId, runId).find((item) => item.nodeId === "approval");
+    assert.equal(nodeRun?.status, "waiting_approval");
+  } finally {
+    cleanup(fixture);
+  }
+});

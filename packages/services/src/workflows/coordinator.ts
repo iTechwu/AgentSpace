@@ -338,8 +338,18 @@ export function expireWorkflowApprovalsSync(input: {
       approvalsByWorkspace.set(candidate.workspaceId, workspaceApprovals);
     }
     const approval = workspaceApprovals.get(candidate.approvalId);
-    // 候选来自 waiting_approval 节点运行；若审批已被其它路径（如人工审批）终结，跳过。
-    if (!approval || approval.status !== "pending") continue;
+    // 关联损坏：节点运行绑定了 approval_id，但工作区审批状态中找不到该审批记录（审批被删除/
+    // 数据损坏/跨工作区错引）。原先与「他路径已终结」合并静默 continue，会让该节点永久悬挂且
+    // 无任何告警。改为记稳定错误码并写审计，随 failures 上报给调度器告警出口（schedulerFailures），
+    // 交由 on-call/reconciliation 介入——不自动驳回（无审批实体可终结）。
+    if (!approval) {
+      failures.push({ approvalId: candidate.approvalId, workspaceId: candidate.workspaceId, runId: candidate.runId, errorCode: "workflow_approval_association_broken" });
+      recordApprovalExpiryFailureBestEffort({ workspaceId: candidate.workspaceId, runId: candidate.runId, approvalId: candidate.approvalId, errorCode: "workflow_approval_association_broken", now });
+      continue;
+    }
+    // 审批已由其它路径（人工审批等）终结：限时扫描无需处理，跳过。节点运行的后续推进由该终结
+    // 路径负责；若仍停留在 waiting_approval，由 recovery/reconciliation 扫描另行处理。
+    if (approval.status !== "pending") continue;
     if (approval.metadata?.kind !== "workflow_node") continue;
     const expiresAtRaw = typeof approval.metadata?.expiresAt === "string" ? approval.metadata.expiresAt : undefined;
     if (!expiresAtRaw) continue;
