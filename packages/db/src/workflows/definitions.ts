@@ -470,12 +470,24 @@ function upsertWorkflowTriggerOnPublishWithDatabase(
   },
 ): void {
   const before = readWorkflowTriggerForWorkflowSync(input.workflowId, input.workspaceId);
+  let trigger = input.trigger;
+  // 循环/定时触发器在配置与时区未变时，保留既有 next_fire_at。否则每次重发都会
+  // 基于当前时间重新计算，导致执行点不断后移并产生无意义的 trigger.published 审计。
+  if (
+    before &&
+    before.type === "schedule" &&
+    trigger.type === "schedule" &&
+    trigger.configJson === before.configJson &&
+    (trigger.timezone ?? null) === (before.timezone ?? null)
+  ) {
+    trigger = { ...trigger, nextFireAt: before.nextFireAt };
+  }
   const after = upsertWorkflowTriggerWithDatabase(db, {
-    ...input.trigger,
-    status: input.suspended ? "suspended" : input.trigger.status,
+    ...trigger,
+    status: input.suspended ? "suspended" : trigger.status,
     workspaceId: input.workspaceId,
     workflowId: input.workflowId,
-    now: input.trigger.now ?? input.now,
+    now: trigger.now ?? input.now,
   });
   if (!workflowTriggerChanged(before, after)) return;
   const dataJson = JSON.stringify({
@@ -545,11 +557,8 @@ function upsertWorkflowTriggerWithDatabase(
        timezone = EXCLUDED.timezone,
        status = EXCLUDED.status,
        next_fire_at = EXCLUDED.next_fire_at,
-       last_fire_at = EXCLUDED.last_fire_at,
        misfire_policy = EXCLUDED.misfire_policy,
        dedupe_window_seconds = EXCLUDED.dedupe_window_seconds,
-       lease_owner = EXCLUDED.lease_owner,
-       lease_expires_at = EXCLUDED.lease_expires_at,
        updated_at = EXCLUDED.updated_at
      WHERE workflow_trigger.workspace_id = EXCLUDED.workspace_id`,
   ).run(

@@ -240,6 +240,62 @@ test("trigger publish is idempotent and records an audit only on a real change",
   assert.equal(data.actorUserId, "u1");
 });
 
+test("schedule trigger republish preserves nextFireAt and runtime lease state", () => {
+  const definition = createWorkflowDefinitionSync({
+    id: "workflow-schedule-trigger-idempotent-test",
+    workspaceId: WORKSPACE_ID,
+    name: "Schedule idempotent",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const graphJson = '{"schemaVersion":1,"nodes":[],"edges":[]}';
+  const scheduleTrigger = {
+    type: "schedule" as const,
+    configJson: '{"repeatSeconds":3600}',
+    status: "active" as const,
+  };
+
+  publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson,
+    contentHash: "sha256:schedule-a",
+    publishedBy: "u1",
+    trigger: scheduleTrigger,
+  });
+  const first = readWorkflowTriggerForWorkflowSync(definition.id, WORKSPACE_ID)!;
+  const firstNextFireAt = first.nextFireAt;
+
+  // Simulate the scheduler having claimed the trigger and recorded a fire time.
+  getDatabase().prepare(
+    "UPDATE workflow_trigger SET lease_owner = ?, lease_expires_at = ?, last_fire_at = ? WHERE id = ?",
+  ).run("scheduler-1", "2026-08-10T00:00:00.000Z", "2026-08-09T00:00:00.000Z", first.id);
+
+  // Identical schedule republish must not drift nextFireAt and must preserve lease state.
+  publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson,
+    contentHash: "sha256:schedule-a",
+    publishedBy: "u1",
+    trigger: scheduleTrigger,
+  });
+  const after = readWorkflowTriggerForWorkflowSync(definition.id, WORKSPACE_ID)!;
+  assert.equal(after.id, first.id);
+  assert.equal(after.nextFireAt, firstNextFireAt, "nextFireAt must not drift on identical schedule republish");
+  assert.equal(after.leaseOwner, "scheduler-1", "lease_owner must be preserved");
+  assert.equal(after.leaseExpiresAt, "2026-08-10T00:00:00.000Z", "lease_expires_at must be preserved");
+  assert.equal(after.lastFireAt, "2026-08-09T00:00:00.000Z", "last_fire_at must be preserved");
+
+  const auditCountForWorkflow = () =>
+    listAuditLogsSync(WORKSPACE_ID, { code: "workflow.trigger.published" })
+      .filter((audit) => {
+        const data = JSON.parse(audit.dataJson) as Record<string, unknown>;
+        return data.workflowId === definition.id;
+      }).length;
+  assert.equal(auditCountForWorkflow(), 1, "identical schedule republish must not create a new audit");
+});
+
 test("workflow_trigger enforces a single row per workspace and workflow", () => {
   const definition = createWorkflowDefinitionSync({
     id: "workflow-trigger-unique-constraint-test",

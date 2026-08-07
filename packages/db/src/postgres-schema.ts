@@ -4329,33 +4329,9 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     // 单实例触发器去重：每个工作流只保留一个触发器（按读取优先级保留最优的一条），
     // 再加上 (workspace_id, workflow_id) 唯一约束作为兜底，防止历史重复数据或绕过逻辑的写入。
-    // 第一步：把指向将被删除的重复触发器的工作流运行，重新指向该工作流保留的触发器。
-    `
-      WITH ranked AS (
-        SELECT id, workspace_id, workflow_id,
-          ROW_NUMBER() OVER (
-            PARTITION BY workspace_id, workflow_id
-            ORDER BY CASE
-              WHEN type <> 'manual' AND status = 'active' THEN 0
-              WHEN type <> 'manual' AND status = 'suspended' THEN 1
-              WHEN type <> 'manual' THEN 2
-              WHEN status = 'active' THEN 3
-              WHEN status = 'suspended' THEN 4
-              ELSE 5
-            END, id
-          ) AS rn
-        FROM workflow_trigger
-      )
-      UPDATE workflow_run
-      SET trigger_id = (
-        SELECT keep.id FROM ranked keep
-        WHERE keep.workspace_id = workflow_run.workspace_id
-          AND keep.workflow_id = workflow_run.workflow_id
-          AND keep.rn = 1
-      )
-      WHERE trigger_id IN (SELECT id FROM ranked WHERE rn > 1)
-    `,
-    // 第二步：删除每个工作流的重复触发器，仅保留优先级最高的一条。
+    // 不重新指向历史 workflow_run：外键已声明 ON DELETE SET NULL，删除重复触发器时
+    // trigger_id 会自动置空，trigger_type 列保留历史事实。若把运行改挂到保留下来的
+    // 另一条触发器，手动运行可能指向 schedule 触发器，破坏审计与复现语义。
     `
       WITH ranked AS (
         SELECT id,

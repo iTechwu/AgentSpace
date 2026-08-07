@@ -1,0 +1,74 @@
+<h2>AI 员工团队编排：三种产品路线</h2>
+<p class="subtitle">首期目标：定时触发 + 串行步骤 + 并行执行 + 汇聚交付，并复用现有任务、日历、审批与 AgentRouter。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#f7f7f5">
+      <div class="mock-nav">日历 / 定时任务</div>
+      <div style="display:grid;grid-template-columns:84px 1fr;gap:10px;margin-top:12px">
+        <div class="mock-sidebar">09:00<br><br>10:00<br><br>11:00</div>
+        <div class="mock-content">
+          <div style="border-left:4px solid #2563eb;padding:8px;background:white">周报任务<br><small>A → B + C → D</small></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 增强日历</h3>
+      <p>在现有定时任务卡片中直接增加多员工步骤。改动较小，但复杂协作被压缩进“日程”概念，立即执行任务缺少自然入口。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#f7f7f5">
+      <div class="mock-nav">任务编排中心 · 计划 | 运行 | 模板</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:24px;flex-wrap:wrap">
+        <div style="padding:10px;border:1px solid #bbb;background:white">研究员 A</div>
+        <strong>→</strong>
+        <div style="display:grid;gap:6px">
+          <div style="padding:10px;border:1px solid #bbb;background:white">分析员 B</div>
+          <div style="padding:10px;border:1px solid #bbb;background:white">审计员 C</div>
+        </div>
+        <strong>→</strong>
+        <div style="padding:10px;border:2px solid #2563eb;background:white">主编 D 汇总</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 统一任务编排中心（推荐）</h3>
+      <p>创建一个根任务及版本化协作计划；任务看板和日历都进入同一向导。计划、运行实例和执行步骤分层，既支持立即执行，也支持定时执行。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#f7f7f5">
+      <div class="mock-nav">自动化规则编辑器</div>
+      <div class="mock-content" style="margin-top:12px">
+        <div>触发器：Cron / Webhook / 事件</div>
+        <div style="margin:8px 0">条件：表达式 / 分支 / 循环</div>
+        <div>动作：创建任务 / 调用员工 / 审批 / 补偿</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 通用自动化引擎</h3>
+      <p>统一所有事件和动作，长期扩展性最高；但首期会把重点带向表达式、循环和补偿，明显超出已确认的串行 + 并行汇聚范围。</p>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons" style="margin-top:20px">
+  <div class="pros">
+    <h4>推荐 B 的理由</h4>
+    <ul>
+      <li>复用现有任务看板、日历、AgentRouter、审批和审计</li>
+      <li>把“计划”和“某次运行”分开，支持可靠重试与历史追溯</li>
+      <li>用户看到的是团队任务，不需要理解底层 DAG 术语</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>首期明确不做</h4>
+    <ul>
+      <li>任意条件分支、循环与脚本表达式</li>
+      <li>自动选择员工或动态改写协作图</li>
+      <li>跨 workspace 编排和生产 Jenkins 部署</li>
+    </ul>
+  </div>
+</div>
