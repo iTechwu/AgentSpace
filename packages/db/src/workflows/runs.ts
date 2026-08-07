@@ -180,7 +180,7 @@ export function materializeWorkflowNodeRunsSync(input: MaterializeNodeRunsInput)
         `INSERT INTO workflow_node_run (
            id, workspace_id, run_id, node_id, node_type, employee_id, employee_name_snapshot,
            status, attempt_count, max_attempts, input_json, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 1, ?, ?, ?, ?)
          ON CONFLICT (run_id, node_id) DO NOTHING`,
       ).run(
         `workflow-node-run-${randomLikeId()}`,
