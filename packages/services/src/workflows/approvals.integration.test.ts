@@ -25,17 +25,16 @@ const hasTestDatabase = Boolean(
   || process.env.DOFE_AGENT_PG_TEST_URL,
 );
 
-const REVIEWER = "approval-reviewer";
-const ADMIN = "approval-admin";
-const MEMBER = "approval-member";
-
 interface Fixture {
   workspaceId: string;
   workflowId: string;
   versionId: string;
-  // 每个测试夹具使用独立的员工 id：idx_workspace_employee_id 是全局唯一约束，
-  // 复用同一 id 会在多夹具测试（如工作区隔离）中触发重复键冲突。
+  // 每个测试夹具使用独立的员工/用户 id：idx_workspace_employee_id 是全局唯一约束、users 表
+  // 也在并发运行时共享——固定 ID 会在多夹具/并发测试中触发重复键、死锁与级联夹具失败。
   employeeId: string;
+  reviewerUserId: string;
+  adminUserId: string;
+  memberUserId: string;
 }
 
 /** 种入工作区、成员（指定审批人=member、管理员、普通成员）、审批员工与单审批节点工作流版本。 */
@@ -45,22 +44,25 @@ function seedFixture(): Fixture {
   const workflowId = `wf-approval-${suffix}`;
   const versionId = `wv-approval-${suffix}`;
   const employeeId = `approval-employee-${suffix}`;
+  const reviewerUserId = `approval-reviewer-${suffix}`;
+  const adminUserId = `approval-admin-${suffix}`;
+  const memberUserId = `approval-member-${suffix}`;
   const now = "2026-08-07T01:00:00.000Z";
   const db = getDatabase();
   db.prepare(
     `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(workspaceId, workspaceId, workspaceId, REVIEWER, now, now);
-  for (const userId of [REVIEWER, ADMIN, MEMBER]) {
+  ).run(workspaceId, workspaceId, workspaceId, reviewerUserId, now, now);
+  for (const userId of [reviewerUserId, adminUserId, memberUserId]) {
     db.prepare(
       `INSERT INTO users (id, display_name, created_at, updated_at)
        VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
     ).run(userId, userId, now, now);
   }
   // 指定审批人本身是普通成员；管理员用于越权放行；另一名普通成员用于证明「成员但不被指定」会被拦。
-  upsertWorkspaceMembershipSync({ workspaceId, userId: REVIEWER, role: "member" });
-  upsertWorkspaceMembershipSync({ workspaceId, userId: ADMIN, role: "admin" });
-  upsertWorkspaceMembershipSync({ workspaceId, userId: MEMBER, role: "member" });
+  upsertWorkspaceMembershipSync({ workspaceId, userId: reviewerUserId, role: "member" });
+  upsertWorkspaceMembershipSync({ workspaceId, userId: adminUserId, role: "admin" });
+  upsertWorkspaceMembershipSync({ workspaceId, userId: memberUserId, role: "member" });
   // 把审批挂载员工与渠道写入工作区状态快照；writeWorkspaceStateSync 同时落
   // workspace_employee 表与 state_json，使 createApprovalRequestSync 的校验通过，
   // 并以 employeeId 作为员工主键供 createWorkflowApprovalSync 取用。
@@ -74,7 +76,7 @@ function seedFixture(): Fixture {
           name: "审批员工",
           role: "Agent",
           remarkName: "审批员工",
-          ownerUserId: REVIEWER,
+          ownerUserId: reviewerUserId,
           origin: "manual",
           summary: "审批节点挂载员工",
           traits: [],
@@ -97,17 +99,17 @@ function seedFixture(): Fixture {
     workspaceId,
     { skipVersionCheck: true },
   );
-  createWorkflowDefinitionSync({ id: workflowId, workspaceId, name: "Approval auth", ownerUserId: REVIEWER, createdBy: REVIEWER, now });
+  createWorkflowDefinitionSync({ id: workflowId, workspaceId, name: "Approval auth", ownerUserId: reviewerUserId, createdBy: reviewerUserId, now });
   publishWorkflowVersionSync({
     id: versionId,
     workspaceId,
     workflowId,
     graphJson: '{"schemaVersion":1,"nodes":[{"id":"approval","type":"approval","config":{"policy":"all_success"}}],"edges":[]}',
     contentHash: `sha256:${suffix}`,
-    publishedBy: REVIEWER,
+    publishedBy: reviewerUserId,
     now,
   });
-  return { workspaceId, workflowId, versionId, employeeId };
+  return { workspaceId, workflowId, versionId, employeeId, reviewerUserId, adminUserId, memberUserId };
 }
 
 /** 创建一条运行并把审批节点推进到 waiting_approval，绑定指定审批人。返回审批 id。 */
@@ -133,7 +135,7 @@ function createPendingApproval(fixture: Fixture, options?: { deadlineSeconds?: n
     employeeId: fixture.employeeId,
     channelName: "审批群",
     contentPreview: "请审批发布内容。",
-    reviewerUserId: REVIEWER,
+    reviewerUserId: fixture.reviewerUserId,
     ...(options?.deadlineSeconds ? { deadlineSeconds: options.deadlineSeconds } : {}),
     now,
   });
@@ -142,7 +144,7 @@ function createPendingApproval(fixture: Fixture, options?: { deadlineSeconds?: n
 
 function cleanup(fixture: Fixture): void {
   const db = getDatabase();
-  for (const userId of [REVIEWER, ADMIN, MEMBER]) {
+  for (const userId of [fixture.reviewerUserId, fixture.adminUserId, fixture.memberUserId]) {
     db.prepare("DELETE FROM users WHERE id = ?").run(userId);
   }
   db.prepare("DELETE FROM workspace WHERE id = ?").run(fixture.workspaceId);
@@ -156,18 +158,18 @@ test("approval auth closure blocks non-designated members and admits the designa
     // 1) 普通成员（非指定、非管理员）审批被拒绝，审批仍处于 pending。
     const first = createPendingApproval(fixture);
     assert.throws(
-      () => reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: first.approvalId, decision: "approved", actorUserId: MEMBER }),
+      () => reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: first.approvalId, decision: "approved", actorUserId: fixture.memberUserId }),
       /workflow_approval_reviewer_unauthorized/,
     );
     assert.equal(readWorkflowRunSync(first.runId, fixture.workspaceId)?.status, "waiting_approval");
 
     // 2) 指定审批人放行，运行推进到终态 succeeded。
-    const firstRun = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: first.approvalId, decision: "approved", actorUserId: REVIEWER });
+    const firstRun = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: first.approvalId, decision: "approved", actorUserId: fixture.reviewerUserId });
     assert.equal(firstRun.status, "succeeded");
 
     // 3) 管理员（非指定）越权放行同样成功。
     const second = createPendingApproval(fixture);
-    const secondRun = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: second.approvalId, decision: "approved", actorUserId: ADMIN });
+    const secondRun = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: second.approvalId, decision: "approved", actorUserId: fixture.adminUserId });
     assert.equal(secondRun.status, "succeeded");
   } finally {
     cleanup(fixture);
@@ -201,13 +203,13 @@ test("approval without a designated reviewer falls back to managers only", {
     // 未指定审批人时，与 UI「默认（管理员/负责人）」、Web Action 管理员要求一致：
     // 普通成员无权审批，审批仍处于 pending。
     assert.throws(
-      () => reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: firstApproval.id, decision: "approved", actorUserId: MEMBER }),
+      () => reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: firstApproval.id, decision: "approved", actorUserId: fixture.memberUserId }),
       /workflow_approval_reviewer_unauthorized/,
     );
     assert.equal(readWorkflowRunSync(first.id, fixture.workspaceId)?.status, "waiting_approval");
 
     // 管理员可作为默认审批人放行，运行推进到终态 succeeded。
-    const firstRun = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: firstApproval.id, decision: "approved", actorUserId: ADMIN });
+    const firstRun = reviewWorkflowApprovalSync({ workspaceId: fixture.workspaceId, approvalId: firstApproval.id, decision: "approved", actorUserId: fixture.adminUserId });
     assert.equal(firstRun.status, "succeeded");
   } finally {
     cleanup(fixture);
