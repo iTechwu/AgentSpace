@@ -38,19 +38,19 @@ describe("WorkflowRunFlowchart accessibility", () => {
     expect(succeeded).toHaveAttribute("aria-label", "Atlas，成功");
     expect(succeeded).toHaveTextContent("成功");
 
-    // 状态图标（aria-hidden，仅视觉强化）：成功 → ✓。
-    const icon = succeeded.querySelector(".workflow-run-flow-node__icon") as HTMLElement | null;
+    // 状态图标（共享 AppIcon，aria-hidden，仅视觉强化）：渲染为 <svg>，不再使用零散 Unicode 字形。
+    const icon = succeeded.querySelector(".workflow-run-flow-node__icon") as SVGSVGElement | null;
     expect(icon).not.toBeNull();
+    expect(icon?.tagName.toLowerCase()).toBe("svg");
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
-    expect(icon?.textContent).toBe("✓");
 
     // 审批等待节点：无员工名时回退到节点类型，aria-label 仍含状态。
     const waiting = screen.getByTestId("flow-node-b");
     expect(waiting).toHaveAttribute("aria-label", "approval，待审批");
 
-    // 失败节点图标 → ✕。
+    // 失败节点同样渲染共享 AppIcon 的 <svg>。
     const failed = screen.getByTestId("flow-node-c");
-    const failedIcon = failed.querySelector(".workflow-run-flow-node__icon") as HTMLElement | null;
-    expect(failedIcon?.textContent).toBe("✕");
+    const failedIcon = failed.querySelector(".workflow-run-flow-node__icon") as SVGSVGElement | null;
+    expect(failedIcon?.tagName.toLowerCase()).toBe("svg");
   });
 });
