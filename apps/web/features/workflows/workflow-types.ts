@@ -30,6 +30,17 @@ export interface WorkflowListItem {
   legacySourceId?: string;
 }
 
+export interface WorkflowRunSummary {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  status: WorkflowRunStatus;
+  triggerType: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
 export interface WorkflowCenterPageData {
   workflows: WorkflowListItem[];
   totals: {
@@ -38,6 +49,7 @@ export interface WorkflowCenterPageData {
     paused: number;
     blocked: number;
   };
+  recentRuns: WorkflowRunSummary[];
 }
 
 export type WorkflowBuilderEntry = "automations" | "calendar" | "task-board";

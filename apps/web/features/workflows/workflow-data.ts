@@ -25,6 +25,7 @@ import type {
   WorkflowListItem,
   WorkflowRunEventItem,
   WorkflowRunPageData,
+  WorkflowRunSummary,
 } from "./workflow-types";
 
 const WORKFLOW_RUN_STATUSES = new Set<WorkflowRunStatus>([
@@ -61,8 +62,23 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
     listWorkspaceMemberUsersSync(workspaceId).map((member) => [member.userId, member.displayName]),
   );
   const latestRuns = new Map<string, { id: string; status: WorkflowRunStatus; finishedAt?: string }>();
+  const recentRuns: WorkflowRunSummary[] = [];
+  const workflowNamesById = new Map(definitions.map((definition) => [definition.id, definition.name]));
   for (const run of listWorkflowRunsSync(workspaceId, 500)) {
-    if (!definitionIds.has(run.workflowId) || latestRuns.has(run.workflowId) || !isWorkflowRunStatus(run.status)) {
+    if (!isWorkflowRunStatus(run.status)) continue;
+    // 运行历史（UIUX:140）：收集最近运行用于中心「运行」标签，名称以当前定义为准、
+    // 缺失（已归档/删除）时回退 workflowId，避免历史记录随定义消失。
+    recentRuns.push({
+      id: run.id,
+      workflowId: run.workflowId,
+      workflowName: workflowNamesById.get(run.workflowId) ?? run.workflowId,
+      status: run.status,
+      triggerType: run.triggerType,
+      createdAt: run.createdAt,
+      ...(run.startedAt ? { startedAt: run.startedAt } : {}),
+      ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
+    });
+    if (!definitionIds.has(run.workflowId) || latestRuns.has(run.workflowId)) {
       continue;
     }
     latestRuns.set(run.workflowId, {
@@ -71,6 +87,7 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
     });
   }
+  recentRuns.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 
   const triggersByWorkflowId = new Map<string, WorkflowTriggerSummary>();
   for (const trigger of listWorkflowTriggerSummaries(workspaceId)) {
@@ -145,6 +162,7 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       paused: workflows.filter((workflow) => workflow.status === "paused").length,
       blocked: workflows.filter((workflow) => workflow.latestRun?.status === "waiting_approval").length,
     },
+    recentRuns: recentRuns.slice(0, 50),
   };
 }
 

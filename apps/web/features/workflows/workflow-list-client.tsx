@@ -107,17 +107,17 @@ export function WorkflowListClient({
 
       {tab === "runs" ? (
         <div aria-labelledby="workflow-tab-runs" id="workflow-panel-runs" role="tabpanel">
-          {data.workflows.some((workflow) => workflow.latestRun) ? (
+          {data.recentRuns.length > 0 ? (
             <div aria-label={tx("最近运行", "Recent runs")} className="workflow-center__list" role="list">
-              {data.workflows.flatMap((workflow) => workflow.latestRun ? [(
-                <div key={workflow.latestRun.id} role="listitem">
-                  <Link className="workflow-center__row" href={`/w/${workspaceSlug}/automations/runs/${workflow.latestRun.id}`}>
-                    <strong>{workflow.name}</strong>
-                    <span>{runStatusLabel(workflow.latestRun.status, tx)}</span>
-                    <span>{workflow.latestRun.finishedAt ? formatCompactTimestamp(workflow.latestRun.finishedAt) : tx("进行中", "In progress")}</span>
+              {data.recentRuns.map((run) => (
+                <div key={run.id} role="listitem">
+                  <Link className="workflow-center__row" href={`/w/${workspaceSlug}/automations/runs/${run.id}`}>
+                    <strong>{run.workflowName}</strong>
+                    <span>{runStatusLabel(run.status, tx)}</span>
+                    <span>{run.finishedAt ? formatCompactTimestamp(run.finishedAt) : tx("进行中", "In progress")}</span>
                   </Link>
                 </div>
-              )] : [])}
+              ))}
             </div>
           ) : (
             <EmptyState body={tx("当前工作区还没有运行记录。", "This workspace has no run history yet.")} title={tx("暂无运行", "No runs")} />

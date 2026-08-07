@@ -106,6 +106,16 @@ describe("getWorkflowCenterPageData", () => {
   });
 
   it("returns workspace-scoped workflow summaries without graph or run payloads", () => {
+    mockGetDatabase.mockReturnValue({
+      prepare: vi.fn((sql: string) => ({
+        all: vi.fn(() => sql.includes("FROM workflow_trigger") ? [{
+          workflowId: "workflow-daily",
+          type: "manual",
+          status: "active",
+          updatedAt: "2026-08-06T00:00:00.000Z",
+        }] : []),
+      })),
+    });
     const data = getWorkflowCenterPageData("default");
 
     expect(mockListWorkflowDefinitionsSync).toHaveBeenCalledWith("default");
@@ -132,6 +142,33 @@ describe("getWorkflowCenterPageData", () => {
     ]);
     expect(JSON.stringify(data)).not.toContain("draftGraphJson");
     expect(JSON.stringify(data)).not.toContain("never-returned");
+  });
+
+  it("projects the recent run history across workflows in recency order", () => {
+    mockListWorkflowRunsSync.mockReturnValue([
+      {
+        id: "run-newer",
+        workflowId: "workflow-daily",
+        triggerType: "manual",
+        status: "failed",
+        createdAt: "2026-08-06T03:00:00.000Z",
+        finishedAt: "2026-08-06T03:05:00.000Z",
+      },
+      {
+        id: "run-daily",
+        workflowId: "workflow-daily",
+        triggerType: "schedule",
+        status: "succeeded",
+        createdAt: "2026-08-06T01:00:00.000Z",
+        finishedAt: "2026-08-06T01:01:00.000Z",
+      },
+    ]);
+
+    const { recentRuns } = getWorkflowCenterPageData("default");
+
+    expect(recentRuns).toHaveLength(2);
+    expect(recentRuns[0]).toMatchObject({ id: "run-newer", status: "failed", workflowName: "Daily brief" });
+    expect(recentRuns[1]).toMatchObject({ id: "run-daily", status: "succeeded" });
   });
 
   it("adds one sanitized migration row for an unmapped legacy automation in dual-read mode", () => {
