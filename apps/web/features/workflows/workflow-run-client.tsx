@@ -95,6 +95,9 @@ export function WorkflowRunClient({
 
   async function control(action: "pause" | "resume" | "cancel" | "retry_node", nodeId?: string): Promise<void> {
     if (!projection.canControl) return;
+    // 取消运行与重试步骤属于高影响操作，执行前需显式二次确认（UIUX:136）。
+    if (action === "cancel" && !window.confirm("确认取消该运行？已开始的步骤将被中止，且无法恢复。")) return;
+    if (action === "retry_node" && !window.confirm("确认重试该步骤？将重新派发该节点。")) return;
     setPendingControl(`${action}:${nodeId ?? "run"}`);
     setNotice(undefined);
     try {

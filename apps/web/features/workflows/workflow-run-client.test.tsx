@@ -47,6 +47,8 @@ function renderRun(data: WorkflowRunPageData = initial): void {
 describe("workflow run client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 取消运行与重试步骤现已加 window.confirm 二次确认，测试默认放行。
+    vi.stubGlobal("confirm", vi.fn(() => true));
     mocks.control.mockResolvedValue({
       ok: true,
       data: { runId: "run-1", status: "paused" },
@@ -91,6 +93,17 @@ describe("workflow run client", () => {
 
     await user.click(screen.getByRole("button", { name: "暂停" }));
     await waitFor(() => expect(mocks.control).toHaveBeenCalledWith({ runId: "run-1", action: "pause", nodeId: undefined }));
+  });
+
+  it("aborts cancelling a run when the confirmation is dismissed", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ events: [], hasMore: false, projection: initial })));
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    renderRun();
+
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "取消" })).toBeEnabled());
+    expect(mocks.control).not.toHaveBeenCalled();
   });
 
   it("allows a workflow waiting for approval to be paused", async () => {

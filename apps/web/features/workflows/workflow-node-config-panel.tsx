@@ -25,7 +25,7 @@ export function WorkflowNodeConfigPanel({
           <span>{node.type}</span>
           <h2 title={workflowNodeLabel(node, employees)}>{workflowNodeLabel(node, employees)}</h2>
         </div>
-        <button aria-label="删除步骤" className="knowledge-btn knowledge-btn--danger" onClick={() => onEvent({ type: "removeNode", nodeId: node.id })} type="button">删除</button>
+        <button aria-label="删除步骤" className="knowledge-btn knowledge-btn--danger" onClick={() => { if (window.confirm("确认从草稿中删除该步骤？")) onEvent({ type: "removeNode", nodeId: node.id }); }} type="button">删除</button>
       </header>
       {node.type === "employee_task" ? (
         <>

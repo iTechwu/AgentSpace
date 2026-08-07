@@ -222,6 +222,8 @@ export function WorkflowBuilderClient({
 
   async function publish(): Promise<void> {
     if (!workflowId || !canPublish) return;
+    // 发布会生成不可变的新版本并可能改变触发器与调度，属高影响操作，需二次确认（UIUX:136）。
+    if (!window.confirm("确认发布该工作流？将生成不可变的新版本并立即生效。")) return;
     setPendingAction("publish");
     const result = await publishWorkflowAction({
       workflowId,

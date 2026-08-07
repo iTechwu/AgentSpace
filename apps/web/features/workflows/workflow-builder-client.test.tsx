@@ -87,6 +87,8 @@ function renderBuilder(entry: "automations" | "calendar" | "task-board" = "autom
 describe("workflow builder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 发布现已加 window.confirm 二次确认，测试默认放行。
+    vi.stubGlobal("confirm", vi.fn(() => true));
     mocks.validate.mockResolvedValue({
       ok: true,
       data: { blockers: [], warnings: [] },
