@@ -264,6 +264,48 @@ test("workflow_trigger enforces a single row per workspace and workflow", () => 
   );
 });
 
+test("publishing with a stale draft version is rejected inside the transaction", () => {
+  const definition = createWorkflowDefinitionSync({
+    id: "workflow-publish-cas-test",
+    workspaceId: WORKSPACE_ID,
+    name: "CAS publish",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const baseline = definition.draftVersion;
+  const graphJson = '{"schemaVersion":1,"nodes":[],"edges":[]}';
+  // First publish with the matching expected draft version succeeds.
+  publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson,
+    contentHash: "sha256:cas-a",
+    publishedBy: "u1",
+    expectedDraftVersion: baseline,
+  });
+  // A concurrent edit bumps the draft version after the pre-check window.
+  const updated = updateWorkflowDraftSync({
+    id: definition.id,
+    workspaceId: WORKSPACE_ID,
+    expectedDraftVersion: baseline,
+    name: "CAS rename",
+    updatedBy: "u2",
+  });
+  assert.equal(updated.draftVersion, baseline + 1);
+  // Publishing the stale draft revision must now be rejected in-transaction.
+  assert.throws(
+    () => publishWorkflowVersionSync({
+      workspaceId: WORKSPACE_ID,
+      workflowId: definition.id,
+      graphJson,
+      contentHash: "sha256:cas-a",
+      publishedBy: "u1",
+      expectedDraftVersion: baseline,
+    }),
+    /workflow_draft_version_conflict/,
+  );
+});
+
 test("republishing a paused workflow preserves its definition and trigger suspension", () => {
   const definition = createWorkflowDefinitionSync({
     id: "workflow-paused-republish-test",

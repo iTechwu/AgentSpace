@@ -19,6 +19,7 @@ export interface PublishWorkflowInput extends ValidateWorkflowForPublishInput {
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   versionNumber?: number;
+  expectedDraftVersion?: number;
   trigger?: Omit<UpsertWorkflowTriggerInput, "workspaceId" | "workflowId">;
 }
 
@@ -46,6 +47,7 @@ export function publishWorkflowSync(input: PublishWorkflowInput): PublishWorkflo
     contentHash: hashWorkflowVersionContent(input),
     publishedBy: input.actor.userId,
     versionNumber: input.versionNumber,
+    expectedDraftVersion: input.expectedDraftVersion,
     trigger: input.trigger ? normalizeWorkflowTriggerForPublish(input.trigger) : undefined,
   };
   const version = publishWorkflowVersionSync(versionInput);

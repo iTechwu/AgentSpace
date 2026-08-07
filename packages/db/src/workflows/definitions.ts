@@ -68,6 +68,7 @@ export interface PublishWorkflowVersionInput {
   versionNumber?: number;
   id?: string;
   publishedAt?: string;
+  expectedDraftVersion?: number;
   trigger?: Omit<UpsertWorkflowTriggerInput, "workspaceId" | "workflowId">;
 }
 
@@ -282,11 +283,20 @@ export function publishWorkflowVersionSync(
   const db = getDatabase();
   return withTransaction(db, () => {
     const definition = db.prepare(
-      `SELECT id, status, active_version_id AS "activeVersionId" FROM workflow_definition
+      `SELECT id, status, active_version_id AS "activeVersionId", draft_version AS "draftVersion"
+       FROM workflow_definition
        WHERE id = ? AND workspace_id = ? FOR UPDATE`,
-    ).get(input.workflowId, input.workspaceId) as { id?: string; status?: string; activeVersionId?: string } | undefined;
+    ).get(input.workflowId, input.workspaceId) as { id?: string; status?: string; activeVersionId?: string; draftVersion?: number } | undefined;
     if (!definition?.id) throw new Error("workflow_definition_not_found");
     if (definition.status === "archived") throw new Error("workflow_definition_archived");
+    // CAS 复检：事务外加锁前读取的 expectedDraftVersion 在拿到行锁后必须仍与草稿版本一致，
+    // 否则说明草稿在预检与发布之间被改写，拒绝发布以避免覆盖他人改动。
+    if (
+      input.expectedDraftVersion !== undefined &&
+      definition.draftVersion !== input.expectedDraftVersion
+    ) {
+      throw new Error("workflow_draft_version_conflict");
+    }
 
     const identical = readWorkflowVersionByHashWithDatabase(
       db,

@@ -178,6 +178,7 @@ export async function publishWorkflowAction(
       graph: input.graph ?? parseWorkflowGraph(definition.draftGraphJson),
       governance: input.governance,
       actor: actorFromContext(context),
+      expectedDraftVersion: input.expectedDraftVersion,
       trigger: input.trigger ? {
         id: currentTrigger?.id,
         type: input.trigger.type,
