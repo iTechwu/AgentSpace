@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "111";
+export const POSTGRES_SCHEMA_VERSION = "112";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -4352,23 +4352,31 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `ALTER TABLE workflow_trigger DROP CONSTRAINT IF EXISTS workflow_trigger_workspace_workflow_unique`,
     `ALTER TABLE workflow_trigger ADD CONSTRAINT workflow_trigger_workspace_workflow_unique UNIQUE (workspace_id, workflow_id)`,
-    // schema 111 数据修复：早期 110 迁移（f7bda25d）在去重时错误地把待删除触发器上的
+    // schema 111/112 数据修复：早期 110 迁移（f7bda25d）在去重时错误地把待删除触发器上的
     // workflow_run.trigger_id 改挂到保留下来的触发器（不分类型），后续修正（edebde49）
     // 移除了该 reparent 但未升版本号，导致已在 buggy 窗口内升级到 110 的库不会重跑修正版，
     // 手动运行可能指向定时/事件触发器。trigger_id 外键为 ON DELETE SET NULL，仅用于溯源，
-    // 真正去重键是 trigger_key。这里把 trigger_id 指向的触发器类型与 run.trigger_type
-    // 不一致的链接置空——不一致链接无论成因都具误导性，置空后 trigger_type 仍保留历史事实。
-    // 局限：被删触发器与幸存触发器同类型时无法识别（链接无害）；同一 trigger id 因重发
-    // 改类型导致的合法不一致也会被置空（可接受，trigger_type 已记录运行时类型）。
+    // 真正去重键是 trigger_key。这里把两种误链都置空——置空后 trigger_type 仍保留历史事实：
+    //   1) 类型不符：trigger_id 指向的触发器类型与 run.trigger_type 不一致（跨类型 reparent）。
+    //   2) 同类型但指向错误实例：trigger_key 形如 `${workflowId}:${trigger.id}:${scheduledAt}`，
+    //      其第二段就是真正触发该次运行的触发器 id；若 trigger_id 与之不符即为 reparent 误链
+    //      （含被删触发器与幸存触发器同类型的情形）。split_part 对非标准 trigger_key 返回空串，
+    //      故不会误伤无第二段的旧数据。
     // 幂等：干净或已正确的库无匹配行，整体为 no-op。
     `
       UPDATE workflow_run
       SET trigger_id = NULL, updated_at = NOW()
       WHERE trigger_id IS NOT NULL
-        AND EXISTS (
-          SELECT 1 FROM workflow_trigger t
-          WHERE t.id = workflow_run.trigger_id
-            AND t.type <> workflow_run.trigger_type
+        AND (
+          EXISTS (
+            SELECT 1 FROM workflow_trigger t
+            WHERE t.id = workflow_run.trigger_id
+              AND t.type <> workflow_run.trigger_type
+          )
+          OR (
+            split_part(trigger_key, ':', 2) <> ''
+            AND split_part(trigger_key, ':', 2) <> trigger_id
+          )
         )
     `,
     `
