@@ -68,6 +68,9 @@ export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): 
       from: ["pending", "ready"],
       to: "waiting_approval",
       approvalId: approval.id,
+      // 同步持久化限时截止时间列，供审批限时扫描的部分索引直接命中已到期候选（消除饥饿）；
+      // 无限时配置时显式清除历史脏值，避免重试场景下旧截止时间被沿用而误到期。
+      ...(expiresAt ? { approvalDeadline: expiresAt } : { clearApprovalDeadline: true }),
       clearError: true,
       now: input.now,
     });

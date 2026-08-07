@@ -216,6 +216,7 @@ export {
   readWorkflowNodeRunByApprovalIdSync,
   listWorkflowNodeRunsSync,
   listWorkflowApprovalCandidatesSync,
+  backfillWorkflowNodeRunApprovalDeadlineSync,
   resetWorkflowDescendantNodeRunsForRetrySync,
   claimWorkflowNodeForDispatchSync,
   transitionWorkflowRunSync,

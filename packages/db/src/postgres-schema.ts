@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "112";
+export const POSTGRES_SCHEMA_VERSION = "113";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -256,6 +256,7 @@ export function getPostgresSchemaStatements(): string[] {
         available_at TIMESTAMPTZ,
         task_queue_id TEXT,
         approval_id TEXT,
+        approval_deadline TIMESTAMPTZ,
         input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         output_json JSONB,
         artifact_manifest_json JSONB,
@@ -4378,6 +4379,16 @@ export function getPostgresSchemaStatements(): string[] {
             AND split_part(trigger_key, ':', 2) <> trigger_id
           )
         )
+    `,
+    // schema 113：为 workflow_node_run 增加审批限时截止时间列与部分索引，使审批限时扫描能直接
+    // 按 (status='waiting_approval', approval_deadline <= now) 索引命中已到期候选，消除「非到期
+    // 候选挤占 LIMIT 窗口导致到期审批饥饿」的缺陷。列可空（无限时的审批为 NULL，被扫描查询的
+    // NULL 安全分支覆盖）。部分索引只覆盖 waiting_approval 行，避免污染其它状态。
+    `ALTER TABLE workflow_node_run ADD COLUMN IF NOT EXISTS approval_deadline TIMESTAMPTZ`,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_node_run_approval_deadline
+        ON workflow_node_run (approval_deadline)
+        WHERE status = 'waiting_approval' AND approval_deadline IS NOT NULL
     `,
     `
       INSERT INTO app_metadata (key, value)

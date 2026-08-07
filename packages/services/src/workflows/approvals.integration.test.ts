@@ -404,7 +404,10 @@ test("approval deadline scan reports an unparseable expiresAt as a structured fa
     target.metadata = { ...(target.metadata ?? {}), expiresAt: "not-a-valid-date" };
     writeWorkspaceStateSync(state, fixture.workspaceId, { skipVersionCheck: true });
 
-    const sweep = expireWorkflowApprovalsSync({ now: "2026-08-07T01:30:00.000Z", workspaceId: fixture.workspaceId });
+    // 扫描在列截止时间（02:00）之后：候选查询以 approval_deadline <= now 过滤，列仍持创建时的
+    // 合法值 02:00，故到点后被纳入候选；此时 JSON 的非法 expiresAt 才被复核并记为结构化失败。
+    // 列是扫描门控、JSON 是到期决策——JSON 被事后污染时，会在列截止时间到达后被捕获上报。
+    const sweep = expireWorkflowApprovalsSync({ now: "2026-08-07T03:00:00.000Z", workspaceId: fixture.workspaceId });
     assert.deepEqual(sweep.expiredApprovalIds, []);
     assert.equal(sweep.failures.length, 1);
     assert.equal(sweep.failures[0]?.approvalId, approvalId);
@@ -449,3 +452,35 @@ test("approval deadline scan reports a broken association when the approval is m
     cleanup(fixture);
   }
 });
+
+test("approval deadline scan persists the deadline column and does not starve behind non-expired approvals", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 反饥饿回归：审批限时扫描原先以 ORDER BY id ASC LIMIT 取候选，未到期的审批会占据 LIMIT 窗口，
+  // 把排在后面（更高 id）的已到期审批挤出本轮，导致已到期审批在尾部无限饥饿。现在候选查询直接以
+  // approval_deadline <= now 过滤（部分索引命中），未到期审批不再占用扫描槽位；本测试用 limit:1
+  // 并先建一条远未到期的审批（更低 id）、后建一条已到期的审批，验证扫描仍能命中并驳回已到期者。
+  const fixture = seedFixture();
+  try {
+    // 先建远未到期审批（deadline = now + 3600s = 02:00），id 更低；旧实现下它会独占 limit:1 槽位。
+    const farFuture = createPendingApproval(fixture, { deadlineSeconds: 3600 });
+    // 后建已到期审批（deadline = now + 1s = 01:00:01），id 更高。
+    const expired = createPendingApproval(fixture, { deadlineSeconds: 1 });
+
+    // 写入点校验：进入 waiting_approval 时 approval_deadline 列已被持久化（供扫描索引命中）。
+    const farFutureNode = listWorkflowNodeRunsSync(fixture.workspaceId, farFuture.runId).find((item) => item.nodeId === "approval");
+    assert.equal(farFutureNode?.approvalDeadline, "2026-08-07T02:00:00.000Z");
+
+    // 在 now=01:00:30 扫描（expired 已过 01:00:01，farFuture 未到 02:00），仅给 1 个槽位。
+    // 旧实现（id ASC LIMIT 1）会取到 farFuture 并因未到期跳过 → expiredApprovalIds 为空（饥饿）；
+    // 新实现按 approval_deadline <= now 过滤，farFuture 不入候选，expired 被命中并驳回。
+    const sweep = expireWorkflowApprovalsSync({ now: "2026-08-07T01:00:30.000Z", limit: 1 });
+    assert.deepEqual(sweep.expiredApprovalIds, [expired.approvalId]);
+    assert.equal(readWorkflowRunSync(expired.runId, fixture.workspaceId)?.status, "failed");
+    // 远未到期审批不受影响，仍处等待。
+    assert.equal(readWorkflowRunSync(farFuture.runId, fixture.workspaceId)?.status, "waiting_approval");
+  } finally {
+    cleanup(fixture);
+  }
+});
+

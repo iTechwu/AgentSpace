@@ -4,6 +4,7 @@ import {
   getDatabase,
   listWorkflowNodeRunsSync,
   listWorkflowApprovalCandidatesSync,
+  backfillWorkflowNodeRunApprovalDeadlineSync,
   lockWorkflowRunForUpdateSync,
   readWorkflowNodeRunSync,
   readQueuedTaskSync,
@@ -322,7 +323,7 @@ export function expireWorkflowApprovalsSync(input: {
   // 本轮候选总数；candidate.runId 即审批关联的权威运行，取代 best-effort 反查。
   const limit = typeof input.limit === "number" && input.limit > 0 ? Math.min(input.limit, 500) : 100;
   const candidates = listWorkflowApprovalCandidatesSync(
-    input.workspaceId ? { workspaceId: input.workspaceId, limit } : { limit },
+    input.workspaceId ? { workspaceId: input.workspaceId, now, limit } : { now, limit },
   );
   // 按工作区分组：每个工作区的审批 JSON 只加载一次，再按 approvalId 建索引，避免逐候选
   // 重复读取整份快照。逐候选评估其审批是否 pending + 限时 + 已到期。
@@ -362,6 +363,12 @@ export function expireWorkflowApprovalsSync(input: {
       failures.push({ approvalId: approval.id, workspaceId: candidate.workspaceId, runId: candidate.runId, errorCode: "workflow_approval_deadline_invalid" });
       recordApprovalExpiryFailureBestEffort({ workspaceId: candidate.workspaceId, runId: candidate.runId, approvalId: approval.id, errorCode: "workflow_approval_deadline_invalid", now });
       continue;
+    }
+    // 惰性回填：迁移前历史数据 approval_deadline 列为 NULL（候选查询的 NULL 安全分支将其纳入）。
+    // 此处已确认 JSON expiresAt 有效，回填列使该行加入限时索引集，后续轮次按列精确命中、
+    // 无需重复加载整份审批 JSON 评估。幂等（仅列仍为 NULL 时写入），不更新 updated_at。
+    if (!candidate.approvalDeadline) {
+      backfillWorkflowNodeRunApprovalDeadlineSync({ workspaceId: candidate.workspaceId, runId: candidate.runId, nodeId: candidate.nodeId, approvalDeadline: expiresAtRaw });
     }
     if (expiresAtMs > nowMs) continue;
     try {

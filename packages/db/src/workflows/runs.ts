@@ -54,6 +54,10 @@ export interface TransitionWorkflowNodeRunInput {
   taskQueueId?: string | null;
   clearTaskQueueId?: boolean;
   approvalId?: string;
+  // 审批限时截止时间：进入 waiting_approval 时写入 approval_deadline 列，供限时扫描索引命中。
+  // clearApprovalDeadline=true 时置 NULL（重新进入无限时审批时清除历史截止时间，避免脏值误到期）。
+  approvalDeadline?: string;
+  clearApprovalDeadline?: boolean;
   availableAt?: string | null;
   attemptCount?: number;
   startedAt?: string;
@@ -241,44 +245,76 @@ export interface WorkflowApprovalCandidateRecord {
   runId: string;
   nodeId: string;
   approvalId: string;
+  // 审批限时截止时间列；NULL 表示历史数据（迁移前创建）或无限时审批，由扫描方按 NULL 安全分支处理。
+  approvalDeadline?: string;
 }
 
 /**
- * 有界地列出「等待审批且已绑定审批」的节点运行候选，供审批限时扫描使用。
+ * 有界地列出「等待审批、已绑定审批且限时已到期（或历史 NULL 截止时间）」的节点运行候选，
+ * 供审批限时扫描使用。
  *
- * 直接在 workflow_node_run（approval_id 有索引）上以 status='waiting_approval' 且
- * approval_id IS NOT NULL 过滤并施加 LIMIT，得到本轮候选——而不是枚举全部 waiting_approval
- * 工作区、再逐个加载整份审批历史（技术架构文档要求按 workspace/status 分片批量扫描）。
- * 可选 workspaceId 把扫描限定到单个工作区。长期方案是把待处理审批独立持久化为按
- * (status, expiresAt) 索引的表；当前先以数据库级 LIMIT 约束候选总数。
+ * 在 workflow_node_run 上以部分索引 idx_workflow_node_run_approval_deadline 命中：
+ * status='waiting_approval' AND approval_id IS NOT NULL AND (approval_deadline IS NULL
+ * OR approval_deadline <= now)，并按 approval_deadline ASC NULLS LAST 排序。这保证
+ * 已到期候选总是最先被取到（最逾期者优先），消除「非到期候选挤占 LIMIT 窗口、导致到期
+ * 审批在尾部无限饥饿」的缺陷；NULL 安全分支覆盖迁移前历史数据与无限时审批（由扫描方按
+ * 审批 JSON 的 expiresAt 复核，并对有效历史数据惰性回填列）。可选 workspaceId 把扫描
+ * 限定到单个工作区。
  */
 export function listWorkflowApprovalCandidatesSync(input: {
   workspaceId?: string;
+  now: string;
   limit: number;
 }): WorkflowApprovalCandidateRecord[] {
   const limit = Math.max(1, Math.min(input.limit, 500));
   const db = getDatabase();
   const rows = (input.workspaceId
     ? db.prepare(
-      `SELECT workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", approval_id AS "approvalId"
+      `SELECT workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", approval_id AS "approvalId", approval_deadline AS "approvalDeadline"
        FROM workflow_node_run
        WHERE status = 'waiting_approval' AND approval_id IS NOT NULL AND workspace_id = ?
-       ORDER BY id ASC LIMIT ${limit}`,
-    ).all(input.workspaceId)
+         AND (approval_deadline IS NULL OR approval_deadline <= ?)
+       ORDER BY approval_deadline ASC NULLS LAST, id ASC LIMIT ${limit}`,
+    ).all(input.workspaceId, input.now)
     : db.prepare(
-      `SELECT workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", approval_id AS "approvalId"
+      `SELECT workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", approval_id AS "approvalId", approval_deadline AS "approvalDeadline"
        FROM workflow_node_run
        WHERE status = 'waiting_approval' AND approval_id IS NOT NULL
-       ORDER BY id ASC LIMIT ${limit}`,
-    ).all()) as Array<{ workspaceId?: string; runId?: string; nodeId?: string; approvalId?: string }>;
+         AND (approval_deadline IS NULL OR approval_deadline <= ?)
+       ORDER BY approval_deadline ASC NULLS LAST, id ASC LIMIT ${limit}`,
+    ).all(input.now)) as Array<{ workspaceId?: string; runId?: string; nodeId?: string; approvalId?: string; approvalDeadline?: string }>;
   const candidates: WorkflowApprovalCandidateRecord[] = [];
   for (const row of rows) {
     if (typeof row.workspaceId === "string" && typeof row.runId === "string"
       && typeof row.nodeId === "string" && typeof row.approvalId === "string") {
-      candidates.push({ workspaceId: row.workspaceId, runId: row.runId, nodeId: row.nodeId, approvalId: row.approvalId });
+      candidates.push({
+        workspaceId: row.workspaceId,
+        runId: row.runId,
+        nodeId: row.nodeId,
+        approvalId: row.approvalId,
+        ...(typeof row.approvalDeadline === "string" ? { approvalDeadline: row.approvalDeadline } : {}),
+      });
     }
   }
   return candidates;
+}
+
+/**
+ * 惰性回填历史节点运行的 approval_deadline 列（迁移前数据该列为 NULL）。仅在扫描方确认审批
+ * JSON 含有效 expiresAt 且列缺失时调用，使历史数据自愈加入索引集、避免每轮重复评估。
+ * 仅当列仍为 NULL 时写入（幂等）；不更新 updated_at（这是索引提示，非语义变更）。
+ */
+export function backfillWorkflowNodeRunApprovalDeadlineSync(input: {
+  workspaceId: string;
+  runId: string;
+  nodeId: string;
+  approvalDeadline: string;
+}): void {
+  getDatabase().prepare(
+    `UPDATE workflow_node_run
+        SET approval_deadline = ?
+      WHERE workspace_id = ? AND run_id = ? AND node_id = ? AND approval_deadline IS NULL`,
+  ).run(input.approvalDeadline, input.workspaceId, input.runId, input.nodeId);
 }
 
 export function claimWorkflowNodeForDispatchSync(
@@ -360,7 +396,9 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
   const row = getDatabase().prepare(
     `UPDATE workflow_node_run
         SET status = ?, task_queue_id = CASE WHEN ? THEN NULL ELSE COALESCE(?, task_queue_id) END,
-            approval_id = COALESCE(?, approval_id), available_at = COALESCE(?, available_at),
+            approval_id = COALESCE(?, approval_id),
+            approval_deadline = CASE WHEN ? THEN NULL ELSE COALESCE(?, approval_deadline) END,
+            available_at = COALESCE(?, available_at),
             attempt_count = COALESCE(?, attempt_count), max_attempts = COALESCE(?, max_attempts),
             started_at = COALESCE(?, started_at),
             finished_at = CASE WHEN ? THEN NULL ELSE COALESCE(?, finished_at) END,
@@ -375,6 +413,8 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     input.clearTaskQueueId === true,
     input.taskQueueId ?? null,
     input.approvalId ?? null,
+    input.clearApprovalDeadline === true,
+    input.approvalDeadline ?? null,
     input.availableAt ?? null,
     input.attemptCount ?? null,
     input.maxAttempts ?? null,
@@ -406,7 +446,7 @@ export function resetWorkflowDescendantNodeRunsForRetrySync(input: {
   const placeholders = input.nodeIds.map(() => "?").join(", ");
   const rows = getDatabase().prepare(
     `UPDATE workflow_node_run
-        SET status = 'pending', task_queue_id = NULL, approval_id = NULL, available_at = NULL,
+        SET status = 'pending', task_queue_id = NULL, approval_id = NULL, approval_deadline = NULL, available_at = NULL,
             started_at = NULL, finished_at = NULL, output_json = NULL, artifact_manifest_json = NULL,
             attempt_count = CASE
               WHEN node_type = 'employee_task' AND status = 'succeeded' THEN attempt_count + 1
@@ -432,7 +472,7 @@ const RUN_COLUMNS = `id, workspace_id AS "workspaceId", workflow_id AS "workflow
 const RUN_SELECT = `SELECT ${RUN_COLUMNS} FROM workflow_run`;
 const NODE_RUN_COLUMNS = `id, workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", node_type AS "nodeType",
   employee_id AS "employeeId", employee_name_snapshot AS "employeeNameSnapshot", status, attempt_count AS "attemptCount",
-  max_attempts AS "maxAttempts", available_at AS "availableAt", task_queue_id AS "taskQueueId", approval_id AS "approvalId",
+  max_attempts AS "maxAttempts", available_at AS "availableAt", task_queue_id AS "taskQueueId", approval_id AS "approvalId", approval_deadline AS "approvalDeadline",
   input_json AS "inputJson", output_json AS "outputJson", artifact_manifest_json AS "artifactManifestJson",
   error_code AS "errorCode", error_message AS "errorMessage", started_at AS "startedAt", finished_at AS "finishedAt",
   created_at AS "createdAt", updated_at AS "updatedAt"`;

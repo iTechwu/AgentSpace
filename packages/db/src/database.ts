@@ -228,6 +228,7 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["lastusedat", "lastUsedAt"],
   ["knowledgepageid", "knowledgePageId"],
   ["approvalid", "approvalId"],
+  ["approvaldeadline", "approvalDeadline"],
   ["assignedemployeenamesjson", "assignedEmployeeNamesJson"],
   ["baseupdatedat", "baseUpdatedAt"],
   ["contentmarkdown", "contentMarkdown"],
