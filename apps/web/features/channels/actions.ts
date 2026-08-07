@@ -270,7 +270,7 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
   if (!task || task.workspaceId !== workspaceContext.currentWorkspace.id) {
     throw new Error("Task does not exist.");
   }
-  if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+  if (task.status === "completed" || task.status === "failed") {
     return;
   }
 
@@ -285,6 +285,12 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
     throw new Error("Only the requester or a workspace administrator can stop this task.");
   }
 
+  if (task.status === "cancelled") {
+    finalizeCancelledChannelTask(task, channelName);
+    revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
+    return;
+  }
+
   const cancelledTask = cancelQueuedTaskSync({
     taskId: task.id,
     errorText: `Stopped by ${workspaceContext.currentUser.displayName.trim() || "the user"}.`,
@@ -294,6 +300,15 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
     return;
   }
 
+  finalizeCancelledChannelTask(cancelledTask, channelName);
+
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
+}
+
+function finalizeCancelledChannelTask(
+  task: NonNullable<ReturnType<typeof readQueuedTaskSync>>,
+  channelName: string,
+): void {
   for (const approval of listApprovalsSync(task.workspaceId)) {
     if (approval.status === "pending" && approval.sourceId === task.id) {
       reviewApprovalSync(
@@ -305,17 +320,23 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
       );
     }
   }
-  replacePendingChannelMessageSync({
-    channel: channelName,
-    pendingSpeaker: task.agentId,
-    pendingTaskId: task.id,
-    speaker: "系统提示",
-    role: "agent",
-    summary: `${task.agentId} 的执行已停止。`,
-    status: "completed",
-  }, task.workspaceId);
 
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
+  const hasPendingMessage = readWorkspaceStateSync(task.workspaceId).messages.some(
+    (message) =>
+      message.status === "pending"
+      && message.data?.source_task_queue_id === task.id,
+  );
+  if (hasPendingMessage) {
+    replacePendingChannelMessageSync({
+      channel: channelName,
+      pendingSpeaker: task.agentId,
+      pendingTaskId: task.id,
+      speaker: "系统提示",
+      role: "agent",
+      summary: `${task.agentId} 的执行已停止。`,
+      status: "completed",
+    }, task.workspaceId);
+  }
 }
 
 export async function addWorkspaceMembersToChannelAction(input: {

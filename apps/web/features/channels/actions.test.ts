@@ -7,6 +7,7 @@ const {
   mockAssertCanUseEmployeeForActorSync,
   mockDeleteChannelSync,
   mockListEmployeeSkillIdsSync,
+  mockListApprovalsSync,
   mockListWorkspaceSkillsSync,
   mockPersistFormAttachments,
   mockPinMessageSync,
@@ -15,6 +16,7 @@ const {
   mockDeleteChannelAttachmentSync,
   mockReadChannelDocumentSync,
   mockReadWorkspaceStateSync,
+  mockReplacePendingChannelMessageSync,
   mockRenameChannelSync,
   mockRequireCurrentWorkspaceContext,
   mockGetChannelDetailData,
@@ -30,6 +32,8 @@ const {
   mockSendHumanDirectMessageSync,
   mockUnpinMessageSync,
   mockValidateSessionModelOverrideForChatCommandAsync,
+  mockCancelQueuedTaskSync,
+  mockReadQueuedTaskSync,
 } = vi.hoisted(() => ({
   mockAddChannelEmployeesSync: vi.fn(),
   mockAddWorkspaceMemberToChannelForActorSync: vi.fn(),
@@ -37,6 +41,7 @@ const {
   mockAssertCanUseEmployeeForActorSync: vi.fn(),
   mockDeleteChannelSync: vi.fn(),
   mockListEmployeeSkillIdsSync: vi.fn(),
+  mockListApprovalsSync: vi.fn(),
   mockListWorkspaceSkillsSync: vi.fn(),
   mockPersistFormAttachments: vi.fn(),
   mockPinMessageSync: vi.fn(),
@@ -45,6 +50,7 @@ const {
   mockDeleteChannelAttachmentSync: vi.fn(),
   mockReadChannelDocumentSync: vi.fn(),
   mockReadWorkspaceStateSync: vi.fn(),
+  mockReplacePendingChannelMessageSync: vi.fn(),
   mockRenameChannelSync: vi.fn(),
   mockRequireCurrentWorkspaceContext: vi.fn(),
   mockGetChannelDetailData: vi.fn(),
@@ -60,6 +66,8 @@ const {
   mockSendHumanDirectMessageSync: vi.fn(),
   mockUnpinMessageSync: vi.fn(),
   mockValidateSessionModelOverrideForChatCommandAsync: vi.fn(),
+  mockCancelQueuedTaskSync: vi.fn(),
+  mockReadQueuedTaskSync: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/services", () => ({
@@ -69,6 +77,7 @@ vi.mock("@dofe-agent/services", () => ({
   assertCanUseEmployeeForActorSync: mockAssertCanUseEmployeeForActorSync,
   deleteChannelSync: mockDeleteChannelSync,
   listEmployeeSkillIdsSync: mockListEmployeeSkillIdsSync,
+  listApprovalsSync: mockListApprovalsSync,
   listWorkspaceSkillsSync: mockListWorkspaceSkillsSync,
   deleteChannelAttachmentSync: mockDeleteChannelAttachmentSync,
   renameChannelSync: mockRenameChannelSync,
@@ -80,6 +89,7 @@ vi.mock("@dofe-agent/services", () => ({
   readChannelDocumentSync: mockReadChannelDocumentSync,
   unpinMessageSync: mockUnpinMessageSync,
   readWorkspaceStateSync: mockReadWorkspaceStateSync,
+  replacePendingChannelMessageSync: mockReplacePendingChannelMessageSync,
   resolveChannelHumanMemberNames: mockResolveChannelHumanMemberNames,
   resolveAgentRuntimeMode: mockResolveAgentRuntimeMode,
   sameValue: mockSameValue,
@@ -107,6 +117,13 @@ vi.mock("@dofe-agent/services", () => ({
   upsertChannelDocumentPresenceSync: vi.fn(),
   updateChannelDocumentSync: vi.fn(),
   validateSessionModelOverrideForChatCommandAsync: mockValidateSessionModelOverrideForChatCommandAsync,
+}));
+
+vi.mock("@dofe-agent/db", () => ({
+  cancelQueuedTaskSync: mockCancelQueuedTaskSync,
+  listExternalChannelBindingsSync: vi.fn(() => []),
+  listExternalIntegrationsSync: vi.fn(() => []),
+  readQueuedTaskSync: mockReadQueuedTaskSync,
 }));
 
 vi.mock("@/features/auth/server-workspace", () => ({
@@ -142,6 +159,7 @@ import {
   sendChannelMessageAction,
   sendHumanDirectMessageAction,
   getChannelDetailDataAction,
+  stopChannelTaskAction,
 } from "./actions";
 
 describe("channel actions", () => {
@@ -150,6 +168,7 @@ describe("channel actions", () => {
     mockAddWorkspaceMemberToChannelForActorSync.mockReset();
     mockDeleteChannelSync.mockReset();
     mockListEmployeeSkillIdsSync.mockReset();
+    mockListApprovalsSync.mockReset();
     mockListWorkspaceSkillsSync.mockReset();
     mockDeleteChannelAttachmentSync.mockReset();
     mockPersistFormAttachments.mockReset();
@@ -160,6 +179,7 @@ describe("channel actions", () => {
     mockCanReadChannelForActorSync.mockReset();
     mockReadChannelDocumentSync.mockReset();
     mockReadWorkspaceStateSync.mockReset();
+    mockReplacePendingChannelMessageSync.mockReset();
     mockRenameChannelSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockReset();
     mockGetChannelDetailData.mockReset();
@@ -175,10 +195,13 @@ describe("channel actions", () => {
     mockSendHumanDirectMessageSync.mockReset();
     mockUnpinMessageSync.mockReset();
     mockValidateSessionModelOverrideForChatCommandAsync.mockReset();
+    mockCancelQueuedTaskSync.mockReset();
+    mockReadQueuedTaskSync.mockReset();
 
     mockPersistFormAttachments.mockResolvedValue([]);
     mockListEmployeeSkillIdsSync.mockReturnValue([]);
     mockListWorkspaceSkillsSync.mockReturnValue([]);
+    mockListApprovalsSync.mockReturnValue([]);
     mockResolveAgentRuntimeMode.mockReturnValue("remote");
     mockValidateSessionModelOverrideForChatCommandAsync.mockResolvedValue({
       agentName: "Atlas",
@@ -513,6 +536,42 @@ describe("channel actions", () => {
       resources: [{ type: "approval", id: "approval-1" }],
       shell: "counters",
     });
+  });
+
+  it("repairs a cancelled task whose pending conversation message survived a crash", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin"));
+    mockReadQueuedTaskSync.mockReturnValue({
+      id: "task-cancelled",
+      workspaceId: "workspace-1",
+      status: "cancelled",
+      agentId: "Atlas",
+      requestedByUserId: "user-1",
+      inputJson: JSON.stringify({ channelName: "general" }),
+    });
+    mockReadWorkspaceStateSync.mockReturnValue({
+      channels: [{ name: "general", humanMemberNames: ["techwu"] }],
+      messages: [{
+        id: "message-pending",
+        channel: "general",
+        speaker: "Atlas",
+        role: "agent",
+        status: "pending",
+        data: { source_task_queue_id: "task-cancelled" },
+      }],
+    });
+
+    await stopChannelTaskAction("task-cancelled");
+
+    expect(mockCancelQueuedTaskSync).not.toHaveBeenCalled();
+    expect(mockReplacePendingChannelMessageSync).toHaveBeenCalledWith({
+      channel: "general",
+      pendingSpeaker: "Atlas",
+      pendingTaskId: "task-cancelled",
+      speaker: "系统提示",
+      role: "agent",
+      summary: "Atlas 的执行已停止。",
+      status: "completed",
+    }, "workspace-1");
   });
 
   it("adds selected digital contacts to a channel as agents", async () => {
