@@ -1433,7 +1433,7 @@ function attachManagedMcpConnection(
 export function resolveManagedServiceConnection<T extends McpTaskSessionConnection | ResolvedMcpConnection>(
   connection: T,
   environment: Record<string, string | undefined> = process.env,
-): T {
+): T & { managedServiceEndpoint?: string } {
   if (connection.transport !== "managed_service") return connection;
   if (connection.endpoint !== "managed-service://openmontage") {
     throw new Error("OpenMontage managed service reference is not trusted.");
