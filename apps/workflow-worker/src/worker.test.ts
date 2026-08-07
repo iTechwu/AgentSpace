@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { runWorkflowWorkerTick, type WorkflowWorkerServices } from "./worker.ts";
-import type { WorkflowSchedulerTickResult } from "@dofe-agent/services";
+import type { WorkflowApprovalExpiryFailure, WorkflowSchedulerTickResult } from "@dofe-agent/services";
 
 // 构造完整 WorkflowSchedulerTickResult，避免在 Worker 边界丢失服务层契约字段。
 function tickResult(overrides: Partial<WorkflowSchedulerTickResult> = {}): WorkflowSchedulerTickResult {
@@ -15,6 +15,17 @@ function tickResult(overrides: Partial<WorkflowSchedulerTickResult> = {}): Workf
     expiredApprovalFailures: [],
     approvalScanFailed: false,
     invalidClock: false,
+    ...overrides,
+  };
+}
+
+// 构造完整 WorkflowApprovalExpiryFailure，避免审批失败项在类型边界被弱化为空对象——
+// 服务层新增必填字段（approvalId/workspaceId/errorCode）时编译器可强制传递。
+function approvalFailure(overrides: Partial<WorkflowApprovalExpiryFailure> = {}): WorkflowApprovalExpiryFailure {
+  return {
+    approvalId: "approval-1",
+    workspaceId: "ws-1",
+    errorCode: "workflow_approval_scan_failed",
     ...overrides,
   };
 }
@@ -48,7 +59,7 @@ test("worker tick counts approval expiry failures and scan failures in scheduler
   // schedulerFailures 是告警出口（后端设计文档:119）：触发器物化失败、审批限时扫描单条失败
   // 与整轮扫描失败都计入，确保监控不会把审批失败报告为 0。
   const services: WorkflowWorkerServices = {
-    scheduler: () => tickResult({ failedTriggerIds: ["t-1"], expiredApprovalFailures: [{}, {}], approvalScanFailed: true }),
+    scheduler: () => tickResult({ failedTriggerIds: ["t-1"], expiredApprovalFailures: [approvalFailure(), approvalFailure({ approvalId: "approval-2" })], approvalScanFailed: true }),
     outbox: () => ({ dispatchedTaskIds: [] }),
     recovery: () => ({ readyNodeRunIds: [], retriedNodeRunIds: [], failedNodeRunIds: [] }),
   };

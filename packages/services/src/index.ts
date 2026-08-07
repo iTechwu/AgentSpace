@@ -209,6 +209,7 @@ export {
   completeWorkflowApprovalNodeSync,
   expireWorkflowApprovalsSync,
   type CompleteWorkflowNodeInput,
+  type WorkflowApprovalExpiryFailure,
 } from "./workflows/coordinator.ts";
 export {
   startQueuedTaskWithWorkflowSync,
