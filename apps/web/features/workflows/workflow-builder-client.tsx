@@ -39,6 +39,7 @@ export function WorkflowBuilderClient({
   entry,
   employees,
   channels,
+  members,
   ownerLabel,
   initial,
 }: {
@@ -46,6 +47,7 @@ export function WorkflowBuilderClient({
   entry: WorkflowBuilderEntry;
   employees: WorkflowBuilderEmployee[];
   channels: string[];
+  members: Array<{ userId: string; displayName: string }>;
   ownerLabel: string;
   initial?: WorkflowBuilderInitialValue;
 }) {
@@ -378,7 +380,7 @@ export function WorkflowBuilderClient({
               <button className="knowledge-btn" disabled={!parallelSource || !parallelEmployeeA || !parallelEmployeeB} onClick={addParallelGroup} type="button">添加并行分支</button>
             </div>
             {clientErrors.length > 0 ? <p className="workflow-wizard__hint">当前结构有 {clientErrors.length} 项待完善，发布预检会定位具体步骤。</p> : null}
-            <WorkflowCanvas employees={employees} errorNodeIds={errorNodeIds} graph={graph} onEvent={handleDraftEvent} onSelectNode={setSelectedNodeId} selectedNodeId={selectedNodeId} />
+            <WorkflowCanvas employees={employees} errorNodeIds={errorNodeIds} graph={graph} members={members} onEvent={handleDraftEvent} onSelectNode={setSelectedNodeId} selectedNodeId={selectedNodeId} />
           </div>
         ) : null}
         {activeStep === 3 ? (

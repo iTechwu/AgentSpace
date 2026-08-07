@@ -4,6 +4,7 @@ import {
   listStoredChannelsSync,
   listStoredEmployeesSync,
   listEmployeeRuntimeBindingsSync,
+  listWorkspaceMemberUsersSync,
 } from "@dofe-agent/db";
 import {
   validateWorkflowGraph,
@@ -45,6 +46,7 @@ export interface WorkflowDependencyInventory {
   employees: Map<string, { id: string; name: string; remarkName?: string }>;
   assignedSkills: Set<string>;
   channels: Map<string, { employeeNames: string[] }>;
+  memberUserIds: Set<string>;
 }
 
 export interface WorkflowRuntimeBindingInventory {
@@ -121,6 +123,9 @@ export function validateWorkflowForPublishSync(
     channels: new Map(
       listStoredChannelsSync(input.workspaceId).map((channel) => [channel.name, channel]),
     ),
+    memberUserIds: new Set(
+      listWorkspaceMemberUsersSync(input.workspaceId).map((member) => member.userId),
+    ),
   };
   const workflowBudget = optionalFiniteNumber(input.governance?.budgetUsd);
   if (input.governance?.budgetUsd !== undefined && workflowBudget === undefined) {
@@ -189,6 +194,9 @@ export function validateWorkflowNodeForDispatchSync(
     ),
     channels: new Map(
       listStoredChannelsSync(workspaceId).map((channel) => [channel.name, channel]),
+    ),
+    memberUserIds: new Set(
+      listWorkspaceMemberUsersSync(workspaceId).map((member) => member.userId),
     ),
   })[0];
 }
@@ -274,18 +282,35 @@ function validateApprovalDependencies(
   node: WorkflowNodeDefinition,
   inventory: WorkflowDependencyInventory,
 ): WorkflowPublishBlocker[] {
+  const blockers: WorkflowPublishBlocker[] = [];
   const employeeId = typeof node.config.employeeId === "string" ? node.config.employeeId.trim() : "";
   const employee = inventory.employees.get(employeeId);
   if (!employee) {
-    return [{ code: "workflow_approval_employee_not_ready", nodeId: node.id, employeeId, detail: "employee_not_found" }];
+    blockers.push({ code: "workflow_approval_employee_not_ready", nodeId: node.id, employeeId, detail: "employee_not_found" });
+    return blockers;
   }
   const channelName = typeof node.config.channelName === "string" ? node.config.channelName.trim() : "";
   const channel = inventory.channels.get(channelName);
   const acceptedNames = new Set([employee.name, employee.remarkName].filter((value): value is string => Boolean(value)));
   if (!channel || !channel.employeeNames.some((name) => acceptedNames.has(name))) {
-    return [{ code: "workflow_approval_channel_not_ready", nodeId: node.id, employeeId, detail: channelName || "channel_missing" }];
+    blockers.push({ code: "workflow_approval_channel_not_ready", nodeId: node.id, employeeId, detail: channelName || "channel_missing" });
+    return blockers;
   }
-  return [];
+  // 风险等级：可选，但指定时必须是 low/medium/high 之一。
+  if (node.config.risk !== undefined) {
+    const risk = node.config.risk;
+    if (risk !== "low" && risk !== "medium" && risk !== "high") {
+      blockers.push({ code: "workflow_approval_risk_invalid", nodeId: node.id, employeeId, detail: "risk_must_be_low_medium_high" });
+    }
+  }
+  // 指定审批人：可选，但指定时必须是当前工作区的活跃成员。
+  const reviewerUserId = typeof node.config.reviewerUserId === "string" ? node.config.reviewerUserId.trim() : "";
+  if (reviewerUserId) {
+    if (!inventory.memberUserIds.has(reviewerUserId)) {
+      blockers.push({ code: "workflow_approval_reviewer_not_ready", nodeId: node.id, employeeId, detail: "reviewer_not_workspace_member" });
+    }
+  }
+  return blockers;
 }
 
 export function validateWorkflowEmployeeReadiness(

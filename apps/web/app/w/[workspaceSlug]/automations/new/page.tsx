@@ -18,7 +18,7 @@ export default async function NewWorkflowPage({
     userId: context.currentUser.id,
     displayName: context.currentUser.displayName,
   })!;
-  return <WorkflowBuilderClient channels={data.channels} employees={data.employees} entry={normalizeEntry(query.entry)} ownerLabel={data.ownerLabel} workspaceSlug={workspaceSlug} />;
+  return <WorkflowBuilderClient channels={data.channels} employees={data.employees} entry={normalizeEntry(query.entry)} members={data.members} ownerLabel={data.ownerLabel} workspaceSlug={workspaceSlug} />;
 }
 
 function normalizeEntry(value: string | undefined): WorkflowBuilderEntry {

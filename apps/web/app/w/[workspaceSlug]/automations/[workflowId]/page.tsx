@@ -17,5 +17,5 @@ export default async function EditWorkflowPage({
     displayName: context.currentUser.displayName,
   });
   if (!data?.workflow) notFound();
-  return <WorkflowBuilderClient channels={data.channels} employees={data.employees} entry="automations" initial={data.workflow} ownerLabel={data.ownerLabel} workspaceSlug={workspaceSlug} />;
+  return <WorkflowBuilderClient channels={data.channels} employees={data.employees} entry="automations" initial={data.workflow} members={data.members} ownerLabel={data.ownerLabel} workspaceSlug={workspaceSlug} />;
 }

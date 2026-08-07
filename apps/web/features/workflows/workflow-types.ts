@@ -72,6 +72,7 @@ export interface WorkflowBuilderInitialValue {
 export interface WorkflowBuilderPageData {
   employees: WorkflowBuilderEmployee[];
   channels: string[];
+  members: Array<{ userId: string; displayName: string }>;
   ownerLabel: string;
   workflow?: WorkflowBuilderInitialValue;
 }
@@ -98,6 +99,11 @@ export interface WorkflowNodeRunItem {
   errorCode?: string;
   startedAt?: string;
   finishedAt?: string;
+  // 审批等待详情（UIUX:82）：审批 id（用于跳转审批中心）、风险等级、审批人姓名、来源。
+  approvalId?: string;
+  approvalRisk?: "low" | "medium" | "high";
+  approvalReviewerLabel?: string;
+  approvalSource?: string;
 }
 
 export interface WorkflowRunPageData {

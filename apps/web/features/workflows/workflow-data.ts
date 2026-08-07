@@ -162,10 +162,12 @@ export function getWorkflowBuilderPageData(
     status: bindings.get(employee.id) ?? "unbound",
   }));
   const channels = listStoredChannelsSync(workspaceId).map((channel) => channel.name);
-  const ownerLabels = new Map(
-    listWorkspaceMemberUsersSync(workspaceId).map((member) => [member.userId, member.displayName]),
-  );
-  if (!workflowId) return { employees, channels, ownerLabel: actor?.displayName ?? "当前用户" };
+  const members = listWorkspaceMemberUsersSync(workspaceId).map((member) => ({
+    userId: member.userId,
+    displayName: member.displayName,
+  }));
+  const ownerLabels = new Map(members.map((member) => [member.userId, member.displayName]));
+  if (!workflowId) return { employees, channels, members, ownerLabel: actor?.displayName ?? "当前用户" };
 
   const workflow = readWorkflowDefinitionSync(workflowId, workspaceId);
   if (!workflow) return null;
@@ -178,6 +180,7 @@ export function getWorkflowBuilderPageData(
   return {
     employees,
     channels,
+    members,
     ownerLabel: ownerLabels.get(workflow.ownerUserId)
       ?? (workflow.ownerUserId === actor?.userId ? actor.displayName : workflow.ownerUserId),
     workflow: {
@@ -212,6 +215,9 @@ export function getWorkflowRunPageData(
   if (!run) return null;
   const definition = readWorkflowDefinitionSync(run.workflowId, workspaceId);
   const eventRecords = listWorkflowRunEventsSync(workspaceId, runId, { limit: 200 });
+  const memberLabels = new Map(
+    listWorkspaceMemberUsersSync(workspaceId).map((member) => [member.userId, member.displayName]),
+  );
   const costByNodeRunId = new Map<string, number>();
   for (const event of eventRecords) {
     const data = parseRecord(event.dataJson);
@@ -230,20 +236,26 @@ export function getWorkflowRunPageData(
     ...(run.startedAt ? { startedAt: run.startedAt } : {}),
     ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
     createdAt: run.createdAt,
-    nodes: listWorkflowNodeRunsSync(workspaceId, runId).map((node) => ({
-      id: node.id,
-      nodeId: node.nodeId,
-      nodeType: node.nodeType,
-      employeeName: node.employeeNameSnapshot ?? node.employeeId ?? node.nodeId,
-      status: node.status,
-      attemptCount: node.attemptCount,
-      maxAttempts: node.maxAttempts,
-      artifactCount: artifactCount(node.artifactManifestJson),
-      ...(costByNodeRunId.has(node.id) ? { costUsd: costByNodeRunId.get(node.id)! } : {}),
-      ...(node.errorCode ? { errorCode: node.errorCode } : {}),
-      ...(node.startedAt ? { startedAt: node.startedAt } : {}),
-      ...(node.finishedAt ? { finishedAt: node.finishedAt } : {}),
-    })),
+    nodes: listWorkflowNodeRunsSync(workspaceId, runId).map((node) => {
+      // 审批节点的等待详情：approvalId 来自 node_run 列；风险/审批人来自建 Run 时
+      // 快照进 input_json 的节点 config；来源固定为「工作流审批」。
+      const approvalFields = node.nodeType === "approval" ? buildApprovalNodeFields(node, memberLabels) : {};
+      return {
+        id: node.id,
+        nodeId: node.nodeId,
+        nodeType: node.nodeType,
+        employeeName: node.employeeNameSnapshot ?? node.employeeId ?? node.nodeId,
+        status: node.status,
+        attemptCount: node.attemptCount,
+        maxAttempts: node.maxAttempts,
+        artifactCount: artifactCount(node.artifactManifestJson),
+        ...(costByNodeRunId.has(node.id) ? { costUsd: costByNodeRunId.get(node.id)! } : {}),
+        ...(node.errorCode ? { errorCode: node.errorCode } : {}),
+        ...(node.startedAt ? { startedAt: node.startedAt } : {}),
+        ...(node.finishedAt ? { finishedAt: node.finishedAt } : {}),
+        ...approvalFields,
+      };
+    }),
     events: eventRecords.map(toWorkflowRunEventItem),
   };
 }
@@ -381,6 +393,37 @@ function parseRecord(value: string | undefined): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/**
+ * 审批节点运行详情：从 node_run.approval_id 取审批 id，从建 Run 时快照进
+ * input_json 的节点 config 取风险等级与指定审批人（解析为展示名），来源固定
+ * 为「工作流审批」。审批中心的详细卡片由 /approvals 自身渲染，此处只提供跳转。
+ */
+function buildApprovalNodeFields(
+  node: { approvalId?: string; inputJson: string },
+  memberLabels: Map<string, string>,
+): {
+  approvalId?: string;
+  approvalRisk?: "low" | "medium" | "high";
+  approvalReviewerLabel?: string;
+  approvalSource?: string;
+} {
+  const config = parseRecord(node.inputJson);
+  const fields: {
+    approvalId?: string;
+    approvalRisk?: "low" | "medium" | "high";
+    approvalReviewerLabel?: string;
+    approvalSource?: string;
+  } = { approvalSource: "工作流审批" };
+  if (node.approvalId) fields.approvalId = node.approvalId;
+  const risk = config.risk;
+  if (risk === "low" || risk === "medium" || risk === "high") fields.approvalRisk = risk;
+  const reviewerUserId = typeof config.reviewerUserId === "string" ? config.reviewerUserId.trim() : "";
+  if (reviewerUserId) {
+    fields.approvalReviewerLabel = memberLabels.get(reviewerUserId) ?? reviewerUserId;
+  }
+  return fields;
 }
 
 function numberInRange(value: unknown, min: number, max: number, fallback: number): number {

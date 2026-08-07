@@ -7,11 +7,13 @@ export function WorkflowNodeConfigPanel({
   node,
   graph,
   employees,
+  members,
   onEvent,
 }: {
   node: WorkflowNodeDefinition;
   graph: WorkflowGraphDefinition;
   employees: WorkflowEmployeeOption[];
+  members?: Array<{ userId: string; displayName: string }>;
   onEvent: (event: WorkflowDraftEvent) => void;
 }) {
   const targets = graph.nodes.filter((candidate) => candidate.id !== node.id);
@@ -115,6 +117,28 @@ export function WorkflowNodeConfigPanel({
               rows={4}
               value={typeof node.config.instruction === "string" ? node.config.instruction : ""}
             />
+          </label>
+          <label>
+            <span>风险等级</span>
+            <select
+              onChange={(event) => onEvent({ type: "updateNode", nodeId: node.id, patch: { config: { ...node.config, risk: event.target.value || undefined } } })}
+              value={typeof node.config.risk === "string" ? node.config.risk : ""}
+            >
+              <option value="">不指定</option>
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+            </select>
+          </label>
+          <label>
+            <span>指定审批人</span>
+            <select
+              onChange={(event) => onEvent({ type: "updateNode", nodeId: node.id, patch: { config: { ...node.config, reviewerUserId: event.target.value || undefined } } })}
+              value={typeof node.config.reviewerUserId === "string" ? node.config.reviewerUserId : ""}
+            >
+              <option value="">默认（管理员/负责人）</option>
+              {(members ?? []).map((member) => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}
+            </select>
           </label>
         </>
       ) : null}

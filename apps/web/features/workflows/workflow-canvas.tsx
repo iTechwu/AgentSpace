@@ -21,6 +21,7 @@ import { WorkflowNodeListView, workflowNodeLabel, type WorkflowEmployeeOption } 
 export interface WorkflowCanvasProps {
   graph: WorkflowGraphDefinition;
   employees: WorkflowEmployeeOption[];
+  members?: Array<{ userId: string; displayName: string }>;
   selectedNodeId?: string;
   errorNodeIds?: string[];
   onSelectNode: (nodeId: string) => void;
@@ -32,6 +33,7 @@ const EMPTY_ERROR_NODE_IDS: string[] = [];
 export function WorkflowCanvas({
   graph,
   employees,
+  members,
   selectedNodeId,
   errorNodeIds = EMPTY_ERROR_NODE_IDS,
   onSelectNode,
@@ -147,7 +149,7 @@ export function WorkflowCanvas({
           )}
         </div>
         {selectedNode ? (
-          <WorkflowNodeConfigPanel employees={employees} graph={graph} node={selectedNode} onEvent={onEvent} />
+          <WorkflowNodeConfigPanel employees={employees} graph={graph} members={members} node={selectedNode} onEvent={onEvent} />
         ) : (
           <aside aria-label="步骤配置" className="workflow-node-config workflow-node-config--empty">选择一个步骤</aside>
         )}

@@ -63,6 +63,7 @@ test("dependency preflight blocks missing skills, channel membership, and invali
     employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
     assignedSkills: new Set(["emp-1\u0000analysis"]),
     channels: new Map([["项目协作群", { employeeNames: ["其他员工"] }]]),
+    memberUserIds: new Set<string>(),
   });
 
   assert.deepEqual(blockers.map((blocker) => blocker.code), [
@@ -82,6 +83,7 @@ test("dependency preflight accepts assigned skills and employee display names", 
     employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
     assignedSkills: new Set(["emp-1\u0000analysis"]),
     channels: new Map([["项目协作群", { employeeNames: ["研究员"] }]]),
+    memberUserIds: new Set<string>(),
   });
 
   assert.deepEqual(blockers, []);
@@ -107,6 +109,7 @@ test("node budget preflight accounts for retry-attributed cost", () => {
     employees: new Map([["emp-1", { id: "emp-1", name: "Researcher" }]]),
     assignedSkills: new Set<string>(),
     channels: new Map<string, { employeeNames: string[] }>(),
+    memberUserIds: new Set<string>(),
   };
   // estimate 3 × maxAttempts 2 = 6 > node budget 5 → blocked
   const blocked = validateWorkflowNodeDependencies({
@@ -132,6 +135,7 @@ test("dependency preflight rejects retry limits outside the supported range", ()
     employees: new Map([["emp-1", { id: "emp-1", name: "Researcher" }]]),
     assignedSkills: new Set<string>(),
     channels: new Map<string, { employeeNames: string[] }>(),
+    memberUserIds: new Set<string>(),
   };
   for (const maxAttempts of [0, 1.5, 11, 1_000_000_000]) {
     const blockers = validateWorkflowNodeDependencies({
@@ -154,6 +158,7 @@ test("dependency preflight keeps an empty retry object on the default single att
     employees: new Map([["emp-1", { id: "emp-1", name: "Researcher" }]]),
     assignedSkills: new Set<string>(),
     channels: new Map<string, { employeeNames: string[] }>(),
+    memberUserIds: new Set<string>(),
   });
   assert.deepEqual(blockers, []);
 });
@@ -163,6 +168,7 @@ test("approval preflight requires a known employee and a joined channel", () => 
     employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
     assignedSkills: new Set<string>(),
     channels: new Map([["项目审批群", { employeeNames: ["研究员"] }]]),
+    memberUserIds: new Set(["user-1", "user-2"]),
   };
   assert.deepEqual(validateWorkflowNodeDependencies({
     id: "approval",
@@ -178,6 +184,28 @@ test("approval preflight requires a known employee and a joined channel", () => 
     id: "approval",
     type: "approval",
     config: { employeeId: "emp-1", channelName: "项目审批群" },
+  }, inventory), []);
+});
+
+test("approval preflight validates risk enum and designated reviewer membership", () => {
+  const inventory = {
+    employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
+    assignedSkills: new Set<string>(),
+    channels: new Map([["项目审批群", { employeeNames: ["研究员"] }]]),
+    memberUserIds: new Set(["user-1"]),
+  };
+  const base = { employeeId: "emp-1", channelName: "项目审批群" };
+  // 非法风险等级。
+  assert.deepEqual(validateWorkflowNodeDependencies({
+    id: "approval", type: "approval", config: { ...base, risk: "critical" },
+  }, inventory).map((blocker) => blocker.code), ["workflow_approval_risk_invalid"]);
+  // 指定审批人不在工作区成员中。
+  assert.deepEqual(validateWorkflowNodeDependencies({
+    id: "approval", type: "approval", config: { ...base, reviewerUserId: "outsider" },
+  }, inventory).map((blocker) => blocker.code), ["workflow_approval_reviewer_not_ready"]);
+  // 合法风险 + 合法审批人通过。
+  assert.deepEqual(validateWorkflowNodeDependencies({
+    id: "approval", type: "approval", config: { ...base, risk: "high", reviewerUserId: "user-1" },
   }, inventory), []);
 });
 

@@ -106,6 +106,34 @@ describe("workflow run client", () => {
     expect(mocks.control).not.toHaveBeenCalled();
   });
 
+  it("renders approval waiting detail with a link to the approval center", () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ events: [], hasMore: false, projection: initial })));
+    const withApproval: WorkflowRunPageData = {
+      ...initial,
+      status: "waiting_approval",
+      nodes: [...initial.nodes, {
+        id: "node-run-approval",
+        nodeId: "approval",
+        nodeType: "approval",
+        employeeName: "审批节点",
+        status: "waiting_approval",
+        attemptCount: 1,
+        maxAttempts: 1,
+        artifactCount: 0,
+        approvalId: "approval-1",
+        approvalRisk: "high",
+        approvalReviewerLabel: "审批人甲",
+        approvalSource: "工作流审批",
+      }],
+    };
+    renderRun(withApproval);
+
+    const link = screen.getByRole("link", { name: "前往审批中心" });
+    expect(link).toHaveAttribute("href", "/approvals");
+    expect(screen.getByText("审批人：审批人甲")).toBeInTheDocument();
+    expect(screen.getByText(/风险：高/)).toBeInTheDocument();
+  });
+
   it("allows a workflow waiting for approval to be paused", async () => {
     const user = userEvent.setup();
     const waiting: WorkflowRunPageData = { ...initial, status: "waiting_approval" };

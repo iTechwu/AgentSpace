@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  translateApprovalRisk,
   translateWorkflowErrorCode,
   translateWorkflowNodeStatus,
   translateWorkflowRunStatus,
@@ -18,9 +19,11 @@ const TERMINAL_STATUSES = new Set(["succeeded", "partially_succeeded", "failed",
 
 export function WorkflowRunClient({
   workspaceId,
+  workspaceSlug,
   data,
 }: {
   workspaceId: string;
+  workspaceSlug?: string;
   data: WorkflowRunPageData;
 }) {
   const router = useRouter();
@@ -153,6 +156,18 @@ export function WorkflowRunClient({
                 <small>{node.nodeType} · 尝试 {node.attemptCount}/{node.maxAttempts} · {durationLabel(node.startedAt, node.finishedAt)}</small>
               </div>
               <span>{node.artifactCount} 个产物{node.costUsd !== undefined ? ` · $${node.costUsd.toFixed(4)}` : ""}</span>
+              {node.nodeType === "approval" && (node.approvalId || node.approvalRisk || node.approvalReviewerLabel) ? (
+                <div className="workflow-run__approval-detail">
+                  <small>
+                    {node.approvalSource ? <span>来源：{node.approvalSource} · </span> : null}
+                    {node.approvalRisk ? <span>风险：{translateApprovalRisk(node.approvalRisk, tx)} · </span> : null}
+                    {node.approvalReviewerLabel ? <span>审批人：{node.approvalReviewerLabel}</span> : null}
+                  </small>
+                  {node.approvalId ? (
+                    <a className="knowledge-btn" href={workspaceSlug ? `/w/${encodeURIComponent(workspaceSlug)}/approvals?focus=${encodeURIComponent(node.approvalId)}` : "/approvals"}>前往审批中心</a>
+                  ) : null}
+                </div>
+              ) : null}
               {node.errorCode ? <span>{translateWorkflowErrorCode(node.errorCode, tx)}</span> : null}
               {projection.canControl && node.status === "failed" && node.errorCode !== "workflow_completion_effect_uncertain" && (projection.status === "failed" || projection.status === "partially_succeeded") && node.nodeType === "employee_task" ? (
                 <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("retry_node", node.nodeId)} type="button">重试步骤</button>

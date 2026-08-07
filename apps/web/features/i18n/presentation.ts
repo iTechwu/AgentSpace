@@ -6,6 +6,16 @@ export type TxFn = (zh: string, en: string) => string;
 
 const zhTx: TxFn = (zh) => zh;
 
+export function translateApprovalRisk(value: "low" | "medium" | "high" | undefined, tx: TxFn = zhTx): string {
+  if (value === undefined) return "";
+  const labels: Record<"low" | "medium" | "high", [string, string]> = {
+    low: ["低", "Low"],
+    medium: ["中", "Medium"],
+    high: ["高", "High"],
+  };
+  return tx(...labels[value]);
+}
+
 export function translateWorkflowRunStatus(value: string | undefined, tx: TxFn = zhTx): string {
   const labels: Record<string, [string, string]> = {
     created: ["已创建", "Created"],
