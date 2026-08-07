@@ -4,7 +4,7 @@
 
 目标分支：`codex/agent-team-workflow`
 
-代码证据：本轮复审基线 `379884d1`；待发布 SHA 必须取包含本清单的最终已提交版本
+代码证据：本轮复审基线 `a7a7b8bb`；待发布 SHA 必须取包含本清单的最终已提交版本
 
 发布策略：按 workspace 从 `legacy_only` 逐步切换到 `dual_read`、`workflow_engine`、`legacy_archived`
 
@@ -82,10 +82,10 @@ reviewer: PENDING
 
 ```text
 Domain: 37 passed
-Workflow Service（event/scheduler/security）: 23 passed
+Workflow Service（event/scheduler/security/materialization）: 27 passed
 Feishu Outbound（含多审批幂等）: 26 passed
 Web Completion/Reconcile/Cron: 18 passed
-Web Workflow Builder/Run/Action: 28 passed
+Web Workflow Builder/Run/Action: 29 passed
 CLI Completion Outbox/Token Usage/Daemon Client: 6 passed
 Deployment/release configuration: 9 passed
 CLI Output/Task Context: BLOCKED_TEST_ENV（缺 PostgreSQL URL 与 TOS 配置）
