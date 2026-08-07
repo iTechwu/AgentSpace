@@ -8,9 +8,10 @@ const mocks = vi.hoisted(() => ({
   control: vi.fn(),
   run: vi.fn(),
   refresh: vi.fn(),
+  push: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh, push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh, push: mocks.push }) }));
 vi.mock("./workflow-actions", () => ({ controlWorkflowRunAction: mocks.control, runWorkflowAction: mocks.run }));
 
 import { WorkflowRunClient, mergeWorkflowRunEvents, selectLatestWorkflowProjection } from "./workflow-run-client";
@@ -40,7 +41,7 @@ const initial: WorkflowRunPageData = {
 function renderRun(data: WorkflowRunPageData = initial): void {
   render(
     <LanguageProvider initialLanguage="zh">
-      <WorkflowRunClient data={data} workspaceId="workspace-1" />
+      <WorkflowRunClient data={data} workspaceId="workspace-1" workspaceSlug="default" />
     </LanguageProvider>,
   );
 }
@@ -130,7 +131,7 @@ describe("workflow run client", () => {
     renderRun(withApproval);
 
     const link = screen.getByRole("link", { name: "前往审批中心" });
-    expect(link).toHaveAttribute("href", "/approvals");
+    expect(link).toHaveAttribute("href", "/w/default/approvals?focus=approval-1");
     expect(screen.getByText("审批人：审批人甲")).toBeInTheDocument();
     expect(screen.getByText(/风险：高/)).toBeInTheDocument();
   });
@@ -145,6 +146,8 @@ describe("workflow run client", () => {
     const rerunButton = screen.getByRole("button", { name: "重新运行" });
     await user.click(rerunButton);
     await waitFor(() => expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-1" })));
+    // 重跑成功后应跳转到新运行，而非停留在旧运行。
+    expect(mocks.push).toHaveBeenCalledWith("/w/default/automations/runs/run-2");
   });
 
   it("allows a workflow waiting for approval to be paused", async () => {

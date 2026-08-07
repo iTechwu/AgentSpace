@@ -10,12 +10,14 @@ import type { ApprovalsPageData } from "@/features/dashboard/data";
 
 const routerPush = vi.fn();
 const routerRefresh = vi.fn();
+const mockSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: routerPush,
     refresh: routerRefresh,
   }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock("@/features/approvals/actions", () => ({
@@ -118,6 +120,7 @@ describe("ApprovalsPageClient", () => {
     mockMatchMedia(false);
     routerPush.mockClear();
     routerRefresh.mockClear();
+    mockSearchParams.delete("focus");
     vi.mocked(reviewApprovalQueueItemAction).mockClear();
   });
 
@@ -175,6 +178,22 @@ describe("ApprovalsPageClient", () => {
 
     expect(screen.getByRole("button", { name: /techwu requested access to private-planning/i })).toBeInTheDocument();
     expect(screen.getAllByText("群访问申请")[0]).toBeInTheDocument();
+  });
+
+  it("selects the approval targeted by the ?focus deep link over the default", () => {
+    // 运行详情「前往审批中心」带 ?focus=<原始审批 id>（= actionId）。默认会选中 approval-1，
+    // 这里用 approval-2 的原始 id 深链，验证覆盖默认并定位到目标审批。
+    mockSearchParams.set("focus", "approval-2");
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    // 「已确认」只作为当前选中项的审批意见渲染，approval-1 没有审批意见。
+    expect(screen.getByText("已确认")).toBeInTheDocument();
   });
 
   it("renders knowledge proposal detail with markdown body", async () => {

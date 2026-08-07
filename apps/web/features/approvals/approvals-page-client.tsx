@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { reviewApprovalQueueItemAction } from "@/features/approvals/actions";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import type { ApprovalItemStatus, ApprovalsPageData } from "@/features/dashboard/data";
@@ -49,7 +49,11 @@ export function ApprovalsPageClient({
   const { navigateWorkspaceModule } = useWorkspaceModuleNavigation();
   const workspaceSlug = typeof window !== "undefined" ? parseWorkspacePathname(window.location.pathname).workspaceSlug : undefined;
   const { pushToast } = useFeedbackToast();
-  const [selectedId, setSelectedId] = useState<string | null>(data.approvals[0]?.id ?? null);
+  // 深链：运行详情「前往审批中心」会带 ?focus=<approvalId>，优先定位到目标审批。
+  // focus 可能是审批项 id（workspace-approval:…）或原始审批 id（与 actionId 一致），两者都需匹配。
+  const searchParams = useSearchParams();
+  const focusTargetId = resolveFocusedApprovalId(data.approvals, searchParams.get("focus"));
+  const [selectedId, setSelectedId] = useState<string | null>(() => focusTargetId ?? data.approvals[0]?.id ?? null);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [reviewComment, setReviewComment] = useState("");
   const [knowledgeDraft, setKnowledgeDraft] = useState<KnowledgeDraft>(EMPTY_KNOWLEDGE_DRAFT);
@@ -91,6 +95,13 @@ export function ApprovalsPageClient({
       setSelectedId(filteredApprovals[0]?.id ?? null);
     }
   }, [filteredApprovals, selectedId]);
+
+  // 数据刷新后再尝试应用深链目标，避免异步到达时漏选。
+  useEffect(() => {
+    if (focusTargetId && selectedId !== focusTargetId) {
+      setSelectedId(focusTargetId);
+    }
+  }, [focusTargetId, selectedId]);
 
   useEffect(() => {
     if (selected?.type !== "knowledge_proposal" || !selected.detail) {
@@ -545,6 +556,18 @@ function KnowledgeProposalDetail({
 
 function formatDateTime(value: string): string {
   return formatCompactTimestamp(value, { emptyFallback: value });
+}
+
+function resolveFocusedApprovalId(
+  approvals: ApprovalsPageData["approvals"],
+  focus: string | null,
+): string | null {
+  if (!focus) return null;
+  const byItemId = approvals.find((approval) => approval.id === focus);
+  if (byItemId) return byItemId.id;
+  // 运行详情深链带的是原始审批 id（= actionId），需据此反查审批项 id。
+  const byActionId = approvals.find((approval) => approval.actionId === focus);
+  return byActionId?.id ?? null;
 }
 
 function buildMarkdownDiff(before: string, after: string): string[] {
