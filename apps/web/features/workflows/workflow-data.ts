@@ -214,6 +214,12 @@ export function getWorkflowRunPageData(
   const run = readWorkflowRunSync(runId, workspaceId);
   if (!run) return null;
   const definition = readWorkflowDefinitionSync(run.workflowId, workspaceId);
+  // 重新运行仅对「已发布且存在激活手动触发器」的工作流开放（与 materialization 的
+  // assertManualWorkflowTriggerAvailable 服务端约束一致）。
+  const trigger = definition ? readWorkflowTriggerForWorkflowSync(definition.id, workspaceId) : null;
+  const canRunManually = definition?.status === "published"
+    && trigger?.type === "manual"
+    && trigger?.status === "active";
   const eventRecords = listWorkflowRunEventsSync(workspaceId, runId, { limit: 200 });
   const memberLabels = new Map(
     listWorkspaceMemberUsersSync(workspaceId).map((member) => [member.userId, member.displayName]),
@@ -233,6 +239,7 @@ export function getWorkflowRunPageData(
     triggerType: run.triggerType,
     currentSequence: run.currentSequence,
     canControl: actor?.role === "owner" || actor?.role === "admin" || definition?.ownerUserId === actor?.userId,
+    canRunManually,
     ...(run.startedAt ? { startedAt: run.startedAt } : {}),
     ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
     createdAt: run.createdAt,

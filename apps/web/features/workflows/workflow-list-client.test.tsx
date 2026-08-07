@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowListClient } from "./workflow-list-client";
 
 vi.mock("@/features/i18n/language-provider", () => ({ useLanguage: () => ({ tx: (zh: string) => zh }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+vi.mock("./workflow-actions", () => ({ runWorkflowAction: vi.fn() }));
 
 const data = {
   workflows: [{

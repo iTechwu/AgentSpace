@@ -66,6 +66,7 @@ function renderBuilder(entry: "automations" | "calendar" | "task-board" = "autom
       employees={employees}
       entry={entry}
       channels={["项目通知群", "审计通知群"]}
+      members={[{ userId: "user-1", displayName: "负责人甲" }]}
       ownerLabel="负责人甲"
       initial={{
         id: "wf-1",

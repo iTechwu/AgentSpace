@@ -10,7 +10,7 @@ import {
   translateWorkflowTriggerType,
 } from "@/features/i18n/presentation";
 import { useLanguage } from "@/features/i18n/language-provider";
-import { controlWorkflowRunAction } from "./workflow-actions";
+import { controlWorkflowRunAction, runWorkflowAction } from "./workflow-actions";
 import { WorkflowRunTimeline } from "./workflow-run-timeline";
 import type { WorkflowRunEventItem, WorkflowRunPageData } from "./workflow-types";
 
@@ -120,9 +120,38 @@ export function WorkflowRunClient({
     }
   }
 
+  async function rerun(): Promise<void> {
+    if (!projection.canRunManually || !TERMINAL_STATUSES.has(projection.status)) return;
+    if (!window.confirm("确认重新运行该工作流？将创建一个新的运行。")) return;
+    setPendingControl("rerun");
+    setNotice(undefined);
+    try {
+      const result = await runWorkflowAction({
+        workflowId: projection.workflowId,
+        idempotencyKey: `rerun-${projection.id}-${Date.now()}`,
+        input: {},
+      });
+      if (!result.ok) {
+        setNotice(translateWorkflowErrorCode(result.error.code, tx));
+        return;
+      }
+      setNotice("已创建新的运行。");
+      if (workspaceSlug) {
+        router.push(`/w/${encodeURIComponent(workspaceSlug)}/automations/runs/${result.data.runId}`);
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setNotice("重新运行未完成，请稍后重试。");
+    } finally {
+      setPendingControl(undefined);
+    }
+  }
+
   const canPause = projection.canControl && (projection.status === "running" || projection.status === "queued" || projection.status === "waiting_approval");
   const canResume = projection.canControl && projection.status === "paused";
   const canCancel = projection.canControl && !TERMINAL_STATUSES.has(projection.status);
+  const canRerun = Boolean(projection.canRunManually) && TERMINAL_STATUSES.has(projection.status);
 
   return (
     <main className="workflow-run">
@@ -138,6 +167,7 @@ export function WorkflowRunClient({
             {canPause ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("pause")} type="button">暂停</button> : null}
             {canResume ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("resume")} type="button">恢复</button> : null}
             {canCancel ? <button className="knowledge-btn knowledge-btn--danger" disabled={Boolean(pendingControl)} onClick={() => void control("cancel")} type="button">取消</button> : null}
+            {canRerun ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void rerun()} type="button">{pendingControl === "rerun" ? "创建中" : "重新运行"}</button> : null}
           </div>
         </div>
       </header>

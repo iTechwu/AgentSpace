@@ -6,11 +6,12 @@ import type { WorkflowRunPageData } from "./workflow-types";
 
 const mocks = vi.hoisted(() => ({
   control: vi.fn(),
+  run: vi.fn(),
   refresh: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh }) }));
-vi.mock("./workflow-actions", () => ({ controlWorkflowRunAction: mocks.control }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh, push: vi.fn() }) }));
+vi.mock("./workflow-actions", () => ({ controlWorkflowRunAction: mocks.control, runWorkflowAction: mocks.run }));
 
 import { WorkflowRunClient, mergeWorkflowRunEvents, selectLatestWorkflowProjection } from "./workflow-run-client";
 
@@ -132,6 +133,18 @@ describe("workflow run client", () => {
     expect(link).toHaveAttribute("href", "/approvals");
     expect(screen.getByText("审批人：审批人甲")).toBeInTheDocument();
     expect(screen.getByText(/风险：高/)).toBeInTheDocument();
+  });
+
+  it("offers a rerun action for terminal manual workflows", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ events: [], hasMore: false, projection: initial })));
+    mocks.run.mockResolvedValue({ ok: true, data: { runId: "run-2" }, invalidation: { workspaceId: "workspace-1", modules: ["automations"] } });
+    const terminal: WorkflowRunPageData = { ...initial, status: "succeeded", canRunManually: true };
+    renderRun(terminal);
+
+    const rerunButton = screen.getByRole("button", { name: "重新运行" });
+    await user.click(rerunButton);
+    await waitFor(() => expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-1" })));
   });
 
   it("allows a workflow waiting for approval to be paused", async () => {

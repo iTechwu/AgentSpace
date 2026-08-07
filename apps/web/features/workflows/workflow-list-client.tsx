@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
+import { runWorkflowAction } from "./workflow-actions";
 import type { WorkflowCenterPageData, WorkflowListItem } from "./workflow-types";
 
 type WorkflowCenterTab = "plans" | "runs" | "templates";
@@ -134,17 +136,39 @@ export function WorkflowListClient({
 
 function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListItem; workspaceSlug: string }) {
   const { tx } = useLanguage();
+  const router = useRouter();
+  const [running, setRunning] = useState(false);
   const href = workflow.sourceKind === "legacy"
     ? `/w/${workspaceSlug}/automations/new?entry=automations&legacySourceId=${encodeURIComponent(workflow.legacySourceId ?? "")}`
     : `/w/${workspaceSlug}/automations/${workflow.id}`;
+  // 手动运行仅对「已发布且触发器为 manual」的工作流开放（与 materialization 的
+  // assertManualWorkflowTriggerAvailable 服务端约束一致）。列表投影用 triggerLabelCode。
+  const canRunManually = workflow.status === "published" && workflow.triggerLabelCode === "manual";
   const topology = [
     tx(`${workflow.topology.employeeNodeCount} 位员工`, `${workflow.topology.employeeNodeCount} employees`),
     ...(workflow.topology.parallelGroupCount > 0 ? [tx(`${workflow.topology.parallelGroupCount} 组并行`, `${workflow.topology.parallelGroupCount} parallel groups`)] : []),
     ...(workflow.topology.hasApproval ? [tx("含审批", "Approval")] : []),
   ].join(" · ");
+  async function runNow(): Promise<void> {
+    if (!canRunManually || running) return;
+    if (!window.confirm("确认立即运行该工作流？")) return;
+    setRunning(true);
+    try {
+      const result = await runWorkflowAction({
+        workflowId: workflow.id,
+        idempotencyKey: `list-${workflow.id}-${Date.now()}`,
+        input: {},
+      });
+      if (result.ok) {
+        router.push(`/w/${encodeURIComponent(workspaceSlug)}/automations/runs/${result.data.runId}`);
+      }
+    } finally {
+      setRunning(false);
+    }
+  }
   return (
-    <div role="listitem">
-      <Link className="workflow-center__row" href={href}>
+    <div role="listitem" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <Link className="workflow-center__row" href={href} style={{ flex: 1, minWidth: 0 }}>
         <span className="workflow-center__identity">
           <strong title={workflow.name}>{workflow.name}</strong>
           <small>
@@ -158,6 +182,11 @@ function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListIt
         <span>{workflow.ownerLabel}</span>
         <span className={`workflow-center__status workflow-center__status--${workflow.status}`}>{definitionStatusLabel(workflow.status, tx)}</span>
       </Link>
+      <div style={{ width: 96, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+        {canRunManually ? (
+          <button className="knowledge-btn" disabled={running} onClick={() => void runNow()} type="button">{running ? "启动中" : "立即运行"}</button>
+        ) : null}
+      </div>
     </div>
   );
 }
