@@ -21,6 +21,8 @@ const data: WorkflowCenterPageData = {
     { id: "run-1", workflowId: "wf-1", workflowName: "每日简报", status: "succeeded" as const, triggerType: "schedule", createdAt: "2026-08-06T00:00:00.000Z", finishedAt: "2026-08-06T01:00:00.000Z" },
   ],
   recentRunsTotal: 2,
+  recentRunsHasMore: false,
+  recentRunsNextCursor: null,
 };
 
 describe("WorkflowListClient", () => {
@@ -55,8 +57,9 @@ describe("WorkflowListClient", () => {
   });
 
   it("loads more runs on demand via the paginated runs API", async () => {
-    // 运行历史分页（UIUX:运行历史分页）：SSR 首页不足 total 时展示「加载更多」，
-    // 点击后按 offset 请求分页接口并追加，不重复已加载运行。
+    // 运行历史游标分页（UIUX:运行历史分页）：SSR 首页 hasMore=true 时展示「加载更多」，
+    // 点击后以服务端下发的 nextCursor 续拉下一页并追加，不重复已加载运行。
+    const nextCursor = Buffer.from(JSON.stringify({ createdAt: "2026-08-06T00:00:00.000Z", id: "run-1" }), "utf8").toString("base64url");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({
         runs: [
@@ -64,27 +67,54 @@ describe("WorkflowListClient", () => {
         ],
         total: 3,
         hasMore: false,
+        nextCursor: null,
       }), { status: 200, headers: { "content-type": "application/json" } }),
     );
-    const paginated: WorkflowCenterPageData = { ...data, recentRunsTotal: 3 };
+    const paginated: WorkflowCenterPageData = { ...data, recentRunsTotal: 3, recentRunsHasMore: true, recentRunsNextCursor: nextCursor };
     const user = userEvent.setup();
     render(<WorkflowListClient data={paginated} workspaceId="ws-1" workspaceSlug="default" />);
     await user.click(screen.getByRole("tab", { name: "运行" }));
 
-    // 首页 2 条 + total 3 → 展示「加载更多」与已加载计数。
+    // hasMore=true → 展示「加载更多」与已加载计数。
     expect(screen.getByRole("button", { name: "加载更多" })).toBeEnabled();
     expect(screen.getByText(/已加载 2 \/ 3 条/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "加载更多" }));
 
-    // 追加 run-3 后，加载更多消失（已覆盖 total），并按 offset=2 请求下一页。
+    // 追加 run-3 后 hasMore=false，按钮消失，并按服务端游标续拉下一页。
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/workspaces/ws-1/workflow-runs?limit=50&offset=2",
+      `/api/workspaces/ws-1/workflow-runs?limit=50&cursor=${encodeURIComponent(nextCursor)}`,
       expect.objectContaining({ headers: { accept: "application/json" } }),
     );
     expect(screen.getByText(/共 3 条运行记录/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "加载更多" })).not.toBeInTheDocument();
     fetchMock.mockRestore();
+  });
+
+  it("resets run history when the workspace changes (F2 stale-state guard)", async () => {
+    // F2: 组件挂在 module-shell 中被复用时，切换 workspaceId 必须重置 runs/hasMore/cursor，
+    // 否则继续展示上一个工作区的运行并用新 slug 生成错误链接。
+    const user = userEvent.setup();
+    const nextCursor = Buffer.from(JSON.stringify({ createdAt: "2026-08-06T00:00:00.000Z", id: "run-1" }), "utf8").toString("base64url");
+    const workspaceA: WorkflowCenterPageData = { ...data, recentRunsTotal: 3, recentRunsHasMore: true, recentRunsNextCursor: nextCursor };
+    const { rerender } = render(<WorkflowListClient data={workspaceA} workspaceId="ws-a" workspaceSlug="alpha" />);
+    await user.click(screen.getByRole("tab", { name: "运行" }));
+
+    const workspaceB: WorkflowCenterPageData = {
+      ...data,
+      recentRuns: [
+        { id: "run-b1", workflowId: "wf-b", workflowName: "B 流程", status: "succeeded" as const, triggerType: "manual", createdAt: "2026-08-07T00:00:00.000Z" },
+      ],
+      recentRunsTotal: 1,
+      recentRunsHasMore: false,
+      recentRunsNextCursor: null,
+    };
+    rerender(<WorkflowListClient data={workspaceB} workspaceId="ws-b" workspaceSlug="beta" />);
+
+    // 切换后只展示新工作区的运行，「加载更多」按钮消失，链接使用新 slug。
+    expect(screen.queryByRole("link", { name: /每日简报/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /B 流程/ })).toHaveAttribute("href", "/w/beta/automations/runs/run-b1");
+    expect(screen.queryByRole("button", { name: "加载更多" })).not.toBeInTheDocument();
   });
 
   it("surfaces a translated notice when a manual run fails", async () => {

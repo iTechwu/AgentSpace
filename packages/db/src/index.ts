@@ -209,6 +209,7 @@ export {
   lockWorkflowRunForUpdateSync,
   readWorkflowRunSyncByTriggerKey,
   listWorkflowRunsSync,
+  listWorkflowRunsAfterCursorSync,
   countWorkflowRunsSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
@@ -229,6 +230,7 @@ export {
   type TransitionWorkflowNodeRunInput,
   type WorkflowNodeSeed,
   type WorkflowApprovalCandidateRecord,
+  type WorkflowRunListCursor,
 } from "./workflows/runs.ts";
 export {
   appendWorkflowRunEventSync,

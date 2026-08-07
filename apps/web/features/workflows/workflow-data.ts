@@ -8,13 +8,14 @@ import {
   listWorkflowNodeRunsSync,
   listWorkflowRunEventsSync,
   listWorkflowRunsSync,
+  listWorkflowRunsAfterCursorSync,
   listWorkspaceMemberUsersSync,
   readWorkflowDefinitionSync,
   readWorkflowRunSync,
   readWorkflowTriggerForWorkflowSync,
   readWorkflowVersionSync,
 } from "@dofe-agent/db";
-import type { WorkflowRunRecord } from "@dofe-agent/db";
+import type { WorkflowRunRecord, WorkflowRunListCursor } from "@dofe-agent/db";
 import {
   readWorkflowCutoverModeSync,
   readWorkspaceStateSnapshotSync,
@@ -48,6 +49,9 @@ const TERMINAL_RUN_STATUSES = new Set<string>([
   "failed",
   "cancelled",
 ]);
+
+// 运行历史分页首页大小（UIUX:运行历史分页）：SSR 中心页与 GET /api/workspaces/:id/workflow-runs 共用。
+const RECENT_RUNS_PAGE_SIZE = 50;
 
 export interface RunnableWorkflowSummary {
   id: string;
@@ -97,26 +101,23 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
     listWorkspaceMemberUsersSync(workspaceId).map((member) => [member.userId, member.displayName]),
   );
   const latestRuns = new Map<string, { id: string; status: WorkflowRunStatus; finishedAt?: string }>();
-  const recentRuns: WorkflowRunSummary[] = [];
-  const workflowNamesById = new Map(definitions.map((definition) => [definition.id, definition.name]));
+  // 每个工作流最近一次运行（计划列表 latestRun 列）：扫描最近 500 条运行，按 (created_at
+  // DESC, id DESC) 取每个 workflowId 的首条。与运行历史分页独立——recentRuns 首页由下方
+  // getWorkflowRunsPageSync 与 API 共用同一 keyset 游标实现产出，保证 SSR 首页与懒加载页
+  // 的排序、过滤、游标口径完全一致。
   for (const run of listWorkflowRunsSync(workspaceId, 500)) {
     if (!isStatusfulWorkflowRun(run)) continue;
-    // 运行历史（UIUX:140）：收集最近运行用于中心「运行」标签，名称以当前定义为准、
-    // 缺失（已归档/删除）时回退 workflowId，避免历史记录随定义消失。
-    recentRuns.push(toWorkflowRunSummary(run, workflowNamesById));
-    if (!definitionIds.has(run.workflowId) || latestRuns.has(run.workflowId)) {
-      continue;
-    }
+    if (!definitionIds.has(run.workflowId) || latestRuns.has(run.workflowId)) continue;
     latestRuns.set(run.workflowId, {
       id: run.id,
       status: run.status,
       ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
     });
   }
-  recentRuns.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  // 运行历史总数（UIUX:运行历史分页）：中心页 SSR 只下发首页（RECENT_RUNS_PAGE_SIZE），
-  // 其余通过 GET /api/workspaces/:id/workflow-runs 分页加载。total 让前端判断是否展示「加载更多」。
-  const recentRunsTotal = countWorkflowRunsSync(workspaceId);
+  // 运行历史首页（UIUX:运行历史分页）：与 GET /api/workspaces/:id/workflow-runs 共用同一
+  // keyset 游标实现。SSR 下发首页 + nextCursor/hasMore，前端据此续拉，避免 offset 分页在
+  // 并发新增运行时漏记录或「加载更多」永不结束。
+  const recentRunsPage = getWorkflowRunsPageSync(workspaceId, { limit: RECENT_RUNS_PAGE_SIZE });
 
   const triggersByWorkflowId = new Map<string, WorkflowTriggerSummary>();
   for (const trigger of listWorkflowTriggerSummaries(workspaceId)) {
@@ -191,35 +192,70 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       paused: workflows.filter((workflow) => workflow.status === "paused").length,
       blocked: workflows.filter((workflow) => workflow.latestRun?.status === "waiting_approval").length,
     },
-    recentRuns: recentRuns.slice(0, RECENT_RUNS_PAGE_SIZE),
-    recentRunsTotal,
+    recentRuns: recentRunsPage.runs,
+    recentRunsTotal: recentRunsPage.total,
+    recentRunsHasMore: recentRunsPage.hasMore,
+    recentRunsNextCursor: recentRunsPage.nextCursor,
   };
 }
 
+/** 游标分页结果：runs 为本页，nextCursor 供前端续拉下一页（无更多时为 null），total 仅用于「共 N 条」展示。 */
+export interface WorkflowRunsPage {
+  runs: WorkflowRunSummary[];
+  total: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
 /**
- * 运行历史分页（UIUX:运行历史分页）：中心页 SSR 只下发首页，前端通过此分页函数
- * （经 GET /api/workspaces/:id/workflow-runs）按 limit/offset 加载更多。
+ * 运行历史游标分页（UIUX:运行历史分页）：中心页 SSR 与 GET /api/workspaces/:id/workflow-runs
+ * 共用此实现，按 (created_at DESC, id DESC) keyset 推进。
  *
- * 排序与 listWorkflowRunsSync 一致（created_at DESC, id DESC），offset 以同一口径推进，
- * 保证分页连续无重叠无遗漏。total 为工作区运行总数，hasMore = 当前页累计未覆盖 total。
+ * 取代 offset 分页以消除「分页期间新增运行导致 offset 整体后移、去重后漏记录或『加载更多』
+ * 永不结束」的缺陷：新插入的运行 createdAt 晚于游标，不会被后续页误纳入，分页始终连续、
+ * 确定且可终止。取 limit+1 条以判定 hasMore（多取的一条仅用于边界判定，不下发）；
+ * nextCursor 为本页最后一条的定位键编码；total 为工作区运行总数，仅用于展示。
  */
 export function getWorkflowRunsPageSync(
   workspaceId: string,
-  input: { limit: number; offset: number },
-): { runs: WorkflowRunSummary[]; total: number; hasMore: boolean } {
+  input: { limit: number; cursor?: string | null },
+): WorkflowRunsPage {
   const limit = Math.max(1, Math.min(Math.trunc(input.limit), 200));
-  const offset = Math.max(0, Math.trunc(input.offset));
+  const cursor = decodeWorkflowRunCursor(input.cursor ?? null);
   const workflowNamesById = new Map(
     listWorkflowDefinitionsSync(workspaceId).map((definition) => [definition.id, definition.name]),
   );
-  const runs = listWorkflowRunsSync(workspaceId, limit, offset)
-    .filter(isStatusfulWorkflowRun)
-    .map((run) => toWorkflowRunSummary(run, workflowNamesById));
+  const fetched = listWorkflowRunsAfterCursorSync(workspaceId, cursor, limit + 1)
+    .filter(isStatusfulWorkflowRun);
+  const hasMore = fetched.length > limit;
+  const pageRecords = hasMore ? fetched.slice(0, limit) : fetched;
+  const runs = pageRecords.map((run) => toWorkflowRunSummary(run, workflowNamesById));
+  const lastRecord = pageRecords[pageRecords.length - 1];
+  const nextCursor = hasMore && lastRecord
+    ? encodeWorkflowRunCursor({ createdAt: lastRecord.createdAt, id: lastRecord.id })
+    : null;
   const total = countWorkflowRunsSync(workspaceId);
-  return { runs, total, hasMore: offset + runs.length < total };
+  return { runs, total, hasMore, nextCursor };
 }
 
-const RECENT_RUNS_PAGE_SIZE = 50;
+/** 把游标定位键编码为不透明字符串（base64url），前端只透传、不解码。 */
+export function encodeWorkflowRunCursor(cursor: WorkflowRunListCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+/** 解码游标；输入为空或格式非法时返回 null（由调用方决定空 vs 非法的语义）。 */
+export function decodeWorkflowRunCursor(raw: string | null): WorkflowRunListCursor | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<WorkflowRunListCursor>;
+    if (typeof parsed.createdAt === "string" && typeof parsed.id === "string") {
+      return { createdAt: parsed.createdAt, id: parsed.id };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** 把运行记录映射为运行历史摘要，名称以当前定义为准、缺失时回退 workflowId。 */
 function toWorkflowRunSummary(

@@ -51,6 +51,11 @@ export interface WorkflowCenterPageData {
   };
   recentRuns: WorkflowRunSummary[];
   recentRunsTotal: number;
+  // 游标分页（UIUX:运行历史分页）：SSR 首页与 GET /api/workspaces/:id/workflow-runs 共用同一
+  // keyset 实现。hasMore/nextCursor 由服务端按 (created_at DESC, id DESC) 游标判定下发，
+  // 前端据此续拉，避免 offset 分页在并发新增时漏记录或按钮永不结束。
+  recentRunsHasMore: boolean;
+  recentRunsNextCursor: string | null;
 }
 
 export type WorkflowBuilderEntry = "automations" | "calendar" | "task-board";

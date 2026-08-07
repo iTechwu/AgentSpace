@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { EmptyState } from "@/shared/ui/empty-state";
@@ -33,12 +33,31 @@ export function WorkflowListClient({
   const [tab, setTab] = useState<WorkflowCenterTab>("plans");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<WorkflowStatusFilter>("all");
-  // 运行历史分页（UIUX:运行历史分页）：SSR 已下发首页 recentRuns，其余通过分页接口懒加载，
-  // 不再硬限制为最近 50 条。runs 按已加载顺序追加，loadMore 在末尾追加下一页。
+  // 运行历史游标分页（UIUX:运行历史分页）：SSR 已下发首页 + nextCursor/hasMore，前端按
+  // (created_at DESC, id DESC) keyset 游标续拉下一页。hasMore/nextCursor 由服务端判定下发，
+  // 避免旧 offset 分页在并发新增运行时漏记录或「加载更多」永不结束。runs 按已加载顺序追加。
   const [runs, setRuns] = useState<WorkflowRunSummary[]>(data.recentRuns);
+  const [nextCursor, setNextCursor] = useState<string | null>(data.recentRunsNextCursor ?? null);
+  const [hasMoreRuns, setHasMoreRuns] = useState<boolean>(data.recentRunsHasMore ?? false);
+  const [totalRuns, setTotalRuns] = useState<number>(data.recentRunsTotal);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
-  const hasMoreRuns = runs.length < data.recentRunsTotal;
+  // F2: 切换 workspace 时同步重置运行历史。组件挂在 module-shell 中会被复用，useState 初始化器
+  // 只在挂载时取一次 props；若不重置，workspaceId 变后 runs 仍是旧工作区、hasMore 用旧长度对
+  // 新 total、链接也用新 slug 指向旧 run。采用 React「渲染期调整 state」模式（见 React 文档
+  // You Might Not Need an Effect），无需额外 effect 或重挂载。
+  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
+  if (workspaceId !== prevWorkspaceId) {
+    setPrevWorkspaceId(workspaceId);
+    setRuns(data.recentRuns);
+    setNextCursor(data.recentRunsNextCursor ?? null);
+    setHasMoreRuns(data.recentRunsHasMore ?? false);
+    setTotalRuns(data.recentRunsTotal);
+    setLoadMoreError(null);
+  }
+  // 用于丢弃 workspace 切换前在途请求的过期响应（见 loadMoreRuns）。
+  const workspaceIdRef = useRef(workspaceId);
+  workspaceIdRef.current = workspaceId;
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     return data.workflows.filter((workflow) =>
@@ -48,21 +67,29 @@ export function WorkflowListClient({
   }, [data.workflows, query, status]);
 
   async function loadMoreRuns(): Promise<void> {
+    if (!nextCursor) return;
+    const requestWorkspaceId = workspaceId;
     setLoadingMore(true);
     setLoadMoreError(null);
     try {
       const response = await fetch(
-        `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}&offset=${runs.length}`,
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}&cursor=${encodeURIComponent(nextCursor)}`,
         { headers: { accept: "application/json" } },
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const page = (await response.json()) as { runs: WorkflowRunSummary[]; total: number; hasMore: boolean };
-      // 去重防御：分页接口以 offset 推进，正常不会重叠；若与 SSR 首页或并发刷新产生重复则按 id 合并。
+      const page = (await response.json()) as { runs: WorkflowRunSummary[]; total: number; hasMore: boolean; nextCursor: string | null };
+      // workspace 已在请求在途期间切换：丢弃过期响应，避免把旧工作区运行混入新工作区。
+      if (workspaceIdRef.current !== requestWorkspaceId) return;
+      // 去重防御：游标分页正常不重叠；与 SSR 首页或并发刷新产生重复时按 id 合并。
       setRuns((previous) => {
         const seen = new Set(previous.map((run) => run.id));
         return [...previous, ...page.runs.filter((run) => !seen.has(run.id))];
       });
+      setHasMoreRuns(page.hasMore);
+      setNextCursor(page.nextCursor);
+      setTotalRuns(page.total);
     } catch {
+      if (workspaceIdRef.current !== requestWorkspaceId) return;
       setLoadMoreError(tx("加载更多运行记录失败，请稍后重试。", "Failed to load more runs. Please try again."));
     } finally {
       setLoadingMore(false);
@@ -162,11 +189,11 @@ export function WorkflowListClient({
                     {loadingMore ? tx("加载中…", "Loading…") : tx("加载更多", "Load more")}
                   </button>
                   <span>
-                    {tx(`已加载 ${runs.length} / ${data.recentRunsTotal} 条`, `${runs.length} of ${data.recentRunsTotal} loaded`)}
+                    {tx(`已加载 ${runs.length} / ${totalRuns} 条`, `${runs.length} of ${totalRuns} loaded`)}
                   </span>
                 </div>
               ) : (
-                <p className="workflow-center__load-more-summary">{tx(`共 ${data.recentRunsTotal} 条运行记录`, `${data.recentRunsTotal} runs in total`)}</p>
+                <p className="workflow-center__load-more-summary">{tx(`共 ${totalRuns} 条运行记录`, `${totalRuns} runs in total`)}</p>
               )}
               {loadMoreError ? <p className="workflow-run__notice" role="alert">{loadMoreError}</p> : null}
             </>

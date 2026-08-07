@@ -172,9 +172,42 @@ export function listWorkflowRunsSync(workspaceId: string, limit = 100, offset = 
   ).all(workspaceId) as Array<Record<string, unknown>>).map(mapRun);
 }
 
+/** 游标分页定位键：与运行排序口径 (created_at DESC, id DESC) 一致，保证游标可比较、可复现。 */
+export interface WorkflowRunListCursor {
+  createdAt: string;
+  id: string;
+}
+
+/**
+ * 游标（keyset）分页列出工作区运行：按 created_at DESC, id DESC 排序，返回 cursor 之后的下一页。
+ *
+ * 取代 offset 分页，消除「分页期间新增运行导致 offset 整体后移、去重后漏记录或『加载更多』
+ * 永不结束」的缺陷——新插入的运行 createdAt 晚于游标，不满足「严格早于游标」的条件，不会
+ * 被后续页误纳入，分页始终连续、确定、可终止。cursor 为 null 时返回首页。limit 为数据库
+ * 取数上限（调用方按 limit+1 取数以判定 hasMore）。
+ */
+export function listWorkflowRunsAfterCursorSync(
+  workspaceId: string,
+  cursor: WorkflowRunListCursor | null,
+  limit: number,
+): WorkflowRunRecord[] {
+  const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
+  const db = getDatabase();
+  if (!cursor) {
+    return (db.prepare(
+      `${RUN_SELECT} WHERE workspace_id = ? ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`,
+    ).all(workspaceId) as Array<Record<string, unknown>>).map(mapRun);
+  }
+  return (db.prepare(
+    `${RUN_SELECT} WHERE workspace_id = ?
+       AND (created_at < ? OR (created_at = ? AND id < ?))
+     ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`,
+  ).all(workspaceId, cursor.createdAt, cursor.createdAt, cursor.id) as Array<Record<string, unknown>>).map(mapRun);
+}
+
 /**
  * 工作区运行总数，供运行历史分页展示「共 N 条」与判断是否还有更多。
- * offset/limit 复用 listWorkflowRunsSync 的同一排序口径，保证分页连续无重叠无遗漏。
+ * 排序口径与 listWorkflowRunsAfterCursorSync 一致（created_at DESC, id DESC）。
  */
 export function countWorkflowRunsSync(workspaceId: string): number {
   const row = getDatabase().prepare(
