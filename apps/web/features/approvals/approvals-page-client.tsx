@@ -298,7 +298,12 @@ export function ApprovalsPageClient({
                   <span>
                     {selected.reviewerLabel
                       ? selected.reviewerLabel
-                      : tx("管理员/负责人", "Manager / Owner")}
+                      // 「管理员/负责人」默认审批人仅适用于 Workflow ApprovalGate（未指定具体审批人时，
+                      // 与鉴权层「管理员可放行」一致）。文档/AI/知识等审批类型的授权方不同，
+                      // 不应套用该 fallback，避免误导；这类审批无指定审批人时显示中性占位。
+                      : selected.metadata?.kind === "workflow_node"
+                        ? tx("管理员/负责人", "Manager / Owner")
+                        : tx("—", "—")}
                   </span>
                 </div>
                 {selected.reviewerRisk ? (
@@ -312,9 +317,10 @@ export function ApprovalsPageClient({
                     <span className="approvals-detail__label">{tx("审批限时", "Approval deadline")}</span>
                     <span>
                       {formatDateTime(selected.reviewerExpiresAt)}
-                      {/* 终态审批（已批准/已驳回/已过期等）仍保留原截止时间，便于审计回溯；仅待审批时附加剩余倒计时。 */}
+                      {/* 终态审批（已批准/已驳回/已过期等）仍保留原截止时间，便于审计回溯；仅待审批时附加剩余倒计时。
+                          倒计时由 ApprovalRemainingCountdown 每 60s 自行刷新，避免详情面板常驻打开时停滞。 */}
                       {selected.status === "pending" ? (
-                        <span className="approvals-detail__deadline-remaining"> · {describeApprovalRemaining(selected.reviewerExpiresAt, tx)}</span>
+                        <span className="approvals-detail__deadline-remaining"> · <ApprovalRemainingCountdown expiresAt={selected.reviewerExpiresAt} tx={tx} /></span>
                       ) : null}
                     </span>
                   </div>
@@ -399,6 +405,20 @@ export function ApprovalsPageClient({
  * 不足 1 分钟按「即将到期」、已过期按「已逾期」展示，供审批中心显式提示。
  * 仅用于展示，是否真正驳回以调度扫描的 expiresAt 为准。
  */
+/**
+ * 审批剩余时间倒计时（UIUX:审批限时）。describeApprovalRemaining 仅在渲染时读取 Date.now()，
+ * 若直接在详情面板内联，面板常驻打开时倒计时会停滞。这里封装为独立组件并按 60s 轮询强制
+ * 重新渲染，使「剩余」始终接近实时；轮询随组件卸载清理。仅 pending 状态渲染本组件。
+ */
+function ApprovalRemainingCountdown({ expiresAt, tx }: { expiresAt: string; tx: (zh: string, en: string) => string }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((tick) => tick + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+  return <>{describeApprovalRemaining(expiresAt, tx)}</>;
+}
+
 function describeApprovalRemaining(expiresAt: string, tx: (zh: string, en: string) => string): string {
   const deadlineMs = Date.parse(expiresAt);
   if (!Number.isFinite(deadlineMs)) return tx("未知", "unknown");

@@ -290,6 +290,8 @@ describe("ApprovalsPageClient", () => {
           status: "pending",
           contentPreview: "未指定审批人的限时审批",
           createdAt: "2026-04-10T09:00:00.000Z",
+          // 工作流审批携带 metadata.kind=workflow_node，是「管理员/负责人」默认审批人 fallback 的适用范围。
+          metadata: { kind: "workflow_node" },
           reviewerExpiresAt: "2099-01-01T00:00:00.000Z",
           reviewerRisk: "medium",
         },
@@ -312,6 +314,44 @@ describe("ApprovalsPageClient", () => {
     expect(screen.getByText("管理员/负责人")).toBeInTheDocument();
     expect(screen.getByText("审批限时")).toBeInTheDocument();
     expect(screen.getByText(/剩余/)).toBeInTheDocument();
+  });
+
+  it("does not show the workflow-only default reviewer fallback for non-workflow approvals", async () => {
+    // 「管理员/负责人」默认审批人只适用于 Workflow ApprovalGate。知识提案等审批类型的授权方不同，
+    // 不应套用该 fallback——未指定审批人时显示中性占位「—」，避免误导。
+    const user = userEvent.setup();
+    const knowledgeData: ApprovalsPageData = {
+      approvals: [
+        {
+          id: "workspace-approval:knowledge-open",
+          actionId: "knowledge-open",
+          kind: "knowledge_proposal",
+          type: "knowledge_proposal",
+          sourceId: "task-knowledge",
+          agentId: "atlas",
+          agentDisplayName: "Atlas",
+          channelName: "travel",
+          status: "pending",
+          contentPreview: "知识提案审批不应套用工作流默认审批人",
+          createdAt: "2026-04-10T09:00:00.000Z",
+        },
+      ],
+      totalCount: 1,
+      pendingCount: 1,
+      approvedCount: 0,
+      rejectedCount: 0,
+      cancelledCount: 0,
+    };
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={knowledgeData} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /知识提案审批不应套用工作流默认审批人/i }));
+
+    expect(screen.queryByText("管理员/负责人")).not.toBeInTheDocument();
   });
 
   it("preserves the original deadline for a terminal approval without a remaining countdown", async () => {
