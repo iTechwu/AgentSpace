@@ -314,7 +314,12 @@ export function expireWorkflowApprovalsSync(input: {
   if (!Number.isFinite(nowMs)) throw new Error("workflow_now_invalid");
   const expiredApprovalIds: string[] = [];
   const failures: WorkflowApprovalExpiryFailure[] = [];
-  const reachedLimit = (): boolean => Boolean(input.limit) && expiredApprovalIds.length >= (input.limit ?? 0);
+  // limit 限定本轮「评估」的候选审批总数——候选 = pending + 工作流审批 + 设有限时。
+  // 不论该候选是否到期、处理是否成功都消耗额度，避免审批积压或持续失败时单个 tick
+  // 遍历全部记录（原先仅按成功过期数停止）。
+  const limit = input.limit;
+  let evaluated = 0;
+  const reachedLimit = (): boolean => typeof limit === "number" && limit > 0 && evaluated >= limit;
   // 工作区范围：传入 workspaceId 时只处理该工作区，避免越权/越界处理其他工作区的审批。
   const workspaces = input.workspaceId
     ? [{ workspaceId: input.workspaceId }]
@@ -329,6 +334,9 @@ export function expireWorkflowApprovalsSync(input: {
       if (approval.metadata?.kind !== "workflow_node") continue;
       const expiresAtRaw = typeof approval.metadata?.expiresAt === "string" ? approval.metadata.expiresAt : undefined;
       if (!expiresAtRaw) continue;
+      // 确认这是一个待评估的限时工作流审批候选：达批量上限则停止整轮扫描（不再消耗额度）。
+      if (reachedLimit()) break;
+      evaluated += 1;
       const expiresAtMs = Date.parse(expiresAtRaw);
       if (!Number.isFinite(expiresAtMs) || expiresAtMs > nowMs) continue;
       try {
