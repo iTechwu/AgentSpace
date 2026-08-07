@@ -4,7 +4,7 @@
 
 目标分支：`codex/agent-team-workflow`
 
-代码证据：本轮深审起点 `5e3fa1d`；待发布 SHA 必须取本目录所在最终提交
+代码证据：本轮复审基线 `dcb21558`；待发布 SHA 必须取包含本清单的最终已提交版本
 
 发布策略：按 workspace 从 `legacy_only` 逐步切换到 `dual_read`、`workflow_engine`、`legacy_archived`
 
@@ -16,7 +16,7 @@
 
 | 检查项 | 当前状态 | 证据 / 放行条件 |
 | --- | --- | --- |
-| 目标提交 | 最终 SHA 待本轮提交后固化 | 发布只能使用本目录所在已提交 SHA，不得使用未提交工作树 |
+| 目标提交 | 部署时记录完整 40 位 SHA | 发布只能使用包含本清单的已提交版本，不得使用未提交工作树 |
 | PostgreSQL schema 版本 | 代码为 `109`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `109` |
 | Workflow 表与唯一约束 | 静态测试已覆盖 | 7 张 workspace-scoped 表；`workspace_id + trigger_key`、`run_id + node_id`、`run_id + sequence` 唯一 |
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |
@@ -81,10 +81,12 @@ reviewer: PENDING
 本地回归快照（2026-08-07）：
 
 ```text
-Domain/Service Workflow: 33 passed
+Domain: 37 passed
+Workflow Service（event/scheduler/security）: 23 passed
+Feishu Outbound（含多审批幂等）: 26 passed
 Web Completion/Reconcile/Cron: 18 passed
-CLI Completion Token Usage/Daemon Client: 4 passed
-Deployment configuration: 13 passed
+CLI Completion Outbox/Token Usage/Daemon Client: 6 passed
+Deployment/release configuration: 9 passed
 CLI Output/Task Context: BLOCKED_TEST_ENV（缺 PostgreSQL URL 与 TOS 配置）
 Web + CLI + dependency TypeScript: passed（含本轮 completion replay、token usage、commit reconcile route）
 Web ESLint: passed

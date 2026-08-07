@@ -18,6 +18,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { arch, platform, version as nodeVersion } from "node:process";
 import { buildTaskCompletionTokenUsage } from "../lib/task-completion-token-usage.ts";
+import { enqueueTaskCompletionFeishuOutbox } from "../lib/task-completion-outbox.ts";
 import {
   detectProviders as detectSharedProviders,
   collectRuntimeOutputBundle,
@@ -96,8 +97,6 @@ import {
   markChannelDocumentRunStepRunningSync,
   persistWorkspaceAttachmentFromFileSync,
   postMessageSync,
-  queueFeishuAgentStatusCardOutboxSync,
-  queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveAgentDocumentContextSync,
@@ -116,7 +115,6 @@ import {
   upsertDirectConversationStateSync,
   updateTaskStatusSync,
   writeWorkspaceStateSync,
-  type FeishuAgentStatusCardStatus,
   type FeishuWebSocketWorkerSupervisorHandle,
 } from "@dofe-agent/services";
 import type { ActiveEmployee, MessageAttachment } from "@dofe-agent/domain/workspace";
@@ -835,46 +833,6 @@ interface TokenAccumulator {
   outputTokens: number;
   modelId?: string;
   gatewayRequestId?: string;
-}
-
-function enqueueFeishuReplyOutboxBestEffort(input: {
-  workspaceId: string;
-  channelName: string;
-  agentId?: string;
-  text: string;
-  attachments?: MessageAttachment[];
-  dofeAgentMessageId?: string;
-  sourceDofeAgentMessageId?: string;
-  statusCard?: {
-    status: FeishuAgentStatusCardStatus;
-    agentNames: string[];
-    message?: string;
-    taskId?: string;
-  };
-}): string[] {
-  try {
-    const statusCardItems = input.statusCard
-      ? queueFeishuAgentStatusCardOutboxSync({
-          workspaceId: input.workspaceId,
-          channelName: input.channelName,
-          agentId: input.agentId,
-          status: input.statusCard.status,
-          agentNames: input.statusCard.agentNames,
-          message: input.statusCard.message,
-          taskId: input.statusCard.taskId,
-          dofeAgentMessageId: input.dofeAgentMessageId,
-          sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
-        })
-      : [];
-    const replyOutboxItems = queueFeishuChannelReplyOutboxSync(input);
-    const queuedCount = statusCardItems.length + replyOutboxItems.length;
-    return queuedCount > 0
-      ? [`Feishu outbound queued: ${queuedCount} message(s).`]
-      : [];
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return [`Feishu outbound enqueue failed: ${message}`];
-  }
 }
 
 interface ProviderTaskEvent {
@@ -1679,7 +1637,7 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
           content: warning,
         });
       }
-      for (const statusMessage of replyResult.created ? enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of enqueueTaskCompletionFeishuOutbox({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         agentId: agentName,
@@ -1693,7 +1651,7 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
           message: outputEnvelope.text,
           taskId: task.id,
         },
-      }) : []) {
+      })) {
         appendTaskMessageSync({
           taskId: task.id,
           type: "status",
@@ -1740,7 +1698,7 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
           content: warning,
         });
       }
-      for (const statusMessage of replyResult.created ? enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of enqueueTaskCompletionFeishuOutbox({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         agentId: agentName,
@@ -1754,7 +1712,7 @@ async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedTask: Qu
           message: outputEnvelope.text,
           taskId: task.id,
         },
-      }) : []) {
+      })) {
         appendTaskMessageSync({
           taskId: task.id,
           type: "status",
