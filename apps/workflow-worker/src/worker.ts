@@ -54,6 +54,6 @@ export async function runWorkflowWorkerTick(input: {
 function countSchedulerFailures(scheduled: WorkflowSchedulerTickResult): number {
   return scheduled.failedTriggerIds.length
     + scheduled.expiredApprovalFailures.length
-    + (scheduled.approvalScanFailed ? 1 : 0)
+    + (scheduled.approvalScanFailure ? 1 : 0)
     + (scheduled.invalidClock ? 1 : 0);
 }

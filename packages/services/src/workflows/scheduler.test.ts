@@ -243,5 +243,5 @@ test("tickWorkflowSchedulerSync reports an invalid clock structurally instead of
   assert.equal(result.invalidClock, true);
   assert.deepEqual(result.createdRunIds, []);
   assert.deepEqual(result.failedTriggerIds, []);
-  assert.equal(result.approvalScanFailed, false);
+  assert.equal(result.approvalScanFailure, null);
 });

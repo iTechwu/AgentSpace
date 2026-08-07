@@ -13,7 +13,7 @@ function tickResult(overrides: Partial<WorkflowSchedulerTickResult> = {}): Workf
     failedTriggerIds: [],
     expiredApprovalIds: [],
     expiredApprovalFailures: [],
-    approvalScanFailed: false,
+    approvalScanFailure: null,
     invalidClock: false,
     ...overrides,
   };
@@ -59,7 +59,7 @@ test("worker tick counts approval expiry failures and scan failures in scheduler
   // schedulerFailures 是告警出口（后端设计文档:119）：触发器物化失败、审批限时扫描单条失败
   // 与整轮扫描失败都计入，确保监控不会把审批失败报告为 0。
   const services: WorkflowWorkerServices = {
-    scheduler: () => tickResult({ failedTriggerIds: ["t-1"], expiredApprovalFailures: [approvalFailure(), approvalFailure({ approvalId: "approval-2" })], approvalScanFailed: true }),
+    scheduler: () => tickResult({ failedTriggerIds: ["t-1"], expiredApprovalFailures: [approvalFailure(), approvalFailure({ approvalId: "approval-2" })], approvalScanFailure: { errorCode: "workflow_approval_scan_failed", occurredAt: "2026-08-07T00:00:00.000Z" } }),
     outbox: () => ({ dispatchedTaskIds: [] }),
     recovery: () => ({ readyNodeRunIds: [], retriedNodeRunIds: [], failedNodeRunIds: [] }),
   };

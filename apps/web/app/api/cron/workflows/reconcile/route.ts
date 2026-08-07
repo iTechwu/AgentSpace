@@ -31,7 +31,7 @@ export async function GET(request: Request): Promise<Response> {
     // 与整轮扫描失败都计入，确保监控不会把审批失败报告为 0。
     schedulerFailures: scheduled.failedTriggerIds.length
       + scheduled.expiredApprovalFailures.length
-      + (scheduled.approvalScanFailed ? 1 : 0),
+      + (scheduled.approvalScanFailure ? 1 : 0),
     dispatched: dispatched.dispatchedTaskIds.length,
     recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length +
       recovered.failedNodeRunIds.length + recovered.orphanedTaskIds.length,

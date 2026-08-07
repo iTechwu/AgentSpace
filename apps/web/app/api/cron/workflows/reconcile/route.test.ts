@@ -11,7 +11,7 @@ import { GET } from "./route";
 const originalSecret = process.env.CRON_SECRET;
 beforeEach(() => {
   vi.clearAllMocks();
-  services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"], expiredApprovalFailures: [], approvalScanFailed: false, invalidClock: false });
+  services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"], expiredApprovalFailures: [], approvalScanFailure: null, invalidClock: false });
   services.dispatchWorkflowOutboxBatchSync.mockReturnValue({ dispatchedTaskIds: ["task-1"] });
   services.recoverStaleWorkflowWorkSync.mockReturnValue({
     readyNodeRunIds: ["node-1"],
@@ -55,7 +55,7 @@ describe("workflow reconcile route", () => {
       createdRunIds: [],
       failedTriggerIds: [],
       expiredApprovalFailures: [{ approvalId: "a-1" }, { approvalId: "a-2" }],
-      approvalScanFailed: true,
+      approvalScanFailure: { errorCode: "workflow_approval_scan_failed", occurredAt: "2026-08-07T00:00:00.000Z" },
       invalidClock: false,
     });
     const response = await GET(new Request("http://localhost/api/cron/workflows/reconcile", { headers: { authorization: "Bearer expected" } }));

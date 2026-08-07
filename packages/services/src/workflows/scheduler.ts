@@ -25,9 +25,10 @@ export interface WorkflowSchedulerTickResult {
   // 本轮审批限时扫描中处理失败（事务回滚/并发冲突）的审批，含 workspaceId/runId/
   // approvalId/errorCode，供告警与值班定位。持续性失败不再被静默重试。
   expiredApprovalFailures: WorkflowApprovalExpiryFailure[];
-  // 整轮审批限时扫描本身失败（如调度时钟非法）。这是一个系统级事件，没有单一工作区
-  // 归属；由 Worker/reconcile 计入 schedulerFailures 供告警，避免被静默或误归到默认工作区。
-  approvalScanFailed: boolean;
+  // 整轮审批限时扫描本身失败（如 DB 读取失败、内部异常）。这是一个系统级事件，没有单一工作区
+  // 归属。返回稳定 errorCode/occurredAt 供 Worker/reconcile 区分失败类型（非法时钟由单独的
+  // invalidClock 标记）并计入 schedulerFailures 告警出口；null 表示本轮扫描未发生整轮失败。
+  approvalScanFailure: { errorCode: string; occurredAt: string } | null;
   // 调度器入口校验到非法 now（无法解析）。此时 claim（lease 计算调用 toISOString）与
   // 审批扫描都无法安全推进，本轮 tick 提前返回空结果并置位该标记，由 Worker/reconcile
   // 计入 schedulerFailures——而不是让 claim 层的 RangeError 逸出、中断后续 outbox/recovery。
@@ -53,7 +54,7 @@ export function tickWorkflowSchedulerSync(input: {
       failedTriggerIds: [],
       expiredApprovalIds: [],
       expiredApprovalFailures: [],
-      approvalScanFailed: false,
+      approvalScanFailure: null,
       invalidClock: true,
     };
   }
@@ -66,7 +67,7 @@ export function tickWorkflowSchedulerSync(input: {
     failedTriggerIds: [],
     expiredApprovalIds: [],
     expiredApprovalFailures: [],
-    approvalScanFailed: false,
+    approvalScanFailure: null,
     invalidClock: false,
   };
   for (const trigger of triggers) {
@@ -142,11 +143,15 @@ export function tickWorkflowSchedulerSync(input: {
     result.expiredApprovalIds = expiry.expiredApprovalIds;
     result.expiredApprovalFailures = expiry.failures;
   } catch (error) {
-    // 整轮扫描失败（如非法时钟）是系统级事件，不阻断本轮触发器处理结果。标记到结果，
-    // 由 Worker/reconcile 计入 schedulerFailures 供告警。仅当本轮扫描限定在具体工作区时
-    // 才写审计日志（正确归属该工作区）；全局扫描无单一工作区归属，绝不落到默认工作区。
-    result.approvalScanFailed = true;
-    if (input.workspaceId) recordApprovalScanFailureBestEffort(input.workspaceId, error, input.now);
+    // 整轮扫描失败（如 DB 读取失败、内部异常）是系统级事件，不阻断本轮触发器处理结果。
+    // 派生稳定 errorCode 并连同 occurredAt 写入结果，由 Worker/reconcile 计入
+    // schedulerFailures 供告警——值班可据此区分 DB 读取失败、非法时钟（独立 invalidClock）
+    // 等不同故障类型。仅当本轮扫描限定在具体工作区时才写审计日志（正确归属该工作区）；
+    // 全局扫描无单一工作区归属（audit_log.workspace_id NOT NULL，回落默认工作区会错归），
+    // 改写系统级结构化日志供日志/指标管道采集。
+    const errorCode = workflowApprovalScanErrorCode(error);
+    result.approvalScanFailure = { errorCode, occurredAt: input.now };
+    recordApprovalScanFailureBestEffort(input.workspaceId, errorCode, error, input.now);
   }
   return result;
 }
@@ -423,24 +428,44 @@ function recordSchedulerOutcomeBestEffort(trigger: WorkflowTriggerRecord, now: s
 }
 
 /**
- * 整轮审批限时扫描失败（如非法时钟）的尽力争力记录：写入审计日志，供告警与值班定位。
- * 审计写入本身失败不放大故障，下一轮 tick 仍会重试扫描。
+ * 派生整轮审批扫描失败的稳定 errorCode：识别 workflow_* 形态的错误消息，否则回落到
+ * 通用 workflow_approval_scan_failed。worker/reconcile 据此区分故障类型。
  */
-function recordApprovalScanFailureBestEffort(workspaceId: string | undefined, error: unknown, now: string): void {
+function workflowApprovalScanErrorCode(error: unknown): string {
+  return error instanceof Error && /^workflow_[a-z0-9_]+$/.test(error.message)
+    ? error.message
+    : "workflow_approval_scan_failed";
+}
+
+/**
+ * 整轮审批限时扫描失败的尽力争力记录。限定工作区的扫描：写该工作区的审计日志，正确归属。
+ * 全局扫描（无 workspaceId）：audit_log.workspace_id NOT NULL 无法安全承载（回落
+ * DEFAULT_WORKSPACE_ID 会错归），改写系统级结构化日志（console.warn），供日志/指标管道采集。
+ * 写入本身失败不放大故障，结构化失败已随 WorkflowSchedulerTickResult 上报，下一轮 tick 仍会重试。
+ */
+function recordApprovalScanFailureBestEffort(workspaceId: string | undefined, errorCode: string, error: unknown, now: string): void {
   try {
-    const code = error instanceof Error && /^workflow_[a-z0-9_]+$/.test(error.message)
-      ? error.message
-      : "workflow_approval_scan_failed";
-    recordAuditLogSync({
-      ...(workspaceId ? { workspaceId } : {}),
-      title: "Workflow approval deadline scan failed",
-      note: "approval_deadline_scan_failed",
-      code,
-      source: "runtime_lifecycle",
-      data: { reasonCode: code, occurredAt: now },
-    });
+    if (workspaceId) {
+      recordAuditLogSync({
+        workspaceId,
+        title: "Workflow approval deadline scan failed",
+        note: "approval_deadline_scan_failed",
+        code: errorCode,
+        source: "runtime_lifecycle",
+        data: { reasonCode: errorCode, occurredAt: now },
+      });
+    } else {
+      // 全局扫描无单一工作区归属；写结构化日志供外部采集，绝不落到默认工作区。
+      console.warn(JSON.stringify({
+        level: "warn",
+        event: "workflow_approval_scan_failed",
+        reasonCode: errorCode,
+        occurredAt: now,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
   } catch {
-    // 审计不可写时不应放大故障；下一轮 tick 仍会重试。
+    // 日志/审计不可写时不应放大故障；结构化失败已随结果上报给调度器。
   }
 }
 
