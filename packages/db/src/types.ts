@@ -2046,6 +2046,7 @@ export interface WorkflowNodeRunRecord {
   taskQueueId?: string;
   approvalId?: string;
   approvalDeadline?: string;
+  approvalScanAfter?: string;
   inputJson: string;
   outputJson?: string;
   artifactManifestJson?: string;

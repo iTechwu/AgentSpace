@@ -1,6 +1,7 @@
 import {
   appendWorkflowRunEventSync,
   cancelQueuedTaskSync,
+  deferWorkflowApprovalCandidateSync,
   getDatabase,
   listWorkflowNodeRunsSync,
   listWorkflowApprovalCandidatesSync,
@@ -304,6 +305,8 @@ export interface WorkflowApprovalExpiryFailure {
   errorCode: string;
 }
 
+const APPROVAL_SCAN_RETRY_DELAY_MS = 60_000;
+
 export function expireWorkflowApprovalsSync(input: {
   now?: string;
   limit?: number;
@@ -316,6 +319,7 @@ export function expireWorkflowApprovalsSync(input: {
   if (!Number.isFinite(nowMs)) throw new Error("workflow_now_invalid");
   const expiredApprovalIds: string[] = [];
   const failures: WorkflowApprovalExpiryFailure[] = [];
+  const retryAt = new Date(nowMs + APPROVAL_SCAN_RETRY_DELAY_MS).toISOString();
   // 数据库级有界扫描：直接在 workflow_node_run（approval_id 有索引）上以
   // status='waiting_approval' AND approval_id IS NOT NULL 过滤并施加 LIMIT，得到本轮候选
   // (workspaceId/runId/nodeId/approvalId)，而不是枚举全部 waiting_approval 工作区、再逐个
@@ -346,14 +350,24 @@ export function expireWorkflowApprovalsSync(input: {
     if (!approval) {
       failures.push({ approvalId: candidate.approvalId, workspaceId: candidate.workspaceId, runId: candidate.runId, errorCode: "workflow_approval_association_broken" });
       recordApprovalExpiryFailureBestEffort({ workspaceId: candidate.workspaceId, runId: candidate.runId, approvalId: candidate.approvalId, errorCode: "workflow_approval_association_broken", now });
+      deferWorkflowApprovalCandidateSync({ ...candidate, scanAfter: retryAt, now });
       continue;
     }
     // 审批已由其它路径（人工审批等）终结：限时扫描无需处理，跳过。节点运行的后续推进由该终结
     // 路径负责；若仍停留在 waiting_approval，由 recovery/reconciliation 扫描另行处理。
-    if (approval.status !== "pending") continue;
-    if (approval.metadata?.kind !== "workflow_node") continue;
+    if (approval.status !== "pending") {
+      deferWorkflowApprovalCandidateSync({ ...candidate, scanAfter: retryAt, now });
+      continue;
+    }
+    if (approval.metadata?.kind !== "workflow_node") {
+      deferWorkflowApprovalCandidateSync({ ...candidate, scanAfter: retryAt, now });
+      continue;
+    }
     const expiresAtRaw = typeof approval.metadata?.expiresAt === "string" ? approval.metadata.expiresAt : undefined;
-    if (!expiresAtRaw) continue;
+    if (!expiresAtRaw) {
+      deferWorkflowApprovalCandidateSync({ ...candidate, scanAfter: retryAt, now });
+      continue;
+    }
     const expiresAtMs = Date.parse(expiresAtRaw);
     if (!Number.isFinite(expiresAtMs)) {
       // 非法截止时间：发布预检会校验新配置，但历史 JSON、迁移数据或人工修改仍可能留下
@@ -362,6 +376,7 @@ export function expireWorkflowApprovalsSync(input: {
       // （没有有效截止时间就没有终结依据），交由 on-call 经告警介入处理。
       failures.push({ approvalId: approval.id, workspaceId: candidate.workspaceId, runId: candidate.runId, errorCode: "workflow_approval_deadline_invalid" });
       recordApprovalExpiryFailureBestEffort({ workspaceId: candidate.workspaceId, runId: candidate.runId, approvalId: approval.id, errorCode: "workflow_approval_deadline_invalid", now });
+      deferWorkflowApprovalCandidateSync({ ...candidate, scanAfter: retryAt, now });
       continue;
     }
     // 惰性回填：迁移前历史数据 approval_deadline 列为 NULL（候选查询的 NULL 安全分支将其纳入）。
@@ -370,7 +385,10 @@ export function expireWorkflowApprovalsSync(input: {
     if (!candidate.approvalDeadline) {
       backfillWorkflowNodeRunApprovalDeadlineSync({ workspaceId: candidate.workspaceId, runId: candidate.runId, nodeId: candidate.nodeId, approvalDeadline: expiresAtRaw });
     }
-    if (expiresAtMs > nowMs) continue;
+    if (expiresAtMs > nowMs) {
+      deferWorkflowApprovalCandidateSync({ ...candidate, scanAfter: expiresAtRaw, now });
+      continue;
+    }
     try {
       // 原子性约束：审批状态、节点状态与运行状态必须在同一事务内推进。若终结节点
       // 或运行失败，整个事务回滚——审批记录仍是 pending，下一轮 tick 会重试，避免
@@ -396,6 +414,7 @@ export function expireWorkflowApprovalsSync(input: {
         : "workflow_approval_scan_failed";
       failures.push({ approvalId: approval.id, workspaceId: candidate.workspaceId, runId: candidate.runId, errorCode });
       recordApprovalExpiryFailureBestEffort({ workspaceId: candidate.workspaceId, runId: candidate.runId, approvalId: approval.id, errorCode, now });
+      deferWorkflowApprovalCandidateSync({ ...candidate, scanAfter: retryAt, now });
     }
   }
   return { expiredApprovalIds, failures };

@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "113";
+export const POSTGRES_SCHEMA_VERSION = "114";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -257,6 +257,7 @@ export function getPostgresSchemaStatements(): string[] {
         task_queue_id TEXT,
         approval_id TEXT,
         approval_deadline TIMESTAMPTZ,
+        approval_scan_after TIMESTAMPTZ,
         input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         output_json JSONB,
         artifact_manifest_json JSONB,
@@ -4389,6 +4390,20 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE INDEX IF NOT EXISTS idx_workflow_node_run_approval_deadline
         ON workflow_node_run (approval_deadline)
         WHERE status = 'waiting_approval' AND approval_deadline IS NOT NULL
+    `,
+    // schema 114：无法推进的审批候选必须让出有界扫描窗口，否则最早的一批损坏记录会在每轮
+    // LIMIT 查询中重复出现并永久饿死后续正常审批。approval_scan_after 持久化下一次扫描时间，
+    // 调度键取 scan_after（已延后候选）或 deadline（正常候选），到期重试后再次延后，既释放
+    // 当前窗口，也避免曾瞬时失败的正常审批被持续到来的新候选永久饿死。
+    `ALTER TABLE workflow_node_run ADD COLUMN IF NOT EXISTS approval_scan_after TIMESTAMPTZ`,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_node_run_approval_scan
+        ON workflow_node_run (
+          COALESCE(approval_scan_after, approval_deadline) ASC NULLS LAST,
+          approval_deadline ASC NULLS LAST,
+          id ASC
+        )
+        WHERE status = 'waiting_approval' AND approval_id IS NOT NULL
     `,
     `
       INSERT INTO app_metadata (key, value)

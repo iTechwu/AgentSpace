@@ -58,6 +58,7 @@ export interface TransitionWorkflowNodeRunInput {
   // clearApprovalDeadline=true 时置 NULL（重新进入无限时审批时清除历史截止时间，避免脏值误到期）。
   approvalDeadline?: string;
   clearApprovalDeadline?: boolean;
+  clearApprovalScanAfter?: boolean;
   availableAt?: string | null;
   attemptCount?: number;
   startedAt?: string;
@@ -286,12 +287,15 @@ export interface WorkflowApprovalCandidateRecord {
  * 有界地列出「等待审批、已绑定审批且限时已到期（或历史 NULL 截止时间）」的节点运行候选，
  * 供审批限时扫描使用。
  *
- * 在 workflow_node_run 上以部分索引 idx_workflow_node_run_approval_deadline 命中：
+ * 在 workflow_node_run 上以部分索引 idx_workflow_node_run_approval_scan 命中：
  * status='waiting_approval' AND approval_id IS NOT NULL AND (approval_deadline IS NULL
- * OR approval_deadline <= now)，并按 approval_deadline ASC NULLS LAST 排序。这保证
+ * OR approval_deadline <= now)，并排除尚未到达 approval_scan_after 的延后候选。排序以
+ * COALESCE(approval_scan_after, approval_deadline) 为调度键，让到达重试时间的候选重新按时间
+ * 参与公平竞争。这保证
  * 已到期候选总是最先被取到（最逾期者优先），消除「非到期候选挤占 LIMIT 窗口、导致到期
- * 审批在尾部无限饥饿」的缺陷；NULL 安全分支覆盖迁移前历史数据与无限时审批（由扫描方按
- * 审批 JSON 的 expiresAt 复核，并对有效历史数据惰性回填列）。可选 workspaceId 把扫描
+ * 审批在尾部无限饥饿」的缺陷，也避免损坏候选重复占满 LIMIT；NULL 安全分支覆盖迁移前历史
+ * 数据与无限时审批（由扫描方按审批 JSON 的 expiresAt 复核，并对有效历史数据惰性回填列）。
+ * 可选 workspaceId 把扫描
  * 限定到单个工作区。
  */
 export function listWorkflowApprovalCandidatesSync(input: {
@@ -307,15 +311,19 @@ export function listWorkflowApprovalCandidatesSync(input: {
        FROM workflow_node_run
        WHERE status = 'waiting_approval' AND approval_id IS NOT NULL AND workspace_id = ?
          AND (approval_deadline IS NULL OR approval_deadline <= ?)
-       ORDER BY approval_deadline ASC NULLS LAST, id ASC LIMIT ${limit}`,
-    ).all(input.workspaceId, input.now)
+         AND (approval_scan_after IS NULL OR approval_scan_after <= ?)
+       ORDER BY COALESCE(approval_scan_after, approval_deadline) ASC NULLS LAST,
+                approval_deadline ASC NULLS LAST, id ASC LIMIT ${limit}`,
+    ).all(input.workspaceId, input.now, input.now)
     : db.prepare(
       `SELECT workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", approval_id AS "approvalId", approval_deadline AS "approvalDeadline"
        FROM workflow_node_run
        WHERE status = 'waiting_approval' AND approval_id IS NOT NULL
          AND (approval_deadline IS NULL OR approval_deadline <= ?)
-       ORDER BY approval_deadline ASC NULLS LAST, id ASC LIMIT ${limit}`,
-    ).all(input.now)) as Array<{ workspaceId?: string; runId?: string; nodeId?: string; approvalId?: string; approvalDeadline?: string }>;
+         AND (approval_scan_after IS NULL OR approval_scan_after <= ?)
+       ORDER BY COALESCE(approval_scan_after, approval_deadline) ASC NULLS LAST,
+                approval_deadline ASC NULLS LAST, id ASC LIMIT ${limit}`,
+    ).all(input.now, input.now)) as Array<{ workspaceId?: string; runId?: string; nodeId?: string; approvalId?: string; approvalDeadline?: string }>;
   const candidates: WorkflowApprovalCandidateRecord[] = [];
   for (const row of rows) {
     if (typeof row.workspaceId === "string" && typeof row.runId === "string"
@@ -330,6 +338,27 @@ export function listWorkflowApprovalCandidatesSync(input: {
     }
   }
   return candidates;
+}
+
+/**
+ * 延后无法推进的审批候选，让有界扫描的下一批可以继续处理其后的正常审批。
+ * approvalId 同时作为并发栅栏：人工审批或重新绑定后不会误改新候选。
+ */
+export function deferWorkflowApprovalCandidateSync(input: {
+  workspaceId: string;
+  runId: string;
+  nodeId: string;
+  approvalId: string;
+  scanAfter: string;
+  now: string;
+}): boolean {
+  const result = getDatabase().prepare(
+    `UPDATE workflow_node_run
+        SET approval_scan_after = ?, updated_at = ?
+      WHERE workspace_id = ? AND run_id = ? AND node_id = ?
+        AND approval_id = ? AND status = 'waiting_approval'`,
+  ).run(input.scanAfter, input.now, input.workspaceId, input.runId, input.nodeId, input.approvalId);
+  return result.changes > 0;
 }
 
 /**
@@ -431,6 +460,7 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
         SET status = ?, task_queue_id = CASE WHEN ? THEN NULL ELSE COALESCE(?, task_queue_id) END,
             approval_id = COALESCE(?, approval_id),
             approval_deadline = CASE WHEN ? THEN NULL ELSE COALESCE(?, approval_deadline) END,
+            approval_scan_after = CASE WHEN ? THEN NULL ELSE approval_scan_after END,
             available_at = COALESCE(?, available_at),
             attempt_count = COALESCE(?, attempt_count), max_attempts = COALESCE(?, max_attempts),
             started_at = COALESCE(?, started_at),
@@ -448,6 +478,7 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     input.approvalId ?? null,
     input.clearApprovalDeadline === true,
     input.approvalDeadline ?? null,
+    input.clearApprovalScanAfter === true,
     input.availableAt ?? null,
     input.attemptCount ?? null,
     input.maxAttempts ?? null,
@@ -479,7 +510,8 @@ export function resetWorkflowDescendantNodeRunsForRetrySync(input: {
   const placeholders = input.nodeIds.map(() => "?").join(", ");
   const rows = getDatabase().prepare(
     `UPDATE workflow_node_run
-        SET status = 'pending', task_queue_id = NULL, approval_id = NULL, approval_deadline = NULL, available_at = NULL,
+        SET status = 'pending', task_queue_id = NULL, approval_id = NULL, approval_deadline = NULL,
+            approval_scan_after = NULL, available_at = NULL,
             started_at = NULL, finished_at = NULL, output_json = NULL, artifact_manifest_json = NULL,
             attempt_count = CASE
               WHEN node_type = 'employee_task' AND status = 'succeeded' THEN attempt_count + 1
@@ -506,6 +538,7 @@ const RUN_SELECT = `SELECT ${RUN_COLUMNS} FROM workflow_run`;
 const NODE_RUN_COLUMNS = `id, workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", node_type AS "nodeType",
   employee_id AS "employeeId", employee_name_snapshot AS "employeeNameSnapshot", status, attempt_count AS "attemptCount",
   max_attempts AS "maxAttempts", available_at AS "availableAt", task_queue_id AS "taskQueueId", approval_id AS "approvalId", approval_deadline AS "approvalDeadline",
+  approval_scan_after AS "approvalScanAfter",
   input_json AS "inputJson", output_json AS "outputJson", artifact_manifest_json AS "artifactManifestJson",
   error_code AS "errorCode", error_message AS "errorMessage", started_at AS "startedAt", finished_at AS "finishedAt",
   created_at AS "createdAt", updated_at AS "updatedAt"`;

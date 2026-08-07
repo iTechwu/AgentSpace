@@ -484,3 +484,33 @@ test("approval deadline scan persists the deadline column and does not starve be
   }
 });
 
+test("approval deadline scan defers broken candidates so later expired approvals are not starved", {
+  skip: !hasTestDatabase,
+}, () => {
+  const fixture = seedFixture();
+  try {
+    // 关联损坏审批最早到期，确保 limit:1 的首轮只会取到它。
+    const broken = createPendingApproval(fixture, { deadlineSeconds: 1 });
+    const expired = createPendingApproval(fixture, { deadlineSeconds: 2 });
+    const state = ensureWorkspaceStateSync(fixture.workspaceId);
+    writeWorkspaceStateSync(
+      { ...state, approvals: state.approvals.filter((item) => item.id !== broken.approvalId) },
+      fixture.workspaceId,
+      { skipVersionCheck: true },
+    );
+
+    const now = "2026-08-07T01:00:30.000Z";
+    const firstSweep = expireWorkflowApprovalsSync({ now, workspaceId: fixture.workspaceId, limit: 1 });
+    assert.deepEqual(firstSweep.expiredApprovalIds, []);
+    assert.equal(firstSweep.failures[0]?.approvalId, broken.approvalId);
+    assert.equal(firstSweep.failures[0]?.errorCode, "workflow_approval_association_broken");
+
+    // 坏候选必须被延后；相同时钟下的下一批应继续推进后面的正常到期审批。
+    const secondSweep = expireWorkflowApprovalsSync({ now, workspaceId: fixture.workspaceId, limit: 1 });
+    assert.deepEqual(secondSweep.expiredApprovalIds, [expired.approvalId]);
+    assert.equal(readWorkflowRunSync(expired.runId, fixture.workspaceId)?.status, "failed");
+    assert.equal(readWorkflowRunSync(broken.runId, fixture.workspaceId)?.status, "waiting_approval");
+  } finally {
+    cleanup(fixture);
+  }
+});
