@@ -64,6 +64,18 @@ const STATUS_SOFT: Record<string, string> = {
   waiting_approval: "var(--warning-soft)",
 };
 
+// 节点状态 → 图标（UIUX:91：状态须同时有文字、图标和 aria-label）。图标仅作视觉
+// 强化，对读屏隐藏（aria-hidden），完整状态由节点 aria-label + 状态文字提供。
+const STATUS_ICON: Record<string, string> = {
+  running: "◐",
+  ready: "◐",
+  succeeded: "✓",
+  failed: "✕",
+  waiting_approval: "◷",
+  cancelled: "⊘",
+  skipped: "–",
+};
+
 function buildRunFlow(
   nodes: WorkflowNodeRunItem[],
   edges: Array<{ source: string; target: string }>,
@@ -72,15 +84,21 @@ function buildRunFlow(
   const positions = layoutRunGraph(nodes.map((node) => node.nodeId), edges);
   const flowNodes: Node[] = nodes.map((node) => {
     const statusText = translateWorkflowNodeStatus(node.status, tx);
+    const name = node.employeeName || node.nodeType;
     return {
       id: node.nodeId,
       position: positions.get(node.nodeId) ?? { x: 0, y: 0 },
-      // 节点标签显式包含状态文本（UIUX:52），不依赖颜色单一表达状态。
+      // 节点级 aria-label（UIUX:91）：读屏可一次朗读「名称，状态」，不依赖颜色或图形。
+      ariaLabel: `${name}，${statusText}`,
+      // 节点标签显式包含状态图标 + 状态文字（UIUX:52/91），不依赖颜色单一表达状态。
       data: {
         label: (
           <div className="workflow-run-flow-node__label">
-            <span className="workflow-run-flow-node__name">{node.employeeName || node.nodeType}</span>
-            <span className="workflow-run-flow-node__status" data-status={node.status}>{statusText}</span>
+            <span className="workflow-run-flow-node__name">{name}</span>
+            <span className="workflow-run-flow-node__status" data-status={node.status}>
+              <span className="workflow-run-flow-node__icon" aria-hidden="true">{STATUS_ICON[node.status] ?? "•"}</span>
+              {statusText}
+            </span>
           </div>
         ),
       },

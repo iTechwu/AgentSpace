@@ -293,24 +293,29 @@ export function ApprovalsPageClient({
                   <span className="approvals-detail__label">{tx("提交时间", "Submitted")}</span>
                   <span>{formatDateTime(selected.createdAt)}</span>
                 </div>
-                {selected.reviewerLabel ? (
-                  <div className="approvals-detail__meta-row">
-                    <span className="approvals-detail__label">{tx("指定审批人", "Designated reviewer")}</span>
-                    <span>{selected.reviewerLabel}</span>
-                  </div>
-                ) : null}
+                <div className="approvals-detail__meta-row">
+                  <span className="approvals-detail__label">{tx("审批人", "Reviewer")}</span>
+                  <span>
+                    {selected.reviewerLabel
+                      ? selected.reviewerLabel
+                      : tx("管理员/负责人", "Manager / Owner")}
+                  </span>
+                </div>
                 {selected.reviewerRisk ? (
                   <div className="approvals-detail__meta-row">
                     <span className="approvals-detail__label">{tx("风险", "Risk")}</span>
                     <span>{translateApprovalRisk(selected.reviewerRisk, tx)}</span>
                   </div>
                 ) : null}
-                {selected.reviewerExpiresAt && selected.status === "pending" ? (
+                {selected.reviewerExpiresAt ? (
                   <div className="approvals-detail__meta-row">
                     <span className="approvals-detail__label">{tx("审批限时", "Approval deadline")}</span>
                     <span>
                       {formatDateTime(selected.reviewerExpiresAt)}
-                      <span className="approvals-detail__deadline-remaining"> · {describeApprovalRemaining(selected.reviewerExpiresAt, tx)}</span>
+                      {/* 终态审批（已批准/已驳回/已过期等）仍保留原截止时间，便于审计回溯；仅待审批时附加剩余倒计时。 */}
+                      {selected.status === "pending" ? (
+                        <span className="approvals-detail__deadline-remaining"> · {describeApprovalRemaining(selected.reviewerExpiresAt, tx)}</span>
+                      ) : null}
                     </span>
                   </div>
                 ) : null}

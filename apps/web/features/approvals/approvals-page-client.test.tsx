@@ -271,4 +271,88 @@ describe("ApprovalsPageClient", () => {
     expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/knowledge?page=knowledge-page-created");
     expect(routerPush).not.toHaveBeenCalled();
   });
+
+  it("shows the default reviewer and a remaining countdown for a pending approval without a designated reviewer", async () => {
+    // 未指定审批人（无 reviewerLabel）时，审批中心须展示默认「管理员/负责人」，与 UI 及
+    // Web Action 的管理员要求一致；待审批状态下审批限时附带剩余倒计时。
+    const user = userEvent.setup();
+    const deadlineData: ApprovalsPageData = {
+      approvals: [
+        {
+          id: "workspace-approval:deadline-open",
+          actionId: "deadline-open",
+          kind: "workspace_approval",
+          type: "task_output",
+          sourceId: "task-open",
+          agentId: "atlas",
+          agentDisplayName: "Atlas",
+          channelName: "travel",
+          status: "pending",
+          contentPreview: "未指定审批人的限时审批",
+          createdAt: "2026-04-10T09:00:00.000Z",
+          reviewerExpiresAt: "2099-01-01T00:00:00.000Z",
+          reviewerRisk: "medium",
+        },
+      ],
+      totalCount: 1,
+      pendingCount: 1,
+      approvedCount: 0,
+      rejectedCount: 0,
+      cancelledCount: 0,
+    };
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={deadlineData} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /未指定审批人的限时审批/i }));
+
+    expect(screen.getByText("管理员/负责人")).toBeInTheDocument();
+    expect(screen.getByText("审批限时")).toBeInTheDocument();
+    expect(screen.getByText(/剩余/)).toBeInTheDocument();
+  });
+
+  it("preserves the original deadline for a terminal approval without a remaining countdown", async () => {
+    // 终态审批（已驳回等）仍保留原截止时间，便于审计回溯；但不再附加剩余倒计时。
+    const user = userEvent.setup();
+    const terminalData: ApprovalsPageData = {
+      approvals: [
+        {
+          id: "workspace-approval:deadline-terminal",
+          actionId: "deadline-terminal",
+          kind: "workspace_approval",
+          type: "task_output",
+          sourceId: "task-terminal",
+          agentId: "nova",
+          agentDisplayName: "Nova",
+          channelName: "launch",
+          status: "rejected",
+          contentPreview: "终态保留截止时间",
+          createdAt: "2026-04-10T08:00:00.000Z",
+          reviewedAt: "2026-04-10T08:30:00.000Z",
+          reviewerLabel: "Alice",
+          reviewerExpiresAt: "2026-04-10T09:00:00.000Z",
+        },
+      ],
+      totalCount: 1,
+      pendingCount: 0,
+      approvedCount: 0,
+      rejectedCount: 1,
+      cancelledCount: 0,
+    };
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={terminalData} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /终态保留截止时间/i }));
+
+    expect(screen.getByText("审批限时")).toBeInTheDocument();
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.queryByText(/剩余/)).not.toBeInTheDocument();
+  });
 });
