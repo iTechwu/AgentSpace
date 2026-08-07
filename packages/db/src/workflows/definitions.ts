@@ -30,7 +30,7 @@ export interface UpdateWorkflowDraftInput {
   graphJson?: string;
   expectedDraftVersion?: number;
   updatedAt?: string;
-  updatedBy?: string;
+  updatedBy: string;
 }
 
 export interface TransitionWorkflowDefinitionStatusInput {
@@ -106,6 +106,13 @@ export function createWorkflowDefinitionSync(
       workflowId: id,
       actorUserId: input.createdBy,
       occurredAt: now,
+      changedFields: [
+        "name",
+        ...(input.description !== undefined ? ["description"] : []),
+        "ownerUserId",
+        ...(input.channelName !== undefined ? ["channelName"] : []),
+        "graph",
+      ],
     }));
     return readWorkflowDefinitionSync(id, input.workspaceId)!;
   });
@@ -145,8 +152,15 @@ export function updateWorkflowDraftSync(input: UpdateWorkflowDraftInput): Workfl
       action: "updated",
       workspaceId: input.workspaceId,
       workflowId: input.id,
-      actorUserId: input.updatedBy ?? "system:workflow-draft",
+      actorUserId: input.updatedBy,
       occurredAt: updatedAt,
+      changedFields: [
+        ...(input.name !== undefined ? ["name"] : []),
+        ...(input.description !== undefined ? ["description"] : []),
+        ...(input.ownerUserId !== undefined ? ["ownerUserId"] : []),
+        ...(input.channelName !== undefined ? ["channelName"] : []),
+        ...(input.graphJson !== undefined ? ["graph"] : []),
+      ],
     }));
     return readWorkflowDefinitionSync(input.id, input.workspaceId)!;
   });
@@ -158,6 +172,7 @@ export function buildWorkflowDefinitionAuditInput(input: {
   workflowId: string;
   actorUserId: string;
   occurredAt: string;
+  changedFields: string[];
 }): RecordAuditLogInput {
   const created = input.action === "created";
   return {
@@ -169,6 +184,7 @@ export function buildWorkflowDefinitionAuditInput(input: {
       workflowId: input.workflowId,
       actorUserId: input.actorUserId,
       occurredAt: input.occurredAt,
+      changedFields: input.changedFields,
     },
   };
 }

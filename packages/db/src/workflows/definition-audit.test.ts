@@ -9,6 +9,7 @@ test("definition audit records creation and draft updates with the acting user",
     workflowId: "workflow-1",
     actorUserId: "user-1",
     occurredAt: "2026-08-07T00:00:00.000Z",
+    changedFields: ["name", "ownerUserId", "graph"],
   }), {
     workspaceId: "workspace-1",
     title: "工作流已创建",
@@ -18,6 +19,7 @@ test("definition audit records creation and draft updates with the acting user",
       workflowId: "workflow-1",
       actorUserId: "user-1",
       occurredAt: "2026-08-07T00:00:00.000Z",
+      changedFields: ["name", "ownerUserId", "graph"],
     },
   });
   assert.equal(buildWorkflowDefinitionAuditInput({
@@ -26,5 +28,6 @@ test("definition audit records creation and draft updates with the acting user",
     workflowId: "workflow-1",
     actorUserId: "user-2",
     occurredAt: "2026-08-07T00:01:00.000Z",
+    changedFields: ["channelName"],
   }).code, "workflow.definition.updated");
 });

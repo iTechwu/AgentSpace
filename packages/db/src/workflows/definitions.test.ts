@@ -75,13 +75,16 @@ test("published versions are immutable and scoped to workspace", () => {
   assert.equal(changedDraft.draftVersion, draft.draftVersion + 1);
   assert.equal(readWorkflowVersionSync(version.id, WORKSPACE_ID)?.graphJson, version.graphJson);
   assert.equal(listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.created" })[0]?.dataJson.includes('"actorUserId":"u1"'), true);
-  assert.equal(listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.updated" })[0]?.dataJson.includes('"actorUserId":"u2"'), true);
+  const updateAuditData = JSON.parse(listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.updated" })[0]!.dataJson) as Record<string, unknown>;
+  assert.equal(updateAuditData.actorUserId, "u2");
+  assert.deepEqual(updateAuditData.changedFields, ["graph"]);
   assert.throws(
     () => updateWorkflowDraftSync({
       id: draft.id,
       workspaceId: WORKSPACE_ID,
       expectedDraftVersion: draft.draftVersion,
       name: "Stale change",
+      updatedBy: "u2",
     }),
     /workflow_draft_version_conflict/,
   );
