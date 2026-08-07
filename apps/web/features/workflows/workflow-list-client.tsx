@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
+import { translateWorkflowErrorCode } from "@/features/i18n/presentation";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
@@ -138,6 +139,7 @@ function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListIt
   const { tx } = useLanguage();
   const router = useRouter();
   const [running, setRunning] = useState(false);
+  const [notice, setNotice] = useState<string>();
   const href = workflow.sourceKind === "legacy"
     ? `/w/${workspaceSlug}/automations/new?entry=automations&legacySourceId=${encodeURIComponent(workflow.legacySourceId ?? "")}`
     : `/w/${workspaceSlug}/automations/${workflow.id}`;
@@ -153,21 +155,26 @@ function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListIt
     if (!canRunManually || running) return;
     if (!window.confirm("确认立即运行该工作流？")) return;
     setRunning(true);
+    setNotice(undefined);
     try {
       const result = await runWorkflowAction({
         workflowId: workflow.id,
         idempotencyKey: `list-${workflow.id}-${Date.now()}`,
         input: {},
       });
-      if (result.ok) {
-        router.push(`/w/${encodeURIComponent(workspaceSlug)}/automations/runs/${result.data.runId}`);
+      if (!result.ok) {
+        setNotice(translateWorkflowErrorCode(result.error.code, tx));
+        return;
       }
+      router.push(`/w/${encodeURIComponent(workspaceSlug)}/automations/runs/${result.data.runId}`);
+    } catch {
+      setNotice(tx("立即运行未完成，请稍后重试。", "Manual run failed, please retry."));
     } finally {
       setRunning(false);
     }
   }
   return (
-    <div role="listitem" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+    <div role="listitem" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
       <Link className="workflow-center__row" href={href} style={{ flex: 1, minWidth: 0 }}>
         <span className="workflow-center__identity">
           <strong title={workflow.name}>{workflow.name}</strong>
@@ -187,6 +194,7 @@ function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListIt
           <button className="knowledge-btn" disabled={running} onClick={() => void runNow()} type="button">{running ? "启动中" : "立即运行"}</button>
         ) : null}
       </div>
+      {notice ? <p className="workflow-run__notice" role="status" style={{ flexBasis: "100%" }}>{notice}</p> : null}
     </div>
   );
 }

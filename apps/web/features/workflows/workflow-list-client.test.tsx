@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowListClient } from "./workflow-list-client";
+import { runWorkflowAction } from "./workflow-actions";
 import type { WorkflowCenterPageData } from "./workflow-types";
 
 vi.mock("@/features/i18n/language-provider", () => ({ useLanguage: () => ({ tx: (zh: string) => zh }) }));
@@ -50,5 +51,27 @@ describe("WorkflowListClient", () => {
     render(<WorkflowListClient data={{ ...data, recentRuns: [] }} workspaceSlug="default" />);
     await user.click(screen.getByRole("tab", { name: "运行" }));
     expect(screen.getByText("暂无运行")).toBeVisible();
+  });
+
+  it("surfaces a translated notice when a manual run fails", async () => {
+    const manualData: WorkflowCenterPageData = {
+      ...data,
+      workflows: [{
+        id: "wf-manual", name: "手动流", status: "published", ownerLabel: "负责人", triggerLabelCode: "manual",
+        topology: { employeeNodeCount: 1, parallelGroupCount: 0, hasApproval: false },
+      }],
+    };
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(runWorkflowAction).mockResolvedValue({
+      ok: false,
+      error: { code: "workflow_manual_trigger_required", message: "" },
+    });
+    const user = userEvent.setup();
+    render(<WorkflowListClient data={manualData} workspaceSlug="default" />);
+
+    await user.click(screen.getByRole("button", { name: "立即运行" }));
+
+    expect(screen.getByRole("status").textContent).toBe("只有已发布的手动触发工作流可以立即运行");
+    expect(vi.mocked(runWorkflowAction)).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-manual" }));
   });
 });
