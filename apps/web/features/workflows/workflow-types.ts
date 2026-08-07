@@ -9,7 +9,7 @@ export interface WorkflowListItem {
   name: string;
   status: WorkflowDefinitionStatus;
   ownerLabel: string;
-  triggerLabelCode: string;
+  triggerLabelCode: "manual" | "schedule" | "event" | "none";
   nextFireAt?: string;
   lastTriggerOutcome?: {
     code: "workflow.trigger.misfire_skipped" | "workflow.trigger.misfire_fire_once" | "workflow.trigger.invalid" | "workflow.trigger.materialization_failed";
@@ -57,7 +57,7 @@ export interface WorkflowBuilderInitialValue {
   draftVersion: number;
   publishedVersionNumber?: number;
   trigger: {
-    type: "manual" | "schedule" | "event";
+    type: "manual" | "schedule" | "event" | "none";
     config: Record<string, unknown>;
     timezone?: string;
     misfirePolicy: "skip" | "fire_once";

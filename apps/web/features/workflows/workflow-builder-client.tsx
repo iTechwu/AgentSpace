@@ -29,7 +29,7 @@ import type {
 
 const STEPS = ["目标", "触发", "流程", "治理", "预览"] as const;
 
-type TriggerType = "manual" | "schedule" | "event";
+type TriggerType = "manual" | "schedule" | "event" | "none";
 type ScheduleMode = "once" | "daily" | "cron";
 type MisfirePolicy = "skip" | "fire_once";
 type NotificationMode = "in_app" | "channel";
@@ -69,9 +69,15 @@ export function WorkflowBuilderClient({
   );
   const [activeStep, setActiveStep] = useState(entry === "calendar" ? 1 : 0);
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
-  const [triggerType, setTriggerType] = useState<TriggerType>(initial?.trigger.type ?? (entry === "calendar" ? "schedule" : "manual"));
+  const [triggerType, setTriggerType] = useState<TriggerType>(
+    initial?.trigger.type === "none"
+      ? "manual"
+      : initial?.trigger.type ?? (entry === "calendar" ? "schedule" : "manual"),
+  );
   const [publishedTriggerType, setPublishedTriggerType] = useState<TriggerType | undefined>(
-    initial?.status === "published" || initial?.status === "paused" ? initial.trigger.type : undefined,
+    initial?.status === "published" || initial?.status === "paused"
+      ? (initial.trigger.type === "none" ? undefined : initial.trigger.type)
+      : undefined,
   );
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialScheduleMode(initial?.trigger.config));
   const [schedule, setSchedule] = useState(stringConfig(initial?.trigger.config.cronExpression ?? initial?.trigger.config.cron, "0 9 * * 1-5"));
@@ -418,7 +424,7 @@ function emptyGraph(): WorkflowGraphDefinition {
 }
 
 function triggerLabel(type: TriggerType): string {
-  return type === "manual" ? "手动触发" : type === "schedule" ? "定时触发" : "事件触发";
+  return type === "manual" ? "手动触发" : type === "schedule" ? "定时触发" : type === "event" ? "事件触发" : "未配置触发器";
 }
 
 function triggerPayload(type: TriggerType, scheduleMode: ScheduleMode, schedule: string, onceAt: string, dailyAt: string, eventName: string, timezone: string, misfirePolicy: MisfirePolicy) {

@@ -181,9 +181,10 @@ function runStatusLabel(status: NonNullable<WorkflowListItem["latestRun"]>["stat
   return labels[status] ?? tx("未知", "Unknown");
 }
 
-function triggerLabel(code: string, tx: (zh: string, en: string) => string): string {
+function triggerLabel(code: WorkflowListItem["triggerLabelCode"], tx: (zh: string, en: string) => string): string {
   if (code === "schedule") return tx("定时", "Schedule");
   if (code === "event") return tx("事件", "Event");
+  if (code === "none") return tx("未配置", "Not configured");
   return tx("手动", "Manual");
 }
 

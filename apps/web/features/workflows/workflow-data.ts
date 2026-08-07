@@ -96,7 +96,7 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       name: definition.name,
       status: definition.status,
       ownerLabel: ownerLabels.get(definition.ownerUserId) ?? definition.ownerUserId,
-      triggerLabelCode: trigger?.type ?? "manual",
+      triggerLabelCode: trigger?.type ?? "none",
       ...(trigger?.nextFireAt ? { nextFireAt: trigger.nextFireAt } : {}),
       ...(currentTriggerOutcome ? {
         lastTriggerOutcome: {
@@ -189,7 +189,7 @@ export function getWorkflowBuilderPageData(
       draftVersion: workflow.draftVersion,
       ...(activeVersion ? { publishedVersionNumber: activeVersion.versionNumber } : {}),
       trigger: {
-        type: trigger?.type ?? "manual",
+        type: trigger?.type ?? "none",
         config: triggerConfig,
         ...(trigger?.timezone ? { timezone: trigger.timezone } : {}),
         misfirePolicy: trigger?.misfirePolicy ?? "skip",
