@@ -74,7 +74,8 @@ test("published versions are immutable and scoped to workspace", () => {
   });
   assert.equal(changedDraft.draftVersion, draft.draftVersion + 1);
   assert.equal(readWorkflowVersionSync(version.id, WORKSPACE_ID)?.graphJson, version.graphJson);
-  assert.equal(listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.created" })[0]?.dataJson.includes('"actorUserId":"u1"'), true);
+  const createdAuditData = JSON.parse(listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.created" })[0]!.dataJson) as Record<string, unknown>;
+  assert.equal(createdAuditData.actorUserId, "u1");
   const updateAuditData = JSON.parse(listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.updated" })[0]!.dataJson) as Record<string, unknown>;
   assert.equal(updateAuditData.actorUserId, "u2");
   assert.deepEqual(updateAuditData.changedFields, ["graph"]);
@@ -169,6 +170,54 @@ test("publishing historical content reactivates its immutable version", () => {
 
   assert.equal(reactivated.id, first.id);
   assert.equal(readWorkflowDefinitionSync(definition.id, WORKSPACE_ID)?.activeVersionId, first.id);
+});
+
+test("trigger-only republish records a trigger audit and outbox event", () => {
+  const definition = createWorkflowDefinitionSync({
+    id: "workflow-trigger-only-audit-test",
+    workspaceId: WORKSPACE_ID,
+    name: "Trigger only",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const graphJson = '{"schemaVersion":1,"nodes":[],"edges":[]}';
+  // First publish with a manual trigger.
+  publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson,
+    contentHash: "sha256:trigger-only-a",
+    publishedBy: "u1",
+    trigger: { type: "manual", configJson: "{}", status: "active" },
+  });
+  // Republish identical content but switch the trigger to a schedule — Trigger-only change.
+  publishWorkflowVersionSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: definition.id,
+    graphJson,
+    contentHash: "sha256:trigger-only-a",
+    publishedBy: "u1",
+    trigger: {
+      type: "schedule",
+      configJson: '{"repeatSeconds":3600}',
+      nextFireAt: "2026-08-09T00:00:00.000Z",
+      status: "active",
+    },
+  });
+
+  const triggerAudits = listAuditLogsSync(WORKSPACE_ID, { code: "workflow.trigger.published" });
+  assert.ok(triggerAudits.length >= 1, "expected a workflow.trigger.published audit row");
+  const latest = triggerAudits[0]!;
+  const data = JSON.parse(latest.dataJson) as Record<string, unknown>;
+  assert.equal(data.workflowId, definition.id);
+  assert.equal(data.triggerType, "schedule");
+  assert.equal(data.actorUserId, "u1");
+
+  const outboxRows = getDatabase().prepare(
+    `SELECT 1 FROM workflow_outbox
+      WHERE workspace_id = ? AND event_type = 'workflow.trigger.published' LIMIT 1`,
+  ).get(WORKSPACE_ID);
+  assert.ok(outboxRows, "expected a workflow.trigger.published outbox row");
 });
 
 test("republishing a paused workflow preserves its definition and trigger suspension", () => {

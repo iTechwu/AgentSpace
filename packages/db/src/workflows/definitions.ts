@@ -306,12 +306,20 @@ export function publishWorkflowVersionSync(
         });
       }
       if (input.trigger) {
-        upsertWorkflowTriggerWithDatabase(db, {
+        const triggerRecord = upsertWorkflowTriggerWithDatabase(db, {
           ...input.trigger,
           status: definition.status === "paused" ? "suspended" : input.trigger.status,
           workspaceId: input.workspaceId,
           workflowId: input.workflowId,
           now: input.trigger.now ?? now,
+        });
+        recordWorkflowTriggerPublishedWithDatabase(db, {
+          workspaceId: input.workspaceId,
+          workflowId: input.workflowId,
+          triggerId: triggerRecord.id,
+          triggerType: triggerRecord.type,
+          actorUserId: input.publishedBy,
+          now,
         });
       }
       return identical;
@@ -360,12 +368,20 @@ export function publishWorkflowVersionSync(
     });
 
     if (input.trigger) {
-      upsertWorkflowTriggerWithDatabase(db, {
+      const triggerRecord = upsertWorkflowTriggerWithDatabase(db, {
         ...input.trigger,
         status: definition.status === "paused" ? "suspended" : input.trigger.status,
         workspaceId: input.workspaceId,
         workflowId: input.workflowId,
         now: input.trigger.now ?? now,
+      });
+      recordWorkflowTriggerPublishedWithDatabase(db, {
+        workspaceId: input.workspaceId,
+        workflowId: input.workflowId,
+        triggerId: triggerRecord.id,
+        triggerType: triggerRecord.type,
+        actorUserId: input.publishedBy,
+        now,
       });
     }
 
@@ -412,6 +428,57 @@ function activateWorkflowVersionWithDatabase(
     `audit-${randomLikeId()}`,
     input.workspaceId,
     "工作流版本已发布",
+    input.workflowId,
+    dataJson,
+    input.now,
+  );
+}
+
+/**
+ * Record the audit + outbox signals for a trigger/schedule change published
+ * alongside a workflow version. Required so that a Trigger-only republish
+ * (identical content hash) still leaves an auditable, downstream-notifiable
+ * trail — without it, schedule changes were silently applied.
+ */
+function recordWorkflowTriggerPublishedWithDatabase(
+  db: PostgresSyncDatabase,
+  input: {
+    workspaceId: string;
+    workflowId: string;
+    triggerId: string;
+    triggerType: string;
+    actorUserId: string;
+    now: string;
+  },
+): void {
+  const dataJson = JSON.stringify({
+    workflowId: input.workflowId,
+    triggerId: input.triggerId,
+    triggerType: input.triggerType,
+    actorUserId: input.actorUserId,
+    occurredAt: input.now,
+  });
+  db.prepare(
+    `INSERT INTO workflow_outbox (
+       id, workspace_id, aggregate_type, aggregate_id, event_type, payload_json,
+       status, attempts, available_at, created_at
+     ) VALUES (?, ?, 'workflow_definition', ?, 'workflow.trigger.published', ?, 'pending', 0, ?, ?)`,
+  ).run(
+    `workflow-outbox-${randomLikeId()}`,
+    input.workspaceId,
+    input.workflowId,
+    dataJson,
+    input.now,
+    input.now,
+  );
+  db.prepare(
+    `INSERT INTO audit_log (
+       id, workspace_id, title, note, code, data_json, source, source_index, created_at
+     ) VALUES (?, ?, ?, ?, 'workflow.trigger.published', ?, 'runtime_lifecycle', 0, ?)`,
+  ).run(
+    `audit-${randomLikeId()}`,
+    input.workspaceId,
+    "工作流触发器已发布",
     input.workflowId,
     dataJson,
     input.now,
