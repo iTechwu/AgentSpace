@@ -85,7 +85,10 @@ export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): 
       now: input.now,
     });
     if (runStarted) {
-      appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, type: "run.started", actorType: "daemon", now: input.now });
+      // actor 归属为 coordinator（引擎驱动的生命周期推进），与 finalizeRunIfTerminal 的
+      // run.started 一致；真实调用方是 Workflow outbox dispatcher/coordinator，而非执行
+      // AI 任务的 daemon（daemon 仅用于 startQueuedTaskWithWorkflowSync 真实启动路径）。
+      appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, type: "run.started", actorType: "coordinator", now: input.now });
     }
     transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["running"], to: "waiting_approval", now: input.now });
     appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: node.id, type: "approval.requested", actorType: "system", dataJson: JSON.stringify({ approvalId: approval.id }), now: input.now });
