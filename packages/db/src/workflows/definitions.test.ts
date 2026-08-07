@@ -240,6 +240,30 @@ test("trigger publish is idempotent and records an audit only on a real change",
   assert.equal(data.actorUserId, "u1");
 });
 
+test("workflow_trigger enforces a single row per workspace and workflow", () => {
+  const definition = createWorkflowDefinitionSync({
+    id: "workflow-trigger-unique-constraint-test",
+    workspaceId: WORKSPACE_ID,
+    name: "Unique trigger",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO workflow_trigger
+       (id, workspace_id, workflow_id, type, created_at, updated_at)
+     VALUES (?, ?, ?, 'manual', ?, ?)`,
+  ).run("workflow-trigger-unique-a", WORKSPACE_ID, definition.id, now, now);
+  assert.throws(
+    () => getDatabase().prepare(
+      `INSERT INTO workflow_trigger
+         (id, workspace_id, workflow_id, type, created_at, updated_at)
+       VALUES (?, ?, ?, 'manual', ?, ?)`,
+    ).run("workflow-trigger-unique-b", WORKSPACE_ID, definition.id, now, now),
+    /workflow_trigger_workspace_workflow_unique/,
+  );
+});
+
 test("republishing a paused workflow preserves its definition and trigger suspension", () => {
   const definition = createWorkflowDefinitionSync({
     id: "workflow-paused-republish-test",

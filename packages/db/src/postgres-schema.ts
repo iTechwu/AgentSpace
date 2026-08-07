@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "109";
+export const POSTGRES_SCHEMA_VERSION = "110";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -4240,6 +4240,55 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE employee_recovery_operation
         ADD COLUMN IF NOT EXISTS approvers_json JSONB NOT NULL DEFAULT '[]'::jsonb
     `,
+    // 单实例触发器去重：每个工作流只保留一个触发器（按读取优先级保留最优的一条），
+    // 再加上 (workspace_id, workflow_id) 唯一约束作为兜底，防止历史重复数据或绕过逻辑的写入。
+    // 第一步：把指向将被删除的重复触发器的工作流运行，重新指向该工作流保留的触发器。
+    `
+      WITH ranked AS (
+        SELECT id, workspace_id, workflow_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, workflow_id
+            ORDER BY CASE
+              WHEN type <> 'manual' AND status = 'active' THEN 0
+              WHEN type <> 'manual' AND status = 'suspended' THEN 1
+              WHEN type <> 'manual' THEN 2
+              WHEN status = 'active' THEN 3
+              WHEN status = 'suspended' THEN 4
+              ELSE 5
+            END, id
+          ) AS rn
+        FROM workflow_trigger
+      )
+      UPDATE workflow_run
+      SET trigger_id = (
+        SELECT keep.id FROM ranked keep
+        WHERE keep.workspace_id = workflow_run.workspace_id
+          AND keep.workflow_id = workflow_run.workflow_id
+          AND keep.rn = 1
+      )
+      WHERE trigger_id IN (SELECT id FROM ranked WHERE rn > 1)
+    `,
+    // 第二步：删除每个工作流的重复触发器，仅保留优先级最高的一条。
+    `
+      WITH ranked AS (
+        SELECT id,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, workflow_id
+            ORDER BY CASE
+              WHEN type <> 'manual' AND status = 'active' THEN 0
+              WHEN type <> 'manual' AND status = 'suspended' THEN 1
+              WHEN type <> 'manual' THEN 2
+              WHEN status = 'active' THEN 3
+              WHEN status = 'suspended' THEN 4
+              ELSE 5
+            END, id
+          ) AS rn
+        FROM workflow_trigger
+      )
+      DELETE FROM workflow_trigger WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+    `,
+    `ALTER TABLE workflow_trigger DROP CONSTRAINT IF EXISTS workflow_trigger_workspace_workflow_unique`,
+    `ALTER TABLE workflow_trigger ADD CONSTRAINT workflow_trigger_workspace_workflow_unique UNIQUE (workspace_id, workflow_id)`,
     `
       INSERT INTO app_metadata (key, value)
       VALUES ('schema_version', '${POSTGRES_SCHEMA_VERSION}')
