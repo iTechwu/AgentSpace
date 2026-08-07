@@ -1374,6 +1374,7 @@ export {
   verifyOpenMontageEventRequest,
   OpenMontageEventAuthenticationError,
   OpenMontageEventValidationError,
+  OpenMontageJobActionError,
   type OpenMontageJobActionInput,
   type VerifiedOpenMontageEventRequest,
 } from "./openmontage/events.ts";

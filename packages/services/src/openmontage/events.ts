@@ -16,6 +16,26 @@ const DEFAULT_MAX_AGE_SECONDS = 300;
 
 export class OpenMontageEventAuthenticationError extends Error {}
 export class OpenMontageEventValidationError extends Error {}
+export class OpenMontageJobActionError extends Error {
+  readonly downstreamStatus: number;
+  readonly downstreamCode?: string;
+  readonly traceId?: string;
+
+  constructor(
+    downstreamStatus: number,
+    downstreamCode?: string,
+    traceId?: string,
+  ) {
+    super(
+      `OpenMontage Job action failed with HTTP ${downstreamStatus}`
+      + (downstreamCode ? ` (${downstreamCode})` : "."),
+    );
+    this.name = "OpenMontageJobActionError";
+    this.downstreamStatus = downstreamStatus;
+    this.downstreamCode = downstreamCode;
+    this.traceId = traceId;
+  }
+}
 
 export interface VerifiedOpenMontageEventRequest {
   event: OpenMontageJobEvent;
@@ -305,7 +325,11 @@ export async function callOpenMontageJobActionAsync(
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    throw new Error(`OpenMontage Job action returned HTTP ${response.status}.`);
+    throw new OpenMontageJobActionError(
+      response.status,
+      await readSafeDownstreamErrorCode(response),
+      readSafeTraceId(response.headers),
+    );
   }
 
   try {
@@ -314,6 +338,24 @@ export async function callOpenMontageJobActionAsync(
     // Signed callbacks and scheduled reconciliation remain recovery paths.
   }
   return { accepted: true };
+}
+
+async function readSafeDownstreamErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.text()).slice(0, 16 * 1024);
+    const parsed = JSON.parse(body) as { error?: { code?: unknown } };
+    const code = parsed.error?.code;
+    return typeof code === "string" && /^OPENMONTAGE_[A-Z0-9_]{1,96}$/.test(code)
+      ? code
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readSafeTraceId(headers: Headers): string | undefined {
+  const traceId = headers.get("x-trace-id")?.trim() || headers.get("x-request-id")?.trim();
+  return traceId && /^[A-Za-z0-9._:-]{1,256}$/.test(traceId) ? traceId : undefined;
 }
 
 export function sanitizeOpenMontageEventForStorage(

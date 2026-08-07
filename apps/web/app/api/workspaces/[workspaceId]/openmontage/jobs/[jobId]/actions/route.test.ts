@@ -1,12 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  MockOpenMontageJobActionError,
   mockCallAction,
   mockCanWriteChannel,
   mockGetWorkspaceAccessForIdentifier,
   mockReadBinding,
   mockRecordAudit,
 } = vi.hoisted(() => ({
+  MockOpenMontageJobActionError: class OpenMontageJobActionError extends Error {
+    downstreamStatus: number;
+    downstreamCode?: string;
+    traceId?: string;
+
+    constructor(downstreamStatus: number, downstreamCode?: string, traceId?: string) {
+      super("safe downstream failure");
+      this.downstreamStatus = downstreamStatus;
+      this.downstreamCode = downstreamCode;
+      this.traceId = traceId;
+    }
+  },
   mockCallAction: vi.fn(),
   mockCanWriteChannel: vi.fn(),
   mockGetWorkspaceAccessForIdentifier: vi.fn(),
@@ -24,6 +37,7 @@ vi.mock("@dofe-agent/db", () => ({
 }));
 
 vi.mock("@dofe-agent/services", () => ({
+  OpenMontageJobActionError: MockOpenMontageJobActionError,
   callOpenMontageJobActionAsync: mockCallAction,
   canWriteChannelForActorSync: mockCanWriteChannel,
 }));
@@ -89,6 +103,32 @@ describe("OpenMontage Job actions route", () => {
       error: "openmontage_job_changed",
       message: "The video job changed. Refresh and try again.",
     });
+  });
+
+  it("maps a downstream conflict and records its safe diagnostics in the audit", async () => {
+    mockCallAction.mockRejectedValue(new MockOpenMontageJobActionError(
+      409,
+      "OPENMONTAGE_JOB_CONFLICT",
+      "om-trace-409",
+    ));
+
+    const response = await POST(request({ action: "cancel", expectedSequence: 4 }), {
+      params: Promise.resolve({ workspaceId: "workspace-1", jobId: "om_job_1" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "openmontage_job_action_conflict",
+      message: "This action is no longer available.",
+    });
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      code: "openmontage_job_action_failed",
+      data: expect.objectContaining({
+        downstreamStatus: 409,
+        downstreamCode: "OPENMONTAGE_JOB_CONFLICT",
+        traceId: "om-trace-409",
+      }),
+    }));
   });
 
   it("validates the action contract before calling OpenMontage", async () => {

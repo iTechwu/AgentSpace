@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import {
   callOpenMontageJobActionAsync,
+  OpenMontageJobActionError,
   OpenMontageEventAuthenticationError,
   reconcileOpenMontageJobAsync,
   reconcileSyncingOpenMontageJobsAsync,
@@ -303,5 +304,58 @@ test("submits Job actions with trusted attribution, sequence fencing, and immedi
       readProjection: () => ({ lastAppliedSequence: 4 } as never),
     }),
     /changed since the action was requested/,
+  );
+});
+
+test("preserves safe downstream Job action diagnostics without exposing its message", async () => {
+  const link = {
+    jobId: "om_job_1",
+    workspaceId: "default",
+    employeeId: "employee-1",
+    runtimeId: "runtime-1",
+    runtimeCredentialId: "runtime-credential-1",
+    rootTaskId: "task-1",
+    conversationId: "conversation-1",
+    sourceInvocationId: "invocation-1",
+    traceId: "trace-1",
+    workflowName: "animated-explainer",
+    workflowVersion: "2.0",
+    createdAt: "2026-08-05T10:00:00Z",
+  };
+
+  await assert.rejects(
+    () => callOpenMontageJobActionAsync({
+      workspaceId: "default",
+      jobId: "om_job_1",
+      action: "cancel",
+      expectedSequence: 4,
+    }, {
+      environment: {
+        OPENMONTAGE_BASE_URL: "http://openmontage.internal:8765/",
+        OPENMONTAGE_SERVICE_TOKEN: "service-token",
+      },
+      fetch: async () => Response.json({
+        error: {
+          code: "OPENMONTAGE_JOB_CONFLICT",
+          message: "internal state and path must stay private",
+        },
+      }, {
+        status: 409,
+        headers: { "X-Trace-Id": "om-trace-409" },
+      }),
+      readLink: () => link,
+      readProjection: () => ({
+        lastAppliedSequence: 4,
+        status: "RUNNING",
+      } as never),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof OpenMontageJobActionError);
+      assert.equal(error.downstreamStatus, 409);
+      assert.equal(error.downstreamCode, "OPENMONTAGE_JOB_CONFLICT");
+      assert.equal(error.traceId, "om-trace-409");
+      assert.doesNotMatch(error.message, /internal state|path must stay private/);
+      return true;
+    },
   );
 });
