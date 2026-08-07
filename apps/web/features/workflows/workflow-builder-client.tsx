@@ -102,7 +102,12 @@ export function WorkflowBuilderClient({
   );
   const estimatedCostUsd = useMemo(() => draft.nodes.reduce((total, node) => {
     const estimate = node.config.estimatedCostUsd;
-    return typeof estimate === "number" && Number.isFinite(estimate) && estimate > 0 ? total + estimate : total;
+    if (!(typeof estimate === "number" && Number.isFinite(estimate) && estimate > 0)) return total;
+    const retry = typeof node.config.retry === "object" && node.config.retry
+      ? node.config.retry as { maxAttempts?: number }
+      : undefined;
+    const maxAttempts = Number.isInteger(retry?.maxAttempts) && retry!.maxAttempts! >= 1 ? retry!.maxAttempts! : 1;
+    return total + estimate * maxAttempts;
   }, 0), [draft.nodes]);
   const metadataDirty = name !== savedMetadata.name
     || description !== savedMetadata.description
