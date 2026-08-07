@@ -133,6 +133,24 @@ test("no-op draft update with shuffled graph keys does not bump version or write
   );
 });
 
+test("workflow definition audit can be retrieved by actorUserId", () => {
+  const definition = createWorkflowDefinitionSync({
+    id: "workflow-audit-actor-test",
+    workspaceId: WORKSPACE_ID,
+    name: "Audit actor",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const byActorUserId = listAuditLogsSync(WORKSPACE_ID, {
+    code: "workflow.definition.created",
+    actorId: "u1",
+  });
+  assert.ok(byActorUserId.some((audit) => {
+    const data = JSON.parse(audit.dataJson) as Record<string, unknown>;
+    return data.workflowId === definition.id && data.actorUserId === "u1";
+  }), "audit must be searchable by actorUserId");
+});
+
 test("trigger upsert cannot overwrite a trigger from another workspace", () => {
   const local = createWorkflowDefinitionSync({
     id: "workflow-trigger-definition-test",

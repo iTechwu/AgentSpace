@@ -88,7 +88,7 @@ export function listAuditLogsSync(
     params.push(value);
   }
   if (options?.actorId) {
-    clauses.push("COALESCE(data_json ->> 'actorId', data_json ->> 'requestedByUserId') = ?");
+    clauses.push("COALESCE(data_json ->> 'actorId', data_json ->> 'requestedByUserId', data_json ->> 'actorUserId') = ?");
     params.push(options.actorId);
   }
   if (options?.employeeId) {
