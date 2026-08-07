@@ -120,25 +120,25 @@ export function validateWorkflowForPublishSync(
     }
     blockers.push(...validateWorkflowNodeDependencies(node, inventory));
     if (node.type === "employee_task" && workflowBudget !== undefined) {
-      const estimate = optionalFiniteNumber(node.config.estimatedCostUsd);
-      if (estimate !== undefined && estimate > workflowBudget) {
+      const attributed = workflowNodeAttributedCost(node);
+      if (attributed !== undefined && attributed > workflowBudget) {
         blockers.push({
           code: "workflow_budget_exceeded",
           nodeId: node.id,
           employeeId: node.employeeId,
-          detail: `estimated_cost_${estimate}_exceeds_workflow_budget_${workflowBudget}`,
+          detail: `attributed_cost_${attributed}_exceeds_workflow_budget_${workflowBudget}`,
         });
       }
     }
   }
   if (workflowBudget !== undefined) {
-    const estimatedTotal = input.graph.nodes.reduce((total, node) => (
-      total + (optionalFiniteNumber(node.config.estimatedCostUsd) ?? 0)
+    const attributedTotal = input.graph.nodes.reduce((total, node) => (
+      total + (workflowNodeAttributedCost(node) ?? 0)
     ), 0);
-    if (estimatedTotal > workflowBudget) {
+    if (attributedTotal > workflowBudget) {
       blockers.push({
         code: "workflow_budget_exceeded",
-        detail: `estimated_total_${estimatedTotal}_exceeds_workflow_budget_${workflowBudget}`,
+        detail: `attributed_total_${attributedTotal}_exceeds_workflow_budget_${workflowBudget}`,
       });
     }
   }
@@ -240,13 +240,13 @@ export function validateWorkflowNodeDependencies(
         detail: "node_budget_must_be_positive",
       });
     } else {
-      const estimate = optionalFiniteNumber(node.config.estimatedCostUsd);
-      if (estimate !== undefined && estimate > budget) {
+      const attributed = workflowNodeAttributedCost(node);
+      if (attributed !== undefined && attributed > budget) {
         blockers.push({
           code: "workflow_budget_exceeded",
           nodeId: node.id,
           employeeId: node.employeeId,
-          detail: `estimated_cost_${estimate}_exceeds_node_budget_${budget}`,
+          detail: `attributed_cost_${attributed}_exceeds_node_budget_${budget}`,
         });
       }
     }
@@ -309,4 +309,30 @@ function dependencyKey(employeeId: string, skillId: string): string {
 
 function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * Worst-case attempt count for a node, derived from its retry policy.
+ * Invalid/missing retry config collapses to a single attempt; out-of-range
+ * values are left for `validateWorkflowNodeDependencies` to flag separately.
+ */
+export function workflowNodeMaxAttempts(node: WorkflowNodeDefinition): number {
+  const retry = node.config.retry;
+  const retryRecord = retry && typeof retry === "object" && !Array.isArray(retry)
+    ? retry as Record<string, unknown>
+    : undefined;
+  const maxAttempts = retryRecord?.maxAttempts;
+  return typeof maxAttempts === "number" && Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= 10
+    ? maxAttempts
+    : 1;
+}
+
+/**
+ * Publish-time budget cost attributed to a node: per-run estimate multiplied
+ * by its max attempt count, so retry policy is accounted for during preflight.
+ */
+export function workflowNodeAttributedCost(node: WorkflowNodeDefinition): number | undefined {
+  const estimate = optionalFiniteNumber(node.config.estimatedCostUsd);
+  if (estimate === undefined) return undefined;
+  return estimate * workflowNodeMaxAttempts(node);
 }

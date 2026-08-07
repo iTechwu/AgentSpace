@@ -8,6 +8,8 @@ import {
   validateWorkflowGovernance,
   validateWorkflowNodeDependencies,
   validateWorkflowForPublishSync,
+  workflowNodeAttributedCost,
+  workflowNodeMaxAttempts,
 } from "./validation.ts";
 
 test("governance requires a bounded integer concurrency limit", () => {
@@ -83,6 +85,46 @@ test("dependency preflight accepts assigned skills and employee display names", 
   });
 
   assert.deepEqual(blockers, []);
+});
+
+test("attributed cost multiplies the per-run estimate by the retry attempt count", () => {
+  const node = (maxAttempts: unknown, estimate?: number) => ({
+    id: "research",
+    type: "employee_task" as const,
+    employeeId: "emp-1",
+    config: { estimatedCostUsd: estimate, retry: { maxAttempts } },
+  });
+  assert.equal(workflowNodeMaxAttempts(node(3)), 3);
+  assert.equal(workflowNodeMaxAttempts(node(undefined)), 1);
+  assert.equal(workflowNodeMaxAttempts(node(1.5)), 1);
+  assert.equal(workflowNodeAttributedCost(node(3, 6)), 18);
+  assert.equal(workflowNodeAttributedCost(node(1, 6)), 6);
+  assert.equal(workflowNodeAttributedCost(node(3, undefined)), undefined);
+});
+
+test("node budget preflight accounts for retry-attributed cost", () => {
+  const inventory = {
+    employees: new Map([["emp-1", { id: "emp-1", name: "Researcher" }]]),
+    assignedSkills: new Set<string>(),
+    channels: new Map<string, { employeeNames: string[] }>(),
+  };
+  // estimate 3 × maxAttempts 2 = 6 > node budget 5 → blocked
+  const blocked = validateWorkflowNodeDependencies({
+    id: "research",
+    type: "employee_task",
+    employeeId: "emp-1",
+    config: { estimatedCostUsd: 3, budgetUsd: 5, retry: { maxAttempts: 2 } },
+  }, inventory);
+  assert.equal(blocked[0]?.code, "workflow_budget_exceeded");
+  assert.ok(blocked[0]?.detail.startsWith("attributed_cost_6_exceeds_node_budget_5"));
+
+  // estimate 3 × maxAttempts 1 = 3 ≤ node budget 5 → passes
+  assert.deepEqual(validateWorkflowNodeDependencies({
+    id: "research",
+    type: "employee_task",
+    employeeId: "emp-1",
+    config: { estimatedCostUsd: 3, budgetUsd: 5 },
+  }, inventory), []);
 });
 
 test("dependency preflight rejects retry limits outside the supported range", () => {
