@@ -305,6 +305,15 @@ export function ApprovalsPageClient({
                     <span>{translateApprovalRisk(selected.reviewerRisk, tx)}</span>
                   </div>
                 ) : null}
+                {selected.reviewerExpiresAt && selected.status === "pending" ? (
+                  <div className="approvals-detail__meta-row">
+                    <span className="approvals-detail__label">{tx("审批限时", "Approval deadline")}</span>
+                    <span>
+                      {formatDateTime(selected.reviewerExpiresAt)}
+                      <span className="approvals-detail__deadline-remaining"> · {describeApprovalRemaining(selected.reviewerExpiresAt, tx)}</span>
+                    </span>
+                  </div>
+                ) : null}
                 {selected.reviewedAt ? (
                   <div className="approvals-detail__meta-row">
                     <span className="approvals-detail__label">{tx("审批时间", "Reviewed")}</span>
@@ -380,8 +389,34 @@ export function ApprovalsPageClient({
   );
 }
 
-function translateApprovalStatus(tx: (zh: string, en: string) => string, status: ApprovalItemStatus): string {
-  const map: Record<ApprovalItemStatus, [string, string]> = {
+/**
+ * 审批限时剩余时间描述（UIUX:审批限时）：以客户端当前时间为基准计算截止时间剩余，
+ * 不足 1 分钟按「即将到期」、已过期按「已逾期」展示，供审批中心显式提示。
+ * 仅用于展示，是否真正驳回以调度扫描的 expiresAt 为准。
+ */
+function describeApprovalRemaining(expiresAt: string, tx: (zh: string, en: string) => string): string {
+  const deadlineMs = Date.parse(expiresAt);
+  if (!Number.isFinite(deadlineMs)) return tx("未知", "unknown");
+  const remainingMs = deadlineMs - Date.now();
+  if (remainingMs <= 0) return tx("已逾期", "overdue");
+  const totalMinutes = Math.floor(remainingMs / 60000);
+  if (totalMinutes < 1) return tx("即将到期", "due soon");
+  if (totalMinutes < 60) return tx(`剩余 ${totalMinutes} 分钟`, `${totalMinutes} min left`);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 24) {
+    return minutes > 0
+      ? tx(`剩余 ${hours} 小时 ${minutes} 分钟`, `${hours}h ${minutes}m left`)
+      : tx(`剩余 ${hours} 小时`, `${hours}h left`);
+  }
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours > 0
+    ? tx(`剩余 ${days} 天 ${remainingHours} 小时`, `${days}d ${remainingHours}h left`)
+    : tx(`剩余 ${days} 天`, `${days}d left`);
+}
+
+function translateApprovalStatus(tx: (zh: string, en: string) => string, status: ApprovalItemStatus): string {  const map: Record<ApprovalItemStatus, [string, string]> = {
     pending: ["待审批", "Pending"],
     approved: ["已批准", "Approved"],
     rejected: ["已驳回", "Rejected"],

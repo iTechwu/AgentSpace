@@ -187,7 +187,7 @@ export function WorkflowRunClient({
           <span>{projection.nodes.length} 个节点</span>
         </header>
         {stepView === "flow" && projection.nodes.length > 0 ? (
-          <WorkflowRunFlowchart edges={projection.edges} nodes={projection.nodes} />
+          <WorkflowRunFlowchart edges={projection.edges} nodes={projection.nodes} tx={tx} />
         ) : (
         <ol>
           {projection.nodes.map((node) => (

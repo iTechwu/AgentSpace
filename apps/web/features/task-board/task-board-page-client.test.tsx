@@ -20,7 +20,7 @@ const moveTaskToColumnAction = vi.fn<(taskId: string, status: string) => Promise
 }));
 const mockRefresh = vi.fn();
 const mockPush = vi.fn();
-const runWorkflowAction = vi.fn(async () => ({
+const runWorkflowAction = vi.fn(async (_input?: unknown) => ({
   ok: true,
   data: { runId: "run-board-1" },
   invalidation: { workspaceId: "workspace-alpha", modules: ["automations"] },

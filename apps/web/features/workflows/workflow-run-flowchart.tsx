@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node } from "@xyflow/react";
+import { translateWorkflowNodeStatus, type TxFn } from "@/features/i18n/presentation";
 import type { WorkflowNodeRunItem } from "./workflow-types";
 
 /**
@@ -10,15 +11,20 @@ import type { WorkflowNodeRunItem } from "./workflow-types";
  * 现有「执行步骤」是一个扁平 <ol>，无法表达并行分支与汇聚拓扑；当节点数变多时也不
  * 易纵览。这里复用编排画布同款 @xyflow/react，按运行绑定版本的边做拓扑分层布局，
  * 并用节点状态着色，配合 MiniMap/Controls 提供平移缩放，使大图也能承载。
+ *
+ * 可访问性（UIUX:52）：状态不以颜色单一表达——每个节点除边框/背景着色外，还显式
+ * 渲染状态文本，色盲与读屏场景下也能获知各步骤当前状态。
  */
 export function WorkflowRunFlowchart({
   nodes,
   edges,
+  tx,
 }: {
   nodes: WorkflowNodeRunItem[];
   edges: Array<{ source: string; target: string }>;
+  tx: TxFn;
 }) {
-  const { flowNodes, flowEdges } = useMemo(() => buildRunFlow(nodes, edges), [nodes, edges]);
+  const { flowNodes, flowEdges } = useMemo(() => buildRunFlow(nodes, edges, tx), [nodes, edges, tx]);
   if (nodes.length === 0) return null;
   return (
     <div aria-label="运行流程图" className="workflow-run-flow">
@@ -61,23 +67,35 @@ const STATUS_SOFT: Record<string, string> = {
 function buildRunFlow(
   nodes: WorkflowNodeRunItem[],
   edges: Array<{ source: string; target: string }>,
+  tx: TxFn,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const positions = layoutRunGraph(nodes.map((node) => node.nodeId), edges);
-  const flowNodes: Node[] = nodes.map((node) => ({
-    id: node.nodeId,
-    position: positions.get(node.nodeId) ?? { x: 0, y: 0 },
-    data: { label: node.employeeName || node.nodeType },
-    style: {
-      width: 168,
-      minWidth: 168,
-      maxWidth: 168,
-      height: 56,
-      borderColor: STATUS_BORDER[node.status] ?? "var(--line-strong)",
-      background: STATUS_SOFT[node.status] ?? "var(--bg-strong)",
-      color: "var(--text)",
-    },
-    className: `workflow-run-flow-node workflow-run-flow-node--${node.status}`,
-  }));
+  const flowNodes: Node[] = nodes.map((node) => {
+    const statusText = translateWorkflowNodeStatus(node.status, tx);
+    return {
+      id: node.nodeId,
+      position: positions.get(node.nodeId) ?? { x: 0, y: 0 },
+      // 节点标签显式包含状态文本（UIUX:52），不依赖颜色单一表达状态。
+      data: {
+        label: (
+          <div className="workflow-run-flow-node__label">
+            <span className="workflow-run-flow-node__name">{node.employeeName || node.nodeType}</span>
+            <span className="workflow-run-flow-node__status" data-status={node.status}>{statusText}</span>
+          </div>
+        ),
+      },
+      style: {
+        width: 168,
+        minWidth: 168,
+        maxWidth: 168,
+        height: 56,
+        borderColor: STATUS_BORDER[node.status] ?? "var(--line-strong)",
+        background: STATUS_SOFT[node.status] ?? "var(--bg-strong)",
+        color: "var(--text)",
+      },
+      className: `workflow-run-flow-node workflow-run-flow-node--${node.status}`,
+    };
+  });
   const flowEdges: Edge[] = edges.map((edge) => ({
     id: `${edge.source}:${edge.target}`,
     source: edge.source,

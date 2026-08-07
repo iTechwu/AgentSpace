@@ -1,14 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
-import { translateWorkflowErrorCode } from "@/features/i18n/presentation";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
-import { runWorkflowAction } from "./workflow-actions";
+import { useManualWorkflowRun } from "./use-manual-workflow-run";
 import type { WorkflowCenterPageData, WorkflowListItem } from "./workflow-types";
 
 type WorkflowCenterTab = "plans" | "runs" | "templates";
@@ -137,9 +135,8 @@ export function WorkflowListClient({
 
 function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListItem; workspaceSlug: string }) {
   const { tx } = useLanguage();
-  const router = useRouter();
-  const [running, setRunning] = useState(false);
-  const [notice, setNotice] = useState<string>();
+  // 运行控制逻辑与任务看板共用 useManualWorkflowRun，保证二次确认、错误展示与跳转路径一致。
+  const { running, notice, run } = useManualWorkflowRun(workspaceSlug, tx, "list");
   const href = workflow.sourceKind === "legacy"
     ? `/w/${workspaceSlug}/automations/new?entry=automations&legacySourceId=${encodeURIComponent(workflow.legacySourceId ?? "")}`
     : `/w/${workspaceSlug}/automations/${workflow.id}`;
@@ -151,28 +148,6 @@ function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListIt
     ...(workflow.topology.parallelGroupCount > 0 ? [tx(`${workflow.topology.parallelGroupCount} 组并行`, `${workflow.topology.parallelGroupCount} parallel groups`)] : []),
     ...(workflow.topology.hasApproval ? [tx("含审批", "Approval")] : []),
   ].join(" · ");
-  async function runNow(): Promise<void> {
-    if (!canRunManually || running) return;
-    if (!window.confirm("确认立即运行该工作流？")) return;
-    setRunning(true);
-    setNotice(undefined);
-    try {
-      const result = await runWorkflowAction({
-        workflowId: workflow.id,
-        idempotencyKey: `list-${workflow.id}-${Date.now()}`,
-        input: {},
-      });
-      if (!result.ok) {
-        setNotice(translateWorkflowErrorCode(result.error.code, tx));
-        return;
-      }
-      router.push(`/w/${encodeURIComponent(workspaceSlug)}/automations/runs/${result.data.runId}`);
-    } catch {
-      setNotice(tx("立即运行未完成，请稍后重试。", "Manual run failed, please retry."));
-    } finally {
-      setRunning(false);
-    }
-  }
   return (
     <div role="listitem" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
       <Link className="workflow-center__row" href={href} style={{ flex: 1, minWidth: 0 }}>
@@ -191,7 +166,7 @@ function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListIt
       </Link>
       <div style={{ width: 96, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
         {canRunManually ? (
-          <button className="knowledge-btn" disabled={running} onClick={() => void runNow()} type="button">{running ? "启动中" : "立即运行"}</button>
+          <button className="knowledge-btn" disabled={running} onClick={() => void run(workflow.id)} type="button">{running ? "启动中" : "立即运行"}</button>
         ) : null}
       </div>
       {notice ? <p className="workflow-run__notice" role="status" style={{ flexBasis: "100%" }}>{notice}</p> : null}

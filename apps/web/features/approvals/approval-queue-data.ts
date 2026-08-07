@@ -71,6 +71,9 @@ export interface ApprovalItem {
   reviewerComment?: string;
   reviewerLabel?: string;
   reviewerRisk?: "low" | "medium" | "high";
+  // 审批限时（工作流审批）：metadata.expiresAt 的 ISO 字符串，到期后由调度自动驳回。
+  // 审批中心据此展示截止时间与剩余时间（UIUX:审批限时）。
+  reviewerExpiresAt?: string;
   createdAt: string;
   reviewedAt?: string;
 }
@@ -138,6 +141,8 @@ function buildApprovalItems(workspaceId: string, actor?: ApprovalQueueActor): Ap
         ? (reviewerUser?.displayName?.trim() || reviewerUser?.primaryEmail?.trim() || reviewerUserId)
         : undefined,
       reviewerRisk: readApprovalRiskValue(approval.metadata),
+      // 审批限时（工作流审批）：从 metadata.expiresAt 透出，供审批中心展示截止/剩余时间。
+      reviewerExpiresAt: readMetadataStringValue(approval.metadata, "expiresAt") || undefined,
       createdAt: approval.createdAt,
       reviewedAt: approval.reviewedAt,
     };

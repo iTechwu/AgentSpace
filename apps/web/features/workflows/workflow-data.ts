@@ -55,16 +55,22 @@ export interface RunnableWorkflowSummary {
 /**
  * 已发布且具备激活 manual 触发器的工作流——可在「立即运行」入口直接触发
  * （与 materializeManualWorkflowRunSync 的 assertManualWorkflowTriggerAvailable 约束一致）。
+ *
+ * 以一条 join 查询批量取出，避免对每个工作流单独读取触发器造成的 N+1。
  */
 export function listRunnableWorkflowsSync(workspaceId: string): RunnableWorkflowSummary[] {
-  return listWorkflowDefinitionsSync(workspaceId)
-    .filter((definition) => definition.status === "published")
-    .flatMap((definition) => {
-      const trigger = readWorkflowTriggerForWorkflowSync(definition.id, workspaceId);
-      return trigger && trigger.type === "manual" && trigger.status === "active"
-        ? [{ id: definition.id, name: definition.name }]
-        : [];
-    });
+  const rows = getDatabase().prepare(
+    `SELECT d.id AS id, d.name AS name
+       FROM workflow_definition d
+       INNER JOIN workflow_trigger t
+         ON t.workflow_id = d.id
+        AND t.workspace_id = d.workspace_id
+        AND t.type = 'manual'
+        AND t.status = 'active'
+      WHERE d.workspace_id = ? AND d.status = 'published'
+      ORDER BY d.name ASC`,
+  ).all(workspaceId) as Array<{ id: string; name: string }>;
+  return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
 interface WorkflowTriggerSummary {

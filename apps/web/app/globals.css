@@ -18249,6 +18249,19 @@ textarea:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 节点标签：名称 + 状态文本两行堆叠（UIUX:52 不依赖颜色单一表达状态）。 */
+.workflow-run-flow-node__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.workflow-run-flow-node__status {
+  font-size: 11px;
+  opacity: 0.85;
+}
 .workflow-run-flow .react-flow__controls,
 .workflow-run-flow .react-flow__minimap {
   border: 1px solid var(--line);
