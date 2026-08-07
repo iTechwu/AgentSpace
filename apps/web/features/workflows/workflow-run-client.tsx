@@ -11,6 +11,7 @@ import {
 } from "@/features/i18n/presentation";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { controlWorkflowRunAction, rerunWorkflowRunAction } from "./workflow-actions";
+import { WorkflowRunFlowchart } from "./workflow-run-flowchart";
 import { WorkflowRunTimeline } from "./workflow-run-timeline";
 import type { WorkflowRunEventItem, WorkflowRunPageData } from "./workflow-types";
 
@@ -33,6 +34,8 @@ export function WorkflowRunClient({
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingControl, setPendingControl] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  // 步骤视图：列表（默认，逐节点明细）或流程图（按拓扑分层，承载多分支大图）。
+  const [stepView, setStepView] = useState<"list" | "flow">("list");
   const lastSequenceRef = useRef(lastSequence(data.events));
   const refreshRequestRef = useRef(0);
   const appliedProjectionRequestRef = useRef(0);
@@ -175,7 +178,17 @@ export function WorkflowRunClient({
       {notice ? <p className="workflow-run__notice" role="status">{notice}</p> : null}
 
       <section aria-labelledby="workflow-run-steps-title" className="workflow-run__steps">
-        <header><h2 id="workflow-run-steps-title">执行步骤</h2><span>{projection.nodes.length} 个节点</span></header>
+        <header>
+          <h2 id="workflow-run-steps-title">执行步骤</h2>
+          <div aria-label="步骤视图" className="workflow-segmented workflow-run__view-toggle" role="tablist">
+            <button aria-selected={stepView === "list"} onClick={() => setStepView("list")} role="tab" type="button">列表</button>
+            <button aria-selected={stepView === "flow"} onClick={() => setStepView("flow")} role="tab" type="button">流程图</button>
+          </div>
+          <span>{projection.nodes.length} 个节点</span>
+        </header>
+        {stepView === "flow" && projection.nodes.length > 0 ? (
+          <WorkflowRunFlowchart edges={projection.edges} nodes={projection.nodes} />
+        ) : (
         <ol>
           {projection.nodes.map((node) => (
             <li key={node.id}>
@@ -205,6 +218,7 @@ export function WorkflowRunClient({
             </li>
           ))}
         </ol>
+        )}
       </section>
 
       <WorkflowRunTimeline events={events} />

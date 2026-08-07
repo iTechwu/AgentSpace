@@ -132,5 +132,8 @@ export interface WorkflowRunPageData {
   finishedAt?: string;
   createdAt: string;
   nodes: WorkflowNodeRunItem[];
+  // 运行流程图视图（UIUX:运行详情可扩展流程图）：从绑定版本的 graphJson 解析、
+  // 收敛到本次运行节点集合的边，供只读 React Flow 画布按拓扑分层着色渲染。
+  edges: Array<{ source: string; target: string }>;
   events: WorkflowRunEventItem[];
 }

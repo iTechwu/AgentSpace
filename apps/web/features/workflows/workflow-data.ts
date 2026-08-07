@@ -262,8 +262,9 @@ export function getWorkflowRunPageData(
   // 重跑放宽入口：不再要求 manual 触发器，只要原运行已终结、且其落库版本仍存在即可
   // 重跑（定时/事件触发的运行也可由用户手动重跑）。重跑固定复用原版本与输入快照，
   // 见 rerunWorkflowRunSync。
+  const version = readWorkflowVersionSync(run.versionId, workspaceId);
   const canRerun = TERMINAL_RUN_STATUSES.has(run.status)
-    && Boolean(readWorkflowVersionSync(run.versionId, workspaceId));
+    && Boolean(version);
   const eventRecords = listWorkflowRunEventsSync(workspaceId, runId, { limit: 200 });
   const memberLabels = new Map(
     listWorkspaceMemberUsersSync(workspaceId).map((member) => [member.userId, member.displayName]),
@@ -275,6 +276,11 @@ export function getWorkflowRunPageData(
       costByNodeRunId.set(event.nodeRunId, (costByNodeRunId.get(event.nodeRunId) ?? 0) + data.costUsd);
     }
   }
+  const nodeRuns = listWorkflowNodeRunsSync(workspaceId, runId);
+  const runNodeIds = new Set(nodeRuns.map((node) => node.nodeId));
+  // 流程图视图需要图的拓扑（边）：从运行绑定的版本 graphJson 解析，并过滤掉两端
+  // 不在本次运行节点集合中的边（版本可能含本次未实例化的节点，作防御性收敛）。
+  const edges = extractRunEdges(version?.graphJson, runNodeIds);
   return {
     id: run.id,
     workflowId: run.workflowId,
@@ -287,7 +293,7 @@ export function getWorkflowRunPageData(
     ...(run.startedAt ? { startedAt: run.startedAt } : {}),
     ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
     createdAt: run.createdAt,
-    nodes: listWorkflowNodeRunsSync(workspaceId, runId).map((node) => {
+    nodes: nodeRuns.map((node) => {
       // 审批节点的等待详情：approvalId 来自 node_run 列；风险/审批人来自建 Run 时
       // 快照进 input_json 的节点 config；来源固定为「工作流审批」。
       const approvalFields = node.nodeType === "approval" ? buildApprovalNodeFields(node, memberLabels) : {};
@@ -307,8 +313,35 @@ export function getWorkflowRunPageData(
         ...approvalFields,
       };
     }),
+    edges,
     events: eventRecords.map(toWorkflowRunEventItem),
   };
+}
+
+/** 从版本 graphJson 解析运行流程图所需的边，仅保留两端均在运行节点集合中的边。 */
+function extractRunEdges(
+  graphJson: string | undefined,
+  runNodeIds: Set<string>,
+): Array<{ source: string; target: string }> {
+  if (!graphJson) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(graphJson);
+  } catch {
+    return [];
+  }
+  const edges = (parsed as { edges?: unknown })?.edges;
+  if (!Array.isArray(edges)) return [];
+  const result: Array<{ source: string; target: string }> = [];
+  for (const edge of edges) {
+    if (!edge || typeof edge !== "object") continue;
+    const source = (edge as { source?: unknown }).source;
+    const target = (edge as { target?: unknown }).target;
+    if (typeof source !== "string" || typeof target !== "string") continue;
+    if (!runNodeIds.has(source) || !runNodeIds.has(target)) continue;
+    result.push({ source, target });
+  }
+  return result;
 }
 
 export function getWorkflowRunEventsPage(

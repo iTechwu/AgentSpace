@@ -18229,6 +18229,36 @@ textarea:focus {
 
 .workflow-canvas-node--error { box-shadow: 0 0 0 2px var(--danger-soft); }
 
+/* 运行详情只读流程图：容器需有明确高度，React Flow 才能正确量算视口。 */
+.workflow-run-flow {
+  position: relative;
+  min-width: 0;
+  height: 460px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f4f6f8;
+  overflow: hidden;
+}
+.workflow-run-flow .react-flow__node {
+  overflow: hidden;
+  border-radius: 8px;
+  border-width: 2px;
+  border-style: solid;
+  font-size: 13px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-run-flow .react-flow__controls,
+.workflow-run-flow .react-flow__minimap {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: none;
+}
+@media (max-width: 860px) {
+  .workflow-run-flow { height: 360px; }
+}
+
 .workflow-node-config {
   display: grid;
   align-content: start;

@@ -18,6 +18,12 @@ vi.mock("./workflow-actions", () => ({
   runWorkflowAction: mocks.run,
   rerunWorkflowRunAction: mocks.rerun,
 }));
+vi.mock("@xyflow/react", () => ({
+  ReactFlow: ({ children }: { children: React.ReactNode }) => <div data-testid="react-flow">{children}</div>,
+  Background: () => null,
+  Controls: () => null,
+  MiniMap: () => null,
+}));
 
 import { WorkflowRunClient, mergeWorkflowRunEvents, selectLatestWorkflowProjection } from "./workflow-run-client";
 
@@ -40,6 +46,7 @@ const initial: WorkflowRunPageData = {
     maxAttempts: 3,
     artifactCount: 0,
   }],
+  edges: [],
   events: [{ id: "event-4", sequence: 4, type: "workflow.node.started", severity: "info", createdAt: "2026-08-06T00:00:04.000Z" }],
 };
 
@@ -139,6 +146,19 @@ describe("workflow run client", () => {
     expect(link).toHaveAttribute("href", "/w/default/approvals?focus=approval-1");
     expect(screen.getByText("审批人：审批人甲")).toBeInTheDocument();
     expect(screen.getByText(/风险：高/)).toBeInTheDocument();
+  });
+
+  it("toggles between the step list and the scalable flowchart view", async () => {
+    const user = userEvent.setup();
+    renderRun(initial);
+    // 默认列表视图：不渲染流程图画布。
+    expect(screen.queryByLabelText("运行流程图")).not.toBeInTheDocument();
+    expect(screen.getByText("审计员工")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "流程图" }));
+    // 切换后渲染只读流程图容器（承载多分支大图的平移缩放视图）。
+    expect(screen.getByLabelText("运行流程图")).toBeInTheDocument();
+    expect(screen.getByTestId("react-flow")).toBeInTheDocument();
   });
 
   it("offers a rerun action for terminal runs and replays by run id", async () => {
