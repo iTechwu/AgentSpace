@@ -52,6 +52,13 @@ export interface ValidateWorkflowInput {
   workflowId: string;
   graph?: WorkflowGraphDefinition;
   governance?: Record<string, unknown>;
+  trigger?: {
+    type: "manual" | "schedule" | "event";
+    config: Record<string, unknown>;
+    timezone?: string;
+    nextFireAt?: string;
+    misfirePolicy?: "skip" | "fire_once";
+  };
 }
 
 export interface PublishWorkflowActionInput {
@@ -153,6 +160,13 @@ export async function validateWorkflowAction(
       graph: input.graph ?? parseWorkflowGraph(definition.draftGraphJson),
       governance: input.governance,
       actor: actorFromContext(context),
+      trigger: input.trigger ? {
+        type: input.trigger.type,
+        configJson: JSON.stringify(input.trigger.config),
+        timezone: input.trigger.timezone,
+        nextFireAt: input.trigger.nextFireAt,
+        misfirePolicy: input.trigger.misfirePolicy,
+      } : undefined,
     });
     return success(context.currentWorkspace.id, validation);
   } catch (error) {

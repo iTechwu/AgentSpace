@@ -11,6 +11,7 @@ import {
   type WorkflowNodeDefinition,
 } from "@dofe-agent/domain";
 import { validateWorkflowInputReferences } from "./inputs.ts";
+import { normalizeWorkflowTriggerForPublish } from "./scheduler.ts";
 
 export type WorkflowActorRole = "owner" | "admin" | "editor" | "viewer";
 
@@ -31,6 +32,13 @@ export interface ValidateWorkflowForPublishInput {
   graph: WorkflowGraphDefinition;
   governance?: Record<string, unknown>;
   actor: { userId: string; displayName?: string; role: WorkflowActorRole };
+  trigger?: {
+    type: "manual" | "schedule" | "event";
+    configJson: string;
+    timezone?: string;
+    nextFireAt?: string;
+    misfirePolicy?: "skip" | "fire_once";
+  };
 }
 
 export interface WorkflowDependencyInventory {
@@ -79,6 +87,14 @@ export function validateWorkflowForPublishSync(
     blockers.push({ code: "workflow_actor_forbidden", detail: "viewer cannot publish workflows" });
   }
   blockers.push(...validateWorkflowGovernance(input.governance));
+  if (input.trigger) {
+    try {
+      normalizeWorkflowTriggerForPublish(input.trigger);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "workflow_schedule_invalid";
+      blockers.push({ code });
+    }
+  }
 
   const graphResult = validateWorkflowGraph(input.graph);
   for (const error of graphResult.errors) {

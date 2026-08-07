@@ -198,6 +198,7 @@ export function WorkflowBuilderClient({
       workflowId: saved.workflowId,
       graph: saved.graph,
       governance: governancePayload(maxConcurrency, budgetUsd),
+      trigger: triggerType === "none" ? undefined : triggerPayload(triggerType, scheduleMode, schedule, onceAt, dailyAt, eventName, timezone, misfirePolicy),
     });
     setPendingAction(null);
     if (!result.ok) {
