@@ -17,7 +17,7 @@
 | 检查项 | 当前状态 | 证据 / 放行条件 |
 | --- | --- | --- |
 | 目标提交 | 部署时记录完整 40 位 SHA | 发布只能使用包含本清单的已提交版本，不得使用未提交工作树 |
-| PostgreSQL schema 版本 | 代码为 `111`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `111`（111 含对早期 110 误 reparent 运行链接的修复） |
+| PostgreSQL schema 版本 | 代码为 `112`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `112`（112 在 111 基础上落地审批限时 `expiresAt`、指定审批人 `reviewerUserId`、风险等级 `risk` 等审批元数据，并修复 110 误 reparent 运行链接） |
 | Workflow 表与唯一约束 | 静态测试已覆盖 | 7 张 workspace-scoped 表；`workspace_id + trigger_key`、`run_id + node_id`、`run_id + sequence` 唯一 |
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |
 | 单一调度 owner | 代码测试通过，环境待抽查 | 每个 workspace 只能由 legacy 或 workflow 一方创建 trigger |
