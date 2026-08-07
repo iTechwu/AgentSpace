@@ -228,7 +228,7 @@ export function WorkflowBuilderClient({
       expectedDraftVersion: draft.draftVersion,
       graph,
       governance: governancePayload(maxConcurrency, budgetUsd),
-      trigger: triggerPayload(triggerType, scheduleMode, schedule, onceAt, dailyAt, eventName, timezone, misfirePolicy),
+      trigger: triggerType === "none" ? undefined : triggerPayload(triggerType, scheduleMode, schedule, onceAt, dailyAt, eventName, timezone, misfirePolicy),
     });
     setPendingAction(null);
     if (!result.ok) {
@@ -433,7 +433,7 @@ function triggerLabel(type: TriggerType): string {
   return type === "manual" ? "手动触发" : type === "schedule" ? "定时触发" : type === "event" ? "事件触发" : "未配置触发器";
 }
 
-function triggerPayload(type: TriggerType, scheduleMode: ScheduleMode, schedule: string, onceAt: string, dailyAt: string, eventName: string, timezone: string, misfirePolicy: MisfirePolicy) {
+function triggerPayload(type: Exclude<TriggerType, "none">, scheduleMode: ScheduleMode, schedule: string, onceAt: string, dailyAt: string, eventName: string, timezone: string, misfirePolicy: MisfirePolicy) {
   if (type === "schedule") {
     const config = scheduleMode === "once"
       ? { onceAt: onceAt.trim() }

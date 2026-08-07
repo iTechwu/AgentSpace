@@ -326,7 +326,7 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
   }
 
   if (task.status === "cancelled") {
-    finalizeCancelledChannelTask(task, channelName);
+    finalizeCancelledChannelTask(task, channelName, workspaceContext);
     revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
     return;
   }
@@ -340,7 +340,7 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
     return;
   }
 
-  finalizeCancelledChannelTask(cancelledTask, channelName);
+  finalizeCancelledChannelTask(cancelledTask, channelName, workspaceContext);
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
 }
@@ -348,6 +348,7 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
 function finalizeCancelledChannelTask(
   task: NonNullable<ReturnType<typeof readQueuedTaskSync>>,
   channelName: string,
+  workspaceContext: Awaited<ReturnType<typeof requireCurrentWorkspaceContext>>,
 ): void {
   for (const approval of listApprovalsSync(task.workspaceId)) {
     if (approval.status === "pending" && approval.sourceId === task.id) {
@@ -360,7 +361,7 @@ function finalizeCancelledChannelTask(
       );
     }
   }
-  replaceStoppedChannelTaskMessage(task, channelName, workspaceContext);
+  replaceStoppedChannelTaskMessage(task, channelName);
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
 }
@@ -368,7 +369,6 @@ function finalizeCancelledChannelTask(
 function replaceStoppedChannelTaskMessage(
   task: { id: string; agentId: string; workspaceId: string },
   channelName: string,
-  workspaceContext: Awaited<ReturnType<typeof requireCurrentWorkspaceContext>>,
 ): void {
   const hasPendingMessage = readWorkspaceStateSync(task.workspaceId).messages.some(
     (message) =>
