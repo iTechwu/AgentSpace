@@ -5,7 +5,7 @@ services:
       dockerfile: deploy/daemon/Dockerfile.managed-node
     image: dofe-agent-managed-node:local
     platform: linux/amd64
-    env_file: ${MANAGED_NODE_ENV_FILE:-./.env.managed-node}
+    env_file: ${MANAGED_NODE_ENV_FILE:?Set MANAGED_NODE_ENV_FILE to the managed-node environment file}
     environment:
       DOFE_AGENT_DAEMON_STATE_DIR: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
       DOFE_AGENT_SKILL_SERVICE_SECRET_ROOT: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}/skill-service-secrets

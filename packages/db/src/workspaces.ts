@@ -48,6 +48,12 @@ export type HardDeleteWorkspaceResult = {
   removedBudgetRows: number;
 };
 
+export type WorkspaceHardDeleteGuard = {
+  openMontageDelegationIntentCount: number;
+  openMontageJobCount: number;
+  allowed: boolean;
+};
+
 /** Slug: lowercase alphanumeric + hyphens, max 48 chars */
 function generateSlug(name: string, id: string): string {
   const base = name
@@ -181,6 +187,8 @@ export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {
   if (id === DEFAULT_WORKSPACE_ID) {
     throw new Error(`Cannot hard-delete the default workspace "${DEFAULT_WORKSPACE_ID}".`);
   }
+
+  assertWorkspaceHardDeleteAllowedSync(id);
 
   const db = getDatabase();
 
@@ -361,4 +369,29 @@ export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {
       removedBudgetRows,
     };
   });
+}
+
+export function readWorkspaceHardDeleteGuardSync(id: string): WorkspaceHardDeleteGuard {
+  const row = getDatabase().prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM openmontage_delegation_intent WHERE workspace_id = ?) AS "intentCount",
+       (SELECT COUNT(*) FROM openmontage_job_link WHERE workspace_id = ?) AS "jobCount"`,
+  ).get(id, id) as { intentCount?: unknown; jobCount?: unknown } | undefined;
+  const openMontageDelegationIntentCount = Number(row?.intentCount ?? 0);
+  const openMontageJobCount = Number(row?.jobCount ?? 0);
+  return {
+    openMontageDelegationIntentCount,
+    openMontageJobCount,
+    allowed: openMontageDelegationIntentCount === 0 && openMontageJobCount === 0,
+  };
+}
+
+export function assertWorkspaceHardDeleteAllowedSync(id: string): void {
+  const guard = readWorkspaceHardDeleteGuardSync(id);
+  if (guard.allowed) return;
+  throw new Error(
+    `Cannot hard-delete workspace "${id}": OpenMontage audit evidence exists `
+      + `(delegationIntents=${guard.openMontageDelegationIntentCount}, jobs=${guard.openMontageJobCount}). `
+      + "Archive the workspace instead.",
+  );
 }

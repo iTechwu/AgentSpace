@@ -2,7 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { parseOpenMontageJobEvent, type OpenMontageJobEvent } from "@dofe-agent/domain";
 import {
   ingestOpenMontageJobEventSync,
-  listOpenMontageSyncingJobIdsSync,
+  listOpenMontageReconciliationJobIdsSync,
   markOpenMontageNotificationDeliveredSync,
   readOpenMontageJobLinkSync,
   readOpenMontageJobProjectionSync,
@@ -16,6 +16,26 @@ const DEFAULT_MAX_AGE_SECONDS = 300;
 
 export class OpenMontageEventAuthenticationError extends Error {}
 export class OpenMontageEventValidationError extends Error {}
+export class OpenMontageJobActionError extends Error {
+  readonly downstreamStatus: number;
+  readonly downstreamCode?: string;
+  readonly traceId?: string;
+
+  constructor(
+    downstreamStatus: number,
+    downstreamCode?: string,
+    traceId?: string,
+  ) {
+    super(
+      `OpenMontage Job action failed with HTTP ${downstreamStatus}`
+      + (downstreamCode ? ` (${downstreamCode})` : "."),
+    );
+    this.name = "OpenMontageJobActionError";
+    this.downstreamStatus = downstreamStatus;
+    this.downstreamCode = downstreamCode;
+    this.traceId = traceId;
+  }
+}
 
 export interface VerifiedOpenMontageEventRequest {
   event: OpenMontageJobEvent;
@@ -89,7 +109,7 @@ export function verifyOpenMontageEventRequest(input: {
   }
   let event: OpenMontageJobEvent;
   try {
-    event = parseOpenMontageJobEvent(decoded);
+    event = parseOpenMontageJobEvent(normalizeLegacyFailureSummary(decoded));
   } catch (error) {
     throw new OpenMontageEventValidationError("OpenMontage event does not match schema v1.", {
       cause: error,
@@ -187,7 +207,9 @@ export async function reconcileOpenMontageJobAsync(
   const replay = parseReplayResponse(body);
   let lastAppliedSequence = projection.lastAppliedSequence;
   for (const candidate of replay.events) {
-    const event = sanitizeOpenMontageEventForStorage(parseOpenMontageJobEvent(candidate));
+    const event = sanitizeOpenMontageEventForStorage(
+      parseOpenMontageJobEvent(normalizeLegacyFailureSummary(candidate)),
+    );
     const result = ingest(event, {
       nonce: `reconcile-${event.eventId}-${randomUUID()}`,
     });
@@ -214,11 +236,15 @@ export async function reconcileOpenMontageJobAsync(
 
 export async function reconcileSyncingOpenMontageJobsAsync(options: {
   limit?: number;
-  listJobIds?: typeof listOpenMontageSyncingJobIdsSync;
+  staleBefore?: string;
+  listJobIds?: typeof listOpenMontageReconciliationJobIdsSync;
   reconcile?: typeof reconcileOpenMontageJobAsync;
 } = {}): Promise<{ attempted: number; succeeded: number; failed: number }> {
-  const jobIds = (options.listJobIds ?? listOpenMontageSyncingJobIdsSync)({
+  const staleBefore = options.staleBefore
+    ?? new Date(Date.now() - 5 * 60_000).toISOString();
+  const jobIds = (options.listJobIds ?? listOpenMontageReconciliationJobIdsSync)({
     limit: options.limit ?? 50,
+    staleBefore,
   });
   let succeeded = 0;
   let failed = 0;
@@ -299,7 +325,11 @@ export async function callOpenMontageJobActionAsync(
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    throw new Error(`OpenMontage Job action returned HTTP ${response.status}.`);
+    throw new OpenMontageJobActionError(
+      response.status,
+      await readSafeDownstreamErrorCode(response),
+      readSafeTraceId(response.headers),
+    );
   }
 
   try {
@@ -308,6 +338,24 @@ export async function callOpenMontageJobActionAsync(
     // Signed callbacks and scheduled reconciliation remain recovery paths.
   }
   return { accepted: true };
+}
+
+async function readSafeDownstreamErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.text()).slice(0, 16 * 1024);
+    const parsed = JSON.parse(body) as { error?: { code?: unknown } };
+    const code = parsed.error?.code;
+    return typeof code === "string" && /^OPENMONTAGE_[A-Z0-9_]{1,96}$/.test(code)
+      ? code
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readSafeTraceId(headers: Headers): string | undefined {
+  const traceId = headers.get("x-trace-id")?.trim() || headers.get("x-request-id")?.trim();
+  return traceId && /^[A-Za-z0-9._:-]{1,256}$/.test(traceId) ? traceId : undefined;
 }
 
 export function sanitizeOpenMontageEventForStorage(
@@ -371,6 +419,35 @@ function parseReplayResponse(value: unknown): { events: unknown[]; lastSequence:
     throw new Error("OpenMontage reconciliation response sequence is invalid.");
   }
   return { events: source.events, lastSequence: source.lastSequence };
+}
+
+function normalizeLegacyFailureSummary(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const event = value as Record<string, unknown>;
+  const payload = event.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return value;
+  }
+  const error = (payload as Record<string, unknown>).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) {
+    return value;
+  }
+  const message = (error as Record<string, unknown>).message;
+  if (typeof message !== "string" || message.length <= 500) {
+    return value;
+  }
+  return {
+    ...event,
+    payload: {
+      ...(payload as Record<string, unknown>),
+      error: {
+        ...(error as Record<string, unknown>),
+        message: message.slice(-500),
+      },
+    },
+  };
 }
 
 function sanitizePayload(payload: Record<string, unknown>): Record<string, unknown> {

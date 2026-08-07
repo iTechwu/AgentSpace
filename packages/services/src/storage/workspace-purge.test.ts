@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  createOpenMontageDelegationIntentSync,
   createWorkspaceSync,
   getDatabase,
   getDaemonWorkspaceExecutionRootDir,
@@ -63,6 +64,7 @@ before(() => {
 beforeEach(() => {
   const db = getDatabase();
   db.exec(`
+    DELETE FROM openmontage_delegation_intent;
     DELETE FROM attachment;
     DELETE FROM task_message;
     DELETE FROM task_execution_event;
@@ -156,6 +158,45 @@ test("purgeWorkspaceStorageSync removes workspace db rows, workspace files, and 
   assert.equal(countWhere(getDatabase(), "agent_task_attempt", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(getDatabase(), "agent_router_event", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(getDatabase(), "agent_router_context_snapshot", "workspace_id", survivor.id), 1);
+});
+
+test("purgeWorkspaceStorageSync keeps files and attachments when OpenMontage audit evidence blocks purge", () => {
+  const workspace = createWorkspaceSync({
+    id: "workspace-openmontage-preserved",
+    slug: "workspace-openmontage-preserved",
+    name: "OpenMontage Preserved",
+    createdBy: "system",
+  });
+  const attachment = seedWorkspaceAttachment(workspace.id, "billing.txt", "preserve me");
+  const workspaceDir = getWorkspaceDataDirPath(workspace.id);
+  mkdirSync(workspaceDir, { recursive: true });
+  writeFileSync(join(workspaceDir, "billing.txt"), "preserve me", "utf8");
+  createOpenMontageDelegationIntentSync({
+    idempotencyKey: "intent-storage-purge-guard",
+    workspaceId: workspace.id,
+    runtimeId: "runtime-1",
+    mcpConnectionId: "mcp-1",
+    runtimeCredentialId: "credential-1",
+    modelsTenantId: "tenant-1",
+    modelsTeamId: "team-1",
+    externalJobId: "job-1",
+    request: {
+      idempotencyKey: "intent-storage-purge-guard",
+      runtimeCredentialId: "credential-1",
+      tenantId: "tenant-1",
+      teamId: "team-1",
+      externalJobId: "job-1",
+      sourceService: "openmontage",
+    },
+  });
+
+  assert.throws(
+    () => purgeWorkspaceStorageSync(workspace.id),
+    /OpenMontage audit evidence exists/,
+  );
+  assert.notEqual(readWorkspaceSync(workspace.id), null);
+  assert.equal(existsSync(workspaceDir), true);
+  assert.equal(tosObjects.has(attachment.storageKey ?? ""), true);
 });
 
 test.after(() => {

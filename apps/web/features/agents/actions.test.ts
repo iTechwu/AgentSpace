@@ -69,6 +69,7 @@ vi.mock("@dofe-agent/services", () => ({
   acceptAgentForkInvitationForActorSync: vi.fn(),
   assertCanManageEmployeeForActorSync: vi.fn(),
   assertAgentSkillRequirementsReadySync: mockAssertAgentSkillRequirementsReadySync,
+  assertOpenMontageRuntimePurgeableAsync: vi.fn(),
   assertRuntimeCanBindEmployeeSync: mockAssertRuntimeCanBindEmployeeSync,
   assertCanUseEmployeeInChannelForActorSync: mockAssertCanUseEmployeeInChannelForActorSync,
   assertCanUseRuntimeForActorSync: vi.fn(),

@@ -67,6 +67,7 @@ const ATTRIBUTION_ENVIRONMENT_KEYS = [
   "DOFE_AGENT_RUNTIME_ID",
   "DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID",
   "DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID",
+  "DOFE_AGENT_ATTRIBUTION_ROOT_TASK_ID",
   "DOFE_AGENT_GATEWAY_REQUEST_LOG",
   "DOFE_AGENT_GATEWAY_PROTOCOL",
   "DOFE_AGENT_MANAGED_PROXY_HEALTHCHECK",
@@ -151,20 +152,23 @@ export function buildManagedRuntimeAttributionHeaders(input: {
   runtimeId: string;
   employeeId: string;
   conversationId: string;
+  rootTaskId: string;
   timestampSeconds: number;
 }): Record<string, string> {
   const employeeId = encodeAttributionIdentifier(input.employeeId);
   const conversationId = encodeAttributionIdentifier(input.conversationId);
-  if (!employeeId || !conversationId) {
+  const rootTaskId = encodeAttributionIdentifier(input.rootTaskId);
+  if (!employeeId || !conversationId || !rootTaskId) {
     throw new Error("managed_runtime.invalid_attribution_id");
   }
   const timestamp = String(input.timestampSeconds);
-  const content = [input.runtimeCredentialId, input.runtimeId, employeeId, conversationId, timestamp].join("\n");
+  const content = [input.runtimeCredentialId, input.runtimeId, employeeId, conversationId, rootTaskId, timestamp].join("\n");
   return {
     "x-dofe-runtime-credential-id": input.runtimeCredentialId,
     "x-dofe-runtime-id": input.runtimeId,
     "x-dofe-employee-id": employeeId,
     "x-dofe-conversation-id": conversationId,
+    "x-dofe-root-task-id": rootTaskId,
     "x-dofe-attribution-timestamp": timestamp,
     "x-dofe-attribution-signature": createHmac("sha256", input.runtimeKey).update(content, "utf8").digest("hex"),
   };
@@ -447,13 +451,15 @@ const server = http.createServer((request, response) => {
   const runtimeId = process.env.DOFE_AGENT_RUNTIME_ID || "";
   const employeeId = encodeAttributionId(process.env.DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID || "");
   const conversationId = encodeAttributionId(process.env.DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID || "");
-  if (credentialId && runtimeId && idPattern.test(employeeId) && idPattern.test(conversationId)) {
+  const rootTaskId = encodeAttributionId(process.env.DOFE_AGENT_ATTRIBUTION_ROOT_TASK_ID || "");
+  if (credentialId && runtimeId && idPattern.test(employeeId) && idPattern.test(conversationId) && idPattern.test(rootTaskId)) {
     const timestamp = String(Math.floor(Date.now() / 1000));
-    const content = [credentialId, runtimeId, employeeId, conversationId, timestamp].join("\\n");
+    const content = [credentialId, runtimeId, employeeId, conversationId, rootTaskId, timestamp].join("\\n");
     headers["x-dofe-runtime-credential-id"] = credentialId;
     headers["x-dofe-runtime-id"] = runtimeId;
     headers["x-dofe-employee-id"] = employeeId;
     headers["x-dofe-conversation-id"] = conversationId;
+    headers["x-dofe-root-task-id"] = rootTaskId;
     headers["x-dofe-attribution-timestamp"] = timestamp;
     headers["x-dofe-attribution-signature"] = createHmac("sha256", runtimeKey).update(content, "utf8").digest("hex");
   }

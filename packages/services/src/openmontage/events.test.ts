@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import {
   callOpenMontageJobActionAsync,
+  OpenMontageJobActionError,
   OpenMontageEventAuthenticationError,
   reconcileOpenMontageJobAsync,
   reconcileSyncingOpenMontageJobsAsync,
@@ -75,6 +76,24 @@ test("verifies the exact signed bytes and redacts unsafe payload strings", () =>
   assert.equal(result.event.eventId, "om_evt_1");
   assert.doesNotMatch(JSON.stringify(result.event), /top-secret|\/data\/projects/);
   assert.match(JSON.stringify(result.event), /\[redacted\]/);
+});
+
+test("accepts legacy signed failure events and bounds their summary before validation", () => {
+  const legacy = event();
+  legacy.payload.error.message = `legacy-prefix-${"x".repeat(700)}-root-cause`;
+  const request = signedRequest({
+    body: new TextEncoder().encode(JSON.stringify(legacy)),
+  });
+
+  const result = verifyOpenMontageEventRequest({
+    ...request,
+    secret: SECRET,
+    now: NOW,
+  });
+
+  const error = result.event.payload.error as { message: string };
+  assert.equal(error.message.length, 500);
+  assert.match(error.message, /root-cause$/);
 });
 
 test("rejects tampered bodies, stale timestamps, and mismatched event ids", () => {
@@ -194,6 +213,21 @@ test("scheduled reconciliation isolates one Job failure from the remaining batch
   assert.deepEqual(result, { attempted: 2, succeeded: 1, failed: 1 });
 });
 
+test("scheduled reconciliation includes stale non-terminal Job projections", async () => {
+  const attempted: string[] = [];
+  const result = await reconcileSyncingOpenMontageJobsAsync({
+    limit: 10,
+    listJobIds: () => ["om_job_syncing", "om_job_stale_running"],
+    reconcile: async (jobId) => {
+      attempted.push(jobId);
+      return { received: 1, lastAppliedSequence: 3, remoteLastSequence: 3 };
+    },
+  });
+
+  assert.deepEqual(attempted, ["om_job_syncing", "om_job_stale_running"]);
+  assert.deepEqual(result, { attempted: 2, succeeded: 2, failed: 0 });
+});
+
 test("submits Job actions with trusted attribution, sequence fencing, and immediate reconciliation", async () => {
   const calls: Array<{ url: string; method?: string; headers: Headers; body?: string }> = [];
   const reconciled: string[] = [];
@@ -270,5 +304,58 @@ test("submits Job actions with trusted attribution, sequence fencing, and immedi
       readProjection: () => ({ lastAppliedSequence: 4 } as never),
     }),
     /changed since the action was requested/,
+  );
+});
+
+test("preserves safe downstream Job action diagnostics without exposing its message", async () => {
+  const link = {
+    jobId: "om_job_1",
+    workspaceId: "default",
+    employeeId: "employee-1",
+    runtimeId: "runtime-1",
+    runtimeCredentialId: "runtime-credential-1",
+    rootTaskId: "task-1",
+    conversationId: "conversation-1",
+    sourceInvocationId: "invocation-1",
+    traceId: "trace-1",
+    workflowName: "animated-explainer",
+    workflowVersion: "2.0",
+    createdAt: "2026-08-05T10:00:00Z",
+  };
+
+  await assert.rejects(
+    () => callOpenMontageJobActionAsync({
+      workspaceId: "default",
+      jobId: "om_job_1",
+      action: "cancel",
+      expectedSequence: 4,
+    }, {
+      environment: {
+        OPENMONTAGE_BASE_URL: "http://openmontage.internal:8765/",
+        OPENMONTAGE_SERVICE_TOKEN: "service-token",
+      },
+      fetch: async () => Response.json({
+        error: {
+          code: "OPENMONTAGE_JOB_CONFLICT",
+          message: "internal state and path must stay private",
+        },
+      }, {
+        status: 409,
+        headers: { "X-Trace-Id": "om-trace-409" },
+      }),
+      readLink: () => link,
+      readProjection: () => ({
+        lastAppliedSequence: 4,
+        status: "RUNNING",
+      } as never),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof OpenMontageJobActionError);
+      assert.equal(error.downstreamStatus, 409);
+      assert.equal(error.downstreamCode, "OPENMONTAGE_JOB_CONFLICT");
+      assert.equal(error.traceId, "om-trace-409");
+      assert.doesNotMatch(error.message, /internal state|path must stay private/);
+      return true;
+    },
   );
 });

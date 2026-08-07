@@ -280,7 +280,7 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
   if (!task || task.workspaceId !== workspaceContext.currentWorkspace.id) {
     throw new Error("Task does not exist.");
   }
-  if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+  if (task.status === "completed" || task.status === "failed") {
     return;
   }
   if (task.status === "preparing_commit" || task.status === "committed") {
@@ -325,6 +325,12 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
     throw new Error("Only the requester or a workspace administrator can stop this task.");
   }
 
+  if (task.status === "cancelled") {
+    finalizeCancelledChannelTask(task, channelName);
+    revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
+    return;
+  }
+
   const cancelledTask = cancelQueuedTaskSync({
     taskId: task.id,
     errorText: `Stopped by ${workspaceContext.currentUser.displayName.trim() || "the user"}.`,
@@ -334,6 +340,15 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
     return;
   }
 
+  finalizeCancelledChannelTask(cancelledTask, channelName);
+
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
+}
+
+function finalizeCancelledChannelTask(
+  task: NonNullable<ReturnType<typeof readQueuedTaskSync>>,
+  channelName: string,
+): void {
   for (const approval of listApprovalsSync(task.workspaceId)) {
     if (approval.status === "pending" && approval.sourceId === task.id) {
       reviewApprovalSync(
@@ -345,12 +360,22 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
       );
     }
   }
-  replaceStoppedChannelTaskMessage(task, channelName);
+  replaceStoppedChannelTaskMessage(task, channelName, workspaceContext);
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
 }
 
-function replaceStoppedChannelTaskMessage(task: { id: string; agentId: string; workspaceId: string }, channelName: string): void {
+function replaceStoppedChannelTaskMessage(
+  task: { id: string; agentId: string; workspaceId: string },
+  channelName: string,
+  workspaceContext: Awaited<ReturnType<typeof requireCurrentWorkspaceContext>>,
+): void {
+  const hasPendingMessage = readWorkspaceStateSync(task.workspaceId).messages.some(
+    (message) =>
+      message.status === "pending"
+      && message.data?.source_task_queue_id === task.id,
+  );
+  if (!hasPendingMessage) return;
   replacePendingChannelMessageSync({
     channel: channelName,
     pendingSpeaker: task.agentId,

@@ -11,7 +11,7 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ jobId: string }> },
 ): Promise<Response> {
-  let body: { stage?: unknown };
+  let body: { stage?: unknown; stageAttempt?: unknown };
   try {
     body = (await request.json()) as { stage?: unknown };
   } catch {
@@ -21,11 +21,16 @@ export async function POST(
   if (!stage || stage.length > 128) {
     return Response.json({ error: { code: "OPENMONTAGE_MODEL_CREDENTIAL_INVALID" } }, { status: 422 });
   }
+  const stageAttempt = body.stageAttempt === undefined ? 1 : Number(body.stageAttempt);
+  if (!Number.isInteger(stageAttempt) || stageAttempt < 1) {
+    return Response.json({ error: { code: "OPENMONTAGE_MODEL_CREDENTIAL_INVALID" } }, { status: 422 });
+  }
   const { jobId } = await context.params;
   try {
     const credential = issueOpenMontageModelCredential({
       jobId,
       stage,
+      stageAttempt,
       headers: request.headers,
     });
     return Response.json(credential, {

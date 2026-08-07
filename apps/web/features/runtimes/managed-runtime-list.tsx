@@ -124,6 +124,7 @@ function FilterSelect({ label, allLabel, value, onChange, children }: { label: s
 }
 
 function runtimeStatusFilter(runtime: ManagedRuntimeListItem): string {
+  if (runtime.provisioningState === "draining") return "stopped";
   if (runtime.provisioningState === "credential_recovering") return "recovering";
   if (runtime.provisioningState === "needs_attention") return "attention";
   if (runtime.provisioningState === "legacy") return "stopped";
@@ -154,6 +155,13 @@ function presentRuntimeState(runtime: ManagedRuntimeListItem, tx: (zh: string, e
       label: tx("凭证恢复中", "Credential recovery"),
       detail: tx("正在更新网关凭证，新任务已暂停。", "Updating the gateway credential; new tasks are paused."),
       tone: "recovering",
+    };
+  }
+  if (runtime.provisioningState === "draining") {
+    return {
+      label: tx("停止结算中", "Draining"),
+      detail: tx("已停止接收新任务，正在等待运行中任务和账单完成。", "New tasks are blocked while running work and billing settle."),
+      tone: "stopped",
     };
   }
   if (runtime.provisioningState === "needs_attention") {

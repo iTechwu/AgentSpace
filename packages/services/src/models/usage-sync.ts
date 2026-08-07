@@ -1,13 +1,15 @@
 import {
   findTokenUsageByGatewayRequestIdSync,
   findTokenUsageByGatewayUsageIdSync,
-  insertUnallocatedTokenUsageIfAbsentSync,
+  findPendingOpenMontageTokenUsageSync,
+  insertRemoteTokenUsageIfAbsentSync,
   listAllManagedAgentRuntimesSync,
   listRuntimeCredentialReconciliationTargetsSync,
   markTokenUsageReconciledSync,
   completeRuntimeCredentialReconciliationTargetSync,
   readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
   readRuntimeCredentialReconciliationTargetSync,
+  readQueuedTaskSync,
   readTokenUsageReconciliationCursorSync,
   recordAuditLogSync,
   recordRuntimeCredentialReconciliationFailureSync,
@@ -337,9 +339,16 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     result.skippedCount += 1;
     return;
   }
+  const attributedTask = resolveAttributedTask(workspaceId, entry, runtimeId);
+  const attributedEmployeeId = decodeAttributionIdentifier(entry.employeeId);
 
   const existing = (entry.id ? findTokenUsageByGatewayUsageIdSync(entry.id, workspaceId) : null)
-    ?? findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId);
+    ?? findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId)
+    ?? (
+      entry.externalJobId && entry.pipelineStage
+        ? findPendingOpenMontageTokenUsageSync(workspaceId, entry.externalJobId, entry.pipelineStage)
+        : null
+    );
   if (existing) {
     if (
       existing.runtimeCredentialId
@@ -347,7 +356,10 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     ) {
       throw new Error("usage_sync.gateway_request_runtime_credential_mismatch");
     }
-    const remoteStatus = resolveRemoteBillingStatus(entry.billingStatus, Boolean(existing.taskQueueId));
+    const remoteStatus = resolveRemoteBillingStatus(
+      entry.billingStatus,
+      Boolean(existing.taskQueueId || attributedTask) || hasMatchingOpenMontageAttribution(existing, entry, runtimeId),
+    );
     const actualCostUsd = parseBillableAmount(entry);
     const modelId = entry.model.trim() || existing.modelId;
     const inputTokens = normalizeRemoteTokenCount(entry.inputTokens, existing.inputTokens);
@@ -368,11 +380,14 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       && existing.requestStartedAt === requestStartedAt
       && existing.requestEndedAt === requestEndedAt
       && existing.sourceUpdatedAt === sourceUpdatedAt
+      && (!attributedTask || existing.taskQueueId === attributedTask.id)
     ) {
       result.skippedCount += 1;
       return;
     }
     markTokenUsageReconciledSync(existing.id, {
+      taskQueueId: attributedTask?.id,
+      agentId: attributedTask?.employeeId,
       actualCostUsd,
       currency: entry.currency,
       gatewayRequestId,
@@ -386,18 +401,27 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       requestEndedAt,
       sourceUpdatedAt,
       billingStatus: remoteStatus,
+      delegationId: entry.runtimeCredentialDelegationId ?? undefined,
+      employeeId: attributedEmployeeId,
+      runtimeId: entry.runtimeId ?? runtimeId,
+      jobId: entry.externalJobId ?? undefined,
+      pipelineStage: entry.pipelineStage ?? undefined,
+      sourceInvocationId: entry.sourceInvocationId ?? undefined,
+      modelInvocationId: entry.modelInvocationId ?? undefined,
     });
     if (remoteStatus === "pending_reconciliation") result.pendingCount = (result.pendingCount ?? 0) + 1;
     else result.reconciledCount += 1;
     return;
   }
 
-  const remoteStatus = resolveRemoteBillingStatus(entry.billingStatus, false) === "pending_reconciliation"
-    ? "pending_reconciliation"
-    : "unallocated";
-  const inserted = insertUnallocatedTokenUsageIfAbsentSync({
+  const remoteStatus = resolveRemoteBillingStatus(
+    entry.billingStatus,
+    Boolean(attributedTask) || hasCompleteOpenMontageAttribution(entry),
+  );
+  const inserted = insertRemoteTokenUsageIfAbsentSync({
     workspaceId,
-    agentId: decodeAttributionIdentifier(entry.employeeId) ?? entry.runtimeId ?? runtimeId ?? "__unattributed__",
+    taskQueueId: attributedTask?.id,
+    agentId: attributedTask?.employeeId ?? attributedEmployeeId ?? entry.runtimeId ?? runtimeId ?? "__unattributed__",
     modelId: entry.model,
     runtimeCredentialId,
     gatewayRequestId,
@@ -413,25 +437,83 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     requestEndedAt: entry.endedAt ?? entry.timestamp,
     sourceUpdatedAt: entry.updatedAt ?? entry.timestamp,
     billingStatus: remoteStatus,
+    delegationId: entry.runtimeCredentialDelegationId ?? undefined,
+    employeeId: attributedEmployeeId,
+    runtimeId: entry.runtimeId ?? runtimeId,
+    jobId: entry.externalJobId ?? undefined,
+    pipelineStage: entry.pipelineStage ?? undefined,
+    sourceInvocationId: entry.sourceInvocationId ?? undefined,
+    modelInvocationId: entry.modelInvocationId ?? undefined,
   });
   if (inserted.inserted && remoteStatus === "pending_reconciliation") {
     result.pendingCount = (result.pendingCount ?? 0) + 1;
+  } else if (inserted.inserted && remoteStatus === "reconciled") {
+    result.reconciledCount += 1;
   } else if (inserted.inserted) result.unallocatedCount += 1;
   else result.skippedCount += 1;
 }
 
+function resolveAttributedTask(
+  workspaceId: string,
+  entry: ReconciliationUsageLogEntry,
+  fallbackRuntimeId?: string,
+) {
+  const rootTaskId = entry.rootTaskId?.trim();
+  if (!rootTaskId) return null;
+  const task = readQueuedTaskSync(rootTaskId);
+  if (!task || task.workspaceId !== workspaceId) return null;
+  const expectedRuntimeId = entry.runtimeId?.trim() || fallbackRuntimeId;
+  if (!expectedRuntimeId || task.runtimeId !== expectedRuntimeId) return null;
+  const employeeId = decodeAttributionIdentifier(entry.employeeId);
+  if (employeeId && task.employeeId !== employeeId && task.agentId !== employeeId) return null;
+  return task;
+}
+
 function resolveRemoteBillingStatus(
   value: string | null | undefined,
-  hasLocalTask: boolean,
+  hasKnownAttribution: boolean,
 ): "pending_reconciliation" | "reconciled" | "unallocated" {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "estimated" || normalized === "pending" || normalized === "pending_reconciliation") {
     return "pending_reconciliation";
   }
   if (!normalized || ["reconciled", "settled", "final", "billed", "charged", "completed"].includes(normalized)) {
-    return hasLocalTask ? "reconciled" : "unallocated";
+    return hasKnownAttribution ? "reconciled" : "unallocated";
   }
   return "pending_reconciliation";
+}
+
+function hasCompleteOpenMontageAttribution(entry: ReconciliationUsageLogEntry): boolean {
+  return [
+    entry.runtimeCredentialDelegationId,
+    entry.employeeId,
+    entry.runtimeId,
+    entry.externalJobId,
+    entry.pipelineStage,
+    entry.sourceInvocationId,
+    entry.modelInvocationId,
+  ].every((value) => typeof value === "string" && value.trim().length > 0);
+}
+
+function hasMatchingOpenMontageAttribution(
+  existing: {
+    delegationId?: string;
+    employeeId?: string;
+    runtimeId?: string;
+    jobId?: string;
+    pipelineStage?: string;
+    sourceInvocationId?: string;
+  },
+  entry: ReconciliationUsageLogEntry,
+  fallbackRuntimeId?: string,
+): boolean {
+  if (!hasCompleteOpenMontageAttribution(entry)) return false;
+  return existing.delegationId === entry.runtimeCredentialDelegationId
+    && existing.employeeId === decodeAttributionIdentifier(entry.employeeId)
+    && existing.runtimeId === (entry.runtimeId ?? fallbackRuntimeId)
+    && existing.jobId === entry.externalJobId
+    && existing.pipelineStage === entry.pipelineStage
+    && existing.sourceInvocationId === entry.sourceInvocationId;
 }
 
 function parseCost(value: number | string | null | undefined): number {

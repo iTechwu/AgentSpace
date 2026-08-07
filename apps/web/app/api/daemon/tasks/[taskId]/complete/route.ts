@@ -4,11 +4,9 @@ import {
   completeCommittedTaskSync,
   getDatabase,
   failQueuedTaskSync,
-  enqueueTokenUsageRetrySync,
   markTaskCommittedSync,
   readAgentRuntimeSync,
   readTaskCommitJournalSync,
-  recordTokenUsageSync,
   upsertTaskCommitJournalSync,
   withTransaction,
 } from "@dofe-agent/db";
@@ -73,11 +71,11 @@ import {
   readStagedWorkDirFiles,
   writeTaskCompletionEffectsSnapshot,
 } from "../../../_lib/output-bundle";
+import { MAX_TASK_USAGE_BATCH_SIZE, persistManagedTaskUsagesBestEffort } from "../../../_lib/task-usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type CompleteTaskUsage = NonNullable<CompleteTaskRequest["usages"]>[number];
 type TaskCompletionEffects = {
   documentOperations: Awaited<ReturnType<typeof applyChannelDocumentOperations>>;
   skillImportOperations: Awaited<ReturnType<typeof applySkillImportOperations>>;
@@ -96,76 +94,6 @@ type TaskCompletionSnapshot = {
   conversationSessionId?: string | null;
   workDir?: string;
 };
-
-export function persistManagedTaskUsagesBestEffort(input: {
-  usages: CompleteTaskUsage[];
-  workspaceId: string;
-  taskId: string;
-  agentId: string;
-  routerSessionId?: string;
-  runtimeCredentialId?: string;
-  recordUsage?: typeof recordTokenUsageSync;
-  enqueueRetry?: typeof enqueueTokenUsageRetrySync;
-  onError?: (error: unknown) => void;
-}): boolean {
-  const recordUsage = input.recordUsage ?? recordTokenUsageSync;
-  const enqueueRetry = input.enqueueRetry ?? enqueueTokenUsageRetrySync;
-  let allPersisted = true;
-  for (const [usageIndex, usage] of input.usages.entries()) {
-    if (!(
-      input.runtimeCredentialId &&
-      usage.runtimeCredentialId === input.runtimeCredentialId &&
-      usage.modelId?.trim() &&
-      Number.isFinite(usage.inputTokens) &&
-      Number.isFinite(usage.outputTokens) &&
-      usage.inputTokens >= 0 &&
-      usage.outputTokens >= 0 &&
-      (usage.inputTokens > 0 || usage.outputTokens > 0)
-    )) continue;
-    const usageRecord = {
-        workspaceId: input.workspaceId,
-        taskQueueId: input.taskId,
-        agentId: input.agentId,
-        modelId: usage.modelId.trim(),
-        runtimeCredentialId: usage.runtimeCredentialId,
-        routerSessionId: input.routerSessionId,
-        gatewayRequestId: resolveManagedTaskUsageGatewayRequestId({
-          taskId: input.taskId,
-          usageIndex,
-          gatewayRequestId: usage.gatewayRequestId,
-          gatewayUsageId: usage.gatewayUsageId,
-        }),
-        gatewayUsageId: usage.gatewayUsageId,
-        protocol: usage.protocol,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheTokens: usage.cacheTokens,
-        requestStartedAt: usage.requestStartedAt,
-        requestEndedAt: usage.requestEndedAt,
-      };
-    try {
-      recordUsage(usageRecord);
-    } catch (error) {
-      allPersisted = false;
-      try {
-        enqueueRetry(usageRecord, error);
-      } catch (retryError) {
-        try {
-          input.onError?.(retryError);
-        } catch {
-          // Completion remains successful even if retry diagnostics fail.
-        }
-        throw new Error("token_usage.durability_unavailable", { cause: retryError });
-      }
-      try {
-        input.onError?.(error);
-      } catch {
-        // Completion must remain successful even if warning persistence also fails.
-      }
-    }
-  }
-  return allPersisted;
-}
 
 export async function POST(
   request: Request,
@@ -232,6 +160,12 @@ export async function POST(
 
   const body = (await request.json()) as Partial<CompleteTaskRequest>;
   const usages = [...(Array.isArray(body.usages) ? body.usages : []), ...(body.usage ? [body.usage] : [])];
+  if (usages.length > MAX_TASK_USAGE_BATCH_SIZE) {
+    return Response.json(
+      { error: `A task may report at most ${MAX_TASK_USAGE_BATCH_SIZE} usage records.` },
+      { status: 400 },
+    );
+  }
   // Usage is persisted before the first commit boundary. A preparing-commit
   // retry must consume the durable completion snapshot, not accept a second
   // request body's usage payload (which may lack an idempotency key).
@@ -248,6 +182,8 @@ export async function POST(
         agentId: task.employeeId,
         routerSessionId: task.routerSessionId,
         runtimeCredentialId: runtime.managedCredentialId,
+        employeeId: task.employeeId,
+        runtimeId: task.runtimeId,
         onError: (error) => {
           const message = error instanceof Error ? error.message : String(error);
           console.error(`Failed to persist managed usage for task ${task.id}: ${message}`);

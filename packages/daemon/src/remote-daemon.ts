@@ -193,6 +193,11 @@ interface RemoteGatewayUsageEntry {
   requestEndedAt?: string;
 }
 
+export interface RemoteGatewayUsageReporter {
+  flush(): Promise<void>;
+  stop(): Promise<void>;
+}
+
 export function mergeRemoteGatewayUsages(
   providerUsages: RemoteTaskUsageEntry[],
   gatewayUsages: RemoteGatewayUsageEntry[],
@@ -216,6 +221,47 @@ export function mergeRemoteGatewayUsages(
     });
   }
   return [...usagesByRequestId.values()];
+}
+
+/**
+ * Watches the append-only gateway log while the provider is still running.
+ * A request id is acknowledged locally only after the control plane accepts
+ * it, so transient failures are retried and completion can safely replay it.
+ */
+export function createRemoteGatewayUsageReporter(input: {
+  path: string;
+  context: Pick<RemoteTaskUsageEntry, "modelId" | "runtimeCredentialId" | "routerSessionId">;
+  report: (usages: RemoteTaskUsageEntry[]) => Promise<unknown>;
+  pollIntervalMs?: number;
+  onError?: (error: unknown) => void;
+}): RemoteGatewayUsageReporter {
+  const acknowledged = new Set<string>();
+  let queue = Promise.resolve();
+  const flush = (): Promise<void> => {
+    const operation = queue.then(async () => {
+      const entries = readRemoteGatewayUsages(input.path)
+        .filter((entry) => !acknowledged.has(entry.requestId));
+      if (entries.length === 0) return;
+      const usages = mergeRemoteGatewayUsages([], entries, input.context);
+      await input.report(usages);
+      for (const entry of entries) acknowledged.add(entry.requestId);
+    });
+    queue = operation.catch(() => undefined);
+    return operation;
+  };
+  const interval = input.pollIntervalMs === 0
+    ? undefined
+    : setInterval(() => {
+        void flush().catch((error) => input.onError?.(error));
+      }, Math.max(50, input.pollIntervalMs ?? 500));
+  interval?.unref();
+  return {
+    flush,
+    async stop() {
+      if (interval) clearInterval(interval);
+      await flush();
+    },
+  };
 }
 
 /** Shared, actionable message used wherever the daemon's token is rejected. */
@@ -1044,6 +1090,7 @@ async function executeRemoteTask(
   // Provider's own MCP config only ever receives the gateway URL.
   let mcpSession: { url: string; revoke: () => void } | undefined;
   let skillRunner: SkillRunnerBroker | undefined;
+  let gatewayUsageReporter: RemoteGatewayUsageReporter | undefined;
   const cancellationController = new AbortController();
   const stopCancellationWatch = watchRemoteTaskCancellation(client, task.id, cancellationController);
 
@@ -1169,6 +1216,21 @@ async function executeRemoteTask(
     reportTaskMessage({ type: "status", content: "正在准备执行环境" });
     const gatewayRequestLogPath = join(workDir, ".dofe-gateway-requests.jsonl");
     rmSync(gatewayRequestLogPath, { force: true });
+    if (effectiveModelId && managedCredentialId) {
+      gatewayUsageReporter = createRemoteGatewayUsageReporter({
+        path: gatewayRequestLogPath,
+        context: {
+          modelId: effectiveModelId,
+          runtimeCredentialId: managedCredentialId,
+          routerSessionId: task.routerSessionId,
+        },
+        report: (reportedUsages) => client.reportTaskUsages(task.id, { usages: reportedUsages }),
+        onError: (error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error(`Failed to report incremental usage for task ${task.id}: ${detail}`);
+        },
+      });
+    }
 
     const result = await runProviderTask(
       taskRuntime,
@@ -1192,6 +1254,7 @@ async function executeRemoteTask(
             DOFE_AGENT_RUNTIME_ID: runtime.id,
             DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID: task.agentId,
             DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID: task.routerSessionId ?? task.id,
+            DOFE_AGENT_ATTRIBUTION_ROOT_TASK_ID: task.id,
             DOFE_AGENT_GATEWAY_REQUEST_LOG: "/workspace/.dofe-gateway-requests.jsonl",
             DOFE_AGENT_GATEWAY_PROTOCOL: resolveProviderProtocols(runtime.provider)[0] ?? "",
           } : {}),
@@ -1231,6 +1294,7 @@ async function executeRemoteTask(
     );
 
     if (effectiveModelId && managedCredentialId) {
+      await gatewayUsageReporter?.flush();
       usages = mergeRemoteGatewayUsages(usages, readRemoteGatewayUsages(gatewayRequestLogPath), {
         modelId: effectiveModelId,
         runtimeCredentialId: managedCredentialId,
@@ -1288,6 +1352,12 @@ async function executeRemoteTask(
     });
   } finally {
     stopCancellationWatch();
+    try {
+      await gatewayUsageReporter?.stop();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`Failed final incremental usage report for task ${task.id}: ${detail}`);
+    }
     // Revoke the MCP session. Tool audits are now flushed per-call by the
     // gateway's onAudit handler, so a daemon crash loses at most the in-flight
     // call rather than the entire task's audit trail.

@@ -4,6 +4,7 @@ import {
   getDataDirPath,
   getDaemonWorkspaceExecutionRootDir,
   getLocalDaemonStateDirPath,
+  assertWorkspaceHardDeleteAllowedSync,
   hardDeleteWorkspaceSync,
   listStoredAttachmentsSync,
   type HardDeleteWorkspaceResult,
@@ -33,6 +34,7 @@ export function purgeWorkspaceStorageSync(
   const removedDaemonExecutionRootDir = existsSync(daemonExecutionRootDirPath);
   const attachments = listStoredAttachmentsSync(workspaceId);
 
+  assertWorkspaceHardDeleteAllowedSync(workspaceId);
   deleteWorkspaceAttachmentsSync(attachments);
   const db = hardDeleteWorkspaceSync(workspaceId);
   rmSync(workspaceDataDirPath, { recursive: true, force: true });

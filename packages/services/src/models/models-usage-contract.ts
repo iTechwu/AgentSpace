@@ -5,6 +5,12 @@ export type NormalizedModelsUsageLogEntry = ModelsInternalUsageLogEntry & {
   startedAt?: string | null;
   endedAt?: string | null;
   updatedAt?: string | null;
+  runtimeCredentialDelegationId?: string | null;
+  rootTaskId?: string | null;
+  externalJobId?: string | null;
+  pipelineStage?: string | null;
+  sourceInvocationId?: string | null;
+  modelInvocationId?: string | null;
 };
 
 export function normalizeModelsUsageLogEntry(
@@ -19,6 +25,7 @@ export function normalizeModelsUsageLogEntry(
     startedAt: readOptionalString(value.startedAt),
     endedAt: readOptionalString(value.endedAt),
     updatedAt: readOptionalString(value.updatedAt),
+    rootTaskId: readOptionalString(value.rootTaskId),
   } as NormalizedModelsUsageLogEntry;
 }
 

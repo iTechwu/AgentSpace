@@ -6,6 +6,8 @@ import {
   disableMcpConnectionSync,
   enableMcpConnectionSync,
   removeMcpConnectionSync,
+  removeMcpConnectionAsync,
+  type McpRemovalStrategy,
   replaceMcpConnectionConfigSync,
   requestMcpConnectionSync,
   reverifyMcpConnectionSync,
@@ -199,14 +201,23 @@ export async function enableMcpConnectionAction(input: { connectionId: string })
   return actionToastResult(undefined, successToast("连接正在重新验证后启用。", "Connection re-verifying before enable."));
 }
 
-export async function removeMcpConnectionAction(input: { connectionId: string }): Promise<ActionToastResult<void>> {
+export async function removeMcpConnectionAction(input: {
+  connectionId: string;
+  strategy?: McpRemovalStrategy;
+}): Promise<ActionToastResult<void>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
-  removeMcpConnectionSync({
+  const result = await removeMcpConnectionAsync({
     workspaceId: workspaceContext.currentWorkspace.id,
     actorUserId: workspaceContext.currentUser.id,
     connectionId: input.connectionId,
+    strategy: input.strategy,
   });
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
-  return actionToastResult(undefined, successToast("连接移除已排队。", "Connection removal queued."));
+  return actionToastResult(
+    undefined,
+    result.status === "queued"
+      ? successToast("连接移除已排队。", "Connection removal queued.")
+      : successToast("连接已停用，等待运行中 Job 完成结算后移除。", "Connection disabled; removal waits for running Jobs and billing reconciliation."),
+  );
 }

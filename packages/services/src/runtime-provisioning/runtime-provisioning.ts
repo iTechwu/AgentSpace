@@ -94,6 +94,10 @@ import type {
   ModelsInternalRotateRuntimeCredentialRequest,
   ModelsInternalRevokeRuntimeCredentialRequest,
 } from "@dofe/models-sdk";
+import {
+  assertOpenMontageRuntimePurgeableAsync,
+  assertOpenMontageRuntimePurgeableSync,
+} from "../openmontage/purge-guard.ts";
 
 const MANAGED_RUNTIME_NAME_PREFIX = "Managed";
 
@@ -568,7 +572,7 @@ export interface ManagedRuntimeListItem {
   provider: DaemonProvider;
   managedCredentialId: string;
   status: "online" | "offline";
-  provisioningState: "managed" | "credential_recovering" | "needs_attention" | "legacy";
+  provisioningState: "managed" | "draining" | "credential_recovering" | "needs_attention" | "legacy";
   protocols: string[];
   defaultModel?: string;
   /** Whether additional AI employees may bind to this runtime. */
@@ -588,7 +592,7 @@ export interface ManagedRuntimeListItem {
 }
 
 function normalizeManagedRuntimeLifecycleState(value: string | null | undefined): ManagedRuntimeListItem["provisioningState"] {
-  if (value === "credential_recovering" || value === "needs_attention" || value === "legacy") return value;
+  if (value === "draining" || value === "credential_recovering" || value === "needs_attention" || value === "legacy") return value;
   return "managed";
 }
 
@@ -1347,9 +1351,24 @@ export async function stopManagedRuntimeAsync(input: StopManagedRuntimeInput): P
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
     throw new Error("managed_runtime.runtime_not_found");
   }
-  if (runtime.provisioningState !== "managed") {
+  if (runtime.provisioningState !== "managed" && runtime.provisioningState !== "draining") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
+  // Close admission before waiting for remote usage to drain. A blocked guard
+  // intentionally leaves the runtime in this durable state so a daemon
+  // heartbeat cannot make it eligible for another task before an admin retry.
+  if (runtime.provisioningState !== "draining") {
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime.id,
+      workspaceId: input.workspaceId,
+      provisioningState: "draining",
+      allowNewEmployeeSharing: false,
+    });
+  }
+  await assertOpenMontageRuntimePurgeableAsync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+  });
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   if (runtime.managedCredentialId) {
     await safeRevokeCredential({
@@ -1408,9 +1427,23 @@ export async function deleteManagedRuntimeAsync(input: StopManagedRuntimeInput):
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
     throw new Error("managed_runtime.runtime_not_found");
   }
-  if (runtime.provisioningState !== "managed") {
+  if (runtime.provisioningState !== "managed" && runtime.provisioningState !== "draining") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
+  if (runtime.provisioningState !== "draining") {
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime.id,
+      workspaceId: input.workspaceId,
+      provisioningState: "draining",
+      allowNewEmployeeSharing: false,
+    });
+  }
+  // Keep the billing/attribution ledger intact before revoking the credential
+  // or scheduling daemon cleanup.
+  await assertOpenMontageRuntimePurgeableAsync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+  });
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   if (runtime.managedCredentialId) {
     await safeRevokeCredential({
@@ -1476,6 +1509,10 @@ export function completeManagedRuntimeCleanupSync(
   const cleanupResult: Record<string, unknown> = { ...(result ?? {}) };
   if (completed.deleteRuntimeOnSuccess) {
     try {
+      assertOpenMontageRuntimePurgeableSync({
+        workspaceId: completed.workspaceId,
+        runtimeId: completed.runtimeId,
+      });
       deleteAgentRuntimeSync({ runtimeId: completed.runtimeId, workspaceId: completed.workspaceId });
       cleanupResult.removedRuntimeId = completed.runtimeId;
     } catch (error) {
@@ -2072,6 +2109,17 @@ async function compensateProvisioning(
   const detail: Record<string, unknown> = {};
   let ok = true;
   let pending = false;
+  if (task.runtimeId) {
+    try {
+      await assertOpenMontageRuntimePurgeableAsync({
+        workspaceId: task.workspaceId,
+        runtimeId: task.runtimeId,
+      });
+    } catch (error) {
+      detail.runtimePurgeGuardError = error instanceof Error ? error.message : String(error);
+      return { ok: false, pending: false, detail };
+    }
+  }
   if (task.runtimeCredentialId) {
     try {
       const scope = resolveManagedRuntimeScopeSync(task.workspaceId);

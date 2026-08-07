@@ -46,6 +46,7 @@ import {
   listReadyMcpConnectionsForTaskSync,
   readMcpConnectionDetailSync,
   removeMcpConnectionSync,
+  removeMcpConnectionAsync,
   replaceMcpConnectionConfigSync,
   requestMcpConnectionSync,
   resolveClaimedMcpOperationSync,
@@ -742,6 +743,31 @@ test("remove connection enqueues a remove operation", () => {
   assert.equal(op.operation, "remove");
 });
 
+test("MCP removal strategies share the admission gate when no Job is running", async () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  for (const strategy of ["prohibit_new_jobs", "cancel_running_jobs"] as const) {
+    const currentRuntimeId = strategy === "prohibit_new_jobs" ? runtimeId : createRuntime();
+    const { connection } = requestMcpConnectionSync({
+      workspaceId: "default",
+      actorUserId: ADMIN_USER_ID,
+      runtimeId: currentRuntimeId,
+      catalogItemId: catalogId,
+      endpoint: "https://github-mcp.example.com/mcp",
+      secrets: { api_key: "x" },
+      confirmHighRisk: true,
+    });
+    const result = await removeMcpConnectionAsync({
+      workspaceId: "default",
+      connectionId: connection.id,
+      actorUserId: ADMIN_USER_ID,
+      strategy,
+    });
+    assert.equal(result.status, "queued");
+    assert.deepEqual(result.cancelledJobIds, []);
+  }
+});
+
 test("replaceMcpConnectionConfig atomically updates config + secrets and creates ONE verify operation", () => {
   const runtimeId = createRuntime();
   const catalogId = seedCatalog();
@@ -1059,6 +1085,8 @@ test("claimMcpTaskSession replays the first result for an HTTP retry of the same
   const auditAuthorization = readMcpTaskAuditAuthorizationSync("task-retry", "default");
   assert.ok(auditAuthorization);
   assert.match(auditAuthorization.authorizationJson, /search_repos/);
+  const auditBundle = JSON.parse(auditAuthorization.authorizationJson);
+  assert.equal(auditBundle.connections[0]?.catalogItemSlug, "github");
   assert.doesNotMatch(auditAuthorization.authorizationJson, /"api_key"|"secrets"|github-mcp\.example\.com/);
   const retry = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-retry", attemptId: attempt });
   assert.equal(retry.connections.length, 1);

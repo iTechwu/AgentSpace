@@ -66,12 +66,15 @@ export const POSTGRES_TABLE_NAMES = [
   "agent_router_context_snapshot",
   "task_execution_event",
   "task_message",
+  "openmontage_delegation_intent",
   "openmontage_job_link",
+  "openmontage_model_delegation",
   "openmontage_job_event",
   "openmontage_job_projection",
   "openmontage_chat_binding",
   "openmontage_event_nonce",
   "openmontage_notification_outbox",
+  "attachment",
   "openmontage_artifact_grant",
   "model_pricing",
   "token_usage",
@@ -81,7 +84,6 @@ export const POSTGRES_TABLE_NAMES = [
   "runtime_credential_reconciliation_target",
   "runtime_maintenance_run",
   "budget",
-  "attachment",
   "audit_log",
   "workspace_sso_binding",
   "runtime_provisioning_task",
@@ -1484,6 +1486,39 @@ export function getPostgresSchemaStatements(): string[] {
         ON agent_task_queue(workspace_id, employee_id, created_at DESC)
     `,
     `
+      CREATE TABLE IF NOT EXISTS openmontage_delegation_intent (
+        idempotency_key TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
+        runtime_id TEXT NOT NULL,
+        mcp_connection_id TEXT NOT NULL,
+        runtime_credential_id TEXT NOT NULL,
+        models_tenant_id TEXT NOT NULL,
+        models_team_id TEXT NOT NULL,
+        external_job_id TEXT NOT NULL,
+        request_json JSONB NOT NULL,
+        delegation_id TEXT,
+        secret_ref TEXT,
+        status TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TIMESTAMPTZ,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        CONSTRAINT openmontage_delegation_intent_status_check
+          CHECK (status IN ('creating', 'provisioned', 'drain_pending', 'drained', 'bound'))
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_delegation_intent_recovery
+        ON openmontage_delegation_intent(status, next_attempt_at)
+        WHERE status IN ('creating', 'provisioned', 'drain_pending')
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_openmontage_delegation_intent_remote_unique
+        ON openmontage_delegation_intent(delegation_id)
+        WHERE delegation_id IS NOT NULL
+    `,
+    `
       CREATE TABLE IF NOT EXISTS openmontage_job_link (
         job_id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -1503,7 +1538,7 @@ export function getPostgresSchemaStatements(): string[] {
     `ALTER TABLE openmontage_job_link ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT`,
     `
       CREATE TABLE IF NOT EXISTS openmontage_model_delegation (
-        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT,
         delegation_id TEXT NOT NULL UNIQUE,
         runtime_credential_id TEXT NOT NULL,
         models_tenant_id TEXT NOT NULL,
@@ -1528,7 +1563,7 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       CREATE TABLE IF NOT EXISTS openmontage_job_projection (
-        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         status TEXT NOT NULL,
         current_stage TEXT,
@@ -1546,7 +1581,7 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE TABLE IF NOT EXISTS openmontage_job_event (
         event_id TEXT PRIMARY KEY,
-        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         sequence INTEGER NOT NULL CHECK (sequence > 0),
         schema_version INTEGER NOT NULL CHECK (schema_version = 1),
@@ -1567,7 +1602,7 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       CREATE TABLE IF NOT EXISTS openmontage_chat_binding (
-        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         channel_name TEXT NOT NULL,
         conversation_message_id TEXT,
@@ -1594,7 +1629,7 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE TABLE IF NOT EXISTS openmontage_notification_outbox (
         id TEXT PRIMARY KEY,
-        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         channel_name TEXT NOT NULL,
         event_sequence INTEGER NOT NULL CHECK (event_sequence > 0),
@@ -1826,6 +1861,13 @@ export function getPostgresSchemaStatements(): string[] {
         billing_status TEXT NOT NULL DEFAULT 'estimated',
         gateway_request_id TEXT,
         gateway_usage_id TEXT,
+        delegation_id TEXT,
+        employee_id TEXT,
+        runtime_id TEXT,
+        job_id TEXT,
+        pipeline_stage TEXT,
+        source_invocation_id TEXT,
+        model_invocation_id TEXT,
         protocol TEXT,
         actual_cost_usd DOUBLE PRECISION,
         currency TEXT,
@@ -1837,6 +1879,39 @@ export function getPostgresSchemaStatements(): string[] {
         channel_name TEXT,
         created_at TIMESTAMPTZ NOT NULL
       )
+    `,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS delegation_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS employee_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS runtime_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS job_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS pipeline_stage TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS source_invocation_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS model_invocation_id TEXT`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_token_usage_delegation_model_invocation
+       ON token_usage(workspace_id, delegation_id, model_invocation_id)
+       WHERE delegation_id IS NOT NULL AND model_invocation_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_token_usage_openmontage_job
+       ON token_usage(workspace_id, job_id, pipeline_stage, created_at)`,
+    `
+      CREATE OR REPLACE FUNCTION validate_delegated_token_usage_snapshot()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        IF NEW.delegation_id IS NOT NULL AND (
+          NEW.employee_id IS NULL OR NEW.runtime_id IS NULL OR NEW.job_id IS NULL
+          OR NEW.pipeline_stage IS NULL OR NEW.source_invocation_id IS NULL
+          OR NEW.model_invocation_id IS NULL
+        ) THEN
+          RAISE EXCEPTION 'token_usage.delegation_snapshot_required';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `,
+    `DROP TRIGGER IF EXISTS trg_validate_delegated_token_usage_snapshot ON token_usage`,
+    `
+      CREATE TRIGGER trg_validate_delegated_token_usage_snapshot
+      BEFORE INSERT OR UPDATE ON token_usage
+      FOR EACH ROW EXECUTE FUNCTION validate_delegated_token_usage_snapshot()
     `,
     `
       CREATE TABLE IF NOT EXISTS token_usage_billing_event (
@@ -2098,7 +2173,7 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS openmontage_artifact_grant (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT,
         attachment_id TEXT,
         operation TEXT NOT NULL,
         artifact_role TEXT,
@@ -2120,6 +2195,18 @@ export function getPostgresSchemaStatements(): string[] {
     `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS size_bytes BIGINT`,
     `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS sha256 TEXT`,
     `ALTER TABLE openmontage_artifact_grant ALTER COLUMN attachment_id DROP NOT NULL`,
+    `ALTER TABLE openmontage_model_delegation DROP CONSTRAINT IF EXISTS openmontage_model_delegation_job_id_fkey`,
+    `ALTER TABLE openmontage_model_delegation ADD CONSTRAINT openmontage_model_delegation_job_id_fkey FOREIGN KEY (job_id) REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT`,
+    `ALTER TABLE openmontage_job_projection DROP CONSTRAINT IF EXISTS openmontage_job_projection_job_id_fkey`,
+    `ALTER TABLE openmontage_job_projection ADD CONSTRAINT openmontage_job_projection_job_id_fkey FOREIGN KEY (job_id) REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT`,
+    `ALTER TABLE openmontage_job_event DROP CONSTRAINT IF EXISTS openmontage_job_event_job_id_fkey`,
+    `ALTER TABLE openmontage_job_event ADD CONSTRAINT openmontage_job_event_job_id_fkey FOREIGN KEY (job_id) REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT`,
+    `ALTER TABLE openmontage_chat_binding DROP CONSTRAINT IF EXISTS openmontage_chat_binding_job_id_fkey`,
+    `ALTER TABLE openmontage_chat_binding ADD CONSTRAINT openmontage_chat_binding_job_id_fkey FOREIGN KEY (job_id) REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT`,
+    `ALTER TABLE openmontage_notification_outbox DROP CONSTRAINT IF EXISTS openmontage_notification_outbox_job_id_fkey`,
+    `ALTER TABLE openmontage_notification_outbox ADD CONSTRAINT openmontage_notification_outbox_job_id_fkey FOREIGN KEY (job_id) REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT`,
+    `ALTER TABLE openmontage_artifact_grant DROP CONSTRAINT IF EXISTS openmontage_artifact_grant_job_id_fkey`,
+    `ALTER TABLE openmontage_artifact_grant ADD CONSTRAINT openmontage_artifact_grant_job_id_fkey FOREIGN KEY (job_id) REFERENCES openmontage_job_link(job_id) ON DELETE RESTRICT`,
     `
       ALTER TABLE openmontage_artifact_grant
         DROP CONSTRAINT IF EXISTS openmontage_artifact_grant_operation_check

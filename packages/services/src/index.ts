@@ -479,6 +479,7 @@ export {
   listReadyMcpConnectionsForTaskSync,
   readMcpConnectionDetailSync,
   removeMcpConnectionSync,
+  removeMcpConnectionAsync,
   replaceMcpConnectionConfigSync,
   requestMcpConnectionSync,
   resolveClaimedMcpOperationSync,
@@ -490,6 +491,7 @@ export {
   validateMcpConnectionForGatewaySync,
   type McpConnectionActivity,
   type McpConnectionDetail,
+  type McpRemovalStrategy,
   type McpSecretFieldStatus,
   type ReplaceMcpConnectionConfigServiceInput,
   type RequestMcpConnectionInput,
@@ -1506,6 +1508,7 @@ export {
   verifyOpenMontageEventRequest,
   OpenMontageEventAuthenticationError,
   OpenMontageEventValidationError,
+  OpenMontageJobActionError,
   type OpenMontageJobActionInput,
   type VerifiedOpenMontageEventRequest,
 } from "./openmontage/events.ts";
@@ -1525,6 +1528,7 @@ export {
 } from "./openmontage/artifacts.ts";
 export {
   bindOpenMontageJobDelegationAsync,
+  drainOrphanedOpenMontageDelegationsAsync,
   drainPendingOpenMontageJobDelegationsAsync,
   drainOpenMontageJobDelegationAsync,
   issueOpenMontageModelCredential,
@@ -1532,5 +1536,14 @@ export {
   OpenMontageDelegationConfigurationError,
   OpenMontageDelegationValidationError,
   type BindOpenMontageJobDelegationInput,
+  type CreateDelegationRequest,
+  type OpenMontageDelegationIntentStore,
   type OpenMontageModelCredentialDocument,
 } from "./openmontage/delegations.ts";
+export {
+  assertOpenMontageMcpPurgeableAsync,
+  assertOpenMontageMcpPurgeableSync,
+  assertOpenMontageRuntimePurgeableAsync,
+  assertOpenMontageRuntimePurgeableSync,
+  OpenMontagePurgeBlockedError,
+} from "./openmontage/purge-guard.ts";

@@ -8,6 +8,8 @@ import {
   type OpenMontageJobSnapshotSeed,
 } from "@dofe-agent/domain";
 import { getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { listUnresolvedOpenMontageDelegationIntentIdsSync } from "./openmontage-delegation-intents.ts";
+import { voidOpenMontagePendingTokenUsageSync } from "./token-usage.ts";
 
 export interface OpenMontageJobLinkRecord {
   jobId: string;
@@ -63,6 +65,13 @@ export interface OpenMontageNotificationOutboxRecord {
   lastError?: string;
   createdAt: string;
   deliveredAt?: string;
+}
+
+export interface OpenMontagePurgeGuardSnapshot {
+  inFlightJobIds: string[];
+  unresolvedDelegationIds: string[];
+  unreconciledUsageCount: number;
+  purgeable: boolean;
 }
 
 export interface CreateOpenMontageJobLinkInput {
@@ -245,6 +254,109 @@ export function listOpenMontageDelegationDrainPendingJobIdsSync(
   return rows.flatMap((row) => typeof row.jobId === "string" ? [row.jobId] : []);
 }
 
+export function listOpenMontageModelDelegationsForRuntimeSync(
+  workspaceId: string,
+  runtimeId: string,
+): OpenMontageModelDelegationRecord[] {
+  const rows = getDatabase().prepare(
+    `${modelDelegationSelect("delegation")}
+       JOIN openmontage_job_link link ON link.job_id = delegation.job_id
+      WHERE link.workspace_id = ? AND link.runtime_id = ?`,
+  ).all(workspaceId, runtimeId) as Array<Record<string, unknown>>;
+  return rows.map(mapModelDelegation);
+}
+
+export function listOpenMontageModelDelegationsForMcpConnectionSync(
+  workspaceId: string,
+  connectionId: string,
+): OpenMontageModelDelegationRecord[] {
+  const rows = getDatabase().prepare(
+    `${modelDelegationSelect("delegation")}
+       JOIN openmontage_job_link link ON link.job_id = delegation.job_id
+      WHERE link.workspace_id = ? AND delegation.mcp_connection_id = ?`,
+  ).all(workspaceId, connectionId) as Array<Record<string, unknown>>;
+  return rows.map(mapModelDelegation);
+}
+
+export function readOpenMontageRuntimePurgeGuardSync(
+  workspaceId: string,
+  runtimeId: string,
+): OpenMontagePurgeGuardSnapshot {
+  return readOpenMontagePurgeGuardSync("runtime", "link.runtime_id = ?", workspaceId, runtimeId);
+}
+
+export function readOpenMontageMcpPurgeGuardSync(
+  workspaceId: string,
+  connectionId: string,
+): OpenMontagePurgeGuardSnapshot {
+  return readOpenMontagePurgeGuardSync(
+    "mcp_connection",
+    "delegation.mcp_connection_id = ?",
+    workspaceId,
+    connectionId,
+  );
+}
+
+function readOpenMontagePurgeGuardSync(
+  targetType: "runtime" | "mcp_connection",
+  targetPredicate: string,
+  workspaceId: string,
+  targetId: string,
+): OpenMontagePurgeGuardSnapshot {
+  const db = getDatabase();
+  const rows = db.prepare(
+    `SELECT link.job_id AS "jobId",
+            projection.status AS "jobStatus",
+            delegation.delegation_id AS "delegationId",
+            delegation.status AS "delegationStatus",
+            delegation.runtime_credential_id AS "runtimeCredentialId"
+       FROM openmontage_job_link link
+       JOIN openmontage_model_delegation delegation ON delegation.job_id = link.job_id
+       LEFT JOIN openmontage_job_projection projection ON projection.job_id = link.job_id
+      WHERE link.workspace_id = ? AND ${targetPredicate}`,
+  ).all(workspaceId, targetId) as Array<Record<string, unknown>>;
+  const inFlightJobIds = rows.flatMap((row) =>
+    !["SUCCEEDED", "FAILED", "CANCELLED"].includes(String(row.jobStatus))
+      ? [String(row.jobId)]
+      : [],
+  );
+  const unresolvedDelegationIds = rows.flatMap((row) =>
+    !["revoked", "expired", "exhausted"].includes(String(row.delegationStatus))
+      ? [String(row.delegationId)]
+      : [],
+  );
+  unresolvedDelegationIds.push(...listUnresolvedOpenMontageDelegationIntentIdsSync({
+    workspaceId,
+    targetType,
+    targetId,
+  }));
+  const usageScopeIds = targetType === "runtime"
+    ? [...new Set(rows.map((row) => String(row.runtimeCredentialId)))]
+    : [...new Set(rows.map((row) => String(row.delegationId)))];
+  let unreconciledUsageCount = 0;
+  if (usageScopeIds.length > 0) {
+    const placeholders = usageScopeIds.map(() => "?").join(", ");
+    const usageScopeColumn = targetType === "runtime" ? "runtime_credential_id" : "delegation_id";
+    const count = db.prepare(
+      `SELECT COUNT(*) AS count
+         FROM token_usage
+        WHERE workspace_id = ?
+          AND ${usageScopeColumn} IN (${placeholders})
+          AND billing_status IN ('pending_reconciliation', 'unallocated')`,
+    ).get(workspaceId, ...usageScopeIds) as { count?: unknown } | undefined;
+    unreconciledUsageCount = Number(count?.count ?? 0);
+  }
+  return {
+    inFlightJobIds,
+    unresolvedDelegationIds,
+    unreconciledUsageCount,
+    purgeable:
+      inFlightJobIds.length === 0
+      && unresolvedDelegationIds.length === 0
+      && unreconciledUsageCount === 0,
+  };
+}
+
 export function readOpenMontageJobProjectionSync(
   workspaceId: string,
   jobId: string,
@@ -312,6 +424,30 @@ export function listOpenMontageSyncingJobIdsSync(options: { limit?: number } = {
   return rows.map((row) => String(row.jobId));
 }
 
+export function listOpenMontageReconciliationJobIdsSync(options: {
+  limit?: number;
+  staleBefore: string;
+}): string[] {
+  const limit = Math.min(500, Math.max(1, Math.floor(options.limit ?? 100)));
+  const staleBefore = new Date(options.staleBefore);
+  if (Number.isNaN(staleBefore.getTime())) {
+    throw new Error("staleBefore must be a valid timestamp");
+  }
+  const rows = getDatabase().prepare(
+    `SELECT job_id AS "jobId"
+       FROM openmontage_job_projection
+      WHERE sync_status = 'SYNCING'
+         OR (
+           status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL')
+           AND updated_at <= ?
+         )
+      ORDER BY CASE WHEN sync_status = 'SYNCING' THEN 0 ELSE 1 END,
+               updated_at ASC, job_id ASC
+      LIMIT ?`,
+  ).all(staleBefore.toISOString(), limit) as Array<Record<string, unknown>>;
+  return rows.map((row) => String(row.jobId));
+}
+
 export function ingestOpenMontageJobEventSync(
   event: OpenMontageJobEvent,
   input: { nonce: string; receivedAt?: string; nonceExpiresAt?: string },
@@ -359,6 +495,9 @@ export function ingestOpenMontageJobEventSync(
         );
       }
       const projection = requireProjection(db, event.workspaceId, event.jobId);
+      if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(projection.status)) {
+        voidOpenMontagePendingTokenUsageSync({ workspaceId: event.workspaceId, jobId: event.jobId });
+      }
       return { outcome: "duplicate", projection };
     }
 
@@ -420,6 +559,9 @@ export function ingestOpenMontageJobEventSync(
     }
 
     saveProjection(db, event.workspaceId, projection);
+    if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(projection.status)) {
+      voidOpenMontagePendingTokenUsageSync({ workspaceId: event.workspaceId, jobId: event.jobId });
+    }
     const notification = queueProjectionNotification(
       db,
       projection,
@@ -683,13 +825,15 @@ function jobLinkSelect(): string {
     FROM openmontage_job_link`;
 }
 
-function modelDelegationSelect(): string {
-  return `SELECT job_id AS "jobId", delegation_id AS "delegationId",
-    runtime_credential_id AS "runtimeCredentialId", models_tenant_id AS "modelsTenantId",
-    models_team_id AS "modelsTeamId", mcp_connection_id AS "mcpConnectionId",
-    secret_ref AS "secretRef", spend_limit AS "spendLimit", currency, status,
-    expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"
-    FROM openmontage_model_delegation`;
+function modelDelegationSelect(alias?: string): string {
+  const prefix = alias ? `${alias}.` : "";
+  const from = alias ? `openmontage_model_delegation ${alias}` : "openmontage_model_delegation";
+  return `SELECT ${prefix}job_id AS "jobId", ${prefix}delegation_id AS "delegationId",
+    ${prefix}runtime_credential_id AS "runtimeCredentialId", ${prefix}models_tenant_id AS "modelsTenantId",
+    ${prefix}models_team_id AS "modelsTeamId", ${prefix}mcp_connection_id AS "mcpConnectionId",
+    ${prefix}secret_ref AS "secretRef", ${prefix}spend_limit AS "spendLimit", ${prefix}currency, ${prefix}status,
+    ${prefix}expires_at AS "expiresAt", ${prefix}created_at AS "createdAt", ${prefix}updated_at AS "updatedAt"
+    FROM ${from}`;
 }
 
 function chatBindingSelect(): string {

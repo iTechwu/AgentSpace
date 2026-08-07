@@ -73,6 +73,17 @@ test("submitted Job parsing validates the full OpenMontage response and produces
   assert.equal(parsed.snapshot.stages[1]?.approvalStatus, "REQUIRED");
 });
 
+test("submitted Job parsing accepts read-only fields returned by the Job snapshot API", () => {
+  const snapshot = submittedJob();
+  Object.assign(snapshot, {
+    artifacts: [],
+    usageSummary: { totalAmount: "0" },
+    error: undefined,
+  });
+  const parsed = parseOpenMontageSubmittedJob(snapshot);
+  assert.equal(parsed.snapshot.jobId, "om_job_1");
+});
+
 test("submitted Job parsing rejects forged attribution and inconsistent workflow stages", () => {
   const forged = submittedJob();
   forged.attribution = { ...forged.attribution, employeeId: "" };

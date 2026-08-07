@@ -955,7 +955,7 @@ export interface AgentsPageData {
     /** Present only for managed runtimes surfaced as reusable execution engines. */
     managed?: boolean;
     /** Managed-runtime lifecycle state used to explain whether it can be bound. */
-    provisioningState?: "managed" | "credential_recovering" | "needs_attention" | "legacy";
+    provisioningState?: "managed" | "draining" | "credential_recovering" | "needs_attention" | "legacy";
     /** False when a managed runtime must not receive new or updated bindings. */
     bindable?: boolean;
     defaultModel?: string;

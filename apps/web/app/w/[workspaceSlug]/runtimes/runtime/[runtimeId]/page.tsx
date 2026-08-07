@@ -232,10 +232,11 @@ function RuntimeMetric({ label, value, warning = false }: { label: string; value
 }
 
 function presentRuntimeState(
-  state: "managed" | "credential_recovering" | "needs_attention" | "legacy",
+  state: "managed" | "draining" | "credential_recovering" | "needs_attention" | "legacy",
   status: "online" | "offline",
 ): { label: string; detail: string; tone: "available" | "recovering" | "attention" | "stopped" } {
   if (state === "credential_recovering") return { label: "凭据恢复中", detail: "正在更新安全访问凭据", tone: "recovering" };
+  if (state === "draining") return { label: "停止结算中", detail: "已禁止新任务，正在等待结算", tone: "stopped" };
   if (state === "needs_attention") return { label: "需要处理", detail: "需要管理员介入", tone: "attention" };
   if (state === "legacy") return { label: "已停止", detail: "不再接收新任务", tone: "stopped" };
   return status === "online"

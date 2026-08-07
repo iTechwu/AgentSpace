@@ -336,18 +336,37 @@ export {
   getDatabaseConnectionLabel,
 } from "./database.ts";
 export {
+  createOpenMontageDelegationIntentSync,
+  listDueOpenMontageDelegationIntentsSync,
+  listUnresolvedOpenMontageDelegationIntentIdsSync,
+  markOpenMontageDelegationIntentBoundSync,
+  markOpenMontageDelegationIntentDrainedSync,
+  markOpenMontageDelegationIntentDrainFailedSync,
+  markOpenMontageDelegationIntentDrainPendingSync,
+  markOpenMontageDelegationIntentProvisionedSync,
+  readOpenMontageDelegationIntentSync,
+  type CreateOpenMontageDelegationIntentInput,
+  type OpenMontageDelegationIntentRecord,
+  type OpenMontageDelegationIntentStatus,
+} from "./openmontage-delegation-intents.ts";
+export {
   createOpenMontageJobLinkSync,
   ingestOpenMontageJobEventSync,
   listOpenMontageChannelProjectionsSync,
   listOpenMontageChannelProjectionVersionsSync,
   listOpenMontageNotificationOutboxSync,
   listOpenMontageDelegationDrainPendingJobIdsSync,
+  listOpenMontageModelDelegationsForMcpConnectionSync,
+  listOpenMontageModelDelegationsForRuntimeSync,
   listOpenMontageSyncingJobIdsSync,
+  listOpenMontageReconciliationJobIdsSync,
   markOpenMontageNotificationDeliveredSync,
   readOpenMontageChatBindingSync,
   readOpenMontageJobLinkSync,
   readOpenMontageModelDelegationSync,
   readOpenMontageJobProjectionSync,
+  readOpenMontageMcpPurgeGuardSync,
+  readOpenMontageRuntimePurgeGuardSync,
   updateOpenMontageModelDelegationStatusSync,
   OpenMontageEventConflictError,
   OpenMontageEventNonceReplayError,
@@ -357,6 +376,7 @@ export {
   type OpenMontageJobLinkRecord,
   type OpenMontageModelDelegationRecord,
   type OpenMontageNotificationOutboxRecord,
+  type OpenMontagePurgeGuardSnapshot,
 } from "./openmontage-jobs.ts";
 export {
   findRepositoryRoot,
@@ -838,6 +858,8 @@ export {
   computeCostUsd,
   recordTokenUsageSync,
   listTokenUsageSync,
+  recordOpenMontagePendingTokenUsageSync,
+  voidOpenMontagePendingTokenUsageSync,
   getAgentCostSummarySync,
   getWorkspaceCostSummarySync,
   getRuntimeCostSummarySync,
@@ -848,7 +870,9 @@ export {
   listSessionCostSummariesSync,
   findTokenUsageByGatewayRequestIdSync,
   findTokenUsageByGatewayUsageIdSync,
+  findPendingOpenMontageTokenUsageSync,
   markTokenUsageReconciledSync,
+  insertRemoteTokenUsageIfAbsentSync,
   insertUnallocatedTokenUsageSync,
   insertUnallocatedTokenUsageIfAbsentSync,
   type RecordTokenUsageInput,
@@ -904,6 +928,7 @@ export {
 // Workspaces
 export {
   createWorkspaceSync,
+  assertWorkspaceHardDeleteAllowedSync,
   hardDeleteWorkspaceSync,
   listActiveSsoWorkspacesSync,
   listAllWorkspacesSync,
@@ -913,6 +938,7 @@ export {
   updateWorkspaceSync,
   archiveWorkspaceSync,
   type HardDeleteWorkspaceResult,
+  type WorkspaceHardDeleteGuard,
 } from "./workspaces.ts";
 
 // Workspace memberships

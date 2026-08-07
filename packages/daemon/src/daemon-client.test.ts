@@ -58,6 +58,46 @@ test("HttpDaemonClient reads the lightweight task status endpoint", async () => 
   }
 });
 
+test("HttpDaemonClient reports idempotent usage while a task is running", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestedBody: unknown;
+  globalThis.fetch = (async (input, init) => {
+    requestedUrl = String(input);
+    requestedBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ accepted: 1, pendingReconciliation: false }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test");
+    const result = await client.reportTaskUsages("task/1", {
+      usages: [{
+        modelId: "gpt-5",
+        runtimeCredentialId: "credential-1",
+        gatewayRequestId: "gateway-1",
+        inputTokens: 10,
+        outputTokens: 2,
+      }],
+    });
+    assert.equal(requestedUrl, "http://localhost:1455/api/daemon/tasks/task%2F1/usage");
+    assert.deepEqual(requestedBody, {
+      usages: [{
+        modelId: "gpt-5",
+        runtimeCredentialId: "credential-1",
+        gatewayRequestId: "gateway-1",
+        inputTokens: 10,
+        outputTokens: 2,
+      }],
+    });
+    assert.deepEqual(result, { accepted: 1, pendingReconciliation: false });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HttpDaemonClient reports a created OpenMontage Job through the daemon task endpoint", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";

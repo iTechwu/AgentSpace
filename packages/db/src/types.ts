@@ -293,7 +293,7 @@ export interface AgentRuntimeRecord {
    * `legacy` = backed by a provider_account. Null for rows created before
    * the managed-runtime phase.
    */
-  provisioningState?: "managed" | "legacy" | "credential_recovering" | "needs_attention" | null;
+  provisioningState?: "managed" | "draining" | "legacy" | "credential_recovering" | "needs_attention" | null;
   /** models.dofe.ai RuntimeCredential id (opaque). */
   managedCredentialId?: string;
   /** Opaque vault references; plaintext keys are never stored. */
@@ -1391,7 +1391,7 @@ export interface ModelPricingRecord {
   updatedAt: string;
 }
 
-export type TokenUsageBillingStatus = "estimated" | "pending_reconciliation" | "reconciled" | "unallocated";
+export type TokenUsageBillingStatus = "estimated" | "pending_reconciliation" | "reconciled" | "unallocated" | "voided";
 
 export interface TokenUsageRecord {
   id: string;
@@ -1410,6 +1410,13 @@ export interface TokenUsageRecord {
   costUsd: number;
   billingStatus?: TokenUsageBillingStatus;
   gatewayRequestId?: string;
+  delegationId?: string;
+  employeeId?: string;
+  runtimeId?: string;
+  jobId?: string;
+  pipelineStage?: string;
+  sourceInvocationId?: string;
+  modelInvocationId?: string;
   actualCostUsd?: number;
   currency?: string;
   reconciledAt?: string;

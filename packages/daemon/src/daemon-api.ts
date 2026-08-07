@@ -66,6 +66,8 @@ export type {
   ReportOpenMontageJobResponse,
   ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
+  ReportTaskUsagesRequest,
+  ReportTaskUsagesResponse,
   SkillRunnerInvocationReport,
   ResolvedMcpConnection,
   RuntimeAppCommandPlanItem,

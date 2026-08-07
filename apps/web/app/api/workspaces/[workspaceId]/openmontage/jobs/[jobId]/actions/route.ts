@@ -5,6 +5,7 @@ import {
 import {
   callOpenMontageJobActionAsync,
   canWriteChannelForActorSync,
+  OpenMontageJobActionError,
   type OpenMontageJobActionInput,
 } from "@dofe-agent/services";
 import { getWorkspaceAccessForIdentifier } from "@/features/auth/server-workspace";
@@ -73,6 +74,7 @@ export async function POST(
     });
     return Response.json({ accepted: true }, { status: 202 });
   } catch (error) {
+    const failure = actionFailureDiagnostics(error);
     recordActionAudit({
       workspaceId,
       actorUserId: actor.userId,
@@ -80,6 +82,7 @@ export async function POST(
       channelName: binding.channelName,
       action: action.action,
       outcome: "failed",
+      ...failure,
     });
     return actionErrorResponse(error);
   }
@@ -127,6 +130,20 @@ function parseActionBody(value: unknown): Omit<OpenMontageJobActionInput, "works
 }
 
 function actionErrorResponse(error: unknown): Response {
+  if (error instanceof OpenMontageJobActionError) {
+    if (error.downstreamStatus === 404 || error.downstreamStatus === 409) {
+      return Response.json({
+        error: "openmontage_job_action_conflict",
+        message: "This action is no longer available.",
+      }, { status: 409 });
+    }
+    if (error.downstreamStatus === 401 || error.downstreamStatus === 403) {
+      return Response.json({
+        error: "openmontage_unavailable",
+        message: "The video service is not configured.",
+      }, { status: 503 });
+    }
+  }
   const message = error instanceof Error ? error.message : "";
   if (/changed since the action was requested/i.test(message)) {
     return Response.json({
@@ -152,6 +169,19 @@ function actionErrorResponse(error: unknown): Response {
   }, { status: 502 });
 }
 
+function actionFailureDiagnostics(error: unknown): {
+  downstreamStatus?: number;
+  downstreamCode?: string;
+  traceId?: string;
+} {
+  if (!(error instanceof OpenMontageJobActionError)) return {};
+  return {
+    downstreamStatus: error.downstreamStatus,
+    ...(error.downstreamCode ? { downstreamCode: error.downstreamCode } : {}),
+    ...(error.traceId ? { traceId: error.traceId } : {}),
+  };
+}
+
 function recordActionAudit(input: {
   workspaceId: string;
   actorUserId: string;
@@ -159,6 +189,9 @@ function recordActionAudit(input: {
   channelName: string;
   action: OpenMontageJobActionInput["action"];
   outcome: "accepted" | "denied" | "failed";
+  downstreamStatus?: number;
+  downstreamCode?: string;
+  traceId?: string;
 }): void {
   recordAuditLogSync({
     workspaceId: input.workspaceId,
@@ -172,6 +205,11 @@ function recordActionAudit(input: {
       channelName: input.channelName,
       action: input.action,
       outcome: input.outcome,
+      ...(input.downstreamStatus !== undefined
+        ? { downstreamStatus: input.downstreamStatus }
+        : {}),
+      ...(input.downstreamCode ? { downstreamCode: input.downstreamCode } : {}),
+      ...(input.traceId ? { traceId: input.traceId } : {}),
     },
   });
 }

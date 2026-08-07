@@ -32,6 +32,7 @@ type JsonColumnName =
   | "command_plan_json"
   | "options_json"
   | "snapshot_json"
+  | "event_json"
   | "audit_data_json"
   | "data_json"
   | "source_event_ids_json";
@@ -215,8 +216,8 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "workspace_notification", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "employee_runtime_binding", conflictColumns: ["workspace_id", "employee_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC" },
   { tableName: "runtime_app_catalog_item", conflictColumns: ["source", "name"], jsonColumns: ["registry_json"], orderBy: "synced_at ASC, source ASC, name ASC" },
-  { tableName: "runtime_app_package", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
-  { tableName: "runtime_app_release", conflictColumns: ["id"], jsonColumns: ["manifest_json"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "runtime_app_package", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "runtime_app_release", conflictColumns: ["id"], jsonColumns: ["manifest_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "runtime_installed_app", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "updated_at ASC, id ASC" },
   { tableName: "runtime_app_operation", conflictColumns: ["id"], jsonColumns: ["command_plan_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "skill", conflictColumns: ["id"], jsonColumns: ["config_json"], orderBy: "created_at ASC, id ASC" },
@@ -236,6 +237,15 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "agent_router_context_snapshot", conflictColumns: ["id"], jsonColumns: ["source_event_ids_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "task_execution_event", conflictColumns: ["id"], jsonColumns: ["data_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "task_message", conflictColumns: ["id"], jsonColumns: ["input_json"], orderBy: "created_at ASC, task_id ASC, seq ASC" },
+  { tableName: "openmontage_delegation_intent", conflictColumns: ["idempotency_key"], jsonColumns: ["request_json"], optionalWhenMissing: true, orderBy: "created_at ASC, idempotency_key ASC" },
+  { tableName: "openmontage_job_link", conflictColumns: ["job_id"], optionalWhenMissing: true, orderBy: "created_at ASC, job_id ASC" },
+  { tableName: "openmontage_model_delegation", conflictColumns: ["job_id"], optionalWhenMissing: true, orderBy: "created_at ASC, job_id ASC" },
+  { tableName: "openmontage_job_event", conflictColumns: ["event_id"], jsonColumns: ["event_json"], optionalWhenMissing: true, orderBy: "received_at ASC, event_id ASC" },
+  { tableName: "openmontage_job_projection", conflictColumns: ["job_id"], jsonColumns: ["snapshot_json"], optionalWhenMissing: true, orderBy: "created_at ASC, job_id ASC" },
+  { tableName: "openmontage_chat_binding", conflictColumns: ["job_id"], optionalWhenMissing: true, orderBy: "created_at ASC, job_id ASC" },
+  { tableName: "openmontage_event_nonce", conflictColumns: ["nonce"], optionalWhenMissing: true, orderBy: "received_at ASC, nonce ASC" },
+  { tableName: "openmontage_notification_outbox", conflictColumns: ["id"], jsonColumns: ["payload_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "openmontage_artifact_grant", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "model_pricing", conflictColumns: ["model_id"], orderBy: "model_id ASC" },
   { tableName: "token_usage", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "budget", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
@@ -482,7 +492,8 @@ export function collectSqliteMigrationSnapshotSync(
     ? extractAuditLogRowsFromLegacyWorkspaces(workspaceSnapshots, warnings, fallbackTimestamp)
     : [];
 
-  tables.push({
+  const artifactGrantIndex = tables.findIndex((table) => table.tableName === "openmontage_artifact_grant");
+  tables.splice(artifactGrantIndex >= 0 ? artifactGrantIndex : tables.length, 0, {
     tableName: "attachment",
     conflictColumns: ["workspace_id", "id"],
     jsonColumns: [],

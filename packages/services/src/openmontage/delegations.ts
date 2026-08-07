@@ -1,12 +1,21 @@
 import { timingSafeEqual } from "node:crypto";
 import {
+  createOpenMontageDelegationIntentSync,
   createOpenMontageJobLinkSync,
+  listDueOpenMontageDelegationIntentsSync,
   listOpenMontageDelegationDrainPendingJobIdsSync,
+  markOpenMontageDelegationIntentBoundSync,
+  markOpenMontageDelegationIntentDrainedSync,
+  markOpenMontageDelegationIntentDrainFailedSync,
+  markOpenMontageDelegationIntentDrainPendingSync,
+  markOpenMontageDelegationIntentProvisionedSync,
   readOpenMontageJobLinkSync,
   readOpenMontageJobProjectionSync,
+  recordOpenMontagePendingTokenUsageSync,
   readOpenMontageModelDelegationSync,
   updateOpenMontageModelDelegationStatusSync,
   type CreateOpenMontageJobLinkInput,
+  type OpenMontageDelegationIntentRecord,
   type OpenMontageJobLinkRecord,
   type OpenMontageModelDelegationRecord,
 } from "@dofe-agent/db";
@@ -17,7 +26,11 @@ import type {
 } from "@dofe-agent/domain";
 import { unwrapModelsInternalResponse } from "@dofe/models-sdk/response";
 import { resolveModelsBaseUrl } from "../config/deployment.ts";
-import { buildModelsInternalAuthorization, resolveModelsInternalConfig } from "../models/client.ts";
+import {
+  buildModelsInternalAuthorization,
+  getModelsInternalClient,
+  resolveModelsInternalConfig,
+} from "../models/client.ts";
 import { resolveManagedRuntimeScopeSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import {
   buildRuntimeCredentialSecretRef,
@@ -75,7 +88,7 @@ interface ModelsDelegationProvision {
   secretIssued: boolean;
 }
 
-interface CreateDelegationRequest {
+export interface CreateDelegationRequest {
   runtimeCredentialId: string;
   tenantId: string;
   teamId: string;
@@ -94,21 +107,65 @@ interface CreateDelegationRequest {
   metadata: Record<string, unknown>;
 }
 
+export interface OpenMontageDelegationIntentStore {
+  create(input: Parameters<typeof createOpenMontageDelegationIntentSync>[0]): OpenMontageDelegationIntentRecord;
+  markProvisioned(input: Parameters<typeof markOpenMontageDelegationIntentProvisionedSync>[0]): OpenMontageDelegationIntentRecord;
+  markBound(idempotencyKey: string): OpenMontageDelegationIntentRecord;
+  markDrainPending(input: Parameters<typeof markOpenMontageDelegationIntentDrainPendingSync>[0]): OpenMontageDelegationIntentRecord;
+  markDrainFailed(input: Parameters<typeof markOpenMontageDelegationIntentDrainFailedSync>[0]): OpenMontageDelegationIntentRecord;
+  markDrained(idempotencyKey: string): OpenMontageDelegationIntentRecord;
+}
+
+const databaseDelegationIntentStore: OpenMontageDelegationIntentStore = {
+  create: createOpenMontageDelegationIntentSync,
+  markProvisioned: markOpenMontageDelegationIntentProvisionedSync,
+  markBound: markOpenMontageDelegationIntentBoundSync,
+  markDrainPending: markOpenMontageDelegationIntentDrainPendingSync,
+  markDrainFailed: markOpenMontageDelegationIntentDrainFailedSync,
+  markDrained: markOpenMontageDelegationIntentDrainedSync,
+};
+
 export async function bindOpenMontageJobDelegationAsync(
   input: BindOpenMontageJobDelegationInput,
   options: {
     resolveScope?: (workspaceId: string) => { tenantId: string; teamId: string };
+    resolveModelsTeamId?: (input: {
+      runtimeCredentialId: string;
+      tenantId: string;
+      ssoTeamId: string;
+    }) => Promise<string>;
     createDelegation?: (input: CreateDelegationRequest) => Promise<ModelsDelegationProvision>;
     vault?: RuntimeCredentialVault;
     createLink?: typeof createOpenMontageJobLinkSync;
+    drainDelegation?: (delegation: OpenMontageModelDelegationRecord) => Promise<ModelsDelegation>;
+    intentStore?: OpenMontageDelegationIntentStore;
   } = {},
 ): Promise<{ link: OpenMontageJobLinkRecord; delegation: OpenMontageModelDelegationRecord }> {
   const scope = (options.resolveScope ?? resolveManagedRuntimeScopeSync)(input.workspaceId);
+  // SSO team IDs are external identifiers. models.dofe.ai resolves them to
+  // its internal Team primary key on RuntimeCredential reads; use that
+  // canonical key for delegation scope, vault namespaces, and later billing
+  // credential requests. Tests can inject a fake creator without a network
+  // lookup and retain their synthetic scope IDs.
+  const modelsTeamId = options.resolveModelsTeamId
+    ? await options.resolveModelsTeamId({
+      runtimeCredentialId: input.runtimeCredentialId,
+      tenantId: scope.tenantId,
+      ssoTeamId: scope.teamId,
+    })
+    : options.createDelegation
+      ? scope.teamId
+      : (
+        await getModelsInternalClient().runtimeCredentials.get({
+          params: { id: input.runtimeCredentialId },
+          query: { tenantId: scope.tenantId, teamId: scope.teamId },
+        })
+      ).teamId;
   const expiresAt = new Date(new Date(input.snapshot.createdAt).getTime() + DELEGATION_TTL_MS).toISOString();
   const request: CreateDelegationRequest = {
     runtimeCredentialId: input.runtimeCredentialId,
     tenantId: scope.tenantId,
-    teamId: scope.teamId,
+    teamId: modelsTeamId,
     idempotencyKey: `openmontage:${input.workspaceId}:${input.sourceInvocationId}`,
     employeeId: input.employeeId,
     conversationId: input.conversationId,
@@ -123,11 +180,36 @@ export async function bindOpenMontageJobDelegationAsync(
     expiresAt,
     metadata: { runtimeId: input.runtimeId, traceId: input.traceId },
   };
-  const provision = await (options.createDelegation ?? createModelsDelegationAsync)(request);
-  assertProvisionMatchesRequest(provision, request);
+  const intentStore = options.intentStore ?? databaseDelegationIntentStore;
+  intentStore.create({
+    idempotencyKey: request.idempotencyKey,
+    workspaceId: input.workspaceId,
+    runtimeId: input.runtimeId,
+    mcpConnectionId: input.connectionId,
+    runtimeCredentialId: input.runtimeCredentialId,
+    modelsTenantId: scope.tenantId,
+    modelsTeamId,
+    externalJobId: input.snapshot.jobId,
+    request: request as unknown as Record<string, unknown>,
+  });
+  let provision: ModelsDelegationProvision;
+  try {
+    provision = await (options.createDelegation ?? createModelsDelegationAsync)(request);
+    assertProvisionMatchesRequest(provision, request);
+    intentStore.markProvisioned({
+      idempotencyKey: request.idempotencyKey,
+      delegationId: provision.delegation.id,
+    });
+  } catch (error) {
+    intentStore.markDrainFailed({
+      idempotencyKey: request.idempotencyKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   const vault = options.vault ?? getRuntimeCredentialVault();
-  const vaultScope = { tenantId: scope.tenantId, teamId: scope.teamId, runtimeId: input.runtimeId };
+  const vaultScope = { tenantId: scope.tenantId, teamId: modelsTeamId, runtimeId: input.runtimeId };
   let secretRef: string;
   if (provision.secretIssued && provision.secret?.apiKey) {
     secretRef = vault.store(provision.delegation.id, provision.secret.apiKey, vaultScope).secretRef;
@@ -139,12 +221,17 @@ export async function bindOpenMontageJobDelegationAsync(
       );
     }
   }
+  intentStore.markProvisioned({
+    idempotencyKey: request.idempotencyKey,
+    delegationId: provision.delegation.id,
+    secretRef,
+  });
 
   const delegationInput: CreateOpenMontageJobLinkInput["delegation"] = {
     delegationId: provision.delegation.id,
     runtimeCredentialId: input.runtimeCredentialId,
     modelsTenantId: scope.tenantId,
-    modelsTeamId: scope.teamId,
+    modelsTeamId,
     mcpConnectionId: input.connectionId,
     secretRef,
     spendLimit: input.budget.maxAmount,
@@ -152,10 +239,54 @@ export async function bindOpenMontageJobDelegationAsync(
     status: provision.delegation.status,
     expiresAt,
   };
-  const link = (options.createLink ?? createOpenMontageJobLinkSync)({
-    ...input,
-    delegation: delegationInput,
-  });
+  let link: OpenMontageJobLinkRecord;
+  try {
+    link = (options.createLink ?? createOpenMontageJobLinkSync)({
+      ...input,
+      delegation: delegationInput,
+    });
+  } catch (error) {
+    // Models and its reserved budget are remote state. If the local immutable
+    // Job Link cannot be committed, immediately drain the remote delegation
+    // and remove the escrowed secret so no un-attributed spend survives.
+    intentStore.markDrainPending({
+      idempotencyKey: request.idempotencyKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    try {
+      await (options.drainDelegation ?? drainModelsDelegationAsync)({
+        jobId: input.snapshot.jobId,
+        delegationId: delegationInput.delegationId,
+        runtimeCredentialId: delegationInput.runtimeCredentialId,
+        modelsTenantId: delegationInput.modelsTenantId,
+        modelsTeamId: delegationInput.modelsTeamId,
+        mcpConnectionId: delegationInput.mcpConnectionId,
+        secretRef,
+        spendLimit: delegationInput.spendLimit,
+        currency: delegationInput.currency,
+        status: delegationInput.status,
+        expiresAt: delegationInput.expiresAt,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      intentStore.markDrained(request.idempotencyKey);
+    } catch (drainError) {
+      intentStore.markDrainFailed({
+        idempotencyKey: request.idempotencyKey,
+        error: drainError instanceof Error ? drainError.message : String(drainError),
+      });
+    }
+    vault.forget(secretRef, vaultScope);
+    throw error;
+  }
+  // The Job Link is already durable. If this bookkeeping write is temporarily
+  // unavailable, the orphan reconciler detects the matching link and marks the
+  // intent bound instead of draining a live delegation.
+  try {
+    intentStore.markBound(request.idempotencyKey);
+  } catch {
+    // Recovery is intentionally asynchronous after the immutable link commits.
+  }
   return {
     link,
     delegation: { jobId: link.jobId, ...delegationInput, createdAt: link.createdAt, updatedAt: link.createdAt },
@@ -179,6 +310,7 @@ export function issueOpenMontageModelCredential(
   input: {
     jobId: string;
     stage: string;
+    stageAttempt?: number;
     headers: Headers;
     environment?: Record<string, string | undefined>;
     now?: string;
@@ -188,6 +320,7 @@ export function issueOpenMontageModelCredential(
     readDelegation?: typeof readOpenMontageModelDelegationSync;
     readProjection?: typeof readOpenMontageJobProjectionSync;
     vault?: RuntimeCredentialVault;
+    recordPending?: typeof recordOpenMontagePendingTokenUsageSync;
   } = {},
 ): OpenMontageModelCredentialDocument {
   const environment = input.environment ?? process.env;
@@ -218,18 +351,40 @@ export function issueOpenMontageModelCredential(
   if (!apiKey) {
     throw new OpenMontageDelegationConfigurationError("OpenMontage delegated model credential is unavailable.");
   }
+  const stageAttempt = input.stageAttempt ?? 1;
+  if (!Number.isInteger(stageAttempt) || stageAttempt < 1) {
+    throw new OpenMontageDelegationValidationError("OpenMontage stage attempt is invalid.");
+  }
+  // Project a visible billing row at admission time. Models remains the
+  // authority for tokens/amounts, but the chat/cost page no longer waits for
+  // a background reconciliation sweep to discover the Job attribution.
+  (options.recordPending ?? recordOpenMontagePendingTokenUsageSync)({
+    workspaceId: link.workspaceId,
+    employeeId: link.employeeId,
+    runtimeId: link.runtimeId,
+    runtimeCredentialId: delegation.runtimeCredentialId,
+    delegationId: delegation.delegationId,
+    jobId: link.jobId,
+    pipelineStage: input.stage,
+    sourceInvocationId: link.sourceInvocationId,
+    modelInvocationId: `om-pending:${link.jobId}:${input.stage}:${stageAttempt}`,
+  });
   return {
     schemaVersion: 1,
     jobId: link.jobId,
     stage: input.stage,
     delegationId: delegation.delegationId,
     runtimeCredentialId: delegation.runtimeCredentialId,
-    modelsBaseUrl: resolveModelsBaseUrl(environment),
+    modelsBaseUrl: resolveOpenMontageModelsBaseUrl(environment),
     apiKey,
     spendLimit: delegation.spendLimit,
     currency: delegation.currency,
     expiresAt: delegation.expiresAt,
   };
+}
+
+function resolveOpenMontageModelsBaseUrl(environment: NodeJS.ProcessEnv): string {
+  return environment.OPENMONTAGE_MODELS_BASE_URL?.trim() || resolveModelsBaseUrl(environment);
 }
 
 export async function drainOpenMontageJobDelegationAsync(
@@ -270,6 +425,104 @@ export async function drainPendingOpenMontageJobDelegationsAsync(
     }
   }
   return { attempted: jobIds.length, succeeded, failed };
+}
+
+export async function drainOrphanedOpenMontageDelegationsAsync(
+  options: {
+    limit?: number;
+    listIntents?: typeof listDueOpenMontageDelegationIntentsSync;
+    createDelegation?: (input: CreateDelegationRequest) => Promise<ModelsDelegationProvision>;
+    drainDelegation?: (delegation: OpenMontageModelDelegationRecord) => Promise<ModelsDelegation>;
+    intentStore?: OpenMontageDelegationIntentStore;
+    vault?: RuntimeCredentialVault;
+    readLink?: typeof readOpenMontageJobLinkSync;
+    readDelegation?: typeof readOpenMontageModelDelegationSync;
+  } = {},
+): Promise<{ attempted: number; succeeded: number; failed: number }> {
+  const intents = (options.listIntents ?? listDueOpenMontageDelegationIntentsSync)({ limit: options.limit });
+  const intentStore = options.intentStore ?? databaseDelegationIntentStore;
+  let succeeded = 0;
+  let failed = 0;
+  for (const intent of intents) {
+    try {
+      const request = intent.request as unknown as CreateDelegationRequest;
+      assertIntentRequestMatchesRecord(intent, request);
+      const linkedJob = (options.readLink ?? readOpenMontageJobLinkSync)(intent.externalJobId);
+      const linkedDelegation = linkedJob
+        ? (options.readDelegation ?? readOpenMontageModelDelegationSync)(intent.externalJobId)
+        : null;
+      if (linkedJob && linkedDelegation && intentMatchesBoundJob(
+        intent,
+        request,
+        linkedJob,
+        linkedDelegation,
+      )) {
+        intentStore.markBound(intent.idempotencyKey);
+        succeeded += 1;
+        continue;
+      }
+      let delegationId = intent.delegationId;
+      if (!delegationId) {
+        const provision = await (options.createDelegation ?? createModelsDelegationAsync)(request);
+        assertProvisionMatchesRequest(provision, request);
+        delegationId = provision.delegation.id;
+        intentStore.markProvisioned({
+          idempotencyKey: intent.idempotencyKey,
+          delegationId,
+          secretRef: intent.secretRef,
+        });
+      }
+      await (options.drainDelegation ?? drainModelsDelegationAsync)({
+        jobId: intent.externalJobId,
+        delegationId,
+        runtimeCredentialId: intent.runtimeCredentialId,
+        modelsTenantId: intent.modelsTenantId,
+        modelsTeamId: intent.modelsTeamId,
+        mcpConnectionId: intent.mcpConnectionId,
+        secretRef: intent.secretRef ?? "",
+        spendLimit: String(request.spendLimit),
+        currency: request.currency,
+        status: "drain_pending",
+        expiresAt: request.expiresAt,
+        createdAt: intent.createdAt,
+        updatedAt: intent.updatedAt,
+      });
+      intentStore.markDrained(intent.idempotencyKey);
+      if (intent.secretRef) {
+        (options.vault ?? getRuntimeCredentialVault()).forget(intent.secretRef, {
+          tenantId: intent.modelsTenantId,
+          teamId: intent.modelsTeamId,
+          runtimeId: intent.runtimeId,
+        });
+      }
+      succeeded += 1;
+    } catch (error) {
+      intentStore.markDrainFailed({
+        idempotencyKey: intent.idempotencyKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      failed += 1;
+    }
+  }
+  return { attempted: intents.length, succeeded, failed };
+}
+
+function intentMatchesBoundJob(
+  intent: OpenMontageDelegationIntentRecord,
+  request: CreateDelegationRequest,
+  link: OpenMontageJobLinkRecord,
+  delegation: OpenMontageModelDelegationRecord,
+): boolean {
+  return link.workspaceId === intent.workspaceId
+    && link.runtimeId === intent.runtimeId
+    && link.runtimeCredentialId === intent.runtimeCredentialId
+    && link.sourceInvocationId === request.sourceInvocationId
+    && delegation.jobId === intent.externalJobId
+    && delegation.runtimeCredentialId === intent.runtimeCredentialId
+    && delegation.modelsTenantId === intent.modelsTenantId
+    && delegation.modelsTeamId === intent.modelsTeamId
+    && delegation.mcpConnectionId === intent.mcpConnectionId
+    && (!intent.delegationId || delegation.delegationId === intent.delegationId);
 }
 
 async function createModelsDelegationAsync(input: CreateDelegationRequest): Promise<ModelsDelegationProvision> {
@@ -315,29 +568,58 @@ async function requestModelsInternal<T>(path: string, body: unknown): Promise<T>
 
 function assertProvisionMatchesRequest(provision: ModelsDelegationProvision, request: CreateDelegationRequest): void {
   const delegation = provision?.delegation;
-  const matches = delegation
-    && delegation.runtimeCredentialId === request.runtimeCredentialId
-    && delegation.tenantId === request.tenantId
-    && delegation.teamId === request.teamId
-    && delegation.employeeId === request.employeeId
-    && delegation.conversationId === request.conversationId
-    && delegation.rootTaskId === request.rootTaskId
-    && delegation.sourceService === request.sourceService
-    && delegation.sourceInvocationId === request.sourceInvocationId
-    && delegation.externalJobId === request.externalJobId
-    && canonicalDecimal(delegation.spendLimit) === canonicalDecimal(request.spendLimit)
-    && delegation.currency === request.currency
-    && new Date(delegation.expiresAt).toISOString() === request.expiresAt
-    && delegation.status === "active"
-    && delegation.allowedCapabilities.length === OPENMONTAGE_MODEL_CAPABILITIES.length
-    && delegation.allowedCapabilities.every(
-      (capability, index) => capability === OPENMONTAGE_MODEL_CAPABILITIES[index],
+  const mismatches: string[] = [];
+  if (!delegation) mismatches.push("delegation");
+  if (delegation?.runtimeCredentialId !== request.runtimeCredentialId) mismatches.push("runtimeCredentialId");
+  if (delegation?.tenantId !== request.tenantId) mismatches.push("tenantId");
+  if (delegation?.teamId !== request.teamId) mismatches.push("teamId");
+  if (delegation?.employeeId !== request.employeeId) mismatches.push("employeeId");
+  if (delegation?.conversationId !== request.conversationId) mismatches.push("conversationId");
+  if (delegation?.rootTaskId !== request.rootTaskId) mismatches.push("rootTaskId");
+  if (delegation?.sourceService !== request.sourceService) mismatches.push("sourceService");
+  if (delegation?.sourceInvocationId !== request.sourceInvocationId) mismatches.push("sourceInvocationId");
+  if (delegation?.externalJobId !== request.externalJobId) mismatches.push("externalJobId");
+  if (canonicalDecimal(delegation?.spendLimit ?? "") !== canonicalDecimal(request.spendLimit)) {
+    mismatches.push("spendLimit");
+  }
+  if (delegation?.currency !== request.currency) mismatches.push("currency");
+  if (new Date(delegation?.expiresAt ?? 0).toISOString() !== request.expiresAt) mismatches.push("expiresAt");
+  if (delegation?.status !== "active") mismatches.push("status");
+  if (
+    delegation?.allowedCapabilities.length !== OPENMONTAGE_MODEL_CAPABILITIES.length
+    || delegation.allowedCapabilities.some(
+      (capability, index) => capability !== OPENMONTAGE_MODEL_CAPABILITIES[index],
     )
-    && delegation.allowedModels.length === 0
-    && typeof delegation.id === "string"
-    && delegation.id.length > 0;
-  if (!matches || (provision.secretIssued && !provision.secret?.apiKey)) {
-    throw new OpenMontageDelegationValidationError("models returned a delegation outside the requested Job scope.");
+  ) {
+    mismatches.push("allowedCapabilities");
+  }
+  if (delegation?.allowedModels.length !== 0) mismatches.push("allowedModels");
+  if (typeof delegation?.id !== "string" || delegation.id.length === 0) mismatches.push("id");
+  if (provision.secretIssued && !provision.secret?.apiKey) mismatches.push("secret");
+  if (mismatches.length > 0) {
+    throw new OpenMontageDelegationValidationError(
+      `models returned a delegation outside the requested Job scope (${mismatches.join(",")}).`,
+    );
+  }
+}
+
+function assertIntentRequestMatchesRecord(
+  intent: OpenMontageDelegationIntentRecord,
+  request: CreateDelegationRequest,
+): void {
+  if (
+    request.idempotencyKey !== intent.idempotencyKey
+    || request.runtimeCredentialId !== intent.runtimeCredentialId
+    || request.tenantId !== intent.modelsTenantId
+    || request.teamId !== intent.modelsTeamId
+    || request.externalJobId !== intent.externalJobId
+    || request.sourceService !== "openmontage"
+    || typeof request.sourceInvocationId !== "string"
+    || request.sourceInvocationId.length === 0
+  ) {
+    throw new OpenMontageDelegationValidationError(
+      "Stored delegation intent does not match its immutable scope.",
+    );
   }
 }
 
