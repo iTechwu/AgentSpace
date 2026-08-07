@@ -147,6 +147,9 @@ export function updateWorkflowDraftSync(input: UpdateWorkflowDraftInput): Workfl
     }
     const updatedAt = input.updatedAt ?? new Date().toISOString();
     const changes = resolveWorkflowDefinitionDraftChanges(current, input);
+    if (changes.changedFields.length === 0) {
+      return current;
+    }
     const result = db.prepare(
       `UPDATE workflow_definition
           SET name = ?, description = ?, owner_user_id = ?, channel_name = ?,
@@ -176,6 +179,26 @@ export function updateWorkflowDraftSync(input: UpdateWorkflowDraftInput): Workfl
   });
 }
 
+function canonicalizeJsonString(value: string): string {
+  try {
+    return JSON.stringify(canonicalizeJsonValue(JSON.parse(value)));
+  } catch {
+    return value;
+  }
+}
+
+function canonicalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeJsonValue);
+  if (value !== null && typeof value === "object") {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[key] = canonicalizeJsonValue((value as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 export function resolveWorkflowDefinitionDraftChanges(
   current: WorkflowDefinitionDraftValues,
   input: Pick<
@@ -185,12 +208,15 @@ export function resolveWorkflowDefinitionDraftChanges(
 ): ResolvedWorkflowDefinitionDraftChanges {
   const description = input.description === undefined ? current.description ?? null : input.description;
   const channelName = input.channelName === undefined ? current.channelName ?? null : input.channelName;
+  const graphJson = input.graphJson === undefined
+    ? current.draftGraphJson
+    : canonicalizeJsonString(input.graphJson);
   const resolved = {
     name: input.name ?? current.name,
     description,
     ownerUserId: input.ownerUserId ?? current.ownerUserId,
     channelName,
-    graphJson: input.graphJson ?? current.draftGraphJson,
+    graphJson,
   };
   return {
     ...resolved,
@@ -199,7 +225,7 @@ export function resolveWorkflowDefinitionDraftChanges(
       ...(resolved.description !== (current.description ?? null) ? ["description"] : []),
       ...(resolved.ownerUserId !== current.ownerUserId ? ["ownerUserId"] : []),
       ...(resolved.channelName !== (current.channelName ?? null) ? ["channelName"] : []),
-      ...(resolved.graphJson !== current.draftGraphJson ? ["graph"] : []),
+      ...(graphJson !== canonicalizeJsonString(current.draftGraphJson) ? ["graph"] : []),
     ],
   };
 }

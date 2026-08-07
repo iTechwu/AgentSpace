@@ -100,6 +100,39 @@ test("published versions are immutable and scoped to workspace", () => {
   assert.equal(identical.id, version.id);
 });
 
+test("no-op draft update with shuffled graph keys does not bump version or write audit", () => {
+  const draft = createWorkflowDefinitionSync({
+    id: "workflow-draft-noop-test",
+    workspaceId: WORKSPACE_ID,
+    name: "No-op update",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const auditCountBefore = listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.updated" })
+    .filter((audit) => {
+      const data = JSON.parse(audit.dataJson) as Record<string, unknown>;
+      return data.workflowId === draft.id;
+    }).length;
+  // Send the same graph with keys in a different order.
+  const unchanged = updateWorkflowDraftSync({
+    id: draft.id,
+    workspaceId: WORKSPACE_ID,
+    expectedDraftVersion: draft.draftVersion,
+    graphJson: '{"edges":[],"schemaVersion":1,"nodes":[]}',
+    updatedBy: "u1",
+  });
+  assert.equal(unchanged.draftVersion, draft.draftVersion, "draft version must not bump on no-op");
+  assert.equal(
+    listAuditLogsSync(WORKSPACE_ID, { code: "workflow.definition.updated" })
+      .filter((audit) => {
+        const data = JSON.parse(audit.dataJson) as Record<string, unknown>;
+        return data.workflowId === draft.id;
+      }).length,
+    auditCountBefore,
+    "no updated audit must be written for no-op",
+  );
+});
+
 test("trigger upsert cannot overwrite a trigger from another workspace", () => {
   const local = createWorkflowDefinitionSync({
     id: "workflow-trigger-definition-test",
