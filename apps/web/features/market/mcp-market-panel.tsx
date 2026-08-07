@@ -20,6 +20,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-action";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
+import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import type { MarketPageData } from "@/features/market/market-page-client";
 import {
   isActiveCapabilityOperationStatus,
@@ -51,6 +52,8 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [confirmHighRisk, setConfirmHighRisk] = useState(false);
   const [showCreateCatalog, setShowCreateCatalog] = useState(false);
+  const [removingConnectionId, setRemovingConnectionId] = useState<string | null>(null);
+  const [removalStrategy, setRemovalStrategy] = useState<"prohibit_new_jobs" | "cancel_running_jobs">("prohibit_new_jobs");
   const [isPending, startTransition] = useTransition();
   // Dirty flags prevent silent overwrites when editing an existing connection.
   // Fields that were never touched by the user are sent as undefined, so the
@@ -669,7 +672,10 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                         onReverify={() => runAction(() => reverifyMcpConnectionAction({ connectionId: connection.id }))}
                         onDisable={() => runAction(() => disableMcpConnectionAction({ connectionId: connection.id }))}
                         onEnable={() => runAction(() => enableMcpConnectionAction({ connectionId: connection.id }))}
-                        onRemove={() => runAction(() => removeMcpConnectionAction({ connectionId: connection.id }))}
+                        onRemove={() => {
+                          setRemovingConnectionId(connection.id);
+                          setRemovalStrategy("prohibit_new_jobs");
+                        }}
                         onManage={() => manageConnection(connection)}
                       />
                     ))}
@@ -696,6 +702,69 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
             }))}
         />
       ) : null}
+      {removingConnectionId ? (
+        <McpRemovalDialog
+          connection={data.mcpConnections.find((connection) => connection.id === removingConnectionId)!}
+          pending={isPending}
+          strategy={removalStrategy}
+          onCancel={() => setRemovingConnectionId(null)}
+          onStrategyChange={setRemovalStrategy}
+          onConfirm={() => {
+            const connectionId = removingConnectionId;
+            setRemovingConnectionId(null);
+            runAction(() => removeMcpConnectionAction({ connectionId, strategy: removalStrategy }));
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function McpRemovalDialog(props: {
+  connection: ConnectionEntry;
+  pending: boolean;
+  strategy: "prohibit_new_jobs" | "cancel_running_jobs";
+  onCancel: () => void;
+  onStrategyChange: (strategy: "prohibit_new_jobs" | "cancel_running_jobs") => void;
+  onConfirm: () => void;
+}) {
+  const { tx } = useLanguage();
+  const { surfaceRef, handleBackdropMouseDown, labelId } = useDialogSurface<HTMLDivElement>(props.onCancel);
+  return (
+    <div className="modal-backdrop" onMouseDown={handleBackdropMouseDown} role="presentation">
+      <div aria-labelledby={labelId} aria-modal="true" className="modal-card modal-card--compact" ref={surfaceRef} role="dialog" tabIndex={-1}>
+        <div className="modal-card__header">
+          <div>
+            <h3 id={labelId}>{tx("移除 MCP 连接", "Remove MCP connection")}</h3>
+            <p>{props.connection.catalogDisplayName}</p>
+          </div>
+          <button aria-label={tx("关闭", "Close")} className="modal-close" onClick={props.onCancel} type="button">
+            <AppIcon name="close" />
+          </button>
+        </div>
+        <div className="modal-card__body">
+          <p className="modal-card__note">
+            {tx("两种策略都会立即禁止新 Job，并永久保留历史 Job、用量和账单。", "Both strategies immediately block new jobs and permanently retain job, usage, and billing history.")}
+          </p>
+          <fieldset className="skill-install-risk-approvals">
+            <legend>{tx("运行中 Job", "Running jobs")}</legend>
+            <label className="skill-install-risk-option">
+              <input checked={props.strategy === "prohibit_new_jobs"} name="mcp-removal-strategy" onChange={() => props.onStrategyChange("prohibit_new_jobs")} type="radio" />
+              <span>{tx("继续执行，结算完成后移除连接", "Let them finish, then remove the connection")}</span>
+            </label>
+            <label className="skill-install-risk-option">
+              <input checked={props.strategy === "cancel_running_jobs"} name="mcp-removal-strategy" onChange={() => props.onStrategyChange("cancel_running_jobs")} type="radio" />
+              <span>{tx("请求取消，结算完成后移除连接", "Request cancellation, then remove the connection")}</span>
+            </label>
+          </fieldset>
+        </div>
+        <div className="modal-card__footer">
+          <button className="modal-secondary-button" disabled={props.pending} onClick={props.onCancel} type="button">{tx("返回", "Back")}</button>
+          <button className="action-button action-button--danger" disabled={props.pending} onClick={props.onConfirm} type="button">
+            {props.pending ? tx("处理中...", "Processing...") : tx("确认移除", "Confirm removal")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

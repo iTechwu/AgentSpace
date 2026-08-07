@@ -29,6 +29,7 @@ const actionMocks = vi.hoisted(() => ({
   requestOperation: vi.fn(async () => ({ data: undefined })),
   requestMcpConnection: vi.fn(async () => ({ data: undefined })),
   replaceMcpConnectionConfig: vi.fn(async () => ({ data: undefined })),
+  removeMcpConnection: vi.fn(async () => ({ data: undefined })),
   rotateMcpSecret: vi.fn(async () => ({ data: undefined })),
   syncSkill: vi.fn(async () => ({ data: undefined })),
 }));
@@ -44,7 +45,7 @@ vi.mock("@/features/market/mcp-actions", () => ({
   createMcpCatalogItemAction: actionMocks.createMcpCatalogItem,
   disableMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
   enableMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
-  removeMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
+  removeMcpConnectionAction: actionMocks.removeMcpConnection,
   requestMcpConnectionAction: actionMocks.requestMcpConnection,
   reverifyMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
   replaceMcpConnectionConfigAction: actionMocks.replaceMcpConnectionConfig,
@@ -1051,6 +1052,42 @@ describe("MarketPageClient", () => {
       secrets: undefined,
     })));
     expect(actionMocks.rotateMcpSecret).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit MCP running-job removal strategy", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            mcpConnections: [{
+              id: "connection-remove",
+              runtimeId: "runtime-online",
+              catalogItemId: "mcp-catalog-1",
+              catalogSlug: "workspace-search",
+              catalogDisplayName: "Workspace Search",
+              status: "ready",
+              transport: "streamable_http",
+              approvedTools: ["search"],
+              declaredToolCount: 1,
+            }],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    await user.click(screen.getByRole("button", { name: "移除 Online Runtime 的 Workspace Search" }));
+    const dialog = screen.getByRole("dialog", { name: "移除 MCP 连接" });
+    expect(within(dialog).getByText(/永久保留历史 Job、用量和账单/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("radio", { name: "请求取消，结算完成后移除连接" }));
+    await user.click(within(dialog).getByRole("button", { name: "确认移除" }));
+
+    await waitFor(() => expect(actionMocks.removeMcpConnection).toHaveBeenCalledWith({
+      connectionId: "connection-remove",
+      strategy: "cancel_running_jobs",
+    }));
   });
 
   it("submits an edit without re-entering untouched required config", async () => {
