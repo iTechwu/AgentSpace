@@ -120,6 +120,7 @@ test("returns the escrowed key only to the authenticated matching Job and declar
     environment: {
       OPENMONTAGE_SERVICE_TOKEN: "service-token",
       MODELS_BASE_URL: "https://models.test/api",
+      OPENMONTAGE_MODELS_BASE_URL: "http://models-from-worker.test/api",
     },
     now: "2026-08-05T10:00:00Z",
   }, {
@@ -136,6 +137,7 @@ test("returns the escrowed key only to the authenticated matching Job and declar
   assert.equal(credential.apiKey, "delegated-api-key");
   assert.equal(credential.delegationId, IDS.delegation);
   assert.equal(credential.stage, "research");
+  assert.equal(credential.modelsBaseUrl, "http://models-from-worker.test/api");
   assert.equal(pendingUsage?.jobId, "om_job_1");
   assert.equal(pendingUsage?.pipelineStage, "research");
   assert.equal(pendingUsage?.modelInvocationId, "om-pending:om_job_1:research:1");

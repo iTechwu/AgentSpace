@@ -375,12 +375,16 @@ export function issueOpenMontageModelCredential(
     stage: input.stage,
     delegationId: delegation.delegationId,
     runtimeCredentialId: delegation.runtimeCredentialId,
-    modelsBaseUrl: resolveModelsBaseUrl(environment),
+    modelsBaseUrl: resolveOpenMontageModelsBaseUrl(environment),
     apiKey,
     spendLimit: delegation.spendLimit,
     currency: delegation.currency,
     expiresAt: delegation.expiresAt,
   };
+}
+
+function resolveOpenMontageModelsBaseUrl(environment: NodeJS.ProcessEnv): string {
+  return environment.OPENMONTAGE_MODELS_BASE_URL?.trim() || resolveModelsBaseUrl(environment);
 }
 
 export async function drainOpenMontageJobDelegationAsync(
