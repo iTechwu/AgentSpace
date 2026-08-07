@@ -26,6 +26,10 @@ const managedNodeCompose = readFileSync(
   new URL("../../../deploy/daemon/docker-compose.managed-node.yml", import.meta.url),
   "utf8",
 );
+const managedNodeEnvExample = readFileSync(
+  new URL("../../../deploy/daemon/.env.example", import.meta.url),
+  "utf8",
+);
 
 test("managed-node image installs a checksum-pinned multi-arch cosign binary", () => {
   assert.match(dockerfile, /ARG COSIGN_VERSION=v\d+\.\d+\.\d+/);
@@ -60,6 +64,14 @@ test("managed-node runtime stage includes provider probe tools and cached packag
 
 test("managed-node image does not embed shared data-plane services", () => {
   assert.doesNotMatch(dockerfile, /FROM\s+(?:postgres|redis|rabbitmq)(?::|\s)/i);
+});
+
+test("managed-node compose requires an explicit environment file", () => {
+  assert.match(
+    managedNodeCompose,
+    /env_file:\s+\$\{MANAGED_NODE_ENV_FILE:\?Set MANAGED_NODE_ENV_FILE to the managed-node environment file\}/,
+  );
+  assert.match(managedNodeEnvExample, /^MANAGED_NODE_ENV_FILE=\.\/.env\.managed-node$/m);
 });
 
 test("provider runtime image includes operational tools required by provider checks and installs", () => {
