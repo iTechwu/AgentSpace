@@ -224,6 +224,51 @@ export function listWorkflowNodeRunsSync(workspaceId: string, runId: string): Wo
   ).all(workspaceId, runId) as Array<Record<string, unknown>>).map(mapNodeRun);
 }
 
+export interface WorkflowApprovalCandidateRecord {
+  workspaceId: string;
+  runId: string;
+  nodeId: string;
+  approvalId: string;
+}
+
+/**
+ * 有界地列出「等待审批且已绑定审批」的节点运行候选，供审批限时扫描使用。
+ *
+ * 直接在 workflow_node_run（approval_id 有索引）上以 status='waiting_approval' 且
+ * approval_id IS NOT NULL 过滤并施加 LIMIT，得到本轮候选——而不是枚举全部 waiting_approval
+ * 工作区、再逐个加载整份审批历史（技术架构文档要求按 workspace/status 分片批量扫描）。
+ * 可选 workspaceId 把扫描限定到单个工作区。长期方案是把待处理审批独立持久化为按
+ * (status, expiresAt) 索引的表；当前先以数据库级 LIMIT 约束候选总数。
+ */
+export function listWorkflowApprovalCandidatesSync(input: {
+  workspaceId?: string;
+  limit: number;
+}): WorkflowApprovalCandidateRecord[] {
+  const limit = Math.max(1, Math.min(input.limit, 500));
+  const db = getDatabase();
+  const rows = (input.workspaceId
+    ? db.prepare(
+      `SELECT workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", approval_id AS "approvalId"
+       FROM workflow_node_run
+       WHERE status = 'waiting_approval' AND approval_id IS NOT NULL AND workspace_id = ?
+       ORDER BY id ASC LIMIT ${limit}`,
+    ).all(input.workspaceId)
+    : db.prepare(
+      `SELECT workspace_id AS "workspaceId", run_id AS "runId", node_id AS "nodeId", approval_id AS "approvalId"
+       FROM workflow_node_run
+       WHERE status = 'waiting_approval' AND approval_id IS NOT NULL
+       ORDER BY id ASC LIMIT ${limit}`,
+    ).all()) as Array<{ workspaceId?: string; runId?: string; nodeId?: string; approvalId?: string }>;
+  const candidates: WorkflowApprovalCandidateRecord[] = [];
+  for (const row of rows) {
+    if (typeof row.workspaceId === "string" && typeof row.runId === "string"
+      && typeof row.nodeId === "string" && typeof row.approvalId === "string") {
+      candidates.push({ workspaceId: row.workspaceId, runId: row.runId, nodeId: row.nodeId, approvalId: row.approvalId });
+    }
+  }
+  return candidates;
+}
+
 export function claimWorkflowNodeForDispatchSync(
   input: ClaimWorkflowNodeForDispatchInput,
 ): ClaimWorkflowNodeForDispatchResult {

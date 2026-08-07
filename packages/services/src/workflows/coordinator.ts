@@ -3,6 +3,7 @@ import {
   cancelQueuedTaskSync,
   getDatabase,
   listWorkflowNodeRunsSync,
+  listWorkflowApprovalCandidatesSync,
   lockWorkflowRunForUpdateSync,
   readWorkflowNodeRunSync,
   readQueuedTaskSync,
@@ -314,80 +315,73 @@ export function expireWorkflowApprovalsSync(input: {
   if (!Number.isFinite(nowMs)) throw new Error("workflow_now_invalid");
   const expiredApprovalIds: string[] = [];
   const failures: WorkflowApprovalExpiryFailure[] = [];
-  // limit 限定本轮「评估」的候选审批总数——候选 = pending + 工作流审批 + 设有限时。
-  // 不论该候选是否到期、处理是否成功都消耗额度，避免审批积压或持续失败时单个 tick
-  // 遍历全部记录（原先仅按成功过期数停止）。
-  const limit = input.limit;
-  let evaluated = 0;
-  const reachedLimit = (): boolean => typeof limit === "number" && limit > 0 && evaluated >= limit;
-  // 工作区范围：传入 workspaceId 时只处理该工作区，避免越权/越界处理其他工作区的审批。
-  const workspaces = input.workspaceId
-    ? [{ workspaceId: input.workspaceId }]
-    : (db.prepare(
-        "SELECT DISTINCT workspace_id AS workspaceId FROM workflow_run WHERE status = 'waiting_approval'",
-      ).all() as Array<{ workspaceId: string }>);
-  for (const { workspaceId } of workspaces) {
-    if (reachedLimit()) break;
-    for (const approval of listApprovalsSync(workspaceId)) {
-      if (reachedLimit()) break;
-      if (approval.status !== "pending") continue;
-      if (approval.metadata?.kind !== "workflow_node") continue;
-      const expiresAtRaw = typeof approval.metadata?.expiresAt === "string" ? approval.metadata.expiresAt : undefined;
-      if (!expiresAtRaw) continue;
-      // 确认这是一个待评估的限时工作流审批候选：达批量上限则停止整轮扫描（不再消耗额度）。
-      if (reachedLimit()) break;
-      evaluated += 1;
-      const expiresAtMs = Date.parse(expiresAtRaw);
-      if (!Number.isFinite(expiresAtMs)) {
-        // 非法截止时间：发布预检会校验新配置，但历史 JSON、迁移数据或人工修改仍可能留下
-        // 无法解析的 expiresAt。原先静默 continue 会让这类审批永久悬挂且不出现在 failures
-        // 或告警出口。改为记为稳定错误码并写入结构化审计、按失败上报——不自动驳回
-        // （没有有效截止时间就没有终结依据），交由 on-call 经告警介入处理。
-        const invalidRunId = resolveApprovalRunIdBestEffort(approval.id, workspaceId);
-        failures.push({ approvalId: approval.id, workspaceId, ...(invalidRunId ? { runId: invalidRunId } : {}), errorCode: "workflow_approval_deadline_invalid" });
-        recordApprovalExpiryFailureBestEffort({ workspaceId, runId: invalidRunId, approvalId: approval.id, errorCode: "workflow_approval_deadline_invalid", now });
-        continue;
+  // 数据库级有界扫描：直接在 workflow_node_run（approval_id 有索引）上以
+  // status='waiting_approval' AND approval_id IS NOT NULL 过滤并施加 LIMIT，得到本轮候选
+  // (workspaceId/runId/nodeId/approvalId)，而不是枚举全部 waiting_approval 工作区、再逐个
+  // 加载整份审批历史 JSON（技术架构文档要求按 workspace/status 分片批量扫描）。limit 约束
+  // 本轮候选总数；candidate.runId 即审批关联的权威运行，取代 best-effort 反查。
+  const limit = typeof input.limit === "number" && input.limit > 0 ? Math.min(input.limit, 500) : 100;
+  const candidates = listWorkflowApprovalCandidatesSync(
+    input.workspaceId ? { workspaceId: input.workspaceId, limit } : { limit },
+  );
+  // 按工作区分组：每个工作区的审批 JSON 只加载一次，再按 approvalId 建索引，避免逐候选
+  // 重复读取整份快照。逐候选评估其审批是否 pending + 限时 + 已到期。
+  type ApprovalEntry = ReturnType<typeof listApprovalsSync>[number];
+  const approvalsByWorkspace = new Map<string, Map<string, ApprovalEntry>>();
+  for (const candidate of candidates) {
+    let workspaceApprovals = approvalsByWorkspace.get(candidate.workspaceId);
+    if (!workspaceApprovals) {
+      workspaceApprovals = new Map<string, ApprovalEntry>();
+      for (const approval of listApprovalsSync(candidate.workspaceId)) {
+        workspaceApprovals.set(approval.id, approval);
       }
-      if (expiresAtMs > nowMs) continue;
-      try {
-        // 原子性约束：审批状态、节点状态与运行状态必须在同一事务内推进。若终结节点
-        // 或运行失败，整个事务回滚——审批记录仍是 pending，下一轮 tick 会重试，避免
-        // 出现「审批已驳回但运行永久卡在 waiting_approval」的悬挂态。
-        withTransaction(db, () => {
-          reviewApprovalSync(approval.id, "rejected", "workflow_approval_deadline_exceeded", workspaceId, { suppressConversationMessage: true });
-          completeWorkflowApprovalNodeSync({
-            workspaceId,
-            approvalId: approval.id,
-            actorUserId: "system",
-            approved: false,
-            errorCode: "workflow_approval_deadline_exceeded",
-            actorType: "system",
-            now,
-          });
+      approvalsByWorkspace.set(candidate.workspaceId, workspaceApprovals);
+    }
+    const approval = workspaceApprovals.get(candidate.approvalId);
+    // 候选来自 waiting_approval 节点运行；若审批已被其它路径（如人工审批）终结，跳过。
+    if (!approval || approval.status !== "pending") continue;
+    if (approval.metadata?.kind !== "workflow_node") continue;
+    const expiresAtRaw = typeof approval.metadata?.expiresAt === "string" ? approval.metadata.expiresAt : undefined;
+    if (!expiresAtRaw) continue;
+    const expiresAtMs = Date.parse(expiresAtRaw);
+    if (!Number.isFinite(expiresAtMs)) {
+      // 非法截止时间：发布预检会校验新配置，但历史 JSON、迁移数据或人工修改仍可能留下
+      // 无法解析的 expiresAt。原先静默 continue 会让这类审批永久悬挂且不出现在 failures
+      // 或告警出口。改为记为稳定错误码并写入结构化审计、按失败上报——不自动驳回
+      // （没有有效截止时间就没有终结依据），交由 on-call 经告警介入处理。
+      failures.push({ approvalId: approval.id, workspaceId: candidate.workspaceId, runId: candidate.runId, errorCode: "workflow_approval_deadline_invalid" });
+      recordApprovalExpiryFailureBestEffort({ workspaceId: candidate.workspaceId, runId: candidate.runId, approvalId: approval.id, errorCode: "workflow_approval_deadline_invalid", now });
+      continue;
+    }
+    if (expiresAtMs > nowMs) continue;
+    try {
+      // 原子性约束：审批状态、节点状态与运行状态必须在同一事务内推进。若终结节点
+      // 或运行失败，整个事务回滚——审批记录仍是 pending，下一轮 tick 会重试，避免
+      // 出现「审批已驳回但运行永久卡在 waiting_approval」的悬挂态。
+      withTransaction(db, () => {
+        reviewApprovalSync(approval.id, "rejected", "workflow_approval_deadline_exceeded", candidate.workspaceId, { suppressConversationMessage: true });
+        completeWorkflowApprovalNodeSync({
+          workspaceId: candidate.workspaceId,
+          approvalId: approval.id,
+          actorUserId: "system",
+          approved: false,
+          errorCode: "workflow_approval_deadline_exceeded",
+          actorType: "system",
+          now,
         });
-        expiredApprovalIds.push(approval.id);
-      } catch (error) {
-        // 并发冲突或运行已被其它路径终结：整体回滚（审批仍 pending）。不再静默——
-        // 记录结构化失败并写入审计日志，供告警/值班定位；继续扫描其余审批。
-        const errorCode = error instanceof Error && /^workflow_[a-z0-9_]+$/.test(error.message)
-          ? error.message
-          : "workflow_approval_scan_failed";
-        const runId = resolveApprovalRunIdBestEffort(approval.id, workspaceId);
-        failures.push({ approvalId: approval.id, workspaceId, ...(runId ? { runId } : {}), errorCode });
-        recordApprovalExpiryFailureBestEffort({ workspaceId, runId, approvalId: approval.id, errorCode, now });
-      }
+      });
+      expiredApprovalIds.push(approval.id);
+    } catch (error) {
+      // 并发冲突或运行已被其它路径终结：整体回滚（审批仍 pending）。不再静默——
+      // 记录结构化失败并写入审计日志，供告警/值班定位；继续扫描其余审批。
+      const errorCode = error instanceof Error && /^workflow_[a-z0-9_]+$/.test(error.message)
+        ? error.message
+        : "workflow_approval_scan_failed";
+      failures.push({ approvalId: approval.id, workspaceId: candidate.workspaceId, runId: candidate.runId, errorCode });
+      recordApprovalExpiryFailureBestEffort({ workspaceId: candidate.workspaceId, runId: candidate.runId, approvalId: approval.id, errorCode, now });
     }
   }
   return { expiredApprovalIds, failures };
-}
-
-/** 尽力解析审批关联的 runId，供失败记录定位；解析本身失败不影响扫描。 */
-function resolveApprovalRunIdBestEffort(approvalId: string, workspaceId: string): string | undefined {
-  try {
-    return readWorkflowNodeRunByApprovalIdSync(approvalId, workspaceId)?.runId;
-  } catch {
-    return undefined;
-  }
 }
 
 /** 尽力把审批扫描失败写入审计日志；审计写入失败不得阻断扫描其余审批。 */

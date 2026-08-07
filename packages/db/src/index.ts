@@ -214,6 +214,7 @@ export {
   readWorkflowNodeRunByTaskQueueIdSync,
   readWorkflowNodeRunByApprovalIdSync,
   listWorkflowNodeRunsSync,
+  listWorkflowApprovalCandidatesSync,
   resetWorkflowDescendantNodeRunsForRetrySync,
   claimWorkflowNodeForDispatchSync,
   transitionWorkflowRunSync,
@@ -225,6 +226,7 @@ export {
   type TransitionWorkflowRunInput,
   type TransitionWorkflowNodeRunInput,
   type WorkflowNodeSeed,
+  type WorkflowApprovalCandidateRecord,
 } from "./workflows/runs.ts";
 export {
   appendWorkflowRunEventSync,
