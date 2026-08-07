@@ -38,6 +38,7 @@ export function loadOpenMontageDevEnvironment(options = {}) {
     : resolve(repoDir, "data", "runtime-credential-vault");
 
   return {
+    ...agentEnvironment,
     ...baseEnvironment,
     OPENMONTAGE_BASE_URL: firstValue(
       baseEnvironment.OPENMONTAGE_BASE_URL,

@@ -50,3 +50,39 @@ test("OpenMontage dev environment rejects weak shared secrets", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("OpenMontage dev environment preserves AgentSpace configuration with shell precedence", () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-openmontage-dev-agent-env-"));
+  const agentRepo = join(root, "agentspace.dofe.ai");
+  const montageRepo = join(root, "OpenMontage");
+  mkdirSync(agentRepo);
+  mkdirSync(montageRepo);
+  writeFileSync(join(agentRepo, ".env"), [
+    "DOFE_AGENT_RUNTIME_MODE=remote",
+    "SELF_HOSTED_DATABASE_URL=postgresql://example.invalid/agentspace",
+    "DOFE_AGENT_SERVER_URL=http://from-agent-env.invalid",
+    "",
+  ].join("\n"));
+  writeFileSync(join(montageRepo, ".env"), [
+    `OPENMONTAGE_SERVICE_TOKEN=${"s".repeat(32)}`,
+    `OPENMONTAGE_EVENT_SIGNING_SECRET=${"e".repeat(32)}`,
+    "",
+  ].join("\n"));
+
+  try {
+    const environment = loadOpenMontageDevEnvironment({
+      repoDir: agentRepo,
+      baseEnvironment: {
+        DOFE_AGENT_SERVER_URL: "http://from-shell.invalid",
+      },
+    });
+    assert.equal(environment.DOFE_AGENT_RUNTIME_MODE, "remote");
+    assert.equal(
+      environment.SELF_HOSTED_DATABASE_URL,
+      "postgresql://example.invalid/agentspace",
+    );
+    assert.equal(environment.DOFE_AGENT_SERVER_URL, "http://from-shell.invalid");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
