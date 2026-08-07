@@ -572,7 +572,7 @@ export interface ManagedRuntimeListItem {
   provider: DaemonProvider;
   managedCredentialId: string;
   status: "online" | "offline";
-  provisioningState: "managed" | "credential_recovering" | "needs_attention" | "legacy";
+  provisioningState: "managed" | "draining" | "credential_recovering" | "needs_attention" | "legacy";
   protocols: string[];
   defaultModel?: string;
   /** Whether additional AI employees may bind to this runtime. */
@@ -592,7 +592,7 @@ export interface ManagedRuntimeListItem {
 }
 
 function normalizeManagedRuntimeLifecycleState(value: string | null | undefined): ManagedRuntimeListItem["provisioningState"] {
-  if (value === "credential_recovering" || value === "needs_attention" || value === "legacy") return value;
+  if (value === "draining" || value === "credential_recovering" || value === "needs_attention" || value === "legacy") return value;
   return "managed";
 }
 
@@ -1351,11 +1351,20 @@ export async function stopManagedRuntimeAsync(input: StopManagedRuntimeInput): P
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
     throw new Error("managed_runtime.runtime_not_found");
   }
-  if (runtime.provisioningState !== "managed") {
+  if (runtime.provisioningState !== "managed" && runtime.provisioningState !== "draining") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
-  // Stop before revoking the parent credential. A running OpenMontage Job must
-  // first reach a terminal state and reconcile every reserved model charge.
+  // Close admission before waiting for remote usage to drain. A blocked guard
+  // intentionally leaves the runtime in this durable state so a daemon
+  // heartbeat cannot make it eligible for another task before an admin retry.
+  if (runtime.provisioningState !== "draining") {
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime.id,
+      workspaceId: input.workspaceId,
+      provisioningState: "draining",
+      allowNewEmployeeSharing: false,
+    });
+  }
   await assertOpenMontageRuntimePurgeableAsync({
     workspaceId: input.workspaceId,
     runtimeId: runtime.id,
@@ -1418,12 +1427,19 @@ export async function deleteManagedRuntimeAsync(input: StopManagedRuntimeInput):
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
     throw new Error("managed_runtime.runtime_not_found");
   }
-  if (runtime.provisioningState !== "managed") {
+  if (runtime.provisioningState !== "managed" && runtime.provisioningState !== "draining") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
-  // A managed runtime can own OpenMontage jobs and model reservations. Keep
-  // the billing/attribution ledger intact before revoking its credential or
-  // scheduling daemon cleanup.
+  if (runtime.provisioningState !== "draining") {
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime.id,
+      workspaceId: input.workspaceId,
+      provisioningState: "draining",
+      allowNewEmployeeSharing: false,
+    });
+  }
+  // Keep the billing/attribution ledger intact before revoking the credential
+  // or scheduling daemon cleanup.
   await assertOpenMontageRuntimePurgeableAsync({
     workspaceId: input.workspaceId,
     runtimeId: runtime.id,

@@ -494,7 +494,7 @@ export function listAllManagedAgentRuntimesSync(): AgentRuntimeRecord[] {
 export interface UpdateAgentRuntimeManagedFieldsInput {
   runtimeId: string;
   workspaceId?: string;
-  provisioningState?: "managed" | "legacy" | "credential_recovering" | "needs_attention";
+  provisioningState?: "managed" | "draining" | "legacy" | "credential_recovering" | "needs_attention";
   managedCredentialId?: string;
   credentialSecretRef?: string;
   credentialConfigRef?: string;

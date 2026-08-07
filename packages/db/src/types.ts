@@ -293,7 +293,7 @@ export interface AgentRuntimeRecord {
    * `legacy` = backed by a provider_account. Null for rows created before
    * the managed-runtime phase.
    */
-  provisioningState?: "managed" | "legacy" | "credential_recovering" | "needs_attention" | null;
+  provisioningState?: "managed" | "draining" | "legacy" | "credential_recovering" | "needs_attention" | null;
   /** models.dofe.ai RuntimeCredential id (opaque). */
   managedCredentialId?: string;
   /** Opaque vault references; plaintext keys are never stored. */

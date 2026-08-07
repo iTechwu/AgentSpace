@@ -1272,7 +1272,7 @@ export async function deleteWorkspaceRuntimeAction(runtimeIdInput: string): Prom
     throw new Error("runtime.not_found");
   }
 
-  if (runtime.provisioningState === "managed") {
+  if (runtime.provisioningState === "managed" || runtime.provisioningState === "draining") {
     await deleteManagedRuntimeAsync({
       workspaceId,
       runtimeId,

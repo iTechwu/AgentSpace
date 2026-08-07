@@ -10,6 +10,7 @@ import {
   completeManagedProvisioningStageSync,
   completeRuntimeMaintenanceRunSync,
   createOpenMontageJobLinkSync,
+  createStoredEmployeeSync,
   createRuntimeMaintenanceRunSync,
   enqueueTokenUsageRetrySync,
   getDatabase,
@@ -242,9 +243,15 @@ before(() => {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM openmontage_notification_outbox");
+  db.exec("DELETE FROM openmontage_artifact_grant");
+  db.exec("DELETE FROM openmontage_chat_binding");
+  db.exec("DELETE FROM openmontage_job_event");
   db.exec("DELETE FROM openmontage_job_projection");
   db.exec("DELETE FROM openmontage_model_delegation");
   db.exec("DELETE FROM openmontage_job_link");
+  db.exec("DELETE FROM openmontage_event_nonce");
+  db.exec("DELETE FROM openmontage_delegation_intent");
   db.exec("DELETE FROM managed_runtime_cleanup_request");
   db.exec("DELETE FROM runtime_maintenance_run");
   db.exec("DELETE FROM runtime_provisioning_task_event");
@@ -316,6 +323,53 @@ async function awaitTaskTerminal(taskId: string, workspaceId = TEAM_WS, timeoutM
     await new Promise((resolve) => setImmediate(resolve));
   }
   throw new Error(`task ${taskId} did not reach a terminal state within ${timeoutMs}ms`);
+}
+
+function seedInFlightOpenMontageJob(runtimeId: string, runtimeCredentialId: string, jobId: string): void {
+  createOpenMontageJobLinkSync({
+    workspaceId: TEAM_WS,
+    employeeId: `employee-${jobId}`,
+    runtimeId,
+    runtimeCredentialId,
+    rootTaskId: `task-${jobId}`,
+    conversationId: `conversation-${jobId}`,
+    sourceInvocationId: `source-${jobId}`,
+    traceId: `trace-${jobId}`,
+    snapshot: {
+      schemaVersion: 1,
+      jobId,
+      status: "RUNNING",
+      workflow: {
+        name: "animated-explainer",
+        version: "2.0",
+        stages: [{ code: "research", labelCode: "stage.research", approvalRequired: false }],
+      },
+      stages: [{
+        code: "research",
+        labelCode: "stage.research",
+        approvalRequired: false,
+        approvalStatus: "NOT_REQUIRED",
+        status: "RUNNING",
+        attempt: 1,
+      }],
+      currentStage: "research",
+      lastSequence: 1,
+      createdAt: "2026-08-07T00:00:00Z",
+      updatedAt: "2026-08-07T00:00:00Z",
+    },
+    delegation: {
+      delegationId: "00000000-0000-4000-8000-000000000191",
+      runtimeCredentialId,
+      modelsTenantId: "00000000-0000-4000-8000-000000000192",
+      modelsTeamId: "00000000-0000-4000-8000-000000000193",
+      mcpConnectionId: `mcp-${jobId}`,
+      secretRef: `vault://${jobId}`,
+      spendLimit: "2",
+      currency: "CNY",
+      status: "active",
+      expiresAt: "2099-08-07T00:00:00Z",
+    },
+  });
 }
 
 function isNodeProvisioningStage(stage: string): stage is "pull_image" | "install_cli" | "write_credential" | "health_check" {
@@ -470,6 +524,18 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal(JSON.stringify(publicDetail).includes("vault://"), false);
   assert.equal(publicDetail.task.credentialConfigured, true);
 
+  createStoredEmployeeSync({
+    id: "employee-atlas",
+    name: "atlas",
+    role: "tester",
+    origin: "test",
+    summary: "Runtime billing fixture",
+    traits: [],
+    fit: "runtime",
+    skillIds: [],
+    channels: [],
+    status: "active",
+  }, TEAM_WS);
   bindEmployeeRuntimeSync({ workspaceId: TEAM_WS, employeeName: "atlas", runtimeId: runtime!.id });
   const now = new Date().toISOString();
   getDatabase().prepare(
@@ -1635,7 +1701,7 @@ test("employee model binding accepts a protocol-compatible Responses model on an
 
   // The unrestricted credential already covers the whole protocol catalog, so
   // binding a protocol-compatible default model is a no-op credential change.
-  assert.equal(updated.managedCredentialId, "rtc-unrestricted-codex");
+  assert.equal(updated.managedCredentialId, provisioned.runtimeCredentialId);
 });
 
 test("employee model binding rejects a protocol-incompatible model", async () => {
@@ -1821,6 +1887,39 @@ test("stop and delete pass tenant/team scope to revoke", async () => {
   assert.equal(activeClient.revokeCalls, 2);
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.tenantId, "tenant-1");
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.teamId, "team-1");
+});
+
+test("stop closes runtime admission before an OpenMontage purge guard blocks cleanup", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "stop-draining-admission-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+  seedInFlightOpenMontageJob(
+    runtimeId,
+    provisioned.runtimeCredentialId!,
+    "om_job_runtime_stop_draining",
+  );
+
+  await assert.rejects(
+    () => stopManagedRuntimeAsync({ workspaceId: TEAM_WS, actorUserId: OWNER, runtimeId }),
+    /openmontage\.purge_blocked/,
+  );
+
+  const draining = readAgentRuntimeSync(runtimeId);
+  assert.equal(draining?.provisioningState, "draining");
+  assert.equal(draining?.allowNewEmployeeSharing, false);
+  assert.equal(activeClient.revokeCalls, 0);
+
+  await assert.rejects(
+    () => deleteManagedRuntimeAsync({ workspaceId: TEAM_WS, actorUserId: OWNER, runtimeId }),
+    /openmontage\.purge_blocked/,
+  );
+  assert.equal(readAgentRuntimeSync(runtimeId)?.provisioningState, "draining");
+  assert.equal(activeClient.revokeCalls, 0);
 });
 
 test("stop and delete complete when the Models credential is already absent", async () => {
