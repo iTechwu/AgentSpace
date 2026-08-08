@@ -259,14 +259,15 @@ model AgentRuntime {
   @@map("agent_runtime")
 }
 
+/// Assignment of a skill to an agent/employee within a workspace.
 model AgentSkill {
   workspaceId         String            @map("workspace_id")
   agentId             String            @map("agent_id")
-  employeeName        String            @map("employee_name")
+  employeeName        String            @map("employee_name") /// Human-readable employee/agent name (denormalized).
   skillId             String            @map("skill_id")
   createdAt           DateTime          @map("created_at") @db.Timestamptz(6)
-  skillArtifactDigest String?           @map("skill_artifact_digest")
-  rolloutPin          String?           @map("rollout_pin")
+  skillArtifactDigest String?           @map("skill_artifact_digest") /// Pinned artifact digest for this agent, if any.
+  rolloutPin          String?           @map("rollout_pin") /// Optional rollout policy pin.
   employeeId          String            @map("employee_id")
   skill               Skill             @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -277,12 +278,13 @@ model AgentSkill {
   @@map("agent_skill")
 }
 
+/// Per-agent skill configuration and encrypted secret overrides.
 model AgentSkillRequirementConfig {
   workspaceId                                            String            @map("workspace_id")
   employeeName                                           String            @map("employee_name")
   skillId                                                String            @map("skill_id")
-  configJson                                             Json              @default("{}") @map("config_json")
-  encryptedSecretsJson                                   Json              @default("{}") @map("encrypted_secrets_json")
+  configJson                                             Json              @default("{}") @map("config_json") /// Skill parameter overrides for this agent.
+  encryptedSecretsJson                                   Json              @default("{}") @map("encrypted_secrets_json") /// Encrypted secret values scoped to this agent+skill.
   createdByUserId                                        String?           @map("created_by_user_id")
   updatedByUserId                                        String?           @map("updated_by_user_id")
   createdAt                                              DateTime          @map("created_at") @db.Timestamptz(6)
@@ -1931,17 +1933,20 @@ model Session {
   @@map("session")
 }
 
+/// Skill definition registered in a workspace.
 model Skill {
-  id                          String                        @id
-  workspaceId                 String                        @map("workspace_id")
-  name                        String
-  description                 String                        @default("")
-  sourceType                  String                        @default("manual") @map("source_type")
-  sourceUrl                   String?                       @map("source_url")
-  configJson                  Json                          @default("{}") @map("config_json")
-  createdAt                   DateTime                      @map("created_at") @db.Timestamptz(6)
-  updatedAt                   DateTime                      @map("updated_at") @db.Timestamptz(6)
-  activeArtifactDigest        String?                       @map("active_artifact_digest")
+  id                   String   @id
+  workspaceId          String   @map("workspace_id")
+  name                 String
+  description          String   @default("")
+  sourceType           String   @default("manual") @map("source_type") /// manual | git | marketplace, etc.
+  sourceUrl            String?  @map("source_url") /// Origin URL when sourceType is external.
+  configJson           Json     @default("{}") @map("config_json") /// Default skill configuration schema/values.
+  createdAt            DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @map("updated_at") @db.Timestamptz(6)
+  activeArtifactDigest String?  @map("active_artifact_digest") /// Digest of the artifact currently marked active.
+
+  // --- relations ---
   agentSkill                  AgentSkill[]
   agentSkillRequirementConfig AgentSkillRequirementConfig[]
   runtimeAppSkillBinding      RuntimeAppSkillBinding[]
@@ -1959,21 +1964,22 @@ model Skill {
   @@map("skill")
 }
 
+/// Immutable packaged version of a skill (manifest + files).
 model SkillArtifact {
   id                String              @id
   workspaceId       String              @map("workspace_id")
-  digest            String
+  digest            String /// Content-addressable artifact digest.
   skillId           String?             @map("skill_id")
   name              String
   version           String              @default("")
-  manifestVersion   Int                 @default(1) @map("manifest_version")
-  manifestJson      Json                @map("manifest_json")
+  manifestVersion   Int                 @default(1) @map("manifest_version") /// Schema version of manifest_json.
+  manifestJson      Json                @map("manifest_json") /// Artifact manifest (entrypoints, dependencies, etc.).
   sourceType        String              @default("manual") @map("source_type")
   sourceUrl         String?             @map("source_url")
-  provenanceJson    Json                @default("{}") @map("provenance_json")
+  provenanceJson    Json                @default("{}") @map("provenance_json") /// Build/publish provenance metadata.
   fileCount         Int                 @default(0) @map("file_count")
   totalSizeBytes    BigInt              @default(0) @map("total_size_bytes")
-  legacyIncomplete  Int                 @default(0) @map("legacy_incomplete")
+  legacyIncomplete  Int                 @default(0) @map("legacy_incomplete") /// Migration flag for legacy artifacts.
   createdAt         DateTime            @map("created_at") @db.Timestamptz(6)
   skill             Skill?              @relation(fields: [skillId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace         Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1985,11 +1991,12 @@ model SkillArtifact {
   @@map("skill_artifact")
 }
 
+/// Many-to-many binding between a skill and an artifact digest.
 model SkillArtifactBinding {
   id             String    @id
   workspaceId    String    @map("workspace_id")
   skillId        String    @map("skill_id")
-  artifactDigest String    @map("artifact_digest")
+  artifactDigest String    @map("artifact_digest") /// Referenced artifact digest.
   createdAt      DateTime  @map("created_at") @db.Timestamptz(6)
   skill          Skill     @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1998,16 +2005,17 @@ model SkillArtifactBinding {
   @@map("skill_artifact_binding")
 }
 
+/// A single file inside a skill artifact.
 model SkillArtifactFile {
   id            String        @id
   artifactId    String        @map("artifact_id")
   workspaceId   String        @map("workspace_id")
   path          String
-  sha256        String
-  sizeBytes     BigInt        @map("size_bytes")
-  mediaType     String        @map("media_type")
+  sha256        String /// File content hash.
+  sizeBytes     BigInt        @map("size_bytes") /// Uncompressed file size.
+  mediaType     String        @map("media_type") /// MIME type or media classifier.
   mode          String        @default("0644")
-  isText        Int           @default(0) @map("is_text")
+  isText        Int           @default(0) @map("is_text") /// 1 if the file is text-encoded.
   createdAt     DateTime      @map("created_at") @db.Timestamptz(6)
   skillArtifact SkillArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2017,10 +2025,11 @@ model SkillArtifactFile {
   @@map("skill_artifact_file")
 }
 
+/// Unpublished work-in-progress draft of a skill.
 model SkillDraft {
   workspaceId     String    @map("workspace_id")
   skillId         String    @map("skill_id")
-  draftJson       Json      @map("draft_json")
+  draftJson       Json      @map("draft_json") /// Serialized draft graph/code.
   updatedByUserId String?   @map("updated_by_user_id")
   updatedAt       DateTime  @map("updated_at") @db.Timestamptz(6)
   skill           Skill     @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2030,11 +2039,12 @@ model SkillDraft {
   @@map("skill_draft")
 }
 
+/// Inline editable file attached to a skill (pre-artifact).
 model SkillFile {
   id        String   @id
   skillId   String   @map("skill_id")
   path      String
-  content   String
+  content   String /// File source content.
   createdAt DateTime @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
   skill     Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2044,6 +2054,7 @@ model SkillFile {
   @@map("skill_file")
 }
 
+/// Audit trail of skill imports into a workspace.
 model SkillImportEvent {
   id           String    @id
   workspaceId  String    @map("workspace_id")
@@ -2051,9 +2062,9 @@ model SkillImportEvent {
   skillName    String    @map("skill_name")
   sourceType   String    @map("source_type")
   sourceUrl    String?   @map("source_url")
-  importMode   String    @default("created") @map("import_mode")
+  importMode   String    @default("created") @map("import_mode") /// created | updated | skipped.
   metadataJson Json      @default("{}") @map("metadata_json")
-  importedAt   DateTime  @map("imported_at") @db.Timestamptz(6)
+  importedAt   DateTime  @map("imported_at") @db.Timestamptz(6) /// When the import was recorded.
   skill        Skill?    @relation(fields: [skillId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -2061,20 +2072,21 @@ model SkillImportEvent {
   @@map("skill_import_event")
 }
 
+/// Policy approval gate before installing a skill artifact.
 model SkillInstallApproval {
   id                 String    @id
   workspaceId        String    @map("workspace_id")
   skillId            String?   @map("skill_id")
-  artifactDigest     String    @map("artifact_digest")
-  releaseLockDigest  String    @map("release_lock_digest")
+  artifactDigest     String    @map("artifact_digest") /// Artifact under review.
+  releaseLockDigest  String    @map("release_lock_digest") /// Identifies the release lock being approved.
   policyVersion      String    @default("v1") @map("policy_version")
-  riskDecisionDigest String    @map("risk_decision_digest")
-  decision           String
-  riskItemsJson      Json      @default("[]") @map("risk_items_json")
+  riskDecisionDigest String    @map("risk_decision_digest") /// Hash of the risk assessment.
+  decision           String /// approved | rejected.
+  riskItemsJson      Json      @default("[]") @map("risk_items_json") /// Serialized risk findings.
   reason             String?
   actorUserId        String?   @map("actor_user_id")
   createdAt          DateTime  @map("created_at") @db.Timestamptz(6)
-  consumedAt         DateTime? @map("consumed_at") @db.Timestamptz(6)
+  consumedAt         DateTime? @map("consumed_at") @db.Timestamptz(6) /// Set when the approval is consumed by an install.
   users              Users?    @relation(fields: [actorUserId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   skill              Skill?    @relation(fields: [skillId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2083,19 +2095,20 @@ model SkillInstallApproval {
   @@map("skill_install_approval")
 }
 
+/// Deployment of a skill artifact onto a runtime.
 model SkillInstallation {
   id                           String                         @id
   workspaceId                  String                         @map("workspace_id")
   runtimeId                    String                         @map("runtime_id")
-  artifactDigest               String                         @map("artifact_digest")
+  artifactDigest               String                         @map("artifact_digest") /// Installed artifact digest.
   status                       String
-  resolvedLockJson             Json                           @default("{}") @map("resolved_lock_json")
-  preparedPath                 String?                        @map("prepared_path")
-  health                       String                         @default("unknown")
+  resolvedLockJson             Json                           @default("{}") @map("resolved_lock_json") /// Resolved dependency/service lock.
+  preparedPath                 String?                        @map("prepared_path") /// Filesystem path prepared for the runtime.
+  health                       String                         @default("unknown") /// unknown | healthy | unhealthy.
   previousReadyRevision        String?                        @map("previous_ready_revision")
-  revision                     String
-  installedAt                  DateTime?                      @map("installed_at") @db.Timestamptz(6)
-  verifiedAt                   DateTime?                      @map("verified_at") @db.Timestamptz(6)
+  revision                     String /// Monotonic deployment revision.
+  installedAt                  DateTime?                      @map("installed_at") @db.Timestamptz(6) /// When the installation became ready.
+  verifiedAt                   DateTime?                      @map("verified_at") @db.Timestamptz(6) /// Last health verification timestamp.
   createdAt                    DateTime                       @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime                       @map("updated_at") @db.Timestamptz(6)
   previousReadyArtifactDigest  String?                        @map("previous_ready_artifact_digest")
@@ -2111,15 +2124,16 @@ model SkillInstallation {
   @@map("skill_installation")
 }
 
+/// Individual component inside a skill installation.
 model SkillInstallationComponent {
   id                String            @id
   installationId    String            @map("installation_id")
-  kind              String
-  key               String
+  kind              String /// Component category.
+  key               String /// Component identifier.
   status            String
   errorCode         String?           @map("error_code")
   errorMessage      String?           @map("error_message")
-  lastOperationId   String?           @map("last_operation_id")
+  lastOperationId   String?           @map("last_operation_id") /// Last operation that touched this component.
   verifiedAt        DateTime?         @map("verified_at") @db.Timestamptz(6)
   updatedAt         DateTime          @map("updated_at") @db.Timestamptz(6)
   skillInstallation SkillInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2128,23 +2142,24 @@ model SkillInstallationComponent {
   @@map("skill_installation_component")
 }
 
+/// Mutable operation executed against a skill installation (install, verify, rollback, etc.).
 model SkillInstallationOperation {
   id                  String            @id
   workspaceId         String            @map("workspace_id")
   runtimeId           String            @map("runtime_id")
   installationId      String            @map("installation_id")
-  operation           String
+  operation           String /// install | verify | rollback, etc.
   status              String
-  requestSnapshotJson Json              @default("{}") @map("request_snapshot_json")
-  safeResultJson      Json              @default("{}") @map("safe_result_json")
+  requestSnapshotJson Json              @default("{}") @map("request_snapshot_json") /// Operation request payload.
+  safeResultJson      Json              @default("{}") @map("safe_result_json") /// Sanitized operation result.
   errorCode           String?           @map("error_code")
   errorMessage        String?           @map("error_message")
   claimedAt           DateTime?         @map("claimed_at") @db.Timestamptz(6)
   completedAt         DateTime?         @map("completed_at") @db.Timestamptz(6)
   requestedByUserId   String?           @map("requested_by_user_id")
   createdAt           DateTime          @map("created_at") @db.Timestamptz(6)
-  leaseExpiresAt      DateTime?         @map("lease_expires_at") @db.Timestamptz(6)
-  claimGeneration     Int               @default(0) @map("claim_generation")
+  leaseExpiresAt      DateTime?         @map("lease_expires_at") @db.Timestamptz(6) /// Worker lease expiration (fencing).
+  claimGeneration     Int               @default(0) @map("claim_generation") /// Lease generation counter.
   skillInstallation   SkillInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users               Users?            @relation(fields: [requestedByUserId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agentRuntime        AgentRuntime      @relation(fields: [runtimeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2153,6 +2168,7 @@ model SkillInstallationOperation {
   @@map("skill_installation_operation")
 }
 
+/// Record of a skill being invoked at runtime.
 model SkillRunnerInvocation {
   id                String    @id
   workspaceId       String    @map("workspace_id")
@@ -2163,16 +2179,16 @@ model SkillRunnerInvocation {
   skillName         String    @map("skill_name")
   artifactDigest    String    @map("artifact_digest")
   revision          String?
-  entrypointId      String    @map("entrypoint_id")
-  entrypointKey     String    @map("entrypoint_key")
-  entrypointPath    String?   @map("entrypoint_path")
-  entrypointRuntime String?   @map("entrypoint_runtime")
+  entrypointId      String    @map("entrypoint_id") /// Invoked entrypoint identifier.
+  entrypointKey     String    @map("entrypoint_key") /// Invoked entrypoint key.
+  entrypointPath    String?   @map("entrypoint_path") /// Invoked entrypoint file path, if any.
+  entrypointRuntime String?   @map("entrypoint_runtime") /// Runtime qualifier for the entrypoint.
   actorId           String    @map("actor_id")
   actorType         String    @map("actor_type")
-  resultCode        Int       @map("result_code")
-  timedOut          Boolean   @default(false) @map("timed_out")
-  durationMs        Int?      @map("duration_ms")
-  safeSummary       String?   @map("safe_summary")
+  resultCode        Int       @map("result_code") /// Execution result code.
+  timedOut          Boolean   @default(false) @map("timed_out") /// True if the invocation timed out.
+  durationMs        Int?      @map("duration_ms") /// Wall-clock execution time.
+  safeSummary       String?   @map("safe_summary") /// Sanitized output summary.
   eventId           String?   @map("event_id")
   createdAt         DateTime  @map("created_at") @db.Timestamptz(6)
   workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2183,14 +2199,15 @@ model SkillRunnerInvocation {
   @@map("skill_runner_invocation")
 }
 
+/// Binding between a skill installation and a managed service instance.
 model SkillServiceBinding {
   installationId         String              @map("installation_id")
   serviceId              String              @map("service_id")
-  catalogTemplateVersion String              @map("catalog_template_version")
-  serviceImageDigest     String              @map("service_image_digest")
-  endpointRef            String              @map("endpoint_ref")
-  healthRevision         String              @map("health_revision")
-  configSchemaVersion    Int                 @map("config_schema_version")
+  catalogTemplateVersion String              @map("catalog_template_version") /// Version of the service catalog template.
+  serviceImageDigest     String              @map("service_image_digest") /// Resolved service container image.
+  endpointRef            String              @map("endpoint_ref") /// Service endpoint reference.
+  healthRevision         String              @map("health_revision") /// Last known health revision.
+  configSchemaVersion    Int                 @map("config_schema_version") /// Schema version for config validation.
   createdAt              DateTime            @map("created_at") @db.Timestamptz(6)
   skillInstallation      SkillInstallation   @relation(fields: [installationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   managedSkillService    ManagedSkillService @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2199,33 +2216,34 @@ model SkillServiceBinding {
   @@map("skill_service_binding")
 }
 
+/// Catalog entry for a managed service template used by skill installations.
 model SkillServiceCatalog {
   id                       String                   @id
   workspaceId              String                   @map("workspace_id")
   slug                     String
-  templateVersion          String                   @map("template_version")
-  deploymentType           String                   @map("deployment_type")
-  imageDigest              String                   @map("image_digest")
+  templateVersion          String                   @map("template_version") /// Version of the service template.
+  deploymentType           String                   @map("deployment_type") /// e.g. docker, k8s.
+  imageDigest              String                   @map("image_digest") /// Container image digest.
   protocol                 String                   @default("http")
   scope                    String                   @default("workspace_runtime")
-  resourcesJson            Json                     @default("{}") @map("resources_json")
-  healthJson               Json                     @default("{}") @map("health_json")
-  networkJson              Json                     @default("{}") @map("network_json")
+  resourcesJson            Json                     @default("{}") @map("resources_json") /// CPU/memory/storage requirements.
+  healthJson               Json                     @default("{}") @map("health_json") /// Health check definition.
+  networkJson              Json                     @default("{}") @map("network_json") /// Network/ingress config.
   configSchemaVersion      Int                      @default(1) @map("config_schema_version")
-  configSchemaJson         Json                     @default("{}") @map("config_schema_json")
-  secretFieldsJson         Json                     @default("[]") @map("secret_fields_json")
-  externalDependenciesJson Json                     @default("[]") @map("external_dependencies_json")
-  rollbackClass            String                   @default("stateless") @map("rollback_class")
+  configSchemaJson         Json                     @default("{}") @map("config_schema_json") /// JSONSchema for service config.
+  secretFieldsJson         Json                     @default("[]") @map("secret_fields_json") /// Required secret field names.
+  externalDependenciesJson Json                     @default("[]") @map("external_dependencies_json") /// External dependency list.
+  rollbackClass            String                   @default("stateless") @map("rollback_class") /// stateless | stateful.
   templateDigest           String                   @map("template_digest")
-  risk                     String                   @default("high")
+  risk                     String                   @default("high") /// high | medium | low.
   createdAt                DateTime                 @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime                 @map("updated_at") @db.Timestamptz(6)
-  sbomDigest               String?                  @map("sbom_digest")
-  runAsNonRoot             Boolean                  @default(false) @map("run_as_non_root")
-  readOnlyRootfs           Boolean                  @default(true) @map("read_only_rootfs")
-  capDropJson              Json                     @default("[\"ALL\"]") @map("cap_drop_json")
+  sbomDigest               String?                  @map("sbom_digest") /// Software-bill-of-materials digest.
+  runAsNonRoot             Boolean                  @default(false) @map("run_as_non_root") /// Security: run container as non-root.
+  readOnlyRootfs           Boolean                  @default(true) @map("read_only_rootfs") /// Security: read-only root filesystem.
+  capDropJson              Json                     @default("[\"ALL\"]") @map("cap_drop_json") /// Linux capabilities to drop.
   signatureKeyPem          String?                  @map("signature_key_pem")
-  signatureRequired        Boolean                  @default(false) @map("signature_required")
+  signatureRequired        Boolean                  @default(false) @map("signature_required") /// Whether a signature is required.
   managedSkillService      ManagedSkillService[]
   workspace                Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspaceServiceSecret   WorkspaceServiceSecret[]
@@ -2234,19 +2252,20 @@ model SkillServiceCatalog {
   @@map("skill_service_catalog")
 }
 
+/// Approval gate for upgrading a skill from one artifact digest to another.
 model SkillUpgradeApproval {
   id            String    @id
   workspaceId   String    @map("workspace_id")
   skillId       String?   @map("skill_id")
-  fromDigest    String    @map("from_digest")
-  toDigest      String    @map("to_digest")
-  diffHash      String    @map("diff_hash")
+  fromDigest    String    @map("from_digest") /// Source artifact digest.
+  toDigest      String    @map("to_digest") /// Target artifact digest.
+  diffHash      String    @map("diff_hash") /// Hash of the artifact diff.
   policyVersion String    @default("v1") @map("policy_version")
-  decision      String
+  decision      String /// approved | rejected.
   reason        String?
   actorUserId   String?   @map("actor_user_id")
   createdAt     DateTime  @map("created_at") @db.Timestamptz(6)
-  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(6)
+  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(6) /// Set when consumed by an upgrade.
   users         Users?    @relation(fields: [actorUserId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   skill         Skill?    @relation(fields: [skillId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
