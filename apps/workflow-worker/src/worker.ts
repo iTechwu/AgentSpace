@@ -45,7 +45,7 @@ export async function runWorkflowWorkerTick(input: {
     scheduled: scheduled.createdRunIds.length,
     schedulerFailures: countSchedulerFailures(scheduled),
     dispatched: dispatched.dispatchedTaskIds.length,
-    recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length + recovered.failedNodeRunIds.length,
+    recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length + recovered.failedNodeRunIds.length + recovered.requeuedReadyNodeRunIds.length,
   };
 }
 

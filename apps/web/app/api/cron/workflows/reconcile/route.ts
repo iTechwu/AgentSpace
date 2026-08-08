@@ -34,6 +34,7 @@ export async function GET(request: Request): Promise<Response> {
       + (scheduled.approvalScanFailure ? 1 : 0),
     dispatched: dispatched.dispatchedTaskIds.length,
     recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length +
-      recovered.failedNodeRunIds.length + recovered.orphanedTaskIds.length,
+      recovered.failedNodeRunIds.length + recovered.orphanedTaskIds.length +
+      recovered.requeuedReadyNodeRunIds.length,
   });
 }

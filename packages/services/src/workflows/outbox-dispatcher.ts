@@ -20,6 +20,7 @@ export interface WorkflowOutboxDispatchResult {
   publishedOutboxIds: string[];
   dispatchedTaskIds: string[];
   failedOutboxIds: string[];
+  leaseConflictOutboxIds: string[];
 }
 
 export const WORKFLOW_OUTBOX_MAX_ATTEMPTS = 8;
@@ -37,6 +38,7 @@ export function dispatchWorkflowOutboxBatchSync(input: {
     publishedOutboxIds: [],
     dispatchedTaskIds: [],
     failedOutboxIds: [],
+    leaseConflictOutboxIds: [],
   };
   for (const item of items) {
     try {
@@ -55,6 +57,14 @@ export function dispatchWorkflowOutboxBatchSync(input: {
       markWorkflowOutboxPublishedSync(item.id, input.workerId, item.workspaceId, now);
       result.publishedOutboxIds.push(item.id);
     } catch (error) {
+      // workflow_outbox_lease_conflict：本 worker 已丢失该条目租约（租约超时被另一 worker
+      // 重新认领并处理，或派发耗时超过租约）。这是瞬态：不应消耗重试次数，更不能让
+      // markWorkflowOutboxFailedSync 因同样的丢租约再次抛出该错误、逃出循环中断整批。
+      // 跳过该条目，交由当前持有租约的 worker 处理，继续批内剩余条目。
+      if (workflowOutboxErrorCode(error) === "workflow_outbox_lease_conflict") {
+        result.leaseConflictOutboxIds.push(item.id);
+        continue;
+      }
       markWorkflowOutboxFailedSync({
         id: item.id,
         workerId: input.workerId,
