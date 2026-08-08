@@ -12,6 +12,7 @@ import {
   truncatePostgresTablesForTests,
 } from "./postgres.ts";
 import {
+  POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID,
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   POSTGRES_SCHEMA_VERSION,
 } from "./postgres-schema.ts";
@@ -242,16 +243,16 @@ test("ensurePostgresConcurrentIndexes 跳过比实例更新的库（前向守卫
 });
 
 /**
- * Standards #2（后台维护 TOCTOU）：ensurePostgresConcurrentIndexes 取 [115,116] 后才复检版本，
- * 消除「锁外检查 → 取锁 117」窗口。阻塞者占住 [115,116] → 后台维护进入等锁 → 期间另一连接把版本
- * 抬到 117 → 释放锁 → 后台维护取锁后复检发现 117 > 116 → 跳过维护（不回写 backfill flag）。
- * 旧实现（锁外检查）会把检查时的 116 判定为「不更新」并继续 runBackgroundMaintenance，回写 flag。
+ * Standards #2（后台维护 TOCTOU）：ensurePostgresConcurrentIndexes 取后台锁 117 后才复检版本，
+ * 消除「锁外检查 → 取锁 117」窗口。阻塞者占住 117 → 后台维护进入等锁 → 期间另一连接把版本抬到
+ * 117 → 释放锁 → 后台维护取锁后复检发现 117 > 116 → 跳过维护（不回写 backfill flag）。旧实现
+ * （锁外检查）会把检查时的 116 判定为「不更新」并继续 runBackgroundMaintenance，回写 flag。
  */
 test("ensurePostgresConcurrentIndexes 锁内复检版本，消除 TOCTOU（取锁后才检查）", async () => {
   const db = getDatabase();
   const original = readVersion();
   // 探针：摘触发器 + 起始版本=116（实例版本）+ 删除回填 flag。
-  // 旧实现的锁外检查会读 116 判定「不更新」放行进入取锁；新实现取 [115,116] 后复检。
+  // 旧实现的锁外检查会读 116 判定「不更新」放行进入取锁；新实现取后台锁 117 后复检。
   db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
   db.prepare("UPDATE app_metadata SET value = '116' WHERE key = 'schema_version'").run();
   db.prepare("DELETE FROM app_metadata WHERE key = 'schema_116_history_backfill_complete'").run();
@@ -260,10 +261,8 @@ test("ensurePostgresConcurrentIndexes 锁内复检版本，消除 TOCTOU（取�
   const blocker = new Client({ connectionString: url });
   await blocker.connect();
   try {
-    // blocker 占住迁移锁 [115,116] → ensurePostgresConcurrentIndexes 取锁时阻塞。
-    for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
-      await blocker.query("SELECT pg_advisory_lock($1)", [lockId]);
-    }
+    // blocker 占住后台维护锁 117 → ensurePostgresConcurrentIndexes 取锁时阻塞。
+    await blocker.query("SELECT pg_advisory_lock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
 
     const bumper = new Client({ connectionString: url });
     await bumper.connect();
@@ -273,10 +272,8 @@ test("ensurePostgresConcurrentIndexes 锁内复检版本，消除 TOCTOU（取�
       await new Promise((resolve) => setTimeout(resolve, 300));
       // 在等锁窗口把版本抬到 117（> 实例 116）。
       await bumper.query("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'");
-      // 释放锁，让后台维护取锁后做锁内复检。
-      for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
-        await blocker.query("SELECT pg_advisory_unlock($1)", [lockId]);
-      }
+      // 释放 117，让后台维护取锁后做锁内复检。
+      await blocker.query("SELECT pg_advisory_unlock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
       await ensurePromise;
       const flag = db.prepare("SELECT value FROM app_metadata WHERE key = 'schema_116_history_backfill_complete' LIMIT 1")
         .get() as { value?: string } | undefined;
@@ -300,6 +297,47 @@ test("ensurePostgresConcurrentIndexes 锁内复检版本，消除 TOCTOU（取�
     ).run();
     assert.equal(readVersion(), original, "复原：版本已写回");
     assert.equal(triggerExists(), true, "复原：触发器已重建");
+  }
+});
+
+/**
+ * P1 冷启动不阻塞（postgres.ts:847 回归守卫）：ensurePostgresConcurrentIndexes 只取后台锁 117，
+ * 不得竞争 schema 迁移锁 [115,116]。若实现错误地把维护包入 withPostgresSchemaLock，则当另一实例
+ * 正在进行 schema 主事务迁移（持有 [115,116]）时，后台维护会以阻塞型 pg_advisory_lock 等 [115,116]；
+ * 反方向亦然——维护持 [115,116] 贯穿大表回填/建索引会超过 acquireRuntimeSchemaLock 的 ~9s 超时，
+ * 令第二实例冷启动抛 "schema lock busy" 失败。本用例长期占用 [115,116] 模拟并发冷启动迁移，
+ * 断言后台维护仍能在限期内完成（因为它只取 117）。
+ */
+test("ensurePostgresConcurrentIndexes 不竞争 schema 迁移锁 [115,116]（冷启动迁移进行中仍可完成后台维护）", async () => {
+  // 确保维护走快路径（回填已完成）：专注验证锁竞争，不引入回填耗时的不确定性。
+  getDatabase().prepare(
+    `INSERT INTO app_metadata (key, value) VALUES ('schema_116_history_backfill_complete', 'true')
+     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+  ).run();
+
+  const url = resolvePostgresDatabaseUrl();
+  const blocker = new Client({ connectionString: url });
+  await blocker.connect();
+  try {
+    // blocker 长期占用 [115,116]，模拟另一实例正在执行 schema 主事务迁移。
+    for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+      await blocker.query("SELECT pg_advisory_lock($1)", [lockId]);
+    }
+    // 后台维护只应取 117；干净库（flag 已置）维护为幂等索引检查，正常秒级完成，8s 上限远超正常耗时。
+    await Promise.race([
+      ensurePostgresConcurrentIndexes({}),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("后台维护被 schema 迁移锁 [115,116] 阻塞超过 8s——疑似重新竞争冷启动迁移锁")),
+          8000,
+        ),
+      ),
+    ]);
+  } finally {
+    for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+      await blocker.query("SELECT pg_advisory_unlock($1)", [lockId]);
+    }
+    await blocker.end();
   }
 });
 

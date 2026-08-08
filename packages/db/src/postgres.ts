@@ -849,20 +849,25 @@ export async function ensurePostgresConcurrentIndexes(input?: PostgresConnection
   const client = createPostgresClient(databaseUrl);
   await client.connect();
   try {
-    // Forward-only guard 须与 schema 迁移锁 [115,116] 形成统一串行边界：所有 schema_version 推进
-    // （CLI/runtime/migrate）都经 [115,116]，故在 [115,116] 内复检版本并贯穿整个后台维护。旧实现
-    // 锁外复核（与取锁 117 之间）存在 TOCTOU——期间另一实例可能已推进版本，本（旧）实例仍对已
-    // 推进的新库执行回填/NOT NULL/建索引 DDL。复检须在取锁后进行（与 ensurePostgresSchema 一致）。
-    // 维护期间持有 [115,116] 会串行化并发冷启动迁移（滚动升级窗口的一次性代价），换取前向安全；
-    // 取锁顺序 [115,116]→117 与既有路径一致，无死锁；advisory lock 为会话级、不开启事务，不影响
-    // 内部 CREATE INDEX CONCURRENTLY 等事务外语句。
-    await withPostgresSchemaLock(client, async () => {
+    // 后台维护只在后台锁 117 内执行，刻意不持有 schema 迁移锁 [115,116]（架构契约
+    // 03-技术架构文档.md:109/125：在线索引/回填在 schema 主事务提交后执行、不阻塞 Run 写入）。
+    // [115,116] 是 schema 主事务迁移锁：运行时冷启动 getDatabase→ensureRuntimeSchema 须以
+    // pg_try_advisory_lock 快速获取它（acquireRuntimeSchemaLock 超时 = WORKER_REQUEST_TIMEOUT_MS-1000
+    // ≈ 9s，database.ts）。若后台维护持有 [115,116] 贯穿回填/NOT NULL/建索引（大表可达分钟级），
+    // 第二实例冷启动取不到 [115,116] → 9s 超时 → 冷启动/首请求失败（业务故障）。
+    //
+    // 前向版本守卫改为在 117 锁内首句复检：版本已高于本实例 → 跳过维护（117 已串行化所有后台维护
+    // 实例，复检无须再借助 [115,116]）。残留窗口（117 内复检后、维护执行前版本被另一实例抬升）
+    // 由 runBackgroundMaintenance 的幂等 + 前向安全兜底：回填 WHERE history_sequence IS NULL、计数器
+    // GREATEST...WHERE <、NOT NULL 经 isHistorySequenceNullable 门控、索引 CREATE INDEX CONCURRENTLY
+    // IF NOT EXISTS，对已升级库均 no-op 或安全；schema 迁移累加不删除 history_sequence 列。锁串行化
+    // 无法修补已部署的旧版本二进制（其后台维护仅取 117、锁外检查），幂等是滚动升级跨版本窗口唯一
+    // 可行的防线——故无须为「旧实例对新库跑维护」而牺牲冷启动可用性。
+    await withBackgroundMaintenanceLock(client, async () => {
       if (await isPostgresSchemaNewerThanInstance(client)) {
         return;
       }
-      await withBackgroundMaintenanceLock(client, async () => {
-        await runBackgroundMaintenance(client);
-      });
+      await runBackgroundMaintenance(client);
     });
   } finally {
     await client.end();
