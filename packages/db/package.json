@@ -25,15 +25,23 @@
     "postgres:status": "node --experimental-strip-types ./src/postgres-cli.ts status",
     "postgres:init": "node --experimental-strip-types ./src/postgres-cli.ts init",
     "postgres:migrate": "node --experimental-strip-types ./src/postgres-cli.ts migrate-from-sqlite",
-    "postgres:cutover-plan": "node --experimental-strip-types ./src/postgres-cli.ts cutover-plan"
+    "postgres:cutover-plan": "node --experimental-strip-types ./src/postgres-cli.ts cutover-plan",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:pull": "prisma db pull --schema prisma/schema.prisma",
+    "prisma:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "prisma:diff": "prisma migrate diff --from-schema-datasource db --to-schema-datamodel prisma/schema.prisma --exit-code --schema prisma/schema.prisma",
+    "postinstall": "prisma generate --schema prisma/schema.prisma"
   },
   "dependencies": {
     "@dofe-agent/domain": "workspace:*",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
     "@types/pg": "^8.20.0",
+    "prisma": "^7.9.1",
     "typescript": "^5.9.3"
   }
 }

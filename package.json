@@ -4,6 +4,9 @@
   "private": true,
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.26.2",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || ^24.0.0"
+  },
   "bin": {
     "dofe-agent": "./apps/cli/bin/dofe-agent.js"
   },
@@ -20,6 +23,10 @@
     "db:pg:init": "node --experimental-strip-types packages/db/src/postgres-cli.ts init",
     "db:pg:migrate": "node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-sqlite",
     "db:pg:cutover-plan": "node --experimental-strip-types packages/db/src/postgres-cli.ts cutover-plan",
+    "db:prisma:generate": "pnpm --filter @dofe-agent/db run prisma:generate",
+    "db:prisma:pull": "pnpm --filter @dofe-agent/db run prisma:pull",
+    "db:prisma:migrate:deploy": "pnpm --filter @dofe-agent/db run prisma:migrate:deploy",
+    "db:prisma:diff": "pnpm --filter @dofe-agent/db run prisma:diff",
     "migrate:agent-templates:zh": "node --experimental-strip-types scripts/localize-legacy-agent-templates.ts",
     "smoke:feishu": "node --experimental-strip-types scripts/feishu/smoke.ts",
     "dev": "node scripts/free-port.mjs 1455 && NODE_OPTIONS=--use-system-ca NODE_USE_SYSTEM_CA=1 pnpm --dir apps/web exec next dev --hostname 0.0.0.0 --port 1455",
