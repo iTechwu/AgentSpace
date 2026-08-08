@@ -1,4 +1,4 @@
-import { getDatabase, randomLikeId, withTransaction, type PostgresSyncDatabase } from "../database.ts";
+import { getDatabase, randomLikeId, withTransaction } from "../database.ts";
 import { isWorkflowNodeType } from "@dofe-agent/domain";
 import type { WorkflowNodeRunRecord, WorkflowRunRecord } from "../types.ts";
 
@@ -211,16 +211,11 @@ export const WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG = "schema_116_history_b
  */
 export const WORKFLOW_RUN_HISTORY_SEQUENCE_SENTINEL = "9223372036854775807";
 
-function isHistoryBackfillCompleteSync(db: PostgresSyncDatabase): boolean {
-  const row = db.prepare("SELECT value FROM app_metadata WHERE key = ? LIMIT 1")
-    .get(WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG) as { value?: string } | undefined;
-  return row?.value === "true";
-}
-
 /**
- * 用同一条 SQL 读取运行历史首页与总数，确保二者来自同一个数据库语句快照。
- * 调用方会把 total 写入 keyset 游标，后续页沿用该值，避免分页期间新增运行导致
- * 「已加载数量 / 总数」口径漂移。
+ * 用同一条 SQL 读取运行历史首页、总数与回填完成标志，确保三者来自同一个数据库语句快照
+ * （PostgreSQL 单语句 MVCC 一致）。回填完成标志必须与首页 MAX(history_sequence) 同语句读取：
+ * 若分两条 SQL，回填恰在两次查询间提交时，会读到「标志已 true、MAX 仍为回填前低值」的错配
+ * 快照，签发的低序号游标会把已回填的高序号记录从后续页排除 → 漏行（审查 P1）。
  *
  * snapshotSequence：回填窗口期（backfill 未完成）用 MAX bigint 哨兵而非真实 MAX(history_sequence)，
  * 否则 NULL 行被回填赋序号后 > 首页 MAX，会被后续页 `<= snapshot` 谓词排除 → 漏行（Spec #1）。
@@ -234,22 +229,24 @@ export function listWorkflowRunsPageSnapshotSync(
   const rows = db.prepare(
     `SELECT ${RUN_COLUMNS},
             CAST(COUNT(*) OVER () AS integer) AS "snapshotTotal",
-            CAST(MAX(history_sequence) OVER () AS text) AS "snapshotSequence"
+            CAST(MAX(history_sequence) OVER () AS text) AS "snapshotSequence",
+            (SELECT value FROM app_metadata WHERE key = ? LIMIT 1) AS "backfillComplete"
        FROM workflow_run
       WHERE workspace_id = ?
       ORDER BY created_at DESC, id DESC
       LIMIT ${safeLimit}`,
-  ).all(workspaceId) as Array<Record<string, unknown>>;
+  ).all(WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG, workspaceId) as Array<Record<string, unknown>>;
   const total = typeof rows[0]?.snapshotTotal === "number" ? rows[0].snapshotTotal : 0;
   const maxSequence = typeof rows[0]?.snapshotSequence === "string" ? rows[0].snapshotSequence : "0";
-  // 回填窗口用哨兵：避免 NULL 行回填后序号 > 首页真实 MAX 被后续页排除（Spec #1）。
-  const snapshotSequence = isHistoryBackfillCompleteSync(db)
+  // 回填窗口用哨兵：标志与 MAX 同语句读取，避免错配快照签发漏行游标（审查 P1 / Spec #1）。
+  const snapshotSequence = rows[0]?.backfillComplete === "true"
     ? maxSequence
     : WORKFLOW_RUN_HISTORY_SEQUENCE_SENTINEL;
   const runs = rows.map((row) => {
     const run = { ...row };
     delete run.snapshotTotal;
     delete run.snapshotSequence;
+    delete run.backfillComplete;
     return mapRun(run);
   });
   return { runs, total, snapshotSequence };
