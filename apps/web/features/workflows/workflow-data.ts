@@ -236,6 +236,8 @@ export interface WorkflowRunsPage {
   total: number;
   hasMore: boolean;
   nextCursor: string | null;
+  /** 请求携带旧协议（114/115 无签名）游标时为 true：结果已是重置后的首页，前端应替换列表而非追加。 */
+  cursorReset?: boolean;
 }
 
 /**
@@ -254,10 +256,11 @@ export function getWorkflowRunsPageSync(
 ): WorkflowRunsPage {
   const limit = Math.max(1, Math.min(Math.trunc(input.limit), 200));
   const decodedCursor = decodeWorkflowRunCursorEnvelope(input.cursor ?? null, workspaceId);
-  if (decodedCursor?.kind === "legacy") {
-    throw new Error("workflow_run_cursor_expired");
-  }
-  const cursor = decodedCursor?.cursor ?? null;
+  // 114/115 旧游标（无签名）只用于识别过期协议，绝不把其中的 total/sequence 用作查询边界。
+  // 滚动升级中旧页面带着旧游标请求新 API：回退为首页并标记 cursorReset，前端据此替换列表而非追加，
+  // 使已打开的旧页面无需强制刷新即可恢复（旧前端无 409 处理，会显示"加载更多失败"）。
+  const cursorReset = decodedCursor?.kind === "legacy";
+  const cursor = cursorReset ? null : (decodedCursor?.cursor ?? null);
   const workflowNamesById = new Map(
     listWorkflowDefinitionsSync(workspaceId).map((definition) => [definition.id, definition.name]),
   );
@@ -284,7 +287,7 @@ export function getWorkflowRunsPageSync(
         snapshotTotal: total,
       }, workspaceId)
     : null;
-  return { runs, total, hasMore, nextCursor };
+  return { runs, total, hasMore, nextCursor, cursorReset };
 }
 
 /** 编码为旧实例仍可读取、当前实例可验签并校验 workspace 的 base64url JSON。 */

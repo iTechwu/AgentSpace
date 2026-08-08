@@ -384,19 +384,20 @@ describe("getWorkflowRunsPageSync", () => {
     expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledTimes(1);
   });
 
-  it("expires an unsigned 114 cursor instead of using its client-provided total", () => {
+  it("resets to the first page with cursorReset instead of trusting an unsigned 114 cursor", () => {
     const legacyCursor = Buffer.from(JSON.stringify({
       createdAt: "2026-08-06T02:00:00.000Z",
       id: "run-b",
       snapshotTotal: 3,
     }), "utf8").toString("base64url");
-    expect(() => getWorkflowRunsPageSync("default", { limit: 1, cursor: legacyCursor }))
-      .toThrow("workflow_run_cursor_expired");
+    const page = getWorkflowRunsPageSync("default", { limit: 1, cursor: legacyCursor });
+    expect(page.cursorReset).toBe(true);
+    // 旧协议游标回退首页：用原子快照重新取首页，且不沿旧游标续拉。
     expect(mockListWorkflowRunsAfterCursorSync).not.toHaveBeenCalled();
-    expect(mockListWorkflowRunsPageSnapshotSync).not.toHaveBeenCalled();
+    expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledWith("default", 2);
   });
 
-  it("expires an unsigned 115 sequence cursor and lets the route refresh the first page", () => {
+  it("resets to the first page for an unsigned 115 sequence cursor", () => {
     const legacyCursor = Buffer.from(JSON.stringify({
       createdAt: "2026-08-06T02:00:00.000Z",
       id: "run-b",
@@ -408,8 +409,8 @@ describe("getWorkflowRunsPageSync", () => {
       id: "run-b",
       snapshotSequence: "30",
     });
-    expect(() => getWorkflowRunsPageSync("default", { limit: 1, cursor: legacyCursor }))
-      .toThrow("workflow_run_cursor_expired");
+    const page = getWorkflowRunsPageSync("default", { limit: 1, cursor: legacyCursor });
+    expect(page.cursorReset).toBe(true);
   });
 
   it("requires every snapshot boundary field when encoding a signed cursor", () => {

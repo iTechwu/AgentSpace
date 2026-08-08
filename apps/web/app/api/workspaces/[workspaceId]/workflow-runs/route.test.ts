@@ -89,15 +89,20 @@ describe("workflow runs pagination route", () => {
     expect(mocks.runsPage).not.toHaveBeenCalled();
   });
 
-  it("returns a refreshable conflict for an expired legacy cursor", async () => {
-    mocks.runsPage.mockImplementationOnce(() => {
-      throw new Error("workflow_run_cursor_expired");
-    });
+  it("returns the first page with a cursorReset flag for an expired legacy cursor", async () => {
+    mocks.runsPage.mockImplementationOnce(() => ({
+      runs: [{ id: "run-1", workflowId: "wf-1", workflowName: "每日简报", status: "succeeded", triggerType: "schedule", createdAt: "2026-08-06T00:00:00.000Z" }],
+      total: 51,
+      hasMore: true,
+      nextCursor: "next-cursor-token",
+      cursorReset: true,
+    }));
 
     const response = await GET(new Request("http://localhost/api/workflows/runs?limit=50&cursor=legacy"), routeContext);
 
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ code: "workflow_run_cursor_expired" });
+    // 旧协议游标不再抛 409：回退首页并以 200 + cursorReset 返回，前端据此替换列表。
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ total: 51, hasMore: true, cursorReset: true });
   });
 
   it("clamps limit to the maximum page size", async () => {

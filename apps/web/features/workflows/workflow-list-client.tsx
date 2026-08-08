@@ -97,12 +97,8 @@ export function WorkflowListClient({
         `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}&cursor=${encodeURIComponent(nextCursor)}`,
         { headers: { accept: "application/json" } },
       );
-      let refreshExpiredCursor = response.status === 400;
-      if (response.status === 409) {
-        const body = await response.json() as { code?: string };
-        refreshExpiredCursor = body.code === "workflow_run_cursor_expired";
-      }
-      if (refreshExpiredCursor) {
+      // 不可解码的游标（400）：刷新首页，避免旧/损坏游标卡住"加载更多"。
+      if (response.status === 400) {
         const refreshedResponse = await fetch(
           `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}`,
           { headers: { accept: "application/json" } },
@@ -120,6 +116,15 @@ export function WorkflowListClient({
       const page = await readWorkflowRunsPage(response);
       // workspace 或服务端首页快照已在请求在途期间变化：丢弃旧分页响应。
       if (workspaceIdRef.current !== requestWorkspaceId || requestGenerationRef.current !== requestGeneration) return;
+      // 服务端识别出旧协议（114/115 无签名）游标并回退为首页：替换列表而非追加，
+      // 否则首页会按 id 去重后拼到既有列表尾部。
+      if (page.cursorReset) {
+        setRuns(page.runs);
+        setHasMoreRuns(page.hasMore);
+        setNextCursor(page.nextCursor);
+        setTotalRuns(page.total);
+        return;
+      }
       // 去重防御：游标分页正常不重叠；与 SSR 首页或并发刷新产生重复时按 id 合并。
       setRuns((previous) => {
         const seen = new Set(previous.map((run) => run.id));
@@ -259,12 +264,14 @@ async function readWorkflowRunsPage(response: Response): Promise<{
   total: number;
   hasMore: boolean;
   nextCursor: string | null;
+  cursorReset?: boolean;
 }> {
   return await response.json() as {
     runs: WorkflowRunSummary[];
     total: number;
     hasMore: boolean;
     nextCursor: string | null;
+    cursorReset?: boolean;
   };
 }
 

@@ -47,13 +47,6 @@ export async function GET(
     return NextResponse.json({ error: "Invalid pagination parameters." }, { status: 400 });
   }
 
-  try {
-    const page = getWorkflowRunsPageSync(workspaceId, { limit, cursor: rawCursor });
-    return NextResponse.json(page);
-  } catch (error) {
-    if (error instanceof Error && error.message === "workflow_run_cursor_expired") {
-      return NextResponse.json({ code: "workflow_run_cursor_expired" }, { status: 409 });
-    }
-    throw error;
-  }
+  const page = getWorkflowRunsPageSync(workspaceId, { limit, cursor: rawCursor });
+  return NextResponse.json(page);
 }
