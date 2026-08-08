@@ -415,31 +415,36 @@ model Attachment {
   @@map("attachment")
 }
 
+/// Immutable event ledger for workspace-level actions (user/admin operations, lifecycle events).
 model AuditLog {
-  id          String    @id
-  workspaceId String    @map("workspace_id")
-  title       String
-  note        String
-  code        String?
-  dataJson    Json      @default("{}") @map("data_json")
-  source      String    @default("workspace_snapshot_ledger")
-  sourceIndex Int       @default(0) @map("source_index")
-  createdAt   DateTime  @map("created_at") @db.Timestamptz(6)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id          String @id
+  workspaceId String @map("workspace_id")
+
+  title       String /// Human-readable event title.
+  note        String /// Event detail / body.
+  code        String? /// Optional machine-readable event code.
+  dataJson    Json    @default("{}") @map("data_json") /// Arbitrary structured payload serialized as JSON.
+  source      String  @default("workspace_snapshot_ledger") /// Event source domain (e.g. runtime_lifecycle).
+  sourceIndex Int     @default(0) @map("source_index") /// Ordering hint within a source.
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspaceId, createdAt(sort: Desc), sourceIndex(sort: Desc)], map: "idx_audit_log_workspace_created")
   @@map("audit_log")
 }
 
+/// External identity provider linkage for a user (SSO, etc.).
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model AuthIdentity {
   id              String   @id
   userId          String   @map("user_id")
-  provider        String
-  providerSubject String   @map("provider_subject")
+  provider        String /// Identity provider key (e.g. "sso").
+  providerSubject String   @map("provider_subject") /// Provider-scoped unique subject identifier.
   email           String?
-  emailVerified   Int      @default(0) @map("email_verified")
-  profileJson     Json     @default("{}") @map("profile_json")
+  emailVerified   Int      @default(0) @map("email_verified") /// 1 if provider confirms the email, otherwise 0.
+  profileJson     Json     @default("{}") @map("profile_json") /// Raw provider profile payload.
   createdAt       DateTime @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @map("updated_at") @db.Timestamptz(6)
   users           Users    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1909,16 +1914,17 @@ model RuntimeWorkspaceMountOperation {
   @@map("runtime_workspace_mount_operation")
 }
 
+/// Authenticated browser/API session for a user.
 model Session {
   id         String    @id
   userId     String    @map("user_id")
-  tokenHash  String    @unique @map("token_hash")
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
-  lastSeenAt DateTime  @map("last_seen_at") @db.Timestamptz(6)
+  tokenHash  String    @unique @map("token_hash") /// Hash of the session token.
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6) /// Absolute expiration time.
+  lastSeenAt DateTime  @map("last_seen_at") @db.Timestamptz(6) /// Last request timestamp for activity tracking.
   createdAt  DateTime  @map("created_at") @db.Timestamptz(6)
   ipAddress  String?   @map("ip_address")
   userAgent  String?   @map("user_agent")
-  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6) /// Set when the session is explicitly revoked.
   users      Users     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([userId], map: "idx_session_user")
@@ -2408,15 +2414,18 @@ model TokenUsageRetry {
   @@map("token_usage_retry")
 }
 
+/// Platform user account (human or service principal).
 model Users {
-  id                                                                           String                        @id
-  displayName                                                                  String                        @map("display_name")
-  avatarUrl                                                                    String?                       @map("avatar_url")
-  primaryEmail                                                                 String?                       @map("primary_email")
-  createdAt                                                                    DateTime                      @map("created_at") @db.Timestamptz(6)
-  updatedAt                                                                    DateTime                      @map("updated_at") @db.Timestamptz(6)
-  lastLoginAt                                                                  DateTime?                     @map("last_login_at") @db.Timestamptz(6)
-  isAdmin                                                                      Int                           @default(0) @map("is_admin")
+  id           String    @id
+  displayName  String    @map("display_name") /// Public display name.
+  avatarUrl    String?   @map("avatar_url")
+  primaryEmail String?   @map("primary_email") /// Canonical email used for auth and notifications.
+  createdAt    DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6) /// Set from the most recent session creation.
+  isAdmin      Int       @default(0) @map("is_admin") /// 1 if platform-wide admin, otherwise 0.
+
+  // --- relations ---
   agentAccessRequestAgentAccessRequestRequesterUserIdTousers                   AgentAccessRequest[]          @relation("agent_access_request_requester_user_idTousers")
   agentAccessRequestAgentAccessRequestResolverUserIdTousers                    AgentAccessRequest[]          @relation("agent_access_request_resolver_user_idTousers")
   agentForkInvitationAgentForkInvitationCreatedByUserIdTousers                 AgentForkInvitation[]         @relation("agent_fork_invitation_created_by_user_idTousers")
@@ -2647,18 +2656,21 @@ model WorkflowVersion {
   @@map("workflow_version")
 }
 
+/// Top-level tenant/team container; nearly all entities are scoped to a workspace.
 model Workspace {
-  id                                    String                                  @id
-  slug                                  String                                  @unique(map: "idx_workspace_slug")
-  name                                  String
-  createdBy                             String                                  @default("") @map("created_by")
-  createdAt                             DateTime                                @map("created_at") @db.Timestamptz(6)
-  updatedAt                             DateTime                                @map("updated_at") @db.Timestamptz(6)
-  archivedAt                            DateTime?                               @map("archived_at") @db.Timestamptz(6)
-  joinCode                              String?                                 @unique(map: "idx_workspace_join_code", where: raw("(join_code IS NOT NULL)")) @map("join_code")
-  joinCodeUpdatedAt                     DateTime?                               @map("join_code_updated_at") @db.Timestamptz(6)
-  joinCodeUpdatedBy                     String?                                 @map("join_code_updated_by")
-  workflowRunSequence                   BigInt                                  @default(0) @map("workflow_run_sequence")
+  id                  String    @id
+  slug                String    @unique(map: "idx_workspace_slug") /// URL-friendly unique identifier.
+  name                String
+  createdBy           String    @default("") @map("created_by")
+  createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @map("updated_at") @db.Timestamptz(6)
+  archivedAt          DateTime? @map("archived_at") @db.Timestamptz(6) /// Soft-delete marker; archived workspaces are read-only.
+  joinCode            String?   @unique(map: "idx_workspace_join_code", where: raw("(join_code IS NOT NULL)")) @map("join_code") /// Optional invite code for self-join (partial unique when set).
+  joinCodeUpdatedAt   DateTime? @map("join_code_updated_at") @db.Timestamptz(6)
+  joinCodeUpdatedBy   String?   @map("join_code_updated_by")
+  workflowRunSequence BigInt    @default(0) @map("workflow_run_sequence") /// Monotonic counter for workflow run display numbers.
+
+  // --- relations ---
   agentAccessRequest                    AgentAccessRequest[]
   agentForkInvitation                   AgentForkInvitation[]
   agentForkSnapshot                     AgentForkSnapshot[]
@@ -2866,14 +2878,15 @@ model WorkspaceInvitation {
   @@map("workspace_invitation")
 }
 
+/// Many-to-many link between a user and a workspace with a role and status.
 model WorkspaceMembership {
   id          String    @id
   workspaceId String    @map("workspace_id")
   userId      String    @map("user_id")
-  role        String    @default("member")
-  status      String    @default("active")
-  joinedAt    DateTime  @map("joined_at") @db.Timestamptz(6)
-  invitedBy   String?   @map("invited_by")
+  role        String    @default("member") /// owner | admin | member.
+  status      String    @default("active") /// active | removed.
+  joinedAt    DateTime  @map("joined_at") @db.Timestamptz(6) /// When the membership became active.
+  invitedBy   String?   @map("invited_by") /// Optional user id who issued the invitation.
   users       Users     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -2883,27 +2896,28 @@ model WorkspaceMembership {
   @@map("workspace_membership")
 }
 
+/// In-app notification for a workspace recipient.
 model WorkspaceNotification {
   id            String    @id
   workspaceId   String    @map("workspace_id")
-  recipientType String    @map("recipient_type")
-  recipientId   String    @map("recipient_id")
-  actorType     String?   @map("actor_type")
-  actorId       String?   @map("actor_id")
-  type          String
-  resourceType  String    @map("resource_type")
-  resourceId    String?   @map("resource_id")
+  recipientType String    @map("recipient_type") /// human | runtime | channel, etc.
+  recipientId   String    @map("recipient_id") /// ID of the recipient within recipientType.
+  actorType     String?   @map("actor_type") /// Optional entity type that triggered the notification.
+  actorId       String?   @map("actor_id") /// Optional entity id that triggered the notification.
+  type          String /// Notification category (e.g. mention, task_assigned).
+  resourceType  String    @map("resource_type") /// Target entity type the notification refers to.
+  resourceId    String?   @map("resource_id") /// Target entity id the notification refers to.
   channelName   String?   @map("channel_name")
   title         String
   body          String
-  actionHref    String?   @map("action_href")
-  severity      String    @default("info")
-  status        String    @default("unread")
-  dedupeKey     String?   @map("dedupe_key")
-  metadataJson  Json      @default("{}") @map("metadata_json")
+  actionHref    String?   @map("action_href") /// Optional deep-link for the notification action.
+  severity      String    @default("info") /// info | warning | critical.
+  status        String    @default("unread") /// unread | read | archived.
+  dedupeKey     String?   @map("dedupe_key") /// Optional partial-unique key for upsert semantics.
+  metadataJson  Json      @default("{}") @map("metadata_json") /// Extra notification payload.
   createdAt     DateTime  @map("created_at") @db.Timestamptz(6)
-  readAt        DateTime? @map("read_at") @db.Timestamptz(6)
-  archivedAt    DateTime? @map("archived_at") @db.Timestamptz(6)
+  readAt        DateTime? @map("read_at") @db.Timestamptz(6) /// Set when marked read.
+  archivedAt    DateTime? @map("archived_at") @db.Timestamptz(6) /// Set when archived.
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([workspaceId, dedupeKey], map: "idx_workspace_notification_dedupe", where: raw("(dedupe_key IS NOT NULL)"))
@@ -2976,16 +2990,17 @@ model WorkspaceSnapshot {
   @@map("workspace_snapshot")
 }
 
+/// SSO tenant/team binding for a workspace; one binding per workspace.
 model WorkspaceSsoBinding {
   workspaceId String    @id @map("workspace_id")
-  tenantId    String    @unique(map: "idx_workspace_sso_binding_tenant_unique", where: raw("(source = 'tenant'::text)")) @map("tenant_id")
+  tenantId    String    @unique(map: "idx_workspace_sso_binding_tenant_unique", where: raw("(source = 'tenant'::text)")) @map("tenant_id") /// External SSO tenant identifier.
   tenantSlug  String?   @map("tenant_slug")
   tenantName  String    @map("tenant_name")
-  teamId      String?   @unique(map: "idx_workspace_sso_binding_team_unique", where: raw("(team_id IS NOT NULL)")) @map("team_id")
+  teamId      String?   @unique(map: "idx_workspace_sso_binding_team_unique", where: raw("(team_id IS NOT NULL)")) @map("team_id") /// Optional external team identifier.
   teamSlug    String?   @map("team_slug")
   teamName    String?   @map("team_name")
-  source      String
-  syncedAt    DateTime  @map("synced_at") @db.Timestamptz(6)
+  source      String /// tenant | team — indicates which external scope is authoritative.
+  syncedAt    DateTime  @map("synced_at") @db.Timestamptz(6) /// Last time the binding was refreshed from the IdP.
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([teamId], map: "idx_workspace_sso_binding_team")
