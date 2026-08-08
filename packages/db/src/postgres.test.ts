@@ -92,8 +92,11 @@ test("postgres schema enforces SSO-only identities", () => {
   assert.doesNotMatch(statements, /WHERE history_sequence IS NULL/);
   assert.doesNotMatch(statements, /idx_workflow_run_workspace_history_sequence/);
   const backfillStatements = getPostgresHistoryBackfillStatements().join("\n");
-  assert.match(backfillStatements, /WHERE history_sequence IS NULL/);
+  assert.match(backfillStatements, /history_sequence IS NULL/);
   assert.match(backfillStatements, /workflow_run_sequence = GREATEST/);
+  // 在线 NOT NULL（ADD NOT VALID → VALIDATE → SET NOT NULL → DROP）替代单条 SET NOT NULL，避免大表全扫。
+  assert.match(backfillStatements, /FOR UPDATE/);
+  assert.match(backfillStatements, /ws\.workflow_run_sequence\s*\+\s*ROW_NUMBER/, "回填序号从计数器续接（Spec #2）");
   assert.equal(
     POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT,
     "ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL",

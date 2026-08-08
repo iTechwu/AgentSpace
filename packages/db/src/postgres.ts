@@ -9,7 +9,7 @@ import {
   getPostgresHistoryBackfillStatements,
   getPostgresPostCommitSchemaStatements,
   getPostgresSchemaStatements,
-  POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT,
+  POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS,
   POSTGRES_POST_COMMIT_INDEX_NAMES,
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   POSTGRES_SCHEMA_VERSION,
@@ -286,11 +286,13 @@ export async function ensurePostgresSchema(input?: PostgresConnectionInput): Pro
         for (const statement of getPostgresSchemaStatements()) {
           await client.query(statement);
         }
-        // 维护命令同步完成重型 history 回填 + SET NOT NULL（请求路径已把这些移到后台自愈）。
+        // 维护命令同步完成重型 history 回填 + 在线 NOT NULL（请求路径已把这些移到后台自愈）。
         for (const statement of getPostgresHistoryBackfillStatements()) {
           await client.query(statement);
         }
-        await client.query(POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT);
+        for (const statement of POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS) {
+          await client.query(statement);
+        }
         await setAppMetadataFlag(client, "schema_116_history_backfill_complete", "true");
         await client.query("COMMIT");
         transactionStarted = false;
@@ -391,11 +393,13 @@ export async function migrateSqliteToPostgres(
               };
             }
 
-            // 行已迁入：同步回填 history_sequence + SET NOT NULL（维护命令承担请求路径移出的重型 DDL）。
+            // 行已迁入：同步回填 history_sequence + 在线 NOT NULL（维护命令承担请求路径移出的重型 DDL）。
             for (const statement of getPostgresHistoryBackfillStatements()) {
               await client.query(statement);
             }
-            await client.query(POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT);
+            for (const statement of POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS) {
+              await client.query(statement);
+            }
             await setAppMetadataFlag(client, "schema_116_history_backfill_complete", "true");
 
             await client.query(
@@ -502,11 +506,13 @@ export async function migratePostgresToPostgres(
             skippedCount: Math.max(table.rows.length - insertedCount, 0),
           };
         }
-        // 行已迁入：同步回填 history_sequence + SET NOT NULL（维护命令承担请求路径移出的重型 DDL）。
+        // 行已迁入：同步回填 history_sequence + 在线 NOT NULL（维护命令承担请求路径移出的重型 DDL）。
         for (const statement of getPostgresHistoryBackfillStatements()) {
           await targetClient.query(statement);
         }
-        await targetClient.query(POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT);
+        for (const statement of POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS) {
+          await targetClient.query(statement);
+        }
         await setAppMetadataFlag(targetClient, "schema_116_history_backfill_complete", "true");
         await targetClient.query(
           `INSERT INTO app_metadata (key, value)
@@ -665,13 +671,34 @@ async function isHistorySequenceNullable(client: PostgresQueryClient): Promise<b
 async function runBackgroundMaintenance(client: PostgresQueryClient): Promise<void> {
   const BACKFILL_FLAG = "schema_116_history_backfill_complete";
   if (await readAppMetadataFlag(client, BACKFILL_FLAG) !== "true") {
-    for (const statement of getPostgresHistoryBackfillStatements()) {
-      await client.query(statement);
+    // 单事务：backfill（首句对「有 NULL 行的 workspace」FOR UPDATE，锁持有至事务结束）+ 在线 NOT NULL
+    // + 置 flag 原子完成。任一步失败 ROLLBACK（flag 不置，下次冷启动重跑），杜绝回填与计数器推进之间
+    // 触发器分配出重复序号（FOR UPDATE 阻塞该 workspace 的并发 INSERT 触发器，串行化）。
+    let transactionStarted = false;
+    try {
+      await client.query("BEGIN");
+      transactionStarted = true;
+      for (const statement of getPostgresHistoryBackfillStatements()) {
+        await client.query(statement);
+      }
+      if (await isHistorySequenceNullable(client)) {
+        for (const statement of POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS) {
+          await client.query(statement);
+        }
+      }
+      await setAppMetadataFlag(client, BACKFILL_FLAG, "true");
+      await client.query("COMMIT");
+      transactionStarted = false;
+    } catch (error) {
+      if (transactionStarted) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          /* rollback 失败 best-effort 吞掉，原错误优先抛出 */
+        }
+      }
+      throw error;
     }
-    if (await isHistorySequenceNullable(client)) {
-      await client.query(POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT);
-    }
-    await setAppMetadataFlag(client, BACKFILL_FLAG, "true");
   }
   await applyPostCommitSchemaStatements(client);
 }

@@ -4505,12 +4505,28 @@ export function getPostgresSchemaStatements(): string[] {
  */
 export function getPostgresHistoryBackfillStatements(): string[] {
   return [
+    // 原子回填：先 FOR UPDATE 锁住"仍有 NULL history_sequence 行"的 workspace 行（持有至事务结束），
+    // 使并发 INSERT 的分配触发器（BEFORE INSERT，靠 UPDATE workspace.workflow_run_sequence 取行锁）
+    // 阻塞——把"给旧行编号"与"推进计数器"在同一事务内串行化，杜绝触发器在两步之间从旧计数器
+    // 分配出与回填序号碰撞的重复序号（Spec #2）。BEFORE INSERT 阶段新行尚未落表，故不与本 UPDATE
+    // 死锁；只锁相关 workspace，最小阻塞。序号从该 workspace 当前计数器续接（counter + ROW_NUMBER），
+    // 绝不与已分配的非空序号碰撞（旧实现从 1 起编号会与触发器已分配的低序号重复）。
     `
-      WITH ranked AS (
-        SELECT id,
-               ROW_NUMBER() OVER (PARTITION BY workspace_id ORDER BY created_at ASC, id ASC) AS sequence
-          FROM workflow_run
-         WHERE history_sequence IS NULL
+      WITH ws AS (
+        SELECT w.id AS workspace_id, w.workflow_run_sequence
+          FROM workspace w
+         WHERE EXISTS (
+           SELECT 1 FROM workflow_run r
+            WHERE r.workspace_id = w.id AND r.history_sequence IS NULL
+         )
+         FOR UPDATE
+      ), ranked AS (
+        SELECT r.id,
+               ws.workflow_run_sequence
+                 + ROW_NUMBER() OVER (PARTITION BY r.workspace_id ORDER BY r.created_at ASC, r.id ASC) AS sequence
+          FROM workflow_run r
+          JOIN ws ON ws.workspace_id = r.workspace_id
+         WHERE r.history_sequence IS NULL
       )
       UPDATE workflow_run AS run
          SET history_sequence = ranked.sequence
@@ -4540,6 +4556,26 @@ export function getPostgresHistoryBackfillStatements(): string[] {
  */
 export const POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT =
   "ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL";
+
+/**
+ * history_sequence 在线设 NOT NULL 的语句序列（替代单条 SET NOT NULL，避免大表强锁全扫）。
+ * 1) ADD CHECK ... NOT VALID：只约束未来写入，瞬时锁，不校验存量行。
+ * 2) VALIDATE CONSTRAINT：SHARE UPDATE EXCLUSIVE，不阻塞并发写入，校验存量行。
+ * 3) SET NOT NULL：PG12+ 在已有 valid CHECK 时不重扫全表，仅瞬时列锁。
+ * 4) DROP CONSTRAINT：NOT NULL 已生效，CHECK 冗余，清理。
+ * 全部可在事务块内执行（不像 CREATE INDEX CONCURRENTLY），故可与回填同事务原子完成。
+ * 幂等：ADD 用 DO/EXCEPTION 守卫 duplicate_object；VALIDATE 对已 valid 约束为 no-op；
+ *       SET NOT NULL 对已 NOT NULL 列为 no-op；DROP IF EXISTS 安全。
+ */
+export const POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS: string[] = [
+  `DO $$ BEGIN
+    ALTER TABLE workflow_run ADD CONSTRAINT workflow_run_history_sequence_not_null
+      CHECK (history_sequence IS NOT NULL) NOT VALID;
+  EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  "ALTER TABLE workflow_run VALIDATE CONSTRAINT workflow_run_history_sequence_not_null",
+  "ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL",
+  "ALTER TABLE workflow_run DROP CONSTRAINT IF EXISTS workflow_run_history_sequence_not_null",
+].map((statement) => statement.trim());
 
 /**
  * 运行历史在线索引名。无法放入 schema 主事务（CREATE INDEX CONCURRENTLY 不允许在事务块内），
