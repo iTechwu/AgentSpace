@@ -198,17 +198,40 @@ export interface WorkflowRunPageSnapshot {
   snapshotSequence: string;
 }
 
+/** app_metadata flag：history_sequence 回填完成标记。=== "true" 后分页用真实 MAX 快照。 */
+export const WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG = "schema_116_history_backfill_complete";
+
+/**
+ * 回填窗口哨兵 = MAX bigint（9223372036854775807）。窗口期（flag !== "true"）以其作为首页
+ * snapshotSequence：后续页谓词 `history_sequence <= SENTINEL OR history_sequence IS NULL` 纳入全部行
+ * （NULL 经 OR IS NULL，非 NULL 全部 ≤ MAX bigint），分页退化为纯 created_at/id keyset，
+ * 回填把 NULL 翻成任何正序号仍 ≤ SENTINEL，**不丢行**（Spec #1）。哨兵通过游标校验（≤ MAX_POSTGRES_BIGINT），
+ * 可签名、可被旧实例读；窗口期会话即使延续到回填完成后仍用哨兵（仅放弃"冻结"特性，窗口期可接受）。
+ * 回填完成后（flag === "true"）新会话恢复真实 MAX(history_sequence) 严格快照。
+ */
+export const WORKFLOW_RUN_HISTORY_SEQUENCE_SENTINEL = "9223372036854775807";
+
+function isHistoryBackfillCompleteSync(db: PostgresSyncDatabase): boolean {
+  const row = db.prepare("SELECT value FROM app_metadata WHERE key = ? LIMIT 1")
+    .get(WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG) as { value?: string } | undefined;
+  return row?.value === "true";
+}
+
 /**
  * 用同一条 SQL 读取运行历史首页与总数，确保二者来自同一个数据库语句快照。
  * 调用方会把 total 写入 keyset 游标，后续页沿用该值，避免分页期间新增运行导致
  * 「已加载数量 / 总数」口径漂移。
+ *
+ * snapshotSequence：回填窗口期（backfill 未完成）用 MAX bigint 哨兵而非真实 MAX(history_sequence)，
+ * 否则 NULL 行被回填赋序号后 > 首页 MAX，会被后续页 `<= snapshot` 谓词排除 → 漏行（Spec #1）。
  */
 export function listWorkflowRunsPageSnapshotSync(
   workspaceId: string,
   limit: number,
 ): WorkflowRunPageSnapshot {
   const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
-  const rows = getDatabase().prepare(
+  const db = getDatabase();
+  const rows = db.prepare(
     `SELECT ${RUN_COLUMNS},
             CAST(COUNT(*) OVER () AS integer) AS "snapshotTotal",
             CAST(MAX(history_sequence) OVER () AS text) AS "snapshotSequence"
@@ -218,7 +241,11 @@ export function listWorkflowRunsPageSnapshotSync(
       LIMIT ${safeLimit}`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
   const total = typeof rows[0]?.snapshotTotal === "number" ? rows[0].snapshotTotal : 0;
-  const snapshotSequence = typeof rows[0]?.snapshotSequence === "string" ? rows[0].snapshotSequence : "0";
+  const maxSequence = typeof rows[0]?.snapshotSequence === "string" ? rows[0].snapshotSequence : "0";
+  // 回填窗口用哨兵：避免 NULL 行回填后序号 > 首页真实 MAX 被后续页排除（Spec #1）。
+  const snapshotSequence = isHistoryBackfillCompleteSync(db)
+    ? maxSequence
+    : WORKFLOW_RUN_HISTORY_SEQUENCE_SENTINEL;
   const runs = rows.map((row) => {
     const run = { ...row };
     delete run.snapshotTotal;

@@ -18,6 +18,8 @@ import {
   resetWorkflowDescendantNodeRunsForRetrySync,
   transitionWorkflowRunSync,
   transitionWorkflowNodeRunSync,
+  WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG,
+  WORKFLOW_RUN_HISTORY_SEQUENCE_SENTINEL,
 } from "./runs.ts";
 import { appendWorkflowRunEventSync, listWorkflowRunEventsSync } from "./events.ts";
 import {
@@ -486,5 +488,103 @@ test("keyset 分页纳入 history_sequence 仍为 NULL 的旧行（回填窗口�
   } finally {
     db.prepare("DELETE FROM workflow_run WHERE workspace_id = ?").run(myWorkspace);
     db.exec("ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL");
+  }
+});
+
+test("回填窗口期首页用哨兵快照，回填中途赋序号也不丢行（Spec #1）", () => {
+  const myWorkspace = `workflow-runs-sentinel-${Math.random().toString(36).slice(2, 10)}`;
+  const db = getDatabase();
+  const workspaceNow = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, 'test', ?, ?)`,
+  ).run(myWorkspace, myWorkspace, myWorkspace, workspaceNow, workspaceNow);
+  const definition = createWorkflowDefinitionSync({
+    id: `${myWorkspace}-def`,
+    workspaceId: myWorkspace,
+    name: "Sentinel",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const version = publishWorkflowVersionSync({
+    id: `${myWorkspace}-ver`,
+    workspaceId: myWorkspace,
+    workflowId: definition.id,
+    graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+    contentHash: "sha256:sentinel",
+    publishedBy: "u1",
+  });
+
+  const suffixes = ["a", "b", "c", "d", "e"];
+  const created = suffixes.map((suffix, index) => createWorkflowRunSync({
+    id: `${myWorkspace}-run-${suffix}`,
+    workspaceId: myWorkspace,
+    workflowId: definition.id,
+    versionId: version.id,
+    triggerType: "manual",
+    triggerKey: `${myWorkspace}:${suffix}`,
+    inputJson: "{}",
+    now: `2099-05-0${index + 1}T00:00:00.000Z`,
+  }));
+  // 5 行 seq=1..5，计数器=5。最旧 3 行（a,b,c，seq 1,2,3）置 NULL → 非 NULL 为 d,e(seq 4,5)，MAX=5。
+  db.exec("ALTER TABLE workflow_run ALTER COLUMN history_sequence DROP NOT NULL");
+  const originalFlag = (
+    db.prepare("SELECT value FROM app_metadata WHERE key = ? LIMIT 1")
+      .get(WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG) as { value?: string } | undefined
+  )?.value;
+  // 强制回填窗口：删 flag → 首页用哨兵而非真实 MAX。
+  db.prepare("DELETE FROM app_metadata WHERE key = ?").run(WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG);
+  try {
+    db.prepare("UPDATE workflow_run SET history_sequence = NULL WHERE id IN (?, ?, ?)")
+      .run(created[0]!.id, created[1]!.id, created[2]!.id);
+
+    // 首页（limit 2，created_at DESC）：返回最新 2 行 e,d。
+    const snapshot = listWorkflowRunsPageSnapshotSync(myWorkspace, 2);
+    assert.equal(snapshot.total, 5);
+    assert.equal(
+      snapshot.snapshotSequence,
+      WORKFLOW_RUN_HISTORY_SEQUENCE_SENTINEL,
+      "回填窗口期首页 snapshotSequence 须为哨兵（避免 NULL 行回填后序号 > MAX 被排除）",
+    );
+
+    // 模拟首页之后、下页之前的后台回填：NULL 行从计数器续接得 6,7,8（均 > 真实 MAX 5）。
+    // 旧实现首页快照=真实 MAX 5 → 下页谓词 <= 5 排除 6,7,8 → 漏 3 行（Spec #1）。
+    db.prepare("UPDATE workflow_run SET history_sequence = 6 WHERE id = ?").run(created[0]!.id);
+    db.prepare("UPDATE workflow_run SET history_sequence = 7 WHERE id = ?").run(created[1]!.id);
+    db.prepare("UPDATE workflow_run SET history_sequence = 8 WHERE id = ?").run(created[2]!.id);
+
+    const seen = [...snapshot.runs];
+    let cursor = {
+      createdAt: seen[seen.length - 1]!.createdAt,
+      id: seen[seen.length - 1]!.id,
+      snapshotSequence: snapshot.snapshotSequence,
+      snapshotTotal: snapshot.total,
+    };
+    while (seen.length < snapshot.total) {
+      const page = listWorkflowRunsAfterCursorSync(myWorkspace, cursor, 2);
+      if (page.length === 0) break;
+      seen.push(...page);
+      const lastRun = page[page.length - 1]!;
+      cursor = { ...cursor, createdAt: lastRun.createdAt, id: lastRun.id };
+    }
+
+    assert.equal(seen.length, 5, "回填中途赋的序号 > 真实 MAX，哨兵快照下仍不得丢行（Spec #1）");
+    assert.deepEqual(
+      [...seen].map((run) => run.id).sort(),
+      created.map((run) => run.id).sort(),
+    );
+  } finally {
+    db.prepare("DELETE FROM workflow_run WHERE workspace_id = ?").run(myWorkspace);
+    db.exec("ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL");
+    // 复原 flag：原为 "true" 则写回，否则保持删除。
+    if (originalFlag === "true") {
+      db.prepare(
+        `INSERT INTO app_metadata (key, value) VALUES (?, 'true')
+         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+      ).run(WORKFLOW_RUN_HISTORY_BACKFILL_COMPLETE_FLAG);
+    }
+    db.prepare("DELETE FROM workflow_version WHERE workspace_id = ?").run(myWorkspace);
+    db.prepare("DELETE FROM workflow_definition WHERE workspace_id = ?").run(myWorkspace);
+    db.prepare("DELETE FROM workspace WHERE id = ?").run(myWorkspace);
   }
 });
