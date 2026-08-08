@@ -1003,13 +1003,15 @@ function sleepSync(durationMs: number): void {
 export function isRuntimeSchemaCurrentForTests(
   db: Pick<PostgresSyncDatabase, "prepare">,
 ): boolean {
+  // 用显式别名 AS present 读取——真实 PG 对裸 SELECT 1 返回的列名为 "?column?" 而非 "1"，
+  // 按 row["1"] 读取恒为 undefined，会误判 schema 未就绪、令无锁快速路径与前向守卫失效。
   const table = db.prepare(
-    `SELECT 1
+    `SELECT 1 AS present
      FROM information_schema.tables
      WHERE table_schema = current_schema()
        AND table_name = 'app_metadata'`,
-  ).get() as { "1"?: number } | undefined;
-  if (table?.["1"] !== 1) {
+  ).get() as { present?: number } | undefined;
+  if (table?.present !== 1) {
     return false;
   }
   if (readMetadataValue(db, "schema_version") !== POSTGRES_SCHEMA_VERSION) {
@@ -1018,13 +1020,13 @@ export function isRuntimeSchemaCurrentForTests(
   // Sentinel: if a known recently-added column is missing, the schema version
   // row was bumped without running the full migration. Force re-application.
   const sentinel = db.prepare(
-    `SELECT 1
+    `SELECT 1 AS present
      FROM information_schema.columns
      WHERE table_schema = current_schema()
        AND table_name = 'agent_task_queue'
        AND column_name = 'binding_generation'`,
-  ).get() as { "1"?: number } | undefined;
-  return sentinel?.["1"] === 1;
+  ).get() as { present?: number } | undefined;
+  return sentinel?.present === 1;
 }
 
 function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
@@ -1043,12 +1045,12 @@ export function isDatabaseSchemaNewerThanInstanceForTests(
   db: Pick<PostgresSyncDatabase, "prepare">,
 ): boolean {
   const table = db.prepare(
-    `SELECT 1
+    `SELECT 1 AS present
      FROM information_schema.tables
      WHERE table_schema = current_schema()
        AND table_name = 'app_metadata'`,
-  ).get() as { "1"?: number } | undefined;
-  if (table?.["1"] !== 1) {
+  ).get() as { present?: number } | undefined;
+  if (table?.present !== 1) {
     return false;
   }
   const databaseVersion = readMetadataValue(db, "schema_version");

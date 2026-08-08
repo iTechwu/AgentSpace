@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   acquireRuntimeSchemaLockForTests,
+  getDatabase,
   isDatabaseSchemaNewerThanInstanceForTests,
   isRuntimeSchemaCurrentForTests,
   resetConcurrentIndexBuildForTests,
+  resetDatabaseForTests,
   triggerConcurrentIndexBuildForTests,
 } from "./database.ts";
 import { POSTGRES_SCHEMA_VERSION } from "./postgres-schema.ts";
@@ -89,12 +91,12 @@ test("runtime schema checks stay inside the active PostgreSQL schema", () => {
       return {
         all: () => [],
         get: (...parameters: unknown[]) => {
-          if (sql.includes("information_schema.tables")) return { "1": 1 };
+          if (sql.includes("information_schema.tables")) return { present: 1 };
           if (sql.includes("FROM app_metadata")) {
             assert.deepEqual(parameters, ["schema_version"]);
             return { value: POSTGRES_SCHEMA_VERSION };
           }
-          return { "1": 1 };
+          return { present: 1 };
         },
         run: () => ({ changes: 0 }),
       };
@@ -115,7 +117,7 @@ test("isDatabaseSchemaNewerThanInstance detects a newer database version", () =>
       return {
         all: () => [],
         get: (...parameters: unknown[]) => {
-          if (sql.includes("information_schema.tables")) return { "1": 1 };
+          if (sql.includes("information_schema.tables")) return { present: 1 };
           if (sql.includes("FROM app_metadata")) {
             assert.deepEqual(parameters, ["schema_version"]);
             return { value: "117" };
@@ -138,7 +140,7 @@ test("isDatabaseSchemaNewerThanInstance is false when the database is older, equ
         return {
           all: () => [],
           get: () => {
-            if (sql.includes("information_schema.tables")) return { "1": 1 };
+            if (sql.includes("information_schema.tables")) return { present: 1 };
             if (sql.includes("FROM app_metadata")) {
               return storedVersion === undefined ? undefined : { value: storedVersion };
             }
@@ -163,6 +165,48 @@ test("isDatabaseSchemaNewerThanInstance treats a missing app_metadata table as n
     },
   });
   assert.equal(newer, false);
+});
+
+// 真实 PostgreSQL 契约守卫：上方 isRuntimeSchemaCurrent / isDatabaseSchemaNewerThanInstance 的 mock 用例
+// 若仅以 {"1": 1} 模拟存在性检查，会掩盖「裸 SELECT 1 在真实 PG 上列名为 "?column?" 而非 "1"」这一事实——
+// 旧实现按 row["1"] 读取恒为 undefined，使无锁快速路径与前向版本守卫在真实库上全部失效。本用例锁定真实 PG
+// 的列名行为并断言修复后函数对当前库返回正确值，禁止回归到只能被 {"1": 1} mock 喂过的假阳性实现。
+test("真实 PG 上 schema 检查读显式别名——禁止 {\"1\": 1} mock 形成的假阳性", () => {
+  resetDatabaseForTests();
+  resetConcurrentIndexBuildForTests();
+  // 注入 no-op builder，避免 getDatabase 触发的后台在线索引构建在此做真实 PG 工作。
+  triggerConcurrentIndexBuildForTests("__noop__", async () => {});
+  try {
+    const db = getDatabase();
+
+    // 契约一：裸 SELECT 1 在真实 PG 上列名为 "?column?"，绝无 "1" 键。
+    const bare = db.prepare("SELECT 1").get() as Record<string, unknown>;
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(bare, "1"),
+      false,
+      '裸 SELECT 1 不得返回 "1" 键；真实 PG 列名为 "?column?"，禁止仅以 {"1": 1} mock 掩盖',
+    );
+
+    // 契约二：显式别名 AS present 稳定可读。
+    const aliased = db.prepare("SELECT 1 AS present").get() as { present?: number };
+    assert.equal(aliased.present, 1, "SELECT 1 AS present 须经 .present 稳定读取");
+
+    // 契约三：修复后真实当前库（schema_version = POSTGRES_SCHEMA_VERSION）须判定为「已就绪」
+    // 且「不比实例更新」。修复前这两项在真实 PG 上恒为 false（快速路径与前向守卫双失效）。
+    assert.equal(
+      isRuntimeSchemaCurrentForTests(db),
+      true,
+      "修复后真实当前库须判定为 schema 已就绪（无锁快速路径生效）",
+    );
+    assert.equal(
+      isDatabaseSchemaNewerThanInstanceForTests(db),
+      false,
+      "当前版本库不比实例更新（前向守卫正确放行升级迁移）",
+    );
+  } finally {
+    resetDatabaseForTests();
+    resetConcurrentIndexBuildForTests();
+  }
 });
 
 test("triggerConcurrentIndexBuild fires the builder once per database URL", async () => {
