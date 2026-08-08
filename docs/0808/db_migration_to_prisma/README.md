@@ -156,10 +156,30 @@ packages/db
 
 - 新建 async Repository，返回现有 `Stored*Record` DTO，先不把 Prisma 类型泄漏到 services/web。
 - 用 Prisma CRUD/`upsert` 替换直白 SQL；动态筛选使用结构化 `where/orderBy`，禁止动态 SQL 标识符。
-- 复杂查询用参数化 `$queryRaw`，并给返回行定义显式 TypeScript 类型。
+- 复杂查询用参数化 `$queryRawUnsafe`，并给返回行定义显式 TypeScript 类型；标识符走硬编码白名单，只有值走 `$1..$N` 参数。
+- **保真读取**：凡是 legacy 同步层以 ISO 字符串返回的 `timestamptz`、以 JSON 字符串返回的 `json/jsonb` 列，异步读取一律 `SELECT col::text` 强制转换后再映射（见下方「启动范本」的 adapter 差异说明）——**不要**信任 `findUnique` 等 typed 读取在这两列上的原生返回。
 - 在同一个 `$transaction(async tx => ...)` 内完成锁定、条件更新和后续写入；事务内禁止网络请求。
 - 给每个替换函数保留 legacy 对照测试：同一 fixture 下比较结果、affected rows、错误类别、幂等和并发行为。
 - 上层调用方一次只改一个 async 边界，避免把整个 `packages/services` 一次性改成异步。
+
+#### Phase 2 启动范本（audit-log，已落地）
+
+audit-log（batch ① 中的一个切片）已端到端迁完，作为后续批次的可复制范本。实现在 [packages/db/src/audit-log.ts](../../../packages/db/src/audit-log.ts) 的 `*Async` 段，对照测试 [packages/db/src/audit-log-prisma-parity.test.ts](../../../packages/db/src/audit-log-prisma-parity.test.ts)（9 例全绿），保真工具集中在 [packages/db/src/prisma/runtime-mappers.ts](../../../packages/db/src/prisma/runtime-mappers.ts)，对照测试骨架在 [packages/db/src/prisma/parity-test-harness.ts](../../../packages/db/src/prisma/parity-test-harness.ts)。
+
+**为什么读取走 `$queryRaw` + `::text`（load-bearing 决策）。** 经诊断，`@prisma/adapter-pg@7.9.1` 的 `customParsers` 与 legacy 同步层在两列上不可调和：
+
+- `normalize_timestamptz`（`time.replace(/[+-]\d{2}(:\d{2})?$/, "+00:00")`）把会话时区偏移**直接改写为 `+00:00` 但不移动钟面数字**。会话非 UTC（本机 +08）时，每个 timestamptz 都偏一个会话偏移量（实测 `2026-08-08T11:00:00.000Z` 被读成 `19:00:00.000Z`）。legacy 同步层用 `new Date(rawText).toISOString()` 正确施加偏移。
+- `toJson` 返回裸文本，Prisma 随后把它解析成**紧凑对象**；而 legacy 同步层的 identity JSONB 解析器返回 PG `jsonb::text` 的**带空格**原文（`{"a": 1}`，非 `{"a":1}`）。两者字节不同。
+
+故 audit-log 的 read/list 用 `SELECT id, workspace_id, title, note, code, data_json::text AS data_json, source, source_index, created_at::text AS created_at FROM audit_log ...`，映射时对 `created_at` 文本走 `new Date(value).toISOString()`（对齐同步层 `normalizeTimestampValue`，含 NaN 透传）、对 `data_json` 文本原样透传——与 session 时区无关、字节级对齐同步层。`jsonb ->> 'key'` / `COALESCE(...)` 这类**过滤谓词**仍作用在 jsonb 列本身（不需要 `::text`），只有**输出行**做 `::text` 强转。
+
+**写对齐。** `recordAuditLogAsync` 先 `prisma.audit_log.create(...)` 再 `readAuditLogAsync(id, workspaceId)` 回读（与 `recordAuditLogSync` 的 INSERT + `readAuditLogSync` 同构）。回读让 PG 对 jsonb 的规范化（键序/空格）在 sync 与 async 两侧统一，写时是紧凑字符串还是对象都收敛到同一 `jsonb::text`。
+
+**字段命名决策。** schema.prisma 保持 snake_case-native（无 `@map`），Prisma 返回 snake_case 字段，每个异步仓库配一个 `mapXxxFromPrisma` 做 snake→camel + 保真转换，与现有 legacy `mapXxx` 同构。`@map` camelCase 化可让 Prisma 直接返 camelCase、收缩 mapper，但会触发 schema 重生成与 drift 校验，列为后续可选优化，本迁移不做。
+
+**parity 测试规约。** 每个被迁函数须有一条「同一 fixture → `*Sync` 与 `*Async` 结果 `deepEqual`」的对照（read/list 直接比；write 因 id/createdAt 合理不同，剥离这两键后比其余字段），并显式断言 `createdAt` 为 string、`dataJson` 为 string，锁住 Date/Json 保真。新对照测试文件必须显式加入 `packages/db/package.json` 的 `test` 文件清单（默认 loop 只跑显式列出的文件）。
+
+**后续批次路线。** 按 §4 Phase 2 的 1–5 序推进，每批复用本范本（异步仓库 + parity + 调用方逐边界迁 async）：先补齐 batch ① 的 user-auth/workspace/SSO/notification，再 ② skills/MCP catalog、③ attachment/employee、④ token/billing/recovery/OpenMontage；batch ⑤（workflows/task-queue/outbox/maintenance）的 claim/advisory lock/窗口函数属 Phase 3，保留 `$queryRaw` + 独立 pg 维护连接。
 
 ### Phase 3：并发域专项迁移
 
