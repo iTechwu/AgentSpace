@@ -6,6 +6,7 @@ import {
   getDatabaseCacheStateForTests,
   resetDatabaseForTests,
   resetConcurrentIndexBuildForTests,
+  setConcurrentIndexBuilderForTests,
   setSchemaLockTimeoutMsForTests,
   triggerConcurrentIndexBuildForTests,
 } from "./database.ts";
@@ -119,4 +120,54 @@ test("triggerConcurrentIndexBuild 失败清 memo 重试，成功后持久 memo�
   assert.equal(invocations, 2, "成功后 memo 持久，不再重复触发");
 
   cleanCache();
+});
+
+/**
+ * Standards #4 真实路径：上一个是直接调用 triggerConcurrentIndexBuildForTests 验证 memo 清除本身；
+ * 此用例走真实 getDatabase()。关键回归点——schema 一旦校验成功，二次 getDatabase 走快路径在
+ * database.ts:695 return，旧实现不经过 :715 的 triggerConcurrentIndexBuild，导致后台构建失败清掉的
+ * memo 在同进程内永远不被重新触发，只能等下次冷启动。快路径必须也重入 trigger。
+ */
+test("getDatabase 快路径在后台构建失败后重新触发（Standards #4 真实路径）", async () => {
+  resetDatabaseForTests();
+  resetConcurrentIndexBuildForTests();
+  setSchemaLockTimeoutMsForTests(null);
+  let invocations = 0;
+  // 仅注入 builder（不触发），使 getDatabase() 成为唯一触发源。
+  const builder = async () => {
+    invocations += 1;
+    if (invocations === 1) throw new Error("simulated concurrent index build failure");
+  };
+  setConcurrentIndexBuilderForTests(builder);
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  try {
+    // 第 1 次 getDatabase：慢路径，schema 校验后触发后台构建，builder 第 1 次抛错 → memo 被清。
+    getDatabase();
+    await flush();
+    assert.equal(invocations, 1, "首次 getDatabase（慢路径）触发 builder 并失败");
+    assert.equal(
+      getDatabaseCacheStateForTests().concurrentIndexEnsuredForUrl,
+      null,
+      "失败后 memo 已清，等待重试",
+    );
+
+    // 第 2 次 getDatabase：schema 已校验 → 快路径。快路径必须重入 triggerConcurrentIndexBuild，
+    // 否则清空的 memo 永远不会被重新触发（旧 bug）。
+    getDatabase();
+    await flush();
+    assert.equal(invocations, 2, "快路径须在 memo 清空后重新触发后台构建");
+    assert.equal(
+      getDatabaseCacheStateForTests().concurrentIndexEnsuredForUrl,
+      getDatabaseCacheStateForTests().databaseUrl,
+      "重新构建成功后 memo 持久化",
+    );
+
+    // 第 3 次 getDatabase：memo 已持久 → 快路径不再触发（去重）。
+    getDatabase();
+    await flush();
+    assert.equal(invocations, 2, "memo 持久后快路径不再重复触发");
+  } finally {
+    cleanCache();
+  }
 });

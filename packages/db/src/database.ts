@@ -679,6 +679,14 @@ export function resetConcurrentIndexBuildForTests(): void {
   concurrentIndexBuilder = defaultConcurrentIndexBuilder;
 }
 
+/**
+ * 仅供测试：仅注入 builder 而不立即触发（与 triggerConcurrentIndexBuildForTests 的「注入即触发」不同），
+ * 用于断言真实 getDatabase() 路径（而非直接调用 trigger）何时重新发起后台构建。
+ */
+export function setConcurrentIndexBuilderForTests(builder: ConcurrentIndexBuilder): void {
+  concurrentIndexBuilder = builder;
+}
+
 export function getDatabase(): PostgresSyncDatabase {
   const nextDatabaseUrl = resolvePostgresDatabaseUrl();
   // Fast path: same connection whose schema has already been validated this
@@ -692,6 +700,10 @@ export function getDatabase(): PostgresSyncDatabase {
     && schemaEnsuredForUrl === nextDatabaseUrl
     && isWorkerReady()
   ) {
+    // 快路径也须重入后台在线索引构建：若上一次后台构建失败已清 memo，此处重新发起；
+    // memo 仍命中时 triggerConcurrentIndexBuild 内部短路（一次字符串比较），零开销。
+    // 旧 bug：快路径在此直接 return，清空的 memo 永不重新触发，只能等下次冷启动（Standards #4）。
+    triggerConcurrentIndexBuild(nextDatabaseUrl);
     return database;
   }
 
