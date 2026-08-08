@@ -17,7 +17,8 @@
 | 检查项 | 当前状态 | 证据 / 放行条件 |
 | --- | --- | --- |
 | 目标提交 | 部署时记录完整 40 位 SHA | 发布只能使用包含本清单的已提交版本，不得使用未提交工作树 |
-| PostgreSQL schema 版本 | 代码为 `115`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `115`。112 修复 Trigger reparent；113 增加 `approval_deadline` 及到期索引；114 增加 `approval_scan_after` 及公平调度索引；115 为 `workflow_run` 增加不可变 `history_sequence` 和索引，用于运行历史稳定快照分页。审批 `expiresAt` 仍以 application JSON metadata 为业务事实，SQL 列用于调度投影；`reviewerUserId`、`risk` 仍只存 metadata |
+| PostgreSQL schema 版本 | 代码为 `116`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `116`。112 修复 Trigger reparent；113 增加 `approval_deadline`；114 增加审批公平重试游标；115 增加运行历史序号；116 在非空约束前安装旧实例写入兼容触发器，并补齐 `(workspace_id, created_at DESC, id DESC)` 索引。审批 `expiresAt` 仍以 application JSON metadata 为业务事实，SQL 列用于调度投影；`reviewerUserId`、`risk` 仍只存 metadata |
+| Schema 116 滚动兼容 | 代码与仓储测试通过，环境待演练 | 迁移后用 114/115 形状执行一次不含 `history_sequence` 的 Run INSERT，确认触发器分配非空序号；再排空旧 Web/Worker。所有 Web 实例的 `INTERNAL_API_SECRET` 必须一致，否则签名游标应视为过期并刷新 |
 | Workflow 表与唯一约束 | 静态测试已覆盖 | 7 张 workspace-scoped 表；`workspace_id + trigger_key`、`run_id + node_id`、`run_id + sequence` 唯一 |
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |
 | 单一调度 owner | 代码测试通过，环境待抽查 | 每个 workspace 只能由 legacy 或 workflow 一方创建 trigger |

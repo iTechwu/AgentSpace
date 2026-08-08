@@ -1,5 +1,5 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import {
-  countWorkflowRunsThroughSequenceSync,
   getDatabase,
   listEmployeeRuntimeBindingsSync,
   listStoredChannelsSync,
@@ -15,6 +15,7 @@ import {
   readWorkflowRunSync,
   readWorkflowTriggerForWorkflowSync,
   readWorkflowVersionSync,
+  resolveWorkflowRunSnapshotSequenceSync,
 } from "@dofe-agent/db";
 import type { WorkflowRunRecord, WorkflowRunListCursor } from "@dofe-agent/db";
 import {
@@ -54,6 +55,18 @@ const TERMINAL_RUN_STATUSES = new Set<string>([
 // 运行历史分页首页大小（UIUX:运行历史分页）：SSR 中心页与 GET /api/workspaces/:id/workflow-runs 共用。
 const RECENT_RUNS_PAGE_SIZE = 50;
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
+const WORKFLOW_RUN_CURSOR_VERSION = 2;
+
+interface SignedWorkflowRunCursor extends WorkflowRunListCursor {
+  version: typeof WORKFLOW_RUN_CURSOR_VERSION;
+  workspaceId: string;
+  signature: string;
+}
+
+interface DecodedWorkflowRunCursor {
+  cursor: WorkflowRunListCursor;
+  signed: boolean;
+}
 
 export interface RunnableWorkflowSummary {
   id: string;
@@ -216,7 +229,7 @@ export interface WorkflowRunsPage {
  * 取代 offset 分页以消除「分页期间新增运行导致 offset 整体后移、去重后漏记录或『加载更多』
  * 永不结束」的缺陷：新插入的运行 createdAt 晚于游标，不会被后续页误纳入，分页始终连续、
  * 确定且可终止。首页用单条 SQL 同时读取列表、总数和不可变写入序号上界；后续页只读取
- * 上界内的记录，并由服务端按上界重算总数。这样同时间戳、回填时间或更小 ID 的后插运行
+ * 上界内的记录，并沿用服务端签名保护的快照总数。这样同时间戳、回填时间或更小 ID 的后插运行
  * 也不会穿透当前分页会话。取 limit+1 条以判定 hasMore（多取的一条仅用于边界判定，不下发）。
  */
 export function getWorkflowRunsPageSync(
@@ -224,21 +237,33 @@ export function getWorkflowRunsPageSync(
   input: { limit: number; cursor?: string | null },
 ): WorkflowRunsPage {
   const limit = Math.max(1, Math.min(Math.trunc(input.limit), 200));
-  const cursor = decodeWorkflowRunCursor(input.cursor ?? null);
+  const decodedCursor = decodeWorkflowRunCursorEnvelope(input.cursor ?? null, workspaceId);
+  const cursor = decodedCursor?.cursor ?? null;
   const workflowNamesById = new Map(
     listWorkflowDefinitionsSync(workspaceId).map((definition) => [definition.id, definition.name]),
   );
   // 旧版游标只有 createdAt/id 或 snapshotTotal；为其获取当前原子序号上界后即可平滑升级。
-  const firstPageSnapshot = !cursor?.snapshotSequence
+  const legacySnapshotSequence = cursor
+    && !cursor.snapshotSequence
+    && cursor.snapshotTotal !== undefined
+    ? resolveWorkflowRunSnapshotSequenceSync(workspaceId, cursor.snapshotTotal)
+    : null;
+  const firstPageSnapshot = !cursor?.snapshotSequence && legacySnapshotSequence === null
     ? listWorkflowRunsPageSnapshotSync(workspaceId, limit + 1)
     : null;
-  const snapshotSequence = cursor?.snapshotSequence ?? firstPageSnapshot!.snapshotSequence;
+  const snapshotSequence = cursor?.snapshotSequence
+    ?? legacySnapshotSequence
+    ?? firstPageSnapshot!.snapshotSequence;
   const pageCursor = cursor ? { ...cursor, snapshotSequence } : null;
   const fetched = (cursor
     ? listWorkflowRunsAfterCursorSync(workspaceId, pageCursor, limit + 1)
     : firstPageSnapshot!.runs).filter(isStatusfulWorkflowRun);
-  const total = firstPageSnapshot?.total
-    ?? countWorkflowRunsThroughSequenceSync(workspaceId, snapshotSequence);
+  const trustedSnapshotTotal = cursor?.snapshotTotal !== undefined
+    && (decodedCursor?.signed === true || !cursor.snapshotSequence)
+    ? cursor.snapshotTotal
+    : null;
+  const total = trustedSnapshotTotal ?? firstPageSnapshot?.total;
+  if (total === undefined) throw new Error("workflow_run_cursor_snapshot_incomplete");
   const hasMore = fetched.length > limit;
   const pageRecords = hasMore ? fetched.slice(0, limit) : fetched;
   const runs = pageRecords.map((run) => toWorkflowRunSummary(run, workflowNamesById));
@@ -248,21 +273,67 @@ export function getWorkflowRunsPageSync(
         createdAt: lastRecord.createdAt,
         id: lastRecord.id,
         snapshotSequence,
-      })
+        snapshotTotal: total,
+      }, workspaceId)
     : null;
   return { runs, total, hasMore, nextCursor };
 }
 
-/** 把游标定位键编码为不透明字符串（base64url），前端只透传、不解码。 */
-export function encodeWorkflowRunCursor(cursor: WorkflowRunListCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+/** 编码为旧实例仍可读取、当前实例可验签并校验 workspace 的 base64url JSON。 */
+export function encodeWorkflowRunCursor(cursor: WorkflowRunListCursor, workspaceId: string): string {
+  if (cursor.snapshotTotal === undefined) {
+    throw new Error("workflow_run_cursor_total_required");
+  }
+  const unsigned = workflowRunCursorSigningPayload(cursor, workspaceId);
+  return Buffer.from(JSON.stringify({
+    ...unsigned,
+    signature: signWorkflowRunCursor(JSON.stringify(unsigned)),
+  } satisfies SignedWorkflowRunCursor), "utf8").toString("base64url");
 }
 
 /** 解码游标；输入为空或格式非法时返回 null（由调用方决定空 vs 非法的语义）。 */
-export function decodeWorkflowRunCursor(raw: string | null): WorkflowRunListCursor | null {
+export function decodeWorkflowRunCursor(raw: string | null, workspaceId?: string): WorkflowRunListCursor | null {
+  return decodeWorkflowRunCursorEnvelope(raw, workspaceId)?.cursor ?? null;
+}
+
+function decodeWorkflowRunCursorEnvelope(
+  raw: string | null,
+  workspaceId?: string,
+): DecodedWorkflowRunCursor | null {
   if (typeof raw !== "string" || raw.length === 0) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<WorkflowRunListCursor>;
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<SignedWorkflowRunCursor>;
+    if (parsed.version !== undefined) {
+      if (parsed.version !== WORKFLOW_RUN_CURSOR_VERSION
+        || typeof parsed.workspaceId !== "string"
+        || typeof parsed.signature !== "string"
+        || (workspaceId !== undefined && parsed.workspaceId !== workspaceId)) {
+        return null;
+      }
+      const cursor = validateWorkflowRunCursor(parsed);
+      if (!cursor
+        || cursor.snapshotSequence === undefined
+        || cursor.snapshotTotal === undefined
+        || !verifyWorkflowRunCursorSignature(
+          JSON.stringify(workflowRunCursorSigningPayload(cursor, parsed.workspaceId)),
+          parsed.signature,
+        )) {
+        return null;
+      }
+      return cursor ? { cursor, signed: true } : null;
+    }
+    // 只有 schema 115 之前生成的游标允许无签名；当时尚不存在 snapshotSequence。
+    if (parsed.snapshotSequence !== undefined) return null;
+    const cursor = validateWorkflowRunCursor(parsed);
+    return cursor ? { cursor, signed: false } : null;
+  } catch {
+    return null;
+  }
+}
+
+function validateWorkflowRunCursor(parsed: Partial<WorkflowRunListCursor> | undefined): WorkflowRunListCursor | null {
+  if (!parsed) return null;
+  try {
     const hasValidSnapshotTotal = parsed.snapshotTotal === undefined
       || (typeof parsed.snapshotTotal === "number"
         && Number.isSafeInteger(parsed.snapshotTotal)
@@ -288,6 +359,36 @@ export function decodeWorkflowRunCursor(raw: string | null): WorkflowRunListCurs
   } catch {
     return null;
   }
+}
+
+function signWorkflowRunCursor(content: string): string {
+  return createHmac("sha256", readWorkflowRunCursorSecret()).update(content, "utf8").digest("base64url");
+}
+
+function workflowRunCursorSigningPayload(
+  cursor: WorkflowRunListCursor,
+  workspaceId: string,
+): Omit<SignedWorkflowRunCursor, "signature"> {
+  return {
+    version: WORKFLOW_RUN_CURSOR_VERSION,
+    workspaceId,
+    createdAt: cursor.createdAt,
+    id: cursor.id,
+    ...(cursor.snapshotTotal !== undefined ? { snapshotTotal: cursor.snapshotTotal } : {}),
+    ...(cursor.snapshotSequence !== undefined ? { snapshotSequence: cursor.snapshotSequence } : {}),
+  };
+}
+
+function verifyWorkflowRunCursorSignature(content: string, signature: string): boolean {
+  const expected = Buffer.from(signWorkflowRunCursor(content), "base64url");
+  const actual = Buffer.from(signature, "base64url");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function readWorkflowRunCursorSecret(): string {
+  const secret = process.env.INTERNAL_API_SECRET?.trim();
+  if (!secret) throw new Error("INTERNAL_API_SECRET is required to sign workflow run cursors.");
+  return secret;
 }
 
 /** 把运行记录映射为运行历史摘要，名称以当前定义为准、缺失时回退 workflowId。 */

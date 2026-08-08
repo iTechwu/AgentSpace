@@ -11,6 +11,7 @@ import {
   createWorkflowRunSync,
   listWorkflowRunsAfterCursorSync,
   listWorkflowRunsPageSnapshotSync,
+  resolveWorkflowRunSnapshotSequenceSync,
   listWorkflowNodeRunsSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
@@ -107,6 +108,48 @@ test("reads the first run page and total from one snapshot query", () => {
 
   assert.equal(nextPage.some((run) => run.id === insertedAfterSnapshot.id), false);
   assert.equal(nextPage.some((run) => run.id === created[0]!.id), true);
+});
+
+test("accepts a rolling-deploy insert that omits history_sequence", () => {
+  const seed = seedVersion();
+  const id = `workflow-run-legacy-writer-${seed.workflowId}`;
+  const now = new Date().toISOString();
+
+  getDatabase().prepare(
+    `INSERT INTO workflow_run (
+       id, workspace_id, workflow_id, version_id, trigger_type, trigger_key,
+       input_json, status, current_sequence, budget_json, created_by, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, 'manual', ?, '{}', 'created', 0, '{}', 'legacy-worker', ?, ?)`,
+  ).run(id, WORKSPACE_ID, seed.workflowId, seed.versionId, `legacy-writer:${id}`, now, now);
+
+  const row = getDatabase().prepare(
+    `SELECT CAST(history_sequence AS text) AS "historySequence"
+       FROM workflow_run WHERE id = ? AND workspace_id = ?`,
+  ).get(id, WORKSPACE_ID) as { historySequence?: unknown } | undefined;
+  assert.match(String(row?.historySequence), /^\d+$/);
+});
+
+test("resolves the sequence boundary represented by a legacy snapshot total", () => {
+  const seed = seedVersion();
+  const baseline = listWorkflowRunsPageSnapshotSync(WORKSPACE_ID, 1).total;
+  for (const index of [1, 2, 3]) {
+    createWorkflowRunSync({
+      workspaceId: WORKSPACE_ID,
+      workflowId: seed.workflowId,
+      versionId: seed.versionId,
+      triggerType: "manual",
+      triggerKey: `legacy-boundary:${seed.workflowId}:${index}`,
+      inputJson: "{}",
+    });
+  }
+
+  const boundary = resolveWorkflowRunSnapshotSequenceSync(WORKSPACE_ID, baseline + 2);
+  const throughBoundary = listWorkflowRunsAfterCursorSync(WORKSPACE_ID, {
+    createdAt: "9999-12-31T23:59:59.999Z",
+    id: "~",
+    snapshotSequence: boundary,
+  }, 500);
+  assert.equal(throughBoundary.length, baseline + 2);
 });
 
 test("materializes one run for a duplicate trigger key and protects terminal node runs", () => {

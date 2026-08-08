@@ -269,17 +269,27 @@ export function listWorkflowRunsAfterCursorSync(
   ).all(workspaceId, cursor.createdAt, cursor.createdAt, cursor.id) as Array<Record<string, unknown>>).map(mapRun);
 }
 
-/** 重新计算指定运行历史快照上界内的总数；不信任客户端携带的展示总数。 */
-export function countWorkflowRunsThroughSequenceSync(
+/**
+ * 把升级前游标携带的稳定总数还原为 schema 115 回填/后续写入序号的上界。
+ * Run 按约定永久保留，因此第 N 条已提交序号就是旧快照包含的最后一条记录。
+ */
+export function resolveWorkflowRunSnapshotSequenceSync(
   workspaceId: string,
-  snapshotSequence: string,
-): number {
+  snapshotTotal: number,
+): string {
+  const safeTotal = Math.max(0, Math.trunc(snapshotTotal));
+  if (safeTotal === 0) return "0";
   const row = getDatabase().prepare(
-    `SELECT COUNT(*)::integer AS count
+    `SELECT CAST(history_sequence AS text) AS "snapshotSequence"
        FROM workflow_run
-      WHERE workspace_id = ? AND history_sequence <= CAST(? AS bigint)`,
-  ).get(workspaceId, snapshotSequence) as { count?: unknown } | undefined;
-  return typeof row?.count === "number" ? row.count : 0;
+      WHERE workspace_id = ?
+      ORDER BY history_sequence ASC
+      OFFSET ? LIMIT 1`,
+  ).get(workspaceId, safeTotal - 1) as { snapshotSequence?: unknown } | undefined;
+  if (typeof row?.snapshotSequence !== "string") {
+    throw new Error("workflow_run_legacy_snapshot_unavailable");
+  }
+  return row.snapshotSequence;
 }
 
 /**

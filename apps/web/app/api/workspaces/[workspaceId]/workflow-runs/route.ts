@@ -43,7 +43,7 @@ export async function GET(
   }
   const rawCursor = params.get("cursor");
   // 游标存在但无法解码 → 视为非法，返回 400（不静默回首页，避免错位被掩盖）。
-  if (rawCursor !== null && decodeWorkflowRunCursor(rawCursor) === null) {
+  if (rawCursor !== null && decodeWorkflowRunCursor(rawCursor, workspaceId) === null) {
     return NextResponse.json({ error: "Invalid pagination parameters." }, { status: 400 });
   }
 

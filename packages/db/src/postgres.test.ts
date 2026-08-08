@@ -67,11 +67,17 @@ test("postgres schema makes SSO team and tenant scopes unique", () => {
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "115");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "116");
   assert.match(statements, /workspace ADD COLUMN IF NOT EXISTS workflow_run_sequence BIGINT NOT NULL DEFAULT 0/);
   assert.match(statements, /workflow_run ADD COLUMN IF NOT EXISTS history_sequence BIGINT/);
   assert.match(statements, /workflow_run ALTER COLUMN history_sequence DROP IDENTITY IF EXISTS/);
+  assert.match(statements, /CREATE OR REPLACE FUNCTION assign_workflow_run_history_sequence/);
+  assert.match(statements, /CREATE TRIGGER workflow_run_assign_history_sequence/);
   assert.match(statements, /workflow_run ALTER COLUMN history_sequence SET NOT NULL/);
+  assert.ok(
+    statements.indexOf("CREATE TRIGGER workflow_run_assign_history_sequence")
+      < statements.indexOf("workflow_run ALTER COLUMN history_sequence SET NOT NULL"),
+  );
   assert.match(statements, /ADD COLUMN IF NOT EXISTS approval_scan_after TIMESTAMPTZ/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_token TEXT/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_expires_at TIMESTAMPTZ/);

@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "115";
+export const POSTGRES_SCHEMA_VERSION = "116";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -148,6 +148,7 @@ export function getPostgresSchemaStatements(): string[] {
         archived_at TIMESTAMPTZ
       )
     `,
+    `ALTER TABLE workspace ADD COLUMN IF NOT EXISTS workflow_run_sequence BIGINT NOT NULL DEFAULT 0`,
     `
       CREATE TABLE IF NOT EXISTS workflow_definition (
         id TEXT PRIMARY KEY,
@@ -243,6 +244,31 @@ export function getPostgresSchemaStatements(): string[] {
         UNIQUE(workspace_id, trigger_key)
       )
     `,
+    `ALTER TABLE workflow_run ADD COLUMN IF NOT EXISTS history_sequence BIGINT`,
+    `ALTER TABLE workflow_run ALTER COLUMN history_sequence DROP IDENTITY IF EXISTS`,
+    `
+      CREATE OR REPLACE FUNCTION assign_workflow_run_history_sequence()
+      RETURNS TRIGGER
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.history_sequence IS NULL THEN
+          UPDATE workspace
+             SET workflow_run_sequence = workflow_run_sequence + 1
+           WHERE id = NEW.workspace_id
+           RETURNING workflow_run_sequence INTO NEW.history_sequence;
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `,
+    `DROP TRIGGER IF EXISTS workflow_run_assign_history_sequence ON workflow_run`,
+    `
+      CREATE TRIGGER workflow_run_assign_history_sequence
+      BEFORE INSERT ON workflow_run
+      FOR EACH ROW
+      EXECUTE FUNCTION assign_workflow_run_history_sequence()
+    `,
     `
       CREATE TABLE IF NOT EXISTS workflow_node_run (
         id TEXT PRIMARY KEY,
@@ -327,7 +353,7 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_workflow_run_workspace_created
-        ON workflow_run(workspace_id, created_at DESC)
+        ON workflow_run(workspace_id, created_at DESC, id DESC)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_workflow_run_event_run_sequence
@@ -4407,12 +4433,9 @@ export function getPostgresSchemaStatements(): string[] {
         )
         WHERE status = 'waiting_approval' AND approval_id IS NOT NULL
     `,
-    // schema 115：运行历史分页使用每工作区事务计数器分配的不可变写入序号作为快照上界。
-    // 创建 Run 的事务先锁定并递增 workspace 计数器再插入，确保较小序号必先提交；created_at
-    // 与随机 id 只负责展示排序，后插或回填时间的运行不会穿透既有分页会话。
-    `ALTER TABLE workspace ADD COLUMN IF NOT EXISTS workflow_run_sequence BIGINT NOT NULL DEFAULT 0`,
-    `ALTER TABLE workflow_run ADD COLUMN IF NOT EXISTS history_sequence BIGINT`,
-    `ALTER TABLE workflow_run ALTER COLUMN history_sequence DROP IDENTITY IF EXISTS`,
+    // schema 115/116：运行历史分页使用每工作区事务计数器分配的不可变写入序号作为快照上界。
+    // 116 在前置 DDL 中增加兼容触发器，使仍在排空的 114/115 实例省略新列时也能安全分配序号；
+    // 较小序号必先提交，created_at 与随机 id 只负责展示排序，后插或回填时间不会穿透快照。
     `
       WITH ranked AS (
         SELECT id,
@@ -4439,6 +4462,8 @@ export function getPostgresSchemaStatements(): string[] {
        WHERE target.id = source.workspace_id
     `,
     `ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL`,
+    `DROP INDEX IF EXISTS idx_workflow_run_workspace_created`,
+    `CREATE INDEX idx_workflow_run_workspace_created ON workflow_run(workspace_id, created_at DESC, id DESC)`,
     `
       CREATE INDEX IF NOT EXISTS idx_workflow_run_workspace_history_sequence
         ON workflow_run(workspace_id, history_sequence)

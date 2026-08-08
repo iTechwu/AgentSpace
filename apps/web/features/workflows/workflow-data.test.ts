@@ -6,7 +6,7 @@ const {
   mockListWorkflowRunsSync,
   mockListWorkflowRunsPageSnapshotSync,
   mockListWorkflowRunsAfterCursorSync,
-  mockCountWorkflowRunsThroughSequenceSync,
+  mockResolveWorkflowRunSnapshotSequenceSync,
   mockListWorkspaceMemberUsersSync,
   mockReadCutoverMode,
   mockReadWorkspaceState,
@@ -16,7 +16,7 @@ const {
   mockListWorkflowRunsSync: vi.fn(),
   mockListWorkflowRunsPageSnapshotSync: vi.fn(),
   mockListWorkflowRunsAfterCursorSync: vi.fn(),
-  mockCountWorkflowRunsThroughSequenceSync: vi.fn(),
+  mockResolveWorkflowRunSnapshotSequenceSync: vi.fn(),
   mockListWorkspaceMemberUsersSync: vi.fn(),
   mockReadCutoverMode: vi.fn(),
   mockReadWorkspaceState: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock("@dofe-agent/db", () => ({
   listWorkflowRunsSync: mockListWorkflowRunsSync,
   listWorkflowRunsPageSnapshotSync: mockListWorkflowRunsPageSnapshotSync,
   listWorkflowRunsAfterCursorSync: mockListWorkflowRunsAfterCursorSync,
-  countWorkflowRunsThroughSequenceSync: mockCountWorkflowRunsThroughSequenceSync,
+  resolveWorkflowRunSnapshotSequenceSync: mockResolveWorkflowRunSnapshotSequenceSync,
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
 }));
 vi.mock("@dofe-agent/services", () => ({
@@ -45,7 +45,7 @@ describe("getWorkflowCenterPageData", () => {
     mockListWorkflowRunsSync.mockReset();
     mockListWorkflowRunsPageSnapshotSync.mockReset();
     mockListWorkflowRunsAfterCursorSync.mockReset();
-    mockCountWorkflowRunsThroughSequenceSync.mockReset();
+    mockResolveWorkflowRunSnapshotSequenceSync.mockReset();
     mockListWorkspaceMemberUsersSync.mockReset();
     mockGetDatabase.mockReset();
     mockReadCutoverMode.mockReset();
@@ -53,7 +53,7 @@ describe("getWorkflowCenterPageData", () => {
     mockReadCutoverMode.mockReturnValue("legacy_archived");
     mockReadWorkspaceState.mockReturnValue({ automationRules: [] });
     mockListWorkflowRunsPageSnapshotSync.mockReturnValue({ runs: [], total: 0, snapshotSequence: "0" });
-    mockCountWorkflowRunsThroughSequenceSync.mockReturnValue(0);
+    mockResolveWorkflowRunSnapshotSequenceSync.mockReturnValue("0");
     mockListWorkflowRunsAfterCursorSync.mockReturnValue([]);
     mockGetDatabase.mockReturnValue({
       prepare: vi.fn(() => ({ all: vi.fn(() => []) })),
@@ -314,12 +314,13 @@ describe("getWorkflowCenterPageData", () => {
 
 describe("getWorkflowRunsPageSync", () => {
   beforeEach(() => {
+    process.env.INTERNAL_API_SECRET = "workflow-run-cursor-test-secret";
     mockListWorkflowDefinitionsSync.mockReset();
     mockListWorkflowRunsPageSnapshotSync.mockReset();
     mockListWorkflowRunsAfterCursorSync.mockReset();
-    mockCountWorkflowRunsThroughSequenceSync.mockReset();
+    mockResolveWorkflowRunSnapshotSequenceSync.mockReset();
     mockListWorkflowRunsPageSnapshotSync.mockReturnValue({ runs: [], total: 0, snapshotSequence: "0" });
-    mockCountWorkflowRunsThroughSequenceSync.mockReturnValue(0);
+    mockResolveWorkflowRunSnapshotSequenceSync.mockReturnValue("0");
     mockListWorkflowDefinitionsSync.mockReturnValue([
       { id: "workflow-daily", name: "Daily brief" },
     ]);
@@ -343,20 +344,31 @@ describe("getWorkflowRunsPageSync", () => {
       const idx = all.findIndex((run) => run.createdAt === cursor.createdAt && run.id === cursor.id);
       return idx < 0 ? [] : all.slice(idx + 1, idx + 1 + limit);
     });
-    mockCountWorkflowRunsThroughSequenceSync.mockReturnValue(3);
-
     const first = getWorkflowRunsPageSync("default", { limit: 2 });
     // 取 limit+1=3 条 → hasMore=true，首页返回 run-c, run-b，nextCursor 指向 run-b。
     expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledWith("default", 3);
     expect(first.runs.map((run) => run.id)).toEqual(["run-c", "run-b"]);
     expect(first.total).toBe(3);
     expect(first.hasMore).toBe(true);
-    const firstCursor = decodeWorkflowRunCursor(first.nextCursor);
+    const firstCursor = decodeWorkflowRunCursor(first.nextCursor, "default");
     expect(firstCursor).toEqual({
       createdAt: "2026-08-06T02:00:00.000Z",
       id: "run-b",
       snapshotSequence: "30",
+      snapshotTotal: 3,
     });
+    const legacyReadable = JSON.parse(Buffer.from(first.nextCursor!, "base64url").toString("utf8")) as Record<string, unknown>;
+    expect(legacyReadable).toMatchObject({
+      createdAt: "2026-08-06T02:00:00.000Z",
+      id: "run-b",
+      snapshotTotal: 3,
+    });
+    expect(typeof legacyReadable.signature).toBe("string");
+    const tamperedCursor = Buffer.from(JSON.stringify({
+      ...legacyReadable,
+      snapshotTotal: 999,
+    }), "utf8").toString("base64url");
+    expect(decodeWorkflowRunCursor(tamperedCursor, "default")).toBeNull();
 
     const next = getWorkflowRunsPageSync("default", { limit: 2, cursor: first.nextCursor });
     // 从 run-b 之后取 3 条 → 只剩 run-a（1 条）→ hasMore=false，无下一游标。
@@ -365,13 +377,13 @@ describe("getWorkflowRunsPageSync", () => {
     expect(next.hasMore).toBe(false);
     expect(next.nextCursor).toBeNull();
     expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledTimes(1);
-    expect(mockCountWorkflowRunsThroughSequenceSync).toHaveBeenCalledWith("default", "30");
   });
 
-  it("continues from a legacy cursor and upgrades the next cursor", () => {
+  it("preserves a legacy snapshot total while upgrading to a signed workspace cursor", () => {
     const legacyCursor = Buffer.from(JSON.stringify({
       createdAt: "2026-08-06T02:00:00.000Z",
       id: "run-b",
+      snapshotTotal: 3,
     }), "utf8").toString("base64url");
     const remaining = [
       { id: "run-a", workflowId: "workflow-daily", triggerType: "schedule", status: "succeeded", createdAt: "2026-08-06T01:00:00.000Z" },
@@ -379,21 +391,26 @@ describe("getWorkflowRunsPageSync", () => {
     ];
     mockListWorkflowRunsAfterCursorSync.mockReturnValue(remaining);
     mockListWorkflowRunsPageSnapshotSync.mockReturnValue({ runs: [], total: 4, snapshotSequence: "40" });
+    mockResolveWorkflowRunSnapshotSequenceSync.mockReturnValue("30");
 
     const page = getWorkflowRunsPageSync("default", { limit: 1, cursor: legacyCursor });
 
     expect(mockListWorkflowRunsAfterCursorSync).toHaveBeenCalledWith(
       "default",
-      { createdAt: "2026-08-06T02:00:00.000Z", id: "run-b", snapshotSequence: "40" },
+      { createdAt: "2026-08-06T02:00:00.000Z", id: "run-b", snapshotTotal: 3, snapshotSequence: "30" },
       2,
     );
     expect(page.runs.map((run) => run.id)).toEqual(["run-a"]);
-    expect(page.total).toBe(4);
-    expect(decodeWorkflowRunCursor(page.nextCursor)).toEqual({
+    expect(page.total).toBe(3);
+    expect(mockResolveWorkflowRunSnapshotSequenceSync).toHaveBeenCalledWith("default", 3);
+    expect(mockListWorkflowRunsPageSnapshotSync).not.toHaveBeenCalled();
+    expect(decodeWorkflowRunCursor(page.nextCursor, "default")).toEqual({
       createdAt: "2026-08-06T01:00:00.000Z",
       id: "run-a",
-      snapshotSequence: "40",
+      snapshotSequence: "30",
+      snapshotTotal: 3,
     });
+    expect(decodeWorkflowRunCursor(page.nextCursor, "other-workspace")).toBeNull();
   });
 
   it("clamps limit into the supported range", () => {
