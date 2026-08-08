@@ -4486,6 +4486,25 @@ export function getPostgresSchemaStatements(): string[] {
 export function getPostgresPostCommitSchemaStatements(): string[] {
   return [
     `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM pg_class AS index_relation
+          JOIN pg_namespace AS index_namespace
+            ON index_namespace.oid = index_relation.relnamespace
+          JOIN pg_index AS index_state
+            ON index_state.indexrelid = index_relation.oid
+          WHERE index_namespace.nspname = current_schema()
+            AND index_relation.relname = 'idx_workflow_run_workspace_created_v2'
+            AND (NOT index_state.indisvalid OR NOT index_state.indisready)
+        ) THEN
+          DROP INDEX IF EXISTS idx_workflow_run_workspace_created_v2;
+        END IF;
+      END
+      $$
+    `,
+    `
       CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_created_v2
         ON workflow_run(workspace_id, created_at DESC, id DESC)
     `,

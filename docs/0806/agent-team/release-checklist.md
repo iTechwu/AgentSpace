@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | 目标提交 | 部署时记录完整 40 位 SHA | 发布只能使用包含本清单的已提交版本，不得使用未提交工作树 |
 | PostgreSQL schema 版本 | 代码为 `116`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `116`。112 修复 Trigger reparent；113 增加 `approval_deadline`；114 增加审批公平重试游标；115 增加运行历史序号；116 在非空约束前安装旧实例写入兼容触发器。完整 `(workspace_id, created_at DESC, id DESC)` v2 索引在主事务提交后并发创建，不再删除重建旧索引。审批 `expiresAt` 仍以 application JSON metadata 为业务事实，SQL 列用于调度投影；`reviewerUserId`、`risk` 仍只存 metadata |
-| Schema 116 滚动兼容 | 代码与仓储测试通过，环境待演练 | 所有 schema 入口按顺序取得 advisory lock 115/116；迁移后用 114/115 形状执行不含 `history_sequence` 的 Run INSERT，确认触发器分配非空序号；确认 `idx_workflow_run_workspace_created_v2` 为 valid/ready 后再排空旧 Web/Worker。禁止并行运行绕过锁的手工 DDL |
+| Schema 116 滚动兼容 | 代码与仓储测试通过，环境待演练 | 所有 schema 入口按顺序取得 advisory lock 115/116；迁移后用 114/115 形状执行不含 `history_sequence` 的 Run INSERT，确认触发器分配非空序号；模拟中断并发建索引产生 invalid/not-ready 同名索引，确认下一次启动先清理后重建；确认 `idx_workflow_run_workspace_created_v2` 为 valid/ready 后再排空旧 Web/Worker。禁止并行运行绕过锁的手工 DDL |
 | 运行历史游标滚动 | Web 定向测试通过，混合环境待演练 | 新签发 v3 使用 `snapshotCount`，114/旧 116 拒绝后客户端重取首屏，115 可按 `snapshotSequence` 续页；114/115 无签名游标由新实例返回 409 后刷新。分别对 114→新、115→新、新→114、新→115、新→旧 116 做双向路由演练 |
 | Workflow 表与唯一约束 | 静态测试已覆盖 | 7 张 workspace-scoped 表；`workspace_id + trigger_key`、`run_id + node_id`、`run_id + sequence` 唯一 |
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |

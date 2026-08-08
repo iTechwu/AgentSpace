@@ -97,9 +97,14 @@ test("postgres schema enforces SSO-only identities", () => {
   assert.match(statements, /idx_skill_upgrade_approval_policy_lock/);
   assert.doesNotMatch(statements, /DROP INDEX IF EXISTS idx_workflow_run_workspace_created/);
   assert.doesNotMatch(statements, /CREATE INDEX idx_workflow_run_workspace_created ON workflow_run/);
-  assert.deepEqual(getPostgresPostCommitSchemaStatements(), [
+  const postCommitStatements = getPostgresPostCommitSchemaStatements();
+  assert.equal(postCommitStatements.length, 2);
+  assert.match(postCommitStatements[0]!, /NOT index_state\.indisvalid OR NOT index_state\.indisready/);
+  assert.match(postCommitStatements[0]!, /DROP INDEX IF EXISTS idx_workflow_run_workspace_created_v2/);
+  assert.equal(
+    postCommitStatements[1],
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_created_v2\n        ON workflow_run(workspace_id, created_at DESC, id DESC)",
-  ]);
+  );
 });
 
 test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {
