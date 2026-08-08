@@ -240,6 +240,19 @@ export function completeWorkflowApprovalNodeSync(input: {
       now,
     });
     if (!input.approved) {
+      // 提交竞态守卫（与 cancelWorkflowRunSync 一致）：若任一兄弟节点任务正处于
+      // preparing_commit/committed（EAD §7 提交拆分的中间态/不可逆点），不得终止 Run。
+      // 否则 cancelQueuedTaskSync 对 committed 是 no-op（不可取消），却仍把节点标 cancelled、
+      // Run 标 failed，造成「产物已提交、编排显示失败」的矛盾。此处抛出后事务整体回滚
+      // （审批节点回到 waiting_approval），调用方在短暂提交窗口后重试：人工驳回经 API 返回 409，
+      // 限时扫描经 expireWorkflowApprovalsSync 的 catch 记录 workflow_run_commit_in_progress 并 defer 重试。
+      if (listWorkflowNodeRunsSync(input.workspaceId, run.id).some((node) => {
+        if (node.id === updated.id || !node.taskQueueId) return false;
+        const task = readQueuedTaskSync(node.taskQueueId);
+        return task?.status === "preparing_commit" || task?.status === "committed";
+      })) {
+        throw new Error("workflow_run_commit_in_progress");
+      }
       for (const candidate of listWorkflowNodeRunsSync(input.workspaceId, run.id)) {
         if (candidate.id === updated.id || ["succeeded", "failed", "skipped", "cancelled"].includes(candidate.status)) continue;
         if (candidate.taskQueueId && readQueuedTaskSync(candidate.taskQueueId)) {

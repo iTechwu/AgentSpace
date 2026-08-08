@@ -10,7 +10,7 @@ import {
   readWorkflowRunSync,
   transitionWorkflowNodeRunSync,
 } from "@dofe-agent/db";
-import { completeWorkflowNodeSync, failWorkflowNodeSync } from "./coordinator.ts";
+import { completeWorkflowApprovalNodeSync, completeWorkflowNodeSync, failWorkflowNodeSync } from "./coordinator.ts";
 import { startQueuedTaskWithWorkflowSync } from "./completion.ts";
 
 const hasTestDatabase = Boolean(
@@ -252,6 +252,90 @@ test("run.failed is emitted when an exhausted node drives the run to a terminal 
     assert.ok(types.includes("run.failed"), `expected run.failed in ${JSON.stringify(types)}`);
     assert.equal(types[types.length - 1], "run.failed");
     assert.equal(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "failed");
+  } finally {
+    cleanup(seed.workspaceId);
+  }
+});
+
+test("approval rejection defers when a sibling task is mid-commit (Issue 4)", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 审批驳回遇兄弟节点任务处于 preparing_commit/committed（EAD §7 提交拆分中间态/不可逆点）时，
+  // 不得终止 Run——否则 committed 产物已落盘却被标 cancelled、Run 标 failed，造成矛盾。
+  // 与 cancelWorkflowRunSync 一致：抛 workflow_run_commit_in_progress，事务回滚，调用方短暂窗口后重试。
+  const graphJson = JSON.stringify({
+    schemaVersion: 1,
+    nodes: [
+      { id: "apr", type: "approval", config: { policy: "all_success" } },
+      { id: "sib", type: "employee_task", employeeId: "emp-sib", config: {} },
+    ],
+    edges: [],
+  });
+  const seed = seedWorkspace(graphJson, 2);
+  const now = "2026-08-07T01:00:00.000Z";
+  const db = getDatabase();
+  try {
+    const run = createWorkflowRunSync({
+      workspaceId: seed.workspaceId,
+      workflowId: seed.workflowId,
+      versionId: seed.versionId,
+      triggerType: "manual",
+      triggerKey: `issue4:${seed.workspaceId}`,
+      inputJson: "{}",
+    });
+    const nodes = materializeWorkflowNodeRunsSync({
+      workspaceId: seed.workspaceId,
+      runId: run.id,
+      nodes: [
+        { nodeId: "apr", nodeType: "approval" },
+        { nodeId: "sib", nodeType: "employee_task", employeeId: "emp-sib" },
+      ],
+    });
+    const approvalNode = nodes.find((n) => n.nodeId === "apr")!;
+    const siblingNode = nodes.find((n) => n.nodeId === "sib")!;
+
+    // 兄弟节点绑定的任务推进到 preparing_commit（提交拆分中间态）。
+    const taskId = seedQueuedTask(seed.workspaceId, `issue4-${Math.random().toString(36).slice(2, 6)}`);
+    transitionWorkflowNodeRunSync({
+      workspaceId: seed.workspaceId,
+      nodeRunId: siblingNode.id,
+      from: ["pending"],
+      to: "running",
+      taskQueueId: taskId,
+      startedAt: now,
+      now,
+    });
+    db.prepare("UPDATE agent_task_queue SET status = 'preparing_commit', updated_at = ? WHERE id = ?").run(now, taskId);
+
+    // 审批节点进入 waiting_approval 并绑定 approval_id。
+    const approvalId = `approval-issue4-${Math.random().toString(36).slice(2, 8)}`;
+    transitionWorkflowNodeRunSync({
+      workspaceId: seed.workspaceId,
+      nodeRunId: approvalNode.id,
+      from: ["pending"],
+      to: "waiting_approval",
+      approvalId,
+      now,
+    });
+
+    // 驳回须抛 workflow_run_commit_in_progress（事务回滚：不标 cancelled、不 fail run）。
+    assert.throws(
+      () => completeWorkflowApprovalNodeSync({
+        workspaceId: seed.workspaceId,
+        approvalId,
+        approved: false,
+        actorUserId: "u1",
+        now,
+      }),
+      /workflow_run_commit_in_progress/,
+    );
+
+    // 回滚后：兄弟节点仍 running（未被标 cancelled），任务仍 preparing_commit。
+    const siblingAfter = db.prepare("SELECT status FROM workflow_node_run WHERE id = ?").get(siblingNode.id) as { status: string };
+    assert.equal(siblingAfter.status, "running", "提交窗口期不得把 preparing_commit/committed 兄弟节点标 cancelled");
+    const taskAfter = db.prepare("SELECT status FROM agent_task_queue WHERE id = ?").get(taskId) as { status: string };
+    assert.equal(taskAfter.status, "preparing_commit", "任务状态不得被驳回改动");
+    assert.notEqual(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "failed", "Run 不得在提交窗口期被标 failed");
   } finally {
     cleanup(seed.workspaceId);
   }
