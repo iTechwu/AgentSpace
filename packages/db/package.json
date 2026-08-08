@@ -29,7 +29,7 @@
     "prisma:generate": "prisma generate --schema prisma/schema.prisma",
     "prisma:pull": "prisma db pull --schema prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
-    "prisma:diff": "prisma migrate diff --from-schema-datasource db --to-schema-datamodel prisma/schema.prisma --exit-code --schema prisma/schema.prisma",
+    "prisma:diff": "prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
     "postinstall": "prisma generate --schema prisma/schema.prisma"
   },
   "dependencies": {
