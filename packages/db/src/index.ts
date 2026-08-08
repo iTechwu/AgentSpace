@@ -677,11 +677,17 @@ export {
 
 // Notifications
 export {
+  archiveWorkspaceNotificationAsync,
   archiveWorkspaceNotificationSync,
+  countUnreadWorkspaceNotificationsAsync,
   countUnreadWorkspaceNotificationsSync,
+  createWorkspaceNotificationAsync,
   createWorkspaceNotificationSync,
+  createWorkspaceNotificationsAsync,
   createWorkspaceNotificationsSync,
+  listWorkspaceNotificationsForRecipientAsync,
   listWorkspaceNotificationsForRecipientSync,
+  markWorkspaceNotificationReadAsync,
   markWorkspaceNotificationReadSync,
   type CreateWorkspaceNotificationInput,
   type ListWorkspaceNotificationsOptions,

@@ -1,4 +1,6 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
+import { getPrismaClient } from "./prisma/client.ts";
+import { toIsoString, toJsonString, toOptionalString } from "./prisma/runtime-mappers.ts";
 import type {
   WorkspaceNotificationActorType,
   WorkspaceNotificationRecord,
@@ -458,4 +460,327 @@ function isSeverity(value: unknown): value is WorkspaceNotificationSeverity {
 
 function isStatus(value: unknown): value is WorkspaceNotificationStatus {
   return value === "unread" || value === "read" || value === "archived";
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 async Prisma repository (Route B).
+//
+// Coexists with the *Sync functions above and returns the SAME
+// `WorkspaceNotificationRecord` DTO. FIDELITY READS use `$queryRawUnsafe` with
+// `::text` casts on every timestamptz (`created_at`/`read_at`/`archived_at`) and
+// the jsonb (`metadata_json`) column — @prisma/adapter-pg relabels timestamptz
+// offsets without shifting wall-clock digits (wrong under a non-UTC session) and
+// parses jsonb into a compact object; selecting `::text` and routing through
+// `toIsoString` / `toJsonString` reproduces the sync worker's output byte-for-byte.
+// WRITES (create dedupe-upsert, mark/archived with COALESCE) use raw SQL to
+// preserve the partial-unique `ON CONFLICT ... WHERE dedupe_key IS NOT NULL` and
+// the `COALESCE(read_at, ?)` non-destructive semantics that typed Prisma cannot
+// express. See prisma/runtime-mappers.ts for the full rationale. Identifiers are
+// a hardcoded whitelist; only values are parameterized (`$1..$N`).
+// ---------------------------------------------------------------------------
+
+type PrismaWorkspaceNotificationRow = {
+  id: string;
+  workspace_id: string;
+  recipient_type: string;
+  recipient_id: string;
+  actor_type: string | null;
+  actor_id: string | null;
+  type: string;
+  resource_type: string;
+  resource_id: string | null;
+  channel_name: string | null;
+  title: string;
+  body: string;
+  action_href: string | null;
+  severity: string;
+  status: string;
+  dedupe_key: string | null;
+  metadata_json: string;
+  created_at: string;
+  read_at: string | null;
+  archived_at: string | null;
+};
+
+/** Shared column list with fidelity casts on the timestamp + jsonb columns. */
+const WORKSPACE_NOTIFICATION_SELECT_COLUMNS =
+  "id, workspace_id, recipient_type, recipient_id, actor_type, actor_id, type, " +
+  "resource_type, resource_id, channel_name, title, body, action_href, severity, " +
+  "status, dedupe_key, metadata_json::text AS metadata_json, " +
+  "created_at::text AS created_at, read_at::text AS read_at, archived_at::text AS archived_at";
+
+function mapWorkspaceNotificationFromPrisma(
+  row: PrismaWorkspaceNotificationRow,
+): WorkspaceNotificationRecord {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    recipientType: row.recipient_type as WorkspaceNotificationRecipientType,
+    recipientId: row.recipient_id,
+    actorType: isActorType(row.actor_type) ? row.actor_type : undefined,
+    actorId: toOptionalString(row.actor_id),
+    type: row.type,
+    resourceType: row.resource_type as WorkspaceNotificationResourceType,
+    resourceId: toOptionalString(row.resource_id),
+    channelName: toOptionalString(row.channel_name),
+    title: row.title,
+    body: row.body,
+    actionHref: toOptionalString(row.action_href),
+    severity: row.severity as WorkspaceNotificationSeverity,
+    status: row.status as WorkspaceNotificationStatus,
+    dedupeKey: toOptionalString(row.dedupe_key),
+    metadataJson: toJsonString(row.metadata_json),
+    createdAt: toIsoString(row.created_at) ?? "",
+    readAt: toIsoString(row.read_at) ?? undefined,
+    archivedAt: toIsoString(row.archived_at) ?? undefined,
+  };
+}
+
+async function readNotificationAsync(
+  notificationId: string,
+  workspaceId: string,
+): Promise<WorkspaceNotificationRecord | null> {
+  const sql =
+    `SELECT ${WORKSPACE_NOTIFICATION_SELECT_COLUMNS} FROM workspace_notification ` +
+    `WHERE id = $1 AND workspace_id = $2`;
+  const rows =
+    await getPrismaClient().$queryRawUnsafe<PrismaWorkspaceNotificationRow[]>(sql, notificationId, workspaceId);
+  return rows.length > 0 ? mapWorkspaceNotificationFromPrisma(rows[0]!) : null;
+}
+
+async function readNotificationByDedupeKeyAsync(
+  workspaceId: string,
+  dedupeKey: string,
+): Promise<WorkspaceNotificationRecord | null> {
+  const sql =
+    `SELECT ${WORKSPACE_NOTIFICATION_SELECT_COLUMNS} FROM workspace_notification ` +
+    `WHERE workspace_id = $1 AND dedupe_key = $2`;
+  const rows =
+    await getPrismaClient().$queryRawUnsafe<PrismaWorkspaceNotificationRow[]>(sql, workspaceId, dedupeKey);
+  return rows.length > 0 ? mapWorkspaceNotificationFromPrisma(rows[0]!) : null;
+}
+
+async function readNotificationForRecipientAsync(
+  workspaceId: string,
+  notificationId: string,
+  recipient: WorkspaceNotificationRecipient,
+): Promise<WorkspaceNotificationRecord | null> {
+  const sql =
+    `SELECT ${WORKSPACE_NOTIFICATION_SELECT_COLUMNS} FROM workspace_notification ` +
+    `WHERE workspace_id = $1 AND id = $2 AND recipient_type = $3 AND recipient_id = $4`;
+  const rows = await getPrismaClient().$queryRawUnsafe<PrismaWorkspaceNotificationRow[]>(
+    sql,
+    workspaceId,
+    notificationId,
+    recipient.recipientType,
+    recipient.recipientId,
+  );
+  return rows.length > 0 ? mapWorkspaceNotificationFromPrisma(rows[0]!) : null;
+}
+
+export async function createWorkspaceNotificationAsync(
+  input: CreateWorkspaceNotificationInput,
+): Promise<WorkspaceNotificationRecord> {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = input.createdAt ?? new Date().toISOString();
+  const id = `notification-${randomLikeId()}`;
+  const recipientId = normalizeRequired(input.recipientId, "recipientId");
+  const type = normalizeRequired(input.type, "type");
+  const title = normalizeRequired(input.title, "title");
+  const body = normalizeRequired(input.body, "body");
+  const severity = normalizeSeverity(input.severity);
+  const metadataJson = JSON.stringify(input.metadata ?? {});
+  const actorType = normalizeActorType(input.actorType);
+  const actorId = normalizeOptional(input.actorId);
+  const resourceType = normalizeResourceType(input.resourceType);
+  const resourceId = normalizeOptional(input.resourceId);
+  const channelName = normalizeOptional(input.channelName);
+  const actionHref = normalizeOptional(input.actionHref);
+  const dedupeKey = normalizeOptional(input.dedupeKey);
+
+  if (!isRecipientType(input.recipientType)) {
+    throw new Error(`Invalid notification recipient type "${input.recipientType}".`);
+  }
+
+  // Raw INSERT ... ON CONFLICT mirrors the sync layer's partial-unique dedupe
+  // upsert (idx_workspace_notification_dedupe WHERE dedupe_key IS NOT NULL),
+  // which typed Prisma upsert cannot target.
+  await getPrismaClient().$executeRawUnsafe(
+    `INSERT INTO workspace_notification (
+       id, workspace_id, recipient_type, recipient_id, actor_type, actor_id, type,
+       resource_type, resource_id, channel_name, title, body, action_href, severity,
+       status, dedupe_key, metadata_json, created_at, read_at, archived_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'unread', $15, $16, $17, NULL, NULL)
+     ON CONFLICT (workspace_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO UPDATE SET
+       recipient_type = EXCLUDED.recipient_type,
+       recipient_id = EXCLUDED.recipient_id,
+       actor_type = EXCLUDED.actor_type,
+       actor_id = EXCLUDED.actor_id,
+       type = EXCLUDED.type,
+       resource_type = EXCLUDED.resource_type,
+       resource_id = EXCLUDED.resource_id,
+       channel_name = EXCLUDED.channel_name,
+       title = EXCLUDED.title,
+       body = EXCLUDED.body,
+       action_href = EXCLUDED.action_href,
+       severity = EXCLUDED.severity,
+       metadata_json = EXCLUDED.metadata_json`,
+    id,
+    workspaceId,
+    input.recipientType,
+    recipientId,
+    actorType ?? null,
+    actorId ?? null,
+    type,
+    resourceType,
+    resourceId ?? null,
+    channelName ?? null,
+    title,
+    body,
+    actionHref ?? null,
+    severity,
+    dedupeKey ?? null,
+    metadataJson,
+    now,
+  );
+
+  // Re-read via the fidelity text-cast path (mirrors the sync create, which
+  // reads by dedupeKey when present else by id).
+  const record = dedupeKey
+    ? await readNotificationByDedupeKeyAsync(workspaceId, dedupeKey)
+    : await readNotificationAsync(id, workspaceId);
+  if (!record) {
+    throw new Error("createWorkspaceNotificationAsync: notification row missing immediately after write");
+  }
+  return record;
+}
+
+export async function createWorkspaceNotificationsAsync(
+  inputs: CreateWorkspaceNotificationInput[],
+): Promise<WorkspaceNotificationRecord[]> {
+  const records: WorkspaceNotificationRecord[] = [];
+  for (const input of inputs) {
+    records.push(await createWorkspaceNotificationAsync(input));
+  }
+  return records;
+}
+
+export async function listWorkspaceNotificationsForRecipientAsync(
+  options: ListWorkspaceNotificationsOptions,
+): Promise<WorkspaceNotificationRecord[]> {
+  const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const recipientId = normalizeRequired(options.recipientId, "recipientId");
+  if (!isRecipientType(options.recipientType)) {
+    throw new Error(`Invalid notification recipient type "${options.recipientType}".`);
+  }
+
+  const conditions = ["workspace_id = $1", "recipient_type = $2", "recipient_id = $3"];
+  const params: unknown[] = [workspaceId, options.recipientType, recipientId];
+  let next = 4;
+  const statuses = normalizeStatusFilter(options.status);
+  if (statuses.length > 0) {
+    const placeholders = statuses.map(() => `$${next++}`).join(", ");
+    conditions.push(`status IN (${placeholders})`);
+    params.push(...statuses);
+  } else if (!options.includeArchived) {
+    conditions.push("status <> 'archived'");
+  }
+  const limit = normalizeLimit(options.limit);
+  const limitParam = `$${next}`;
+  params.push(limit);
+
+  const sql =
+    `SELECT ${WORKSPACE_NOTIFICATION_SELECT_COLUMNS} FROM workspace_notification ` +
+    `WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC, id DESC LIMIT ${limitParam}`;
+  const rows =
+    await getPrismaClient().$queryRawUnsafe<PrismaWorkspaceNotificationRow[]>(sql, ...params);
+  return rows
+    .map(mapWorkspaceNotificationFromPrisma)
+    .filter((record): record is WorkspaceNotificationRecord => record !== null);
+}
+
+export async function countUnreadWorkspaceNotificationsAsync(input: {
+  workspaceId?: string;
+  recipientType: WorkspaceNotificationRecipientType;
+  recipientId: string;
+}): Promise<number> {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const recipientId = normalizeRequired(input.recipientId, "recipientId");
+  if (!isRecipientType(input.recipientType)) {
+    throw new Error(`Invalid notification recipient type "${input.recipientType}".`);
+  }
+  const rows = await getPrismaClient().$queryRawUnsafe<Array<{ count: bigint }>>(
+    `SELECT COUNT(*) AS count FROM workspace_notification
+     WHERE workspace_id = $1 AND recipient_type = $2 AND recipient_id = $3 AND status = 'unread'`,
+    workspaceId,
+    input.recipientType,
+    recipientId,
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+/** Async mirror of the sync `updateNotificationStatusForRecipient` helper. */
+async function updateNotificationStatusForRecipientAsync(input: {
+  workspaceId: string;
+  notificationId: string;
+  recipient: WorkspaceNotificationRecipient;
+  status: WorkspaceNotificationStatus;
+  readAt?: string;
+  archivedAt?: string;
+}): Promise<void> {
+  const notificationId = normalizeRequired(input.notificationId, "notificationId");
+  const recipientId = normalizeRequired(input.recipient.recipientId, "recipientId");
+  if (!isRecipientType(input.recipient.recipientType)) {
+    throw new Error(`Invalid notification recipient type "${input.recipient.recipientType}".`);
+  }
+  // COALESCE preserves an existing read_at/archived_at across a later state
+  // transition (e.g. archiving a previously-read notification keeps read_at).
+  await getPrismaClient().$executeRawUnsafe(
+    `UPDATE workspace_notification
+     SET status = $1,
+         read_at = COALESCE(read_at, $2),
+         archived_at = COALESCE(archived_at, $3)
+     WHERE workspace_id = $4 AND id = $5 AND recipient_type = $6 AND recipient_id = $7`,
+    input.status,
+    input.readAt ?? null,
+    input.archivedAt ?? null,
+    input.workspaceId,
+    notificationId,
+    input.recipient.recipientType,
+    recipientId,
+  );
+}
+
+export async function markWorkspaceNotificationReadAsync(input: {
+  workspaceId?: string;
+  notificationId: string;
+  recipient: WorkspaceNotificationRecipient;
+}): Promise<WorkspaceNotificationRecord | null> {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  await updateNotificationStatusForRecipientAsync({
+    workspaceId,
+    notificationId: input.notificationId,
+    recipient: input.recipient,
+    status: "read",
+    readAt: now,
+  });
+  return readNotificationForRecipientAsync(workspaceId, input.notificationId, input.recipient);
+}
+
+export async function archiveWorkspaceNotificationAsync(input: {
+  workspaceId?: string;
+  notificationId: string;
+  recipient: WorkspaceNotificationRecipient;
+}): Promise<WorkspaceNotificationRecord | null> {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  await updateNotificationStatusForRecipientAsync({
+    workspaceId,
+    notificationId: input.notificationId,
+    recipient: input.recipient,
+    status: "archived",
+    archivedAt: now,
+  });
+  return readNotificationForRecipientAsync(workspaceId, input.notificationId, input.recipient);
 }
