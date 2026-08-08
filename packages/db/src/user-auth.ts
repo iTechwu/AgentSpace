@@ -1,4 +1,6 @@
 import { getDatabase, randomLikeId } from "./database.ts";
+import { getPrismaClient } from "./prisma/client.ts";
+import { toIsoString, toJsonString, toOptionalString } from "./prisma/runtime-mappers.ts";
 import type { AuthProvider, StoredAuthIdentityRecord, StoredSessionRecord, StoredUserRecord, WorkspaceRole } from "./types.ts";
 
 export interface WorkspaceMemberUserRecord {
@@ -510,4 +512,417 @@ function mapWorkspaceMemberUserRecord(value: Record<string, unknown>): Workspace
 function normalizeEmail(email: string | undefined): string | undefined {
   const normalized = email?.trim().toLowerCase();
   return normalized ? normalized : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 async Prisma repository (Route B).
+//
+// Coexists with the *Sync functions above and returns the SAME `*Record` DTOs
+// (StoredUserRecord / StoredAuthIdentityRecord / StoredSessionRecord /
+// WorkspaceMemberUserRecord). FIDELITY READS use `$queryRawUnsafe` with `::text`
+// casts on every timestamptz and jsonb column — @prisma/adapter-pg relabels
+// timestamptz offsets without shifting wall-clock digits (wrong under a non-UTC
+// session) and parses jsonb into a compact object; selecting `::text` and routing
+// through `toIsoString` / `toJsonString` reproduces the sync worker's output
+// byte-for-byte. The auth_identity create uses raw SQL for the profile_json
+// jsonb write (avoids Prisma InputJsonValue friction and guarantees fidelity);
+// user/session creates/updates use typed Prisma (no jsonb columns). COALESCE
+// revoke updates use raw SQL (non-destructive semantics). See
+// prisma/runtime-mappers.ts for the full rationale. Identifiers are a hardcoded
+// whitelist; only values are parameterized (`$1..$N`).
+// ---------------------------------------------------------------------------
+
+type PrismaUserRow = {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  primary_email: string | null;
+  is_admin: number;
+  created_at: string;
+  updated_at: string;
+  last_login_at: string | null;
+};
+
+type PrismaAuthIdentityRow = {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_subject: string;
+  email: string | null;
+  email_verified: number;
+  profile_json: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type PrismaSessionRow = {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  expires_at: string;
+  last_seen_at: string;
+  created_at: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  revoked_at: string | null;
+};
+
+const USERS_SELECT_COLUMNS =
+  "id, display_name, avatar_url, primary_email, is_admin, " +
+  "created_at::text AS created_at, updated_at::text AS updated_at, last_login_at::text AS last_login_at";
+
+const AUTH_IDENTITY_SELECT_COLUMNS =
+  "id, user_id, provider, provider_subject, email, email_verified, " +
+  "profile_json::text AS profile_json, created_at::text AS created_at, updated_at::text AS updated_at";
+
+const SESSION_SELECT_COLUMNS =
+  "id, user_id, token_hash, expires_at::text AS expires_at, last_seen_at::text AS last_seen_at, " +
+  "created_at::text AS created_at, ip_address, user_agent, revoked_at::text AS revoked_at";
+
+function mapUserFromPrisma(row: PrismaUserRow): StoredUserRecord {
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    avatarUrl: toOptionalString(row.avatar_url),
+    primaryEmail: toOptionalString(row.primary_email),
+    isAdmin: row.is_admin === 1,
+    createdAt: toIsoString(row.created_at) ?? "",
+    updatedAt: toIsoString(row.updated_at) ?? "",
+    lastLoginAt: toIsoString(row.last_login_at) ?? undefined,
+  };
+}
+
+function mapAuthIdentityFromPrisma(row: PrismaAuthIdentityRow): StoredAuthIdentityRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider as AuthProvider,
+    providerSubject: row.provider_subject,
+    email: toOptionalString(row.email),
+    emailVerified: row.email_verified === 1,
+    profileJson: toJsonString(row.profile_json),
+    createdAt: toIsoString(row.created_at) ?? "",
+    updatedAt: toIsoString(row.updated_at) ?? "",
+  };
+}
+
+function mapSessionFromPrisma(row: PrismaSessionRow): StoredSessionRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    tokenHash: row.token_hash,
+    expiresAt: toIsoString(row.expires_at) ?? "",
+    lastSeenAt: toIsoString(row.last_seen_at) ?? "",
+    createdAt: toIsoString(row.created_at) ?? "",
+    ipAddress: toOptionalString(row.ip_address),
+    userAgent: toOptionalString(row.user_agent),
+    revokedAt: toIsoString(row.revoked_at) ?? undefined,
+  };
+}
+
+// --- users -----------------------------------------------------------------
+
+export async function countUsersAsync(): Promise<number> {
+  const rows = await getPrismaClient().$queryRawUnsafe<Array<{ count: bigint }>>(
+    "SELECT COUNT(*) AS count FROM users",
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function readUserAsync(userId: string): Promise<StoredUserRecord | null> {
+  const rows = await getPrismaClient().$queryRawUnsafe<PrismaUserRow[]>(
+    `SELECT ${USERS_SELECT_COLUMNS} FROM users WHERE id = $1`,
+    userId,
+  );
+  return rows.length > 0 ? mapUserFromPrisma(rows[0]!) : null;
+}
+
+export async function readUserByEmailAsync(email: string): Promise<StoredUserRecord | null> {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+  const rows = await getPrismaClient().$queryRawUnsafe<PrismaUserRow[]>(
+    `SELECT ${USERS_SELECT_COLUMNS} FROM users WHERE primary_email = $1`,
+    normalizedEmail,
+  );
+  return rows.length > 0 ? mapUserFromPrisma(rows[0]!) : null;
+}
+
+export async function createUserAsync(input: {
+  displayName: string;
+  primaryEmail?: string;
+  avatarUrl?: string;
+  isAdmin?: boolean;
+}): Promise<StoredUserRecord> {
+  const id = `user-${randomLikeId()}`;
+  const now = new Date().toISOString();
+  // Raw INSERT: timestamptz columns (created_at/updated_at) must be written as
+  // ISO strings, not typed Prisma Dates — @prisma/adapter-pg serializes a Date
+  // to an offset-less ISO that PG parses in the session timezone (+08), shifting
+  // the stored instant by the tz offset. Mirrors the sync INSERT exactly.
+  await getPrismaClient().$executeRawUnsafe(
+    `INSERT INTO users (id, display_name, avatar_url, primary_email, is_admin, created_at, updated_at, last_login_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $6, NULL)`,
+    id,
+    input.displayName.trim(),
+    input.avatarUrl ?? null,
+    normalizeEmail(input.primaryEmail) ?? null,
+    input.isAdmin === true ? 1 : 0,
+    now,
+  );
+  const record = await readUserAsync(id);
+  if (!record) {
+    throw new Error(`createUserAsync: user ${id} missing immediately after create`);
+  }
+  return record;
+}
+
+export async function updateUserAsync(input: {
+  userId: string;
+  displayName?: string;
+  primaryEmail?: string;
+  avatarUrl?: string;
+  isAdmin?: boolean;
+}): Promise<StoredUserRecord | null> {
+  // Raw UPDATE: build the SET clause dynamically (like sync) and write timestamptz
+  // updated_at as an ISO string — typed Prisma Dates shift under a non-UTC session
+  // (see createUserAsync). A missing user affects 0 rows → readUserAsync returns
+  // null, mirroring the sync UPDATE + readUserSync path.
+  const now = new Date().toISOString();
+  const sets: string[] = ["updated_at = $1"];
+  const values: Array<string | number | null> = [now];
+  let idx = 2;
+  if (input.displayName !== undefined) {
+    sets.push(`display_name = $${idx++}`);
+    values.push(input.displayName.trim());
+  }
+  if (input.primaryEmail !== undefined) {
+    sets.push(`primary_email = $${idx++}`);
+    values.push(normalizeEmail(input.primaryEmail) ?? null);
+  }
+  if (input.avatarUrl !== undefined) {
+    sets.push(`avatar_url = $${idx++}`);
+    values.push(input.avatarUrl.trim() || null);
+  }
+  if (input.isAdmin !== undefined) {
+    sets.push(`is_admin = $${idx++}`);
+    values.push(input.isAdmin === true ? 1 : 0);
+  }
+  values.push(input.userId);
+  await getPrismaClient().$executeRawUnsafe(
+    `UPDATE users SET ${sets.join(", ")} WHERE id = $${idx}`,
+    ...values,
+  );
+  return readUserAsync(input.userId);
+}
+
+export async function isPlatformAdminUserAsync(userId: string): Promise<boolean> {
+  const user = await readUserAsync(userId);
+  return user?.isAdmin === true;
+}
+
+// --- auth_identity ---------------------------------------------------------
+
+async function readAuthIdentityAsync(identityId: string): Promise<StoredAuthIdentityRecord | null> {
+  const rows = await getPrismaClient().$queryRawUnsafe<PrismaAuthIdentityRow[]>(
+    `SELECT ${AUTH_IDENTITY_SELECT_COLUMNS} FROM auth_identity WHERE id = $1`,
+    identityId,
+  );
+  return rows.length > 0 ? mapAuthIdentityFromPrisma(rows[0]!) : null;
+}
+
+export async function readAuthIdentityByProviderSubjectAsync(
+  provider: AuthProvider,
+  providerSubject: string,
+): Promise<StoredAuthIdentityRecord | null> {
+  const normalizedProviderSubject = providerSubject.trim();
+  if (!normalizedProviderSubject) return null;
+  const rows = await getPrismaClient().$queryRawUnsafe<PrismaAuthIdentityRow[]>(
+    `SELECT ${AUTH_IDENTITY_SELECT_COLUMNS} FROM auth_identity WHERE provider = $1 AND provider_subject = $2`,
+    provider,
+    normalizedProviderSubject,
+  );
+  return rows.length > 0 ? mapAuthIdentityFromPrisma(rows[0]!) : null;
+}
+
+export async function readAuthIdentityForUserAsync(
+  userId: string,
+  provider: AuthProvider,
+): Promise<StoredAuthIdentityRecord | null> {
+  const normalizedUserId = userId.trim();
+  if (!normalizedUserId) return null;
+  const rows = await getPrismaClient().$queryRawUnsafe<PrismaAuthIdentityRow[]>(
+    `SELECT ${AUTH_IDENTITY_SELECT_COLUMNS} FROM auth_identity WHERE user_id = $1 AND provider = $2 ORDER BY created_at ASC LIMIT 1`,
+    normalizedUserId,
+    provider,
+  );
+  return rows.length > 0 ? mapAuthIdentityFromPrisma(rows[0]!) : null;
+}
+
+export async function createAuthIdentityAsync(input: {
+  userId: string;
+  provider: AuthProvider;
+  providerSubject: string;
+  email?: string;
+  emailVerified?: boolean;
+  profileJson?: string;
+}): Promise<StoredAuthIdentityRecord> {
+  const normalizedProviderSubject = input.providerSubject.trim();
+  if (!normalizedProviderSubject) {
+    throw new Error("Provider subject is required.");
+  }
+  const id = `identity-${randomLikeId()}`;
+  const now = new Date().toISOString();
+  const normalizedEmail = normalizeEmail(input.email);
+  const profileJson = input.profileJson ?? "{}";
+  // Raw INSERT for the profile_json jsonb write (fidelity + avoids InputJsonValue).
+  await getPrismaClient().$executeRawUnsafe(
+    `INSERT INTO auth_identity (id, user_id, provider, provider_subject, email, email_verified, profile_json, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    id,
+    input.userId,
+    input.provider,
+    normalizedProviderSubject,
+    normalizedEmail ?? null,
+    input.emailVerified === true ? 1 : 0,
+    profileJson,
+    now,
+    now,
+  );
+  const record = await readAuthIdentityAsync(id);
+  if (!record) {
+    throw new Error(`createAuthIdentityAsync: identity ${id} missing immediately after create`);
+  }
+  return record;
+}
+
+// --- session ---------------------------------------------------------------
+
+export async function readSessionByTokenHashAsync(tokenHash: string): Promise<StoredSessionRecord | null> {
+  const rows = await getPrismaClient().$queryRawUnsafe<PrismaSessionRow[]>(
+    `SELECT ${SESSION_SELECT_COLUMNS} FROM session WHERE token_hash = $1`,
+    tokenHash,
+  );
+  return rows.length > 0 ? mapSessionFromPrisma(rows[0]!) : null;
+}
+
+export async function listSessionsForUserAsync(userId: string): Promise<StoredSessionRecord[]> {
+  const rows = await getPrismaClient().$queryRawUnsafe<PrismaSessionRow[]>(
+    `SELECT ${SESSION_SELECT_COLUMNS} FROM session WHERE user_id = $1 ORDER BY created_at DESC, id DESC`,
+    userId,
+  );
+  return rows.map(mapSessionFromPrisma);
+}
+
+export async function countActiveSessionsForUserAsync(userId: string): Promise<number> {
+  const rows = await getPrismaClient().$queryRawUnsafe<Array<{ count: bigint }>>(
+    `SELECT COUNT(*) AS count FROM session WHERE user_id = $1 AND revoked_at IS NULL`,
+    userId,
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function createSessionAsync(input: {
+  userId: string;
+  tokenHash: string;
+  expiresAt: string;
+  ipAddress?: string;
+  userAgent?: string;
+}): Promise<StoredSessionRecord> {
+  const id = `session-${randomLikeId()}`;
+  const now = new Date().toISOString();
+  const prisma = getPrismaClient();
+  // Raw INSERT: every timestamptz column (expires_at / last_seen_at / created_at)
+  // is written as an ISO string — typed Prisma Dates shift the stored instant
+  // under a non-UTC session (see createUserAsync). Mirrors the sync INSERT.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO session (id, user_id, token_hash, expires_at, last_seen_at, created_at, ip_address, user_agent, revoked_at)
+     VALUES ($1, $2, $3, $4, $5, $5, $6, $7, NULL)`,
+    id,
+    input.userId,
+    input.tokenHash,
+    input.expiresAt,
+    now,
+    input.ipAddress ?? null,
+    input.userAgent ?? null,
+  );
+  // Mirror the sync layer: stamp the user's last_login_at on session creation.
+  await prisma.$executeRawUnsafe(
+    `UPDATE users SET last_login_at = $1, updated_at = $1 WHERE id = $2`,
+    now,
+    input.userId,
+  );
+  const record = await readSessionByTokenHashAsync(input.tokenHash);
+  if (!record) {
+    throw new Error(`createSessionAsync: session ${id} missing immediately after create`);
+  }
+  return record;
+}
+
+export async function touchSessionLastSeenAsync(tokenHash: string): Promise<void> {
+  // Raw UPDATE: last_seen_at is timestamptz — write ISO string, not typed Date.
+  await getPrismaClient().$executeRawUnsafe(
+    `UPDATE session SET last_seen_at = $1 WHERE token_hash = $2`,
+    new Date().toISOString(),
+    tokenHash,
+  );
+}
+
+export async function deleteSessionByTokenHashAsync(tokenHash: string): Promise<boolean> {
+  const result = await getPrismaClient().session.deleteMany({ where: { tokenHash } });
+  return result.count > 0;
+}
+
+export async function revokeSessionByIdAsync(sessionId: string, userId?: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  // COALESCE keeps the first revoke timestamp (idempotent), matching the sync layer.
+  const sql = userId
+    ? `UPDATE session SET revoked_at = COALESCE(revoked_at, $1) WHERE id = $2 AND user_id = $3`
+    : `UPDATE session SET revoked_at = COALESCE(revoked_at, $1) WHERE id = $2`;
+  const params = userId ? [now, sessionId, userId] : [now, sessionId];
+  const affected = await getPrismaClient().$executeRawUnsafe(sql, ...params);
+  return affected > 0;
+}
+
+export async function revokeOtherSessionsForUserAsync(userId: string, currentSessionId: string): Promise<number> {
+  const now = new Date().toISOString();
+  const affected = await getPrismaClient().$executeRawUnsafe(
+    `UPDATE session SET revoked_at = COALESCE(revoked_at, $1) WHERE user_id = $2 AND id <> $3`,
+    now,
+    userId,
+    currentSessionId,
+  );
+  return Number(affected);
+}
+
+// --- workspace_membership cross-reads (non-admin active members) -----------
+
+export async function listWorkspaceMemberUsersAsync(workspaceId: string): Promise<WorkspaceMemberUserRecord[]> {
+  const rows = await getPrismaClient().$queryRawUnsafe<Array<{ userId: string; displayName: string; primaryEmail: string | null; role: string }>>(
+    `SELECT u.id AS "userId", u.display_name AS "displayName", u.primary_email AS "primaryEmail", wm.role AS "role"
+     FROM workspace_membership wm
+     JOIN users u ON u.id = wm.user_id
+     WHERE wm.workspace_id = $1 AND wm.status = 'active' AND u.is_admin = 0
+     ORDER BY wm.joined_at ASC`,
+    workspaceId,
+  );
+  return rows
+    .filter((row): row is { userId: string; displayName: string; primaryEmail: string | null; role: "owner" | "admin" | "member" } =>
+      row.role === "owner" || row.role === "admin" || row.role === "member")
+    .map((row) => ({
+      userId: row.userId,
+      displayName: row.displayName,
+      primaryEmail: toOptionalString(row.primaryEmail),
+      role: row.role,
+    }));
+}
+
+export async function countWorkspaceMembersAsync(workspaceId: string): Promise<number> {
+  const rows = await getPrismaClient().$queryRawUnsafe<Array<{ count: bigint }>>(
+    `SELECT COUNT(*) AS count
+     FROM workspace_membership wm
+     JOIN users u ON u.id = wm.user_id
+     WHERE wm.workspace_id = $1 AND wm.status = 'active' AND u.is_admin = 0`,
+    workspaceId,
+  );
+  return Number(rows[0]?.count ?? 0);
 }

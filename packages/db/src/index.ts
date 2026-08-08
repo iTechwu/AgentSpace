@@ -459,6 +459,28 @@ export {
 } from "./user-auth.ts";
 
 export {
+  countActiveSessionsForUserAsync,
+  countUsersAsync,
+  countWorkspaceMembersAsync,
+  createAuthIdentityAsync,
+  createSessionAsync,
+  createUserAsync,
+  deleteSessionByTokenHashAsync,
+  isPlatformAdminUserAsync,
+  listSessionsForUserAsync,
+  listWorkspaceMemberUsersAsync,
+  readAuthIdentityByProviderSubjectAsync,
+  readAuthIdentityForUserAsync,
+  readSessionByTokenHashAsync,
+  readUserAsync,
+  readUserByEmailAsync,
+  revokeOtherSessionsForUserAsync,
+  revokeSessionByIdAsync,
+  touchSessionLastSeenAsync,
+  updateUserAsync,
+} from "./user-auth.ts";
+
+export {
   cancelExternalMessageOutboxForIntegrationSync,
   completeExternalMessageOutboxSync,
   createExternalDataOperationRunSync,
