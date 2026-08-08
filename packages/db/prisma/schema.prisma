@@ -44,9 +44,9 @@ model agent_access_request {
   updated_at                                          DateTime               @db.Timestamptz(6)
   fork_invitation_id                                  String?
   audit_data_json                                     Json                   @default("{}")
-  agent_fork_invitation                               agent_fork_invitation? @relation(fields: [fork_invitation_id], references: [id], onUpdate: NoAction)
+  agent_fork_invitation                               agent_fork_invitation? @relation(fields: [fork_invitation_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   users_agent_access_request_requester_user_idTousers users                  @relation("agent_access_request_requester_user_idTousers", fields: [requester_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users_agent_access_request_resolver_user_idTousers  users?                 @relation("agent_access_request_resolver_user_idTousers", fields: [resolver_user_id], references: [id], onUpdate: NoAction)
+  users_agent_access_request_resolver_user_idTousers  users?                 @relation("agent_access_request_resolver_user_idTousers", fields: [resolver_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                                           workspace              @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, requester_user_id, status, created_at(sort: Desc)], map: "idx_agent_access_request_requester_status")
@@ -118,7 +118,7 @@ model agent_router_context_snapshot {
   source_event_ids_json Json                 @default("[]")
   created_at            DateTime             @db.Timestamptz(6)
   agent_router_session  agent_router_session @relation(fields: [router_session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  agent_task_queue      agent_task_queue?    @relation(fields: [task_queue_id], references: [id], onUpdate: NoAction)
+  agent_task_queue      agent_task_queue?    @relation(fields: [task_queue_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace             workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, router_session_id, created_at(sort: Desc)], map: "idx_agent_router_context_snapshot_router_created")
@@ -138,9 +138,9 @@ model agent_router_event {
   summary              String?
   data_json            Json                 @default("{}")
   created_at           DateTime             @db.Timestamptz(6)
-  agent_task_attempt   agent_task_attempt?  @relation(fields: [attempt_id], references: [id], onUpdate: NoAction)
+  agent_task_attempt   agent_task_attempt?  @relation(fields: [attempt_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agent_router_session agent_router_session @relation(fields: [router_session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  agent_task_queue     agent_task_queue?    @relation(fields: [task_queue_id], references: [id], onUpdate: NoAction)
+  agent_task_queue     agent_task_queue?    @relation(fields: [task_queue_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace            workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, router_session_id, created_at, id], map: "idx_agent_router_event_router_created")
@@ -222,7 +222,7 @@ model agent_runtime {
   managed_at                       DateTime?                          @db.Timestamptz(6)
   allow_new_employee_sharing       Boolean                            @default(true)
   agent_router_provider_session    agent_router_provider_session[]
-  daemon_connection                daemon_connection?                 @relation(fields: [daemon_connection_id], references: [id], onUpdate: NoAction)
+  daemon_connection                daemon_connection?                 @relation(fields: [daemon_connection_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   provider_account                 provider_account?                  @relation(fields: [provider_account_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
   workspace                        workspace                          @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   agent_task_attempt               agent_task_attempt[]
@@ -274,9 +274,9 @@ model agent_skill_requirement_config {
   created_at                                                     DateTime           @db.Timestamptz(6)
   updated_at                                                     DateTime           @db.Timestamptz(6)
   employee_id                                                    String
-  users_agent_skill_requirement_config_created_by_user_idTousers users?             @relation("agent_skill_requirement_config_created_by_user_idTousers", fields: [created_by_user_id], references: [id], onUpdate: NoAction)
+  users_agent_skill_requirement_config_created_by_user_idTousers users?             @relation("agent_skill_requirement_config_created_by_user_idTousers", fields: [created_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   skill                                                          skill              @relation(fields: [skill_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users_agent_skill_requirement_config_updated_by_user_idTousers users?             @relation("agent_skill_requirement_config_updated_by_user_idTousers", fields: [updated_by_user_id], references: [id], onUpdate: NoAction)
+  users_agent_skill_requirement_config_updated_by_user_idTousers users?             @relation("agent_skill_requirement_config_updated_by_user_idTousers", fields: [updated_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                                                      workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace_employee                                             workspace_employee @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_agent_skill_requirement_config_employee_id")
 
@@ -555,7 +555,7 @@ model daemon_api_token {
   revoked_at                DateTime?                   @db.Timestamptz(6)
   daemon_connection_id      String?                     @unique(map: "idx_daemon_api_token_active_connection", where: raw("((status = 'active'::text) AND (daemon_connection_id IS NOT NULL))"))
   purpose                   String                      @default("general")
-  daemon_connection         daemon_connection?          @relation(fields: [daemon_connection_id], references: [id], onUpdate: NoAction)
+  daemon_connection         daemon_connection?          @relation(fields: [daemon_connection_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                 workspace                   @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   runtime_provision_request runtime_provision_request[]
 
@@ -617,8 +617,8 @@ model document_permission_request {
   source_task_id                                                String?
   created_at                                                    DateTime  @db.Timestamptz(6)
   decided_at                                                    DateTime? @db.Timestamptz(6)
-  users_document_permission_request_decided_by_user_idTousers   users?    @relation("document_permission_request_decided_by_user_idTousers", fields: [decided_by_user_id], references: [id], onUpdate: NoAction)
-  users_document_permission_request_triggered_by_user_idTousers users?    @relation("document_permission_request_triggered_by_user_idTousers", fields: [triggered_by_user_id], references: [id], onUpdate: NoAction)
+  users_document_permission_request_decided_by_user_idTousers   users?    @relation("document_permission_request_decided_by_user_idTousers", fields: [decided_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
+  users_document_permission_request_triggered_by_user_idTousers users?    @relation("document_permission_request_triggered_by_user_idTousers", fields: [triggered_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                                                     workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([workspace_id, requested_by_agent_name, requested_role, document_id, requested_for_channel_name], map: "idx_document_permission_request_pending_agent_document", where: raw("((status = 'pending'::text) AND (document_id IS NOT NULL))"))
@@ -640,7 +640,7 @@ model employee_artifact {
   published_at                  DateTime                      @db.Timestamptz(6)
   deleted_at                    DateTime?                     @db.Timestamptz(6)
   employee_id                   String
-  agent_task_queue              agent_task_queue?             @relation(fields: [source_task_id], references: [id], onUpdate: NoAction)
+  agent_task_queue              agent_task_queue?             @relation(fields: [source_task_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                     workspace                     @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   employee_persistent_workspace employee_persistent_workspace @relation(fields: [workspace_id_ref], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace_employee            workspace_employee            @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_employee_artifact_employee_id")
@@ -720,7 +720,7 @@ model employee_recovery_operation {
   required_approvals      Int                @default(1)
   approval_count          Int                @default(0)
   approvers_json          Json               @default("[]")
-  users                   users?             @relation(fields: [requested_by_user_id], references: [id], onUpdate: NoAction)
+  users                   users?             @relation(fields: [requested_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace               workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace_employee      workspace_employee @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_employee_recovery_operation_employee_id")
 
@@ -762,9 +762,9 @@ model employee_workspace_revision {
   employee_id                       String
   source_kind                       String                        @default("task_output")
   restored_from_revision_id         String?
-  employee_workspace_revision       employee_workspace_revision?  @relation("employee_workspace_revisionToemployee_workspace_revision", fields: [parent_revision_id], references: [id], onUpdate: NoAction)
+  employee_workspace_revision       employee_workspace_revision?  @relation("employee_workspace_revisionToemployee_workspace_revision", fields: [parent_revision_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   other_employee_workspace_revision employee_workspace_revision[] @relation("employee_workspace_revisionToemployee_workspace_revision")
-  agent_task_queue                  agent_task_queue?             @relation(fields: [source_task_id], references: [id], onUpdate: NoAction)
+  agent_task_queue                  agent_task_queue?             @relation(fields: [source_task_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                         workspace                     @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   employee_persistent_workspace     employee_persistent_workspace @relation(fields: [workspace_id_ref], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace_employee                workspace_employee            @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_employee_workspace_revision_employee_id")
@@ -789,7 +789,7 @@ model external_channel_binding {
   created_at               DateTime                   @db.Timestamptz(6)
   updated_at               DateTime                   @db.Timestamptz(6)
   disabled_at              DateTime?                  @db.Timestamptz(6)
-  users                    users?                     @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction)
+  users                    users?                     @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   external_integration     external_integration       @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace_channel        workspace_channel          @relation(fields: [workspace_id, channel_name], references: [workspace_id, name], onDelete: Cascade)
   workspace                workspace                  @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -822,7 +822,7 @@ model external_data_operation_run {
   created_at                DateTime                   @db.Timestamptz(6)
   updated_at                DateTime                   @db.Timestamptz(6)
   external_integration      external_integration       @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  external_resource_binding external_resource_binding? @relation(fields: [resource_binding_id], references: [id], onUpdate: NoAction)
+  external_resource_binding external_resource_binding? @relation(fields: [resource_binding_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                 workspace                  @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, resource_binding_id, created_at(sort: Desc)], map: "idx_external_data_operation_run_resource_created")
@@ -853,8 +853,8 @@ model external_integration {
   last_error                                           String?
   external_channel_binding                             external_channel_binding[]
   external_data_operation_run                          external_data_operation_run[]
-  users_external_integration_created_by_user_idTousers users?                        @relation("external_integration_created_by_user_idTousers", fields: [created_by_user_id], references: [id], onUpdate: NoAction)
-  users_external_integration_updated_by_user_idTousers users?                        @relation("external_integration_updated_by_user_idTousers", fields: [updated_by_user_id], references: [id], onUpdate: NoAction)
+  users_external_integration_created_by_user_idTousers users?                        @relation("external_integration_created_by_user_idTousers", fields: [created_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
+  users_external_integration_updated_by_user_idTousers users?                        @relation("external_integration_updated_by_user_idTousers", fields: [updated_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                                            workspace                     @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   external_integration_event                           external_integration_event[]
   external_message_mapping                             external_message_mapping[]
@@ -881,7 +881,7 @@ model external_integration_event {
   error_message        String?
   received_at          DateTime              @db.Timestamptz(6)
   processed_at         DateTime?             @db.Timestamptz(6)
-  external_integration external_integration? @relation(fields: [integration_id], references: [id], onUpdate: NoAction)
+  external_integration external_integration? @relation(fields: [integration_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace            workspace             @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([workspace_id, provider, external_event_id])
@@ -904,7 +904,7 @@ model external_message_mapping {
   metadata_json            Json                      @default("{}")
   created_at               DateTime                  @db.Timestamptz(6)
   dofe_agent_message_id    String?
-  external_channel_binding external_channel_binding? @relation(fields: [channel_binding_id], references: [id], onUpdate: NoAction)
+  external_channel_binding external_channel_binding? @relation(fields: [channel_binding_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   external_integration     external_integration      @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace                workspace                 @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -933,7 +933,7 @@ model external_message_outbox {
   updated_at                DateTime                  @db.Timestamptz(6)
   sent_at                   DateTime?                 @db.Timestamptz(6)
   dofe_agent_message_id     String?
-  external_channel_binding  external_channel_binding? @relation(fields: [channel_binding_id], references: [id], onUpdate: NoAction)
+  external_channel_binding  external_channel_binding? @relation(fields: [channel_binding_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   external_integration      external_integration      @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace                 workspace                 @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -959,7 +959,7 @@ model external_resource_binding {
   dofe_agent_resource_type    String?
   dofe_agent_resource_id      String?
   external_data_operation_run external_data_operation_run[]
-  users                       users?                        @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction)
+  users                       users?                        @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   external_integration        external_integration          @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace_channel           workspace_channel?            @relation(fields: [workspace_id, channel_name], references: [workspace_id, name], onDelete: Cascade)
   workspace                   workspace                     @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -988,9 +988,9 @@ model external_thread_binding {
   created_at               DateTime                  @db.Timestamptz(6)
   updated_at               DateTime                  @db.Timestamptz(6)
   dofe_agent_message_id    String?
-  external_channel_binding external_channel_binding? @relation(fields: [channel_binding_id], references: [id], onUpdate: NoAction)
+  external_channel_binding external_channel_binding? @relation(fields: [channel_binding_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   external_integration     external_integration      @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  agent_task_queue         agent_task_queue?         @relation(fields: [task_queue_id], references: [id], onUpdate: NoAction)
+  agent_task_queue         agent_task_queue?         @relation(fields: [task_queue_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace_channel        workspace_channel         @relation(fields: [workspace_id, channel_name], references: [workspace_id, name], onDelete: Cascade)
   workspace                workspace                 @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -1089,7 +1089,7 @@ model managed_runtime_cleanup_request {
   provisioning_task_id      String?
   delete_runtime_on_success Boolean                    @default(false)
   daemon_connection         daemon_connection          @relation(fields: [daemon_connection_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  runtime_provisioning_task runtime_provisioning_task? @relation(fields: [provisioning_task_id], references: [id], onUpdate: NoAction)
+  runtime_provisioning_task runtime_provisioning_task? @relation(fields: [provisioning_task_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                 workspace                  @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([daemon_connection_id, status, requested_at], map: "idx_managed_runtime_cleanup_request_daemon_status")
@@ -1111,7 +1111,7 @@ model managed_skill_service {
   created_at                                                                                                 DateTime                          @db.Timestamptz(6)
   updated_at                                                                                                 DateTime                          @db.Timestamptz(6)
   unreferenced_since                                                                                         DateTime?                         @db.Timestamptz(6)
-  skill_service_catalog                                                                                      skill_service_catalog             @relation(fields: [catalog_id], references: [id], onUpdate: NoAction)
+  skill_service_catalog                                                                                      skill_service_catalog             @relation(fields: [catalog_id], references: [id], onUpdate: NoAction, onDelete: Restrict)
   agent_runtime                                                                                              agent_runtime                     @relation(fields: [runtime_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace                                                                                                  workspace                         @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   managed_skill_service_operation_managed_skill_service_operation_replaces_service_idTomanaged_skill_service managed_skill_service_operation[] @relation("managed_skill_service_operation_replaces_service_idTomanaged_skill_service")
@@ -1137,8 +1137,8 @@ model managed_skill_service_operation {
   created_at                                                                                       DateTime               @db.Timestamptz(6)
   replaces_service_id                                                                              String?
   claim_generation                                                                                 Int                    @default(0)
-  skill_installation                                                                               skill_installation?    @relation(fields: [installation_id], references: [id], onUpdate: NoAction)
-  managed_skill_service_managed_skill_service_operation_replaces_service_idTomanaged_skill_service managed_skill_service? @relation("managed_skill_service_operation_replaces_service_idTomanaged_skill_service", fields: [replaces_service_id], references: [id], onUpdate: NoAction)
+  skill_installation                                                                               skill_installation?    @relation(fields: [installation_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
+  managed_skill_service_managed_skill_service_operation_replaces_service_idTomanaged_skill_service managed_skill_service? @relation("managed_skill_service_operation_replaces_service_idTomanaged_skill_service", fields: [replaces_service_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agent_runtime                                                                                    agent_runtime          @relation(fields: [runtime_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   managed_skill_service_managed_skill_service_operation_service_idTomanaged_skill_service          managed_skill_service  @relation("managed_skill_service_operation_service_idTomanaged_skill_service", fields: [service_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace                                                                                        workspace              @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1223,7 +1223,7 @@ model openmontage_artifact_grant {
   media_type           String?
   size_bytes           BigInt?
   sha256               String?
-  openmontage_job_link openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction)
+  openmontage_job_link openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction, onDelete: Restrict)
   attachment           attachment?          @relation(fields: [workspace_id, attachment_id], references: [workspace_id, id], onDelete: Cascade, onUpdate: NoAction)
   workspace            workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -1237,7 +1237,7 @@ model openmontage_chat_binding {
   conversation_message_id String?
   created_at              DateTime             @db.Timestamptz(6)
   updated_at              DateTime             @db.Timestamptz(6)
-  openmontage_job_link    openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction)
+  openmontage_job_link    openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction, onDelete: Restrict)
   workspace               workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, channel_name, created_at(sort: Desc)], map: "idx_openmontage_chat_binding_workspace_channel")
@@ -1262,7 +1262,7 @@ model openmontage_delegation_intent {
   last_error            String?
   created_at            DateTime  @db.Timestamptz(6)
   updated_at            DateTime  @db.Timestamptz(6)
-  workspace             workspace @relation(fields: [workspace_id], references: [id], onUpdate: NoAction)
+  workspace             workspace @relation(fields: [workspace_id], references: [id], onUpdate: NoAction, onDelete: Restrict)
 
   @@index([status, next_attempt_at], map: "idx_openmontage_delegation_intent_recovery", where: raw("(status = ANY (ARRAY['creating'::text, 'provisioned'::text, 'drain_pending'::text]))"))
 }
@@ -1289,7 +1289,7 @@ model openmontage_job_event {
   received_at          DateTime             @db.Timestamptz(6)
   applied_at           DateTime?            @db.Timestamptz(6)
   failure_reason       String?
-  openmontage_job_link openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction)
+  openmontage_job_link openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction, onDelete: Restrict)
   workspace            workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([job_id, sequence])
@@ -1332,7 +1332,7 @@ model openmontage_job_projection {
   sync_status           String               @default("CURRENT")
   created_at            DateTime             @db.Timestamptz(6)
   updated_at            DateTime             @db.Timestamptz(6)
-  openmontage_job_link  openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction)
+  openmontage_job_link  openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction, onDelete: Restrict)
   workspace             workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, updated_at(sort: Desc)], map: "idx_openmontage_job_projection_workspace_updated")
@@ -1352,7 +1352,7 @@ model openmontage_model_delegation {
   expires_at            DateTime             @db.Timestamptz(6)
   created_at            DateTime             @db.Timestamptz(6)
   updated_at            DateTime             @db.Timestamptz(6)
-  openmontage_job_link  openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction)
+  openmontage_job_link  openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction, onDelete: Restrict)
 
   @@index([runtime_credential_id, created_at(sort: Desc)], map: "idx_openmontage_model_delegation_credential")
 }
@@ -1372,7 +1372,7 @@ model openmontage_notification_outbox {
   last_error           String?
   created_at           DateTime             @db.Timestamptz(6)
   delivered_at         DateTime?            @db.Timestamptz(6)
-  openmontage_job_link openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction)
+  openmontage_job_link openmontage_job_link @relation(fields: [job_id], references: [job_id], onUpdate: NoAction, onDelete: Restrict)
   workspace            workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([job_id, event_sequence, event_type], map: "openmontage_notification_outb_job_id_event_sequence_event_t_key")
@@ -1461,7 +1461,7 @@ model runtime_app_operation {
   stage                String        @default("queued")
   failed_stage         String?
   stage_updated_at     DateTime      @default(now()) @db.Timestamptz(6)
-  users                users?        @relation(fields: [requested_by_user_id], references: [id], onUpdate: NoAction)
+  users                users?        @relation(fields: [requested_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agent_runtime        agent_runtime @relation(fields: [runtime_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace            workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -1583,7 +1583,7 @@ model runtime_installed_app {
   last_error                String?
   metadata_json             Json                        @default("{}")
   runtime_app_skill_binding runtime_app_skill_binding[]
-  users                     users?                      @relation(fields: [installed_by_user_id], references: [id], onUpdate: NoAction)
+  users                     users?                      @relation(fields: [installed_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agent_runtime             agent_runtime               @relation(fields: [runtime_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace                 workspace                   @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -1623,7 +1623,7 @@ model runtime_mcp_connection {
   next_health_check_at              DateTime?                        @db.Timestamptz(6)
   health_check_consecutive_failures Int                              @default(0)
   mcp_catalog_item                  mcp_catalog_item                 @relation(fields: [catalog_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                             users?                           @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction)
+  users                             users?                           @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agent_runtime                     agent_runtime                    @relation(fields: [runtime_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace                         workspace                        @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   runtime_mcp_discovery_snapshot    runtime_mcp_discovery_snapshot[]
@@ -1671,7 +1671,7 @@ model runtime_mcp_operation {
   failed_stage           String?
   stage_updated_at       DateTime               @default(now()) @db.Timestamptz(6)
   runtime_mcp_connection runtime_mcp_connection @relation(fields: [connection_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                  users?                 @relation(fields: [requested_by_user_id], references: [id], onUpdate: NoAction)
+  users                  users?                 @relation(fields: [requested_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agent_runtime          agent_runtime          @relation(fields: [runtime_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace              workspace              @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -1687,7 +1687,7 @@ model runtime_mcp_secret {
   rotated_at             DateTime               @db.Timestamptz(6)
   rotated_by_user_id     String?
   runtime_mcp_connection runtime_mcp_connection @relation(fields: [connection_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                  users?                 @relation(fields: [rotated_by_user_id], references: [id], onUpdate: NoAction)
+  users                  users?                 @relation(fields: [rotated_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
 
   @@id([connection_id, field_name])
 }
@@ -1723,8 +1723,8 @@ model runtime_provision_request {
   daemon_token_id     String?
   created_at          DateTime          @db.Timestamptz(6)
   updated_at          DateTime          @db.Timestamptz(6)
-  daemon_api_token    daemon_api_token? @relation(fields: [daemon_token_id], references: [id], onUpdate: NoAction)
-  provider_account    provider_account  @relation(fields: [provider_account_id], references: [id], onUpdate: NoAction)
+  daemon_api_token    daemon_api_token? @relation(fields: [daemon_token_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
+  provider_account    provider_account  @relation(fields: [provider_account_id], references: [id], onUpdate: NoAction, onDelete: Restrict)
   workspace           workspace         @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, status, created_at(sort: Desc)], map: "idx_runtime_provision_request_workspace")
@@ -1766,9 +1766,9 @@ model runtime_provisioning_task {
   task_timeout_ms                 Int                               @default(1800000)
   next_retry_at                   DateTime?                         @db.Timestamptz(6)
   managed_runtime_cleanup_request managed_runtime_cleanup_request[]
-  daemon_connection               daemon_connection?                @relation(fields: [daemon_connection_id], references: [id], onUpdate: NoAction)
+  daemon_connection               daemon_connection?                @relation(fields: [daemon_connection_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   users                           users                             @relation(fields: [requested_by_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  agent_runtime                   agent_runtime?                    @relation(fields: [runtime_id], references: [id], onUpdate: NoAction)
+  agent_runtime                   agent_runtime?                    @relation(fields: [runtime_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                       workspace                         @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   runtime_provisioning_task_event runtime_provisioning_task_event[]
 
@@ -1878,7 +1878,7 @@ model skill_artifact {
   total_size_bytes    BigInt                @default(0)
   legacy_incomplete   Int                   @default(0)
   created_at          DateTime              @db.Timestamptz(6)
-  skill               skill?                @relation(fields: [skill_id], references: [id], onUpdate: NoAction)
+  skill               skill?                @relation(fields: [skill_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace           workspace             @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   skill_artifact_file skill_artifact_file[]
 
@@ -1952,7 +1952,7 @@ model skill_import_event {
   import_mode   String    @default("created")
   metadata_json Json      @default("{}")
   imported_at   DateTime  @db.Timestamptz(6)
-  skill         skill?    @relation(fields: [skill_id], references: [id], onUpdate: NoAction)
+  skill         skill?    @relation(fields: [skill_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace     workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, imported_at(sort: Desc)], map: "idx_skill_import_event_workspace_imported")
@@ -1972,8 +1972,8 @@ model skill_install_approval {
   actor_user_id        String?
   created_at           DateTime  @db.Timestamptz(6)
   consumed_at          DateTime? @db.Timestamptz(6)
-  users                users?    @relation(fields: [actor_user_id], references: [id], onUpdate: NoAction)
-  skill                skill?    @relation(fields: [skill_id], references: [id], onUpdate: NoAction)
+  users                users?    @relation(fields: [actor_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
+  skill                skill?    @relation(fields: [skill_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace            workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, artifact_digest, release_lock_digest, policy_version, risk_decision_digest], map: "idx_skill_install_approval_lock")
@@ -2040,7 +2040,7 @@ model skill_installation_operation {
   lease_expires_at      DateTime?          @db.Timestamptz(6)
   claim_generation      Int                @default(0)
   skill_installation    skill_installation @relation(fields: [installation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                 users?             @relation(fields: [requested_by_user_id], references: [id], onUpdate: NoAction)
+  users                 users?             @relation(fields: [requested_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agent_runtime         agent_runtime      @relation(fields: [runtime_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace             workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
@@ -2136,8 +2136,8 @@ model skill_upgrade_approval {
   actor_user_id  String?
   created_at     DateTime  @db.Timestamptz(6)
   consumed_at    DateTime? @db.Timestamptz(6)
-  users          users?    @relation(fields: [actor_user_id], references: [id], onUpdate: NoAction)
-  skill          skill?    @relation(fields: [skill_id], references: [id], onUpdate: NoAction)
+  users          users?    @relation(fields: [actor_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
+  skill          skill?    @relation(fields: [skill_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace      workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([workspace_id, from_digest, to_digest, diff_hash, policy_version], map: "idx_skill_upgrade_approval_policy_lock")
@@ -2157,7 +2157,7 @@ model task_commit_journal {
   created_at            DateTime            @db.Timestamptz(6)
   updated_at            DateTime            @db.Timestamptz(6)
   employee_id           String?
-  workspace_employee    workspace_employee? @relation(fields: [employee_id], references: [id], onUpdate: NoAction, map: "fk_task_commit_journal_employee_id")
+  workspace_employee    workspace_employee? @relation(fields: [employee_id], references: [id], onUpdate: NoAction, map: "fk_task_commit_journal_employee_id", onDelete: SetNull)
   agent_task_queue      agent_task_queue    @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace             workspace           @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -2237,7 +2237,7 @@ model token_usage {
   pipeline_stage            String?
   source_invocation_id      String?
   model_invocation_id       String?
-  provider_account          provider_account?           @relation(fields: [provider_account_id], references: [id], onUpdate: NoAction)
+  provider_account          provider_account?           @relation(fields: [provider_account_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agent_task_queue          agent_task_queue?           @relation(fields: [task_queue_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace                 workspace                   @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   token_usage_billing_event token_usage_billing_event[]
@@ -2260,7 +2260,7 @@ model token_usage_billing_event {
   event_type     String
   snapshot_json  Json
   created_at     DateTime     @db.Timestamptz(6)
-  token_usage    token_usage? @relation(fields: [token_usage_id], references: [id], onUpdate: NoAction)
+  token_usage    token_usage? @relation(fields: [token_usage_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace      workspace    @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspace_id, token_usage_id, created_at], map: "idx_token_usage_billing_event_usage")
@@ -2445,7 +2445,7 @@ model workflow_run {
   updated_at          DateTime             @db.Timestamptz(6)
   history_sequence    BigInt
   workflow_node_run   workflow_node_run[]
-  workflow_trigger    workflow_trigger?    @relation(fields: [trigger_id], references: [id], onUpdate: NoAction)
+  workflow_trigger    workflow_trigger?    @relation(fields: [trigger_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workflow_version    workflow_version     @relation(fields: [version_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   workflow_definition workflow_definition  @relation(fields: [workflow_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   workspace           workspace            @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2470,7 +2470,7 @@ model workflow_run_event {
   severity          String             @default("info")
   data_json         Json               @default("{}")
   created_at        DateTime           @db.Timestamptz(6)
-  workflow_node_run workflow_node_run? @relation(fields: [node_run_id], references: [id], onUpdate: NoAction)
+  workflow_node_run workflow_node_run? @relation(fields: [node_run_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workflow_run      workflow_run       @relation(fields: [run_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace         workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -2694,7 +2694,7 @@ model workspace_employee {
   employee_workspace_revision       employee_workspace_revision[]
   runtime_workspace_mount_operation runtime_workspace_mount_operation[]
   task_commit_journal               task_commit_journal[]
-  users                             users?                              @relation(fields: [owner_user_id], references: [id], onUpdate: NoAction)
+  users                             users?                              @relation(fields: [owner_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace                         workspace                           @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([workspace_id, name])
@@ -2715,7 +2715,7 @@ model workspace_git_credential {
   updated_at         DateTime  @db.Timestamptz(6)
   rotated_at         DateTime? @db.Timestamptz(6)
   revoked_at         DateTime? @db.Timestamptz(6)
-  users              users?    @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction)
+  users              users?    @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace          workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([workspace_id, host])
@@ -2790,7 +2790,7 @@ model workspace_runtime_display_name {
   created_at         DateTime      @db.Timestamptz(6)
   updated_at         DateTime      @db.Timestamptz(6)
   agent_runtime      agent_runtime @relation(fields: [runtime_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users              users?        @relation(fields: [updated_by_user_id], references: [id], onUpdate: NoAction)
+  users              users?        @relation(fields: [updated_by_user_id], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace          workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([workspace_id, runtime_id])

@@ -46,6 +46,28 @@ The advisory locks 115/116/117 are application-level only and have no SQL in mig
 also reports exactly 5. The two counts match; no reconciliation gap remains. If a future
 `db pull` surfaces additional triggers, reconcile here before extending the baseline.
 
+## Foreign-key referential actions (onDelete) — all explicit
+
+All 255 foreign keys carry an **explicit** `onDelete` in `schema.prisma`, sourced from the
+live `pg_constraint` actions and verified byte-faithful:
+
+| Action | Count |
+| --- | ---: |
+| Cascade | 190 |
+| SetNull | 51 |
+| Restrict | 10 |
+| NoAction | 4 |
+
+60 of these were implicit (relying on Prisma defaults: optional relation → `SetNull`,
+required relation → `Restrict`) after `db pull`; they are now explicit for
+self-documentation and to insulate against future Prisma default changes. Because the
+explicit value equals the default Prisma was already emitting, the drift gate remains
+exit 0 and `0_init` Part B is unchanged — no FK correction block was needed in Part C.
+
+`0_init` FK faithfulness was verified directly: deploy the baseline to an empty database
+and diff the full FK set (table, columns, ON DELETE, ON UPDATE) against the live DB →
+**255/255 identical**.
+
 ## NULLS FIRST index note
 
 `idx_workflow_node_run_approval_scan` uses `approval_scan_after NULLS FIRST`. Prisma
