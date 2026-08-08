@@ -204,7 +204,7 @@ packages/db
 ### 6.1 Schema/Migrate
 
 - 空 PostgreSQL：baseline migration 可从空库创建所有声明对象，并在同一 migration 中恢复 trigger/function/特殊索引。
-- 现有 PostgreSQL：`migrate resolve` 后 `migrate deploy` 只应用新 migration；不得重复建表、降级 `schema_version` 或删除数据。
+- 现有 PostgreSQL：`migrate resolve` 后 `migrate deploy` 只应用新 migration；不得重复建表、降级 `schema_version` 或删除数据。Phase 1 起，这一 bootstrap 由 `packages/db/src/prisma-migrate-deploy.ts`（`pnpm db:prisma:migrate:deploy`）自动判定：检测到遗留库（`app_metadata.schema_version=116` 且无 `_prisma_migrations`）时先 `resolve --applied 0_init`，全新库直接 `deploy`，已记录则幂等跳过。
 - 双实例滚动：旧版本遇到更高版本只读写，不执行旧 migration；锁竞争错误可重试且不会缓存未验证连接。
 - 在线 DDL：大表索引必须事务外 concurrent 创建；中断后可检测 invalid index 并清理重建。
 

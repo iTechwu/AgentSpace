@@ -6,7 +6,7 @@ services:
       target: runtime
       args:
         NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
-    command: ["node", "--experimental-strip-types", "packages/db/src/postgres-cli.ts", "init"]
+    command: ["node", "--experimental-strip-types", "packages/db/src/prisma-migrate-deploy.ts"]
     env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
     restart: "no"
 

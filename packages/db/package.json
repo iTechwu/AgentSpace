@@ -28,7 +28,7 @@
     "postgres:cutover-plan": "node --experimental-strip-types ./src/postgres-cli.ts cutover-plan",
     "prisma:generate": "prisma generate --schema prisma/schema.prisma",
     "prisma:pull": "prisma db pull --schema prisma/schema.prisma",
-    "prisma:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "prisma:migrate:deploy": "node --experimental-strip-types ./src/prisma-migrate-deploy.ts",
     "prisma:diff": "prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
     "postinstall": "prisma generate --schema prisma/schema.prisma"
   },

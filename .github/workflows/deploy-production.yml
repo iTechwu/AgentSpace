@@ -75,6 +75,19 @@ jobs:
             npm --prefix packages/daemon ci --no-audit --no-fund
           }
 
+          run_migrations() {
+            # Phase 1: structural migrations are a discrete deploy step (prisma migrate
+            # deploy), replacing the boot-time self-migration. Load the service env file
+            # (the systemd EnvironmentFile) so the DB URL is available, then run the
+            # bootstrap-aware wrapper (marks 0_init applied on a legacy DB, then deploys).
+            if [ -f /etc/dofe-agent/web.env ]; then
+              set -a
+              . /etc/dofe-agent/web.env
+              set +a
+            fi
+            npm --prefix packages/db run prisma:migrate:deploy
+          }
+
           rollback() {
             local target_commit="$1"
 
@@ -82,6 +95,7 @@ jobs:
             git reset --hard "$target_commit"
             install_dependencies
             npm run build
+            run_migrations
             start_service
             healthcheck
           }
@@ -122,6 +136,11 @@ jobs:
           install_dependencies
 
           if ! npm run build; then
+            rollback "$before"
+            exit 1
+          fi
+
+          if ! run_migrations; then
             rollback "$before"
             exit 1
           fi
