@@ -42,20 +42,40 @@ export function WorkflowListClient({
   const [totalRuns, setTotalRuns] = useState<number>(data.recentRunsTotal);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
-  // F2: 切换 workspace 时同步重置运行历史。组件挂在 module-shell 中会被复用，useState 初始化器
-  // 只在挂载时取一次 props；若不重置，workspaceId 变后 runs 仍是旧工作区、hasMore 用旧长度对
-  // 新 total、链接也用新 slug 指向旧 run。采用 React「渲染期调整 state」模式（见 React 文档
-  // You Might Not Need an Effect），无需额外 effect 或重挂载。
-  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
-  if (workspaceId !== prevWorkspaceId) {
-    setPrevWorkspaceId(workspaceId);
+  const requestGenerationRef = useRef(0);
+  // module-shell 会在缓存刷新后以同一 workspaceId 复用组件。记录服务端快照的组成字段，既覆盖
+  // workspace 切换，也覆盖同工作区数据刷新；仅父组件普通重渲染且快照引用未变时不会丢弃分页结果。
+  const [runSnapshotSource, setRunSnapshotSource] = useState(() => ({
+    workspaceId,
+    runs: data.recentRuns,
+    nextCursor: data.recentRunsNextCursor ?? null,
+    hasMore: data.recentRunsHasMore ?? false,
+    total: data.recentRunsTotal,
+  }));
+  const incomingNextCursor = data.recentRunsNextCursor ?? null;
+  const incomingHasMore = data.recentRunsHasMore ?? false;
+  const runSnapshotChanged = workspaceId !== runSnapshotSource.workspaceId
+    || data.recentRuns !== runSnapshotSource.runs
+    || incomingNextCursor !== runSnapshotSource.nextCursor
+    || incomingHasMore !== runSnapshotSource.hasMore
+    || data.recentRunsTotal !== runSnapshotSource.total;
+  if (runSnapshotChanged) {
+    requestGenerationRef.current += 1;
+    setRunSnapshotSource({
+      workspaceId,
+      runs: data.recentRuns,
+      nextCursor: incomingNextCursor,
+      hasMore: incomingHasMore,
+      total: data.recentRunsTotal,
+    });
     setRuns(data.recentRuns);
-    setNextCursor(data.recentRunsNextCursor ?? null);
-    setHasMoreRuns(data.recentRunsHasMore ?? false);
+    setNextCursor(incomingNextCursor);
+    setHasMoreRuns(incomingHasMore);
     setTotalRuns(data.recentRunsTotal);
+    setLoadingMore(false);
     setLoadMoreError(null);
   }
-  // 用于丢弃 workspace 切换前在途请求的过期响应（见 loadMoreRuns）。
+  // workspace 与请求代次共同隔离过期响应；后者处理同一 workspace 的服务端快照刷新。
   const workspaceIdRef = useRef(workspaceId);
   workspaceIdRef.current = workspaceId;
   const filtered = useMemo(() => {
@@ -69,6 +89,7 @@ export function WorkflowListClient({
   async function loadMoreRuns(): Promise<void> {
     if (!nextCursor) return;
     const requestWorkspaceId = workspaceId;
+    const requestGeneration = requestGenerationRef.current;
     setLoadingMore(true);
     setLoadMoreError(null);
     try {
@@ -78,8 +99,8 @@ export function WorkflowListClient({
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const page = (await response.json()) as { runs: WorkflowRunSummary[]; total: number; hasMore: boolean; nextCursor: string | null };
-      // workspace 已在请求在途期间切换：丢弃过期响应，避免把旧工作区运行混入新工作区。
-      if (workspaceIdRef.current !== requestWorkspaceId) return;
+      // workspace 或服务端首页快照已在请求在途期间变化：丢弃旧分页响应。
+      if (workspaceIdRef.current !== requestWorkspaceId || requestGenerationRef.current !== requestGeneration) return;
       // 去重防御：游标分页正常不重叠；与 SSR 首页或并发刷新产生重复时按 id 合并。
       setRuns((previous) => {
         const seen = new Set(previous.map((run) => run.id));
@@ -89,10 +110,12 @@ export function WorkflowListClient({
       setNextCursor(page.nextCursor);
       setTotalRuns(page.total);
     } catch {
-      if (workspaceIdRef.current !== requestWorkspaceId) return;
+      if (workspaceIdRef.current !== requestWorkspaceId || requestGenerationRef.current !== requestGeneration) return;
       setLoadMoreError(tx("加载更多运行记录失败，请稍后重试。", "Failed to load more runs. Please try again."));
     } finally {
-      setLoadingMore(false);
+      if (workspaceIdRef.current === requestWorkspaceId && requestGenerationRef.current === requestGeneration) {
+        setLoadingMore(false);
+      }
     }
   }
 

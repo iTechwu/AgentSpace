@@ -177,6 +177,38 @@ export function listWorkflowRunsSync(workspaceId: string, limit = 100, offset = 
 export interface WorkflowRunListCursor {
   createdAt: string;
   id: string;
+  snapshotTotal: number;
+}
+
+export interface WorkflowRunPageSnapshot {
+  runs: WorkflowRunRecord[];
+  total: number;
+}
+
+/**
+ * 用同一条 SQL 读取运行历史首页与总数，确保二者来自同一个数据库语句快照。
+ * 调用方会把 total 写入 keyset 游标，后续页沿用该值，避免分页期间新增运行导致
+ * 「已加载数量 / 总数」口径漂移。
+ */
+export function listWorkflowRunsPageSnapshotSync(
+  workspaceId: string,
+  limit: number,
+): WorkflowRunPageSnapshot {
+  const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
+  const rows = getDatabase().prepare(
+    `SELECT ${RUN_COLUMNS}, CAST(COUNT(*) OVER () AS integer) AS "snapshotTotal"
+       FROM workflow_run
+      WHERE workspace_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${safeLimit}`,
+  ).all(workspaceId) as Array<Record<string, unknown>>;
+  const total = typeof rows[0]?.snapshotTotal === "number" ? rows[0].snapshotTotal : 0;
+  const runs = rows.map((row) => {
+    const run = { ...row };
+    delete run.snapshotTotal;
+    return mapRun(run);
+  });
+  return { runs, total };
 }
 
 /**

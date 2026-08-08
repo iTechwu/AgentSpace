@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowListClient } from "./workflow-list-client";
@@ -59,7 +59,11 @@ describe("WorkflowListClient", () => {
   it("loads more runs on demand via the paginated runs API", async () => {
     // 运行历史游标分页（UIUX:运行历史分页）：SSR 首页 hasMore=true 时展示「加载更多」，
     // 点击后以服务端下发的 nextCursor 续拉下一页并追加，不重复已加载运行。
-    const nextCursor = Buffer.from(JSON.stringify({ createdAt: "2026-08-06T00:00:00.000Z", id: "run-1" }), "utf8").toString("base64url");
+    const nextCursor = Buffer.from(JSON.stringify({
+      createdAt: "2026-08-06T00:00:00.000Z",
+      id: "run-1",
+      snapshotTotal: 3,
+    }), "utf8").toString("base64url");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({
         runs: [
@@ -95,7 +99,11 @@ describe("WorkflowListClient", () => {
     // F2: 组件挂在 module-shell 中被复用时，切换 workspaceId 必须重置 runs/hasMore/cursor，
     // 否则继续展示上一个工作区的运行并用新 slug 生成错误链接。
     const user = userEvent.setup();
-    const nextCursor = Buffer.from(JSON.stringify({ createdAt: "2026-08-06T00:00:00.000Z", id: "run-1" }), "utf8").toString("base64url");
+    const nextCursor = Buffer.from(JSON.stringify({
+      createdAt: "2026-08-06T00:00:00.000Z",
+      id: "run-1",
+      snapshotTotal: 3,
+    }), "utf8").toString("base64url");
     const workspaceA: WorkflowCenterPageData = { ...data, recentRunsTotal: 3, recentRunsHasMore: true, recentRunsNextCursor: nextCursor };
     const { rerender } = render(<WorkflowListClient data={workspaceA} workspaceId="ws-a" workspaceSlug="alpha" />);
     await user.click(screen.getByRole("tab", { name: "运行" }));
@@ -115,6 +123,74 @@ describe("WorkflowListClient", () => {
     expect(screen.queryByRole("link", { name: /每日简报/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /B 流程/ })).toHaveAttribute("href", "/w/beta/automations/runs/run-b1");
     expect(screen.queryByRole("button", { name: "加载更多" })).not.toBeInTheDocument();
+  });
+
+  it("replaces same-workspace run history and ignores an older in-flight page", async () => {
+    const user = userEvent.setup();
+    const nextCursor = Buffer.from(JSON.stringify({
+      createdAt: "2026-08-06T00:00:00.000Z",
+      id: "run-1",
+      snapshotTotal: 3,
+    }), "utf8").toString("base64url");
+    let resolveOldPage!: (response: Response) => void;
+    const oldPage = new Promise<Response>((resolve) => {
+      resolveOldPage = resolve;
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockReturnValue(oldPage);
+    const initialData: WorkflowCenterPageData = {
+      ...data,
+      recentRunsTotal: 3,
+      recentRunsHasMore: true,
+      recentRunsNextCursor: nextCursor,
+    };
+    const { rerender } = render(
+      <WorkflowListClient data={initialData} workspaceId="ws-1" workspaceSlug="default" />,
+    );
+    await user.click(screen.getByRole("tab", { name: "运行" }));
+    await user.click(screen.getByRole("button", { name: "加载更多" }));
+
+    const refreshedData: WorkflowCenterPageData = {
+      ...data,
+      recentRuns: [{
+        id: "run-new",
+        workflowId: "wf-1",
+        workflowName: "刷新后的流程",
+        status: "succeeded",
+        triggerType: "manual",
+        createdAt: "2026-08-08T00:00:00.000Z",
+      }],
+      recentRunsTotal: 1,
+      recentRunsHasMore: false,
+      recentRunsNextCursor: null,
+    };
+    rerender(<WorkflowListClient data={refreshedData} workspaceId="ws-1" workspaceSlug="default" />);
+
+    expect(screen.queryByRole("link", { name: /每日简报/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /刷新后的流程/ })).toHaveAttribute(
+      "href",
+      "/w/default/automations/runs/run-new",
+    );
+    expect(screen.getByText("共 1 条运行记录")).toBeInTheDocument();
+
+    const staleResponse = new Response(JSON.stringify({
+      runs: [{
+        id: "run-old-page",
+        workflowId: "wf-1",
+        workflowName: "旧分页结果",
+        status: "cancelled",
+        triggerType: "schedule",
+        createdAt: "2026-08-05T00:00:00.000Z",
+      }],
+      total: 3,
+      hasMore: false,
+      nextCursor: null,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    resolveOldPage(staleResponse);
+
+    await waitFor(() => expect(staleResponse.bodyUsed).toBe(true));
+    expect(screen.queryByRole("link", { name: /旧分页结果/ })).not.toBeInTheDocument();
+    expect(screen.getByText("共 1 条运行记录")).toBeInTheDocument();
+    fetchMock.mockRestore();
   });
 
   it("surfaces a translated notice when a manual run fails", async () => {

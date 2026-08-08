@@ -25,7 +25,11 @@ describe("workflow runs pagination route", () => {
       currentMembership: { role: "member" },
       accessScope: "workspace",
     });
-    mocks.decodeCursor.mockReturnValue({ createdAt: "2026-08-06T00:00:00.000Z", id: "run-0" });
+    mocks.decodeCursor.mockReturnValue({
+      createdAt: "2026-08-06T00:00:00.000Z",
+      id: "run-0",
+      snapshotTotal: 51,
+    });
     mocks.runsPage.mockReturnValue({
       runs: [{ id: "run-1", workflowId: "wf-1", workflowName: "每日简报", status: "succeeded", triggerType: "schedule", createdAt: "2026-08-06T00:00:00.000Z" }],
       total: 51,

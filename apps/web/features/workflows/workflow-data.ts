@@ -1,5 +1,4 @@
 import {
-  countWorkflowRunsSync,
   getDatabase,
   listEmployeeRuntimeBindingsSync,
   listStoredChannelsSync,
@@ -8,6 +7,7 @@ import {
   listWorkflowNodeRunsSync,
   listWorkflowRunEventsSync,
   listWorkflowRunsSync,
+  listWorkflowRunsPageSnapshotSync,
   listWorkflowRunsAfterCursorSync,
   listWorkspaceMemberUsersSync,
   readWorkflowDefinitionSync,
@@ -213,8 +213,9 @@ export interface WorkflowRunsPage {
  *
  * 取代 offset 分页以消除「分页期间新增运行导致 offset 整体后移、去重后漏记录或『加载更多』
  * 永不结束」的缺陷：新插入的运行 createdAt 晚于游标，不会被后续页误纳入，分页始终连续、
- * 确定且可终止。取 limit+1 条以判定 hasMore（多取的一条仅用于边界判定，不下发）；
- * nextCursor 为本页最后一条的定位键编码；total 为工作区运行总数，仅用于展示。
+ * 确定且可终止。首页用单条 SQL 同时读取列表和总数，并把该快照总数写入游标；后续页
+ * 复用游标中的总数，避免翻页期间新增运行造成已加载集合与实时总数口径不一致。取 limit+1
+ * 条以判定 hasMore（多取的一条仅用于边界判定，不下发）。
  */
 export function getWorkflowRunsPageSync(
   workspaceId: string,
@@ -225,16 +226,24 @@ export function getWorkflowRunsPageSync(
   const workflowNamesById = new Map(
     listWorkflowDefinitionsSync(workspaceId).map((definition) => [definition.id, definition.name]),
   );
-  const fetched = listWorkflowRunsAfterCursorSync(workspaceId, cursor, limit + 1)
-    .filter(isStatusfulWorkflowRun);
+  const firstPageSnapshot = cursor
+    ? null
+    : listWorkflowRunsPageSnapshotSync(workspaceId, limit + 1);
+  const fetched = (cursor
+    ? listWorkflowRunsAfterCursorSync(workspaceId, cursor, limit + 1)
+    : firstPageSnapshot!.runs).filter(isStatusfulWorkflowRun);
+  const total = cursor?.snapshotTotal ?? firstPageSnapshot!.total;
   const hasMore = fetched.length > limit;
   const pageRecords = hasMore ? fetched.slice(0, limit) : fetched;
   const runs = pageRecords.map((run) => toWorkflowRunSummary(run, workflowNamesById));
   const lastRecord = pageRecords[pageRecords.length - 1];
   const nextCursor = hasMore && lastRecord
-    ? encodeWorkflowRunCursor({ createdAt: lastRecord.createdAt, id: lastRecord.id })
+    ? encodeWorkflowRunCursor({
+        createdAt: lastRecord.createdAt,
+        id: lastRecord.id,
+        snapshotTotal: total,
+      })
     : null;
-  const total = countWorkflowRunsSync(workspaceId);
   return { runs, total, hasMore, nextCursor };
 }
 
@@ -248,8 +257,16 @@ export function decodeWorkflowRunCursor(raw: string | null): WorkflowRunListCurs
   if (typeof raw !== "string" || raw.length === 0) return null;
   try {
     const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<WorkflowRunListCursor>;
-    if (typeof parsed.createdAt === "string" && typeof parsed.id === "string") {
-      return { createdAt: parsed.createdAt, id: parsed.id };
+    if (typeof parsed.createdAt === "string"
+      && typeof parsed.id === "string"
+      && typeof parsed.snapshotTotal === "number"
+      && Number.isSafeInteger(parsed.snapshotTotal)
+      && parsed.snapshotTotal >= 0) {
+      return {
+        createdAt: parsed.createdAt,
+        id: parsed.id,
+        snapshotTotal: parsed.snapshotTotal,
+      };
     }
     return null;
   } catch {

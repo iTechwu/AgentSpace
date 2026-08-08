@@ -9,6 +9,7 @@ import {
 import {
   claimWorkflowNodeForDispatchSync,
   createWorkflowRunSync,
+  listWorkflowRunsPageSnapshotSync,
   listWorkflowNodeRunsSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
@@ -62,6 +63,28 @@ function seedVersion(): { workflowId: string; versionId: string } {
   });
   return { workflowId: definition.id, versionId: version.id };
 }
+
+test("reads the first run page and total from one snapshot query", () => {
+  const seed = seedVersion();
+  const baseline = (getDatabase().prepare(
+    "SELECT COUNT(*)::integer AS count FROM workflow_run WHERE workspace_id = ?",
+  ).get(WORKSPACE_ID) as { count: number }).count;
+  const created = [1, 2, 3].map((index) => createWorkflowRunSync({
+    workspaceId: WORKSPACE_ID,
+    workflowId: seed.workflowId,
+    versionId: seed.versionId,
+    triggerType: "manual",
+    triggerKey: `workflow-runs:snapshot-${seed.workflowId}-${index}`,
+    inputJson: "{}",
+    now: `2099-01-0${index}T00:00:00.000Z`,
+  }));
+
+  const snapshot = listWorkflowRunsPageSnapshotSync(WORKSPACE_ID, 2);
+
+  assert.equal(snapshot.total, baseline + 3);
+  assert.deepEqual(snapshot.runs.map((run) => run.id), [created[2]!.id, created[1]!.id]);
+  assert.equal("snapshotTotal" in snapshot.runs[0]!, false);
+});
 
 test("materializes one run for a duplicate trigger key and protects terminal node runs", () => {
   const seed = seedVersion();

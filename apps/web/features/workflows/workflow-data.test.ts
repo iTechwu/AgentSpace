@@ -4,8 +4,8 @@ const {
   mockGetDatabase,
   mockListWorkflowDefinitionsSync,
   mockListWorkflowRunsSync,
+  mockListWorkflowRunsPageSnapshotSync,
   mockListWorkflowRunsAfterCursorSync,
-  mockCountWorkflowRunsSync,
   mockListWorkspaceMemberUsersSync,
   mockReadCutoverMode,
   mockReadWorkspaceState,
@@ -13,8 +13,8 @@ const {
   mockGetDatabase: vi.fn(),
   mockListWorkflowDefinitionsSync: vi.fn(),
   mockListWorkflowRunsSync: vi.fn(),
+  mockListWorkflowRunsPageSnapshotSync: vi.fn(),
   mockListWorkflowRunsAfterCursorSync: vi.fn(),
-  mockCountWorkflowRunsSync: vi.fn(),
   mockListWorkspaceMemberUsersSync: vi.fn(),
   mockReadCutoverMode: vi.fn(),
   mockReadWorkspaceState: vi.fn(),
@@ -24,8 +24,8 @@ vi.mock("@dofe-agent/db", () => ({
   getDatabase: mockGetDatabase,
   listWorkflowDefinitionsSync: mockListWorkflowDefinitionsSync,
   listWorkflowRunsSync: mockListWorkflowRunsSync,
+  listWorkflowRunsPageSnapshotSync: mockListWorkflowRunsPageSnapshotSync,
   listWorkflowRunsAfterCursorSync: mockListWorkflowRunsAfterCursorSync,
-  countWorkflowRunsSync: mockCountWorkflowRunsSync,
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
 }));
 vi.mock("@dofe-agent/services", () => ({
@@ -40,17 +40,15 @@ describe("getWorkflowCenterPageData", () => {
   beforeEach(() => {
     mockListWorkflowDefinitionsSync.mockReset();
     mockListWorkflowRunsSync.mockReset();
+    mockListWorkflowRunsPageSnapshotSync.mockReset();
     mockListWorkflowRunsAfterCursorSync.mockReset();
-    mockCountWorkflowRunsSync.mockReset();
     mockListWorkspaceMemberUsersSync.mockReset();
     mockGetDatabase.mockReset();
     mockReadCutoverMode.mockReset();
     mockReadWorkspaceState.mockReset();
     mockReadCutoverMode.mockReturnValue("legacy_archived");
     mockReadWorkspaceState.mockReturnValue({ automationRules: [] });
-    mockCountWorkflowRunsSync.mockReturnValue(0);
-    // getWorkflowCenterPageData 现在通过 getWorkflowRunsPageSync（游标分页）产出 recentRuns 首页，
-    // 内部调用 listWorkflowRunsAfterCursorSync；此处与 listWorkflowRunsSync 返回同一份运行数据。
+    mockListWorkflowRunsPageSnapshotSync.mockReturnValue({ runs: [], total: 0 });
     mockListWorkflowRunsAfterCursorSync.mockReturnValue([]);
     mockGetDatabase.mockReturnValue({
       prepare: vi.fn(() => ({ all: vi.fn(() => []) })),
@@ -175,9 +173,11 @@ describe("getWorkflowCenterPageData", () => {
         finishedAt: "2026-08-06T01:01:00.000Z",
       },
     ]);
-    // recentRuns 首页现由 getWorkflowRunsPageSync（游标分页）产出，与 listWorkflowRunsSync
-    // 返回同一份运行数据（已按 createdAt DESC 预排序）。
-    mockListWorkflowRunsAfterCursorSync.mockReturnValue(mockListWorkflowRunsSync());
+    // recentRuns 首页由单条 SQL 的列表与总数快照产出。
+    mockListWorkflowRunsPageSnapshotSync.mockReturnValue({
+      runs: mockListWorkflowRunsSync(),
+      total: 2,
+    });
 
     const { recentRuns } = getWorkflowCenterPageData("default");
 
@@ -309,8 +309,9 @@ describe("getWorkflowCenterPageData", () => {
 describe("getWorkflowRunsPageSync", () => {
   beforeEach(() => {
     mockListWorkflowDefinitionsSync.mockReset();
+    mockListWorkflowRunsPageSnapshotSync.mockReset();
     mockListWorkflowRunsAfterCursorSync.mockReset();
-    mockCountWorkflowRunsSync.mockReset();
+    mockListWorkflowRunsPageSnapshotSync.mockReturnValue({ runs: [], total: 0 });
     mockListWorkflowDefinitionsSync.mockReturnValue([
       { id: "workflow-daily", name: "Daily brief" },
     ]);
@@ -324,42 +325,47 @@ describe("getWorkflowRunsPageSync", () => {
       { id: "run-b", workflowId: "workflow-daily", triggerType: "schedule", status: "failed", createdAt: "2026-08-06T02:00:00.000Z" },
       { id: "run-a", workflowId: "workflow-daily", triggerType: "schedule", status: "succeeded", createdAt: "2026-08-06T01:00:00.000Z" },
     ];
-    mockListWorkflowRunsAfterCursorSync.mockImplementation((_ws: string, cursor: { createdAt: string; id: string } | null, limit: number) => {
-      if (!cursor) return all.slice(0, limit);
+    mockListWorkflowRunsPageSnapshotSync.mockImplementation((_ws: string, limit: number) => ({
+      runs: all.slice(0, limit),
+      total: 3,
+    }));
+    mockListWorkflowRunsAfterCursorSync.mockImplementation((_ws: string, cursor: { createdAt: string; id: string; snapshotTotal: number } | null, limit: number) => {
+      if (!cursor) throw new Error("first page must use the atomic snapshot query");
       const idx = all.findIndex((run) => run.createdAt === cursor.createdAt && run.id === cursor.id);
       return idx < 0 ? [] : all.slice(idx + 1, idx + 1 + limit);
     });
-    mockCountWorkflowRunsSync.mockReturnValue(3);
 
     const first = getWorkflowRunsPageSync("default", { limit: 2 });
     // 取 limit+1=3 条 → hasMore=true，首页返回 run-c, run-b，nextCursor 指向 run-b。
-    expect(mockListWorkflowRunsAfterCursorSync).toHaveBeenCalledWith("default", null, 3);
+    expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledWith("default", 3);
     expect(first.runs.map((run) => run.id)).toEqual(["run-c", "run-b"]);
     expect(first.total).toBe(3);
     expect(first.hasMore).toBe(true);
     const firstCursor = decodeWorkflowRunCursor(first.nextCursor);
-    expect(firstCursor).toEqual({ createdAt: "2026-08-06T02:00:00.000Z", id: "run-b" });
+    expect(firstCursor).toEqual({
+      createdAt: "2026-08-06T02:00:00.000Z",
+      id: "run-b",
+      snapshotTotal: 3,
+    });
 
     const next = getWorkflowRunsPageSync("default", { limit: 2, cursor: first.nextCursor });
     // 从 run-b 之后取 3 条 → 只剩 run-a（1 条）→ hasMore=false，无下一游标。
     expect(next.runs.map((run) => run.id)).toEqual(["run-a"]);
+    expect(next.total).toBe(3);
     expect(next.hasMore).toBe(false);
     expect(next.nextCursor).toBeNull();
+    expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledTimes(1);
   });
 
   it("clamps limit into the supported range", () => {
-    mockListWorkflowRunsAfterCursorSync.mockReturnValue([]);
-    mockCountWorkflowRunsSync.mockReturnValue(0);
     getWorkflowRunsPageSync("default", { limit: 9999 });
     // limit 被 clamp 到 200，取数按 limit+1=201。
-    expect(mockListWorkflowRunsAfterCursorSync).toHaveBeenCalledWith("default", null, 201);
+    expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledWith("default", 201);
   });
 
   it("treats malformed cursor input as the first page", () => {
-    mockListWorkflowRunsAfterCursorSync.mockReturnValue([]);
-    mockCountWorkflowRunsSync.mockReturnValue(0);
     // 数据层对非法游标宽容（decode 返回 null → 视为首页）；route 层负责对非法游标返回 400。
     getWorkflowRunsPageSync("default", { limit: 10, cursor: "not-valid-base64" });
-    expect(mockListWorkflowRunsAfterCursorSync).toHaveBeenCalledWith("default", null, 11);
+    expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledWith("default", 11);
   });
 });
