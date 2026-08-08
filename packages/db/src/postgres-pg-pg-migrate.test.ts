@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { ensurePostgresSchema, migratePostgresToPostgres } from "./postgres.ts";
 import { resolvePostgresDatabaseUrl } from "./postgres-config.ts";
+
+const CLI_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "postgres-cli.ts");
 
 /**
  * Spec #7（PG→PG dry-run 误报）：migratePostgresToPostgres 的 dry-run 分支原先在复核目标库版本前
@@ -150,6 +155,71 @@ test("migratePostgresToPostgres dry-run 面对兼容目标库报告 completed（
     assert.equal(workspaceTable!.sourceCount, 1, "前置：source workspace 有 1 行");
     assert.equal(workspaceTable!.insertedCount, 1, "兼容时 dry-run 报告 insertedCount = sourceCount");
     assert.equal(workspaceTable!.skippedCount, 0, "兼容时 dry-run 不应有 skipped");
+  } finally {
+    await dropTempDbs(dbs);
+  }
+});
+
+/**
+ * Standards #4（迁移跳过退出码）：postgres-cli 的 migrate 命令在报告 skipped_incompatible_schema 时
+ * 原先仍以退出码 0 静默成功——CI/脚本无法据退出码判断迁移未执行。修复后跳过须以非零退出码 2 告知
+ *（区别于错误退出码 1），completed 保持 0。通过 spawnSync 真实拉起 CLI 进程验证退出码契约。
+ */
+test("postgres-cli migrate-from-postgres dry-run 面对新版目标库以退出码 2 告知跳过（不静默成功）", {
+  skip: !hasTestDatabase,
+}, async () => {
+  const dbs = await createTempDbs();
+  try {
+    await ensurePostgresSchema({ databaseUrl: dbs.sourceUrl });
+    await ensurePostgresSchema({ databaseUrl: dbs.targetUrl });
+    const targetBumper = new Client({ connectionString: dbs.targetUrl });
+    await targetBumper.connect();
+    try {
+      await targetBumper.query("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'");
+    } finally {
+      await targetBumper.end();
+    }
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types", CLI_PATH, "migrate-from-postgres",
+        "--source-database-url", dbs.sourceUrl,
+        "--target-database-url", dbs.targetUrl,
+        "--dry-run", "--json",
+      ],
+      { encoding: "utf-8" },
+    );
+
+    assert.equal(result.status, 2, `新版目标库须以退出码 2 告知跳过（stdout: ${result.stdout}; stderr: ${result.stderr}）`);
+    const report = JSON.parse(result.stdout) as { status: string };
+    assert.equal(report.status, "skipped_incompatible_schema", "CLI 输出的报告 status 须为 skipped_incompatible_schema");
+  } finally {
+    await dropTempDbs(dbs);
+  }
+});
+
+test("postgres-cli migrate-from-postgres dry-run 面对兼容目标库以退出码 0 成功", {
+  skip: !hasTestDatabase,
+}, async () => {
+  const dbs = await createTempDbs();
+  try {
+    await ensurePostgresSchema({ databaseUrl: dbs.sourceUrl });
+    await ensurePostgresSchema({ databaseUrl: dbs.targetUrl });
+    // 目标库版本保持 116（= 实例版本）→ 兼容，dry-run 报告 completed。
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types", CLI_PATH, "migrate-from-postgres",
+        "--source-database-url", dbs.sourceUrl,
+        "--target-database-url", dbs.targetUrl,
+        "--dry-run", "--json",
+      ],
+      { encoding: "utf-8" },
+    );
+
+    assert.equal(result.status, 0, `兼容目标库须以退出码 0 成功（stdout: ${result.stdout}; stderr: ${result.stderr}）`);
   } finally {
     await dropTempDbs(dbs);
   }

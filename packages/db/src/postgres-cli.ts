@@ -7,6 +7,7 @@ import {
   redactPostgresDatabaseUrl,
   renderPostgresCutoverPlan,
   resolvePostgresDatabaseUrl,
+  type MigrationStatus,
 } from "./postgres.ts";
 
 interface ParsedArgs {
@@ -49,7 +50,7 @@ async function main(): Promise<void> {
       dryRun,
       reset,
     });
-    writeOutput(report, json);
+    writeMigrationReport(report, json);
     return;
   }
 
@@ -60,7 +61,7 @@ async function main(): Promise<void> {
       dryRun,
       reset,
     });
-    writeOutput(report, json);
+    writeMigrationReport(report, json);
     return;
   }
 
@@ -143,6 +144,18 @@ function writeOutput(payload: unknown, json: boolean): void {
   }
 
   console.log(JSON.stringify(payload, null, 2));
+}
+
+/**
+ * 输出迁移报告并按 status 设置退出码。skipped_incompatible_schema（目标库 schema_version 高于
+ * 本实例，已跳过全部语句与数据导入）不是成功——以非零退出码 2 告知 CI/脚本迁移未执行，避免静默成功；
+ * completed（含 dry-run 预演通过）保持退出码 0。退出码 2 区别于错误退出码 1（见 main 末尾 catch）。
+ */
+function writeMigrationReport(report: { status: MigrationStatus }, json: boolean): void {
+  writeOutput(report, json);
+  if (report.status === "skipped_incompatible_schema") {
+    process.exitCode = 2;
+  }
 }
 
 main().catch((error: unknown) => {
