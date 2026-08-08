@@ -18,7 +18,7 @@ import { updateTaskStatusSync } from "../tasks/tasks.ts";
 import { upsertDirectConversationStateSync } from "../contacts/contacts.ts";
 import { writeConversationExecutionWorkspaceStateSync } from "../shared/conversation-execution-workspaces.ts";
 import { writeWorkspaceStateSync } from "../shared/state-io.ts";
-import { failStaleWorkflowNodeSync } from "./coordinator.ts";
+import { failExhaustedReadyWorkflowNodeSync, failStaleWorkflowNodeSync } from "./coordinator.ts";
 import { failWorkflowTaskIfLinkedSync, lockWorkflowRunForTaskIfLinkedSync } from "./completion.ts";
 import { retryWorkflowNodeSync } from "./retries.ts";
 
@@ -113,10 +113,18 @@ export function recoverStaleWorkflowWorkSync(input: {
   // 死信 ready 节点自愈（Spec #5）：workflow.node.ready 的 outbox 派发耗尽
   // WORKFLOW_OUTBOX_MAX_ATTEMPTS 后进入 dead_letter，节点永久卡在 ready——此前 recovery
   // 只扫 retry_wait/queued，不扫 ready，死信节点无人重新入队。这里找出「仍为 ready 且
-  // 存在 dead_letter 派发记录、且当前无 pending 派发」的节点，重新入队一条 outbox，
-  // 让派发重获全新重试预算。NOT EXISTS pending 保证跨恢复周期幂等（不会重复入队）。
+  // 存在 dead_letter 派发记录、且当前无 pending 派发」的节点。
+  //
+  // 有界重试：第一条死信（deadLetterCount == 1）重新入队一条 outbox，给予一次新的重试预算；
+  // 累计 >= 2 条死信（即重新入队后再次耗尽 8 次）则永久失败该节点，避免「8 次失败→重新入队→
+  // 再 8 次」的无限重置循环导致 Run 永久卡在 ready。NOT EXISTS pending 保证跨恢复周期幂等。
   const deadLetterReadyRows = db.prepare(
-    `SELECT n.id, n.workspace_id AS "workspaceId"
+    `SELECT n.id, n.workspace_id AS "workspaceId",
+            (SELECT COUNT(*) FROM workflow_outbox o
+              WHERE o.workspace_id = n.workspace_id
+                AND o.aggregate_id = n.id
+                AND o.event_type = 'workflow.node.ready'
+                AND o.status = 'dead_letter') AS "deadLetterCount"
        FROM workflow_node_run n
       WHERE n.status = 'ready'
         AND EXISTS (
@@ -135,9 +143,21 @@ export function recoverStaleWorkflowWorkSync(input: {
         )
       ORDER BY n.updated_at ASC
       LIMIT ?`,
-  ).all(limit) as Array<{ id?: string; workspaceId?: string }>;
+  ).all(limit) as Array<{ id?: string; workspaceId?: string; deadLetterCount?: number | string }>;
   for (const row of deadLetterReadyRows) {
     if (!row.id || !row.workspaceId) continue;
+    const deadLetterCount = Number(row.deadLetterCount ?? 0);
+    // 累计 >= 2 条死信：永久失败该节点，终结无限重置循环。
+    if (deadLetterCount >= 2) {
+      const failed = failExhaustedReadyWorkflowNodeSync({
+        workspaceId: row.workspaceId,
+        nodeRunId: row.id,
+        actorId: input.workerId,
+        now: input.now,
+      });
+      if (failed) result.failedNodeRunIds.push(row.id);
+      continue;
+    }
     const requeued = withTransaction(db, () => {
       const candidate = readWorkflowNodeRunSync(row.id!, row.workspaceId!);
       if (!candidate || candidate.status !== "ready") return null;

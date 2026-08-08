@@ -195,6 +195,55 @@ export function failWorkflowNodeBeforeDispatchSync(input: {
   });
 }
 
+/**
+ * 将一个 ready 节点因「派发重试预算反复耗尽」永久失败（ready→failed）。
+ *
+ * 死信自愈（recovery）在累计 >= 2 条 dead_letter 派发记录时调用，终结「8 次失败→重新入队→
+ * 再 8 次」的无限重置循环。机制与 failWorkflowNodeBeforeDispatchSync 一致：取 Run 行锁、
+ * ready→failed 迁移、写 node.failed 事件、推进下游并终结 Run；区别在于错误码与触发语义。
+ */
+export function failExhaustedReadyWorkflowNodeSync(input: {
+  workspaceId: string;
+  nodeRunId: string;
+  actorId: string;
+  now: string;
+}): WorkflowNodeRunRecord | null {
+  return withTransaction(getDatabase(), () => {
+    const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!candidate) throw new Error("workflow_node_run_not_found");
+    const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
+    const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!nodeRun) throw new Error("workflow_node_run_not_found");
+    if (nodeRun.status !== "ready") return null;
+    const failed = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: nodeRun.id,
+      from: ["ready"],
+      to: "failed",
+      errorCode: "workflow_ready_dispatch_exhausted",
+      errorMessage: "node ready dispatch exhausted retry budget via dead-letter",
+      finishedAt: input.now,
+      now: input.now,
+    });
+    if (!failed) return null;
+    appendWorkflowRunEventSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      nodeRunId: failed.id,
+      type: "node.failed",
+      actorType: "system",
+      actorId: input.actorId,
+      severity: "error",
+      dataJson: JSON.stringify({ code: "workflow_ready_dispatch_exhausted" }),
+      now: input.now,
+    });
+    advanceDownstream({ workspaceId: input.workspaceId, run, completed: failed, now: input.now });
+    finalizeRunIfTerminal(input.workspaceId, run, input.now);
+    return failed;
+  });
+}
+
 export function completeWorkflowApprovalNodeSync(input: {
   workspaceId: string;
   approvalId: string;

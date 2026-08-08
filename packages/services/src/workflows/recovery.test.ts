@@ -126,3 +126,71 @@ test("recoverStaleWorkflowWorkSync re-enqueues a dead-lettered ready node (Spec 
   ).get(seed.workspaceId, node.id) as { count?: number } | undefined;
   assert.equal(Number(pendingAfter?.count), 1, "二次扫描后仍只有一条 pending");
 });
+
+test("recoverStaleWorkflowWorkSync fails a ready node after repeated dead-letter (bounded retry, no infinite reset)", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 死信自愈必须终结「8 次失败→重新入队→再 8 次」的无限重置循环：第一条死信重新入队（给予一次新预算），
+  // 累计 >= 2 条死信（重新入队后再次耗尽）则永久失败该节点，而非再次以 attempts=0 入队。
+  const seed = seedWorkspace();
+  const now = "2026-08-07T01:00:00.000Z";
+  const run = createWorkflowRunSync({
+    workspaceId: seed.workspaceId,
+    workflowId: seed.workflowId,
+    versionId: seed.versionId,
+    triggerType: "manual",
+    triggerKey: `recovery:bounded-${seed.workspaceId}`,
+    inputJson: "{}",
+  });
+  const nodes = materializeWorkflowNodeRunsSync({
+    workspaceId: seed.workspaceId,
+    runId: run.id,
+    nodes: [{ nodeId: "a", nodeType: "employee_task", employeeId: "emp-a" }],
+  });
+  const node = nodes[0]!;
+  transitionWorkflowNodeRunSync({
+    workspaceId: seed.workspaceId,
+    nodeRunId: node.id,
+    from: ["pending"],
+    to: "ready",
+    now,
+  });
+  // 两条 dead_letter → deadLetterCount = 2 → 永久失败（模拟重新入队后再次耗尽 8 次）。
+  const insertDeadLetter = (suffix: string) =>
+    getDatabase().prepare(
+      `INSERT INTO workflow_outbox (
+         id, workspace_id, aggregate_type, aggregate_id, event_type, payload_json,
+         status, attempts, available_at, created_at
+       ) VALUES (?, ?, 'workflow_node_run', ?, 'workflow.node.ready', ?, 'dead_letter', 8, ?, ?)`,
+    ).run(
+      `outbox-bounded-${node.id}-${suffix}`,
+      seed.workspaceId,
+      node.id,
+      JSON.stringify({ nodeRunId: node.id }),
+      now,
+      now,
+    );
+  insertDeadLetter("first");
+  insertDeadLetter("second");
+
+  const result = recoverStaleWorkflowWorkSync({ now, workerId: "recovery-worker", limit: 10 });
+
+  // 节点被永久失败，而非再次重新入队。
+  assert.ok(result.failedNodeRunIds.includes(node.id), "累计 >= 2 条死信的节点须被永久失败");
+  assert.ok(!result.requeuedReadyNodeRunIds.includes(node.id), "不得再次重置重试预算重新入队");
+  const pending = getDatabase().prepare(
+    `SELECT COUNT(*)::int AS count FROM workflow_outbox
+      WHERE workspace_id = ? AND aggregate_id = ? AND event_type = 'workflow.node.ready' AND status = 'pending'`,
+  ).get(seed.workspaceId, node.id) as { count?: number } | undefined;
+  assert.equal(Number(pending?.count), 0, "永久失败后不得产生新的 pending 派发");
+  const failedNode = getDatabase().prepare(
+    `SELECT status, error_code AS "errorCode" FROM workflow_node_run WHERE workspace_id = ? AND id = ?`,
+  ).get(seed.workspaceId, node.id) as { status?: string; errorCode?: string } | undefined;
+  assert.equal(failedNode?.status, "failed", "节点状态须为 failed");
+  assert.equal(failedNode?.errorCode, "workflow_ready_dispatch_exhausted", "失败原因须为派发预算耗尽");
+
+  // 幂等：再次扫描不再产生任何动作（节点已 failed，不在 ready 扫描集）。
+  const result2 = recoverStaleWorkflowWorkSync({ now, workerId: "recovery-worker", limit: 10 });
+  assert.deepEqual(result2.failedNodeRunIds, [], "已失败节点不得重复处理");
+  assert.deepEqual(result2.requeuedReadyNodeRunIds, [], "已失败节点不得重新入队");
+});
