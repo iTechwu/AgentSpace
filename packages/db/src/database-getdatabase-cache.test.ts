@@ -15,9 +15,9 @@ import { resolvePostgresDatabaseUrl } from "./postgres-config.ts";
 
 /**
  * 这些测试针对 #4：getDatabase 在 ensureRuntimeSchema 后不得缓存「未校验 schema」的连接。
- * 全部走真实 PG（agent_space_test）；通过外部 pg 会话持有 [115,116] advisory lock 模拟
- * 「迁移锁被其他进程占用」。Round 4 后 schema 已当前的冷启动走无锁快速路径（不竞争 [115,116]），
- * schema 过期才走迁移路径——本测试对两种结果都成立。
+ * 全部走真实 PG（agent_space_test）。Phase 1 起 ensureRuntimeSchema 收窄为只读校验：schema 当前 → seed+memo，
+ * schema 过期 → 抛错（不再取 [115,116] 锁、不再跑 DDL）。agent_space_test 恒为当前版本，故 getDatabase 走
+ * 成功路径并缓存；过期抛错分支由 database-runtime-schema-readonly.test.ts 用 mock 覆盖。
  */
 function cleanCache(): void {
   resetDatabaseForTests();
@@ -59,29 +59,18 @@ test("getDatabase 缓存已校验 schema 的连接，二次调用走快路径返
   }
 });
 
-test("[115,116] 被占用时 getDatabase 不缓存未校验连接（迁移路径抛错，或快速路径成功——双路径均不得缓存未校验）", async () => {
+test("[115,116] 被外部占用不影响 getDatabase（Phase 1：运行时只读校验不取 [115,116] 锁）", async () => {
   cleanCache();
   const holder = await holdSchemaLocks();
-  let threw = false;
   try {
-    // schema 已当前 → 无锁快速路径成功（Round 4 P1#1：不竞争 [115,116]）；schema 过期 → 迁移路径取
-    // [115,116] 超时抛错。两种环境行为不同，但都不得把「未校验 schema」的连接缓存为已校验。
+    // agent_space_test 恒为当前版本 → ensureRuntimeSchema 走只读校验成功并 memo，不取 [115,116]
+    // （Phase 1 移除了运行时锁路径），故外部持锁不阻塞冷启动，也不得缓存未校验连接。
     getDatabase();
-  } catch (error) {
-    threw = true;
-    assert.match((error as Error).message, /lock is busy/);
-    const stateAfterFailure = getDatabaseCacheStateForTests();
-    assert.equal(stateAfterFailure.schemaEnsuredForUrl, null, "迁移抛错后 schema 不得被标记为已校验（#4 不缓存未校验连接）");
-    assert.equal(stateAfterFailure.hasDatabase, true, "瞬时失败应保留候选连接以便重试");
+    const stateAfter = getDatabaseCacheStateForTests();
+    assert.equal(stateAfter.schemaEnsuredForUrl, stateAfter.databaseUrl, "只读校验成功后应 memo 为已校验");
+    assert.equal(stateAfter.hasDatabase, true, "成功路径保留已校验连接");
   } finally {
     await releaseSchemaLocks(holder);
-  }
-
-  if (threw) {
-    // 锁释放后，重试必须真正重新执行 schema 校验（旧 bug：快路径直接返回未校验候选）。
-    getDatabase();
-    const stateAfterRetry = getDatabaseCacheStateForTests();
-    assert.equal(stateAfterRetry.schemaEnsuredForUrl, stateAfterRetry.databaseUrl, "重试必须完成 schema 校验");
   }
 
   cleanCache();

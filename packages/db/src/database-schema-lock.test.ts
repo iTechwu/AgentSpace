@@ -76,12 +76,10 @@ test("acquireRuntimeSchemaLock fails with an actionable message when the lock st
   assert.equal(now, 60);
 });
 
-// Round 4 覆盖说明：ensureRuntimeSchema 在 schema 过期时于 acquireRuntimeSchemaLock（[115,116]）之前
-// 增加了一层单次 pg_try_advisory_lock(117)——忙即快速抛错、可重试，非阻塞、无重试循环（避免请求路径
-// 超时预算翻倍）。该 117 层为 ensureRuntimeSchema 内联的 4 行直接调用，未抽成独立函数（无独立可注入点）；
-// 且触发它需构造 schema 过期场景，在共享测试库（agent_space_test，恒为当前版本）中不可行。其正确性由
-// 上方 acquireRuntimeSchemaLock 的 try+超时单测（同构语义）与 database-getdatabase-cache 的无锁快速路径
-// 不回归测试共同守护；117 单次 try 逻辑足够简单，无需额外单测。
+// Phase 1 起 ensureRuntimeSchema 收窄为只读校验：运行时不再取 117/[115,116] 锁、不再跑 DDL——schema 过期
+// 直接抛错（见 database-runtime-schema-readonly.test.ts）。acquireRuntimeSchemaLock 仍作为工具保留
+// （ensurePostgresSchema CLI 迁移路径继续使用），上方 try+超时单测守护其语义；随运行时慢路径移除的 117 单次
+// try 逻辑不再需要独立单测。
 
 test("runtime schema checks stay inside the active PostgreSQL schema", () => {
   const attemptedSql: string[] = [];
