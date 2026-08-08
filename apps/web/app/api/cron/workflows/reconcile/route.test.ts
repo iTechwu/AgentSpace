@@ -18,6 +18,7 @@ beforeEach(() => {
     retriedNodeRunIds: [],
     failedNodeRunIds: [],
     orphanedTaskIds: [],
+    requeuedReadyNodeRunIds: [],
   });
 });
 afterEach(() => {

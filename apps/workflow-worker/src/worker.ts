@@ -2,15 +2,18 @@ import {
   dispatchWorkflowOutboxBatchSync,
   recoverStaleWorkflowWorkSync,
   tickWorkflowSchedulerSync,
+  type WorkflowOutboxDispatchResult,
+  type WorkflowRecoveryResult,
   type WorkflowSchedulerTickResult,
 } from "@dofe-agent/services";
 
 export interface WorkflowWorkerServices {
-  // 直接复用服务层 WorkflowSchedulerTickResult 契约，避免在 Worker 边界把它弱化为可选
-  // unknown[]——服务层新增字段时编译器可强制传递，结构化失败内容也保留类型约束。
+  // 直接复用服务层结果契约（scheduler/outbox/recovery），避免在 Worker 边界把它们弱化为
+  // 自声明子集——服务层新增字段（如 recovery 的 requeuedReadyNodeRunIds）时编译器可强制传播，
+  // 否则 Worker 读取未声明字段会 TS2339 并在运行时崩溃（recovered.length 访问 undefined）。
   scheduler(input: { now: string; workerId: string; limit: number }): WorkflowSchedulerTickResult;
-  outbox(input: { now: string; workerId: string; limit: number }): { dispatchedTaskIds: string[] };
-  recovery(input: { now: string; workerId: string; limit: number }): { readyNodeRunIds: string[]; retriedNodeRunIds: string[]; failedNodeRunIds: string[] };
+  outbox(input: { now: string; workerId: string; limit: number }): WorkflowOutboxDispatchResult;
+  recovery(input: { now: string; workerId: string; limit: number }): WorkflowRecoveryResult;
 }
 
 export const defaultWorkflowWorkerServices: WorkflowWorkerServices = {
