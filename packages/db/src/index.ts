@@ -955,14 +955,22 @@ export {
 
 // Workspace memberships
 export {
+  createWorkspaceMembershipAsync,
   createWorkspaceMembershipSync,
-  readWorkspaceMembershipSync,
-  listWorkspaceMembershipsSync,
+  listUserWorkspacesAsync,
   listUserWorkspacesSync,
-  transferWorkspaceOwnershipSync,
-  upsertWorkspaceMembershipSync,
-  updateWorkspaceMembershipRoleSync,
+  listWorkspaceMembershipsAsync,
+  listWorkspaceMembershipsSync,
+  readWorkspaceMembershipAsync,
+  readWorkspaceMembershipSync,
+  removeWorkspaceMembershipAsync,
   removeWorkspaceMembershipSync,
+  transferWorkspaceOwnershipAsync,
+  transferWorkspaceOwnershipSync,
+  updateWorkspaceMembershipRoleAsync,
+  updateWorkspaceMembershipRoleSync,
+  upsertWorkspaceMembershipAsync,
+  upsertWorkspaceMembershipSync,
 } from "./workspace-memberships.ts";
 // Channel access
 export {
