@@ -4,6 +4,11 @@ export const POSTGRES_SCHEMA_VERSION = "116";
 export const POSTGRES_SCHEMA_ADVISORY_LOCK_ID = 116;
 // schema 115 已在运行时按版本号锁定；本次过渡同时取得两把锁，避免 115/116 并发迁移。
 export const POSTGRES_SCHEMA_ADVISORY_LOCK_IDS = [115, POSTGRES_SCHEMA_ADVISORY_LOCK_ID] as const;
+// 后台自愈（history 回填 + SET NOT NULL + 在线索引）专用锁。刻意与 schema 迁移锁 [115,116]
+// 解耦：长耗时的后台建索引/回填不再阻塞第二实例冷启动时的迁移锁获取（反之亦然）。跨版本固定，
+// 后续版本必须保持此值不变。后台任务用阻塞型 pg_advisory_lock 串行化跨实例（fire-and-forget，
+// 非请求路径）。
+export const POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID = 117;
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -4477,8 +4482,29 @@ export function getPostgresSchemaStatements(): string[] {
         WHERE status = 'waiting_approval' AND approval_id IS NOT NULL
     `,
     // schema 115/116：运行历史分页使用每工作区事务计数器分配的不可变写入序号作为快照上界。
-    // 116 在前置 DDL 中增加兼容触发器，使仍在排空的 114/115 实例省略新列时也能安全分配序号；
-    // 较小序号必先提交，created_at 与随机 id 只负责展示排序，后插或回填时间不会穿透快照。
+    // 结构段在此结束：history_sequence 列（升级库可空）+ 分配触发器已在前置 DDL 就位，新写入行
+    // 即时获得非空序号。回填旧行 UPDATE + SET NOT NULL + history_sequence 在线索引属重型/
+    // 阻塞操作，已移出请求路径：维护/迁移命令同步执行（见 getPostgresHistoryBackfillStatements），
+    // 运行时由后台自愈（ensurePostgresConcurrentIndexes，独立锁 117）异步完成。回填窗口期分页
+    // 由 OR history_sequence IS NULL 谓词保证不丢行。版本写留在结构段末尾。
+    `
+      INSERT INTO app_metadata (key, value)
+      VALUES ('schema_version', '${POSTGRES_SCHEMA_VERSION}')
+      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+      WHERE EXCLUDED.value ~ '^\d+$'
+        AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)
+    `,
+  ].map((statement) => statement.trim());
+}
+
+/**
+ * history_sequence 回填语句（事务安全）：把仍为 NULL 的旧行按 (workspace_id, created_at, id)
+ * 排序分配序号，再把每个 workspace 的 workflow_run_sequence 推进到已有最大序号。幂等——
+ * WHERE history_sequence IS NULL 使干净库为 no-op；分配触发器保证回填后新写入行的序号必大于
+ * 已回填的最大值，不会回卷。维护/迁移路径在主事务内同步运行；运行时由后台自愈异步运行。
+ */
+export function getPostgresHistoryBackfillStatements(): string[] {
+  return [
     `
       WITH ranked AS (
         SELECT id,
@@ -4504,20 +4530,16 @@ export function getPostgresSchemaStatements(): string[] {
         ) AS source
        WHERE target.id = source.workspace_id
     `,
-    `ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL`,
-    `
-      CREATE INDEX IF NOT EXISTS idx_workflow_run_workspace_history_sequence
-        ON workflow_run(workspace_id, history_sequence)
-    `,
-    `
-      INSERT INTO app_metadata (key, value)
-      VALUES ('schema_version', '${POSTGRES_SCHEMA_VERSION}')
-      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
-      WHERE EXCLUDED.value ~ '^\d+$'
-        AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)
-    `,
   ].map((statement) => statement.trim());
 }
+
+/**
+ * 回填完成后把 history_sequence 设为 NOT NULL。依赖「无 NULL 行」——分配触发器保证新写入非空、
+ * 回填 UPDATE 清掉旧 NULL 后才可施加。维护/迁移路径直接运行；后台自愈仅在列仍可空时运行
+ * （用 information_schema.columns.is_nullable 守卫，避免每次冷启动重复 AEL 全扫）。
+ */
+export const POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT =
+  "ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL";
 
 /**
  * 运行历史在线索引名。无法放入 schema 主事务（CREATE INDEX CONCURRENTLY 不允许在事务块内），
@@ -4525,6 +4547,25 @@ export function getPostgresSchemaStatements(): string[] {
  * 新索引完成前查询仍可正确使用旧索引前缀。
  */
 export const POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME = "idx_workflow_run_workspace_created_v2";
+
+/**
+ * history_sequence keyset 分页专用索引名。同 POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME 一样
+ * 以 CREATE INDEX CONCURRENTLY 在事务外构建（普通 CREATE INDEX 取 ACCESS EXCLUSIVE 锁阻塞
+ * workflow_run 写入，故移出主事务）。失败遗留的无效索引由 applyPostCommitSchemaStatements
+ * 在重建前用 DROP INDEX CONCURRENTLY 清理。
+ */
+export const POSTGRES_WORKFLOW_RUN_HISTORY_SEQUENCE_INDEX_NAME =
+  "idx_workflow_run_workspace_history_sequence";
+
+/**
+ * 所有 post-commit 在线索引名。applyPostCommitSchemaStatements 据此逐个检查 pg_index 状态，
+ * 无效（失败 CONCURRENTLY 遗留）则先 DROP INDEX CONCURRENTLY 再重建，避免 IF NOT EXISTS 因
+ * 「索引已存在（哪怕无效）」而永久跳过坏索引。
+ */
+export const POSTGRES_POST_COMMIT_INDEX_NAMES = [
+  POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME,
+  POSTGRES_WORKFLOW_RUN_HISTORY_SEQUENCE_INDEX_NAME,
+] as const;
 
 /**
  * 不能放入 schema 主事务的在线索引语句（仅幂等 CREATE）。无效索引的清理（DROP INDEX
@@ -4536,6 +4577,10 @@ export function getPostgresPostCommitSchemaStatements(): string[] {
     `
       CREATE INDEX CONCURRENTLY IF NOT EXISTS ${POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME}
         ON workflow_run(workspace_id, created_at DESC, id DESC)
+    `,
+    `
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS ${POSTGRES_WORKFLOW_RUN_HISTORY_SEQUENCE_INDEX_NAME}
+        ON workflow_run(workspace_id, history_sequence)
     `,
   ].map((statement) => statement.trim());
 }

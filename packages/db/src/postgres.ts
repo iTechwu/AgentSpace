@@ -5,8 +5,12 @@ import { Client } from "pg";
 import type { DofeAgentState, LedgerItem, MessageAttachment, WorkspaceMessage } from "@dofe-agent/domain/workspace";
 import { getDataDirPath } from "./database.ts";
 import {
+  POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID,
+  getPostgresHistoryBackfillStatements,
   getPostgresPostCommitSchemaStatements,
   getPostgresSchemaStatements,
+  POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT,
+  POSTGRES_POST_COMMIT_INDEX_NAMES,
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   POSTGRES_SCHEMA_VERSION,
   POSTGRES_TABLE_NAMES,
@@ -282,6 +286,12 @@ export async function ensurePostgresSchema(input?: PostgresConnectionInput): Pro
         for (const statement of getPostgresSchemaStatements()) {
           await client.query(statement);
         }
+        // 维护命令同步完成重型 history 回填 + SET NOT NULL（请求路径已把这些移到后台自愈）。
+        for (const statement of getPostgresHistoryBackfillStatements()) {
+          await client.query(statement);
+        }
+        await client.query(POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT);
+        await setAppMetadataFlag(client, "schema_116_history_backfill_complete", "true");
         await client.query("COMMIT");
         transactionStarted = false;
         await applyPostCommitSchemaStatements(client);
@@ -380,6 +390,13 @@ export async function migrateSqliteToPostgres(
                 skippedCount: Math.max(table.rows.length - insertedCount, 0),
               };
             }
+
+            // 行已迁入：同步回填 history_sequence + SET NOT NULL（维护命令承担请求路径移出的重型 DDL）。
+            for (const statement of getPostgresHistoryBackfillStatements()) {
+              await client.query(statement);
+            }
+            await client.query(POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT);
+            await setAppMetadataFlag(client, "schema_116_history_backfill_complete", "true");
 
             await client.query(
               `INSERT INTO app_metadata (key, value)
@@ -485,6 +502,12 @@ export async function migratePostgresToPostgres(
             skippedCount: Math.max(table.rows.length - insertedCount, 0),
           };
         }
+        // 行已迁入：同步回填 history_sequence + SET NOT NULL（维护命令承担请求路径移出的重型 DDL）。
+        for (const statement of getPostgresHistoryBackfillStatements()) {
+          await targetClient.query(statement);
+        }
+        await targetClient.query(POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT);
+        await setAppMetadataFlag(targetClient, "schema_116_history_backfill_complete", "true");
         await targetClient.query(
           `INSERT INTO app_metadata (key, value)
            VALUES ('migrated_from_postgres_at', $1)
@@ -524,11 +547,11 @@ async function withPostgresSchemaLock<T>(client: PostgresQueryClient, operation:
 }
 
 /**
- * 在线索引是否处于无效状态（失败的后台 CREATE INDEX CONCURRENTLY 遗留）。
+ * 指定索引是否处于无效状态（失败的后台 CREATE INDEX CONCURRENTLY 遗留）。
  * 仅当索引存在但 indisvalid/indisready 为假时返回 true；索引不存在时返回 false，
  * 交由后续 CREATE 语句新建。
  */
-async function isWorkflowRunHistoryIndexInvalid(client: PostgresQueryClient): Promise<boolean> {
+async function isPostgresIndexInvalid(client: PostgresQueryClient, indexName: string): Promise<boolean> {
   const result = await client.query(
     `SELECT index_state.indisvalid AS valid, index_state.indisready AS ready
      FROM pg_class AS index_relation
@@ -538,7 +561,7 @@ async function isWorkflowRunHistoryIndexInvalid(client: PostgresQueryClient): Pr
        ON index_state.indexrelid = index_relation.oid
      WHERE index_namespace.nspname = current_schema()
        AND index_relation.relname = $1`,
-    [POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME],
+    [indexName],
   );
   const row = result.rows[0] as { valid?: boolean; ready?: boolean } | undefined;
   if (!row) {
@@ -547,17 +570,19 @@ async function isWorkflowRunHistoryIndexInvalid(client: PostgresQueryClient): Pr
   return row.valid !== true || row.ready !== true;
 }
 
-type PostgresQueryClient = Pick<Client, "query">;
+export type PostgresQueryClient = Pick<Client, "query">;
 
 /**
- * 在事务外应用在线索引语句。若上次 CREATE INDEX CONCURRENTLY 失败留下无效索引，
- * 先用 DROP INDEX CONCURRENTLY 清理（不取 ACCESS EXCLUSIVE 锁、不阻塞 workflow_run 写入），
- * 否则 CREATE INDEX CONCURRENTLY IF NOT EXISTS 会因索引已存在而跳过、留下坏索引。
- * 两条语句都不允许在事务块内执行。
+ * 在事务外应用在线索引语句。对每个 post-commit 索引：若上次 CREATE INDEX CONCURRENTLY 失败
+ * 留下无效索引，先用 DROP INDEX CONCURRENTLY 清理（不取 ACCESS EXCLUSIVE 锁、不阻塞
+ * workflow_run 写入），否则 CREATE INDEX CONCURRENTLY IF NOT EXISTS 会因索引已存在而跳过、
+ * 留下坏索引。所有语句都不允许在事务块内执行。
  */
 async function applyPostCommitSchemaStatements(client: PostgresQueryClient): Promise<void> {
-  if (await isWorkflowRunHistoryIndexInvalid(client)) {
-    await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME}`);
+  for (const indexName of POSTGRES_POST_COMMIT_INDEX_NAMES) {
+    if (await isPostgresIndexInvalid(client, indexName)) {
+      await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${indexName}`);
+    }
   }
   for (const statement of getPostgresPostCommitSchemaStatements()) {
     await client.query(statement);
@@ -569,12 +594,28 @@ export async function applyPostCommitSchemaStatementsForTests(client: PostgresQu
 }
 
 /**
- * 在 schema 锁保护下应用在线索引（事务外）。供后台自愈与显式迁移路径复用：
- * 取得与 ensureRuntimeSchema 相同的 [115,116] advisory lock，串行化迁移，避免两个 runner
- * 在 workflow_run 上并发建索引冲突。
+ * 后台自愈专用锁（POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID = 117）。刻意与 schema 迁移锁
+ * [115,116] 解耦：长耗时的回填/SET NOT NULL/在线建索引不阻塞第二实例冷启动迁移锁，反之亦然。
+ * 阻塞型 pg_advisory_lock 串行化跨实例；后台任务 fire-and-forget，非请求路径。
+ */
+async function withBackgroundMaintenanceLock<T>(
+  client: PostgresQueryClient,
+  operation: () => Promise<T>,
+): Promise<T> {
+  await client.query("SELECT pg_advisory_lock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
+  try {
+    return await operation();
+  } finally {
+    await client.query("SELECT pg_advisory_unlock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
+  }
+}
+
+/**
+ * 在后台自愈锁（117）保护下应用在线索引（事务外）。供显式测试与仅需索引的路径复用。
+ * 不再占用 schema 迁移锁 [115,116]，避免长建索引期间阻塞第二实例冷启动迁移。
  */
 async function applyConcurrentIndexesWithClient(client: PostgresQueryClient): Promise<void> {
-  await withPostgresSchemaLock(client, async () => {
+  await withBackgroundMaintenanceLock(client, async () => {
     await applyPostCommitSchemaStatements(client);
   });
 }
@@ -583,17 +624,76 @@ export async function applyConcurrentIndexesWithClientForTests(client: PostgresQ
   return applyConcurrentIndexesWithClient(client);
 }
 
+async function readAppMetadataFlag(client: PostgresQueryClient, key: string): Promise<string | undefined> {
+  const result = await client.query<{ value: string }>(
+    "SELECT value FROM app_metadata WHERE key = $1 LIMIT 1",
+    [key],
+  );
+  return result.rows[0]?.value;
+}
+
+async function setAppMetadataFlag(client: PostgresQueryClient, key: string, value: string): Promise<void> {
+  await client.query(
+    `INSERT INTO app_metadata (key, value)
+     VALUES ($1, $2)
+     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+    [key, value],
+  );
+}
+
 /**
- * 后台自愈入口：用独立 pg 连接（无 worker 超时上限）在事务外构建运行历史在线索引
- * （CREATE INDEX CONCURRENTLY）。通过 withPostgresSchemaLock 与 ensureRuntimeSchema 迁移互斥，
- * 幂等（IF NOT EXISTS + 无效索引清理），失败由调用方记录。构建期间查询回退旧索引前缀。
+ * history_sequence 列当前是否可空。后台自愈据此决定是否施加 SET NOT NULL——一旦已 NOT NULL
+ * 即跳过，避免每次冷启动重复 AEL 全扫。列不存在（结构段未跑）时返回 false，安全跳过。
+ */
+async function isHistorySequenceNullable(client: PostgresQueryClient): Promise<boolean> {
+  const result = await client.query<{ is_nullable: "YES" | "NO" }>(
+    `SELECT is_nullable
+     FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'workflow_run'
+       AND column_name = 'history_sequence'`,
+  );
+  return result.rows[0]?.is_nullable === "YES";
+}
+
+/**
+ * 后台自愈主体（已在锁 117 内）：history 回填 → 条件 SET NOT NULL → 置完成 flag → 在线索引。
+ * 幂等：flag 已置则跳过回填段；回填 UPDATE 的 WHERE history_sequence IS NULL 使干净库 no-op；
+ * 分配触发器保证回填后新写入行序号大于已回填最大值，SET NOT NULL 不会因新行失败。flag 最后写，
+ * 保证走到那一步前已无 NULL 行。在线索引无论 flag 状态都确保存在（幂等 + 无效清理）。
+ */
+async function runBackgroundMaintenance(client: PostgresQueryClient): Promise<void> {
+  const BACKFILL_FLAG = "schema_116_history_backfill_complete";
+  if (await readAppMetadataFlag(client, BACKFILL_FLAG) !== "true") {
+    for (const statement of getPostgresHistoryBackfillStatements()) {
+      await client.query(statement);
+    }
+    if (await isHistorySequenceNullable(client)) {
+      await client.query(POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT);
+    }
+    await setAppMetadataFlag(client, BACKFILL_FLAG, "true");
+  }
+  await applyPostCommitSchemaStatements(client);
+}
+
+export async function runBackgroundMaintenanceForTests(client: PostgresQueryClient): Promise<void> {
+  return runBackgroundMaintenance(client);
+}
+
+/**
+ * 后台自愈入口：用独立 pg 连接（无 worker 超时上限）在锁 117 内完成 history 回填 + SET NOT NULL
+ * + 运行历史在线索引。与 schema 迁移锁 [115,116] 解耦，不阻塞冷启动迁移；幂等（flag + WHERE NULL
+ * + IF NOT EXISTS + 无效索引清理），失败由调用方记录。回填窗口期分页由 OR history_sequence IS NULL
+ * 谓词保证不丢行；完成后 keyset 自动恢复 history_sequence 语义。
  */
 export async function ensurePostgresConcurrentIndexes(input?: PostgresConnectionInput): Promise<void> {
   const databaseUrl = resolvePostgresDatabaseUrl(input);
   const client = createPostgresClient(databaseUrl);
   await client.connect();
   try {
-    await applyConcurrentIndexesWithClient(client);
+    await withBackgroundMaintenanceLock(client, async () => {
+      await runBackgroundMaintenance(client);
+    });
   } finally {
     await client.end();
   }

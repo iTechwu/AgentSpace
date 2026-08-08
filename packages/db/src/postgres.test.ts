@@ -12,8 +12,10 @@ import {
   renderPostgresCutoverPlan,
 } from "./postgres.ts";
 import {
+  getPostgresHistoryBackfillStatements,
   getPostgresPostCommitSchemaStatements,
   getPostgresSchemaStatements,
+  POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT,
   POSTGRES_SCHEMA_VERSION,
   POSTGRES_TABLE_NAMES,
 } from "./postgres-schema.ts";
@@ -84,10 +86,17 @@ test("postgres schema enforces SSO-only identities", () => {
   assert.match(statements, /workflow_run ALTER COLUMN history_sequence DROP IDENTITY IF EXISTS/);
   assert.match(statements, /CREATE OR REPLACE FUNCTION assign_workflow_run_history_sequence/);
   assert.match(statements, /CREATE TRIGGER workflow_run_assign_history_sequence/);
-  assert.match(statements, /workflow_run ALTER COLUMN history_sequence SET NOT NULL/);
-  assert.ok(
-    statements.indexOf("CREATE TRIGGER workflow_run_assign_history_sequence")
-      < statements.indexOf("workflow_run ALTER COLUMN history_sequence SET NOT NULL"),
+  // 回填 UPDATE + SET NOT NULL + history_sequence 普通索引已移出请求路径的结构段（重型/阻塞 DDL），
+  // 改由维护命令同步、运行时由后台自愈异步承担。结构段不得再包含它们。
+  assert.doesNotMatch(statements, /workflow_run ALTER COLUMN history_sequence SET NOT NULL/);
+  assert.doesNotMatch(statements, /WHERE history_sequence IS NULL/);
+  assert.doesNotMatch(statements, /idx_workflow_run_workspace_history_sequence/);
+  const backfillStatements = getPostgresHistoryBackfillStatements().join("\n");
+  assert.match(backfillStatements, /WHERE history_sequence IS NULL/);
+  assert.match(backfillStatements, /workflow_run_sequence = GREATEST/);
+  assert.equal(
+    POSTGRES_HISTORY_SEQUENCE_SET_NOT_NULL_STATEMENT,
+    "ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL",
   );
   assert.match(statements, /ADD COLUMN IF NOT EXISTS approval_scan_after TIMESTAMPTZ/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_token TEXT/);
@@ -104,10 +113,15 @@ test("postgres schema enforces SSO-only identities", () => {
   assert.doesNotMatch(statements, /DROP INDEX IF EXISTS idx_workflow_run_workspace_created/);
   assert.doesNotMatch(statements, /CREATE INDEX idx_workflow_run_workspace_created ON workflow_run/);
   const postCommitStatements = getPostgresPostCommitSchemaStatements();
-  assert.equal(postCommitStatements.length, 1);
-  assert.equal(
-    postCommitStatements[0],
-    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_created_v2\n        ON workflow_run(workspace_id, created_at DESC, id DESC)",
+  assert.equal(postCommitStatements.length, 2);
+  assert.ok(
+    postCommitStatements.some((statement) => /idx_workflow_run_workspace_created_v2/.test(statement)),
+  );
+  assert.ok(
+    postCommitStatements.some((statement) =>
+      /CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_history_sequence[\s\S]*ON workflow_run\(workspace_id, history_sequence\)/
+        .test(statement),
+    ),
   );
   // 无效索引清理已移至 applyPostCommitSchemaStatements（事务外 DROP INDEX CONCURRENTLY），
   // 不再出现在静态语句工厂中，避免 DO 块内普通 DROP 阻塞业务写入。
@@ -174,7 +188,7 @@ test("applyPostCommitSchemaStatements skips the drop when the index is absent", 
   assert.ok(queries.some((q) => /CREATE INDEX CONCURRENTLY/i.test(q.text)));
 });
 
-test("ensurePostgresConcurrentIndexes serializes via the schema lock around the build", async () => {
+test("applyConcurrentIndexesWithClient serializes via the dedicated background-maintenance lock (117)", async () => {
   const calls: string[] = [];
   await applyConcurrentIndexesWithClientForTests({
     async query(text: string, params?: unknown[]) {
@@ -187,19 +201,19 @@ test("ensurePostgresConcurrentIndexes serializes via the schema lock around the 
     },
   });
 
-  const lock115 = calls.findIndex((c) => /pg_advisory_lock/.test(c) && /\[115\]/.test(c));
-  const lock116 = calls.findIndex((c) => /pg_advisory_lock/.test(c) && /\[116\]/.test(c));
+  const lock117 = calls.findIndex((c) => /pg_advisory_lock/.test(c) && /\[117\]/.test(c));
   const drop = calls.findIndex((c) => /DROP INDEX CONCURRENTLY/i.test(c));
   const create = calls.findIndex((c) => /CREATE INDEX CONCURRENTLY/i.test(c));
-  const unlock = calls.findIndex((c) => /pg_advisory_unlock/.test(c));
+  const unlock117 = calls.findIndex((c) => /pg_advisory_unlock/.test(c) && /\[117\]/.test(c));
 
-  assert.notEqual(lock115, -1);
-  assert.notEqual(lock116, -1);
-  assert.notEqual(unlock, -1);
-  assert.ok(lock115 < create && lock116 < create, "both locks acquired before create");
-  assert.ok(lock115 < lock116, "locks acquired in declared order");
-  assert.ok(drop > -1 && lock116 < drop, "invalid index dropped after locks and before create");
-  assert.ok(create < unlock, "create runs before the lock is released");
+  assert.notEqual(lock117, -1, "background maintenance must take lock 117");
+  assert.notEqual(unlock117, -1, "background maintenance must release lock 117");
+  // 刻意与 schema 迁移锁 [115,116] 解耦：不得占用它们，否则长建索引会阻塞第二实例冷启动迁移。
+  assert.equal(calls.some((c) => /pg_advisory_lock/.test(c) && /\[115\]/.test(c)), false);
+  assert.equal(calls.some((c) => /pg_advisory_lock/.test(c) && /\[116\]/.test(c)), false);
+  assert.ok(lock117 < create, "lock acquired before create");
+  assert.ok(drop > -1 && lock117 < drop, "invalid index dropped after lock and before create");
+  assert.ok(create < unlock117, "create runs before the lock is released");
 });
 
 test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {

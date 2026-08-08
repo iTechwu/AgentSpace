@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getPostgresSchemaStatements } from "../postgres-schema.ts";
+import {
+  getPostgresPostCommitSchemaStatements,
+  getPostgresSchemaStatements,
+} from "../postgres-schema.ts";
 
 const WORKFLOW_TABLES = [
   "workflow_definition",
@@ -33,6 +36,11 @@ test("workflow schema contains tenant-safe relations and idempotency constraints
   assert.match(sql, /idx_workflow_trigger_due[\s\S]*WHERE status = 'active'/i);
   assert.match(sql, /idx_workflow_node_run_ready[\s\S]*WHERE status IN \('ready', 'retry_wait'\)/i);
   assert.match(sql, /idx_workflow_outbox_due[\s\S]*WHERE status = 'pending'/i);
-  assert.match(sql, /idx_workflow_run_workspace_history_sequence[\s\S]*workflow_run\(workspace_id, history_sequence\)/i);
+  // history_sequence keyset 索引移至 post-commit 在线索径（CONCURRENTLY，不阻塞 workflow_run 写入）。
+  const postCommitSql = getPostgresPostCommitSchemaStatements().join("\n");
+  assert.match(
+    postCommitSql,
+    /CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_history_sequence[\s\S]*workflow_run\(workspace_id, history_sequence\)/i,
+  );
   assert.match(sql, /idx_workflow_run_workspace_created[\s\S]*workflow_run\(workspace_id, created_at DESC, id DESC\)/i);
 });
