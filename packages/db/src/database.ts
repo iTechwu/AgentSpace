@@ -18,6 +18,12 @@ const WORKER_REQUEST_TIMEOUT_MS = resolveWorkerRequestTimeoutMs();
 const WORKER_WAIT_SLICE_MS = 50;
 const POSTGRES_SCHEMA_LOCK_TIMEOUT_MS = resolveSchemaLockTimeoutMs();
 const POSTGRES_SCHEMA_LOCK_RETRY_MS = 100;
+// 测试可注入更短的超时以模拟「迁移锁被其他进程占用」的瞬时失败；生产路径保持默认值。
+let schemaLockTimeoutMsOverrideForTests: number | null = null;
+
+export function setSchemaLockTimeoutMsForTests(ms: number | null): void {
+  schemaLockTimeoutMsOverrideForTests = ms;
+}
 const WORKER_SIGNAL_BUFFER = new SharedArrayBuffer(4);
 const WORKER_SIGNAL = new Int32Array(WORKER_SIGNAL_BUFFER);
 const POSTGRES_SYNC_WORKER_SOURCE = String.raw`
@@ -669,16 +675,54 @@ export function resetConcurrentIndexBuildForTests(): void {
 
 export function getDatabase(): PostgresSyncDatabase {
   const nextDatabaseUrl = resolvePostgresDatabaseUrl();
-  if (database && databaseUrl === nextDatabaseUrl && isWorkerReady()) {
+  // Fast path: same connection whose schema has already been validated this
+  // process, with a healthy worker. schemaEnsuredForUrl is the gate — a
+  // connection whose ensureRuntimeSchema threw must NOT be returned here
+  // without re-validation, or the process serves requests on an un-migrated
+  // schema (the post-migration-failure connection caching bug).
+  if (
+    database
+    && databaseUrl === nextDatabaseUrl
+    && schemaEnsuredForUrl === nextDatabaseUrl
+    && isWorkerReady()
+  ) {
     return database;
   }
 
-  closeDatabase();
-  databaseUrl = nextDatabaseUrl;
-  database = createPostgresSyncDatabase(nextDatabaseUrl);
+  // Reuse the existing worker/connection when only schema validation is still
+  // pending (e.g. a previous call threw on a transient schema-lock timeout).
+  // Only tear down + recreate when the URL changed or the worker is broken —
+  // tearing down on every transient lock timeout would respawn the worker
+  // thread on each request while the lock stays contended.
+  if (!(database && databaseUrl === nextDatabaseUrl && isWorkerReady())) {
+    closeDatabase();
+    databaseUrl = nextDatabaseUrl;
+    database = createPostgresSyncDatabase(nextDatabaseUrl);
+  }
+
+  // Validate (idempotent + memoized via schemaEnsuredForUrl). On success the
+  // fast path returns directly on the next call. On failure it throws;
+  // schemaEnsuredForUrl stays unset so the next call re-validates rather than
+  // returning an unvalidated connection. The candidate is retained so
+  // transient failures retry without respawning the worker.
   ensureRuntimeSchema(database);
   triggerConcurrentIndexBuild(nextDatabaseUrl);
   return database;
+}
+
+/**
+ * 仅供测试：观察 getDatabase 的连接缓存状态，用于断言「迁移失败后不缓存未校验连接」。
+ */
+export function getDatabaseCacheStateForTests(): {
+  hasDatabase: boolean;
+  databaseUrl: string | null;
+  schemaEnsuredForUrl: string | null;
+} {
+  return {
+    hasDatabase: database !== null,
+    databaseUrl,
+    schemaEnsuredForUrl,
+  };
 }
 
 function isWorkerReady(): boolean {
@@ -843,7 +887,7 @@ function acquireRuntimeSchemaLock(
   db: Pick<PostgresSyncDatabase, "prepare">,
   options: RuntimeSchemaLockOptions = {},
 ): { attempts: number } {
-  const timeoutMs = options.timeoutMs ?? POSTGRES_SCHEMA_LOCK_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? schemaLockTimeoutMsOverrideForTests ?? POSTGRES_SCHEMA_LOCK_TIMEOUT_MS;
   const retryMs = options.retryMs ?? POSTGRES_SCHEMA_LOCK_RETRY_MS;
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? sleepSync;
