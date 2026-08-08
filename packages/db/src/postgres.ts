@@ -271,14 +271,15 @@ export async function ensurePostgresSchema(input?: PostgresConnectionInput): Pro
 
   await client.connect();
   try {
-    // Forward-only guard: if a newer instance already advanced schema_version
-    // beyond this instance, an older CLI must not run statements or write the
-    // version down (prevents downgrading a database already migrated by a newer
-    // binary during a rollout). Mirrors the runtime guard in database.ts.
-    if (await isPostgresSchemaNewerThanInstance(client)) {
-      return await readPostgresStatusWithClient(client, databaseUrl);
-    }
     return await withPostgresSchemaLock(client, async () => {
+      // Forward-only guard: if a newer instance already advanced schema_version
+      // beyond this instance, an older CLI must not run statements or write the
+      // version down (prevents downgrading a database already migrated by a newer
+      // binary during a rollout). 复检须在取锁后进行——锁外检查与取锁之间存在 TOCTOU 窗口，
+      // 期间另一实例可能已推进版本。Mirrors the runtime guard in database.ts.
+      if (await isPostgresSchemaNewerThanInstance(client)) {
+        return await readPostgresStatusWithClient(client, databaseUrl);
+      }
       let transactionStarted = false;
       try {
         await client.query("BEGIN");
@@ -363,6 +364,10 @@ export async function migrateSqliteToPostgres(
     await client.connect();
     try {
       await withPostgresSchemaLock(client, async () => {
+        // Forward-only guard（锁内复检）：若库已被更新实例推进到更高版本，旧实例不得执行语句或降级版本。
+        if (await isPostgresSchemaNewerThanInstance(client)) {
+          return;
+        }
         let transactionStarted = false;
         try {
           await client.query("BEGIN");
@@ -479,6 +484,10 @@ export async function migratePostgresToPostgres(
     }
 
     await withPostgresSchemaLock(targetClient, async () => {
+      // Forward-only guard（锁内复检）：若库已被更新实例推进到更高版本，旧实例不得执行语句或降级版本。
+      if (await isPostgresSchemaNewerThanInstance(targetClient)) {
+        return;
+      }
       let transactionStarted = false;
       try {
         await targetClient.query("BEGIN");
@@ -891,7 +900,18 @@ function shouldUsePostgresSsl(databaseUrl: string): boolean {
 }
 
 async function truncatePostgresTables(client: Client): Promise<void> {
-  await client.query(`TRUNCATE TABLE ${[...POSTGRES_TABLE_NAMES].reverse().join(", ")} CASCADE`);
+  // 排除 app_metadata：保留 schema_version 行，使 reset 后的版本写入（INSERT ON CONFLICT）
+  // 命中既有行并触发单调守卫 WHERE 子句，无法把更高版本降级（Standards #2）。
+  // reset 仍清空所有业务数据表；对已更新库用旧二进制 reset，schema_version 不变且降级被守卫拦下。
+  const tablesToTruncate = [...POSTGRES_TABLE_NAMES]
+    .filter((table) => table !== "app_metadata")
+    .reverse();
+  await client.query(`TRUNCATE TABLE ${tablesToTruncate.join(", ")} CASCADE`);
+}
+
+/** 测试入口：直接验证 reset 截断逻辑排除 app_metadata（保留 schema_version 等元数据）。 */
+export async function truncatePostgresTablesForTests(client: Client): Promise<void> {
+  return truncatePostgresTables(client);
 }
 
 async function migrateTableRows(client: Client, table: TableMigrationSnapshot): Promise<number> {

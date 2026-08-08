@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test, { after, before } from "node:test";
+import { Client } from "pg";
 import { getDatabase, resetDatabaseForTests } from "./database.ts";
-import { ensurePostgresSchema } from "./postgres.ts";
-import { POSTGRES_SCHEMA_VERSION } from "./postgres-schema.ts";
+import { ensurePostgresSchema, truncatePostgresTablesForTests } from "./postgres.ts";
+import {
+  POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
+  POSTGRES_SCHEMA_VERSION,
+} from "./postgres-schema.ts";
+import { resolvePostgresDatabaseUrl } from "./postgres-config.ts";
 
 /**
  * 单元 3 测试：DB 级单调版本守卫（#1）。
@@ -129,5 +134,91 @@ test("ensurePostgresSchema 跳过比实例更新的库（前向守卫：不降�
     );
     assert.equal(readVersion(), original, "复原：版本已写回");
     assert.equal(triggerExists(), true, "复原：触发器已重建");
+  }
+});
+
+/**
+ * Standards #2（TOCTOU）：ensurePostgresSchema 取锁后才复检版本，消除「锁外检查 → 取锁」窗口。
+ * 阻塞者占住 [115,116] → ensurePostgresSchema 进入等锁 → 期间另一连接把版本抬到 117 →
+ * 释放锁 → ensurePostgresSchema 取锁后复检发现 117 > 116 → 跳过语句（不重建探针触发器、不降级）。
+ * 旧实现（锁外检查）会把检查时的 116 判定为「不更新」并继续执行语句，触发器被重建、版本被降级。
+ */
+test("ensurePostgresSchema 锁内复检版本，消除 TOCTOU（取锁后才检查）", async () => {
+  const db = getDatabase();
+  const original = readVersion();
+  // 探针：摘掉单调触发器，方便自由改写版本观测「是否重跑语句」。
+  db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
+  // 起始版本=116（实例版本）→ 旧实现的锁外检查会判定「不更新」并放行进入取锁；新实现取锁后复检。
+  db.prepare("UPDATE app_metadata SET value = '116' WHERE key = 'schema_version'").run();
+  assert.equal(triggerExists(), false, "前置：探针触发器已摘除");
+
+  const url = resolvePostgresDatabaseUrl();
+  const blocker = new Client({ connectionString: url });
+  await blocker.connect();
+  try {
+    // blocker 占住迁移锁 [115,116] → ensurePostgresSchema 取锁时阻塞。
+    for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+      await blocker.query("SELECT pg_advisory_lock($1)", [lockId]);
+    }
+
+    const bumper = new Client({ connectionString: url });
+    await bumper.connect();
+    try {
+      const ensurePromise = ensurePostgresSchema({});
+      // 让 ensurePostgresSchema 先进入等锁（此时锁外旧检查已读过 116）。
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      // 在等锁窗口把版本抬到 117（> 实例 116）。
+      await bumper.query("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'");
+      // 释放锁，让 ensurePostgresSchema 取锁后做锁内复检。
+      for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+        await blocker.query("SELECT pg_advisory_unlock($1)", [lockId]);
+      }
+      const status = await ensurePromise;
+      assert.equal(status.schemaVersion, "117", "锁内复检发现版本更新 → 不得降级");
+      assert.equal(triggerExists(), false, "锁内复检跳过语句，不得重建探针触发器");
+    } finally {
+      await bumper.end();
+    }
+  } finally {
+    await blocker.end();
+    // 复原：摘触发器后写回原版本，再重建触发器。
+    db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
+    db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(original);
+    db.exec(
+      `CREATE TRIGGER app_metadata_schema_version_monotonic
+         BEFORE INSERT OR UPDATE OF value ON app_metadata
+         FOR EACH ROW EXECUTE FUNCTION guard_schema_version_monotonic()`,
+    );
+    assert.equal(readVersion(), original, "复原：版本已写回");
+    assert.equal(triggerExists(), true, "复原：触发器已重建");
+  }
+});
+
+/**
+ * Standards #2（reset 不清 app_metadata）：reset 截断排除 app_metadata，schema_version 与其它元数据
+ * 标记存活 → 后续版本写命中既有行并受单调守卫约束，无法降级；其它标记（如回填 flag）也保留。
+ */
+test("truncatePostgresTables 排除 app_metadata，保留 schema_version 与回填 flag", async () => {
+  const db = getDatabase();
+  const original = readVersion();
+  const url = resolvePostgresDatabaseUrl();
+  const client = new Client({ connectionString: url });
+  await client.connect();
+  try {
+    // 种子一个非 version 的 app_metadata 标记（模拟回填 flag），验证整表保留。
+    db.prepare(
+      `INSERT INTO app_metadata (key, value) VALUES ('schema_116_history_backfill_complete', 'true')
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+    ).run();
+
+    await truncatePostgresTablesForTests(client);
+
+    assert.equal(readVersion(), original, "reset 不得清除 schema_version（app_metadata 保留）");
+    const flag = db.prepare("SELECT value FROM app_metadata WHERE key = 'schema_116_history_backfill_complete' LIMIT 1")
+      .get() as { value?: string } | undefined;
+    assert.equal(flag?.value, "true", "其它 app_metadata 标记也随表保留");
+  } finally {
+    await client.end();
+    db.prepare("DELETE FROM app_metadata WHERE key = 'schema_116_history_backfill_complete'").run();
   }
 });
