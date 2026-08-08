@@ -816,6 +816,11 @@ export function cancelQueuedTaskSync(input: {
   const db = getDatabase();
   const now = new Date().toISOString();
   const previous = readQueuedTaskSync(input.taskId);
+  // Cancel 覆盖 preparing_commit（EAD §7 提交拆分引入的中间态）：审批驳回/重试中止等
+  // 场景下，正在提交（running → preparing_commit）的任务必须可被中断，否则 cancel 对
+  // preparing_commit 任务为静默 no-op，任务继续 committed → 被驳回的运行仍按成功结算。
+  // committed 是持久不可逆点（与 failQueuedTaskSync 的 NOT IN (…,'committed') 一致），
+  // 一旦 committed 数据已落盘，cancel 无法撤销，故不覆盖。
   const task = withTransaction(db, () => {
     db.prepare(
       `UPDATE agent_task_queue
@@ -823,7 +828,7 @@ export function cancelQueuedTaskSync(input: {
            error_text = COALESCE(?, error_text),
            finished_at = ?,
            updated_at = ?
-       WHERE id = ? AND status IN ('queued', 'claimed', 'running')`,
+       WHERE id = ? AND status IN ('queued', 'claimed', 'running', 'preparing_commit')`,
     ).run(input.errorText ?? null, now, now, input.taskId);
     const current = readQueuedTaskSync(input.taskId);
     if (!current) {
@@ -835,7 +840,9 @@ export function cancelQueuedTaskSync(input: {
     return current;
   });
   if (previous?.status !== "cancelled" && task.status === "cancelled") {
-    const wasRunning = previous?.status === "claimed" || previous?.status === "running";
+    const wasRunning = previous?.status === "claimed"
+      || previous?.status === "running"
+      || previous?.status === "preparing_commit";
     const attempt = readLatestAgentTaskAttemptForTaskSync(task.id);
     if (attempt) {
       updateAgentTaskAttemptSync({

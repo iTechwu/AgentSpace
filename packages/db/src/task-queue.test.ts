@@ -17,6 +17,7 @@ import {
   markTaskCommittedSync,
   markTaskPreparingCommitSync,
   readMcpTaskSessionGrantSync,
+  readQueuedTaskSync,
   registerDaemonRuntimesSync,
   startQueuedTaskSync,
   updateAgentRuntimeManagedFieldsSync,
@@ -176,6 +177,48 @@ test("late completion and failure callbacks do not overwrite cancellation", () =
 
   assert.equal(completeQueuedTaskSync({ taskId: queued.id }).status, "cancelled");
   assert.equal(failQueuedTaskSync({ taskId: queued.id, errorText: "Late failure." }).status, "cancelled");
+});
+
+test("cancel interrupts a preparing_commit task so a late commit cannot land (Spec #4)", () => {
+  // 审批驳回/重试中止与员工任务提交的竞态：员工提交已进入 preparing_commit（EAD §7
+  // running → preparing_commit），此时审批被驳回触发 cancel。cancel 必须覆盖
+  // preparing_commit，否则守卫静默 no-op，任务继续 committed → 被驳回的运行仍按成功结算。
+  const runtimeId = createRuntimeAndBinding();
+  const queued = enqueueNativeTaskSync({ assignee: "Atlas", title: "Commit race", channel: "general", priority: "high" });
+  assert.ok(queued);
+  claimNextQueuedTaskForRuntimeSync(runtimeId);
+  startQueuedTaskSync(queued.id);
+  markTaskPreparingCommitSync(queued.id);
+  assert.equal(readQueuedTaskSync(queued.id)?.status, "preparing_commit");
+
+  const cancelled = cancelQueuedTaskSync({ taskId: queued.id, errorText: "workflow_approval_rejected" });
+  assert.equal(cancelled.status, "cancelled", "cancel 必须覆盖 preparing_commit");
+  assert.equal(readQueuedTaskSync(queued.id)?.status, "cancelled");
+
+  // 迟到的 commit 第二阶段（preparing_commit → committed）守卫拒绝，提交无法落地。
+  assert.throws(
+    () => markTaskCommittedSync({ taskId: queued.id }),
+    /workflow_task_commit_conflict/,
+    "preparing_commit 被 cancel 后，迟到 commit 须被守卫拒绝",
+  );
+  assert.equal(readQueuedTaskSync(queued.id)?.status, "cancelled");
+});
+
+test("cancel does not touch a committed task (committed is the no-return durability point)", () => {
+  // committed 是 EAD §7 的持久不可逆点（与 failQueuedTaskSync 的 NOT IN (…,'committed')
+  // 一致）：数据已原子落盘，cancel 无法撤销，故守卫不覆盖 committed。
+  const runtimeId = createRuntimeAndBinding();
+  const queued = enqueueNativeTaskSync({ assignee: "Atlas", title: "Already committed", channel: "general", priority: "high" });
+  assert.ok(queued);
+  claimNextQueuedTaskForRuntimeSync(runtimeId);
+  startQueuedTaskSync(queued.id);
+  markTaskPreparingCommitSync(queued.id);
+  markTaskCommittedSync({ taskId: queued.id });
+  assert.equal(readQueuedTaskSync(queued.id)?.status, "committed");
+
+  const afterCancel = cancelQueuedTaskSync({ taskId: queued.id, errorText: "workflow_approval_rejected" });
+  assert.equal(afterCancel.status, "committed", "committed 不可被 cancel 撤销");
+  assert.equal(readQueuedTaskSync(queued.id)?.status, "committed");
 });
 
 test("queued task identity survives employee rename through employeeId", () => {
