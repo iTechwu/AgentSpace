@@ -639,23 +639,29 @@ async function defaultConcurrentIndexBuilder(databaseUrl: string): Promise<void>
 let concurrentIndexBuilder: ConcurrentIndexBuilder = defaultConcurrentIndexBuilder;
 
 /**
- * 在线索引（CREATE INDEX CONCURRENTLY）不能在请求路径的同步 worker 内执行：大表建索引
+ * 在线条引（CREATE INDEX CONCURRENTLY）不能在请求路径的同步 worker 内执行：大表建索引
  * 会超过 worker 请求超时且无法取消，导致首请求失败并泄漏 advisory lock。这里在 getDatabase
  * 完成 schema ensure 后，用独立异步 pg 连接（无超时上限、被 advisory lock 串行化）后台构建。
- * 按 URL memoize，每进程只触发一次，不阻塞请求。失败仅记日志——CREATE INDEX CONCURRENTLY
- * 对正常读写安全，且可由下次进程冷启动重试。
+ * 按 URL memoize，每进程只触发一次，不阻塞请求。失败清 memo——CREATE INDEX CONCURRENTLY
+ * 对正常读写安全，且清 memo 后可由同进程下次 getDatabase 重入重试（而非只能等下次冷启动）。
  */
 function triggerConcurrentIndexBuild(databaseUrl: string): void {
   if (!databaseUrl || concurrentIndexEnsuredForUrl === databaseUrl) {
     return;
   }
   concurrentIndexEnsuredForUrl = databaseUrl;
-  void concurrentIndexBuilder(databaseUrl).catch((error) => {
-    console.warn(
-      `[db] background concurrent index build failed for ${redactPostgresDatabaseUrl(databaseUrl)}: `
-        + `${(error as Error).message ?? error}`,
-    );
-  });
+  void concurrentIndexBuilder(databaseUrl)
+    .catch((error) => {
+      // 失败清 memo：使下次 getDatabase 重新发起后台构建（Standards #4）。仅在 memo 仍指向本 URL
+      // 时清，避免误清后续其它 URL 的 memo。成功路径 memo 持久化，保留每进程一次去重。
+      if (concurrentIndexEnsuredForUrl === databaseUrl) {
+        concurrentIndexEnsuredForUrl = null;
+      }
+      console.warn(
+        `[db] background concurrent index build failed for ${redactPostgresDatabaseUrl(databaseUrl)}: `
+          + `${(error as Error).message ?? error}`,
+      );
+    });
 }
 
 export function triggerConcurrentIndexBuildForTests(
@@ -717,11 +723,13 @@ export function getDatabaseCacheStateForTests(): {
   hasDatabase: boolean;
   databaseUrl: string | null;
   schemaEnsuredForUrl: string | null;
+  concurrentIndexEnsuredForUrl: string | null;
 } {
   return {
     hasDatabase: database !== null,
     databaseUrl,
     schemaEnsuredForUrl,
+    concurrentIndexEnsuredForUrl,
   };
 }
 

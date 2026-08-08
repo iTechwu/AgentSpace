@@ -79,3 +79,44 @@ test("迁移锁被占用时 getDatabase 抛错，且不缓存未校验连接；�
 
   cleanCache();
 });
+
+/**
+ * Standards #4：triggerConcurrentIndexBuild 失败须清 memo，使同进程下次 getDatabase 重入重试，
+ * 而非只能在下次冷启动重试。成功路径才持久 memo（保留每进程一次去重）。
+ */
+test("triggerConcurrentIndexBuild 失败清 memo 重试，成功后持久 memo（Standards #4）", async () => {
+  cleanCache();
+  let invocations = 0;
+  // builder：第 1 次抛错，第 2 次起成功。
+  const builder = async () => {
+    invocations += 1;
+    if (invocations === 1) throw new Error("simulated concurrent index build failure");
+  };
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  triggerConcurrentIndexBuildForTests("postgres://test-idx-url", builder);
+  await flush();
+  assert.equal(invocations, 1, "首次触发调用 builder");
+  assert.equal(
+    getDatabaseCacheStateForTests().concurrentIndexEnsuredForUrl,
+    null,
+    "失败后 memo 须清除，使下次可重试",
+  );
+
+  // 再次触发：memo 已清 → 重新调用 builder（成功）→ memo 持久化。
+  triggerConcurrentIndexBuildForTests("postgres://test-idx-url", builder);
+  await flush();
+  assert.equal(invocations, 2, "失败清 memo 后下次触发重新调用 builder");
+  assert.equal(
+    getDatabaseCacheStateForTests().concurrentIndexEnsuredForUrl,
+    "postgres://test-idx-url",
+    "成功后 memo 持久化",
+  );
+
+  // 第三次触发：memo 已持久 → 不再调用 builder（去重）。
+  triggerConcurrentIndexBuildForTests("postgres://test-idx-url", builder);
+  await flush();
+  assert.equal(invocations, 2, "成功后 memo 持久，不再重复触发");
+
+  cleanCache();
+});
