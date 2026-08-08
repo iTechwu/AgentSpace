@@ -65,15 +65,26 @@ export function dispatchWorkflowOutboxBatchSync(input: {
         result.leaseConflictOutboxIds.push(item.id);
         continue;
       }
-      markWorkflowOutboxFailedSync({
-        id: item.id,
-        workerId: input.workerId,
-        workspaceId: item.workspaceId,
-        error: workflowOutboxErrorCode(error),
-        nextAvailableAt: computeWorkflowOutboxRetryAt(now, item.attempts),
-        maxAttempts: WORKFLOW_OUTBOX_MAX_ATTEMPTS,
-      });
-      result.failedOutboxIds.push(item.id);
+      try {
+        markWorkflowOutboxFailedSync({
+          id: item.id,
+          workerId: input.workerId,
+          workspaceId: item.workspaceId,
+          error: workflowOutboxErrorCode(error),
+          nextAvailableAt: computeWorkflowOutboxRetryAt(now, item.attempts),
+          maxAttempts: WORKFLOW_OUTBOX_MAX_ATTEMPTS,
+        });
+        result.failedOutboxIds.push(item.id);
+      } catch (markError) {
+        // 标记失败本身也可能丢租约（派发耗时超过 60s 租约、或条目已被另一 worker 重认领）。
+        // 此第二层 lease_conflict 不得逃出 for 循环中断整批剩余条目——归入租约冲突，
+        // 交由当前持有租约的 worker 处理，继续批内剩余项。非租约错误属异常，仍向上抛出。
+        if (workflowOutboxErrorCode(markError) === "workflow_outbox_lease_conflict") {
+          result.leaseConflictOutboxIds.push(item.id);
+          continue;
+        }
+        throw markError;
+      }
     }
   }
   return result;

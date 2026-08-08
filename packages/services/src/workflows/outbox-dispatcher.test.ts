@@ -6,7 +6,7 @@ import {
   getDatabase,
   markWorkflowOutboxFailedSync,
 } from "@dofe-agent/db";
-import { computeWorkflowOutboxRetryAt, workflowOutboxErrorCode } from "./outbox-dispatcher.ts";
+import { computeWorkflowOutboxRetryAt, dispatchWorkflowOutboxBatchSync, workflowOutboxErrorCode } from "./outbox-dispatcher.ts";
 
 const hasTestDatabase = Boolean(
   process.env.DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE
@@ -72,4 +72,42 @@ test("markWorkflowOutboxFailedSync re-throws lease_conflict when the worker lost
     }),
     /workflow_outbox_lease_conflict/,
   );
+});
+
+test("dispatch loop continues processing the batch after an item fails (no whole-batch abort)", {
+  skip: !hasTestDatabase,
+}, () => {
+  // Spec #5 批级契约：dispatch 循环对单个条目的失败（非租约错误）必须只标记该条目失败并继续批内
+  // 剩余项，不得让异常逃出 for 循环中断整批。修复前若 markWorkflowOutboxFailedSync 自身丢租约，
+  // 其抛出的第二层 lease_conflict 会逃出循环——此处锁定"批不中断"这一更外层契约。
+  //
+  // 注：第二层 lease_conflict（markFailed 在 W1 已丢租约时再抛）要求 claim 与 mark 之间租约被
+  // 他者夺走，在同步 better-sqlite3 单线程循环中进程内无可注入点，无法确定性复现；其陷阱由上一
+  // 用例（Spec #5 trap，markFailed 直接调用）覆盖，循环内的 try/catch 由代码审查保证。
+  const workspaceId = seedWorkspace();
+  const now = "2026-08-07T01:00:00.000Z";
+  // 两条 node.ready 条目，payload 缺 nodeRunId → dispatch 抛 workflow_outbox_payload_invalid
+  // （非租约错误），各自走到 markWorkflowOutboxFailedSync。W1 持有自身认领的租约，故两者均标记失败。
+  enqueueWorkflowOutboxSync({
+    workspaceId,
+    aggregateType: "workflow_node_run",
+    aggregateId: "node-A",
+    eventType: "workflow.node.ready",
+    payloadJson: JSON.stringify({}),
+    now,
+  });
+  enqueueWorkflowOutboxSync({
+    workspaceId,
+    aggregateType: "workflow_node_run",
+    aggregateId: "node-B",
+    eventType: "workflow.node.ready",
+    payloadJson: JSON.stringify({}),
+    now,
+  });
+  const result = dispatchWorkflowOutboxBatchSync({ workerId: "w1", limit: 10, now, workspaceId });
+  // 两条都被认领、都被标记失败；关键：B 在 A 失败后仍被处理，证明循环未在 A 处中断整批。
+  assert.equal(result.claimedOutboxIds.length, 2);
+  assert.equal(result.failedOutboxIds.length, 2);
+  assert.equal(result.publishedOutboxIds.length, 0);
+  assert.equal(result.leaseConflictOutboxIds.length, 0);
 });
