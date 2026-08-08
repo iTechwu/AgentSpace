@@ -207,17 +207,17 @@ export async function recordAuditLogAsync(
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const id = `audit-${randomLikeId()}`;
   const prisma = getPrismaClient();
-  await prisma.audit_log.create({
+  await prisma.auditLog.create({
     data: {
       id,
-      workspace_id: workspaceId,
+      workspaceId,
       title: input.title,
       note: input.note,
       code: input.code ?? null,
-      data_json: (input.data ?? {}) as Prisma.InputJsonValue,
+      dataJson: (input.data ?? {}) as Prisma.InputJsonValue,
       source: input.source ?? "runtime_lifecycle",
-      source_index: 0,
-      created_at: new Date(),
+      sourceIndex: 0,
+      createdAt: new Date(),
     },
   });
   // Re-read via the fidelity text-cast path (mirrors recordAuditLogSync, which
