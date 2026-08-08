@@ -4,7 +4,12 @@ import { existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { MessageChannel, Worker, receiveMessageOnPort, type MessagePort } from "node:worker_threads";
-import { getPostgresSchemaStatements, POSTGRES_SCHEMA_VERSION } from "./postgres-schema.ts";
+import {
+  getPostgresPostCommitSchemaStatements,
+  getPostgresSchemaStatements,
+  POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
+  POSTGRES_SCHEMA_VERSION,
+} from "./postgres-schema.ts";
 import { redactPostgresDatabaseUrl, resolvePostgresDatabaseUrl } from "./postgres-config.ts";
 
 const DATA_DIR = "data";
@@ -734,23 +739,24 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
   let transactionStarted = false;
   acquireRuntimeSchemaLock(db);
   try {
-    if (schemaEnsuredForUrl === currentUrl || isRuntimeSchemaCurrent(db)) {
-      schemaEnsuredForUrl = currentUrl;
-      return;
+    if (!isRuntimeSchemaCurrent(db)) {
+      db.exec("BEGIN");
+      transactionStarted = true;
+      for (const statement of getPostgresSchemaStatements()) {
+        db.exec(statement);
+      }
+      db.prepare(
+        `INSERT INTO app_metadata (key, value)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+      ).run("schema_version", POSTGRES_SCHEMA_VERSION);
+      seedDefaultWorkspace(db);
+      db.exec("COMMIT");
+      transactionStarted = false;
     }
-    db.exec("BEGIN");
-    transactionStarted = true;
-    for (const statement of getPostgresSchemaStatements()) {
+    for (const statement of getPostgresPostCommitSchemaStatements()) {
       db.exec(statement);
     }
-    db.prepare(
-      `INSERT INTO app_metadata (key, value)
-       VALUES (?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-    ).run("schema_version", POSTGRES_SCHEMA_VERSION);
-    seedDefaultWorkspace(db);
-    db.exec("COMMIT");
-    transactionStarted = false;
     schemaEnsuredForUrl = currentUrl;
   } catch (error) {
     if (transactionStarted) {
@@ -758,7 +764,9 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
     }
     throw error;
   } finally {
-    db.prepare("SELECT pg_advisory_unlock(?)").get(POSTGRES_SCHEMA_VERSION);
+    for (const lockId of [...POSTGRES_SCHEMA_ADVISORY_LOCK_IDS].reverse()) {
+      db.prepare("SELECT pg_advisory_unlock(?) AS released").get(lockId);
+    }
   }
 }
 
@@ -789,11 +797,23 @@ function acquireRuntimeSchemaLock(
 
   while (true) {
     attempts += 1;
-    const row = db.prepare("SELECT pg_try_advisory_lock(?) AS acquired").get(POSTGRES_SCHEMA_VERSION) as
-      | { acquired?: boolean }
-      | undefined;
-    if (row?.acquired === true) {
+    const acquiredLockIds: number[] = [];
+    let allLocksAcquired = true;
+    for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+      const row = db.prepare("SELECT pg_try_advisory_lock(?) AS acquired").get(lockId) as
+        | { acquired?: boolean }
+        | undefined;
+      if (row?.acquired !== true) {
+        allLocksAcquired = false;
+        break;
+      }
+      acquiredLockIds.push(lockId);
+    }
+    if (allLocksAcquired) {
       return { attempts };
+    }
+    for (const lockId of acquiredLockIds.reverse()) {
+      db.prepare("SELECT pg_advisory_unlock(?) AS released").get(lockId);
     }
 
     const elapsedMs = Math.max(0, now() - startedAt);

@@ -4,8 +4,9 @@ import { acquireRuntimeSchemaLockForTests, isRuntimeSchemaCurrentForTests } from
 import { POSTGRES_SCHEMA_VERSION } from "./postgres-schema.ts";
 
 test("acquireRuntimeSchemaLock retries until the schema lock is available", () => {
-  const acquiredValues = [false, false, true];
+  const acquiredValues = [true, false, true, true];
   const attemptedSql: string[] = [];
+  const attemptedParameters: unknown[][] = [];
   let now = 0;
 
   const result = acquireRuntimeSchemaLockForTests({
@@ -13,7 +14,11 @@ test("acquireRuntimeSchemaLock retries until the schema lock is available", () =
       attemptedSql.push(sql);
       return {
         all: () => [],
-        get: () => ({ acquired: acquiredValues.shift() ?? false }),
+        get: (...parameters: unknown[]) => {
+          attemptedParameters.push(parameters);
+          if (sql.includes("pg_advisory_unlock")) return { released: true };
+          return { acquired: acquiredValues.shift() ?? false };
+        },
         run: () => ({ changes: 0 }),
       };
     },
@@ -26,13 +31,16 @@ test("acquireRuntimeSchemaLock retries until the schema lock is available", () =
     timeoutMs: 100,
   });
 
-  assert.equal(result.attempts, 3);
+  assert.equal(result.attempts, 2);
   assert.deepEqual(attemptedSql, [
     "SELECT pg_try_advisory_lock(?) AS acquired",
     "SELECT pg_try_advisory_lock(?) AS acquired",
+    "SELECT pg_advisory_unlock(?) AS released",
+    "SELECT pg_try_advisory_lock(?) AS acquired",
     "SELECT pg_try_advisory_lock(?) AS acquired",
   ]);
-  assert.equal(now, 50);
+  assert.equal(now, 25);
+  assert.deepEqual(attemptedParameters, [[115], [116], [115], [115], [116]]);
 });
 
 test("acquireRuntimeSchemaLock fails with an actionable message when the lock stays busy", () => {

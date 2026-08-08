@@ -1,4 +1,9 @@
 export const POSTGRES_SCHEMA_VERSION = "116";
+// 跨版本固定锁：不能使用 schema 版本作为锁键，否则滚动升级中的相邻版本会并发迁移。
+// 取 116 兼容已经发布的 schema 116 实例；后续版本必须保持此值不变。
+export const POSTGRES_SCHEMA_ADVISORY_LOCK_ID = 116;
+// schema 115 已在运行时按版本号锁定；本次过渡同时取得两把锁，避免 115/116 并发迁移。
+export const POSTGRES_SCHEMA_ADVISORY_LOCK_IDS = [115, POSTGRES_SCHEMA_ADVISORY_LOCK_ID] as const;
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -4462,8 +4467,6 @@ export function getPostgresSchemaStatements(): string[] {
        WHERE target.id = source.workspace_id
     `,
     `ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL`,
-    `DROP INDEX IF EXISTS idx_workflow_run_workspace_created`,
-    `CREATE INDEX idx_workflow_run_workspace_created ON workflow_run(workspace_id, created_at DESC, id DESC)`,
     `
       CREATE INDEX IF NOT EXISTS idx_workflow_run_workspace_history_sequence
         ON workflow_run(workspace_id, history_sequence)
@@ -4472,6 +4475,19 @@ export function getPostgresSchemaStatements(): string[] {
       INSERT INTO app_metadata (key, value)
       VALUES ('schema_version', '${POSTGRES_SCHEMA_VERSION}')
       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+    `,
+  ].map((statement) => statement.trim());
+}
+
+/**
+ * 不能放入 schema 主事务的在线索引。保留旧索引，避免重建时阻塞 workflow_run 写入；
+ * 新索引完成前查询仍可正确使用旧索引的 workspace/created_at 前缀。
+ */
+export function getPostgresPostCommitSchemaStatements(): string[] {
+  return [
+    `
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_created_v2
+        ON workflow_run(workspace_id, created_at DESC, id DESC)
     `,
   ].map((statement) => statement.trim());
 }

@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { Client } from "pg";
 import type { DofeAgentState, LedgerItem, MessageAttachment, WorkspaceMessage } from "@dofe-agent/domain/workspace";
 import { getDataDirPath } from "./database.ts";
-import { POSTGRES_SCHEMA_VERSION, POSTGRES_TABLE_NAMES, getPostgresSchemaStatements, type PostgresTableName } from "./postgres-schema.ts";
+import {
+  getPostgresPostCommitSchemaStatements,
+  getPostgresSchemaStatements,
+  POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
+  POSTGRES_SCHEMA_VERSION,
+  POSTGRES_TABLE_NAMES,
+  type PostgresTableName,
+} from "./postgres-schema.ts";
 import { redactPostgresDatabaseUrl, resolvePostgresDatabaseUrl, type PostgresConnectionInput } from "./postgres-config.ts";
 
 type DatabaseSync = import("node:sqlite").DatabaseSync;
@@ -259,15 +266,23 @@ export async function ensurePostgresSchema(input?: PostgresConnectionInput): Pro
 
   await client.connect();
   try {
-    await client.query("BEGIN");
-    for (const statement of getPostgresSchemaStatements()) {
-      await client.query(statement);
-    }
-    await client.query("COMMIT");
-    return await readPostgresStatusWithClient(client, databaseUrl);
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+    return await withPostgresSchemaLock(client, async () => {
+      let transactionStarted = false;
+      try {
+        await client.query("BEGIN");
+        transactionStarted = true;
+        for (const statement of getPostgresSchemaStatements()) {
+          await client.query(statement);
+        }
+        await client.query("COMMIT");
+        transactionStarted = false;
+        await applyPostCommitSchemaStatements(client);
+        return await readPostgresStatusWithClient(client, databaseUrl);
+      } catch (error) {
+        if (transactionStarted) await client.query("ROLLBACK");
+        throw error;
+      }
+    });
   } finally {
     await client.end();
   }
@@ -327,43 +342,51 @@ export async function migrateSqliteToPostgres(
     const client = createPostgresClient(databaseUrl);
     await client.connect();
     try {
-      await client.query("BEGIN");
-      for (const statement of getPostgresSchemaStatements()) {
-        await client.query(statement);
-      }
-      if (reset) {
-        await truncatePostgresTables(client);
-        await client.query(
-          `INSERT INTO app_metadata (key, value)
-           VALUES ('schema_version', $1)
-           ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-          [POSTGRES_SCHEMA_VERSION],
-        );
-      }
+      await withPostgresSchemaLock(client, async () => {
+        let transactionStarted = false;
+        try {
+          await client.query("BEGIN");
+          transactionStarted = true;
+          for (const statement of getPostgresSchemaStatements()) {
+            await client.query(statement);
+          }
+          if (reset) {
+            await truncatePostgresTables(client);
+            await client.query(
+              `INSERT INTO app_metadata (key, value)
+               VALUES ('schema_version', $1)
+               ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+              [POSTGRES_SCHEMA_VERSION],
+            );
+          }
 
-      if (!dryRun) {
-        for (const [index, table] of snapshot.tables.entries()) {
-          const insertedCount = await migrateTableRows(client, table);
-          report.tables[index] = {
-            tableName: table.tableName,
-            sourceCount: table.rows.length,
-            insertedCount,
-            skippedCount: Math.max(table.rows.length - insertedCount, 0),
-          };
+          if (!dryRun) {
+            for (const [index, table] of snapshot.tables.entries()) {
+              const insertedCount = await migrateTableRows(client, table);
+              report.tables[index] = {
+                tableName: table.tableName,
+                sourceCount: table.rows.length,
+                insertedCount,
+                skippedCount: Math.max(table.rows.length - insertedCount, 0),
+              };
+            }
+
+            await client.query(
+              `INSERT INTO app_metadata (key, value)
+               VALUES ('migrated_from_sqlite_at', $1)
+               ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+              [new Date().toISOString()],
+            );
+          }
+
+          await client.query("COMMIT");
+          transactionStarted = false;
+          await applyPostCommitSchemaStatements(client);
+        } catch (error) {
+          if (transactionStarted) await client.query("ROLLBACK");
+          throw error;
         }
-
-        await client.query(
-          `INSERT INTO app_metadata (key, value)
-           VALUES ('migrated_from_sqlite_at', $1)
-           ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-          [new Date().toISOString()],
-        );
-      }
-
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      });
     } finally {
       await client.end();
     }
@@ -424,46 +447,73 @@ export async function migratePostgresToPostgres(
       return report;
     }
 
-    await targetClient.query("BEGIN");
-    try {
-      for (const statement of getPostgresSchemaStatements()) {
-        await targetClient.query(statement);
-      }
-      if (input.reset) {
-        await truncatePostgresTables(targetClient);
+    await withPostgresSchemaLock(targetClient, async () => {
+      let transactionStarted = false;
+      try {
+        await targetClient.query("BEGIN");
+        transactionStarted = true;
+        for (const statement of getPostgresSchemaStatements()) {
+          await targetClient.query(statement);
+        }
+        if (input.reset) {
+          await truncatePostgresTables(targetClient);
+          await targetClient.query(
+            `INSERT INTO app_metadata (key, value)
+             VALUES ('schema_version', $1)
+             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+            [POSTGRES_SCHEMA_VERSION],
+          );
+        }
+        for (const [index, table] of snapshot.entries()) {
+          const insertedCount = await migrateTableRows(targetClient, table);
+          report.tables[index] = {
+            tableName: table.tableName,
+            sourceCount: table.rows.length,
+            insertedCount,
+            skippedCount: Math.max(table.rows.length - insertedCount, 0),
+          };
+        }
         await targetClient.query(
           `INSERT INTO app_metadata (key, value)
-           VALUES ('schema_version', $1)
+           VALUES ('migrated_from_postgres_at', $1)
            ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-          [POSTGRES_SCHEMA_VERSION],
+          [new Date().toISOString()],
         );
+        await targetClient.query("COMMIT");
+        transactionStarted = false;
+        await applyPostCommitSchemaStatements(targetClient);
+      } catch (error) {
+        if (transactionStarted) await targetClient.query("ROLLBACK");
+        throw error;
       }
-      for (const [index, table] of snapshot.entries()) {
-        const insertedCount = await migrateTableRows(targetClient, table);
-        report.tables[index] = {
-          tableName: table.tableName,
-          sourceCount: table.rows.length,
-          insertedCount,
-          skippedCount: Math.max(table.rows.length - insertedCount, 0),
-        };
-      }
-      await targetClient.query(
-        `INSERT INTO app_metadata (key, value)
-         VALUES ('migrated_from_postgres_at', $1)
-         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-        [new Date().toISOString()],
-      );
-      await targetClient.query("COMMIT");
-    } catch (error) {
-      await targetClient.query("ROLLBACK");
-      throw error;
-    }
+    });
 
     report.finishedAt = new Date().toISOString();
     return report;
   } finally {
     await sourceClient.end();
     await targetClient.end();
+  }
+}
+
+async function withPostgresSchemaLock<T>(client: Client, operation: () => Promise<T>): Promise<T> {
+  const acquiredLockIds: number[] = [];
+  try {
+    for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+      await client.query("SELECT pg_advisory_lock($1)", [lockId]);
+      acquiredLockIds.push(lockId);
+    }
+    return await operation();
+  } finally {
+    for (const lockId of acquiredLockIds.reverse()) {
+      await client.query("SELECT pg_advisory_unlock($1)", [lockId]);
+    }
+  }
+}
+
+async function applyPostCommitSchemaStatements(client: Client): Promise<void> {
+  for (const statement of getPostgresPostCommitSchemaStatements()) {
+    await client.query(statement);
   }
 }
 

@@ -5,7 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { collectSqliteMigrationSnapshotSync, redactPostgresDatabaseUrl, renderPostgresCutoverPlan } from "./postgres.ts";
-import { getPostgresSchemaStatements, POSTGRES_SCHEMA_VERSION, POSTGRES_TABLE_NAMES } from "./postgres-schema.ts";
+import {
+  getPostgresPostCommitSchemaStatements,
+  getPostgresSchemaStatements,
+  POSTGRES_SCHEMA_VERSION,
+  POSTGRES_TABLE_NAMES,
+} from "./postgres-schema.ts";
 
 test("postgres schema includes the expected core and derived tables", () => {
   const statements = getPostgresSchemaStatements().join("\n");
@@ -90,6 +95,11 @@ test("postgres schema enforces SSO-only identities", () => {
   assert.match(statements, /DELETE FROM auth_identity WHERE provider <> 'sso'/);
   assert.match(statements, /auth_identity_provider_check CHECK \(provider = 'sso'\)/);
   assert.match(statements, /idx_skill_upgrade_approval_policy_lock/);
+  assert.doesNotMatch(statements, /DROP INDEX IF EXISTS idx_workflow_run_workspace_created/);
+  assert.doesNotMatch(statements, /CREATE INDEX idx_workflow_run_workspace_created ON workflow_run/);
+  assert.deepEqual(getPostgresPostCommitSchemaStatements(), [
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_created_v2\n        ON workflow_run(workspace_id, created_at DESC, id DESC)",
+  ]);
 });
 
 test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {
