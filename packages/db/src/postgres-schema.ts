@@ -141,6 +141,44 @@ export function getPostgresSchemaStatements(): string[] {
         value TEXT NOT NULL
       )
     `,
+    // schema_version 单调保护（DB 级硬约束）：任何写入尝试把 schema_version 改成更小的数字都
+    // 会被拒绝。这是应用层前向守卫的兜底——滚动升级中仍存活的旧版本二进制没有前向守卫逻辑，
+    // 会在重启时跑旧迁移并试图把版本写回更低值；触发器让这种降级在数据库层失败（事务回滚），
+    // 而非静默覆盖一个已被更高版本迁移过的库。仅对 key='schema_version' 生效；非数字值放行，
+    // 避免历史脏值或非版本元数据导致每次写入崩溃。
+    `
+      CREATE OR REPLACE FUNCTION guard_schema_version_monotonic() RETURNS trigger AS $$
+      DECLARE old_int bigint; new_int bigint;
+      BEGIN
+        IF NEW.key IS DISTINCT FROM 'schema_version' THEN
+          RETURN NEW;
+        END IF;
+        BEGIN
+          new_int := NEW.value::bigint;
+        EXCEPTION WHEN invalid_text_representation THEN
+          RETURN NEW;
+        END;
+        IF TG_OP = 'UPDATE' AND OLD IS NOT NULL THEN
+          BEGIN
+            old_int := OLD.value::bigint;
+          EXCEPTION WHEN invalid_text_representation THEN
+            RETURN NEW;
+          END;
+          IF new_int < old_int THEN
+            RAISE EXCEPTION 'schema_version cannot be downgraded from % to %',
+              OLD.value, NEW.value USING ERRCODE = 'check_violation';
+          END IF;
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `,
+    `DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata`,
+    `
+      CREATE TRIGGER app_metadata_schema_version_monotonic
+        BEFORE INSERT OR UPDATE OF value ON app_metadata
+        FOR EACH ROW EXECUTE FUNCTION guard_schema_version_monotonic()
+    `,
     `
       CREATE TABLE IF NOT EXISTS workspace (
         id TEXT PRIMARY KEY,
@@ -4475,6 +4513,8 @@ export function getPostgresSchemaStatements(): string[] {
       INSERT INTO app_metadata (key, value)
       VALUES ('schema_version', '${POSTGRES_SCHEMA_VERSION}')
       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+      WHERE EXCLUDED.value ~ '^\d+$'
+        AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)
     `,
   ].map((statement) => statement.trim());
 }

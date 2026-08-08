@@ -850,7 +850,9 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
       db.prepare(
         `INSERT INTO app_metadata (key, value)
          VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+         WHERE EXCLUDED.value ~ '^\d+$'
+           AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
       ).run("schema_version", POSTGRES_SCHEMA_VERSION);
       seedDefaultWorkspace(db);
       db.exec("COMMIT");

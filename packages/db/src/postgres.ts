@@ -267,6 +267,13 @@ export async function ensurePostgresSchema(input?: PostgresConnectionInput): Pro
 
   await client.connect();
   try {
+    // Forward-only guard: if a newer instance already advanced schema_version
+    // beyond this instance, an older CLI must not run statements or write the
+    // version down (prevents downgrading a database already migrated by a newer
+    // binary during a rollout). Mirrors the runtime guard in database.ts.
+    if (await isPostgresSchemaNewerThanInstance(client)) {
+      return await readPostgresStatusWithClient(client, databaseUrl);
+    }
     return await withPostgresSchemaLock(client, async () => {
       let transactionStarted = false;
       try {
@@ -356,7 +363,9 @@ export async function migrateSqliteToPostgres(
             await client.query(
               `INSERT INTO app_metadata (key, value)
                VALUES ('schema_version', $1)
-               ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+               ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+               WHERE EXCLUDED.value ~ '^\d+$'
+                 AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
               [POSTGRES_SCHEMA_VERSION],
             );
           }
@@ -461,7 +470,9 @@ export async function migratePostgresToPostgres(
           await targetClient.query(
             `INSERT INTO app_metadata (key, value)
              VALUES ('schema_version', $1)
-             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+             WHERE EXCLUDED.value ~ '^\d+$'
+               AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
             [POSTGRES_SCHEMA_VERSION],
           );
         }
@@ -656,6 +667,18 @@ export function renderPostgresCutoverPlan(): string {
     "   - If verification fails, keep PostgreSQL frozen",
     "   - Restore the SQLite snapshot and revert traffic to the SQLite-backed deployment",
     "   - Investigate with the JSON migration report before the next rehearsal",
+    "",
+    "6. Rolling schema upgrades (forward-only version guard)",
+    "   - schema_version is monotonic at the DB level: a BEFORE INSERT OR UPDATE trigger on",
+    "     app_metadata raises check_violation if a newer version is overwritten with a lower one.",
+    "   - Consequence: once version N is written, a still-running older binary (version < N)",
+    "     that restarts will detect db_version != instance_version, attempt its own migration,",
+    "     try to write its lower version, hit the trigger, and fail ensureRuntimeSchema —",
+    "     i.e. it cannot open a database connection and will crash-loop until replaced.",
+    "   - During a rolling deploy, drain/replace older binaries BEFORE or ALONGSIDE advancing",
+    "     schema_version. In surge or host-reclamation scenarios this can briefly reduce capacity.",
+    "   - Newer binaries are unaffected: an older schema is migrated upward normally, and a",
+    "     newer-than-instance database is detected and skipped (no statements run, no version write).",
   ].join("\n");
 }
 
@@ -664,6 +687,36 @@ function createPostgresClient(databaseUrl: string): Client {
     connectionString: databaseUrl,
     ssl: shouldUsePostgresSsl(databaseUrl) ? { rejectUnauthorized: false } : undefined,
   });
+}
+
+/**
+ * Forward-only guard (async client variant): true when the database's
+ * schema_version is strictly newer than this instance's
+ * POSTGRES_SCHEMA_VERSION. A missing app_metadata table (fresh database) or a
+ * non-numeric version is treated as "not newer" so a normal upward migration
+ * can proceed. Mirrors isDatabaseSchemaNewerThanInstanceForTests in database.ts
+ * but operates on an async pg Client instead of the sync PostgresSyncDatabase.
+ */
+async function isPostgresSchemaNewerThanInstance(client: PostgresQueryClient): Promise<boolean> {
+  const table = await client.query<{ exists: string | null }>(
+    `SELECT to_regclass('public.app_metadata') AS exists`,
+  );
+  if (table.rows[0]?.exists !== "app_metadata") {
+    return false;
+  }
+  const versionResult = await client.query<{ value: string }>(
+    "SELECT value FROM app_metadata WHERE key = 'schema_version' LIMIT 1",
+  );
+  const databaseVersion = versionResult.rows[0]?.value;
+  if (!databaseVersion) {
+    return false;
+  }
+  const databaseNumeric = Number.parseInt(databaseVersion, 10);
+  const instanceNumeric = Number.parseInt(POSTGRES_SCHEMA_VERSION, 10);
+  if (!Number.isFinite(databaseNumeric) || !Number.isFinite(instanceNumeric)) {
+    return false;
+  }
+  return databaseNumeric > instanceNumeric;
 }
 
 async function readPostgresStatusWithClient(client: Client, databaseUrl: string): Promise<PostgresStatus> {
