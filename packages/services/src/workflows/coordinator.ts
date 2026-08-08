@@ -614,6 +614,29 @@ const WORKFLOW_RUN_TERMINAL_EVENT: Record<"succeeded" | "partially_succeeded" | 
   failed: "run.failed",
 };
 
+/**
+ * 追加 Run 终态生命周期事实事件（run.succeeded / run.partially_succeeded / run.failed）。
+ * 终态事件是下游消费者判断 Run 已结束的唯一来源；任何把 Run 推进到终态的路径
+ * （正常完成 finalizeRunIfTerminal、暂停后恢复直入终态 resumeWorkflowRunSync）都必须补发。
+ */
+export function appendWorkflowRunTerminalEventSync(
+  workspaceId: string,
+  runId: string,
+  terminalStatus: "succeeded" | "partially_succeeded" | "failed",
+  actorType: "coordinator" | "human" = "coordinator",
+  now: string,
+): void {
+  appendWorkflowRunEventSync({
+    workspaceId,
+    runId,
+    type: WORKFLOW_RUN_TERMINAL_EVENT[terminalStatus],
+    actorType,
+    severity: terminalStatus === "failed" ? "error" : undefined,
+    dataJson: JSON.stringify({ status: terminalStatus }),
+    now,
+  });
+}
+
 function finalizeRunIfTerminal(workspaceId: string, run: WorkflowRunRecord, now: string): WorkflowRunRecord {
   const nodes = listWorkflowNodeRunsSync(workspaceId, run.id);
   if (nodes.some((node) => ["pending", "ready", "queued", "running", "waiting_approval", "retry_wait"].includes(node.status))) {
@@ -634,15 +657,7 @@ function finalizeRunIfTerminal(workspaceId: string, run: WorkflowRunRecord, now:
   const finalized = transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued", "running", "waiting_approval"], to: terminalStatus, finishedAt: now, now });
   // 终态事实事件只发一次：终态后 status 不在 from 列表，transition 返回 null 即跳过。
   if (finalized) {
-    appendWorkflowRunEventSync({
-      workspaceId,
-      runId: run.id,
-      type: WORKFLOW_RUN_TERMINAL_EVENT[terminalStatus],
-      actorType: "coordinator",
-      severity: terminalStatus === "failed" ? "error" : undefined,
-      dataJson: JSON.stringify({ status: terminalStatus }),
-      now,
-    });
+    appendWorkflowRunTerminalEventSync(workspaceId, run.id, terminalStatus, "coordinator", now);
   }
   return readWorkflowRunSync(run.id, workspaceId)!;
 }

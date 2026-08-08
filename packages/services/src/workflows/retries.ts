@@ -18,7 +18,7 @@ import {
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
 import { cancelPendingWorkflowApprovalsSync } from "./approvals.ts";
-import { resolveWorkflowRunTerminalStatus } from "./coordinator.ts";
+import { appendWorkflowRunTerminalEventSync, resolveWorkflowRunTerminalStatus } from "./coordinator.ts";
 
 export interface RetryWorkflowNodeInput {
   workspaceId: string;
@@ -133,6 +133,18 @@ export function resumeWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
       JSON.parse(version.graphJson) as WorkflowGraphDefinition,
     );
     const run = controlRun(input, ["paused"], targetStatus, "run.resumed");
+    if (targetStatus === "succeeded" || targetStatus === "partially_succeeded" || targetStatus === "failed") {
+      // 暂停后恢复若直接判为终态（所有节点已在 pause 前落定终态），controlRun 只补发 run.resumed；
+      // 但终态生命周期事实事件（run.succeeded/partially_succeeded/failed）是下游判断 Run 结束的唯一来源，
+      // 必须在此补发，否则恢复直入终态的 Run 永远不发终态事件（Spec #6）。
+      appendWorkflowRunTerminalEventSync(
+        input.workspaceId,
+        run.id,
+        targetStatus,
+        "human",
+        input.now ?? new Date().toISOString(),
+      );
+    }
     if (targetStatus === "running" || targetStatus === "waiting_approval") {
       enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_run", aggregateId: run.id, eventType: "workflow.run.resumed", payloadJson: JSON.stringify({ runId: run.id }), now: input.now });
     }

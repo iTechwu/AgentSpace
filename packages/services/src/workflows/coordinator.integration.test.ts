@@ -12,6 +12,7 @@ import {
 } from "@dofe-agent/db";
 import { completeWorkflowApprovalNodeSync, completeWorkflowNodeSync, failWorkflowNodeSync } from "./coordinator.ts";
 import { startQueuedTaskWithWorkflowSync } from "./completion.ts";
+import { pauseWorkflowRunSync, resumeWorkflowRunSync } from "./retries.ts";
 
 const hasTestDatabase = Boolean(
   process.env.DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE
@@ -336,6 +337,71 @@ test("approval rejection defers when a sibling task is mid-commit (Issue 4)", {
     const taskAfter = db.prepare("SELECT status FROM agent_task_queue WHERE id = ?").get(taskId) as { status: string };
     assert.equal(taskAfter.status, "preparing_commit", "任务状态不得被驳回改动");
     assert.notEqual(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "failed", "Run 不得在提交窗口期被标 failed");
+  } finally {
+    cleanup(seed.workspaceId);
+  }
+});
+
+test("resume landing in a terminal status emits the terminal lifecycle event (Spec #6)", {
+  skip: !hasTestDatabase,
+}, () => {
+  // 暂停后恢复若直接判为终态，controlRun 只补发 run.resumed，缺 run.succeeded/failed ——
+  // 下游无法得知 Run 已结束。复现路径：单节点 Run running 时暂停（在途任务不取消）→
+  // 在途任务随后完成（finalizeRunIfTerminal 因 run=paused 不在 from 列表而不推进 Run）→
+  // 此时 run=paused 但唯一节点已 succeeded，恢复即判 succeeded。
+  const graphJson = JSON.stringify({
+    schemaVersion: 1,
+    nodes: [{ id: "solo", type: "employee_task", employeeId: "emp-solo", config: {} }],
+    edges: [],
+  });
+  const seed = seedWorkspace(graphJson, 1);
+  try {
+    const run = createWorkflowRunSync({
+      workspaceId: seed.workspaceId,
+      workflowId: seed.workflowId,
+      versionId: seed.versionId,
+      triggerType: "manual",
+      triggerKey: `spec6:${seed.workspaceId}`,
+      inputJson: "{}",
+    });
+    const [node] = materializeWorkflowNodeRunsSync({
+      workspaceId: seed.workspaceId,
+      runId: run.id,
+      nodes: [{ nodeId: "solo", nodeType: "employee_task", employeeId: "emp-solo" }],
+    });
+    const taskId = seedQueuedTask(seed.workspaceId, `${seed.workspaceId}-spec6`);
+    transitionWorkflowNodeRunSync({
+      workspaceId: seed.workspaceId,
+      nodeRunId: node!.id,
+      from: ["pending"],
+      to: "queued",
+      taskQueueId: taskId,
+    });
+    // 真实启动：run created→running，补发 run.started；节点进入 running（在途任务）。
+    startQueuedTaskWithWorkflowSync({ workspaceId: seed.workspaceId, taskQueueId: taskId });
+    assert.equal(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "running");
+
+    // 暂停：run→paused，但 controlRun 不动节点/任务，solo 仍 running（在途）。
+    pauseWorkflowRunSync({ workspaceId: seed.workspaceId, runId: run.id, actorUserId: "u1", reason: "pause" });
+    assert.equal(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "paused");
+
+    // 在途任务随后完成：finalizeRunIfTerminal 因 run=paused 不在 from 列表，transition 返回 null，
+    // run 停留 paused，但唯一节点已 succeeded → 恢复将判为终态 succeeded。
+    completeWorkflowNodeSync({
+      workspaceId: seed.workspaceId,
+      nodeRunId: node!.id,
+      taskQueueId: taskId,
+      output: { ok: true },
+    });
+    assert.equal(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "paused", "在途完成不应把 paused Run 推进终态");
+
+    // 恢复直入终态：必须同时补发 run.resumed（控制确认）与 run.succeeded（终态生命周期事实）。
+    resumeWorkflowRunSync({ workspaceId: seed.workspaceId, runId: run.id, actorUserId: "u1", reason: "resume" });
+    const types = listWorkflowRunEventsSync(seed.workspaceId, run.id).map((event) => event.type);
+    assert.equal(readWorkflowRunSync(run.id, seed.workspaceId)?.status, "succeeded");
+    assert.ok(types.includes("run.resumed"), `expected run.resumed in ${JSON.stringify(types)}`);
+    assert.ok(types.includes("run.succeeded"), `expected run.succeeded in ${JSON.stringify(types)}（Spec #6：恢复直入终态须补发终态事件）`);
+    assert.equal(types[types.length - 1], "run.succeeded", "终态事实事件须为最后一条");
   } finally {
     cleanup(seed.workspaceId);
   }
