@@ -285,7 +285,7 @@ export async function ensurePostgresSchema(input?: PostgresConnectionInput): Pro
 
   await client.connect();
   try {
-    return await withPostgresSchemaLock(client, async () => {
+    return await withSchemaMigrationLock(client, async () => {
       // Forward-only guard: if a newer instance already advanced schema_version
       // beyond this instance, an older CLI must not run statements or write the
       // version down (prevents downgrading a database already migrated by a newer
@@ -378,7 +378,7 @@ export async function migrateSqliteToPostgres(
     const client = createPostgresClient(databaseUrl);
     await client.connect();
     try {
-      await withPostgresSchemaLock(client, async () => {
+      await withSchemaMigrationLock(client, async () => {
         // Forward-only guard（锁内复检）：若库已被更新实例推进到更高版本，旧实例不得执行语句或降级版本。
         // 显式标记 skipped_incompatible_schema——旧实现静默返回后外层仍报成功，令调用方误以为已迁入数据。
         if (await isPostgresSchemaNewerThanInstance(client)) {
@@ -514,7 +514,7 @@ export async function migratePostgresToPostgres(
       // Forward-only guard（锁内复检）：dry-run 也必须复核目标库版本。旧实现在此直接返回 completed
       // 并把 insertedCount 预置为 sourceCount——目标库版本更高时，正式迁移会整库跳过，dry-run 却误报
       //「全部可插入」。锁内复检与正式迁移一致；dry-run 不执行任何 DDL/数据导入。
-      await withPostgresSchemaLock(targetClient, async () => {
+      await withSchemaMigrationLock(targetClient, async () => {
         if (await isPostgresSchemaNewerThanInstance(targetClient)) {
           report.status = "skipped_incompatible_schema";
         }
@@ -539,7 +539,7 @@ export async function migratePostgresToPostgres(
       return report;
     }
 
-    await withPostgresSchemaLock(targetClient, async () => {
+    await withSchemaMigrationLock(targetClient, async () => {
       // Forward-only guard（锁内复检）：若库已被更新实例推进到更高版本，旧实例不得执行语句或降级版本。
       // 显式标记 skipped_incompatible_schema——旧实现静默返回后外层仍报成功，令调用方误以为已迁入数据。
       if (await isPostgresSchemaNewerThanInstance(targetClient)) {
@@ -628,6 +628,26 @@ async function withPostgresSchemaLock<T>(client: PostgresQueryClient, operation:
 }
 
 /**
+ * schema 变更统一串行边界：迁移入口先取后台维护锁 117，再按序取迁移锁 [115,116]（117→[115,116]，
+ * 无反向获取 → 无死锁）。所有需要变更 schema 的 CLI 迁移入口（ensurePostgresSchema、
+ * migrateSqliteToPostgres、migratePostgresToPostgres）以及运行时 ensureRuntimeSchema 共享 117 边界，
+ * 与后台维护（ensurePostgresConcurrentIndexes / runBackgroundMaintenance，亦持 117）互斥，确保滚动
+ * 升级期间迁移 DDL 与后台维护 DDL 不并发（架构契约 03-技术架构文档.md:125 统一迁移锁）。
+ * 阻塞型 pg_advisory_lock；CLI 入口由人工触发，117 阻塞可接受（非请求路径）。
+ */
+async function withSchemaMigrationLock<T>(
+  client: PostgresQueryClient,
+  operation: () => Promise<T>,
+): Promise<T> {
+  await client.query("SELECT pg_advisory_lock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
+  try {
+    return await withPostgresSchemaLock(client, operation);
+  } finally {
+    await client.query("SELECT pg_advisory_unlock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
+  }
+}
+
+/**
  * 指定索引是否处于无效状态（失败的后台 CREATE INDEX CONCURRENTLY 遗留）。
  * 仅当索引存在但 indisvalid/indisready 为假时返回 true；索引不存在时返回 false，
  * 交由后续 CREATE 语句新建。
@@ -675,9 +695,12 @@ export async function applyPostCommitSchemaStatementsForTests(client: PostgresQu
 }
 
 /**
- * 后台自愈专用锁（POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID = 117）。刻意与 schema 迁移锁
- * [115,116] 解耦：长耗时的回填/SET NOT NULL/在线建索引不阻塞第二实例冷启动迁移锁，反之亦然。
- * 阻塞型 pg_advisory_lock 串行化跨实例；后台任务 fire-and-forget，非请求路径。
+ * 后台自愈锁（POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID = 117）——schema 变更统一串行边界。
+ * 117 是所有 schema 变更入口的公共锁：CLI/运行时迁移先取 117 再取 [115,116]（见 withSchemaMigrationLock），
+ * 后台维护仅取 117，二者在 117 上互斥，确保滚动升级时迁移 DDL 与后台维护 DDL 不并发
+ * （架构契约 03-技术架构文档.md:125 统一迁移锁）。阻塞型 pg_advisory_lock 串行化跨实例；
+ * 后台任务 fire-and-forget，非请求路径。运行时迁移入口（database.ts ensureRuntimeSchema）为避免
+ * 长维护阻塞请求，对 117 用单次非阻塞 pg_try_advisory_lock（忙即快速失败可重试），而非此处阻塞型获取。
  */
 async function withBackgroundMaintenanceLock<T>(
   client: PostgresQueryClient,
@@ -693,7 +716,8 @@ async function withBackgroundMaintenanceLock<T>(
 
 /**
  * 在后台自愈锁（117）保护下应用在线索引（事务外）。供显式测试与仅需索引的路径复用。
- * 不再占用 schema 迁移锁 [115,116]，避免长建索引期间阻塞第二实例冷启动迁移。
+ * 与迁移入口共享 117 边界（迁移先取 117 再取 [115,116]），故在线建索引期间迁移入口阻塞于 117，
+ * 反之亦然——二者绝不并发 DDL。
  */
 async function applyConcurrentIndexesWithClient(client: PostgresQueryClient): Promise<void> {
   await withBackgroundMaintenanceLock(client, async () => {
@@ -840,29 +864,27 @@ export async function runBackgroundMaintenanceForTests(
 
 /**
  * 后台自愈入口：用独立 pg 连接（无 worker 超时上限）在锁 117 内完成 history 回填 + SET NOT NULL
- * + 运行历史在线索引。与 schema 迁移锁 [115,116] 解耦，不阻塞冷启动迁移；幂等（flag + WHERE NULL
- * + IF NOT EXISTS + 无效索引清理），失败由调用方记录。回填窗口期分页由 OR history_sequence IS NULL
- * 谓词保证不丢行；完成后 keyset 自动恢复 history_sequence 语义。
+ * + 运行历史在线索引。117 是 schema 变更统一串行边界：迁移入口先取 117 再取 [115,116]，本入口仅取 117，
+ * 二者在 117 上互斥、绝不并发 DDL；幂等（flag + WHERE NULL + IF NOT EXISTS + 无效索引清理），失败由调用方
+ * 记录。回填窗口期分页由 OR history_sequence IS NULL 谓词保证不丢行；完成后 keyset 自动恢复 history_sequence 语义。
  */
 export async function ensurePostgresConcurrentIndexes(input?: PostgresConnectionInput): Promise<void> {
   const databaseUrl = resolvePostgresDatabaseUrl(input);
   const client = createPostgresClient(databaseUrl);
   await client.connect();
   try {
-    // 后台维护只在后台锁 117 内执行，刻意不持有 schema 迁移锁 [115,116]（架构契约
-    // 03-技术架构文档.md:109/125：在线索引/回填在 schema 主事务提交后执行、不阻塞 Run 写入）。
-    // [115,116] 是 schema 主事务迁移锁：运行时冷启动 getDatabase→ensureRuntimeSchema 须以
-    // pg_try_advisory_lock 快速获取它（acquireRuntimeSchemaLock 超时 = WORKER_REQUEST_TIMEOUT_MS-1000
-    // ≈ 9s，database.ts）。若后台维护持有 [115,116] 贯穿回填/NOT NULL/建索引（大表可达分钟级），
-    // 第二实例冷启动取不到 [115,116] → 9s 超时 → 冷启动/首请求失败（业务故障）。
+    // 后台维护与 schema 迁移共享 117 串行边界：迁移入口先取 117 再取 [115,116]（withSchemaMigrationLock），
+    // 本入口仅取 117（架构契约 03-技术架构文档.md:109/125：在线索引/回填在 schema 主事务提交后执行、
+    // 不阻塞 Run 写入）。运行时冷启动 ensureRuntimeSchema 在 schema 过期时对 117 用单次 pg_try_advisory_lock
+    // （忙即快速失败可重试），避免此处后台维护贯穿回填/NOT NULL/建索引（大表可达分钟级）时阻塞第二实例冷启动
+    // （业务故障）；schema 已当前的冷启动走无锁快速检查，不竞争 117。
     //
-    // 前向版本守卫改为在 117 锁内首句复检：版本已高于本实例 → 跳过维护（117 已串行化所有后台维护
-    // 实例，复检无须再借助 [115,116]）。残留窗口（117 内复检后、维护执行前版本被另一实例抬升）
-    // 由 runBackgroundMaintenance 的幂等 + 前向安全兜底：回填 WHERE history_sequence IS NULL、计数器
-    // GREATEST...WHERE <、NOT NULL 经 isHistorySequenceNullable 门控、索引 CREATE INDEX CONCURRENTLY
-    // IF NOT EXISTS，对已升级库均 no-op 或安全；schema 迁移累加不删除 history_sequence 列。锁串行化
-    // 无法修补已部署的旧版本二进制（其后台维护仅取 117、锁外检查），幂等是滚动升级跨版本窗口唯一
-    // 可行的防线——故无须为「旧实例对新库跑维护」而牺牲冷启动可用性。
+    // 前向版本守卫在 117 锁内首句复检：版本已高于本实例 → 跳过维护。残留窗口（117 内复检后、维护执行前版本被
+    // 另一实例抬升）由 runBackgroundMaintenance 的幂等 + 前向安全兜底：回填 WHERE history_sequence IS NULL、计数器
+    // GREATEST...WHERE <、NOT NULL 经 isHistorySequenceNullable 门控、索引 CREATE INDEX CONCURRENTLY IF NOT EXISTS，
+    // 对已升级库均 no-op 或安全；schema 迁移累加不删除 history_sequence 列。锁串行化无法修补已部署的旧版本二进制
+    // （其迁移入口仅取 [115,116]、后台维护仅取 117、锁外检查），幂等是滚动升级跨版本窗口唯一可行的防线——故无须为
+    // 「旧实例对新库跑维护」而牺牲冷启动可用性。
     await withBackgroundMaintenanceLock(client, async () => {
       if (await isPostgresSchemaNewerThanInstance(client)) {
         return;

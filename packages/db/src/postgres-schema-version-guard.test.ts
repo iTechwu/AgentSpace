@@ -342,6 +342,53 @@ test("ensurePostgresConcurrentIndexes 不竞争 schema 迁移锁 [115,116]（冷
 });
 
 /**
+ * Round 4（统一串行边界）：CLI 迁移入口 ensurePostgresSchema 经 withSchemaMigrationLock 先取后台维护锁
+ * 117、再取迁移锁 [115,116]。117 被占时必须阻塞，不得绕过 117 直接取 [115,116]——这正是迁移 DDL 与
+ * 后台维护 DDL 共享 117 边界、滚动升级不并发的保证。与上一用例（后台维护不竞争 [115,116]）从两侧
+ * 守护同一契约。本库 schema 已为 116，ensurePostgresSchema 会进入取锁→跑幂等语句路径，故阻塞可观测。
+ */
+test("ensurePostgresSchema 先取 117 再取 [115,116]（117 被占时 CLI 迁移阻塞）", async () => {
+  const url = resolvePostgresDatabaseUrl();
+  const blocker = new Client({ connectionString: url });
+  await blocker.connect();
+  let blockerHoldsLock = true;
+  try {
+    // blocker 占住后台维护锁 117 → ensurePostgresSchema（经 withSchemaMigrationLock 先取 117）应阻塞等锁。
+    await blocker.query("SELECT pg_advisory_lock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
+
+    const ensurePromise = ensurePostgresSchema({});
+    // 给 ensurePostgresSchema 充分时间连接并进入 117 等锁；预期它仍 pending。
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const observed = await Promise.race([
+      ensurePromise.then(() => "completed" as const),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 100)),
+    ]);
+    assert.equal(
+      observed,
+      "pending",
+      "117 被占时 ensurePostgresSchema 必须阻塞，不得绕过 117 直接取 [115,116]",
+    );
+
+    // 释放 117 → ensurePostgresSchema 取到 117 → 再取 [115,116] → 跑幂等语句并返回。
+    await blocker.query("SELECT pg_advisory_unlock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
+    blockerHoldsLock = false;
+    const status = await ensurePromise;
+    assert.ok(status, "117 释放后 CLI 迁移须完成并返回状态");
+    assert.equal(status.schemaVersion, POSTGRES_SCHEMA_VERSION, "迁移后版本须为实例版本");
+  } finally {
+    // 兜底释放（断言失败提前抛错时避免 117 泄漏污染后续测试）。
+    if (blockerHoldsLock) {
+      try {
+        await blocker.query("SELECT pg_advisory_unlock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
+      } catch {
+        // 锁已释放或本会话未持有，忽略。
+      }
+    }
+    await blocker.end();
+  }
+});
+
+/**
  * Issue 3（迁移命令静默成功）：目标库版本更高时，旧实现的前向守卫静默 return，外层仍返回成功报告，
  * SQLite dry-run 甚至把所有记录标为 insertedCount=sourceCount（line 431）——调用方误以为已迁入数据。
  * 修复：报告新增 status 字段，跳过时置 skipped_incompatible_schema、所有表 insertedCount=0、

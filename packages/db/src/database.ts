@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { MessageChannel, Worker, receiveMessageOnPort, type MessagePort } from "node:worker_threads";
 import {
   getPostgresSchemaStatements,
+  POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID,
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   POSTGRES_SCHEMA_VERSION,
 } from "./postgres-schema.ts";
@@ -846,48 +847,90 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
     return;
   }
 
+  // 无锁快速路径（冷启动绝大多数情况）：schema 已是当前版本、或比实例更新时，不取任何 advisory lock，
+  // 直接 memo 返回。审查 Round 4 的关键——避免冷启动竞争后台维护锁 117 / 迁移锁 [115,116]，从而不
+  // 重新引入「长维护阻塞第二实例冷启动」的回归（架构契约 03-技术架构文档.md:125）。
+  // 顺序：先判「库比实例新」→前向跳过，再判「库与实例一致」→memo，与历史锁内实现语义一致。
+  if (isDatabaseSchemaNewerThanInstance(db)) {
+    // Forward-only protection: a newer schema_version means a newer instance has
+    // already migrated this database. An older instance (e.g. 114/115 restarting
+    // after a 116 rollout) must NOT run its older migration or write the version
+    // back down. Skip migration entirely and treat the database as current.
+    console.warn(
+      `[db] skipping runtime schema migration: database schema_version is newer than `
+        + `instance version ${POSTGRES_SCHEMA_VERSION}; treating as current.`,
+    );
+    schemaEnsuredForUrl = currentUrl;
+    return;
+  }
+  if (isRuntimeSchemaCurrent(db)) {
+    schemaEnsuredForUrl = currentUrl;
+    return;
+  }
+
+  // 迁移路径（schema 过期，罕见——版本升级后首次启动）。统一串行边界：先取后台维护锁 117，再取迁移锁
+  // [115,116]。锁顺序恒为 117→[115,116]，无反向获取 → 无死锁。
+  //
+  // 117 用单次 pg_try_advisory_lock（非阻塞型 pg_advisory_lock）：本函数在 getDatabase 请求路径同步
+  // 执行，阻塞型 pg_advisory_lock(117) 会让 worker 线程无限挂起、触发 WORKER_REQUEST_TIMEOUT_MS（默认
+  // 10s）级联杀连接重建——正是要避免的冷启动故障。单次 try 失败立即抛错，getDatabase 不 memo 但保留
+  // 候选连接（见 database-getdatabase-cache 语义），下次请求重试（代价仅为两次纯读查询 + 一次 try 117）。
+  // 117 与 [115,116] 的超时预算不叠加：117 try 瞬间，[115,116] 才用 ~9s 超时，总等待 ≈ 9s 不超 worker 预算。
+  const acquiredMaintenanceLock = db.prepare("SELECT pg_try_advisory_lock(?) AS acquired").get(
+    POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID,
+  ) as { acquired?: boolean } | undefined;
+  if (acquiredMaintenanceLock?.acquired !== true) {
+    throw new Error(
+      `PostgreSQL background maintenance lock (${POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID}) is busy; `
+        + "another instance may be running schema migration or backfill. Retry the request shortly "
+        + `(instance schema version ${POSTGRES_SCHEMA_VERSION}).`,
+    );
+  }
+
   let transactionStarted = false;
-  acquireRuntimeSchemaLock(db);
   try {
-    if (isDatabaseSchemaNewerThanInstance(db)) {
-      // Forward-only protection: a newer schema_version means a newer instance has
-      // already migrated this database. An older instance (e.g. 114/115 restarting
-      // after a 116 rollout) must NOT run its older migration or write the version
-      // back down. Skip migration entirely and treat the database as current.
-      console.warn(
-        `[db] skipping runtime schema migration: database schema_version is newer than `
-          + `instance version ${POSTGRES_SCHEMA_VERSION}; treating as current.`,
-      );
-      schemaEnsuredForUrl = currentUrl;
-      return;
-    }
-    if (!isRuntimeSchemaCurrent(db)) {
-      db.exec("BEGIN");
-      transactionStarted = true;
-      for (const statement of getPostgresSchemaStatements()) {
-        db.exec(statement);
+    acquireRuntimeSchemaLock(db);
+    try {
+      // [115,116] 锁内复检：消除「117→[115,116] 之间」及「无锁检查→取锁」的 TOCTOU 窗口——最内层锁后的
+      // 复检覆盖所有外层窗口。
+      if (isDatabaseSchemaNewerThanInstance(db)) {
+        console.warn(
+          `[db] skipping runtime schema migration (in-lock): database schema_version is newer than `
+            + `instance version ${POSTGRES_SCHEMA_VERSION}; treating as current.`,
+        );
+        schemaEnsuredForUrl = currentUrl;
+        return;
       }
-      db.prepare(
-        `INSERT INTO app_metadata (key, value)
+      if (!isRuntimeSchemaCurrent(db)) {
+        db.exec("BEGIN");
+        transactionStarted = true;
+        for (const statement of getPostgresSchemaStatements()) {
+          db.exec(statement);
+        }
+        db.prepare(
+          `INSERT INTO app_metadata (key, value)
          VALUES (?, ?)
          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
          WHERE EXCLUDED.value ~ '^\d+$'
            AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
-      ).run("schema_version", POSTGRES_SCHEMA_VERSION);
-      seedDefaultWorkspace(db);
-      db.exec("COMMIT");
-      transactionStarted = false;
+        ).run("schema_version", POSTGRES_SCHEMA_VERSION);
+        seedDefaultWorkspace(db);
+        db.exec("COMMIT");
+        transactionStarted = false;
+      }
+      schemaEnsuredForUrl = currentUrl;
+    } catch (error) {
+      if (transactionStarted) {
+        db.exec("ROLLBACK");
+      }
+      throw error;
+    } finally {
+      for (const lockId of [...POSTGRES_SCHEMA_ADVISORY_LOCK_IDS].reverse()) {
+        db.prepare("SELECT pg_advisory_unlock(?) AS released").get(lockId);
+      }
     }
-    schemaEnsuredForUrl = currentUrl;
-  } catch (error) {
-    if (transactionStarted) {
-      db.exec("ROLLBACK");
-    }
-    throw error;
   } finally {
-    for (const lockId of [...POSTGRES_SCHEMA_ADVISORY_LOCK_IDS].reverse()) {
-      db.prepare("SELECT pg_advisory_unlock(?) AS released").get(lockId);
-    }
+    db.prepare("SELECT pg_advisory_unlock(?) AS released").get(POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID);
   }
 }
 
