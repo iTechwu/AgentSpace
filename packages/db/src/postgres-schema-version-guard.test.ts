@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test, { after, before } from "node:test";
 import { Client } from "pg";
 import { getDatabase, resetDatabaseForTests } from "./database.ts";
-import { ensurePostgresSchema, truncatePostgresTablesForTests } from "./postgres.ts";
+import { ensurePostgresConcurrentIndexes, ensurePostgresSchema, truncatePostgresTablesForTests } from "./postgres.ts";
 import {
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   POSTGRES_SCHEMA_VERSION,
@@ -189,6 +189,45 @@ test("ensurePostgresSchema 锁内复检版本，消除 TOCTOU（取锁后才检�
          BEFORE INSERT OR UPDATE OF value ON app_metadata
          FOR EACH ROW EXECUTE FUNCTION guard_schema_version_monotonic()`,
     );
+    assert.equal(readVersion(), original, "复原：版本已写回");
+    assert.equal(triggerExists(), true, "复原：触发器已重建");
+  }
+});
+
+/**
+ * Issue 2（后台维护前向守卫）：ensurePostgresConcurrentIndexes 是 getDatabase() 启动的后台自愈入口
+ *（database.ts:715 → ensurePostgresConcurrentIndexes → runBackgroundMaintenance）。它原先没有
+ * ensureRuntimeSchema/ensurePostgresSchema 那样的前向版本守卫——滚动升级时旧实例（116）会在新实例
+ *（117+）已推进的库上执行 history 回填 / SET NOT NULL / 索引 DDL，可能与新 schema 冲突。修复：入口处
+ * 复用 isPostgresSchemaNewerThanInstance，库版本 > 实例版本即直接返回，不取锁 117、不发任何 DDL。
+ */
+test("ensurePostgresConcurrentIndexes 跳过比实例更新的库（前向守卫：不发后台维护 DDL）", async () => {
+  const db = getDatabase();
+  const original = readVersion();
+  // 探针：摘掉单调触发器（便于后续写回更低版本）→ 抬版本到 117（> 实例 116）→ 删除回填 flag。
+  // 若前向守卫生效 → ensurePostgresConcurrentIndexes 直接返回，不跑维护 → flag 保持删除态；
+  // 若未生效 → runBackgroundMaintenance 末尾会把 flag 置 'true'。借此观测「是否真正跳过」。
+  db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
+  db.prepare("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'").run();
+  db.prepare("DELETE FROM app_metadata WHERE key = 'schema_116_history_backfill_complete'").run();
+  try {
+    await ensurePostgresConcurrentIndexes({});
+    const flag = db.prepare("SELECT value FROM app_metadata WHERE key = 'schema_116_history_backfill_complete' LIMIT 1")
+      .get() as { value?: string } | undefined;
+    assert.equal(flag?.value, undefined, "前向守卫应跳过后台维护，不得回写 backfill flag");
+  } finally {
+    // 复原：摘触发器后写回原版本，重建触发器，回填 flag 设回 true（测试库已完成回填）。
+    db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
+    db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(original);
+    db.exec(
+      `CREATE TRIGGER app_metadata_schema_version_monotonic
+         BEFORE INSERT OR UPDATE OF value ON app_metadata
+         FOR EACH ROW EXECUTE FUNCTION guard_schema_version_monotonic()`,
+    );
+    db.prepare(
+      `INSERT INTO app_metadata (key, value) VALUES ('schema_116_history_backfill_complete', 'true')
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+    ).run();
     assert.equal(readVersion(), original, "复原：版本已写回");
     assert.equal(triggerExists(), true, "复原：触发器已重建");
   }

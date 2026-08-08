@@ -727,6 +727,13 @@ export async function ensurePostgresConcurrentIndexes(input?: PostgresConnection
   const client = createPostgresClient(databaseUrl);
   await client.connect();
   try {
+    // Forward-only guard：滚动升级期间，旧实例（如 116）不得对已被新实例（117+）推进的数据库
+    // 执行后台维护 DDL（history 回填、SET NOT NULL、索引构建）——新实例的语句才是权威，旧实例
+    // 的回填/约束/索引可能与新 schema 不一致。与 ensureRuntimeSchema 的运行时守卫、ensurePostgresSchema
+    // 的 CLI 守卫一致；取锁前即可判定，无需占用锁 117。
+    if (await isPostgresSchemaNewerThanInstance(client)) {
+      return;
+    }
     await withBackgroundMaintenanceLock(client, async () => {
       await runBackgroundMaintenance(client);
     });
