@@ -4480,32 +4480,21 @@ export function getPostgresSchemaStatements(): string[] {
 }
 
 /**
- * 不能放入 schema 主事务的在线索引。保留旧索引，避免重建时阻塞 workflow_run 写入；
- * 新索引完成前查询仍可正确使用旧索引的 workspace/created_at 前缀。
+ * 运行历史在线索引名。无法放入 schema 主事务（CREATE INDEX CONCURRENTLY 不允许在事务块内），
+ * 因此由独立的后台/迁移路径在事务外构建。保留旧索引，避免重建时阻塞 workflow_run 写入；
+ * 新索引完成前查询仍可正确使用旧索引前缀。
+ */
+export const POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME = "idx_workflow_run_workspace_created_v2";
+
+/**
+ * 不能放入 schema 主事务的在线索引语句（仅幂等 CREATE）。无效索引的清理（DROP INDEX
+ * CONCURRENTLY）由 applyPostCommitSchemaStatements 在事务外按 pg_index 状态条件执行，
+ * 避免在 DO 块内用普通 DROP INDEX 取 ACCESS EXCLUSIVE 锁阻塞业务写入。
  */
 export function getPostgresPostCommitSchemaStatements(): string[] {
   return [
     `
-      DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1
-          FROM pg_class AS index_relation
-          JOIN pg_namespace AS index_namespace
-            ON index_namespace.oid = index_relation.relnamespace
-          JOIN pg_index AS index_state
-            ON index_state.indexrelid = index_relation.oid
-          WHERE index_namespace.nspname = current_schema()
-            AND index_relation.relname = 'idx_workflow_run_workspace_created_v2'
-            AND (NOT index_state.indisvalid OR NOT index_state.indisready)
-        ) THEN
-          DROP INDEX IF EXISTS idx_workflow_run_workspace_created_v2;
-        END IF;
-      END
-      $$
-    `,
-    `
-      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_created_v2
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS ${POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME}
         ON workflow_run(workspace_id, created_at DESC, id DESC)
     `,
   ].map((statement) => statement.trim());

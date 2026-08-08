@@ -10,6 +10,7 @@ import {
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   POSTGRES_SCHEMA_VERSION,
   POSTGRES_TABLE_NAMES,
+  POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME,
   type PostgresTableName,
 } from "./postgres-schema.ts";
 import { redactPostgresDatabaseUrl, resolvePostgresDatabaseUrl, type PostgresConnectionInput } from "./postgres-config.ts";
@@ -511,10 +512,49 @@ async function withPostgresSchemaLock<T>(client: Client, operation: () => Promis
   }
 }
 
-async function applyPostCommitSchemaStatements(client: Client): Promise<void> {
+/**
+ * 在线索引是否处于无效状态（失败的后台 CREATE INDEX CONCURRENTLY 遗留）。
+ * 仅当索引存在但 indisvalid/indisready 为假时返回 true；索引不存在时返回 false，
+ * 交由后续 CREATE 语句新建。
+ */
+async function isWorkflowRunHistoryIndexInvalid(client: PostgresQueryClient): Promise<boolean> {
+  const result = await client.query(
+    `SELECT index_state.indisvalid AS valid, index_state.indisready AS ready
+     FROM pg_class AS index_relation
+     JOIN pg_namespace AS index_namespace
+       ON index_namespace.oid = index_relation.relnamespace
+     JOIN pg_index AS index_state
+       ON index_state.indexrelid = index_relation.oid
+     WHERE index_namespace.nspname = current_schema()
+       AND index_relation.relname = $1`,
+    [POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME],
+  );
+  const row = result.rows[0] as { valid?: boolean; ready?: boolean } | undefined;
+  if (!row) {
+    return false;
+  }
+  return row.valid !== true || row.ready !== true;
+}
+
+type PostgresQueryClient = Pick<Client, "query">;
+
+/**
+ * 在事务外应用在线索引语句。若上次 CREATE INDEX CONCURRENTLY 失败留下无效索引，
+ * 先用 DROP INDEX CONCURRENTLY 清理（不取 ACCESS EXCLUSIVE 锁、不阻塞 workflow_run 写入），
+ * 否则 CREATE INDEX CONCURRENTLY IF NOT EXISTS 会因索引已存在而跳过、留下坏索引。
+ * 两条语句都不允许在事务块内执行。
+ */
+async function applyPostCommitSchemaStatements(client: PostgresQueryClient): Promise<void> {
+  if (await isWorkflowRunHistoryIndexInvalid(client)) {
+    await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${POSTGRES_WORKFLOW_RUN_HISTORY_INDEX_NAME}`);
+  }
   for (const statement of getPostgresPostCommitSchemaStatements()) {
     await client.query(statement);
   }
+}
+
+export async function applyPostCommitSchemaStatementsForTests(client: PostgresQueryClient): Promise<void> {
+  return applyPostCommitSchemaStatements(client);
 }
 
 export function collectSqliteMigrationSnapshotSync(

@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { collectSqliteMigrationSnapshotSync, redactPostgresDatabaseUrl, renderPostgresCutoverPlan } from "./postgres.ts";
+import {
+  applyPostCommitSchemaStatementsForTests,
+  collectSqliteMigrationSnapshotSync,
+  redactPostgresDatabaseUrl,
+  renderPostgresCutoverPlan,
+} from "./postgres.ts";
 import {
   getPostgresPostCommitSchemaStatements,
   getPostgresSchemaStatements,
@@ -98,13 +103,74 @@ test("postgres schema enforces SSO-only identities", () => {
   assert.doesNotMatch(statements, /DROP INDEX IF EXISTS idx_workflow_run_workspace_created/);
   assert.doesNotMatch(statements, /CREATE INDEX idx_workflow_run_workspace_created ON workflow_run/);
   const postCommitStatements = getPostgresPostCommitSchemaStatements();
-  assert.equal(postCommitStatements.length, 2);
-  assert.match(postCommitStatements[0]!, /NOT index_state\.indisvalid OR NOT index_state\.indisready/);
-  assert.match(postCommitStatements[0]!, /DROP INDEX IF EXISTS idx_workflow_run_workspace_created_v2/);
+  assert.equal(postCommitStatements.length, 1);
   assert.equal(
-    postCommitStatements[1],
+    postCommitStatements[0],
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_run_workspace_created_v2\n        ON workflow_run(workspace_id, created_at DESC, id DESC)",
   );
+  // 无效索引清理已移至 applyPostCommitSchemaStatements（事务外 DROP INDEX CONCURRENTLY），
+  // 不再出现在静态语句工厂中，避免 DO 块内普通 DROP 阻塞业务写入。
+  assert.ok(
+    postCommitStatements.every((statement) => !/DROP INDEX/.test(statement)),
+    "factory must not emit DROP INDEX",
+  );
+});
+
+test("applyPostCommitSchemaStatements drops an invalid index concurrently before recreating", async () => {
+  const queries: { text: string }[] = [];
+  await applyPostCommitSchemaStatementsForTests({
+    async query(text: string) {
+      queries.push({ text });
+      if (/indisvalid/.test(text)) {
+        return { rows: [{ valid: false, ready: true }] };
+      }
+      return { rows: [] };
+    },
+  });
+
+  const dropIndex = queries.findIndex((q) => /DROP INDEX CONCURRENTLY/i.test(q.text));
+  const createIndex = queries.findIndex((q) => /CREATE INDEX CONCURRENTLY/i.test(q.text));
+  assert.notEqual(dropIndex, -1, "expected a concurrent drop for the invalid index");
+  assert.notEqual(createIndex, -1, "expected a concurrent create");
+  assert.ok(dropIndex < createIndex, "drop must precede create");
+  assert.doesNotMatch(queries[dropIndex]!.text, /DO \$\$/, "drop must not be inside a DO block");
+});
+
+test("applyPostCommitSchemaStatements skips the drop when the index is valid", async () => {
+  const queries: { text: string }[] = [];
+  await applyPostCommitSchemaStatementsForTests({
+    async query(text: string) {
+      queries.push({ text });
+      if (/indisvalid/.test(text)) {
+        return { rows: [{ valid: true, ready: true }] };
+      }
+      return { rows: [] };
+    },
+  });
+
+  assert.equal(
+    queries.some((q) => /DROP INDEX CONCURRENTLY/i.test(q.text)),
+    false,
+    "must not drop a valid index",
+  );
+  assert.ok(queries.some((q) => /CREATE INDEX CONCURRENTLY/i.test(q.text)));
+});
+
+test("applyPostCommitSchemaStatements skips the drop when the index is absent", async () => {
+  const queries: { text: string }[] = [];
+  await applyPostCommitSchemaStatementsForTests({
+    async query(text: string) {
+      queries.push({ text });
+      return { rows: [] };
+    },
+  });
+
+  assert.equal(
+    queries.some((q) => /DROP INDEX CONCURRENTLY/i.test(q.text)),
+    false,
+    "must not drop when the index does not exist",
+  );
+  assert.ok(queries.some((q) => /CREATE INDEX CONCURRENTLY/i.test(q.text)));
 });
 
 test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {
