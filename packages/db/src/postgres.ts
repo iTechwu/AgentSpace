@@ -74,11 +74,19 @@ export interface MigrationTableReport {
   skippedCount: number;
 }
 
+/**
+ * 迁移结果状态。`completed` = 正常执行（含 dryRun 预演）；
+ * `skipped_incompatible_schema` = 目标库 schema_version 高于本实例，已跳过全部语句与数据导入——
+ * 旧实现对此静默返回成功报告，令调用方误以为已迁入数据，故显式建模为可观测状态。
+ */
+export type MigrationStatus = "completed" | "skipped_incompatible_schema";
+
 export interface SqliteToPostgresMigrationReport {
   sourceSqlitePath: string;
   targetDatabaseUrl?: string;
   sourceSchemaVersion: string;
   targetSchemaVersion: string;
+  status: MigrationStatus;
   dryRun: boolean;
   reset: boolean;
   startedAt: string;
@@ -103,6 +111,7 @@ export interface PostgresToPostgresMigrationInput {
 export interface PostgresToPostgresMigrationReport {
   sourceDatabaseUrl: string;
   targetDatabaseUrl: string;
+  status: MigrationStatus;
   dryRun: boolean;
   reset: boolean;
   startedAt: string;
@@ -340,6 +349,7 @@ export async function migrateSqliteToPostgres(
       targetDatabaseUrl: input?.databaseUrl ? redactPostgresDatabaseUrl(input.databaseUrl) : undefined,
       sourceSchemaVersion: readSqliteSchemaVersionSync(sourceDb),
       targetSchemaVersion: POSTGRES_SCHEMA_VERSION,
+      status: "completed",
       dryRun,
       reset,
       startedAt,
@@ -365,7 +375,9 @@ export async function migrateSqliteToPostgres(
     try {
       await withPostgresSchemaLock(client, async () => {
         // Forward-only guard（锁内复检）：若库已被更新实例推进到更高版本，旧实例不得执行语句或降级版本。
+        // 显式标记 skipped_incompatible_schema——旧实现静默返回后外层仍报成功，令调用方误以为已迁入数据。
         if (await isPostgresSchemaNewerThanInstance(client)) {
+          report.status = "skipped_incompatible_schema";
           return;
         }
         let transactionStarted = false;
@@ -428,6 +440,19 @@ export async function migrateSqliteToPostgres(
     }
 
     report.finishedAt = new Date().toISOString();
+    if (report.status === "skipped_incompatible_schema") {
+      // 目标库版本更高：未执行任何语句、未导入任何数据。所有表保持 0 inserted / 全部 skipped，
+      // 并追加警告——尤其要挡住下方 dryRun 分支把 insertedCount 篡改为 sourceCount 的误报。
+      report.warnings.push(
+        `目标库 schema_version 高于本实例（${POSTGRES_SCHEMA_VERSION}），已跳过全部语句与数据导入（status=skipped_incompatible_schema）。`,
+      );
+      report.tables = report.tables.map((table) => ({
+        ...table,
+        insertedCount: 0,
+        skippedCount: table.sourceCount,
+      }));
+      return report;
+    }
     if (dryRun) {
       report.tables = report.tables.map((table) => ({
         ...table,
@@ -466,6 +491,7 @@ export async function migratePostgresToPostgres(
     const report: PostgresToPostgresMigrationReport = {
       sourceDatabaseUrl: redactPostgresDatabaseUrl(sourceDatabaseUrl),
       targetDatabaseUrl: redactPostgresDatabaseUrl(targetDatabaseUrl),
+      status: "completed",
       dryRun: input.dryRun === true,
       reset: input.reset === true,
       startedAt,
@@ -485,7 +511,9 @@ export async function migratePostgresToPostgres(
 
     await withPostgresSchemaLock(targetClient, async () => {
       // Forward-only guard（锁内复检）：若库已被更新实例推进到更高版本，旧实例不得执行语句或降级版本。
+      // 显式标记 skipped_incompatible_schema——旧实现静默返回后外层仍报成功，令调用方误以为已迁入数据。
       if (await isPostgresSchemaNewerThanInstance(targetClient)) {
+        report.status = "skipped_incompatible_schema";
         return;
       }
       let transactionStarted = false;
@@ -539,6 +567,14 @@ export async function migratePostgresToPostgres(
     });
 
     report.finishedAt = new Date().toISOString();
+    if (report.status === "skipped_incompatible_schema") {
+      // 目标库版本更高：未执行任何语句、未导入任何数据。所有表保持 0 inserted / 全部 skipped。
+      report.tables = report.tables.map((table) => ({
+        ...table,
+        insertedCount: 0,
+        skippedCount: table.sourceCount,
+      }));
+    }
     return report;
   } finally {
     await sourceClient.end();

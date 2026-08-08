@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import test, { after, before } from "node:test";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { Client } from "pg";
 import { getDatabase, resetDatabaseForTests } from "./database.ts";
-import { ensurePostgresConcurrentIndexes, ensurePostgresSchema, truncatePostgresTablesForTests } from "./postgres.ts";
+import {
+  ensurePostgresConcurrentIndexes,
+  ensurePostgresSchema,
+  migrateSqliteToPostgres,
+  truncatePostgresTablesForTests,
+} from "./postgres.ts";
 import {
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   POSTGRES_SCHEMA_VERSION,
@@ -228,6 +236,53 @@ test("ensurePostgresConcurrentIndexes 跳过比实例更新的库（前向守卫
       `INSERT INTO app_metadata (key, value) VALUES ('schema_116_history_backfill_complete', 'true')
        ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
     ).run();
+    assert.equal(readVersion(), original, "复原：版本已写回");
+    assert.equal(triggerExists(), true, "复原：触发器已重建");
+  }
+});
+
+/**
+ * Issue 3（迁移命令静默成功）：目标库版本更高时，旧实现的前向守卫静默 return，外层仍返回成功报告，
+ * SQLite dry-run 甚至把所有记录标为 insertedCount=sourceCount（line 431）——调用方误以为已迁入数据。
+ * 修复：报告新增 status 字段，跳过时置 skipped_incompatible_schema、所有表 insertedCount=0、
+ * 追加 warning，并在 dryRun「全部可插入」改写前短路返回。
+ */
+test("migrateSqliteToPostgres 目标库版本更高时报告 skipped_incompatible_schema（不误报已迁入）", async () => {
+  const db = getDatabase();
+  const original = readVersion();
+  const sqlitePath = `${tmpdir()}/dofe-migrate-skip-${Math.random().toString(36).slice(2)}.sqlite`;
+  // 预建一个空 sqlite 源库（无任何业务表）——migrate 入口会校验文件存在。
+  new DatabaseSync(sqlitePath).close();
+  try {
+    // 探针：摘触发器 + 抬版本到 117（> 实例 116），令锁内前向守卫触发。
+    db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
+    db.prepare("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'").run();
+
+    const report = await migrateSqliteToPostgres({
+      databaseUrl: resolvePostgresDatabaseUrl(),
+      sqlitePath,
+      dryRun: true,
+    });
+
+    assert.equal(report.status, "skipped_incompatible_schema", "目标库更新时须显式跳过，不得静默成功");
+    // 关键：dryRun 原本会把 insertedCount 篡改为 sourceCount（误报「全部可插入」）；跳过分支须挡住它。
+    for (const table of report.tables) {
+      assert.equal(table.insertedCount, 0, `${table.tableName}: 跳过时不得报告已插入`);
+    }
+    assert.ok(
+      report.warnings.some((w) => /skipped_incompatible_schema/.test(w)),
+      "须在 warnings 中说明跳过原因",
+    );
+  } finally {
+    rmSync(sqlitePath, { force: true });
+    // 复原：摘触发器后写回原版本，重建触发器。
+    db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
+    db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(original);
+    db.exec(
+      `CREATE TRIGGER app_metadata_schema_version_monotonic
+         BEFORE INSERT OR UPDATE OF value ON app_metadata
+         FOR EACH ROW EXECUTE FUNCTION guard_schema_version_monotonic()`,
+    );
     assert.equal(readVersion(), original, "复原：版本已写回");
     assert.equal(triggerExists(), true, "复原：触发器已重建");
   }
