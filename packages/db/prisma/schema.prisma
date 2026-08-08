@@ -483,14 +483,15 @@ model BackupRestoreDrillRun {
   @@map("backup_restore_drill_run")
 }
 
+/// Spending budget/alert configured for a workspace scope.
 model Budget {
   id               String    @id
   workspaceId      String    @map("workspace_id")
-  scope            String
+  scope            String /// workspace | runtime | employee, etc.
   scopeId          String    @map("scope_id")
   limitUsd         Float     @map("limit_usd")
   period           String    @default("monthly")
-  action           String    @default("warn")
+  action           String    @default("warn") /// warn | block.
   warningThreshold Float     @default(0.8) @map("warning_threshold")
   enabled          Int       @default(1)
   createdBy        String    @default("") @map("created_by")
@@ -1278,24 +1279,26 @@ model McpTaskSessionGrant {
   @@map("mcp_task_session_grant")
 }
 
+/// Per-model token pricing reference.
 model ModelPricing {
   modelId     String   @id @map("model_id")
   displayName String   @map("display_name")
-  inputPer1m  Float    @map("input_per_1m")
-  outputPer1m Float    @map("output_per_1m")
+  inputPer1m  Float    @map("input_per_1m") /// Input token cost per 1M tokens.
+  outputPer1m Float    @map("output_per_1m") /// Output token cost per 1M tokens.
   updatedAt   DateTime @map("updated_at") @db.Timestamptz(6)
   currency    String   @default("USD")
 
   @@map("model_pricing")
 }
 
+/// Time-limited token granting access to an artifact for an OpenMontage job.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model OpenmontageArtifactGrant {
   id                 String             @id
   workspaceId        String             @map("workspace_id")
   jobId              String             @map("job_id")
   attachmentId       String?            @map("attachment_id")
-  operation          String
+  operation          String /// READ | WRITE.
   tokenHash          String             @map("token_hash")
   expiresAt          DateTime           @map("expires_at") @db.Timestamptz(6)
   consumedAt         DateTime?          @map("consumed_at") @db.Timestamptz(6)
@@ -1313,6 +1316,7 @@ model OpenmontageArtifactGrant {
   @@map("openmontage_artifact_grant")
 }
 
+/// Binding between an OpenMontage job and a workspace channel/conversation.
 model OpenmontageChatBinding {
   jobId                 String             @id @map("job_id")
   workspaceId           String             @map("workspace_id")
@@ -1327,6 +1331,7 @@ model OpenmontageChatBinding {
   @@map("openmontage_chat_binding")
 }
 
+/// Intent to create/reconcile an OpenMontage model delegation.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model OpenmontageDelegationIntent {
   idempotencyKey      String    @id @map("idempotency_key")
@@ -1337,8 +1342,8 @@ model OpenmontageDelegationIntent {
   modelsTenantId      String    @map("models_tenant_id")
   modelsTeamId        String    @map("models_team_id")
   externalJobId       String    @map("external_job_id")
-  requestJson         Json      @map("request_json")
-  delegationId        String?   @unique(map: "idx_openmontage_delegation_intent_remote_unique", where: raw("(delegation_id IS NOT NULL)")) @map("delegation_id")
+  requestJson         Json      @map("request_json") /// Serialized delegation request.
+  delegationId        String?   @unique(map: "idx_openmontage_delegation_intent_remote_unique", where: raw("(delegation_id IS NOT NULL)")) @map("delegation_id") /// Remote delegation id once created.
   secretRef           String?   @map("secret_ref")
   status              String
   attemptCount        Int       @default(0) @map("attempt_count")
@@ -1352,6 +1357,7 @@ model OpenmontageDelegationIntent {
   @@map("openmontage_delegation_intent")
 }
 
+/// Deduplication nonce for OpenMontage webhook events.
 model OpenmontageEventNonce {
   nonce      String   @id
   eventId    String   @map("event_id")
@@ -1362,16 +1368,17 @@ model OpenmontageEventNonce {
   @@map("openmontage_event_nonce")
 }
 
+/// Event received from OpenMontage for a job (to be applied idempotently).
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model OpenmontageJobEvent {
   eventId            String             @id @map("event_id")
   jobId              String             @map("job_id")
   workspaceId        String             @map("workspace_id")
-  sequence           Int
+  sequence           Int /// Monotonic sequence within the job.
   schemaVersion      Int                @map("schema_version")
   eventType          String             @map("event_type")
-  eventJson          Json               @map("event_json")
-  applicationStatus  String             @default("pending") @map("application_status")
+  eventJson          Json               @map("event_json") /// Raw event payload.
+  applicationStatus  String             @default("pending") @map("application_status") /// pending | applied | failed.
   receivedAt         DateTime           @map("received_at") @db.Timestamptz(6)
   appliedAt          DateTime?          @map("applied_at") @db.Timestamptz(6)
   failureReason      String?            @map("failure_reason")
@@ -1383,6 +1390,7 @@ model OpenmontageJobEvent {
   @@map("openmontage_job_event")
 }
 
+/// Link between an AgentSpace invocation and an OpenMontage job.
 model OpenmontageJobLink {
   jobId                         String                          @id @map("job_id")
   workspaceId                   String                          @map("workspace_id")
@@ -1409,15 +1417,16 @@ model OpenmontageJobLink {
   @@map("openmontage_job_link")
 }
 
+/// Materialized projection/state of an OpenMontage job.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model OpenmontageJobProjection {
   jobId               String             @id @map("job_id")
   workspaceId         String             @map("workspace_id")
   status              String
   currentStage        String?            @map("current_stage")
-  snapshotJson        Json               @map("snapshot_json")
+  snapshotJson        Json               @map("snapshot_json") /// Serialized job state snapshot.
   lastAppliedSequence Int                @default(0) @map("last_applied_sequence")
-  syncStatus          String             @default("CURRENT") @map("sync_status")
+  syncStatus          String             @default("CURRENT") @map("sync_status") /// CURRENT | STALE | etc.
   createdAt           DateTime           @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime           @map("updated_at") @db.Timestamptz(6)
   openmontageJobLink  OpenmontageJobLink @relation(fields: [jobId], references: [jobId], onUpdate: NoAction, onDelete: Restrict)
@@ -1427,14 +1436,15 @@ model OpenmontageJobProjection {
   @@map("openmontage_job_projection")
 }
 
+/// Active model delegation (spend limit + credentials) for an OpenMontage job.
 model OpenmontageModelDelegation {
   jobId               String             @id @map("job_id")
-  delegationId        String             @unique @map("delegation_id")
+  delegationId        String             @unique @map("delegation_id") /// Remote delegation identifier.
   runtimeCredentialId String             @map("runtime_credential_id")
   modelsTenantId      String             @map("models_tenant_id")
   modelsTeamId        String             @map("models_team_id")
   mcpConnectionId     String             @map("mcp_connection_id")
-  secretRef           String             @map("secret_ref")
+  secretRef           String             @map("secret_ref") /// Reference to stored delegation secret.
   spendLimit          String             @map("spend_limit")
   currency            String
   status              String
@@ -1447,6 +1457,7 @@ model OpenmontageModelDelegation {
   @@map("openmontage_model_delegation")
 }
 
+/// Outbox of OpenMontage notifications to be delivered to a channel.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model OpenmontageNotificationOutbox {
   id                 String             @id
@@ -1455,8 +1466,8 @@ model OpenmontageNotificationOutbox {
   channelName        String             @map("channel_name")
   eventSequence      Int                @map("event_sequence")
   eventType          String             @default("openmontage.job.changed") @map("event_type")
-  payloadJson        Json               @map("payload_json")
-  status             String             @default("pending")
+  payloadJson        Json               @map("payload_json") /// Notification payload.
+  status             String             @default("pending") /// pending | delivered | failed.
   deliveryAttempts   Int                @default(0) @map("delivery_attempts")
   nextAttemptAt      DateTime?          @map("next_attempt_at") @db.Timestamptz(6)
   lastError          String?            @map("last_error")
@@ -1470,15 +1481,16 @@ model OpenmontageNotificationOutbox {
   @@map("openmontage_notification_outbox")
 }
 
+/// Pager/alert state for workspace monitoring conditions.
 model PagerAlertState {
   id              String    @id
   workspaceId     String    @map("workspace_id")
-  alertKey        String    @map("alert_key")
-  code            String
+  alertKey        String    @map("alert_key") /// Stable key for deduplication.
+  code            String /// Alert type code.
   employeeName    String?   @map("employee_name")
   metric          String?
   severity        String
-  status          String    @default("active")
+  status          String    @default("active") /// active | cleared.
   firstSeenAt     DateTime  @map("first_seen_at") @db.Timestamptz(6)
   lastSeenAt      DateTime  @map("last_seen_at") @db.Timestamptz(6)
   occurrences     Int       @default(1)
@@ -1490,16 +1502,17 @@ model PagerAlertState {
   @@map("pager_alert_state")
 }
 
+/// External model-provider account registered for a workspace (e.g. OpenAI, Anthropic).
 model ProviderAccount {
   id                      String                    @id
   workspaceId             String                    @map("workspace_id")
   provider                String
   name                    String
-  billingAccountId        String?                   @map("billing_account_id")
-  secretRef               String?                   @map("secret_ref")
-  configRef               String?                   @map("config_ref")
-  allowedModelsJson       Json                      @default("[]") @map("allowed_models_json")
-  status                  String                    @default("active")
+  billingAccountId        String?                   @map("billing_account_id") /// Provider-side billing account identifier.
+  secretRef               String?                   @map("secret_ref") /// Pointer to credential secret storage.
+  configRef               String?                   @map("config_ref") /// Pointer to provider-specific config.
+  allowedModelsJson       Json                      @default("[]") @map("allowed_models_json") /// JSON array of model aliases allowed via this account.
+  status                  String                    @default("active") /// active | disabled.
   createdBy               String                    @default("") @map("created_by")
   createdAt               DateTime                  @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime                  @map("updated_at") @db.Timestamptz(6)
@@ -2360,6 +2373,7 @@ model TaskMessage {
   @@map("task_message")
 }
 
+/// Token/cost record for a single LLM inference call.
 model TokenUsage {
   id                     String                   @id
   workspaceId            String                   @map("workspace_id")
@@ -2368,15 +2382,15 @@ model TokenUsage {
   modelId                String                   @map("model_id")
   inputTokens            Int                      @default(0) @map("input_tokens")
   outputTokens           Int                      @default(0) @map("output_tokens")
-  costUsd                Float                    @default(0) @map("cost_usd")
+  costUsd                Float                    @default(0) @map("cost_usd") /// Estimated cost at write time.
   channelName            String?                  @map("channel_name")
   createdAt              DateTime                 @map("created_at") @db.Timestamptz(6)
   providerAccountId      String?                  @map("provider_account_id")
   runtimeCredentialId    String?                  @map("runtime_credential_id")
   routerSessionId        String?                  @map("router_session_id")
-  billingStatus          String                   @default("estimated") @map("billing_status")
+  billingStatus          String                   @default("estimated") @map("billing_status") /// estimated | confirmed | reconciled.
   gatewayRequestId       String?                  @map("gateway_request_id")
-  actualCostUsd          Float?                   @map("actual_cost_usd")
+  actualCostUsd          Float?                   @map("actual_cost_usd") /// Final cost after provider reconciliation.
   currency               String?
   reconciledAt           DateTime?                @map("reconciled_at") @db.Timestamptz(6)
   gatewayUsageId         String?                  @map("gateway_usage_id")
@@ -2409,12 +2423,13 @@ model TokenUsage {
   @@map("token_usage")
 }
 
+/// Billing lifecycle event recorded for a token usage row.
 model TokenUsageBillingEvent {
   id           String      @id
   workspaceId  String      @map("workspace_id")
   tokenUsageId String?     @map("token_usage_id")
-  eventType    String      @map("event_type")
-  snapshotJson Json        @map("snapshot_json")
+  eventType    String      @map("event_type") /// e.g. estimated | confirmed | invoiced.
+  snapshotJson Json        @map("snapshot_json") /// Snapshot of the usage row at event time.
   createdAt    DateTime    @map("created_at") @db.Timestamptz(6)
   tokenUsage   TokenUsage? @relation(fields: [tokenUsageId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -2423,6 +2438,7 @@ model TokenUsageBillingEvent {
   @@map("token_usage_billing_event")
 }
 
+/// Per-credential cursor tracking how far token usage has been reconciled with a gateway.
 model TokenUsageReconciliationCursor {
   workspaceId         String    @map("workspace_id")
   runtimeCredentialId String    @map("runtime_credential_id")
@@ -2434,13 +2450,14 @@ model TokenUsageReconciliationCursor {
   @@map("token_usage_reconciliation_cursor")
 }
 
+/// Retry queue for idempotent token usage reconciliation jobs.
 model TokenUsageRetry {
   id             String         @id
   workspaceId    String         @map("workspace_id")
   taskQueueId    String         @map("task_queue_id")
   idempotencyKey String         @map("idempotency_key")
   payloadJson    Json           @map("payload_json")
-  status         String         @default("pending")
+  status         String         @default("pending") /// pending | running | failed | done.
   attempts       Int            @default(0)
   nextAttemptAt  DateTime       @map("next_attempt_at") @db.Timestamptz(6)
   lastError      String?        @map("last_error")
