@@ -1,10 +1,10 @@
 # 工作流引擎首期发布清单
 
-更新时间：2026-08-07
+更新时间：2026-08-08
 
 目标分支：`codex/agent-team-workflow`
 
-代码证据：本轮复审基线 `a7a7b8bb`；待发布 SHA 必须取包含本清单的最终已提交版本
+代码证据：本轮滚动兼容修复基线 `984a10d2`；待发布 SHA 必须取包含本清单的最终已提交版本
 
 发布策略：按 workspace 从 `legacy_only` 逐步切换到 `dual_read`、`workflow_engine`、`legacy_archived`
 
@@ -17,8 +17,9 @@
 | 检查项 | 当前状态 | 证据 / 放行条件 |
 | --- | --- | --- |
 | 目标提交 | 部署时记录完整 40 位 SHA | 发布只能使用包含本清单的已提交版本，不得使用未提交工作树 |
-| PostgreSQL schema 版本 | 代码为 `116`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `116`。112 修复 Trigger reparent；113 增加 `approval_deadline`；114 增加审批公平重试游标；115 增加运行历史序号；116 在非空约束前安装旧实例写入兼容触发器，并补齐 `(workspace_id, created_at DESC, id DESC)` 索引。审批 `expiresAt` 仍以 application JSON metadata 为业务事实，SQL 列用于调度投影；`reviewerUserId`、`risk` 仍只存 metadata |
-| Schema 116 滚动兼容 | 代码与仓储测试通过，环境待演练 | 迁移后用 114/115 形状执行一次不含 `history_sequence` 的 Run INSERT，确认触发器分配非空序号；再排空旧 Web/Worker。所有 Web 实例的 `INTERNAL_API_SECRET` 必须一致，否则签名游标应视为过期并刷新 |
+| PostgreSQL schema 版本 | 代码为 `116`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `116`。112 修复 Trigger reparent；113 增加 `approval_deadline`；114 增加审批公平重试游标；115 增加运行历史序号；116 在非空约束前安装旧实例写入兼容触发器。完整 `(workspace_id, created_at DESC, id DESC)` v2 索引在主事务提交后并发创建，不再删除重建旧索引。审批 `expiresAt` 仍以 application JSON metadata 为业务事实，SQL 列用于调度投影；`reviewerUserId`、`risk` 仍只存 metadata |
+| Schema 116 滚动兼容 | 代码与仓储测试通过，环境待演练 | 所有 schema 入口按顺序取得 advisory lock 115/116；迁移后用 114/115 形状执行不含 `history_sequence` 的 Run INSERT，确认触发器分配非空序号；确认 `idx_workflow_run_workspace_created_v2` 为 valid/ready 后再排空旧 Web/Worker。禁止并行运行绕过锁的手工 DDL |
+| 运行历史游标滚动 | Web 定向测试通过，混合环境待演练 | 新签发 v3 使用 `snapshotCount`，114/旧 116 拒绝后客户端重取首屏，115 可按 `snapshotSequence` 续页；114/115 无签名游标由新实例返回 409 后刷新。分别对 114→新、115→新、新→114、新→115、新→旧 116 做双向路由演练 |
 | Workflow 表与唯一约束 | 静态测试已覆盖 | 7 张 workspace-scoped 表；`workspace_id + trigger_key`、`run_id + node_id`、`run_id + sequence` 唯一 |
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |
 | 单一调度 owner | 代码测试通过，环境待抽查 | 每个 workspace 只能由 legacy 或 workflow 一方创建 trigger |
@@ -48,6 +49,7 @@ reviewer: PENDING
 | systemd 配置 | 已提供，未安装 | 独立环境文件、失败重启、30 秒停止超时 |
 | Worker 镜像 digest | `PENDING` | 测试环境构建后填写不可变 `sha256:` digest |
 | `CRON_SECRET` | 配置项存在，值未核对 | 测试环境使用独立长随机值；不得写入本文或日志 |
+| 游标签名密钥 | 配置模板已提供，值未核对 | `WORKFLOW_RUN_CURSOR_SECRET` 未配置时回退 `INTERNAL_API_SECRET`；轮换先配置 previous secret/key id，再切 current，最长分页会话过后才删除 previous；混合旧实例期间专用 current secret 必须保持旧实例可验 |
 | Worker ID / poll | 默认已定义，环境待确认 | 每实例唯一 Worker ID；poll 间隔符合容量计划 |
 | 共享依赖 | 静态契约通过 | 连接 `../docker-helm.dofe.ai` 管理的外部服务，不新建依赖容器 |
 
