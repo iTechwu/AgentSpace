@@ -120,6 +120,7 @@ export interface PostgresToPostgresMigrationReport {
   reset: boolean;
   startedAt: string;
   finishedAt: string;
+  warnings: string[];
   tables: Array<{
     tableName: string;
     sourceCount: number;
@@ -500,15 +501,40 @@ export async function migratePostgresToPostgres(
       reset: input.reset === true,
       startedAt,
       finishedAt: startedAt,
+      warnings: [],
       tables: snapshot.map((table) => ({
         tableName: table.tableName,
         sourceCount: table.rows.length,
-        insertedCount: input.dryRun ? table.rows.length : 0,
-        skippedCount: input.dryRun ? 0 : table.rows.length,
+        insertedCount: 0,
+        skippedCount: table.rows.length,
       })),
     };
 
     if (input.dryRun) {
+      // Forward-only guard（锁内复检）：dry-run 也必须复核目标库版本。旧实现在此直接返回 completed
+      // 并把 insertedCount 预置为 sourceCount——目标库版本更高时，正式迁移会整库跳过，dry-run 却误报
+      //「全部可插入」。锁内复检与正式迁移一致；dry-run 不执行任何 DDL/数据导入。
+      await withPostgresSchemaLock(targetClient, async () => {
+        if (await isPostgresSchemaNewerThanInstance(targetClient)) {
+          report.status = "skipped_incompatible_schema";
+        }
+      });
+      if (report.status === "skipped_incompatible_schema") {
+        report.tables = report.tables.map((table) => ({
+          ...table,
+          insertedCount: 0,
+          skippedCount: table.sourceCount,
+        }));
+        report.warnings.push(
+          `目标库 schema_version 高于本实例（${POSTGRES_SCHEMA_VERSION}），已跳过全部语句与数据导入（status=skipped_incompatible_schema）。`,
+        );
+      } else {
+        report.tables = report.tables.map((table) => ({
+          ...table,
+          insertedCount: table.sourceCount,
+          skippedCount: 0,
+        }));
+      }
       report.finishedAt = new Date().toISOString();
       return report;
     }
