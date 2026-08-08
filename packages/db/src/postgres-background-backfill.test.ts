@@ -14,6 +14,7 @@ import {
 } from "./postgres.ts";
 import {
   POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID,
+  POSTGRES_HISTORY_SEQUENCE_COUNTER_REPAIR_STATEMENT,
   POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS,
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   getPostgresHistoryBackfillStatements,
@@ -451,6 +452,147 @@ test("分批回填多 workspace 产生续接且无碰撞的序号（Issue 7 真�
     for (const workspaceId of workspaceIds) {
       db.prepare("DELETE FROM workspace WHERE id = ?").run(workspaceId);
     }
+  }
+});
+
+/**
+ * Standards #1（全局计数器修复）：分批 advance 只覆盖「曾有 NULL 行」而被 pending 查询选中的 workspace。
+ * 旧版本可能已回填某 workspace 的 history_sequence（无 NULL 行）却未推进其 workflow_run_sequence 计数器——
+ * 这类 workspace 永不进批，计数器停滞 → BEFORE INSERT 触发器后续分配的序号会与既有高序号碰撞。修复：
+ * 分批回填后对所有 workspace 做一次全局 GREATEST 推进。本用例种子一个「无 NULL 行、计数器停滞」的
+ * workspace，断言 ensurePostgresConcurrentIndexes 把它的计数器推进到最大 history_sequence。
+ */
+test("全局计数器修复推进停滞计数器（已回填但计数器未推进，无 NULL 行）", async () => {
+  const db = getDatabase();
+  const workspaceId = `bg-counter-${Math.random().toString(36).slice(2, 10)}`;
+  const now = new Date().toISOString();
+  try {
+    db.prepare(
+      `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, 'test', ?, ?)`,
+    ).run(workspaceId, workspaceId, workspaceId, now, now);
+    const definition = createWorkflowDefinitionSync({
+      id: `${workspaceId}-def`,
+      workspaceId,
+      name: "CounterRepair",
+      ownerUserId: "u1",
+      createdBy: "u1",
+    });
+    const version = publishWorkflowVersionSync({
+      id: `${workspaceId}-ver`,
+      workspaceId,
+      workflowId: definition.id,
+      graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+      contentHash: `sha256:${workspaceId}`,
+      publishedBy: "u1",
+    });
+    // 三行 run，手动赋予非空 history_sequence 10/20/30（模拟旧版本已回填序号）。
+    const sequences = [10, 20, 30];
+    for (const [index, seq] of sequences.entries()) {
+      const run = createWorkflowRunSync({
+        id: `${workspaceId}-run-${index}`,
+        workspaceId,
+        workflowId: definition.id,
+        versionId: version.id,
+        triggerType: "manual",
+        triggerKey: `${workspaceId}:${index}`,
+        inputJson: "{}",
+        now: `2099-06-0${index + 1}T00:00:00.000Z`,
+      });
+      db.prepare("UPDATE workflow_run SET history_sequence = ? WHERE id = ?").run(seq, run.id);
+    }
+    // 计数器人为停滞在 5（< max 30），模拟旧版本回填了序号却未推进计数器。本 workspace 无 NULL 行
+    // → 永不被分批回填选中，只有全局计数器修复能推进。删 flag 强制后台重跑回填段（含全局修复）。
+    db.prepare("UPDATE workspace SET workflow_run_sequence = 5 WHERE id = ?").run(workspaceId);
+    db.prepare("DELETE FROM app_metadata WHERE key = ?").run(BACKFILL_FLAG);
+
+    await ensurePostgresConcurrentIndexes({});
+
+    const wsSeq = (
+      db.prepare("SELECT CAST(workflow_run_sequence AS bigint) AS seq FROM workspace WHERE id = ?").get(workspaceId) as { seq: bigint }
+    ).seq;
+    assert.equal(Number(wsSeq), 30, "停滞计数器须被全局修复推进到最大 history_sequence 30");
+
+    // 幂等：二次运行（flag 已置）不再变动计数器。
+    await ensurePostgresConcurrentIndexes({});
+    const wsSeq2 = (
+      db.prepare("SELECT CAST(workflow_run_sequence AS bigint) AS seq FROM workspace WHERE id = ?").get(workspaceId) as { seq: bigint }
+    ).seq;
+    assert.equal(Number(wsSeq2), 30, "二次运行计数器保持 30（幂等）");
+    assert.equal(readFlag(), "true", "回填完成后须置 flag");
+  } finally {
+    db.prepare("DELETE FROM workflow_run WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM workflow_version WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM workflow_definition WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM workspace WHERE id = ?").run(workspaceId);
+    // 复原 flag（测试库已完成回填）。
+    db.prepare(
+      `INSERT INTO app_metadata (key, value) VALUES (?, 'true')
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+    ).run(BACKFILL_FLAG);
+  }
+});
+
+/**
+ * 全局计数器修复语句本身（隔离验证）：种子停滞计数器后直接执行语句，断言推进到 max 且幂等。
+ */
+test("POSTGRES_HISTORY_SEQUENCE_COUNTER_REPAIR_STATEMENT 推进停滞计数器且幂等", () => {
+  const db = getDatabase();
+  const workspaceId = `bg-counter-stmt-${Math.random().toString(36).slice(2, 10)}`;
+  const now = new Date().toISOString();
+  try {
+    db.prepare(
+      `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, 'test', ?, ?)`,
+    ).run(workspaceId, workspaceId, workspaceId, now, now);
+    const definition = createWorkflowDefinitionSync({
+      id: `${workspaceId}-def`,
+      workspaceId,
+      name: "CounterStmt",
+      ownerUserId: "u1",
+      createdBy: "u1",
+    });
+    const version = publishWorkflowVersionSync({
+      id: `${workspaceId}-ver`,
+      workspaceId,
+      workflowId: definition.id,
+      graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+      contentHash: `sha256:stmt-${workspaceId}`,
+      publishedBy: "u1",
+    });
+    for (const [index, seq] of [10, 20, 30].entries()) {
+      const run = createWorkflowRunSync({
+        id: `${workspaceId}-run-${index}`,
+        workspaceId,
+        workflowId: definition.id,
+        versionId: version.id,
+        triggerType: "manual",
+        triggerKey: `${workspaceId}:${index}`,
+        inputJson: "{}",
+        now: `2099-07-0${index + 1}T00:00:00.000Z`,
+      });
+      db.prepare("UPDATE workflow_run SET history_sequence = ? WHERE id = ?").run(seq, run.id);
+    }
+    db.prepare("UPDATE workspace SET workflow_run_sequence = 5 WHERE id = ?").run(workspaceId);
+
+    db.prepare(POSTGRES_HISTORY_SEQUENCE_COUNTER_REPAIR_STATEMENT).run();
+
+    const wsSeq = (
+      db.prepare("SELECT CAST(workflow_run_sequence AS bigint) AS seq FROM workspace WHERE id = ?").get(workspaceId) as { seq: bigint }
+    ).seq;
+    assert.equal(Number(wsSeq), 30, "停滞计数器须推进到最大 history_sequence");
+
+    // 已正确 → 二次执行 no-op。
+    db.prepare(POSTGRES_HISTORY_SEQUENCE_COUNTER_REPAIR_STATEMENT).run();
+    const wsSeq2 = (
+      db.prepare("SELECT CAST(workflow_run_sequence AS bigint) AS seq FROM workspace WHERE id = ?").get(workspaceId) as { seq: bigint }
+    ).seq;
+    assert.equal(Number(wsSeq2), 30, "计数器已正确时语句为 no-op");
+  } finally {
+    db.prepare("DELETE FROM workflow_run WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM workflow_version WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM workflow_definition WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM workspace WHERE id = ?").run(workspaceId);
   }
 });
 

@@ -12,6 +12,7 @@ import {
   getPostgresSchemaStatements,
   POSTGRES_HISTORY_BACKFILL_BATCH_WORKSPACE_LIMIT,
   POSTGRES_HISTORY_BACKFILL_PENDING_WORKSPACES_QUERY,
+  POSTGRES_HISTORY_SEQUENCE_COUNTER_REPAIR_STATEMENT,
   POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS,
   POSTGRES_POST_COMMIT_INDEX_NAMES,
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
@@ -740,6 +741,12 @@ async function runBackgroundMaintenance(
       if (workspaceIds.length === 0) break;
       await runBackfillBatchInTransaction(client, backfill, advance, workspaceIds);
     }
+    // 全局计数器修复：分批 advance 只覆盖「曾有 NULL 行」而被分批的 workspace。旧版本可能已回填某些
+    // workspace 的 history_sequence（无 NULL 行）却未推进其 workflow_run_sequence 计数器——这类
+    // workspace 不会被 pending 查询选中、永不进批，计数器停滞会导致触发器后续分配的序号与既有高序号
+    // 碰撞。对所有 workspace 做一次全局 GREATEST 推进（WHERE < max 使已正确者 no-op），须在置 flag
+    // 前，使「已标记完成」的库计数器必然已修复；单条 UPDATE 自成原子，无需显式事务。
+    await client.query(POSTGRES_HISTORY_SEQUENCE_COUNTER_REPAIR_STATEMENT);
     // 回填全部完成（无 NULL 行）：施加在线 NOT NULL（若列仍可空）+ 置 flag，原子提交。新写入行由
     // 分配触发器保证非空，故 VALIDATE 不会因新行失败。
     if (await isHistorySequenceNullable(client)) {
