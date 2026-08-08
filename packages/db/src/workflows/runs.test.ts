@@ -415,3 +415,76 @@ test("event sequence and outbox lease are monotonic and owned", () => {
   );
   markWorkflowOutboxPublishedSync(outbox.id, "worker-1", WORKSPACE_ID);
 });
+
+test("keyset 分页纳入 history_sequence 仍为 NULL 的旧行（回填窗口期不丢行）", () => {
+  const myWorkspace = `workflow-runs-nullseq-${Math.random().toString(36).slice(2, 10)}`;
+  const db = getDatabase();
+  const workspaceNow = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, 'test', ?, ?)`,
+  ).run(myWorkspace, myWorkspace, myWorkspace, workspaceNow, workspaceNow);
+  const definition = createWorkflowDefinitionSync({
+    id: `${myWorkspace}-def`,
+    workspaceId: myWorkspace,
+    name: "NullSeq",
+    ownerUserId: "u1",
+    createdBy: "u1",
+  });
+  const version = publishWorkflowVersionSync({
+    id: `${myWorkspace}-ver`,
+    workspaceId: myWorkspace,
+    workflowId: definition.id,
+    graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+    contentHash: "sha256:nullseq",
+    publishedBy: "u1",
+  });
+
+  const suffixes = ["a", "b", "c", "d", "e"];
+  const created = suffixes.map((suffix, index) => createWorkflowRunSync({
+    id: `${myWorkspace}-run-${suffix}`,
+    workspaceId: myWorkspace,
+    workflowId: definition.id,
+    versionId: version.id,
+    triggerType: "manual",
+    triggerKey: `${myWorkspace}:${suffix}`,
+    inputJson: "{}",
+    now: `2099-02-0${index + 1}T00:00:00.000Z`,
+  }));
+
+  // 模拟后台回填未完成：最旧两行 history_sequence 仍为 NULL。列默认 NOT NULL，临时放开以造 NULL。
+  db.exec("ALTER TABLE workflow_run ALTER COLUMN history_sequence DROP NOT NULL");
+  try {
+    db.prepare("UPDATE workflow_run SET history_sequence = NULL WHERE id IN (?, ?)")
+      .run(created[0]!.id, created[1]!.id);
+
+    const snapshot = listWorkflowRunsPageSnapshotSync(myWorkspace, 2);
+    assert.equal(snapshot.total, 5);
+    assert.match(snapshot.snapshotSequence, /^\d+$/);
+
+    const seen = [...snapshot.runs];
+    let cursor = {
+      createdAt: seen[seen.length - 1]!.createdAt,
+      id: seen[seen.length - 1]!.id,
+      snapshotSequence: snapshot.snapshotSequence,
+      snapshotTotal: snapshot.total,
+    };
+    while (seen.length < snapshot.total) {
+      const page = listWorkflowRunsAfterCursorSync(myWorkspace, cursor, 2);
+      if (page.length === 0) break;
+      seen.push(...page);
+      const lastRun = page[page.length - 1]!;
+      cursor = { ...cursor, createdAt: lastRun.createdAt, id: lastRun.id };
+    }
+
+    // 含 2 个 NULL 序号旧行在内，5 行必须全部恰出现一次（修复前会丢失 NULL 行）。
+    assert.equal(seen.length, 5, "回填窗口期不得丢失 history_sequence 为 NULL 的旧行");
+    assert.deepEqual(
+      [...seen].map((run) => run.id).sort(),
+      created.map((run) => run.id).sort(),
+    );
+  } finally {
+    db.prepare("DELETE FROM workflow_run WHERE workspace_id = ?").run(myWorkspace);
+    db.exec("ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL");
+  }
+});

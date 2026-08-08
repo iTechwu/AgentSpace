@@ -235,6 +235,11 @@ export function listWorkflowRunsPageSnapshotSync(
  * 永不结束」的缺陷——新插入的运行 createdAt 晚于游标，不满足「严格早于游标」的条件，不会
  * 被后续页误纳入，分页始终连续、确定、可终止。cursor 为 null 时返回首页。limit 为数据库
  * 取数上限（调用方按 limit+1 取数以判定 hasMore）。
+ *
+ * history_sequence 谓词含 `OR history_sequence IS NULL`：后台回填未完成时，尚未分配序号的
+ * 旧运行仍按 created_at/id keyset 纳入分页（不丢行）；回填完成后无 NULL 行，该分支退化为
+ * 死代码，行为与仅用 `history_sequence <= snapshot` 完全一致。新写入行的序号严格大于快照上界，
+ * 始终被排除，快照语义不受影响。
  */
 export function listWorkflowRunsAfterCursorSync(
   workspaceId: string,
@@ -251,7 +256,7 @@ export function listWorkflowRunsAfterCursorSync(
   if (cursor.snapshotSequence) {
     return (db.prepare(
       `${RUN_SELECT} WHERE workspace_id = ?
-         AND history_sequence <= CAST(? AS bigint)
+         AND (history_sequence <= CAST(? AS bigint) OR history_sequence IS NULL)
          AND (created_at < ? OR (created_at = ? AND id < ?))
        ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`,
     ).all(
