@@ -97,8 +97,9 @@ export function WorkflowListClient({
         `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}&cursor=${encodeURIComponent(nextCursor)}`,
         { headers: { accept: "application/json" } },
       );
-      // 不可解码的游标（400）：刷新首页，避免旧/损坏游标卡住"加载更多"。
-      if (response.status === 400) {
+      // 游标不可用（400 不可解码，或 409 滚动部署期旧实例识别为过期协议）：
+      // 刷新首页，避免旧/损坏/过期游标卡住"加载更多"。
+      if (response.status === 400 || response.status === 409) {
         const refreshedResponse = await fetch(
           `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}`,
           { headers: { accept: "application/json" } },
