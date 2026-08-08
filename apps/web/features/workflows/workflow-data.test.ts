@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -6,7 +7,6 @@ const {
   mockListWorkflowRunsSync,
   mockListWorkflowRunsPageSnapshotSync,
   mockListWorkflowRunsAfterCursorSync,
-  mockResolveWorkflowRunSnapshotSequenceSync,
   mockListWorkspaceMemberUsersSync,
   mockReadCutoverMode,
   mockReadWorkspaceState,
@@ -16,7 +16,6 @@ const {
   mockListWorkflowRunsSync: vi.fn(),
   mockListWorkflowRunsPageSnapshotSync: vi.fn(),
   mockListWorkflowRunsAfterCursorSync: vi.fn(),
-  mockResolveWorkflowRunSnapshotSequenceSync: vi.fn(),
   mockListWorkspaceMemberUsersSync: vi.fn(),
   mockReadCutoverMode: vi.fn(),
   mockReadWorkspaceState: vi.fn(),
@@ -28,7 +27,6 @@ vi.mock("@dofe-agent/db", () => ({
   listWorkflowRunsSync: mockListWorkflowRunsSync,
   listWorkflowRunsPageSnapshotSync: mockListWorkflowRunsPageSnapshotSync,
   listWorkflowRunsAfterCursorSync: mockListWorkflowRunsAfterCursorSync,
-  resolveWorkflowRunSnapshotSequenceSync: mockResolveWorkflowRunSnapshotSequenceSync,
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
 }));
 vi.mock("@dofe-agent/services", () => ({
@@ -37,7 +35,12 @@ vi.mock("@dofe-agent/services", () => ({
   shouldReadLegacyWorkflowSources: (mode: string) => mode === "legacy_only" || mode === "dual_read",
 }));
 
-import { decodeWorkflowRunCursor, getWorkflowCenterPageData, getWorkflowRunsPageSync } from "./workflow-data";
+import {
+  decodeWorkflowRunCursor,
+  encodeWorkflowRunCursor,
+  getWorkflowCenterPageData,
+  getWorkflowRunsPageSync,
+} from "./workflow-data";
 
 describe("getWorkflowCenterPageData", () => {
   beforeEach(() => {
@@ -45,7 +48,6 @@ describe("getWorkflowCenterPageData", () => {
     mockListWorkflowRunsSync.mockReset();
     mockListWorkflowRunsPageSnapshotSync.mockReset();
     mockListWorkflowRunsAfterCursorSync.mockReset();
-    mockResolveWorkflowRunSnapshotSequenceSync.mockReset();
     mockListWorkspaceMemberUsersSync.mockReset();
     mockGetDatabase.mockReset();
     mockReadCutoverMode.mockReset();
@@ -53,7 +55,6 @@ describe("getWorkflowCenterPageData", () => {
     mockReadCutoverMode.mockReturnValue("legacy_archived");
     mockReadWorkspaceState.mockReturnValue({ automationRules: [] });
     mockListWorkflowRunsPageSnapshotSync.mockReturnValue({ runs: [], total: 0, snapshotSequence: "0" });
-    mockResolveWorkflowRunSnapshotSequenceSync.mockReturnValue("0");
     mockListWorkflowRunsAfterCursorSync.mockReturnValue([]);
     mockGetDatabase.mockReturnValue({
       prepare: vi.fn(() => ({ all: vi.fn(() => []) })),
@@ -315,12 +316,14 @@ describe("getWorkflowCenterPageData", () => {
 describe("getWorkflowRunsPageSync", () => {
   beforeEach(() => {
     process.env.INTERNAL_API_SECRET = "workflow-run-cursor-test-secret";
+    delete process.env.WORKFLOW_RUN_CURSOR_SECRET;
+    delete process.env.WORKFLOW_RUN_CURSOR_PREVIOUS_SECRET;
+    delete process.env.WORKFLOW_RUN_CURSOR_KEY_ID;
+    delete process.env.WORKFLOW_RUN_CURSOR_PREVIOUS_KEY_ID;
     mockListWorkflowDefinitionsSync.mockReset();
     mockListWorkflowRunsPageSnapshotSync.mockReset();
     mockListWorkflowRunsAfterCursorSync.mockReset();
-    mockResolveWorkflowRunSnapshotSequenceSync.mockReset();
     mockListWorkflowRunsPageSnapshotSync.mockReturnValue({ runs: [], total: 0, snapshotSequence: "0" });
-    mockResolveWorkflowRunSnapshotSequenceSync.mockReturnValue("0");
     mockListWorkflowDefinitionsSync.mockReturnValue([
       { id: "workflow-daily", name: "Daily brief" },
     ]);
@@ -379,38 +382,65 @@ describe("getWorkflowRunsPageSync", () => {
     expect(mockListWorkflowRunsPageSnapshotSync).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves a legacy snapshot total while upgrading to a signed workspace cursor", () => {
+  it("expires an unsigned 114 cursor instead of using its client-provided total", () => {
     const legacyCursor = Buffer.from(JSON.stringify({
       createdAt: "2026-08-06T02:00:00.000Z",
       id: "run-b",
       snapshotTotal: 3,
     }), "utf8").toString("base64url");
-    const remaining = [
-      { id: "run-a", workflowId: "workflow-daily", triggerType: "schedule", status: "succeeded", createdAt: "2026-08-06T01:00:00.000Z" },
-      { id: "run-0", workflowId: "workflow-daily", triggerType: "schedule", status: "succeeded", createdAt: "2026-08-06T00:00:00.000Z" },
-    ];
-    mockListWorkflowRunsAfterCursorSync.mockReturnValue(remaining);
-    mockListWorkflowRunsPageSnapshotSync.mockReturnValue({ runs: [], total: 4, snapshotSequence: "40" });
-    mockResolveWorkflowRunSnapshotSequenceSync.mockReturnValue("30");
-
-    const page = getWorkflowRunsPageSync("default", { limit: 1, cursor: legacyCursor });
-
-    expect(mockListWorkflowRunsAfterCursorSync).toHaveBeenCalledWith(
-      "default",
-      { createdAt: "2026-08-06T02:00:00.000Z", id: "run-b", snapshotTotal: 3, snapshotSequence: "30" },
-      2,
-    );
-    expect(page.runs.map((run) => run.id)).toEqual(["run-a"]);
-    expect(page.total).toBe(3);
-    expect(mockResolveWorkflowRunSnapshotSequenceSync).toHaveBeenCalledWith("default", 3);
+    expect(() => getWorkflowRunsPageSync("default", { limit: 1, cursor: legacyCursor }))
+      .toThrow("workflow_run_cursor_expired");
+    expect(mockListWorkflowRunsAfterCursorSync).not.toHaveBeenCalled();
     expect(mockListWorkflowRunsPageSnapshotSync).not.toHaveBeenCalled();
-    expect(decodeWorkflowRunCursor(page.nextCursor, "default")).toEqual({
-      createdAt: "2026-08-06T01:00:00.000Z",
-      id: "run-a",
+  });
+
+  it("expires an unsigned 115 sequence cursor and lets the route refresh the first page", () => {
+    const legacyCursor = Buffer.from(JSON.stringify({
+      createdAt: "2026-08-06T02:00:00.000Z",
+      id: "run-b",
       snapshotSequence: "30",
-      snapshotTotal: 3,
+    }), "utf8").toString("base64url");
+
+    expect(decodeWorkflowRunCursor(legacyCursor, "default")).toEqual({
+      createdAt: "2026-08-06T02:00:00.000Z",
+      id: "run-b",
+      snapshotSequence: "30",
     });
-    expect(decodeWorkflowRunCursor(page.nextCursor, "other-workspace")).toBeNull();
+    expect(() => getWorkflowRunsPageSync("default", { limit: 1, cursor: legacyCursor }))
+      .toThrow("workflow_run_cursor_expired");
+  });
+
+  it("requires every snapshot boundary field when encoding a signed cursor", () => {
+    // @ts-expect-error 编码 API 在编译期也必须拒绝缺少 snapshotSequence 的输入。
+    expect(() => encodeWorkflowRunCursor({
+      createdAt: "2026-08-06T02:00:00.000Z",
+      id: "run-b",
+      snapshotTotal: 3,
+    }, "default")).toThrow("workflow_run_cursor_snapshot_required");
+  });
+
+  it("accepts a v2 cursor signed with the configured previous cursor secret", () => {
+    process.env.WORKFLOW_RUN_CURSOR_SECRET = "cursor-current-secret";
+    process.env.WORKFLOW_RUN_CURSOR_PREVIOUS_SECRET = "cursor-previous-secret";
+    const payload = {
+      version: 2,
+      workspaceId: "default",
+      createdAt: "2026-08-06T02:00:00.000Z",
+      id: "run-b",
+      snapshotTotal: 3,
+      snapshotSequence: "30",
+    };
+    const signature = createHmac("sha256", "cursor-previous-secret")
+      .update(JSON.stringify(payload), "utf8")
+      .digest("base64url");
+    const cursor = Buffer.from(JSON.stringify({ ...payload, keyId: "previous", signature }), "utf8").toString("base64url");
+
+    expect(decodeWorkflowRunCursor(cursor, "default")).toEqual({
+      createdAt: payload.createdAt,
+      id: payload.id,
+      snapshotSequence: payload.snapshotSequence,
+      snapshotTotal: payload.snapshotTotal,
+    });
   });
 
   it("clamps limit into the supported range", () => {

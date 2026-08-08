@@ -95,6 +95,56 @@ describe("WorkflowListClient", () => {
     fetchMock.mockRestore();
   });
 
+  it("refreshes the first page when a rolling-deploy cursor expires", async () => {
+    const legacyCursor = Buffer.from(JSON.stringify({
+      createdAt: "2026-08-06T00:00:00.000Z",
+      id: "run-1",
+      snapshotSequence: "30",
+    }), "utf8").toString("base64url");
+    const refreshedRun = {
+      id: "run-refreshed",
+      workflowId: "wf-1",
+      workflowName: "刷新后的运行",
+      status: "running" as const,
+      triggerType: "manual",
+      createdAt: "2026-08-08T00:00:00.000Z",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "workflow_run_cursor_expired" }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        runs: [refreshedRun],
+        total: 1,
+        hasMore: false,
+        nextCursor: null,
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    const paginated: WorkflowCenterPageData = {
+      ...data,
+      recentRunsTotal: 3,
+      recentRunsHasMore: true,
+      recentRunsNextCursor: legacyCursor,
+    };
+    const user = userEvent.setup();
+    render(<WorkflowListClient data={paginated} workspaceId="ws-1" workspaceSlug="default" />);
+    await user.click(screen.getByRole("tab", { name: "运行" }));
+
+    await user.click(screen.getByRole("button", { name: "加载更多" }));
+
+    expect(await screen.findByRole("link", { name: /刷新后的运行/ })).toHaveAttribute(
+      "href",
+      "/w/default/automations/runs/run-refreshed",
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/workspaces/ws-1/workflow-runs?limit=50",
+      expect.objectContaining({ headers: { accept: "application/json" } }),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fetchMock.mockRestore();
+  });
+
   it("resets run history when the workspace changes (F2 stale-state guard)", async () => {
     // F2: 组件挂在 module-shell 中被复用时，切换 workspaceId 必须重置 runs/hasMore/cursor，
     // 否则继续展示上一个工作区的运行并用新 slug 生成错误链接。

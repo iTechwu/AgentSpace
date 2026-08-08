@@ -89,6 +89,17 @@ describe("workflow runs pagination route", () => {
     expect(mocks.runsPage).not.toHaveBeenCalled();
   });
 
+  it("returns a refreshable conflict for an expired legacy cursor", async () => {
+    mocks.runsPage.mockImplementationOnce(() => {
+      throw new Error("workflow_run_cursor_expired");
+    });
+
+    const response = await GET(new Request("http://localhost/api/workflows/runs?limit=50&cursor=legacy"), routeContext);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: "workflow_run_cursor_expired" });
+  });
+
   it("clamps limit to the maximum page size", async () => {
     await GET(new Request("http://localhost/api/workflows/runs?limit=9999&cursor=abc"), routeContext);
     expect(mocks.runsPage).toHaveBeenCalledWith("workspace-1", { limit: 200, cursor: "abc" });

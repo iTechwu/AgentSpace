@@ -97,8 +97,25 @@ export function WorkflowListClient({
         `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}&cursor=${encodeURIComponent(nextCursor)}`,
         { headers: { accept: "application/json" } },
       );
+      if (response.status === 409) {
+        const body = await response.json() as { code?: string };
+        if (body.code === "workflow_run_cursor_expired") {
+          const refreshedResponse = await fetch(
+            `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}`,
+            { headers: { accept: "application/json" } },
+          );
+          if (!refreshedResponse.ok) throw new Error(`HTTP ${refreshedResponse.status}`);
+          const refreshedPage = await readWorkflowRunsPage(refreshedResponse);
+          if (workspaceIdRef.current !== requestWorkspaceId || requestGenerationRef.current !== requestGeneration) return;
+          setRuns(refreshedPage.runs);
+          setHasMoreRuns(refreshedPage.hasMore);
+          setNextCursor(refreshedPage.nextCursor);
+          setTotalRuns(refreshedPage.total);
+          return;
+        }
+      }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const page = (await response.json()) as { runs: WorkflowRunSummary[]; total: number; hasMore: boolean; nextCursor: string | null };
+      const page = await readWorkflowRunsPage(response);
       // workspace 或服务端首页快照已在请求在途期间变化：丢弃旧分页响应。
       if (workspaceIdRef.current !== requestWorkspaceId || requestGenerationRef.current !== requestGeneration) return;
       // 去重防御：游标分页正常不重叠；与 SSR 首页或并发刷新产生重复时按 id 合并。
@@ -233,6 +250,20 @@ export function WorkflowListClient({
       ) : null}
     </section>
   );
+}
+
+async function readWorkflowRunsPage(response: Response): Promise<{
+  runs: WorkflowRunSummary[];
+  total: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+}> {
+  return await response.json() as {
+    runs: WorkflowRunSummary[];
+    total: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
 }
 
 function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListItem; workspaceSlug: string }) {

@@ -15,7 +15,6 @@ import {
   readWorkflowRunSync,
   readWorkflowTriggerForWorkflowSync,
   readWorkflowVersionSync,
-  resolveWorkflowRunSnapshotSequenceSync,
 } from "@dofe-agent/db";
 import type { WorkflowRunRecord, WorkflowRunListCursor } from "@dofe-agent/db";
 import {
@@ -60,12 +59,23 @@ const WORKFLOW_RUN_CURSOR_VERSION = 2;
 interface SignedWorkflowRunCursor extends WorkflowRunListCursor {
   version: typeof WORKFLOW_RUN_CURSOR_VERSION;
   workspaceId: string;
+  keyId?: string;
   signature: string;
 }
 
 interface DecodedWorkflowRunCursor {
   cursor: WorkflowRunListCursor;
-  signed: boolean;
+  kind: "signed" | "legacy";
+}
+
+type SignedWorkflowRunCursorInput = WorkflowRunListCursor & {
+  snapshotTotal: number;
+  snapshotSequence: string;
+};
+
+interface WorkflowRunCursorSigningKey {
+  id: string;
+  secret: string;
 }
 
 export interface RunnableWorkflowSummary {
@@ -238,31 +248,23 @@ export function getWorkflowRunsPageSync(
 ): WorkflowRunsPage {
   const limit = Math.max(1, Math.min(Math.trunc(input.limit), 200));
   const decodedCursor = decodeWorkflowRunCursorEnvelope(input.cursor ?? null, workspaceId);
+  if (decodedCursor?.kind === "legacy") {
+    throw new Error("workflow_run_cursor_expired");
+  }
   const cursor = decodedCursor?.cursor ?? null;
   const workflowNamesById = new Map(
     listWorkflowDefinitionsSync(workspaceId).map((definition) => [definition.id, definition.name]),
   );
-  // 旧版游标只有 createdAt/id 或 snapshotTotal；为其获取当前原子序号上界后即可平滑升级。
-  const legacySnapshotSequence = cursor
-    && !cursor.snapshotSequence
-    && cursor.snapshotTotal !== undefined
-    ? resolveWorkflowRunSnapshotSequenceSync(workspaceId, cursor.snapshotTotal)
-    : null;
-  const firstPageSnapshot = !cursor?.snapshotSequence && legacySnapshotSequence === null
+  const firstPageSnapshot = !cursor
     ? listWorkflowRunsPageSnapshotSync(workspaceId, limit + 1)
     : null;
   const snapshotSequence = cursor?.snapshotSequence
-    ?? legacySnapshotSequence
     ?? firstPageSnapshot!.snapshotSequence;
   const pageCursor = cursor ? { ...cursor, snapshotSequence } : null;
   const fetched = (cursor
     ? listWorkflowRunsAfterCursorSync(workspaceId, pageCursor, limit + 1)
     : firstPageSnapshot!.runs).filter(isStatusfulWorkflowRun);
-  const trustedSnapshotTotal = cursor?.snapshotTotal !== undefined
-    && (decodedCursor?.signed === true || !cursor.snapshotSequence)
-    ? cursor.snapshotTotal
-    : null;
-  const total = trustedSnapshotTotal ?? firstPageSnapshot?.total;
+  const total = cursor?.snapshotTotal ?? firstPageSnapshot?.total;
   if (total === undefined) throw new Error("workflow_run_cursor_snapshot_incomplete");
   const hasMore = fetched.length > limit;
   const pageRecords = hasMore ? fetched.slice(0, limit) : fetched;
@@ -280,14 +282,17 @@ export function getWorkflowRunsPageSync(
 }
 
 /** 编码为旧实例仍可读取、当前实例可验签并校验 workspace 的 base64url JSON。 */
-export function encodeWorkflowRunCursor(cursor: WorkflowRunListCursor, workspaceId: string): string {
-  if (cursor.snapshotTotal === undefined) {
-    throw new Error("workflow_run_cursor_total_required");
+export function encodeWorkflowRunCursor(cursor: SignedWorkflowRunCursorInput, workspaceId: string): string {
+  const validated = validateWorkflowRunCursor(cursor);
+  if (!validated || validated.snapshotTotal === undefined || validated.snapshotSequence === undefined) {
+    throw new Error("workflow_run_cursor_snapshot_required");
   }
-  const unsigned = workflowRunCursorSigningPayload(cursor, workspaceId);
+  const unsigned = workflowRunCursorSigningPayload(validated as SignedWorkflowRunCursorInput, workspaceId);
+  const signingKey = readWorkflowRunCursorSigningKeys()[0]!;
   return Buffer.from(JSON.stringify({
     ...unsigned,
-    signature: signWorkflowRunCursor(JSON.stringify(unsigned)),
+    keyId: signingKey.id,
+    signature: signWorkflowRunCursor(JSON.stringify(unsigned), signingKey.secret),
   } satisfies SignedWorkflowRunCursor), "utf8").toString("base64url");
 }
 
@@ -315,17 +320,17 @@ function decodeWorkflowRunCursorEnvelope(
         || cursor.snapshotSequence === undefined
         || cursor.snapshotTotal === undefined
         || !verifyWorkflowRunCursorSignature(
-          JSON.stringify(workflowRunCursorSigningPayload(cursor, parsed.workspaceId)),
+          JSON.stringify(workflowRunCursorSigningPayload(cursor as SignedWorkflowRunCursorInput, parsed.workspaceId)),
           parsed.signature,
+          parsed.keyId,
         )) {
         return null;
       }
-      return cursor ? { cursor, signed: true } : null;
+      return cursor ? { cursor, kind: "signed" } : null;
     }
-    // 只有 schema 115 之前生成的游标允许无签名；当时尚不存在 snapshotSequence。
-    if (parsed.snapshotSequence !== undefined) return null;
+    // 114/115 生成的无签名游标只用于识别过期协议；绝不把其中的 total/sequence 用作查询边界。
     const cursor = validateWorkflowRunCursor(parsed);
-    return cursor ? { cursor, signed: false } : null;
+    return cursor ? { cursor, kind: "legacy" } : null;
   } catch {
     return null;
   }
@@ -361,12 +366,12 @@ function validateWorkflowRunCursor(parsed: Partial<WorkflowRunListCursor> | unde
   }
 }
 
-function signWorkflowRunCursor(content: string): string {
-  return createHmac("sha256", readWorkflowRunCursorSecret()).update(content, "utf8").digest("base64url");
+function signWorkflowRunCursor(content: string, secret: string): string {
+  return createHmac("sha256", secret).update(content, "utf8").digest("base64url");
 }
 
 function workflowRunCursorSigningPayload(
-  cursor: WorkflowRunListCursor,
+  cursor: SignedWorkflowRunCursorInput,
   workspaceId: string,
 ): Omit<SignedWorkflowRunCursor, "signature"> {
   return {
@@ -379,16 +384,39 @@ function workflowRunCursorSigningPayload(
   };
 }
 
-function verifyWorkflowRunCursorSignature(content: string, signature: string): boolean {
-  const expected = Buffer.from(signWorkflowRunCursor(content), "base64url");
+function verifyWorkflowRunCursorSignature(content: string, signature: string, keyId?: string): boolean {
   const actual = Buffer.from(signature, "base64url");
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  const keys = readWorkflowRunCursorSigningKeys();
+  const orderedKeys = keyId
+    ? [...keys.filter((key) => key.id === keyId), ...keys.filter((key) => key.id !== keyId)]
+    : keys;
+  return orderedKeys.some((key) => {
+    const expected = Buffer.from(signWorkflowRunCursor(content, key.secret), "base64url");
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  });
 }
 
-function readWorkflowRunCursorSecret(): string {
-  const secret = process.env.INTERNAL_API_SECRET?.trim();
-  if (!secret) throw new Error("INTERNAL_API_SECRET is required to sign workflow run cursors.");
-  return secret;
+function readWorkflowRunCursorSigningKeys(): WorkflowRunCursorSigningKey[] {
+  const currentSecret = (
+    process.env.WORKFLOW_RUN_CURSOR_SECRET
+    ?? process.env.INTERNAL_API_SECRET
+    ?? ""
+  ).trim();
+  if (!currentSecret) {
+    throw new Error("WORKFLOW_RUN_CURSOR_SECRET or INTERNAL_API_SECRET is required to sign workflow run cursors.");
+  }
+  const keys: WorkflowRunCursorSigningKey[] = [{
+    id: process.env.WORKFLOW_RUN_CURSOR_KEY_ID?.trim() || "current",
+    secret: currentSecret,
+  }];
+  const previousSecret = process.env.WORKFLOW_RUN_CURSOR_PREVIOUS_SECRET?.trim();
+  if (previousSecret && previousSecret !== currentSecret) {
+    keys.push({
+      id: process.env.WORKFLOW_RUN_CURSOR_PREVIOUS_KEY_ID?.trim() || "previous",
+      secret: previousSecret,
+    });
+  }
+  return keys;
 }
 
 /** 把运行记录映射为运行历史摘要，名称以当前定义为准、缺失时回退 workflowId。 */

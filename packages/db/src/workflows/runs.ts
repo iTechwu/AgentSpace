@@ -270,29 +270,6 @@ export function listWorkflowRunsAfterCursorSync(
 }
 
 /**
- * 把升级前游标携带的稳定总数还原为 schema 115 回填/后续写入序号的上界。
- * Run 按约定永久保留，因此第 N 条已提交序号就是旧快照包含的最后一条记录。
- */
-export function resolveWorkflowRunSnapshotSequenceSync(
-  workspaceId: string,
-  snapshotTotal: number,
-): string {
-  const safeTotal = Math.max(0, Math.trunc(snapshotTotal));
-  if (safeTotal === 0) return "0";
-  const row = getDatabase().prepare(
-    `SELECT CAST(history_sequence AS text) AS "snapshotSequence"
-       FROM workflow_run
-      WHERE workspace_id = ?
-      ORDER BY history_sequence ASC
-      OFFSET ? LIMIT 1`,
-  ).get(workspaceId, safeTotal - 1) as { snapshotSequence?: unknown } | undefined;
-  if (typeof row?.snapshotSequence !== "string") {
-    throw new Error("workflow_run_legacy_snapshot_unavailable");
-  }
-  return row.snapshotSequence;
-}
-
-/**
  * 工作区运行总数，供运行历史分页展示「共 N 条」与判断是否还有更多。
  * 排序口径与 listWorkflowRunsAfterCursorSync 一致（created_at DESC, id DESC）。
  */

@@ -11,7 +11,6 @@ import {
   createWorkflowRunSync,
   listWorkflowRunsAfterCursorSync,
   listWorkflowRunsPageSnapshotSync,
-  resolveWorkflowRunSnapshotSequenceSync,
   listWorkflowNodeRunsSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
@@ -127,29 +126,6 @@ test("accepts a rolling-deploy insert that omits history_sequence", () => {
        FROM workflow_run WHERE id = ? AND workspace_id = ?`,
   ).get(id, WORKSPACE_ID) as { historySequence?: unknown } | undefined;
   assert.match(String(row?.historySequence), /^\d+$/);
-});
-
-test("resolves the sequence boundary represented by a legacy snapshot total", () => {
-  const seed = seedVersion();
-  const baseline = listWorkflowRunsPageSnapshotSync(WORKSPACE_ID, 1).total;
-  for (const index of [1, 2, 3]) {
-    createWorkflowRunSync({
-      workspaceId: WORKSPACE_ID,
-      workflowId: seed.workflowId,
-      versionId: seed.versionId,
-      triggerType: "manual",
-      triggerKey: `legacy-boundary:${seed.workflowId}:${index}`,
-      inputJson: "{}",
-    });
-  }
-
-  const boundary = resolveWorkflowRunSnapshotSequenceSync(WORKSPACE_ID, baseline + 2);
-  const throughBoundary = listWorkflowRunsAfterCursorSync(WORKSPACE_ID, {
-    createdAt: "9999-12-31T23:59:59.999Z",
-    id: "~",
-    snapshotSequence: boundary,
-  }, 500);
-  assert.equal(throughBoundary.length, baseline + 2);
 });
 
 test("materializes one run for a duplicate trigger key and protects terminal node runs", () => {
