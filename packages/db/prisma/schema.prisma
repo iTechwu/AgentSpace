@@ -99,6 +99,7 @@ model AgentForkSnapshot {
   @@map("agent_fork_snapshot")
 }
 
+/// Links a workspace employee/agent to a knowledge page.
 model AgentKnowledgePage {
   workspaceId       String            @map("workspace_id")
   agentId           String            @map("agent_id")
@@ -384,7 +385,7 @@ model AppMetadata {
   @@map("app_metadata")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// Uploaded file/blob metadata and storage location.
 model Attachment {
   workspaceId              String                     @map("workspace_id")
   id                       String
@@ -397,7 +398,7 @@ model Attachment {
   kind                     String
   sizeBytes                BigInt                     @default(0) @map("size_bytes")
   storedPath               String                     @map("stored_path")
-  storageProvider          String                     @default("tos") @map("storage_provider")
+  storageProvider          String                     @default("tos") @map("storage_provider") /// Object storage backend.
   storageBucket            String?                    @map("storage_bucket")
   storageRegion            String?                    @map("storage_region")
   storageEndpoint          String?                    @map("storage_endpoint")
@@ -456,11 +457,12 @@ model AuthIdentity {
   @@map("auth_identity")
 }
 
+/// Disaster-recovery drill execution record for a workspace.
 model BackupRestoreDrillRun {
   id                 String    @id
   workspaceId        String    @map("workspace_id")
-  drillType          String    @default("metadata") @map("drill_type")
-  trigger            String
+  drillType          String    @default("metadata") @map("drill_type") /// metadata | full, etc.
+  trigger            String /// What triggered the drill.
   status             String
   startedAt          DateTime  @map("started_at") @db.Timestamptz(6)
   finishedAt         DateTime? @map("finished_at") @db.Timestamptz(6)
@@ -617,11 +619,12 @@ model DaemonConnection {
   @@map("daemon_connection")
 }
 
+/// ACL granting an agent/employee access to a document.
 model DocumentAgentAccess {
   id              String    @id
   workspaceId     String    @map("workspace_id")
   documentId      String    @map("document_id")
-  subjectType     String    @default("agent") @map("subject_type")
+  subjectType     String    @default("agent") @map("subject_type") /// agent | employee.
   subjectId       String    @map("subject_id")
   role            String
   scope           String    @default("document")
@@ -638,6 +641,7 @@ model DocumentAgentAccess {
   @@map("document_agent_access")
 }
 
+/// Request from an agent for permission to access a document or external file.
 model DocumentPermissionRequest {
   id                                                     String    @id
   workspaceId                                            String    @map("workspace_id")
@@ -650,7 +654,7 @@ model DocumentPermissionRequest {
   requestedForChannelName                                String?   @map("requested_for_channel_name")
   triggeredByUserId                                      String?   @map("triggered_by_user_id")
   reason                                                 String
-  status                                                 String    @default("pending")
+  status                                                 String    @default("pending") /// pending | approved | rejected.
   decidedByUserId                                        String?   @map("decided_by_user_id")
   decisionNote                                           String?   @map("decision_note")
   sourceTaskId                                           String?   @map("source_task_id")
@@ -667,10 +671,11 @@ model DocumentPermissionRequest {
   @@map("document_permission_request")
 }
 
+/// Artifact produced by an employee (e.g. task output file).
 model EmployeeArtifact {
   id                          String                      @id
   workspaceId                 String                      @map("workspace_id")
-  workspaceIdRef              String                      @map("workspace_id_ref")
+  workspaceIdRef              String                      @map("workspace_id_ref") /// Persistent workspace the artifact belongs to.
   employeeName                String                      @map("employee_name")
   contentDigest               String                      @map("content_digest")
   mediaType                   String                      @map("media_type")
@@ -690,12 +695,13 @@ model EmployeeArtifact {
   @@map("employee_artifact")
 }
 
+/// Legal hold placed on an employee resource.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model EmployeeDataLegalHold {
   id                   String    @id
   workspaceId          String    @map("workspace_id")
   employeeId           String?   @map("employee_id")
-  resourceType         String    @map("resource_type")
+  resourceType         String    @map("resource_type") /// artifact | workspace | etc.
   resourceId           String    @map("resource_id")
   reason               String
   createdByUserId      String?   @map("created_by_user_id")
@@ -713,14 +719,15 @@ model EmployeeDataLegalHold {
   @@map("employee_data_legal_hold")
 }
 
+/// Persistent workspace (storage volume) for an employee.
 model EmployeePersistentWorkspace {
   id                        String                      @id
   workspaceId               String                      @map("workspace_id")
   employeeName              String                      @map("employee_name")
-  headRevisionId            String?                     @map("head_revision_id")
-  storageRef                String?                     @map("storage_ref")
+  headRevisionId            String?                     @map("head_revision_id") /// Current head revision.
+  storageRef                String?                     @map("storage_ref") /// External storage reference.
   retentionPolicyJson       Json                        @default("{}") @map("retention_policy_json")
-  storageHealth             String                      @default("unknown") @map("storage_health")
+  storageHealth             String                      @default("unknown") @map("storage_health") /// unknown | healthy | unhealthy.
   lastSnapshotAt            DateTime?                   @map("last_snapshot_at") @db.Timestamptz(6)
   createdAt                 DateTime                    @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime                    @map("updated_at") @db.Timestamptz(6)
@@ -735,13 +742,14 @@ model EmployeePersistentWorkspace {
   @@map("employee_persistent_workspace")
 }
 
+/// Recovery/rebuild operation for an employee persistent workspace.
 model EmployeeRecoveryOperation {
   id                   String            @id
   workspaceId          String            @map("workspace_id")
   employeeName         String            @map("employee_name")
   fromGeneration       Int?              @map("from_generation")
   toGeneration         Int               @map("to_generation")
-  phase                String            @default("allocate")
+  phase                String            @default("allocate") /// allocate | restore | verify | completed | failed.
   targetRevisionId     String?           @map("target_revision_id")
   requestedByUserId    String?           @map("requested_by_user_id")
   errorCode            String?           @map("error_code")
@@ -757,7 +765,7 @@ model EmployeeRecoveryOperation {
   approvedByUserId     String?           @map("approved_by_user_id")
   approvedAt           DateTime?         @map("approved_at") @db.Timestamptz(6)
   actorUserId          String?           @map("actor_user_id")
-  workerLeaseToken     String?           @map("worker_lease_token")
+  workerLeaseToken     String?           @map("worker_lease_token") /// Fencing token for the worker.
   workerLeaseExpiresAt DateTime?         @map("worker_lease_expires_at") @db.Timestamptz(6)
   workerAttempt        Int               @default(0) @map("worker_attempt")
   requiredApprovals    Int               @default(1) @map("required_approvals")
@@ -773,13 +781,14 @@ model EmployeeRecoveryOperation {
   @@map("employee_recovery_operation")
 }
 
+/// Binding of an employee to a specific runtime instance.
 model EmployeeRuntimeBinding {
   workspaceId       String            @map("workspace_id")
   employeeName      String            @map("employee_name")
   runtimeId         String            @map("runtime_id")
   createdAt         DateTime          @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @map("updated_at") @db.Timestamptz(6)
-  status            String            @default("online")
+  status            String            @default("online") /// online | offline | draining.
   generation        Int               @default(1)
   desiredProvider   String?           @map("desired_provider")
   employeeId        String            @map("employee_id")
@@ -792,20 +801,21 @@ model EmployeeRuntimeBinding {
   @@map("employee_runtime_binding")
 }
 
+/// Versioned revision of an employee persistent workspace.
 model EmployeeWorkspaceRevision {
   id                             String                      @id
   workspaceId                    String                      @map("workspace_id")
-  workspaceIdRef                 String                      @map("workspace_id_ref")
+  workspaceIdRef                 String                      @map("workspace_id_ref") /// Persistent workspace this revision belongs to.
   employeeName                   String                      @map("employee_name")
   parentRevisionId               String?                     @map("parent_revision_id")
   manifestDigest                 String                      @map("manifest_digest")
-  manifestJson                   Json                        @map("manifest_json")
+  manifestJson                   Json                        @map("manifest_json") /// Serialized workspace manifest.
   sourceTaskId                   String?                     @map("source_task_id")
-  status                         String                      @default("pending")
+  status                         String                      @default("pending") /// pending | ready | failed.
   createdBy                      String?                     @map("created_by")
   createdAt                      DateTime                    @map("created_at") @db.Timestamptz(6)
   employeeId                     String                      @map("employee_id")
-  sourceKind                     String                      @default("task_output") @map("source_kind")
+  sourceKind                     String                      @default("task_output") @map("source_kind") /// task_output | restore | manual.
   restoredFromRevisionId         String?                     @map("restored_from_revision_id")
   employeeWorkspaceRevision      EmployeeWorkspaceRevision?  @relation("employee_workspace_revisionToemployee_workspace_revision", fields: [parentRevisionId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   otherEmployeeWorkspaceRevision EmployeeWorkspaceRevision[] @relation("employee_workspace_revisionToemployee_workspace_revision")
@@ -2832,24 +2842,25 @@ model WorkspaceChannel {
   @@map("workspace_channel")
 }
 
+/// Employee (agent) definition within a workspace.
 model WorkspaceEmployee {
   workspaceId                    String                           @map("workspace_id")
   name                           String
-  role                           String                           @default("Agent")
-  remarkName                     String?                          @map("remark_name")
-  origin                         String                           @default("manual")
-  summary                        String                           @default("")
-  traitsJson                     Json                             @default("[]") @map("traits_json")
+  role                           String                           @default("Agent") /// Employee role/persona.
+  remarkName                     String?                          @map("remark_name") /// User-facing alias.
+  origin                         String                           @default("manual") /// manual | imported | generated.
+  summary                        String                           @default("") /// Short description of the employee.
+  traitsJson                     Json                             @default("[]") @map("traits_json") /// Serialized personality traits.
   fit                            String                           @default("")
-  status                         String                           @default("active")
-  instructions                   String                           @default("")
+  status                         String                           @default("active") /// active | archived.
+  instructions                   String                           @default("") /// System/prompt instructions.
   ownerUserId                    String?                          @map("owner_user_id")
-  channelMemberAccess            String                           @default("disabled") @map("channel_member_access")
+  channelMemberAccess            String                           @default("disabled") @map("channel_member_access") /// Channel membership visibility.
   version                        Int                              @default(1)
   createdAt                      DateTime                         @map("created_at") @db.Timestamptz(6)
   updatedAt                      DateTime                         @map("updated_at") @db.Timestamptz(6)
-  defaultModel                   String?                          @map("default_model")
-  executionPolicyJson            Json                             @default("{}") @map("execution_policy_json")
+  defaultModel                   String?                          @map("default_model") /// Default LLM model slug.
+  executionPolicyJson            Json                             @default("{}") @map("execution_policy_json") /// Runtime execution policy.
   id                             String                           @unique(map: "idx_workspace_employee_id") @default(dbgenerated("gen_random_uuid()"))
   agentKnowledgePage             AgentKnowledgePage[]
   agentSkill                     AgentSkill[]
@@ -3008,11 +3019,12 @@ model WorkspaceServiceSecret {
   @@map("workspace_service_secret")
 }
 
+/// Workspace-wide state snapshot (e.g. for handoff or restore).
 model WorkspaceSnapshot {
   id               String   @id
   organizationName String   @map("organization_name")
   pendingHandoffs  Int      @default(0) @map("pending_handoffs")
-  stateJson        Json     @map("state_json")
+  stateJson        Json     @map("state_json") /// Serialized workspace state.
   stateVersion     Int      @default(1) @map("state_version")
   createdAt        DateTime @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @map("updated_at") @db.Timestamptz(6)
