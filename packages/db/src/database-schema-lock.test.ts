@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { acquireRuntimeSchemaLockForTests, isRuntimeSchemaCurrentForTests } from "./database.ts";
+import {
+  acquireRuntimeSchemaLockForTests,
+  isDatabaseSchemaNewerThanInstanceForTests,
+  isRuntimeSchemaCurrentForTests,
+} from "./database.ts";
 import { POSTGRES_SCHEMA_VERSION } from "./postgres-schema.ts";
 
 test("acquireRuntimeSchemaLock retries until the schema lock is available", () => {
@@ -92,4 +96,62 @@ test("runtime schema checks stay inside the active PostgreSQL schema", () => {
   assert.equal(attemptedSql.length, 3);
   assert.ok(attemptedSql.every((sql) => !sql.includes("'public'")));
   assert.equal(attemptedSql.filter((sql) => sql.includes("current_schema()")).length, 2);
+});
+
+test("isDatabaseSchemaNewerThanInstance detects a newer database version", () => {
+  const attemptedSql: string[] = [];
+  const newer = isDatabaseSchemaNewerThanInstanceForTests({
+    prepare(sql: string) {
+      attemptedSql.push(sql);
+      return {
+        all: () => [],
+        get: (...parameters: unknown[]) => {
+          if (sql.includes("information_schema.tables")) return { "1": 1 };
+          if (sql.includes("FROM app_metadata")) {
+            assert.deepEqual(parameters, ["schema_version"]);
+            return { value: "117" };
+          }
+          return undefined;
+        },
+        run: () => ({ changes: 0 }),
+      };
+    },
+  });
+
+  assert.equal(newer, true);
+  assert.ok(attemptedSql.some((sql) => sql.includes("information_schema.tables")));
+});
+
+test("isDatabaseSchemaNewerThanInstance is false when the database is older, equal, or empty", () => {
+  for (const storedVersion of ["114", "115", POSTGRES_SCHEMA_VERSION, undefined] as const) {
+    const newer = isDatabaseSchemaNewerThanInstanceForTests({
+      prepare(sql: string) {
+        return {
+          all: () => [],
+          get: () => {
+            if (sql.includes("information_schema.tables")) return { "1": 1 };
+            if (sql.includes("FROM app_metadata")) {
+              return storedVersion === undefined ? undefined : { value: storedVersion };
+            }
+            return undefined;
+          },
+          run: () => ({ changes: 0 }),
+        };
+      },
+    });
+    assert.equal(newer, false);
+  }
+});
+
+test("isDatabaseSchemaNewerThanInstance treats a missing app_metadata table as not newer", () => {
+  const newer = isDatabaseSchemaNewerThanInstanceForTests({
+    prepare(sql: string) {
+      return {
+        all: () => [],
+        get: () => (sql.includes("information_schema.tables") ? undefined : undefined),
+        run: () => ({ changes: 0 }),
+      };
+    },
+  });
+  assert.equal(newer, false);
 });

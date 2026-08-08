@@ -739,6 +739,18 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
   let transactionStarted = false;
   acquireRuntimeSchemaLock(db);
   try {
+    if (isDatabaseSchemaNewerThanInstance(db)) {
+      // Forward-only protection: a newer schema_version means a newer instance has
+      // already migrated this database. An older instance (e.g. 114/115 restarting
+      // after a 116 rollout) must NOT run its older migration or write the version
+      // back down. Skip migration entirely and treat the database as current.
+      console.warn(
+        `[db] skipping runtime schema migration: database schema_version is newer than `
+          + `instance version ${POSTGRES_SCHEMA_VERSION}; treating as current.`,
+      );
+      schemaEnsuredForUrl = currentUrl;
+      return;
+    }
     if (!isRuntimeSchemaCurrent(db)) {
       db.exec("BEGIN");
       transactionStarted = true;
@@ -865,6 +877,42 @@ export function isRuntimeSchemaCurrentForTests(
 
 function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
   return isRuntimeSchemaCurrentForTests(db);
+}
+
+/**
+ * Forward-only guard: true when the database's schema_version is strictly newer
+ * than this instance's POSTGRES_SCHEMA_VERSION. In that case the instance must not
+ * migrate or write the version down (prevents a restarting older instance from
+ * downgrading a database already migrated by a newer instance during a rollout).
+ * A missing app_metadata table (fresh database) or a non-numeric version is
+ * treated as "not newer" so a normal upward migration can proceed.
+ */
+export function isDatabaseSchemaNewerThanInstanceForTests(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+): boolean {
+  const table = db.prepare(
+    `SELECT 1
+     FROM information_schema.tables
+     WHERE table_schema = current_schema()
+       AND table_name = 'app_metadata'`,
+  ).get() as { "1"?: number } | undefined;
+  if (table?.["1"] !== 1) {
+    return false;
+  }
+  const databaseVersion = readMetadataValue(db, "schema_version");
+  if (!databaseVersion) {
+    return false;
+  }
+  const databaseNumeric = Number.parseInt(databaseVersion, 10);
+  const instanceNumeric = Number.parseInt(POSTGRES_SCHEMA_VERSION, 10);
+  if (!Number.isFinite(databaseNumeric) || !Number.isFinite(instanceNumeric)) {
+    return false;
+  }
+  return databaseNumeric > instanceNumeric;
+}
+
+function isDatabaseSchemaNewerThanInstance(db: PostgresSyncDatabase): boolean {
+  return isDatabaseSchemaNewerThanInstanceForTests(db);
 }
 
 function seedDefaultWorkspace(db: PostgresSyncDatabase): void {
