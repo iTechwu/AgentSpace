@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import {
+  applyConcurrentIndexesWithClientForTests,
   applyPostCommitSchemaStatementsForTests,
   collectSqliteMigrationSnapshotSync,
   redactPostgresDatabaseUrl,
@@ -171,6 +172,34 @@ test("applyPostCommitSchemaStatements skips the drop when the index is absent", 
     "must not drop when the index does not exist",
   );
   assert.ok(queries.some((q) => /CREATE INDEX CONCURRENTLY/i.test(q.text)));
+});
+
+test("ensurePostgresConcurrentIndexes serializes via the schema lock around the build", async () => {
+  const calls: string[] = [];
+  await applyConcurrentIndexesWithClientForTests({
+    async query(text: string, params?: unknown[]) {
+      const serialized = params ? `${text} ${JSON.stringify(params)}` : text;
+      calls.push(serialized);
+      if (/indisvalid/.test(text)) {
+        return { rows: [{ valid: false, ready: true }] };
+      }
+      return { rows: [] };
+    },
+  });
+
+  const lock115 = calls.findIndex((c) => /pg_advisory_lock/.test(c) && /\[115\]/.test(c));
+  const lock116 = calls.findIndex((c) => /pg_advisory_lock/.test(c) && /\[116\]/.test(c));
+  const drop = calls.findIndex((c) => /DROP INDEX CONCURRENTLY/i.test(c));
+  const create = calls.findIndex((c) => /CREATE INDEX CONCURRENTLY/i.test(c));
+  const unlock = calls.findIndex((c) => /pg_advisory_unlock/.test(c));
+
+  assert.notEqual(lock115, -1);
+  assert.notEqual(lock116, -1);
+  assert.notEqual(unlock, -1);
+  assert.ok(lock115 < create && lock116 < create, "both locks acquired before create");
+  assert.ok(lock115 < lock116, "locks acquired in declared order");
+  assert.ok(drop > -1 && lock116 < drop, "invalid index dropped after locks and before create");
+  assert.ok(create < unlock, "create runs before the lock is released");
 });
 
 test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {

@@ -4,6 +4,8 @@ import {
   acquireRuntimeSchemaLockForTests,
   isDatabaseSchemaNewerThanInstanceForTests,
   isRuntimeSchemaCurrentForTests,
+  resetConcurrentIndexBuildForTests,
+  triggerConcurrentIndexBuildForTests,
 } from "./database.ts";
 import { POSTGRES_SCHEMA_VERSION } from "./postgres-schema.ts";
 
@@ -154,4 +156,38 @@ test("isDatabaseSchemaNewerThanInstance treats a missing app_metadata table as n
     },
   });
   assert.equal(newer, false);
+});
+
+test("triggerConcurrentIndexBuild fires the builder once per database URL", async () => {
+  resetConcurrentIndexBuildForTests();
+  let calls = 0;
+  const countBuilder = async () => {
+    calls += 1;
+  };
+  try {
+    triggerConcurrentIndexBuildForTests("postgres://test-once", countBuilder);
+    triggerConcurrentIndexBuildForTests("postgres://test-once", countBuilder);
+    triggerConcurrentIndexBuildForTests("postgres://test-once", countBuilder);
+    // let the fire-and-forget microtask flush
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(calls, 1);
+  } finally {
+    resetConcurrentIndexBuildForTests();
+  }
+});
+
+test("triggerConcurrentIndexBuild fires again for a different database URL", async () => {
+  resetConcurrentIndexBuildForTests();
+  const seen: string[] = [];
+  const recordingBuilder = async (databaseUrl: string) => {
+    seen.push(databaseUrl);
+  };
+  try {
+    triggerConcurrentIndexBuildForTests("postgres://a", recordingBuilder);
+    triggerConcurrentIndexBuildForTests("postgres://b", recordingBuilder);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(seen, ["postgres://a", "postgres://b"]);
+  } finally {
+    resetConcurrentIndexBuildForTests();
+  }
 });

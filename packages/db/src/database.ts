@@ -5,7 +5,6 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { MessageChannel, Worker, receiveMessageOnPort, type MessagePort } from "node:worker_threads";
 import {
-  getPostgresPostCommitSchemaStatements,
   getPostgresSchemaStatements,
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
   POSTGRES_SCHEMA_VERSION,
@@ -619,8 +618,54 @@ let databaseUrl: string | null = null;
 let worker: Worker | null = null;
 let requestPort: MessagePort | null = null;
 let schemaEnsuredForUrl: string | null = null;
+let concurrentIndexEnsuredForUrl: string | null = null;
 let workerFailure: Error | null = null;
 let workerGeneration = 0;
+
+type ConcurrentIndexBuilder = (databaseUrl: string) => Promise<void>;
+
+async function defaultConcurrentIndexBuilder(databaseUrl: string): Promise<void> {
+  // Dynamic import avoids a static database.ts <-> postgres.ts cycle.
+  const { ensurePostgresConcurrentIndexes } = await import("./postgres.ts");
+  await ensurePostgresConcurrentIndexes({ databaseUrl });
+}
+
+let concurrentIndexBuilder: ConcurrentIndexBuilder = defaultConcurrentIndexBuilder;
+
+/**
+ * 在线索引（CREATE INDEX CONCURRENTLY）不能在请求路径的同步 worker 内执行：大表建索引
+ * 会超过 worker 请求超时且无法取消，导致首请求失败并泄漏 advisory lock。这里在 getDatabase
+ * 完成 schema ensure 后，用独立异步 pg 连接（无超时上限、被 advisory lock 串行化）后台构建。
+ * 按 URL memoize，每进程只触发一次，不阻塞请求。失败仅记日志——CREATE INDEX CONCURRENTLY
+ * 对正常读写安全，且可由下次进程冷启动重试。
+ */
+function triggerConcurrentIndexBuild(databaseUrl: string): void {
+  if (!databaseUrl || concurrentIndexEnsuredForUrl === databaseUrl) {
+    return;
+  }
+  concurrentIndexEnsuredForUrl = databaseUrl;
+  void concurrentIndexBuilder(databaseUrl).catch((error) => {
+    console.warn(
+      `[db] background concurrent index build failed for ${redactPostgresDatabaseUrl(databaseUrl)}: `
+        + `${(error as Error).message ?? error}`,
+    );
+  });
+}
+
+export function triggerConcurrentIndexBuildForTests(
+  databaseUrl: string,
+  builder?: ConcurrentIndexBuilder,
+): void {
+  if (builder) {
+    concurrentIndexBuilder = builder;
+  }
+  triggerConcurrentIndexBuild(databaseUrl);
+}
+
+export function resetConcurrentIndexBuildForTests(): void {
+  concurrentIndexEnsuredForUrl = null;
+  concurrentIndexBuilder = defaultConcurrentIndexBuilder;
+}
 
 export function getDatabase(): PostgresSyncDatabase {
   const nextDatabaseUrl = resolvePostgresDatabaseUrl();
@@ -632,6 +677,7 @@ export function getDatabase(): PostgresSyncDatabase {
   databaseUrl = nextDatabaseUrl;
   database = createPostgresSyncDatabase(nextDatabaseUrl);
   ensureRuntimeSchema(database);
+  triggerConcurrentIndexBuild(nextDatabaseUrl);
   return database;
 }
 
@@ -765,9 +811,6 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
       seedDefaultWorkspace(db);
       db.exec("COMMIT");
       transactionStarted = false;
-    }
-    for (const statement of getPostgresPostCommitSchemaStatements()) {
-      db.exec(statement);
     }
     schemaEnsuredForUrl = currentUrl;
   } catch (error) {
@@ -976,6 +1019,7 @@ function closeDatabase(): void {
   database = null;
   databaseUrl = null;
   schemaEnsuredForUrl = null;
+  concurrentIndexEnsuredForUrl = null;
   workerFailure = null;
   workerGeneration += 1;
 

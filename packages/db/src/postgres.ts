@@ -497,7 +497,7 @@ export async function migratePostgresToPostgres(
   }
 }
 
-async function withPostgresSchemaLock<T>(client: Client, operation: () => Promise<T>): Promise<T> {
+async function withPostgresSchemaLock<T>(client: PostgresQueryClient, operation: () => Promise<T>): Promise<T> {
   const acquiredLockIds: number[] = [];
   try {
     for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
@@ -555,6 +555,37 @@ async function applyPostCommitSchemaStatements(client: PostgresQueryClient): Pro
 
 export async function applyPostCommitSchemaStatementsForTests(client: PostgresQueryClient): Promise<void> {
   return applyPostCommitSchemaStatements(client);
+}
+
+/**
+ * 在 schema 锁保护下应用在线索引（事务外）。供后台自愈与显式迁移路径复用：
+ * 取得与 ensureRuntimeSchema 相同的 [115,116] advisory lock，串行化迁移，避免两个 runner
+ * 在 workflow_run 上并发建索引冲突。
+ */
+async function applyConcurrentIndexesWithClient(client: PostgresQueryClient): Promise<void> {
+  await withPostgresSchemaLock(client, async () => {
+    await applyPostCommitSchemaStatements(client);
+  });
+}
+
+export async function applyConcurrentIndexesWithClientForTests(client: PostgresQueryClient): Promise<void> {
+  return applyConcurrentIndexesWithClient(client);
+}
+
+/**
+ * 后台自愈入口：用独立 pg 连接（无 worker 超时上限）在事务外构建运行历史在线索引
+ * （CREATE INDEX CONCURRENTLY）。通过 withPostgresSchemaLock 与 ensureRuntimeSchema 迁移互斥，
+ * 幂等（IF NOT EXISTS + 无效索引清理），失败由调用方记录。构建期间查询回退旧索引前缀。
+ */
+export async function ensurePostgresConcurrentIndexes(input?: PostgresConnectionInput): Promise<void> {
+  const databaseUrl = resolvePostgresDatabaseUrl(input);
+  const client = createPostgresClient(databaseUrl);
+  await client.connect();
+  try {
+    await applyConcurrentIndexesWithClient(client);
+  } finally {
+    await client.end();
+  }
 }
 
 export function collectSqliteMigrationSnapshotSync(
