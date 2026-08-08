@@ -816,15 +816,20 @@ export async function ensurePostgresConcurrentIndexes(input?: PostgresConnection
   const client = createPostgresClient(databaseUrl);
   await client.connect();
   try {
-    // Forward-only guard：滚动升级期间，旧实例（如 116）不得对已被新实例（117+）推进的数据库
-    // 执行后台维护 DDL（history 回填、SET NOT NULL、索引构建）——新实例的语句才是权威，旧实例
-    // 的回填/约束/索引可能与新 schema 不一致。与 ensureRuntimeSchema 的运行时守卫、ensurePostgresSchema
-    // 的 CLI 守卫一致；取锁前即可判定，无需占用锁 117。
-    if (await isPostgresSchemaNewerThanInstance(client)) {
-      return;
-    }
-    await withBackgroundMaintenanceLock(client, async () => {
-      await runBackgroundMaintenance(client);
+    // Forward-only guard 须与 schema 迁移锁 [115,116] 形成统一串行边界：所有 schema_version 推进
+    // （CLI/runtime/migrate）都经 [115,116]，故在 [115,116] 内复检版本并贯穿整个后台维护。旧实现
+    // 锁外复核（与取锁 117 之间）存在 TOCTOU——期间另一实例可能已推进版本，本（旧）实例仍对已
+    // 推进的新库执行回填/NOT NULL/建索引 DDL。复检须在取锁后进行（与 ensurePostgresSchema 一致）。
+    // 维护期间持有 [115,116] 会串行化并发冷启动迁移（滚动升级窗口的一次性代价），换取前向安全；
+    // 取锁顺序 [115,116]→117 与既有路径一致，无死锁；advisory lock 为会话级、不开启事务，不影响
+    // 内部 CREATE INDEX CONCURRENTLY 等事务外语句。
+    await withPostgresSchemaLock(client, async () => {
+      if (await isPostgresSchemaNewerThanInstance(client)) {
+        return;
+      }
+      await withBackgroundMaintenanceLock(client, async () => {
+        await runBackgroundMaintenance(client);
+      });
     });
   } finally {
     await client.end();

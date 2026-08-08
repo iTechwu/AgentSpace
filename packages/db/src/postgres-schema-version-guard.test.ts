@@ -242,6 +242,68 @@ test("ensurePostgresConcurrentIndexes 跳过比实例更新的库（前向守卫
 });
 
 /**
+ * Standards #2（后台维护 TOCTOU）：ensurePostgresConcurrentIndexes 取 [115,116] 后才复检版本，
+ * 消除「锁外检查 → 取锁 117」窗口。阻塞者占住 [115,116] → 后台维护进入等锁 → 期间另一连接把版本
+ * 抬到 117 → 释放锁 → 后台维护取锁后复检发现 117 > 116 → 跳过维护（不回写 backfill flag）。
+ * 旧实现（锁外检查）会把检查时的 116 判定为「不更新」并继续 runBackgroundMaintenance，回写 flag。
+ */
+test("ensurePostgresConcurrentIndexes 锁内复检版本，消除 TOCTOU（取锁后才检查）", async () => {
+  const db = getDatabase();
+  const original = readVersion();
+  // 探针：摘触发器 + 起始版本=116（实例版本）+ 删除回填 flag。
+  // 旧实现的锁外检查会读 116 判定「不更新」放行进入取锁；新实现取 [115,116] 后复检。
+  db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
+  db.prepare("UPDATE app_metadata SET value = '116' WHERE key = 'schema_version'").run();
+  db.prepare("DELETE FROM app_metadata WHERE key = 'schema_116_history_backfill_complete'").run();
+
+  const url = resolvePostgresDatabaseUrl();
+  const blocker = new Client({ connectionString: url });
+  await blocker.connect();
+  try {
+    // blocker 占住迁移锁 [115,116] → ensurePostgresConcurrentIndexes 取锁时阻塞。
+    for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+      await blocker.query("SELECT pg_advisory_lock($1)", [lockId]);
+    }
+
+    const bumper = new Client({ connectionString: url });
+    await bumper.connect();
+    try {
+      const ensurePromise = ensurePostgresConcurrentIndexes({});
+      // 让后台维护先进入等锁（此时锁外旧检查已读过 116）。
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      // 在等锁窗口把版本抬到 117（> 实例 116）。
+      await bumper.query("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'");
+      // 释放锁，让后台维护取锁后做锁内复检。
+      for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+        await blocker.query("SELECT pg_advisory_unlock($1)", [lockId]);
+      }
+      await ensurePromise;
+      const flag = db.prepare("SELECT value FROM app_metadata WHERE key = 'schema_116_history_backfill_complete' LIMIT 1")
+        .get() as { value?: string } | undefined;
+      assert.equal(flag?.value, undefined, "锁内复检发现版本更新 → 须跳过后台维护，不得回写 backfill flag");
+    } finally {
+      await bumper.end();
+    }
+  } finally {
+    await blocker.end();
+    // 复原：摘触发器后写回原版本，重建触发器，回填 flag 设回 true（测试库已完成回填）。
+    db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
+    db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(original);
+    db.exec(
+      `CREATE TRIGGER app_metadata_schema_version_monotonic
+         BEFORE INSERT OR UPDATE OF value ON app_metadata
+         FOR EACH ROW EXECUTE FUNCTION guard_schema_version_monotonic()`,
+    );
+    db.prepare(
+      `INSERT INTO app_metadata (key, value) VALUES ('schema_116_history_backfill_complete', 'true')
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+    ).run();
+    assert.equal(readVersion(), original, "复原：版本已写回");
+    assert.equal(triggerExists(), true, "复原：触发器已重建");
+  }
+});
+
+/**
  * Issue 3（迁移命令静默成功）：目标库版本更高时，旧实现的前向守卫静默 return，外层仍返回成功报告，
  * SQLite dry-run 甚至把所有记录标为 insertedCount=sourceCount（line 431）——调用方误以为已迁入数据。
  * 修复：报告新增 status 字段，跳过时置 skipped_incompatible_schema、所有表 insertedCount=0、
