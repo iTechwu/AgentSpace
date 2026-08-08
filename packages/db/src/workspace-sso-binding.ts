@@ -1,4 +1,6 @@
 import { getDatabase } from "./database.ts";
+import { getPrismaClient } from "./prisma/client.ts";
+import { toIsoString, toOptionalString } from "./prisma/runtime-mappers.ts";
 import type {
   WorkspaceSsoBindingRecord,
   WorkspaceSsoBindingSource,
@@ -99,4 +101,109 @@ function mapWorkspaceSsoBinding(
 function optional(value: string | undefined): string | null {
   const result = value?.trim();
   return result || null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 async Prisma repository (Route B).
+//
+// Coexists with the *Sync functions above and returns the SAME
+// `WorkspaceSsoBindingRecord` DTO. FIDELITY READS use `$queryRawUnsafe` with a
+// `synced_at::text` cast — @prisma/adapter-pg relabels timestamptz offsets
+// without shifting wall-clock digits (wrong under a non-UTC PG session), so
+// `synced_at` is selected as text and fed through `toIsoString`, which mirrors
+// the legacy sync worker's `new Date(rawText).toISOString()`. See
+// prisma/runtime-mappers.ts for the full rationale. Identifiers are a hardcoded
+// whitelist; only values are parameterized (`$1..$N`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Row shape from the fidelity read. `synced_at` arrives as the raw `::text`
+ * cast (not Prisma's Date) so the mapper reproduces the sync worker's output.
+ */
+type PrismaWorkspaceSsoBindingRow = {
+  workspace_id: string;
+  tenant_id: string;
+  tenant_slug: string | null;
+  tenant_name: string;
+  team_id: string | null;
+  team_slug: string | null;
+  team_name: string | null;
+  source: string;
+  synced_at: string;
+};
+
+/** Shared column list with the fidelity cast on the timestamp column. */
+const WORKSPACE_SSO_BINDING_SELECT_COLUMNS =
+  "workspace_id, tenant_id, tenant_slug, tenant_name, team_id, team_slug, team_name, source, synced_at::text AS synced_at";
+
+export async function readWorkspaceSsoBindingAsync(
+  workspaceId: string,
+): Promise<WorkspaceSsoBindingRecord | null> {
+  const sql = `SELECT ${WORKSPACE_SSO_BINDING_SELECT_COLUMNS} FROM workspace_sso_binding WHERE workspace_id = $1`;
+  const rows =
+    await getPrismaClient().$queryRawUnsafe<PrismaWorkspaceSsoBindingRow[]>(sql, workspaceId);
+  return rows.length > 0 ? mapWorkspaceSsoBindingFromPrisma(rows[0]!) : null;
+}
+
+export async function listWorkspaceSsoBindingsAsync(): Promise<WorkspaceSsoBindingRecord[]> {
+  const sql = `SELECT ${WORKSPACE_SSO_BINDING_SELECT_COLUMNS} FROM workspace_sso_binding ORDER BY workspace_id`;
+  const rows =
+    await getPrismaClient().$queryRawUnsafe<PrismaWorkspaceSsoBindingRow[]>(sql);
+  return rows.map(mapWorkspaceSsoBindingFromPrisma);
+}
+
+export async function upsertWorkspaceSsoBindingAsync(
+  input: UpsertWorkspaceSsoBindingInput,
+): Promise<WorkspaceSsoBindingRecord> {
+  const prisma = getPrismaClient();
+  await prisma.workspaceSsoBinding.upsert({
+    where: { workspaceId: input.workspaceId },
+    create: {
+      workspaceId: input.workspaceId,
+      tenantId: input.tenantId,
+      tenantSlug: optional(input.tenantSlug),
+      tenantName: input.tenantName,
+      teamId: optional(input.teamId),
+      teamSlug: optional(input.teamSlug),
+      teamName: optional(input.teamName),
+      source: input.source,
+      syncedAt: new Date(),
+    },
+    update: {
+      tenantId: input.tenantId,
+      tenantSlug: optional(input.tenantSlug),
+      tenantName: input.tenantName,
+      teamId: optional(input.teamId),
+      teamSlug: optional(input.teamSlug),
+      teamName: optional(input.teamName),
+      source: input.source,
+      syncedAt: new Date(),
+    },
+  });
+  // Re-read via the fidelity text-cast path (mirrors upsertWorkspaceSsoBindingSync,
+  // which INSERTs/ON CONFLICT then readWorkspaceSsoBindingSync). This returns the
+  // normalized ISO timestamp rather than the adapter's Date shape.
+  const record = await readWorkspaceSsoBindingAsync(input.workspaceId);
+  if (!record) {
+    throw new Error(
+      `upsertWorkspaceSsoBindingAsync: workspace_sso_binding row ${input.workspaceId} missing immediately after upsert`,
+    );
+  }
+  return record;
+}
+
+function mapWorkspaceSsoBindingFromPrisma(
+  row: PrismaWorkspaceSsoBindingRow,
+): WorkspaceSsoBindingRecord {
+  return {
+    workspaceId: row.workspace_id,
+    tenantId: row.tenant_id,
+    tenantSlug: toOptionalString(row.tenant_slug),
+    tenantName: row.tenant_name,
+    teamId: toOptionalString(row.team_id),
+    teamSlug: toOptionalString(row.team_slug),
+    teamName: toOptionalString(row.team_name),
+    source: row.source as WorkspaceSsoBindingSource,
+    syncedAt: toIsoString(row.synced_at) ?? "",
+  };
 }

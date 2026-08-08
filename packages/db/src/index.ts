@@ -272,8 +272,11 @@ export {
 
 // Managed-runtime SSO tenant/team bindings + provisioning tasks + audit log (Phase 2)
 export {
+  listWorkspaceSsoBindingsAsync,
   listWorkspaceSsoBindingsSync,
+  readWorkspaceSsoBindingAsync,
   readWorkspaceSsoBindingSync,
+  upsertWorkspaceSsoBindingAsync,
   upsertWorkspaceSsoBindingSync,
   type UpsertWorkspaceSsoBindingInput,
 } from "./workspace-sso-binding.ts";

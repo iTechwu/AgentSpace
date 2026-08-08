@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "test": "sh -c 'for file in src/audit-log-prisma-parity.test.ts src/skill-service-operations.test.ts src/skill-services.test.ts src/skill-runner-invocations.test.ts src/employee-data-legal-holds.test.ts src/openmontage-jobs.test.ts src/workflows/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
+    "test": "sh -c 'for file in src/audit-log-prisma-parity.test.ts src/workspace-sso-binding-prisma-parity.test.ts src/skill-service-operations.test.ts src/skill-services.test.ts src/skill-runner-invocations.test.ts src/employee-data-legal-holds.test.ts src/openmontage-jobs.test.ts src/workflows/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false",
     "postgres": "node --experimental-strip-types ./src/postgres-cli.ts",
     "postgres:status": "node --experimental-strip-types ./src/postgres-cli.ts status",
