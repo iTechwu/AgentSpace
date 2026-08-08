@@ -1,7 +1,6 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
 import { getPrismaClient } from "./prisma/client.ts";
 import { toIsoString, toJsonString, toOptionalString } from "./prisma/runtime-mappers.ts";
-import type { Prisma } from "./generated/prisma/client.ts";
 import type { AuditLogRecord, AuditLogSource } from "./types.ts";
 
 export interface RecordAuditLogInput {
@@ -206,20 +205,25 @@ export async function recordAuditLogAsync(
 ): Promise<AuditLogRecord> {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const id = `audit-${randomLikeId()}`;
-  const prisma = getPrismaClient();
-  await prisma.auditLog.create({
-    data: {
-      id,
-      workspaceId,
-      title: input.title,
-      note: input.note,
-      code: input.code ?? null,
-      dataJson: (input.data ?? {}) as Prisma.InputJsonValue,
-      source: input.source ?? "runtime_lifecycle",
-      sourceIndex: 0,
-      createdAt: new Date(),
-    },
-  });
+  const now = new Date().toISOString();
+  const dataJson = JSON.stringify(input.data ?? {});
+  // Raw INSERT: created_at is timestamptz. Typed Prisma `new Date()` is
+  // serialized by @prisma/adapter-pg to an offset-less ISO, which PG parses in
+  // the session timezone (+08) and shifts by −8h; writing the ISO string
+  // mirrors the sync INSERT exactly. data_json also stays as a string (matches
+  // the sync JSON.stringify) for fidelity.
+  await getPrismaClient().$executeRawUnsafe(
+    `INSERT INTO audit_log (id, workspace_id, title, note, code, data_json, source, source_index, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8)`,
+    id,
+    workspaceId,
+    input.title,
+    input.note,
+    input.code ?? null,
+    dataJson,
+    input.source ?? "runtime_lifecycle",
+    now,
+  );
   // Re-read via the fidelity text-cast path (mirrors recordAuditLogSync, which
   // INSERTs then readAuditLogSync). This returns the canonical PG jsonb text /
   // normalized timestamp rather than the adapter's Date/object shapes.

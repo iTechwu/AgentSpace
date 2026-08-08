@@ -250,18 +250,21 @@ export async function createWorkspaceMembershipAsync(params: {
   role?: WorkspaceRole;
   invitedBy?: string;
 }): Promise<StoredWorkspaceMembershipRecord> {
+  const now = new Date().toISOString();
+  const id = randomLikeId();
   const role = params.role ?? "member";
-  await getPrismaClient().workspaceMembership.create({
-    data: {
-      id: randomLikeId(),
-      workspaceId: params.workspaceId,
-      userId: params.userId,
-      role,
-      status: "active",
-      joinedAt: new Date(),
-      invitedBy: params.invitedBy ?? null,
-    },
-  });
+  // Raw INSERT: joined_at is timestamptz. Typed Prisma `new Date()` shifts under a
+  // non-UTC session (see user-auth fix); ISO string mirrors the sync INSERT.
+  await getPrismaClient().$executeRawUnsafe(
+    `INSERT INTO workspace_membership (id, workspace_id, user_id, role, status, joined_at, invited_by)
+     VALUES ($1, $2, $3, $4, 'active', $5, $6)`,
+    id,
+    params.workspaceId,
+    params.userId,
+    role,
+    now,
+    params.invitedBy ?? null,
+  );
   const record = await readWorkspaceMembershipAsync(params.workspaceId, params.userId);
   if (!record) {
     throw new Error(
@@ -277,25 +280,25 @@ export async function upsertWorkspaceMembershipAsync(params: {
   role?: WorkspaceRole;
   invitedBy?: string;
 }): Promise<StoredWorkspaceMembershipRecord> {
+  const now = new Date().toISOString();
+  const id = randomLikeId();
   const role = params.role ?? "member";
-  await getPrismaClient().workspaceMembership.upsert({
-    where: { workspaceId_userId: { workspaceId: params.workspaceId, userId: params.userId } },
-    create: {
-      id: randomLikeId(),
-      workspaceId: params.workspaceId,
-      userId: params.userId,
-      role,
-      status: "active",
-      joinedAt: new Date(),
-      invitedBy: params.invitedBy ?? null,
-    },
-    update: {
-      role,
-      status: "active",
-      joinedAt: new Date(),
-      invitedBy: params.invitedBy ?? null,
-    },
-  });
+  // Raw INSERT ... ON CONFLICT: joined_at is timestamptz — write ISO string.
+  await getPrismaClient().$executeRawUnsafe(
+    `INSERT INTO workspace_membership (id, workspace_id, user_id, role, status, joined_at, invited_by)
+     VALUES ($1, $2, $3, $4, 'active', $5, $6)
+     ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+       role = excluded.role,
+       status = 'active',
+       joined_at = excluded.joined_at,
+       invited_by = excluded.invited_by`,
+    id,
+    params.workspaceId,
+    params.userId,
+    role,
+    now,
+    params.invitedBy ?? null,
+  );
   const record = await readWorkspaceMembershipAsync(params.workspaceId, params.userId);
   if (!record) {
     throw new Error(

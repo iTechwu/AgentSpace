@@ -155,31 +155,34 @@ export async function listWorkspaceSsoBindingsAsync(): Promise<WorkspaceSsoBindi
 export async function upsertWorkspaceSsoBindingAsync(
   input: UpsertWorkspaceSsoBindingInput,
 ): Promise<WorkspaceSsoBindingRecord> {
-  const prisma = getPrismaClient();
-  await prisma.workspaceSsoBinding.upsert({
-    where: { workspaceId: input.workspaceId },
-    create: {
-      workspaceId: input.workspaceId,
-      tenantId: input.tenantId,
-      tenantSlug: optional(input.tenantSlug),
-      tenantName: input.tenantName,
-      teamId: optional(input.teamId),
-      teamSlug: optional(input.teamSlug),
-      teamName: optional(input.teamName),
-      source: input.source,
-      syncedAt: new Date(),
-    },
-    update: {
-      tenantId: input.tenantId,
-      tenantSlug: optional(input.tenantSlug),
-      tenantName: input.tenantName,
-      teamId: optional(input.teamId),
-      teamSlug: optional(input.teamSlug),
-      teamName: optional(input.teamName),
-      source: input.source,
-      syncedAt: new Date(),
-    },
-  });
+  const now = new Date().toISOString();
+  const teamId = optional(input.teamId);
+  // Raw INSERT ... ON CONFLICT: synced_at is timestamptz. Typed Prisma `new Date()`
+  // shifts under a non-UTC session (see user-auth fix); ISO string mirrors sync.
+  await getPrismaClient().$executeRawUnsafe(
+    `INSERT INTO workspace_sso_binding (
+       workspace_id, tenant_id, tenant_slug, tenant_name,
+       team_id, team_slug, team_name, source, synced_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT(workspace_id) DO UPDATE SET
+       tenant_id = EXCLUDED.tenant_id,
+       tenant_slug = EXCLUDED.tenant_slug,
+       tenant_name = EXCLUDED.tenant_name,
+       team_id = EXCLUDED.team_id,
+       team_slug = EXCLUDED.team_slug,
+       team_name = EXCLUDED.team_name,
+       source = EXCLUDED.source,
+       synced_at = EXCLUDED.synced_at`,
+    input.workspaceId,
+    input.tenantId,
+    optional(input.tenantSlug),
+    input.tenantName,
+    teamId,
+    optional(input.teamSlug),
+    optional(input.teamName),
+    input.source,
+    now,
+  );
   // Re-read via the fidelity text-cast path (mirrors upsertWorkspaceSsoBindingSync,
   // which INSERTs/ON CONFLICT then readWorkspaceSsoBindingSync). This returns the
   // normalized ISO timestamp rather than the adapter's Date shape.
