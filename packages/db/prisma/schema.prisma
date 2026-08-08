@@ -1155,20 +1155,21 @@ model ManagedRuntimeCleanupRequest {
   @@map("managed_runtime_cleanup_request")
 }
 
+/// Managed service instance created from a skill-service catalog entry on a runtime.
 model ManagedSkillService {
   id                                                                                             String                         @id
   workspaceId                                                                                    String                         @map("workspace_id")
   runtimeId                                                                                      String                         @map("runtime_id")
   catalogId                                                                                      String                         @map("catalog_id")
   status                                                                                         String
-  networkIdentity                                                                                String?                        @map("network_identity")
-  resourceProfileJson                                                                            Json                           @default("{}") @map("resource_profile_json")
-  lastHealth                                                                                     String?                        @map("last_health")
+  networkIdentity                                                                                String?                        @map("network_identity") /// Network address/identifier exposed to skill installations.
+  resourceProfileJson                                                                            Json                           @default("{}") @map("resource_profile_json") /// Resolved CPU/memory/storage profile.
+  lastHealth                                                                                     String?                        @map("last_health") /// Last recorded health status.
   lastHealthAt                                                                                   DateTime?                      @map("last_health_at") @db.Timestamptz(6)
-  rolloutRevision                                                                                String                         @map("rollout_revision")
+  rolloutRevision                                                                                String                         @map("rollout_revision") /// Current rollout revision.
   createdAt                                                                                      DateTime                       @map("created_at") @db.Timestamptz(6)
   updatedAt                                                                                      DateTime                       @map("updated_at") @db.Timestamptz(6)
-  unreferencedSince                                                                              DateTime?                      @map("unreferenced_since") @db.Timestamptz(6)
+  unreferencedSince                                                                              DateTime?                      @map("unreferenced_since") @db.Timestamptz(6) /// Set when no installation references the service.
   skillServiceCatalog                                                                            SkillServiceCatalog            @relation(fields: [catalogId], references: [id], onUpdate: NoAction, onDelete: Restrict)
   agentRuntime                                                                                   AgentRuntime                   @relation(fields: [runtimeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   workspace                                                                                      Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1180,6 +1181,7 @@ model ManagedSkillService {
   @@map("managed_skill_service")
 }
 
+/// Operation executed against a managed service instance (provision, replace, teardown).
 model ManagedSkillServiceOperation {
   id                                                                                    String               @id
   workspaceId                                                                           String               @map("workspace_id")
@@ -1192,10 +1194,10 @@ model ManagedSkillServiceOperation {
   errorMessage                                                                          String?              @map("error_message")
   claimedAt                                                                             DateTime?            @map("claimed_at") @db.Timestamptz(6)
   completedAt                                                                           DateTime?            @map("completed_at") @db.Timestamptz(6)
-  leaseExpiresAt                                                                        DateTime?            @map("lease_expires_at") @db.Timestamptz(6)
+  leaseExpiresAt                                                                        DateTime?            @map("lease_expires_at") @db.Timestamptz(6) /// Worker lease expiration (fencing).
   createdAt                                                                             DateTime             @map("created_at") @db.Timestamptz(6)
-  replacesServiceId                                                                     String?              @map("replaces_service_id")
-  claimGeneration                                                                       Int                  @default(0) @map("claim_generation")
+  replacesServiceId                                                                     String?              @map("replaces_service_id") /// Previous service instance being replaced.
+  claimGeneration                                                                       Int                  @default(0) @map("claim_generation") /// Lease generation counter.
   skillInstallation                                                                     SkillInstallation?   @relation(fields: [installationId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   managedSkillServiceManagedSkillServiceOperationReplacesServiceIdTomanagedSkillService ManagedSkillService? @relation("managed_skill_service_operation_replaces_service_idTomanaged_skill_service", fields: [replacesServiceId], references: [id], onUpdate: NoAction, onDelete: SetNull)
   agentRuntime                                                                          AgentRuntime         @relation(fields: [runtimeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1205,24 +1207,25 @@ model ManagedSkillServiceOperation {
   @@map("managed_skill_service_operation")
 }
 
+/// Catalog entry for an MCP server/tool available to runtimes.
 model McpCatalogItem {
   id                              String                 @id
   workspaceId                     String                 @map("workspace_id")
-  source                          String                 @default("workspace_private")
+  source                          String                 @default("workspace_private") /// workspace_private | marketplace, etc.
   slug                            String
   version                         String                 @default("")
-  transport                       String
+  transport                       String /// e.g. sse, stdio, http.
   displayName                     String                 @map("display_name")
   description                     String                 @default("")
-  allowedHostsJson                Json                   @default("[]") @map("allowed_hosts_json")
-  configurationSchemaJson         Json                   @default("{}") @map("configuration_schema_json")
-  declaredToolsJson               Json                   @default("[]") @map("declared_tools_json")
-  defaultApprovedToolsJson        Json                   @default("[]") @map("default_approved_tools_json")
-  secretFieldsJson                Json                   @default("[]") @map("secret_fields_json")
+  allowedHostsJson                Json                   @default("[]") @map("allowed_hosts_json") /// Permitted remote hosts.
+  configurationSchemaJson         Json                   @default("{}") @map("configuration_schema_json") /// JSONSchema for non-secret configuration.
+  declaredToolsJson               Json                   @default("[]") @map("declared_tools_json") /// Tools exposed by the MCP server.
+  defaultApprovedToolsJson        Json                   @default("[]") @map("default_approved_tools_json") /// Tools approved by default.
+  secretFieldsJson                Json                   @default("[]") @map("secret_fields_json") /// Required secret field names.
   requiredRuntimeCapabilitiesJson Json                   @default("[]") @map("required_runtime_capabilities_json")
   dataDomainsJson                 Json                   @default("[]") @map("data_domains_json")
-  risk                            String                 @default("high")
-  endpointTemplate                String?                @map("endpoint_template")
+  risk                            String                 @default("high") /// high | medium | low.
+  endpointTemplate                String?                @map("endpoint_template") /// Template used to build the runtime endpoint.
   documentationUrl                String?                @map("documentation_url")
   syncedAt                        DateTime               @map("synced_at") @db.Timestamptz(6)
   createdAt                       DateTime               @map("created_at") @db.Timestamptz(6)
@@ -1237,11 +1240,12 @@ model McpCatalogItem {
   @@map("mcp_catalog_item")
 }
 
+/// Temporary authorization grant for MCP tool use scoped to a task.
 model McpTaskAuditAuthorization {
   taskId            String    @id @map("task_id")
   workspaceId       String    @map("workspace_id")
   runtimeId         String    @map("runtime_id")
-  authorizationJson Json      @map("authorization_json")
+  authorizationJson Json      @map("authorization_json") /// Serialized tool-level authorization decisions.
   expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
   createdAt         DateTime  @map("created_at") @db.Timestamptz(6)
   workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1250,12 +1254,13 @@ model McpTaskAuditAuthorization {
   @@map("mcp_task_audit_authorization")
 }
 
+/// Short-lived encrypted session grant for an MCP connection within a task.
 model McpTaskSessionGrant {
   taskId              String    @id @map("task_id")
   workspaceId         String    @map("workspace_id")
   runtimeId           String    @map("runtime_id")
   attemptId           String    @map("attempt_id")
-  encryptedBundleJson String    @map("encrypted_bundle_json")
+  encryptedBundleJson String    @map("encrypted_bundle_json") /// Encrypted connection credentials/secrets.
   expiresAt           DateTime  @map("expires_at") @db.Timestamptz(6)
   createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
   workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1588,12 +1593,13 @@ model RuntimeAppRelease {
   @@map("runtime_app_release")
 }
 
+/// Binding between a runtime-installed app and a skill it exposes.
 model RuntimeAppSkillBinding {
   workspaceId         String              @map("workspace_id")
   runtimeAppId        String              @map("runtime_app_id")
   skillId             String              @map("skill_id")
-  source              String
-  name                String
+  source              String /// Origin of the binding (e.g. app_manifest).
+  name                String /// Local name of the skill inside the app.
   createdAt           DateTime            @map("created_at") @db.Timestamptz(6)
   runtimeInstalledApp RuntimeInstalledApp @relation(fields: [runtimeAppId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   skill               Skill               @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1690,16 +1696,17 @@ model RuntimeMaintenanceRun {
   @@map("runtime_maintenance_run")
 }
 
+/// Active MCP connection on a runtime.
 model RuntimeMcpConnection {
   id                             String                        @id
   workspaceId                    String                        @map("workspace_id")
   runtimeId                      String                        @map("runtime_id")
   catalogItemId                  String                        @map("catalog_item_id")
   status                         String
-  approvedToolsJson              Json                          @default("[]") @map("approved_tools_json")
-  endpoint                       String
-  nonSecretParamsJson            Json                          @default("{}") @map("non_secret_params_json")
-  endpointFingerprint            String?                       @map("endpoint_fingerprint")
+  approvedToolsJson              Json                          @default("[]") @map("approved_tools_json") /// Tools explicitly approved for this connection.
+  endpoint                       String /// Resolved MCP server endpoint.
+  nonSecretParamsJson            Json                          @default("{}") @map("non_secret_params_json") /// Non-secret connection parameters.
+  endpointFingerprint            String?                       @map("endpoint_fingerprint") /// Hash/fingerprint of the endpoint for change detection.
   lastVerifiedAt                 DateTime?                     @map("last_verified_at") @db.Timestamptz(6)
   lastStatus                     String?                       @map("last_status")
   lastErrorCode                  String?                       @map("last_error_code")
@@ -1723,13 +1730,14 @@ model RuntimeMcpConnection {
   @@map("runtime_mcp_connection")
 }
 
+/// Cached discovery/metadata snapshot fetched from an MCP server.
 model RuntimeMcpDiscoverySnapshot {
   id                    String               @id
   workspaceId           String               @map("workspace_id")
   connectionId          String               @map("connection_id")
   protocolVersion       String?              @map("protocol_version")
-  toolsMetadataJson     Json                 @default("[]") @map("tools_metadata_json")
-  toolsFingerprint      String               @map("tools_fingerprint")
+  toolsMetadataJson     Json                 @default("[]") @map("tools_metadata_json") /// Tool metadata returned by discovery.
+  toolsFingerprint      String               @map("tools_fingerprint") /// Fingerprint for cache invalidation.
   discoveredAt          DateTime             @map("discovered_at") @db.Timestamptz(6)
   verificationLatencyMs Int?                 @map("verification_latency_ms")
   runtimeMcpConnection  RuntimeMcpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1739,16 +1747,17 @@ model RuntimeMcpDiscoverySnapshot {
   @@map("runtime_mcp_discovery_snapshot")
 }
 
+/// Long-running operation against an MCP connection (verify, refresh, etc.).
 model RuntimeMcpOperation {
   id                   String               @id
   workspaceId          String               @map("workspace_id")
   runtimeId            String               @map("runtime_id")
   connectionId         String               @map("connection_id")
-  operation            String
+  operation            String /// verify | refresh | etc.
   status               String
-  requestSnapshotJson  Json                 @default("{}") @map("request_snapshot_json")
-  safeStdoutTail       String?              @map("safe_stdout_tail")
-  safeStderrTail       String?              @map("safe_stderr_tail")
+  requestSnapshotJson  Json                 @default("{}") @map("request_snapshot_json") /// Operation request payload.
+  safeStdoutTail       String?              @map("safe_stdout_tail") /// Sanitized stdout tail.
+  safeStderrTail       String?              @map("safe_stderr_tail") /// Sanitized stderr tail.
   errorCode            String?              @map("error_code")
   errorMessage         String?              @map("error_message")
   requestedByUserId    String?              @map("requested_by_user_id")
@@ -1769,11 +1778,12 @@ model RuntimeMcpOperation {
   @@map("runtime_mcp_operation")
 }
 
+/// Encrypted secret value for an MCP connection field.
 model RuntimeMcpSecret {
   connectionId         String               @map("connection_id")
-  fieldName            String               @map("field_name")
+  fieldName            String               @map("field_name") /// Secret field name from the catalog schema.
   encryptedValue       String               @map("encrypted_value")
-  keyVersion           String               @map("key_version")
+  keyVersion           String               @map("key_version") /// Encryption key version.
   rotatedAt            DateTime             @map("rotated_at") @db.Timestamptz(6)
   rotatedByUserId      String?              @map("rotated_by_user_id")
   runtimeMcpConnection RuntimeMcpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1783,15 +1793,16 @@ model RuntimeMcpSecret {
   @@map("runtime_mcp_secret")
 }
 
+/// Audit log of MCP tool invocations.
 model RuntimeMcpToolAudit {
   id           String    @id
   workspaceId  String    @map("workspace_id")
   connectionId String    @map("connection_id")
   taskId       String?   @map("task_id")
   toolName     String    @map("tool_name")
-  outcome      String
+  outcome      String /// allowed | denied | error | success.
   latencyMs    Int?      @map("latency_ms")
-  safeSummary  String?   @map("safe_summary")
+  safeSummary  String?   @map("safe_summary") /// Sanitized invocation summary.
   createdAt    DateTime  @map("created_at") @db.Timestamptz(6)
   eventId      String?   @map("event_id")
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
