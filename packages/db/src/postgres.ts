@@ -7,8 +7,11 @@ import { getDataDirPath } from "./database.ts";
 import {
   POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID,
   getPostgresHistoryBackfillStatements,
+  getPostgresHistoryBackfillStatementsForWorkspaces,
   getPostgresPostCommitSchemaStatements,
   getPostgresSchemaStatements,
+  POSTGRES_HISTORY_BACKFILL_BATCH_WORKSPACE_LIMIT,
+  POSTGRES_HISTORY_BACKFILL_PENDING_WORKSPACES_QUERY,
   POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS,
   POSTGRES_POST_COMMIT_INDEX_NAMES,
   POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
@@ -708,48 +711,98 @@ async function isHistorySequenceNullable(client: PostgresQueryClient): Promise<b
 }
 
 /**
- * 后台自愈主体（已在锁 117 内）：history 回填 → 条件 SET NOT NULL → 置完成 flag → 在线索引。
+ * 后台自愈主体（已在锁 117 内）：分批 history 回填 → 条件 SET NOT NULL → 置完成 flag → 在线索引。
  * 幂等：flag 已置则跳过回填段；回填 UPDATE 的 WHERE history_sequence IS NULL 使干净库 no-op；
  * 分配触发器保证回填后新写入行序号大于已回填最大值，SET NOT NULL 不会因新行失败。flag 最后写，
  * 保证走到那一步前已无 NULL 行。在线索引无论 flag 状态都确保存在（幂等 + 无效清理）。
+ *
+ * 分批提交（Issue 7）：回填按 workspace 受限批次逐批独立事务提交——每批 `ws ... FOR UPDATE` 只锁
+ * 本批 workspace（持有至该批 COMMIT），避免一次性锁住所有待迁移 workspace、持锁经过全量回填与 NOT NULL
+ * 长时间阻塞这些 workspace 的新 Run 创建。任一批失败 ROLLBACK 不影响已提交批，下次冷启动从剩余 NULL 行
+ * 续跑（回填 UPDATE 幂等）。全部 NULL 行清完后，最终事务施加在线 NOT NULL + 置 flag。
  */
-async function runBackgroundMaintenance(client: PostgresQueryClient): Promise<void> {
+async function runBackgroundMaintenance(
+  client: PostgresQueryClient,
+  options?: { batchLimit?: number },
+): Promise<void> {
   const BACKFILL_FLAG = "schema_116_history_backfill_complete";
+  const batchLimit = options?.batchLimit ?? POSTGRES_HISTORY_BACKFILL_BATCH_WORKSPACE_LIMIT;
   if (await readAppMetadataFlag(client, BACKFILL_FLAG) !== "true") {
-    // 单事务：backfill（首句对「有 NULL 行的 workspace」FOR UPDATE，锁持有至事务结束）+ 在线 NOT NULL
-    // + 置 flag 原子完成。任一步失败 ROLLBACK（flag 不置，下次冷启动重跑），杜绝回填与计数器推进之间
-    // 触发器分配出重复序号（FOR UPDATE 阻塞该 workspace 的并发 INSERT 触发器，串行化）。
-    let transactionStarted = false;
-    try {
-      await client.query("BEGIN");
-      transactionStarted = true;
-      for (const statement of getPostgresHistoryBackfillStatements()) {
-        await client.query(statement);
-      }
-      if (await isHistorySequenceNullable(client)) {
+    const { backfill, advance } = getPostgresHistoryBackfillStatementsForWorkspaces();
+    // 逐批回填：取一批「仍有 NULL 行」的 workspace → 单事务 backfill + 推进计数器 → 提交。每批提交即
+    // 释放该批 workspace 行锁，新 Run 创建仅被阻塞秒级（本批时长），而非全量回填时长。
+    for (;;) {
+      const pending = await client.query<{ workspace_id: string }>(
+        POSTGRES_HISTORY_BACKFILL_PENDING_WORKSPACES_QUERY,
+        [batchLimit],
+      );
+      const workspaceIds = pending.rows.map((row) => row.workspace_id);
+      if (workspaceIds.length === 0) break;
+      await runBackfillBatchInTransaction(client, backfill, advance, workspaceIds);
+    }
+    // 回填全部完成（无 NULL 行）：施加在线 NOT NULL（若列仍可空）+ 置 flag，原子提交。新写入行由
+    // 分配触发器保证非空，故 VALIDATE 不会因新行失败。
+    if (await isHistorySequenceNullable(client)) {
+      let transactionStarted = false;
+      try {
+        await client.query("BEGIN");
+        transactionStarted = true;
         for (const statement of POSTGRES_HISTORY_SEQUENCE_ONLINE_NOT_NULL_STATEMENTS) {
           await client.query(statement);
         }
-      }
-      await setAppMetadataFlag(client, BACKFILL_FLAG, "true");
-      await client.query("COMMIT");
-      transactionStarted = false;
-    } catch (error) {
-      if (transactionStarted) {
-        try {
-          await client.query("ROLLBACK");
-        } catch {
-          /* rollback 失败 best-effort 吞掉，原错误优先抛出 */
+        await setAppMetadataFlag(client, BACKFILL_FLAG, "true");
+        await client.query("COMMIT");
+        transactionStarted = false;
+      } catch (error) {
+        if (transactionStarted) {
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            /* rollback 失败 best-effort 吞掉，原错误优先抛出 */
+          }
         }
+        throw error;
       }
-      throw error;
+    } else {
+      // 列已 NOT NULL（干净库或已施加）：回填已完成，直接置 flag。
+      await setAppMetadataFlag(client, BACKFILL_FLAG, "true");
     }
   }
   await applyPostCommitSchemaStatements(client);
 }
 
-export async function runBackgroundMaintenanceForTests(client: PostgresQueryClient): Promise<void> {
-  return runBackgroundMaintenance(client);
+/** 单批回填事务：backfill（FOR UPDATE 锁本批 workspace）+ 推进计数器，原子提交。失败 ROLLBACK 重抛。 */
+async function runBackfillBatchInTransaction(
+  client: PostgresQueryClient,
+  backfill: string,
+  advance: string,
+  workspaceIds: string[],
+): Promise<void> {
+  let transactionStarted = false;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    await client.query(backfill, [workspaceIds]);
+    await client.query(advance, [workspaceIds]);
+    await client.query("COMMIT");
+    transactionStarted = false;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        /* rollback 失败 best-effort 吞掉，原错误优先抛出 */
+      }
+    }
+    throw error;
+  }
+}
+
+export async function runBackgroundMaintenanceForTests(
+  client: PostgresQueryClient,
+  options?: { batchLimit?: number },
+): Promise<void> {
+  return runBackgroundMaintenance(client, options);
 }
 
 /**

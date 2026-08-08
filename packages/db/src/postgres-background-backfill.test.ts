@@ -288,14 +288,24 @@ test("runBackgroundMaintenance：flag 已完成则跳过回填与 SET NOT NULL�
 
 /**
  * mock 后台自愈：列已 NOT NULL 时跳过 SET NOT NULL（is_nullable 守卫），但仍回填 + 置 flag。
+ * 分批流程（Issue 7）：先查待回填 workspace（返回一个触发回填批次，再返回空终止循环），每批独立事务。
  */
 test("runBackgroundMaintenance：列已 NOT NULL 时跳过 SET NOT NULL（is_nullable 守卫）", async () => {
   const queries: Array<{ text: string; params?: unknown[] }> = [];
+  let pendingReturned = false;
   const client: PostgresQueryClient = {
     async query(text: string, params?: unknown[]) {
       queries.push({ text, params });
       if (/SELECT value FROM app_metadata WHERE key/.test(text)) {
         return { rows: [] } as never; // flag 未置
+      }
+      if (/SELECT DISTINCT workspace_id/.test(text)) {
+        // 首次返回一个待回填 workspace 触发回填批次；之后返回空终止循环。
+        if (!pendingReturned) {
+          pendingReturned = true;
+          return { rows: [{ workspace_id: "ws-mock" }] } as never;
+        }
+        return { rows: [] } as never;
       }
       if (/information_schema.columns/.test(text)) {
         return { rows: [{ is_nullable: "NO" }] } as never; // 已 NOT NULL
@@ -307,9 +317,12 @@ test("runBackgroundMaintenance：列已 NOT NULL 时跳过 SET NOT NULL（is_nul
   await runBackgroundMaintenanceForTests(client);
 
   assert.ok(
-    queries.some((q) => /history_sequence IS NULL/.test(q.text)),
-    "flag 未完成时须发回填 UPDATE",
+    queries.some((q) => /history_sequence = ranked\.sequence/.test(q.text)),
+    "flag 未完成时须发回填 UPDATE（分批）",
   );
+  // 回填批次须独立事务提交（BEGIN…COMMIT），而非与 NOT NULL 混在一个事务。
+  assert.ok(queries.some((q) => q.text === "BEGIN"), "回填批次须在事务内");
+  assert.ok(queries.some((q) => q.text === "COMMIT"), "回填批次须独立提交");
   // 列已 NOT NULL 时跳过在线 NOT NULL 语句（is_nullable 守卫避免冗余 DDL/VALIDATE 全扫）。
   assert.equal(
     queries.some((q) => /ALTER COLUMN history_sequence SET NOT NULL/.test(q.text)),
@@ -322,6 +335,123 @@ test("runBackgroundMaintenance：列已 NOT NULL 时跳过 SET NOT NULL（is_nul
     ),
     "回填完成后须置 flag",
   );
+});
+
+/**
+ * Issue 7（分批回填）：runBackgroundMaintenance 按 workspace 受限批次逐批独立事务提交，每批只锁本批
+ * workspace（持有至该批 COMMIT）。mock 注入 3 个待回填 workspace、批次上限 2 → 须分两批（[w1,w2]、[w3]），
+ * 每批各自 BEGIN…backfill…advance…COMMIT，证明全量回填被拆成受限批次而非单事务锁住全部 workspace。
+ */
+test("runBackgroundMaintenance 分批回填：每批 workspace 独立事务提交（Issue 7）", async () => {
+  const queries: Array<{ text: string; params?: unknown[] }> = [];
+  const batches = [["ws-a", "ws-b"], ["ws-c"]];
+  let pendingIndex = 0;
+  const client: PostgresQueryClient = {
+    async query(text: string, params?: unknown[]) {
+      queries.push({ text, params });
+      if (/SELECT value FROM app_metadata WHERE key/.test(text)) {
+        return { rows: [] } as never; // flag 未置
+      }
+      if (/SELECT DISTINCT workspace_id/.test(text)) {
+        return { rows: (batches[pendingIndex++] ?? []).map((workspace_id) => ({ workspace_id })) } as never;
+      }
+      if (/information_schema.columns/.test(text)) {
+        return { rows: [{ is_nullable: "NO" }] } as never; // 已 NOT NULL，跳过 NOT NULL 段
+      }
+      return { rows: [] } as never;
+    },
+  };
+
+  await runBackgroundMaintenanceForTests(client, { batchLimit: 2 });
+
+  // 两批回填，每批一次 BEGIN + backfill（$1=该批 workspace 数组）+ advance + COMMIT。
+  const backfillCalls = queries.filter((q) => /history_sequence = ranked\.sequence/.test(q.text));
+  assert.equal(backfillCalls.length, 2, "须分两批回填");
+  assert.deepEqual(backfillCalls[0]!.params, [["ws-a", "ws-b"]], "第一批回填限定 ws-a/ws-b");
+  assert.deepEqual(backfillCalls[1]!.params, [["ws-c"]], "第二批回填限定 ws-c");
+  const begins = queries.filter((q) => q.text === "BEGIN").length;
+  const commits = queries.filter((q) => q.text === "COMMIT").length;
+  assert.equal(begins, 2, "每批回填独立 BEGIN");
+  assert.equal(commits, 2, "每批回填独立 COMMIT（不持锁跨批）");
+});
+
+/**
+ * Issue 7（分批回填，真库）：3 个 workspace 各有 NULL 行，批次上限 2 → 分两批提交。断言每个 workspace
+ * 的序号从其计数器续接、无碰撞、计数器推进到最大值，且全部 NULL 行清空、flag 置位——证明分批回填
+ * 与原单事务回填产生一致的终态。
+ */
+test("分批回填多 workspace 产生续接且无碰撞的序号（Issue 7 真库）", async () => {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const workspaceIds = ["ws-chunk-1", "ws-chunk-2", "ws-chunk-3"].map((id) => `${id}-${Math.random().toString(36).slice(2, 6)}`);
+  const createdDefinitionIds: string[] = [];
+  try {
+    db.exec("ALTER TABLE workflow_run ALTER COLUMN history_sequence DROP NOT NULL");
+    db.prepare("DELETE FROM app_metadata WHERE key = ?").run(BACKFILL_FLAG);
+    // 每个 workspace 种入 2 行 run（history_sequence 置 NULL，计数器=0）。
+    for (const [idx, workspaceId] of workspaceIds.entries()) {
+      db.prepare(
+        `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, 'test', ?, ?)`,
+      ).run(workspaceId, workspaceId, workspaceId, now, now);
+      const definition = createWorkflowDefinitionSync({
+        id: `${workspaceId}-def`,
+        workspaceId,
+        name: "Chunk",
+        ownerUserId: "u1",
+        createdBy: "u1",
+      });
+      createdDefinitionIds.push(definition.id);
+      const version = publishWorkflowVersionSync({
+        id: `${workspaceId}-ver`,
+        workspaceId,
+        workflowId: definition.id,
+        graphJson: '{"schemaVersion":1,"nodes":[],"edges":[]}',
+        contentHash: `sha256:${workspaceId}`,
+        publishedBy: "u1",
+      });
+      for (const suffix of ["x", "y"]) {
+        createWorkflowRunSync({
+          id: `${workspaceId}-run-${suffix}`,
+          workspaceId,
+          workflowId: definition.id,
+          versionId: version.id,
+          triggerType: "manual",
+          triggerKey: `${workspaceId}:${suffix}`,
+          inputJson: "{}",
+          now: `2099-05-0${suffix === "x" ? 1 : 2}T00:00:00.000Z`,
+        });
+      }
+      db.prepare(`UPDATE workflow_run SET history_sequence = NULL WHERE workspace_id = ?`).run(workspaceId);
+      db.prepare(`UPDATE workspace SET workflow_run_sequence = 0 WHERE id = ?`).run(workspaceId);
+      void idx;
+    }
+
+    await ensurePostgresConcurrentIndexes({});
+
+    for (const workspaceId of workspaceIds) {
+      const seqs = db.prepare(
+        `SELECT CAST(history_sequence AS bigint) AS seq FROM workflow_run
+          WHERE workspace_id = ? ORDER BY history_sequence ASC`,
+      ).all(workspaceId) as Array<{ seq: bigint }>;
+      const seqNumbers = seqs.map((row) => Number(row.seq));
+      assert.deepEqual(seqNumbers, [1, 2], `${workspaceId}: 分批回填后序号续接为 1,2`);
+      const wsSeq = (db.prepare("SELECT CAST(workflow_run_sequence AS bigint) AS seq FROM workspace WHERE id = ?").get(workspaceId) as { seq: bigint }).seq;
+      assert.equal(Number(wsSeq), 2, `${workspaceId}: 计数器推进到 2`);
+    }
+    assert.equal(readFlag(), "true", "分批回填完成后须置 flag");
+  } finally {
+    for (const workspaceId of workspaceIds) {
+      db.prepare("DELETE FROM workflow_run WHERE workspace_id = ?").run(workspaceId);
+    }
+    for (const defId of createdDefinitionIds) {
+      db.prepare("DELETE FROM workflow_version WHERE workflow_id = ?").run(defId);
+      db.prepare("DELETE FROM workflow_definition WHERE id = ?").run(defId);
+    }
+    for (const workspaceId of workspaceIds) {
+      db.prepare("DELETE FROM workspace WHERE id = ?").run(workspaceId);
+    }
+  }
 });
 
 test("后台自愈锁 117 与 schema 迁移锁 [115,116] 互不竞争", async () => {

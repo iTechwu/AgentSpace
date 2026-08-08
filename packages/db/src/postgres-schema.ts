@@ -4550,6 +4550,71 @@ export function getPostgresHistoryBackfillStatements(): string[] {
 }
 
 /**
+ * 分批回填的每批 workspace 上限。runBackgroundMaintenance 以此为限逐批取「仍有 NULL history_sequence
+ * 行」的 workspace，每批独立事务提交——避免一次性 FOR UPDATE 锁住所有待迁移 workspace、持锁经过
+ * 全量回填与 NOT NULL，长时间阻塞这些 workspace 的新 Run 创建（Issue 7）。50 在百万级旧行下把单批
+ * 锁持有时长控制在秒级，且总进度随每批提交可见。
+ */
+export const POSTGRES_HISTORY_BACKFILL_BATCH_WORKSPACE_LIMIT = 50;
+
+/**
+ * 列出仍有 NULL history_sequence 行的 workspace（受限批次，按 id 排序保证确定性进度），供分批回填。
+ * `$1` = 批次上限。新写入行由 BEFORE INSERT 分配触发器即时获得非空序号，故本查询只命中待回填旧行。
+ */
+export const POSTGRES_HISTORY_BACKFILL_PENDING_WORKSPACES_QUERY = `
+  SELECT DISTINCT workspace_id
+    FROM workflow_run
+   WHERE history_sequence IS NULL
+   ORDER BY workspace_id
+   LIMIT $1`;
+
+/**
+ * 给定一批 workspace id（`$1` = text[]），返回 { backfill, advance } 两条参数化语句。与
+ * getPostgresHistoryBackfillStatements 同源，但 `ws ... FOR UPDATE` 与计数器推进都限定在 `$1` 这批
+ * workspace 内——每批事务只锁这批 workspace（持有至该批 COMMIT），把全量回填拆成受限批次，避免
+ * 长时间阻塞所有待迁移 workspace 的新 Run 创建（Issue 7）。幂等（WHERE history_sequence IS NULL）。
+ */
+export function getPostgresHistoryBackfillStatementsForWorkspaces(): { backfill: string; advance: string } {
+  return {
+    backfill: `
+      WITH ws AS (
+        SELECT w.id AS workspace_id, w.workflow_run_sequence
+          FROM workspace w
+         WHERE w.id = ANY($1::text[])
+           AND EXISTS (
+             SELECT 1 FROM workflow_run r
+              WHERE r.workspace_id = w.id AND r.history_sequence IS NULL
+           )
+         FOR UPDATE
+      ), ranked AS (
+        SELECT r.id,
+               ws.workflow_run_sequence
+                 + ROW_NUMBER() OVER (PARTITION BY r.workspace_id ORDER BY r.created_at ASC, r.id ASC) AS sequence
+          FROM workflow_run r
+          JOIN ws ON ws.workspace_id = r.workspace_id
+         WHERE r.history_sequence IS NULL
+      )
+      UPDATE workflow_run AS run
+         SET history_sequence = ranked.sequence
+        FROM ranked
+       WHERE run.id = ranked.id`,
+    advance: `
+      UPDATE workspace AS target
+         SET workflow_run_sequence = GREATEST(
+           target.workflow_run_sequence,
+           COALESCE(source.max_sequence, 0)
+         )
+        FROM (
+          SELECT workspace_id, MAX(history_sequence) AS max_sequence
+            FROM workflow_run
+           WHERE workspace_id = ANY($1::text[])
+           GROUP BY workspace_id
+        ) AS source
+       WHERE target.id = source.workspace_id`,
+  };
+}
+
+/**
  * 回填完成后把 history_sequence 设为 NOT NULL。依赖「无 NULL 行」——分配触发器保证新写入非空、
  * 回填 UPDATE 清掉旧 NULL 后才可施加。维护/迁移路径直接运行；后台自愈仅在列仍可空时运行
  * （用 information_schema.columns.is_nullable 守卫，避免每次冷启动重复 AEL 全扫）。
