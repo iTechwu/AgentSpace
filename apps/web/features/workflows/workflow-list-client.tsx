@@ -97,22 +97,24 @@ export function WorkflowListClient({
         `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}&cursor=${encodeURIComponent(nextCursor)}`,
         { headers: { accept: "application/json" } },
       );
+      let refreshExpiredCursor = response.status === 400;
       if (response.status === 409) {
         const body = await response.json() as { code?: string };
-        if (body.code === "workflow_run_cursor_expired") {
-          const refreshedResponse = await fetch(
-            `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}`,
-            { headers: { accept: "application/json" } },
-          );
-          if (!refreshedResponse.ok) throw new Error(`HTTP ${refreshedResponse.status}`);
-          const refreshedPage = await readWorkflowRunsPage(refreshedResponse);
-          if (workspaceIdRef.current !== requestWorkspaceId || requestGenerationRef.current !== requestGeneration) return;
-          setRuns(refreshedPage.runs);
-          setHasMoreRuns(refreshedPage.hasMore);
-          setNextCursor(refreshedPage.nextCursor);
-          setTotalRuns(refreshedPage.total);
-          return;
-        }
+        refreshExpiredCursor = body.code === "workflow_run_cursor_expired";
+      }
+      if (refreshExpiredCursor) {
+        const refreshedResponse = await fetch(
+          `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs?limit=${RUNS_PAGE_SIZE}`,
+          { headers: { accept: "application/json" } },
+        );
+        if (!refreshedResponse.ok) throw new Error(`HTTP ${refreshedResponse.status}`);
+        const refreshedPage = await readWorkflowRunsPage(refreshedResponse);
+        if (workspaceIdRef.current !== requestWorkspaceId || requestGenerationRef.current !== requestGeneration) return;
+        setRuns(refreshedPage.runs);
+        setHasMoreRuns(refreshedPage.hasMore);
+        setNextCursor(refreshedPage.nextCursor);
+        setTotalRuns(refreshedPage.total);
+        return;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const page = await readWorkflowRunsPage(response);

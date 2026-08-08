@@ -145,6 +145,43 @@ describe("WorkflowListClient", () => {
     fetchMock.mockRestore();
   });
 
+  it("refreshes when an older server rejects the new cursor wire format", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "Invalid pagination parameters." }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        runs: [{
+          id: "run-after-rollover",
+          workflowId: "wf-1",
+          workflowName: "滚动刷新运行",
+          status: "succeeded",
+          triggerType: "schedule",
+          createdAt: "2026-08-08T00:00:00.000Z",
+        }],
+        total: 1,
+        hasMore: false,
+        nextCursor: null,
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    const paginated: WorkflowCenterPageData = {
+      ...data,
+      recentRunsTotal: 3,
+      recentRunsHasMore: true,
+      recentRunsNextCursor: "v3-cursor-rejected-by-old-server",
+    };
+    const user = userEvent.setup();
+    render(<WorkflowListClient data={paginated} workspaceId="ws-1" workspaceSlug="default" />);
+    await user.click(screen.getByRole("tab", { name: "运行" }));
+
+    await user.click(screen.getByRole("button", { name: "加载更多" }));
+
+    expect(await screen.findByRole("link", { name: /滚动刷新运行/ })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fetchMock.mockRestore();
+  });
+
   it("resets run history when the workspace changes (F2 stale-state guard)", async () => {
     // F2: 组件挂在 module-shell 中被复用时，切换 workspaceId 必须重置 runs/hasMore/cursor，
     // 否则继续展示上一个工作区的运行并用新 slug 生成错误链接。

@@ -360,16 +360,18 @@ describe("getWorkflowRunsPageSync", () => {
       snapshotSequence: "30",
       snapshotTotal: 3,
     });
-    const legacyReadable = JSON.parse(Buffer.from(first.nextCursor!, "base64url").toString("utf8")) as Record<string, unknown>;
-    expect(legacyReadable).toMatchObject({
+    const wireCursor = JSON.parse(Buffer.from(first.nextCursor!, "base64url").toString("utf8")) as Record<string, unknown>;
+    expect(wireCursor).toMatchObject({
+      version: 3,
       createdAt: "2026-08-06T02:00:00.000Z",
       id: "run-b",
-      snapshotTotal: 3,
+      snapshotCount: 3,
     });
-    expect(typeof legacyReadable.signature).toBe("string");
+    expect(wireCursor).not.toHaveProperty("snapshotTotal");
+    expect(typeof wireCursor.signature).toBe("string");
     const tamperedCursor = Buffer.from(JSON.stringify({
-      ...legacyReadable,
-      snapshotTotal: 999,
+      ...wireCursor,
+      snapshotCount: 999,
     }), "utf8").toString("base64url");
     expect(decodeWorkflowRunCursor(tamperedCursor, "default")).toBeNull();
 

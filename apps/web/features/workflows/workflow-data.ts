@@ -54,11 +54,17 @@ const TERMINAL_RUN_STATUSES = new Set<string>([
 // 运行历史分页首页大小（UIUX:运行历史分页）：SSR 中心页与 GET /api/workspaces/:id/workflow-runs 共用。
 const RECENT_RUNS_PAGE_SIZE = 50;
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
-const WORKFLOW_RUN_CURSOR_VERSION = 2;
+const WORKFLOW_RUN_CURSOR_VERSION = 3;
+const PREVIOUS_WORKFLOW_RUN_CURSOR_VERSION = 2;
 
-interface SignedWorkflowRunCursor extends WorkflowRunListCursor {
-  version: typeof WORKFLOW_RUN_CURSOR_VERSION;
+interface SignedWorkflowRunCursorWire {
+  version: typeof WORKFLOW_RUN_CURSOR_VERSION | typeof PREVIOUS_WORKFLOW_RUN_CURSOR_VERSION;
   workspaceId: string;
+  createdAt: string;
+  id: string;
+  snapshotSequence?: string;
+  snapshotTotal?: number;
+  snapshotCount?: number;
   keyId?: string;
   signature: string;
 }
@@ -293,7 +299,7 @@ export function encodeWorkflowRunCursor(cursor: SignedWorkflowRunCursorInput, wo
     ...unsigned,
     keyId: signingKey.id,
     signature: signWorkflowRunCursor(JSON.stringify(unsigned), signingKey.secret),
-  } satisfies SignedWorkflowRunCursor), "utf8").toString("base64url");
+  } satisfies SignedWorkflowRunCursorWire), "utf8").toString("base64url");
 }
 
 /** 解码游标；输入为空或格式非法时返回 null（由调用方决定空 vs 非法的语义）。 */
@@ -307,20 +313,32 @@ function decodeWorkflowRunCursorEnvelope(
 ): DecodedWorkflowRunCursor | null {
   if (typeof raw !== "string" || raw.length === 0) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<SignedWorkflowRunCursor>;
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<SignedWorkflowRunCursorWire>;
     if (parsed.version !== undefined) {
-      if (parsed.version !== WORKFLOW_RUN_CURSOR_VERSION
+      if ((parsed.version !== WORKFLOW_RUN_CURSOR_VERSION
+          && parsed.version !== PREVIOUS_WORKFLOW_RUN_CURSOR_VERSION)
         || typeof parsed.workspaceId !== "string"
         || typeof parsed.signature !== "string"
         || (workspaceId !== undefined && parsed.workspaceId !== workspaceId)) {
         return null;
       }
-      const cursor = validateWorkflowRunCursor(parsed);
+      const cursor = validateWorkflowRunCursor({
+        createdAt: parsed.createdAt,
+        id: parsed.id,
+        snapshotSequence: parsed.snapshotSequence,
+        snapshotTotal: parsed.version === WORKFLOW_RUN_CURSOR_VERSION
+          ? parsed.snapshotCount
+          : parsed.snapshotTotal,
+      });
       if (!cursor
         || cursor.snapshotSequence === undefined
         || cursor.snapshotTotal === undefined
         || !verifyWorkflowRunCursorSignature(
-          JSON.stringify(workflowRunCursorSigningPayload(cursor as SignedWorkflowRunCursorInput, parsed.workspaceId)),
+          JSON.stringify(workflowRunCursorSigningPayload(
+            cursor as SignedWorkflowRunCursorInput,
+            parsed.workspaceId,
+            parsed.version,
+          )),
           parsed.signature,
           parsed.keyId,
         )) {
@@ -373,15 +391,17 @@ function signWorkflowRunCursor(content: string, secret: string): string {
 function workflowRunCursorSigningPayload(
   cursor: SignedWorkflowRunCursorInput,
   workspaceId: string,
-): Omit<SignedWorkflowRunCursor, "signature"> {
-  return {
-    version: WORKFLOW_RUN_CURSOR_VERSION,
+  version: SignedWorkflowRunCursorWire["version"] = WORKFLOW_RUN_CURSOR_VERSION,
+): Omit<SignedWorkflowRunCursorWire, "signature" | "keyId"> {
+  const base = {
+    version,
     workspaceId,
     createdAt: cursor.createdAt,
     id: cursor.id,
-    ...(cursor.snapshotTotal !== undefined ? { snapshotTotal: cursor.snapshotTotal } : {}),
-    ...(cursor.snapshotSequence !== undefined ? { snapshotSequence: cursor.snapshotSequence } : {}),
   };
+  return version === WORKFLOW_RUN_CURSOR_VERSION
+    ? { ...base, snapshotCount: cursor.snapshotTotal, snapshotSequence: cursor.snapshotSequence }
+    : { ...base, snapshotTotal: cursor.snapshotTotal, snapshotSequence: cursor.snapshotSequence };
 }
 
 function verifyWorkflowRunCursorSignature(content: string, signature: string, keyId?: string): boolean {
