@@ -12,7 +12,13 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // additions are real-DB integration tests or files outside package default runs;
 // none belong in isDefaultOwned. Re-freezing at the current 174-file set rather
 // than reclassifying (which would alter CI for unrelated features).
-const EXPECTED_DEFERRED_DIGEST = "0b3ea494e20b8738871596df28a3621e2a3f5465ccfe2fdbda1cc1f9f0203f0f";
+//
+// Re-frozen 2026-08-08 (round 2, 175-file set): added
+// packages/db/src/postgres-pg-pg-migrate.test.ts — real-PG integration test for
+// PG→PG migrate dry-run forward-guard + CLI skip exit code. Same deferred class
+// as postgres-background-backfill / postgres-schema-version-guard (not in the db
+// default-run glob). Reviewed and kept deferred.
+const EXPECTED_DEFERRED_DIGEST = "32198a51c2711586c1e523199c28117a910ff4c7c93de3130eb077f910a4b2c9";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
