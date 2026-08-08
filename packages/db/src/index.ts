@@ -211,6 +211,7 @@ export {
   listWorkflowRunsSync,
   listWorkflowRunsPageSnapshotSync,
   listWorkflowRunsAfterCursorSync,
+  countWorkflowRunsThroughSequenceSync,
   countWorkflowRunsSync,
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,

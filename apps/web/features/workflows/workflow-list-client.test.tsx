@@ -62,7 +62,7 @@ describe("WorkflowListClient", () => {
     const nextCursor = Buffer.from(JSON.stringify({
       createdAt: "2026-08-06T00:00:00.000Z",
       id: "run-1",
-      snapshotTotal: 3,
+      snapshotSequence: "30",
     }), "utf8").toString("base64url");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({
@@ -102,7 +102,7 @@ describe("WorkflowListClient", () => {
     const nextCursor = Buffer.from(JSON.stringify({
       createdAt: "2026-08-06T00:00:00.000Z",
       id: "run-1",
-      snapshotTotal: 3,
+      snapshotSequence: "30",
     }), "utf8").toString("base64url");
     const workspaceA: WorkflowCenterPageData = { ...data, recentRunsTotal: 3, recentRunsHasMore: true, recentRunsNextCursor: nextCursor };
     const { rerender } = render(<WorkflowListClient data={workspaceA} workspaceId="ws-a" workspaceSlug="alpha" />);
@@ -130,7 +130,7 @@ describe("WorkflowListClient", () => {
     const nextCursor = Buffer.from(JSON.stringify({
       createdAt: "2026-08-06T00:00:00.000Z",
       id: "run-1",
-      snapshotTotal: 3,
+      snapshotSequence: "30",
     }), "utf8").toString("base64url");
     let resolveOldPage!: (response: Response) => void;
     const oldPage = new Promise<Response>((resolve) => {

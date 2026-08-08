@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "114";
+export const POSTGRES_SCHEMA_VERSION = "115";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -144,6 +144,7 @@ export function getPostgresSchemaStatements(): string[] {
         created_by TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
+        workflow_run_sequence BIGINT NOT NULL DEFAULT 0,
         archived_at TIMESTAMPTZ
       )
     `,
@@ -229,6 +230,7 @@ export function getPostgresSchemaStatements(): string[] {
         trigger_id TEXT REFERENCES workflow_trigger(id) ON DELETE SET NULL,
         trigger_type TEXT NOT NULL,
         trigger_key TEXT NOT NULL,
+        history_sequence BIGINT NOT NULL,
         input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         status TEXT NOT NULL DEFAULT 'created',
         current_sequence INTEGER NOT NULL DEFAULT 0,
@@ -4404,6 +4406,42 @@ export function getPostgresSchemaStatements(): string[] {
           id ASC
         )
         WHERE status = 'waiting_approval' AND approval_id IS NOT NULL
+    `,
+    // schema 115：运行历史分页使用每工作区事务计数器分配的不可变写入序号作为快照上界。
+    // 创建 Run 的事务先锁定并递增 workspace 计数器再插入，确保较小序号必先提交；created_at
+    // 与随机 id 只负责展示排序，后插或回填时间的运行不会穿透既有分页会话。
+    `ALTER TABLE workspace ADD COLUMN IF NOT EXISTS workflow_run_sequence BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE workflow_run ADD COLUMN IF NOT EXISTS history_sequence BIGINT`,
+    `ALTER TABLE workflow_run ALTER COLUMN history_sequence DROP IDENTITY IF EXISTS`,
+    `
+      WITH ranked AS (
+        SELECT id,
+               ROW_NUMBER() OVER (PARTITION BY workspace_id ORDER BY created_at ASC, id ASC) AS sequence
+          FROM workflow_run
+         WHERE history_sequence IS NULL
+      )
+      UPDATE workflow_run AS run
+         SET history_sequence = ranked.sequence
+        FROM ranked
+       WHERE run.id = ranked.id
+    `,
+    `
+      UPDATE workspace AS target
+         SET workflow_run_sequence = GREATEST(
+           target.workflow_run_sequence,
+           COALESCE(source.max_sequence, 0)
+         )
+        FROM (
+          SELECT workspace_id, MAX(history_sequence) AS max_sequence
+            FROM workflow_run
+           GROUP BY workspace_id
+        ) AS source
+       WHERE target.id = source.workspace_id
+    `,
+    `ALTER TABLE workflow_run ALTER COLUMN history_sequence SET NOT NULL`,
+    `
+      CREATE INDEX IF NOT EXISTS idx_workflow_run_workspace_history_sequence
+        ON workflow_run(workspace_id, history_sequence)
     `,
     `
       INSERT INTO app_metadata (key, value)

@@ -94,57 +94,68 @@ export function createWorkflowRunSync(input: CreateWorkflowRunInput): WorkflowRu
   const db = getDatabase();
   const id = input.id ?? `workflow-run-${randomLikeId()}`;
   const now = input.now ?? new Date().toISOString();
-  const references = db.prepare(
-    `SELECT wd.workspace_id AS definition_workspace_id,
-            wv.workspace_id AS version_workspace_id,
-            wv.workflow_id AS version_workflow_id,
-            wt.workspace_id AS trigger_workspace_id,
-            wt.workflow_id AS trigger_workflow_id,
-            wt.type AS trigger_type
-       FROM workflow_definition wd
-       LEFT JOIN workflow_version wv ON wv.id = ?
-       LEFT JOIN workflow_trigger wt ON wt.id = ?
-      WHERE wd.id = ?`,
-  ).get(input.versionId, input.triggerId ?? null, input.workflowId) as Record<string, unknown> | undefined;
-  if (!references
-    || references.definition_workspace_id !== input.workspaceId
-    || references.version_workspace_id !== input.workspaceId
-    || references.version_workflow_id !== input.workflowId
-    || (input.triggerId && (
-      references.trigger_workspace_id !== input.workspaceId
-      || references.trigger_workflow_id !== input.workflowId
-      || references.trigger_type !== input.triggerType
-    ))) {
-    throw new Error("workflow_workspace_mismatch");
-  }
-  if (input.rootTaskId) {
-    const task = db.prepare("SELECT workspace_id FROM agent_task_queue WHERE id = ?").get(input.rootTaskId) as { workspace_id?: unknown } | undefined;
-    if (task?.workspace_id !== input.workspaceId) throw new Error("workflow_workspace_mismatch");
-  }
-  db.prepare(
-    `INSERT INTO workflow_run (
-       id, workspace_id, workflow_id, version_id, root_task_id, trigger_id, trigger_type,
-       trigger_key, input_json, status, current_sequence, budget_json, created_by, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', 0, ?, ?, ?, ?)
-     ON CONFLICT (workspace_id, trigger_key) DO NOTHING`,
-  ).run(
-    id,
-    input.workspaceId,
-    input.workflowId,
-    input.versionId,
-    input.rootTaskId ?? null,
-    input.triggerId ?? null,
-    input.triggerType,
-    input.triggerKey,
-    input.inputJson,
-    input.budgetJson ?? "{}",
-    input.createdBy ?? "system",
-    now,
-    now,
-  );
-  const run = readWorkflowRunSyncByTriggerKey(input.workspaceId, input.triggerKey);
-  if (!run) throw new Error("workflow_run_create_failed");
-  return run;
+  return withTransaction(db, () => {
+    const references = db.prepare(
+      `SELECT wd.workspace_id AS definition_workspace_id,
+              wv.workspace_id AS version_workspace_id,
+              wv.workflow_id AS version_workflow_id,
+              wt.workspace_id AS trigger_workspace_id,
+              wt.workflow_id AS trigger_workflow_id,
+              wt.type AS trigger_type
+         FROM workflow_definition wd
+         LEFT JOIN workflow_version wv ON wv.id = ?
+         LEFT JOIN workflow_trigger wt ON wt.id = ?
+        WHERE wd.id = ?`,
+    ).get(input.versionId, input.triggerId ?? null, input.workflowId) as Record<string, unknown> | undefined;
+    if (!references
+      || references.definition_workspace_id !== input.workspaceId
+      || references.version_workspace_id !== input.workspaceId
+      || references.version_workflow_id !== input.workflowId
+      || (input.triggerId && (
+        references.trigger_workspace_id !== input.workspaceId
+        || references.trigger_workflow_id !== input.workflowId
+        || references.trigger_type !== input.triggerType
+      ))) {
+      throw new Error("workflow_workspace_mismatch");
+    }
+    if (input.rootTaskId) {
+      const task = db.prepare("SELECT workspace_id FROM agent_task_queue WHERE id = ?").get(input.rootTaskId) as { workspace_id?: unknown } | undefined;
+      if (task?.workspace_id !== input.workspaceId) throw new Error("workflow_workspace_mismatch");
+    }
+    const sequence = db.prepare(
+      `UPDATE workspace
+          SET workflow_run_sequence = workflow_run_sequence + 1
+        WHERE id = ?
+        RETURNING workflow_run_sequence AS "historySequence"`,
+    ).get(input.workspaceId) as { historySequence?: unknown } | undefined;
+    if (typeof sequence?.historySequence !== "number") throw new Error("workflow_workspace_mismatch");
+    db.prepare(
+      `INSERT INTO workflow_run (
+         id, workspace_id, workflow_id, version_id, root_task_id, trigger_id, trigger_type,
+         trigger_key, history_sequence, input_json, status, current_sequence, budget_json,
+         created_by, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', 0, ?, ?, ?, ?)
+       ON CONFLICT (workspace_id, trigger_key) DO NOTHING`,
+    ).run(
+      id,
+      input.workspaceId,
+      input.workflowId,
+      input.versionId,
+      input.rootTaskId ?? null,
+      input.triggerId ?? null,
+      input.triggerType,
+      input.triggerKey,
+      sequence.historySequence,
+      input.inputJson,
+      input.budgetJson ?? "{}",
+      input.createdBy ?? "system",
+      now,
+      now,
+    );
+    const run = readWorkflowRunSyncByTriggerKey(input.workspaceId, input.triggerKey);
+    if (!run) throw new Error("workflow_run_create_failed");
+    return run;
+  });
 }
 
 export function readWorkflowRunSync(id: string, workspaceId: string): WorkflowRunRecord | null {
@@ -177,12 +188,14 @@ export function listWorkflowRunsSync(workspaceId: string, limit = 100, offset = 
 export interface WorkflowRunListCursor {
   createdAt: string;
   id: string;
-  snapshotTotal: number;
+  snapshotTotal?: number;
+  snapshotSequence?: string;
 }
 
 export interface WorkflowRunPageSnapshot {
   runs: WorkflowRunRecord[];
   total: number;
+  snapshotSequence: string;
 }
 
 /**
@@ -196,19 +209,23 @@ export function listWorkflowRunsPageSnapshotSync(
 ): WorkflowRunPageSnapshot {
   const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
   const rows = getDatabase().prepare(
-    `SELECT ${RUN_COLUMNS}, CAST(COUNT(*) OVER () AS integer) AS "snapshotTotal"
+    `SELECT ${RUN_COLUMNS},
+            CAST(COUNT(*) OVER () AS integer) AS "snapshotTotal",
+            CAST(MAX(history_sequence) OVER () AS text) AS "snapshotSequence"
        FROM workflow_run
       WHERE workspace_id = ?
       ORDER BY created_at DESC, id DESC
       LIMIT ${safeLimit}`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
   const total = typeof rows[0]?.snapshotTotal === "number" ? rows[0].snapshotTotal : 0;
+  const snapshotSequence = typeof rows[0]?.snapshotSequence === "string" ? rows[0].snapshotSequence : "0";
   const runs = rows.map((row) => {
     const run = { ...row };
     delete run.snapshotTotal;
+    delete run.snapshotSequence;
     return mapRun(run);
   });
-  return { runs, total };
+  return { runs, total, snapshotSequence };
 }
 
 /**
@@ -231,11 +248,38 @@ export function listWorkflowRunsAfterCursorSync(
       `${RUN_SELECT} WHERE workspace_id = ? ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`,
     ).all(workspaceId) as Array<Record<string, unknown>>).map(mapRun);
   }
+  if (cursor.snapshotSequence) {
+    return (db.prepare(
+      `${RUN_SELECT} WHERE workspace_id = ?
+         AND history_sequence <= CAST(? AS bigint)
+         AND (created_at < ? OR (created_at = ? AND id < ?))
+       ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`,
+    ).all(
+      workspaceId,
+      cursor.snapshotSequence,
+      cursor.createdAt,
+      cursor.createdAt,
+      cursor.id,
+    ) as Array<Record<string, unknown>>).map(mapRun);
+  }
   return (db.prepare(
     `${RUN_SELECT} WHERE workspace_id = ?
        AND (created_at < ? OR (created_at = ? AND id < ?))
      ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`,
   ).all(workspaceId, cursor.createdAt, cursor.createdAt, cursor.id) as Array<Record<string, unknown>>).map(mapRun);
+}
+
+/** 重新计算指定运行历史快照上界内的总数；不信任客户端携带的展示总数。 */
+export function countWorkflowRunsThroughSequenceSync(
+  workspaceId: string,
+  snapshotSequence: string,
+): number {
+  const row = getDatabase().prepare(
+    `SELECT COUNT(*)::integer AS count
+       FROM workflow_run
+      WHERE workspace_id = ? AND history_sequence <= CAST(? AS bigint)`,
+  ).get(workspaceId, snapshotSequence) as { count?: unknown } | undefined;
+  return typeof row?.count === "number" ? row.count : 0;
 }
 
 /**

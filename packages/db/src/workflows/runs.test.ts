@@ -9,6 +9,7 @@ import {
 import {
   claimWorkflowNodeForDispatchSync,
   createWorkflowRunSync,
+  listWorkflowRunsAfterCursorSync,
   listWorkflowRunsPageSnapshotSync,
   listWorkflowNodeRunsSync,
   materializeWorkflowNodeRunsSync,
@@ -69,7 +70,9 @@ test("reads the first run page and total from one snapshot query", () => {
   const baseline = (getDatabase().prepare(
     "SELECT COUNT(*)::integer AS count FROM workflow_run WHERE workspace_id = ?",
   ).get(WORKSPACE_ID) as { count: number }).count;
+  const ids = ["z", "m", "b"];
   const created = [1, 2, 3].map((index) => createWorkflowRunSync({
+    id: `workflow-run-snapshot-${seed.workflowId}-${ids[index - 1]}`,
     workspaceId: WORKSPACE_ID,
     workflowId: seed.workflowId,
     versionId: seed.versionId,
@@ -84,6 +87,26 @@ test("reads the first run page and total from one snapshot query", () => {
   assert.equal(snapshot.total, baseline + 3);
   assert.deepEqual(snapshot.runs.map((run) => run.id), [created[2]!.id, created[1]!.id]);
   assert.equal("snapshotTotal" in snapshot.runs[0]!, false);
+  assert.match(snapshot.snapshotSequence, /^\d+$/);
+
+  const insertedAfterSnapshot = createWorkflowRunSync({
+    id: `workflow-run-snapshot-${seed.workflowId}-a`,
+    workspaceId: WORKSPACE_ID,
+    workflowId: seed.workflowId,
+    versionId: seed.versionId,
+    triggerType: "manual",
+    triggerKey: `workflow-runs:snapshot-${seed.workflowId}-after`,
+    inputJson: "{}",
+    now: "2099-01-02T00:00:00.000Z",
+  });
+  const nextPage = listWorkflowRunsAfterCursorSync(WORKSPACE_ID, {
+    createdAt: created[1]!.createdAt,
+    id: created[1]!.id,
+    snapshotSequence: snapshot.snapshotSequence,
+  }, 10);
+
+  assert.equal(nextPage.some((run) => run.id === insertedAfterSnapshot.id), false);
+  assert.equal(nextPage.some((run) => run.id === created[0]!.id), true);
 });
 
 test("materializes one run for a duplicate trigger key and protects terminal node runs", () => {
