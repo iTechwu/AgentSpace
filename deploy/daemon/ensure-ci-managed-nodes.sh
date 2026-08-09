@@ -143,7 +143,9 @@ for workspace_id in $workspace_ids; do
   MANAGED_NODE_ENV_FILE="$env_file" MANAGED_NODE_SERVER_HOST="$MANAGED_NODE_SERVER_HOST" \
     docker compose --project-name "$project" --env-file "$env_file" \
       -f "$MANAGED_NODE_SOURCE_DIR/deploy/daemon/docker-compose.managed-node.yml" up --build -d
-  node_id="$(docker compose --project-name "$project" --env-file "$env_file" -f "$MANAGED_NODE_SOURCE_DIR/deploy/daemon/docker-compose.managed-node.yml" ps -q managed-node)"
+  node_id="$(MANAGED_NODE_ENV_FILE="$env_file" MANAGED_NODE_SERVER_HOST="$MANAGED_NODE_SERVER_HOST" \
+    docker compose --project-name "$project" --env-file "$env_file" \
+      -f "$MANAGED_NODE_SOURCE_DIR/deploy/daemon/docker-compose.managed-node.yml" ps -q managed-node)"
   [ -n "$node_id" ]
 
   attempts=0

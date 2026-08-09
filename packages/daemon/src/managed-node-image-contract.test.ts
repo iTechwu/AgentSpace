@@ -30,6 +30,10 @@ const managedNodeEnvExample = readFileSync(
   new URL("../../../deploy/daemon/.env.example", import.meta.url),
   "utf8",
 );
+const ensureCiManagedNodesScript = readFileSync(
+  new URL("../../../deploy/daemon/ensure-ci-managed-nodes.sh", import.meta.url),
+  "utf8",
+);
 
 test("managed-node image installs a checksum-pinned multi-arch cosign binary", () => {
   assert.match(dockerfile, /ARG COSIGN_VERSION=v\d+\.\d+\.\d+/);
@@ -72,6 +76,19 @@ test("managed-node compose requires an explicit environment file", () => {
     /env_file:\s+\$\{MANAGED_NODE_ENV_FILE:\?Set MANAGED_NODE_ENV_FILE to the managed-node environment file\}/,
   );
   assert.match(managedNodeEnvExample, /^MANAGED_NODE_ENV_FILE=\.\/.env\.managed-node$/m);
+});
+
+test("CI managed-node lifecycle passes its environment file to every Compose call", () => {
+  const composeCalls = ensureCiManagedNodesScript.match(/docker compose --project-name/g) ?? [];
+  assert.equal(composeCalls.length, 2);
+  assert.match(
+    ensureCiManagedNodesScript,
+    /MANAGED_NODE_ENV_FILE="\$env_file" MANAGED_NODE_SERVER_HOST="\$MANAGED_NODE_SERVER_HOST"\s+\\\n\s*docker compose --project-name "\$project" --env-file "\$env_file"[\s\S]*? up --build -d/,
+  );
+  assert.match(
+    ensureCiManagedNodesScript,
+    /node_id="\$\(MANAGED_NODE_ENV_FILE="\$env_file" MANAGED_NODE_SERVER_HOST="\$MANAGED_NODE_SERVER_HOST"\s+\\\n\s*docker compose --project-name "\$project" --env-file "\$env_file"[\s\S]*? ps -q managed-node\)"/,
+  );
 });
 
 test("managed-node compose permits an unset egress proxy while enforcement is disabled", () => {
