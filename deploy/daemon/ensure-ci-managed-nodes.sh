@@ -49,7 +49,7 @@ state_root="$MANAGED_NODE_DEPLOY_DIR/managed-nodes"
 image_tag="${MANAGED_RUNTIME_IMAGE_TAG:-latest}"
 node_user="${MANAGED_NODE_USER:-0:0}"
 mkdir -p "$state_root"
-chmod 700 "$state_root"
+chmod 755 "$state_root"
 
 # These are private, locally approved wrappers. They are intentionally built
 # here rather than pulled from a public registry by a runtime provisioning task.
@@ -101,7 +101,7 @@ for workspace_id in $workspace_ids; do
   env_file="$node_dir/node.env"
   state_dir="$node_dir/state"
   mkdir -p "$state_dir"
-  chmod 700 "$node_dir" "$state_dir"
+  chmod 700 "$node_dir"
 
   if [ ! -s "$env_file" ]; then
     token="$(docker exec -e DOFE_AGENT_MANAGED_NODE_WORKSPACE_ID="$workspace_id" "$MANAGED_NODE_WEB_CONTAINER" node --experimental-strip-types -e '
