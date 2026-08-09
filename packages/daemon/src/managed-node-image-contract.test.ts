@@ -34,6 +34,10 @@ const ensureCiManagedNodesScript = readFileSync(
   new URL("../../../deploy/daemon/ensure-ci-managed-nodes.sh", import.meta.url),
   "utf8",
 );
+const managedNodeEntrypoint = readFileSync(
+  new URL("../../../deploy/daemon/managed-node-entrypoint.sh", import.meta.url),
+  "utf8",
+);
 
 test("managed-node image installs a checksum-pinned multi-arch cosign binary", () => {
   assert.match(dockerfile, /ARG COSIGN_VERSION=v\d+\.\d+\.\d+/);
@@ -91,8 +95,8 @@ test("CI managed-node lifecycle passes its environment file to every Compose cal
   );
 });
 
-test("CI managed-node lifecycle grants daemon ownership of its state directory", () => {
-  assert.match(ensureCiManagedNodesScript, /chown -R 10001:10001 "\$state_dir"/);
+test("managed-node entrypoint repairs state-root ownership before dropping privileges", () => {
+  assert.match(managedNodeEntrypoint, /chown 10001:10001 "\$daemon_state_dir"/);
 });
 
 test("managed-node compose permits an unset egress proxy while enforcement is disabled", () => {

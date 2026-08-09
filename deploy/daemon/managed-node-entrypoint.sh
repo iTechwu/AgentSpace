@@ -10,6 +10,14 @@ if [ "${MCP_EGRESS_ENFORCE:-}" = "true" ]; then
   }
 fi
 
+# The Compose service starts as root so it can repair the mounted state root
+# before dropping to the daemon identity. Existing workspace data keeps its
+# original ownership; only the daemon's own state directory is normalized.
+daemon_state_dir="${DOFE_AGENT_DAEMON_STATE_DIR:-${MANAGED_NODE_STATE_DIR:-}}"
+if [ -n "$daemon_state_dir" ] && [ -d "$daemon_state_dir" ]; then
+  chown 10001:10001 "$daemon_state_dir"
+fi
+
 # Docker Desktop commonly exposes the mounted socket as root:root. Retain the
 # unprivileged daemon UID while adding only the socket's group for Docker IPC.
 socket_gid=""
