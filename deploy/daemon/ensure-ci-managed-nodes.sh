@@ -104,7 +104,7 @@ for workspace_id in $workspace_ids; do
   chmod 700 "$node_dir" "$state_dir"
   # The container starts as root to inspect the Docker socket, then its
   # entrypoint drops to the daemon's fixed service identity.
-  chown 10001:10001 "$state_dir"
+  chown -R 10001:10001 "$state_dir"
 
   if [ ! -s "$env_file" ]; then
     token="$(docker exec -e DOFE_AGENT_MANAGED_NODE_WORKSPACE_ID="$workspace_id" "$MANAGED_NODE_WEB_CONTAINER" node --experimental-strip-types -e '
