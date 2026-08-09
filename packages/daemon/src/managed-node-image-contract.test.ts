@@ -91,6 +91,10 @@ test("CI managed-node lifecycle passes its environment file to every Compose cal
   );
 });
 
+test("CI managed-node lifecycle grants daemon ownership of its state directory", () => {
+  assert.match(ensureCiManagedNodesScript, /chown 10001:10001 "\$state_dir"/);
+});
+
 test("managed-node compose permits an unset egress proxy while enforcement is disabled", () => {
   assert.match(managedNodeCompose, /MCP_EGRESS_ENFORCE: \$\{MCP_EGRESS_ENFORCE:-false\}/);
   assert.match(managedNodeCompose, /MCP_EGRESS_PROXY_URL: \$\{MCP_EGRESS_PROXY_URL:-\}/);
