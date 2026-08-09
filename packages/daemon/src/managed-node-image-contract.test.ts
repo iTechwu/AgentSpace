@@ -74,6 +74,12 @@ test("managed-node compose requires an explicit environment file", () => {
   assert.match(managedNodeEnvExample, /^MANAGED_NODE_ENV_FILE=\.\/.env\.managed-node$/m);
 });
 
+test("managed-node compose permits an unset egress proxy while enforcement is disabled", () => {
+  assert.match(managedNodeCompose, /MCP_EGRESS_ENFORCE: \$\{MCP_EGRESS_ENFORCE:-false\}/);
+  assert.match(managedNodeCompose, /MCP_EGRESS_PROXY_URL: \$\{MCP_EGRESS_PROXY_URL:-\}/);
+  assert.match(managedNodeCompose, /MCP_EGRESS_PROXY_ADMIN_TOKEN: \$\{MCP_EGRESS_PROXY_ADMIN_TOKEN:-\}/);
+});
+
 test("provider runtime image includes operational tools required by provider checks and installs", () => {
   assert.match(
     providerDockerfile,
