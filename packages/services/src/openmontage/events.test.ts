@@ -308,6 +308,7 @@ test("submits Job actions with trusted attribution, sequence fencing, and immedi
 });
 
 test("preserves safe downstream Job action diagnostics without exposing its message", async () => {
+  const reconciled: string[] = [];
   const link = {
     jobId: "om_job_1",
     workspaceId: "default",
@@ -348,6 +349,10 @@ test("preserves safe downstream Job action diagnostics without exposing its mess
         lastAppliedSequence: 4,
         status: "RUNNING",
       } as never),
+      reconcile: async (jobId) => {
+        reconciled.push(jobId);
+        return { received: 1, lastAppliedSequence: 5, remoteLastSequence: 5 };
+      },
     }),
     (error: unknown) => {
       assert.ok(error instanceof OpenMontageJobActionError);
@@ -358,4 +363,5 @@ test("preserves safe downstream Job action diagnostics without exposing its mess
       return true;
     },
   );
+  assert.deepEqual(reconciled, ["om_job_1"]);
 });

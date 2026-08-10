@@ -51,6 +51,24 @@ describe("OpenMontageChannelJobs", () => {
     );
   });
 
+  it("reloads the projection after a stale cancel action is rejected", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ jobs: [projection({ status: "RUNNING" })] }))
+      .mockResolvedValueOnce(Response.json({ error: "openmontage_job_action_conflict" }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json({
+        jobs: [projection({ status: "FAILED", currentStage: null, lastAppliedSequence: 5 })],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderJobs(0);
+
+    await user.click(await screen.findByRole("button", { name: "取消任务" }));
+
+    expect(await screen.findByText("处理失败")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消任务" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("keeps the last trusted projection when a refresh fails", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ jobs: [projection({ status: "RUNNING" })] }))
