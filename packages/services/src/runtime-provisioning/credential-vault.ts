@@ -12,7 +12,7 @@
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 export interface RuntimeCredentialSecret {
   /** Opaque reference safe to persist on agent_runtime / provisioning task. */
@@ -161,7 +161,39 @@ export function createRuntimeCredentialVaultFromEnvironment(
   if (!encodedKey || !directory) {
     throw new Error("DOFE_AGENT_RUNTIME_CREDENTIAL_ENCRYPTION_KEY and DOFE_AGENT_RUNTIME_CREDENTIAL_VAULT_DIR are required for managed runtimes.");
   }
-  return new EncryptedFileRuntimeCredentialVault(resolve(directory), Buffer.from(encodedKey, "base64"));
+  return new EncryptedFileRuntimeCredentialVault(
+    resolveRuntimeCredentialVaultDirectory(directory, environment),
+    Buffer.from(encodedKey, "base64"),
+  );
+}
+
+export function resolveRuntimeCredentialVaultDirectory(
+  directory: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  if (isAbsolute(directory)) {
+    return directory;
+  }
+
+  const explicitRoot = environment.DOFE_AGENT_REPOSITORY_ROOT?.trim();
+  if (explicitRoot) {
+    return resolve(explicitRoot, directory);
+  }
+
+  const currentDirectory = process.cwd();
+  const candidates = [
+    currentDirectory,
+    join(currentDirectory, ".."),
+    join(currentDirectory, "..", ".."),
+  ];
+  for (const candidate of candidates) {
+    const resolved = resolve(candidate);
+    if (existsSync(join(resolved, "Target.md"))) {
+      return resolve(resolved, directory);
+    }
+  }
+
+  return resolve(currentDirectory, directory);
 }
 
 export function buildRuntimeCredentialSecretRef(credentialId: string, scope?: RuntimeCredentialScope): string {

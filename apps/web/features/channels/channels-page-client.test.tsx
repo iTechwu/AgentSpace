@@ -1308,6 +1308,95 @@ describe("ChannelsPageClient", () => {
     });
   });
 
+  it("does not let a stale detail snapshot hide a message from refreshed module data", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <TestProviders>
+        <WorkspaceModuleCacheProvider>
+          <SeedImChannelDetailCache>
+            <ChannelsPageClient
+              currentUserDisplayName="techwu"
+              data={{
+                ...data,
+                detailScope: ["tour visit"],
+                channels: [
+                  data.channels[0]!,
+                  {
+                    id: "planning",
+                    name: "planning",
+                    memberLabel: "1 humans / 0 agents",
+                    humanMemberNames: ["techwu"],
+                    employeeNames: [],
+                    lastMessage: "旧摘要",
+                    updatedAt: "11:00",
+                  },
+                ],
+                threads: [
+                  data.threads[0]!,
+                  { channelName: "planning", messages: [] },
+                ],
+                totalChannels: 2,
+              }}
+            />
+          </SeedImChannelDetailCache>
+        </WorkspaceModuleCacheProvider>
+      </TestProviders>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /planning/ }));
+    expect(await screen.findByText("cached planning detail")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "回复" }));
+    const composer = screen.getByPlaceholderText("发送到 planning");
+    fireEvent.change(composer, { target: { value: "刷新后的消息", selectionStart: 7 } });
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(sendChannelMessageActionMock).toHaveBeenCalledTimes(1));
+
+    const refreshedData: ChannelsPageData = {
+      ...data,
+      detailScope: ["tour visit", "planning"],
+      channels: [
+        data.channels[0]!,
+        {
+          id: "planning",
+          name: "planning",
+          memberLabel: "1 humans / 0 agents",
+          humanMemberNames: ["techwu"],
+          employeeNames: [],
+          lastMessage: "刷新后的消息",
+          updatedAt: "12:00",
+        },
+      ],
+      threads: [
+        data.threads[0]!,
+        {
+          channelName: "planning",
+          messages: [{
+            id: "message-refreshed",
+            channel: "planning",
+            speaker: "techwu",
+            role: "human",
+            time: "12:00",
+            summary: "刷新后的消息",
+            status: "completed",
+          }],
+        },
+      ],
+      totalChannels: 2,
+    };
+
+    rerender(
+      <TestProviders>
+        <WorkspaceModuleCacheProvider>
+          <ChannelsPageClient currentUserDisplayName="techwu" data={refreshedData} />
+        </WorkspaceModuleCacheProvider>
+      </TestProviders>,
+    );
+
+    expect(await screen.findByText("刷新后的消息")).toBeInTheDocument();
+    expect(screen.queryByText("cached planning detail")).not.toBeInTheDocument();
+  });
+
   it("records channel and document refs on split detail cache entries", async () => {
     let cacheApi: ReturnType<typeof useWorkspaceModuleCache> | null = null;
 

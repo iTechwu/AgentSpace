@@ -642,6 +642,17 @@ export function ChannelsPageClient({
   const documentDraftSourceRef = useRef<string | null>(null);
   const unavailableFeishuChannelNamesRef = useRef(new Set<string>());
   const markImChannelDetailCacheStale = useCallback((channelName?: string | null) => {
+    setDetailDataByChannelName((current) => {
+      if (!channelName) {
+        return current.size === 0 ? current : new Map();
+      }
+      if (!current.has(channelName)) {
+        return current;
+      }
+      const next = new Map(current);
+      next.delete(channelName);
+      return next;
+    });
     if (!moduleCache) {
       return;
     }
