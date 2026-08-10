@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChannelsPageClient } from "@/features/channels/channels-page-client";
 import { WorkspaceModuleCacheProvider, useWorkspaceModuleCache } from "@/features/dashboard/workspace-module-cache";
@@ -23,8 +23,13 @@ function SeedImChannelDetailCache({
   children: React.ReactNode;
 }) {
   const cache = useWorkspaceModuleCache();
+  const seededRef = useRef(false);
 
   useEffect(() => {
+    if (seededRef.current) {
+      return;
+    }
+    seededRef.current = true;
     cache.set(
       {
         workspaceId: "workspace-1",
@@ -1237,7 +1242,7 @@ describe("ChannelsPageClient", () => {
     });
   });
 
-  it("marks split channel detail cache stale after channel mutations", async () => {
+  it("invalidates and reloads split channel detail after channel mutations", async () => {
     const user = userEvent.setup();
     let cacheApi: ReturnType<typeof useWorkspaceModuleCache> | null = null;
 
@@ -1292,6 +1297,7 @@ describe("ChannelsPageClient", () => {
         resourceKey: "channel-detail:planning",
       })?.metadata.stale).toBe(false);
     });
+    getChannelDetailDataActionMock.mockClear();
 
     await user.click(screen.getByRole("button", { name: "回复" }));
     const composer = screen.getByPlaceholderText("发送到 planning");
@@ -1300,11 +1306,11 @@ describe("ChannelsPageClient", () => {
 
     await waitFor(() => {
       expect(sendChannelMessageActionMock).toHaveBeenCalledTimes(1);
-      expect(cacheApi?.get({
+      expect(getChannelDetailDataActionMock).toHaveBeenCalledWith({
+        channelName: "planning",
         workspaceId: "workspace-1",
-        moduleId: "im",
-        resourceKey: "channel-detail:planning",
-      })?.metadata.stale).toBe(true);
+      });
+      expect(screen.queryByText("cached planning detail")).not.toBeInTheDocument();
     });
   });
 
@@ -1388,12 +1394,14 @@ describe("ChannelsPageClient", () => {
     rerender(
       <TestProviders>
         <WorkspaceModuleCacheProvider>
-          <ChannelsPageClient currentUserDisplayName="techwu" data={refreshedData} />
+          <SeedImChannelDetailCache>
+            <ChannelsPageClient currentUserDisplayName="techwu" data={refreshedData} />
+          </SeedImChannelDetailCache>
         </WorkspaceModuleCacheProvider>
       </TestProviders>,
     );
 
-    expect(await screen.findByText("刷新后的消息")).toBeInTheDocument();
+    expect((await screen.findAllByText("刷新后的消息")).length).toBeGreaterThan(0);
     expect(screen.queryByText("cached planning detail")).not.toBeInTheDocument();
   });
 

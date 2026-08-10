@@ -1055,8 +1055,21 @@ describe("dashboard data", () => {
     const channelsPage = getChannelsPageData(owner.displayName, "default", owner.id, "member");
     expect(channelsPage.channels.find((channel) => channel.contactId === "Owner Agent")?.channelName)
       .toBe("direct-owner-agent");
-    expect(channelsPage.threads.find((thread) => thread.channelName === "contact:Owner Agent")?.messages[0]?.summary)
+    expect(channelsPage.threads.find((thread) => thread.channelName === "direct-owner-agent")?.messages[0]?.summary)
       .toBe("owner-visible direct note");
+
+    const detail = getChannelDetailData({
+      channelName: "direct-owner-agent",
+      currentUserDisplayName: owner.displayName,
+      currentUserId: owner.id,
+      currentMembershipRole: "member",
+    });
+    expect(detail.threads).toEqual([
+      expect.objectContaining({
+        channelName: "direct-owner-agent",
+        messages: [expect.objectContaining({ summary: "owner-visible direct note" })],
+      }),
+    ]);
   });
 
   it("hides AI employee and runtime management data from members even when a legacy grant exists", () => {

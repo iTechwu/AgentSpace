@@ -2193,7 +2193,7 @@ export function getChannelsPageData(
         : [],
     })),
     ...directContacts.map(({ channel, messages }) => ({
-      channelName: channel.id,
+      channelName: channel.channelName ?? channel.id,
       messages: channel.channelName && detailChannelNames.has(channel.channelName) ? messages : [],
     })),
   ];
