@@ -553,7 +553,10 @@ describe("ConversationShell", () => {
     const onSubmit = vi.fn(() => new Promise<void>((resolve) => {
       resolveSubmit = resolve;
     }));
-    const scrollIntoView = vi.fn();
+    const scrollIntoView = vi.fn(function scrollSubmittedMessageIntoView(this: HTMLElement) {
+      const thread = this.closest<HTMLDivElement>(".contacts-chat-thread");
+      if (thread) thread.scrollTop = 200;
+    });
     const previousScrollIntoView = HTMLElement.prototype.scrollIntoView;
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -561,7 +564,7 @@ describe("ConversationShell", () => {
     });
 
     try {
-      render(
+      const { rerender } = render(
         <LanguageProvider>
           <ConversationShell
             emptyListBody="empty"
@@ -584,10 +587,45 @@ describe("ConversationShell", () => {
       );
 
       await user.type(screen.getByRole("textbox"), "滚动到刚发送的消息");
+      const thread = document.querySelector<HTMLDivElement>(".contacts-chat-thread");
+      Object.defineProperty(thread, "scrollHeight", { configurable: true, value: 1000 });
+      Object.defineProperty(thread, "clientHeight", { configurable: true, value: 300 });
       await user.click(screen.getByRole("button", { name: "发送消息" }));
 
       expect(await screen.findByText("滚动到刚发送的消息")).toBeInTheDocument();
       expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" });
+      const initialScrollCalls = scrollIntoView.mock.calls.length;
+      rerender(
+        <LanguageProvider>
+          <ConversationShell
+            emptyListBody="empty"
+            emptyListTitle="empty"
+            emptyThreadBody="empty"
+            emptyThreadTitle="empty"
+            items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+            listCount={1}
+            listKicker="Messages"
+            listTitle="Messages"
+            messages={[{
+              id: "server-message-1",
+              speaker: "techwu",
+              role: "human",
+              content: "滚动到刚发送的消息",
+              timestamp: new Date().toISOString(),
+              status: "completed",
+            }]}
+            onSelectItem={vi.fn()}
+            onSubmit={onSubmit}
+            placeholder="Send a message"
+            selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+            selectedItemId="direct-atlas"
+            threadAfterMessages={<div>Task details</div>}
+          />
+        </LanguageProvider>,
+      );
+      await waitFor(() => expect(scrollIntoView.mock.calls.length).toBeGreaterThan(initialScrollCalls));
+      await waitFor(() => expect(screen.getAllByText("滚动到刚发送的消息")).toHaveLength(1));
+      expect(thread?.scrollTop).toBe(200);
       await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
       await act(async () => {
         resolveSubmit?.();

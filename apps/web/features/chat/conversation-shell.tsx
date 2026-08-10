@@ -527,7 +527,7 @@ export function ConversationShell({
       submittedMessage.scrollIntoView({ block: "center", inline: "nearest" });
       shouldStickToBottomRef.current = false;
     }
-    if (!isPending || Boolean(serverMessageCopy)) {
+    if (!isPending) {
       pendingMessageScrollRef.current = null;
     }
   }, [isPending, messages, optimisticMessages, selectedItemId]);
