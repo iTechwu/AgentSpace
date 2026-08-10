@@ -253,6 +253,26 @@ test("projection marks the active stage as failed when the Job fails", () => {
   assert.equal(failed.projection.stages[0]?.completedAt, "2026-08-05T10:00:03Z");
 });
 
+test("projection marks the active stage as cancelled when the Job is cancelled", () => {
+  const started = applyOpenMontageJobEvent(projection(), event(2, "openmontage.stage.started", {
+    stage: "research",
+    stageAttempt: 1,
+    status: "RUNNING",
+    approvalStatus: "NOT_REQUIRED",
+  }));
+  const cancelRequested = applyOpenMontageJobEvent(started.projection, event(3, "openmontage.job.cancel_requested", {
+    status: "CANCEL_REQUESTED",
+  }));
+  const cancelled = applyOpenMontageJobEvent(cancelRequested.projection, event(4, "openmontage.job.cancelled", {
+    status: "CANCELLED",
+  }));
+
+  assert.equal(cancelled.projection.status, "CANCELLED");
+  assert.equal(cancelled.projection.currentStage, "research");
+  assert.equal(cancelled.projection.stages[0]?.status, "CANCELLED");
+  assert.equal(cancelled.projection.stages[0]?.completedAt, "2026-08-05T10:00:04Z");
+});
+
 test("projection marks gaps as syncing without applying untrusted future state", () => {
   const result = applyOpenMontageJobEvent(projection(), event(3, "openmontage.stage.completed", {
     stage: "research",

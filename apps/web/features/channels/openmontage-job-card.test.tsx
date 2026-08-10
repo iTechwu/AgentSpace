@@ -68,6 +68,16 @@ describe("OpenMontageJobCard", () => {
     expect(within(activeStage!).getByText("失败")).toBeInTheDocument();
     expect(within(activeStage!).queryByText("进行中")).not.toBeInTheDocument();
   });
+
+  it("does not show a running stage when a legacy projection is already cancelled", () => {
+    renderCard(projection({ status: "CANCELLED" }));
+
+    const stages = screen.getByRole("list", { name: "视频制作阶段" });
+    const activeStage = within(stages).getByText("生成制作方案").closest("li");
+    expect(activeStage).toHaveClass("openmontage-stage--cancelled");
+    expect(within(activeStage!).getByText("已停止")).toBeInTheDocument();
+    expect(within(activeStage!).queryByText("进行中")).not.toBeInTheDocument();
+  });
 });
 
 function renderCard(

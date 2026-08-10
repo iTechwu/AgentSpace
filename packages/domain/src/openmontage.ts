@@ -459,10 +459,15 @@ export function applyOpenMontageJobEvent(
     case "openmontage.job.cancel_requested":
       projection.status = "CANCEL_REQUESTED";
       break;
-    case "openmontage.job.cancelled":
+    case "openmontage.job.cancelled": {
+      if (projection.currentStage) {
+        const cancelledStage = requireProjectedStage(projection, projection.currentStage);
+        cancelledStage.status = "CANCELLED";
+        cancelledStage.completedAt = event.occurredAt;
+      }
       projection.status = "CANCELLED";
-      projection.currentStage = null;
       break;
+    }
   }
 
   return { projection, outcome: "applied" };

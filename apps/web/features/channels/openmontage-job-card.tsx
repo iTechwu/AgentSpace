@@ -259,7 +259,10 @@ function stageDisplayStatus(
   jobStatus: OpenMontageJobStatus,
   stageStatus: OpenMontageStageProjection["status"],
 ): OpenMontageStageProjection["status"] {
-  return jobStatus === "FAILED" && stageStatus === "RUNNING" ? "FAILED" : stageStatus;
+  if (stageStatus !== "RUNNING") return stageStatus;
+  if (jobStatus === "FAILED") return "FAILED";
+  if (jobStatus === "CANCELLED") return "CANCELLED";
+  return stageStatus;
 }
 
 function stageLabel(stage: OpenMontageStageProjection, tx: (zh: string, en: string) => string): string {
