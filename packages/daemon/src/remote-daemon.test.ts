@@ -158,6 +158,35 @@ test("buildRemoteDaemonConfig prefers explicit flags over env", () => {
   assert.equal(config.taskTimeoutMs, 28800000);
 });
 
+test("runtime activity allows unbounded tasks while maintenance remains exclusive", async () => {
+  const daemonModule = await import("./remote-daemon.ts") as unknown as Record<string, unknown>;
+  assert.equal(typeof daemonModule.createRemoteRuntimeActivity, "function");
+  assert.equal(typeof daemonModule.beginRemoteRuntimeTask, "function");
+  assert.equal(typeof daemonModule.endRemoteRuntimeTask, "function");
+  assert.equal(typeof daemonModule.reserveRemoteRuntimeExclusiveSlot, "function");
+  assert.equal(typeof daemonModule.releaseRemoteRuntimeExclusiveSlot, "function");
+
+  const createActivity = daemonModule.createRemoteRuntimeActivity as () => unknown;
+  const beginTask = daemonModule.beginRemoteRuntimeTask as (activity: unknown, runtimeId: string) => boolean;
+  const endTask = daemonModule.endRemoteRuntimeTask as (activity: unknown, runtimeId: string) => void;
+  const reserveExclusive = daemonModule.reserveRemoteRuntimeExclusiveSlot as (activity: unknown, runtimeId: string) => boolean;
+  const releaseExclusive = daemonModule.releaseRemoteRuntimeExclusiveSlot as (activity: unknown, runtimeId: string) => void;
+  const activity = createActivity();
+
+  for (let index = 0; index < 100; index += 1) {
+    assert.equal(beginTask(activity, "runtime-1"), true);
+  }
+  assert.equal(reserveExclusive(activity, "runtime-1"), false);
+
+  for (let index = 0; index < 100; index += 1) {
+    endTask(activity, "runtime-1");
+  }
+  assert.equal(reserveExclusive(activity, "runtime-1"), true);
+  assert.equal(beginTask(activity, "runtime-1"), false);
+  releaseExclusive(activity, "runtime-1");
+  assert.equal(beginTask(activity, "runtime-1"), true);
+});
+
 test("managed stdio MCP launches the installed entrypoint inside the target Runtime image", () => {
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-managed-stdio-"));
   try {

@@ -99,6 +99,44 @@ export interface RemoteDaemonConfig {
   managedNode: boolean;
 }
 
+export interface RemoteRuntimeActivity {
+  exclusiveRuntimes: Set<string>;
+  taskCounts: Map<string, number>;
+}
+
+export function createRemoteRuntimeActivity(): RemoteRuntimeActivity {
+  return {
+    exclusiveRuntimes: new Set<string>(),
+    taskCounts: new Map<string, number>(),
+  };
+}
+
+export function beginRemoteRuntimeTask(activity: RemoteRuntimeActivity, runtimeId: string): boolean {
+  if (activity.exclusiveRuntimes.has(runtimeId)) return false;
+  const current = activity.taskCounts.get(runtimeId) ?? 0;
+  activity.taskCounts.set(runtimeId, current + 1);
+  return true;
+}
+
+export function endRemoteRuntimeTask(activity: RemoteRuntimeActivity, runtimeId: string): void {
+  const current = activity.taskCounts.get(runtimeId) ?? 0;
+  if (current <= 1) {
+    activity.taskCounts.delete(runtimeId);
+    return;
+  }
+  activity.taskCounts.set(runtimeId, current - 1);
+}
+
+export function reserveRemoteRuntimeExclusiveSlot(activity: RemoteRuntimeActivity, runtimeId: string): boolean {
+  if (activity.exclusiveRuntimes.has(runtimeId) || (activity.taskCounts.get(runtimeId) ?? 0) > 0) return false;
+  activity.exclusiveRuntimes.add(runtimeId);
+  return true;
+}
+
+export function releaseRemoteRuntimeExclusiveSlot(activity: RemoteRuntimeActivity, runtimeId: string): void {
+  activity.exclusiveRuntimes.delete(runtimeId);
+}
+
 export interface RemoteDaemonRelaunchCommand {
   command: string;
   args: string[];
@@ -382,7 +420,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   );
   const provisioningExecutor = createManagedProvisioningExecutor(config.stateDir, credentialResolver);
 
-  const activeRuntimes = new Set<string>();
+  const runtimeActivity = createRemoteRuntimeActivity();
   let runtimeCliHubReadiness = new Map<string, CliHubReadiness>();
   let runtimeCliHubReadinessExpiresAt = 0;
   let auditOutboxFlushing = false;
@@ -443,11 +481,6 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
           );
           runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, verificationHeartbeat, registered.daemon.workspaceId, config.deviceName);
         }
-        for (const runtimeId of activeRuntimes) {
-          if (!runtimes.some((runtime) => runtime.id === runtimeId)) {
-            activeRuntimes.delete(runtimeId);
-          }
-        }
         await executeManagedCleanupRequests(client, provisioningExecutor, managedRuntimes, heartbeat.managedRuntimeCleanupRequests);
       } catch (error) {
         if (classifyRemoteLoopError(error) === "shutdown") {
@@ -466,7 +499,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
       return;
     }
     polling = true;
-    void pollRemoteTasks(client, config, runtimes, activeRuntimes, credentialResolver, mcpAuditOutbox)
+    void pollRemoteTasks(client, config, runtimes, runtimeActivity, credentialResolver, mcpAuditOutbox)
       .catch((error) => {
         if (classifyRemoteLoopError(error) === "shutdown") {
           fatalShutdown(DAEMON_AUTH_REJECTED_MESSAGE);
@@ -830,105 +863,108 @@ async function pollRemoteTasks(
   client: HttpDaemonClient,
   config: RemoteDaemonConfig,
   runtimes: RemoteRuntimeRecord[],
-  activeRuntimes: Set<string>,
+  activity: RemoteRuntimeActivity,
   credentialResolver: ManagedCredentialResolver,
   mcpAuditOutbox: McpAuditOutbox,
 ): Promise<void> {
   for (const runtime of runtimes) {
-    if (activeRuntimes.has(runtime.id)) {
+    if (activity.exclusiveRuntimes.has(runtime.id)) {
       continue;
     }
     try {
-      const appOperation = await claimRemoteQueue({
-        runtimeId: runtime.id,
-        queue: "runtime app operation",
-        claim: () => client.claimRuntimeAppOperation(runtime.id),
-      });
-      if (appOperation?.operation) {
-        activeRuntimes.add(runtime.id);
-        void executeRemoteRuntimeAppOperation(client, config, runtime, appOperation.operation)
-          .catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`Runtime app operation ${appOperation.operation?.id ?? "unknown"} crashed: ${message}`);
-          })
-          .finally(() => {
-            activeRuntimes.delete(runtime.id);
-          });
-        continue;
-      }
+      const hasActiveTasks = (activity.taskCounts.get(runtime.id) ?? 0) > 0;
+      if (!hasActiveTasks) {
+        const appOperation = await claimRemoteQueue({
+          runtimeId: runtime.id,
+          queue: "runtime app operation",
+          claim: () => client.claimRuntimeAppOperation(runtime.id),
+        });
+        if (appOperation?.operation) {
+          reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
+          void executeRemoteRuntimeAppOperation(client, config, runtime, appOperation.operation)
+            .catch((error) => {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`Runtime app operation ${appOperation.operation?.id ?? "unknown"} crashed: ${message}`);
+            })
+            .finally(() => {
+              releaseRemoteRuntimeExclusiveSlot(activity, runtime.id);
+            });
+          continue;
+        }
 
-      const mcpOperation = await claimRemoteQueue({
-        runtimeId: runtime.id,
-        queue: "MCP operation",
-        claim: () => client.claimMcpConnectionOperation(runtime.id),
-      });
-      if (mcpOperation?.operation) {
-        activeRuntimes.add(runtime.id);
-        void executeMcpConnectionOperation(client, mcpOperation.operation, {
-          resolveConnection: (connection) => attachManagedMcpConnection(connection, config, runtime),
-        })
-          .catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`MCP operation ${mcpOperation.operation?.id ?? "unknown"} crashed: ${message}`);
+        const mcpOperation = await claimRemoteQueue({
+          runtimeId: runtime.id,
+          queue: "MCP operation",
+          claim: () => client.claimMcpConnectionOperation(runtime.id),
+        });
+        if (mcpOperation?.operation) {
+          reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
+          void executeMcpConnectionOperation(client, mcpOperation.operation, {
+            resolveConnection: (connection) => attachManagedMcpConnection(connection, config, runtime),
           })
-          .finally(() => {
-            activeRuntimes.delete(runtime.id);
-          });
-        continue;
-      }
+            .catch((error) => {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`MCP operation ${mcpOperation.operation?.id ?? "unknown"} crashed: ${message}`);
+            })
+            .finally(() => {
+              releaseRemoteRuntimeExclusiveSlot(activity, runtime.id);
+            });
+          continue;
+        }
 
-      const skillOperation = await claimRemoteQueue({
-        runtimeId: runtime.id,
-        queue: "skill installation operation",
-        claim: () => client.claimSkillInstallationOperation(runtime.id),
-      });
-      if (skillOperation?.operation) {
-        activeRuntimes.add(runtime.id);
-        void executeRemoteSkillInstallationOperation(client, config, skillOperation.operation)
-          .catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`Skill installation operation ${skillOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
-          })
-          .finally(() => {
-            activeRuntimes.delete(runtime.id);
-          });
-        continue;
-      }
+        const skillOperation = await claimRemoteQueue({
+          runtimeId: runtime.id,
+          queue: "skill installation operation",
+          claim: () => client.claimSkillInstallationOperation(runtime.id),
+        });
+        if (skillOperation?.operation) {
+          reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
+          void executeRemoteSkillInstallationOperation(client, config, skillOperation.operation)
+            .catch((error) => {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`Skill installation operation ${skillOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
+            })
+            .finally(() => {
+              releaseRemoteRuntimeExclusiveSlot(activity, runtime.id);
+            });
+          continue;
+        }
 
-      const serviceOperation = await claimRemoteQueue({
-        runtimeId: runtime.id,
-        queue: "skill service operation",
-        claim: () => client.claimSkillServiceOperation(runtime.id),
-      });
-      if (serviceOperation?.operation) {
-        activeRuntimes.add(runtime.id);
-        void executeRemoteSkillServiceOperation(client, config, serviceOperation.operation)
-          .catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`Skill service operation ${serviceOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
-          })
-          .finally(() => {
-            activeRuntimes.delete(runtime.id);
-          });
-        continue;
-      }
+        const serviceOperation = await claimRemoteQueue({
+          runtimeId: runtime.id,
+          queue: "skill service operation",
+          claim: () => client.claimSkillServiceOperation(runtime.id),
+        });
+        if (serviceOperation?.operation) {
+          reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
+          void executeRemoteSkillServiceOperation(client, config, serviceOperation.operation)
+            .catch((error) => {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`Skill service operation ${serviceOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
+            })
+            .finally(() => {
+              releaseRemoteRuntimeExclusiveSlot(activity, runtime.id);
+            });
+          continue;
+        }
 
-      const mountOperation = await claimRemoteQueue({
-        runtimeId: runtime.id,
-        queue: "workspace mount operation",
-        claim: () => client.claimWorkspaceMountOperation(runtime.id),
-      });
-      if (mountOperation?.operation) {
-        activeRuntimes.add(runtime.id);
-        void executeWorkspaceMountOperation(client, config, mountOperation.operation)
-          .catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`Workspace mount operation ${mountOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
-          })
-          .finally(() => {
-            activeRuntimes.delete(runtime.id);
-          });
-        continue;
+        const mountOperation = await claimRemoteQueue({
+          runtimeId: runtime.id,
+          queue: "workspace mount operation",
+          claim: () => client.claimWorkspaceMountOperation(runtime.id),
+        });
+        if (mountOperation?.operation) {
+          reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
+          void executeWorkspaceMountOperation(client, config, mountOperation.operation)
+            .catch((error) => {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`Workspace mount operation ${mountOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
+            })
+            .finally(() => {
+              releaseRemoteRuntimeExclusiveSlot(activity, runtime.id);
+            });
+          continue;
+        }
       }
 
       const claimed = await claimRemoteQueue({
@@ -940,14 +976,16 @@ async function pollRemoteTasks(
         continue;
       }
 
-      activeRuntimes.add(runtime.id);
+      if (!beginRemoteRuntimeTask(activity, runtime.id)) {
+        throw new Error(`Runtime ${runtime.id} entered maintenance after claiming task ${claimed.task.id}.`);
+      }
       void executeRemoteTask(client, config, runtime, claimed.task, credentialResolver, mcpAuditOutbox)
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
           console.error(`Remote task ${claimed.task?.id ?? "unknown"} crashed: ${message}`);
         })
         .finally(() => {
-          activeRuntimes.delete(runtime.id);
+          endRemoteRuntimeTask(activity, runtime.id);
         });
     } catch (error) {
       if (classifyRemoteLoopError(error) === "skip-runtime") {
