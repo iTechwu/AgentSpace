@@ -187,6 +187,33 @@ test("runtime activity allows unbounded tasks while maintenance remains exclusiv
   assert.equal(beginTask(activity, "runtime-1"), true);
 });
 
+test("remote conversation workdirs are isolated by router session", async () => {
+  const daemonModule = await import("./remote-daemon.ts") as unknown as Record<string, unknown>;
+  assert.equal(typeof daemonModule.resolveRemoteTaskWorkDir, "function");
+  const resolveWorkDir = daemonModule.resolveRemoteTaskWorkDir as (
+    config: { stateDir: string },
+    task: Record<string, unknown>,
+  ) => string;
+  const task = {
+    id: "task-1",
+    workspaceId: "workspace-1",
+    agentId: "employee-1",
+    runtimeId: "runtime-1",
+    triggerType: "channel_chat",
+    priority: 1,
+    status: "claimed",
+    inputJson: JSON.stringify({ channel: "shared-channel" }),
+    queuedAt: "2026-08-10T00:00:00.000Z",
+  };
+
+  const first = resolveWorkDir({ stateDir: "/tmp/daemon" }, { ...task, routerSessionId: "router-user-a" });
+  const second = resolveWorkDir({ stateDir: "/tmp/daemon" }, { ...task, id: "task-2", routerSessionId: "router-user-b" });
+  const resumed = resolveWorkDir({ stateDir: "/tmp/daemon" }, { ...task, id: "task-3", routerSessionId: "router-user-a" });
+
+  assert.notEqual(first, second);
+  assert.equal(first, resumed);
+});
+
 test("managed stdio MCP launches the installed entrypoint inside the target Runtime image", () => {
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-managed-stdio-"));
   try {

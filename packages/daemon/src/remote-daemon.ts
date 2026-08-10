@@ -2076,16 +2076,17 @@ function readErrorTail(error: unknown, key: "stdout" | "stderr"): string | undef
   return typeof value === "string" ? tailAndRedact(value) : undefined;
 }
 
-function resolveRemoteTaskWorkDir(config: RemoteDaemonConfig, task: ClaimedDaemonTask): string {
+export function resolveRemoteTaskWorkDir(config: Pick<RemoteDaemonConfig, "stateDir">, task: ClaimedDaemonTask): string {
   const payload = parseTaskInputJson(task.inputJson);
   const channelThreadId = resolveConversationThreadId({
     triggerType: task.triggerType,
     payload,
   });
-  if (channelThreadId) {
+  const executionThreadId = task.routerSessionId?.trim() || channelThreadId;
+  if (executionThreadId) {
     return getDaemonChannelWorkDirPath(config.stateDir, {
       workspaceId: task.workspaceId,
-      threadId: channelThreadId,
+      threadId: executionThreadId,
       agentId: task.agentId,
     });
   }
