@@ -21,6 +21,7 @@ import {
   replaceStoredTasksSync,
   resetWorkspaceExecutionStateSync,
   WORKSPACE_STATE_VERSION,
+  WorkspaceStateConflictError,
   readWorkspaceSync,
   readWorkspaceStateVersion,
   writeWorkspaceStateRecordSync,
@@ -83,6 +84,33 @@ export function writeWorkspaceStateSync(
   });
   initializeWorkspaceSkillStorageIfEmpty(written, workspaceId);
   return written;
+}
+
+export function mutateWorkspaceStateSync<T>(
+  workspaceId: string,
+  mutation: (state: DofeAgentState) => T,
+  options?: { maxAttempts?: number },
+): { state: DofeAgentState; value: T } {
+  const maxAttempts = Math.max(1, Math.floor(options?.maxAttempts ?? 5));
+  let lastConflict: WorkspaceStateConflictError | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const state = readWorkspaceStateSnapshotSync(workspaceId);
+    const value = mutation(state);
+    try {
+      return {
+        state: writeWorkspaceStateSync(state, workspaceId),
+        value,
+      };
+    } catch (error) {
+      if (!(error instanceof WorkspaceStateConflictError)) {
+        throw error;
+      }
+      lastConflict = error;
+    }
+  }
+
+  throw lastConflict ?? new Error(`Workspace "${workspaceId}" state mutation did not complete.`);
 }
 
 function persistCoreWorkspaceStorage(

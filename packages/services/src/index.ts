@@ -13,6 +13,7 @@ export {
   ensureWorkspaceStateSync,
   readWorkspaceStateSnapshotSync,
   readWorkspaceStateSync,
+  mutateWorkspaceStateSync,
   writeWorkspaceStateSync,
   resetWorkspaceStateSync,
 } from "./shared/state-io.ts";

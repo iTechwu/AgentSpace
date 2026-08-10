@@ -92,6 +92,8 @@ export interface ProviderTaskOptions {
   runtimeToolCapabilities?: RuntimeToolCapability[];
   /** Loopback MCP gateway URL for a task-scoped session; passed to the provider as a one-shot MCP config. */
   mcpGatewayUrl?: string;
+  /** Enables the unverified Codex MCP injection path only for an explicit experiment. */
+  codexMcpInjectionEnabled?: boolean;
   /** Cancels the active Provider subprocess when the control plane stops the task. */
   signal?: AbortSignal;
 }
@@ -178,6 +180,7 @@ const PROVIDER_CATALOG: Array<{
 const CLAUDE_MISSING_RESUME_SESSION_PATTERN = /No conversation found with session ID:/i;
 const CLAUDE_POISONED_RESUME_SESSION_PATTERN = /prompt injection detected[\s\S]*encoding_bypass|encoding_bypass[\s\S]*prompt injection detected/i;
 const CODEX_MISSING_RESUME_SESSION_PATTERN = /no rollout found for thread id\s+([^\s)]+)/i;
+const CODEX_STALLED_RESUME_PATTERN = /falling back from websockets to https transport[\s\S]*request timed out/i;
 const OPENCLAW_MISSING_RESUME_SESSION_PATTERN = /session .*not found|session.*missing|conversation .*not found|conversation.*missing|agent .*not found|agent.*missing|unknown session/i;
 
 export function detectProviders(): DetectedProvider[] {
@@ -291,6 +294,7 @@ async function runAgentRouterProviderTask(
     runtimeToolCapabilities,
     claudeTools: runtime.provider === "claude" ? "default" : undefined,
     mcpGatewayUrl: options.mcpGatewayUrl,
+    codexMcpInjectionEnabled: options.codexMcpInjectionEnabled,
     // Remote tasks always provide an approval callback. Claude approvals are retried
     // from returned permission denials below, so keep ordinary tasks one-shot.
     handleControlRequests: false,
@@ -318,7 +322,9 @@ async function runAgentRouterProviderTask(
   if (resumeRecovery) {
     const sessionInvalidMessage = resumeRecovery === "poisoned"
       ? `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} was rejected by the upstream safety policy; starting a new conversation.`
-      : `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} was not found; starting a new conversation.`;
+      : resumeRecovery === "transport"
+        ? `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} stopped responding after transport retries; starting a new conversation.`
+        : `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} was not found; starting a new conversation.`;
     options.onEvent?.({
       type: "provider_session_invalid",
       content: sessionInvalidMessage,
@@ -608,7 +614,7 @@ function resolveResumeSessionRecovery(
   provider: DaemonProvider,
   diagnostics: AgentRouterDiagnostic[],
   requestedSessionId: string | undefined,
-): "missing" | "poisoned" | undefined {
+): "missing" | "poisoned" | "transport" | undefined {
   if (!requestedSessionId) {
     return undefined;
   }
@@ -629,7 +635,14 @@ function resolveResumeSessionRecovery(
   }
   if (provider === "codex") {
     const match = CODEX_MISSING_RESUME_SESSION_PATTERN.exec(text);
-    return match?.[1] === requestedSessionId ? "missing" : undefined;
+    if (match?.[1] === requestedSessionId) {
+      return "missing";
+    }
+    // A resumed Codex thread can remain addressable while its transport is no
+    // longer usable. Once Codex exhausts its WebSocket and HTTPS retries, retry
+    // the task once from the platform transcript instead of poisoning every
+    // subsequent message with the same provider session.
+    return CODEX_STALLED_RESUME_PATTERN.test(text) ? "transport" : undefined;
   }
   if (provider === "openclaw") {
     return diagnostics.some((diagnostic) => diagnostic.code === "harness.session_missing") ||

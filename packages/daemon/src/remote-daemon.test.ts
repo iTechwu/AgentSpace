@@ -16,6 +16,7 @@ import {
   restoreManagedRuntimesFromHeartbeat,
   resolveManagedProviderVerificationEnvironments,
   resolveManagedServiceConnection,
+  resolveRemoteTaskExecutionSessionId,
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
   runRemoteDaemonCommand,
@@ -122,6 +123,19 @@ test("buildRemoteDaemonConfig reads env-backed defaults without repository state
   assert.equal(config.serverUrl, "https://dofe-agent.example");
   assert.equal(config.daemonToken, "adt_test");
   assert.equal(config.taskTimeoutMs, 12 * 60 * 60 * 1000);
+  assert.equal(config.codexMcpExperimentalEnabled, false);
+});
+
+test("buildRemoteDaemonConfig only enables Codex MCP for an explicit experiment", () => {
+  const disabled = buildRemoteDaemonConfig({}, {
+    environment: { HOME: "/tmp/daemon-home", MCP_CODEX_EXPERIMENTAL_ENABLED: "true" },
+  });
+  const enabled = buildRemoteDaemonConfig({}, {
+    environment: { HOME: "/tmp/daemon-home", MCP_CODEX_EXPERIMENTAL_ENABLED: "1" },
+  });
+
+  assert.equal(disabled.codexMcpExperimentalEnabled, false);
+  assert.equal(enabled.codexMcpExperimentalEnabled, true);
 });
 
 test("buildRemoteDaemonConfig prefers explicit flags over env", () => {
@@ -396,6 +410,24 @@ test("resolveRemoteTaskProviderSessionId reads channel session from task payload
   );
   assert.equal(resolveRemoteTaskProviderSessionId(JSON.stringify({ channelSessionId: "" })), undefined);
   assert.equal(resolveRemoteTaskProviderSessionId("{not-json"), undefined);
+});
+
+test("router session cold rebuild overrides the legacy channel session fallback", () => {
+  const legacyInput = JSON.stringify({ channelSessionId: "stale-session" });
+  assert.equal(resolveRemoteTaskExecutionSessionId(undefined, legacyInput), "stale-session");
+  assert.equal(resolveRemoteTaskExecutionSessionId({
+    routerSessionId: "router-1",
+    continuationMode: "cold_rebuild",
+    selectedRuntimeId: "runtime-1",
+    attemptCount: 2,
+  }, legacyInput), undefined);
+  assert.equal(resolveRemoteTaskExecutionSessionId({
+    routerSessionId: "router-1",
+    providerSessionId: " active-session ",
+    continuationMode: "same_provider_resume",
+    selectedRuntimeId: "runtime-1",
+    attemptCount: 2,
+  }, legacyInput), "active-session");
 });
 
 test("managed task execution uses the effective model from the server bundle", () => {

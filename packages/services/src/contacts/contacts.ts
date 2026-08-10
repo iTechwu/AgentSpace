@@ -5,13 +5,14 @@ import {
   listChannelParticipantsSync,
   listWorkspaceMemberUsersSync,
   readLatestConversationExecutionSync,
+  readQueuedTaskSync,
   readUserSync,
   readWorkspaceMembershipSync,
   type WorkspaceRole,
 } from "@dofe-agent/db";
 import { type DofeAgentState, type ChannelRecord, type DirectConversationState, type MessageAttachment } from "@dofe-agent/domain/workspace";
 import { ensureDirectChannelRecord, resolveCompatibleDirectChannelRecord } from "../channels/channels.ts";
-import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
+import { ensureWorkspaceStateSync, mutateWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import {
   readConversationExecutionWorkspaceState,
   resolveConversationExecutionWorkspacePath,
@@ -109,39 +110,65 @@ export function sendContactMessageForHumanWithAttachmentsSync(
   });
   assertWorkspaceDataPolicyAllowsExternalMessageInput(governedExternalInput);
 
-  const directChannel = ensureDirectChannelRecord(state, {
-    humanMemberName,
-    employeeName: contact.name,
-  });
-  const existingExecutionWorkspace = readConversationExecutionWorkspaceState(state, {
-    channelName: directChannel.name,
-    agentId: contact.name,
-    contactId: contact.name,
-  });
-  const humanMessage = pushWorkspaceMessageToChannel(state, directChannel.name, {
-    speaker: humanMemberName,
-    speakerUserId: requesterUserId,
-    role: "human",
-    summary: trimmed,
-    status: "completed",
-    attachments,
-    data: buildExternalMessageData(governedExternalInput),
-  }, effectiveWorkspaceId);
-  const lastExecution = readLatestConversationExecutionSync(
-    contact.name,
-    {
+  const persistedMessage = mutateWorkspaceStateSync(effectiveWorkspaceId, (currentState) => {
+    const directChannel = ensureDirectChannelRecord(currentState, {
+      humanMemberName,
+      employeeName: contact.name,
+    });
+    const existingExecutionWorkspace = readConversationExecutionWorkspaceState(currentState, {
       channelName: directChannel.name,
+      agentId: contact.name,
       contactId: contact.name,
-    },
-    effectiveWorkspaceId,
-  );
-  const resumedSessionId = existingExecutionWorkspace?.sessionId ?? lastExecution?.sessionId;
-  const resumedWorkDir = existingExecutionWorkspace?.workDir ?? lastExecution?.workDir;
+    });
+    const lastExecution = readLatestConversationExecutionSync(
+      contact.name,
+      {
+        channelName: directChannel.name,
+        contactId: contact.name,
+      },
+      effectiveWorkspaceId,
+    );
+    const humanMessage = pushWorkspaceMessageToChannel(currentState, directChannel.name, {
+      speaker: humanMemberName,
+      speakerUserId: requesterUserId,
+      role: "human",
+      summary: trimmed,
+      status: "completed",
+      attachments,
+      data: buildExternalMessageData(governedExternalInput),
+    }, effectiveWorkspaceId);
+    const shell = ensureLegacyContactShell(currentState, contact.name, contact, true, humanMemberName);
+    if (shell) {
+      upsertDirectConversationStateSync(
+        {
+          contactId: contact.name,
+          humanMemberName,
+          sessionId: lastExecution?.sessionId,
+          workDir: lastExecution?.workDir,
+        },
+        effectiveWorkspaceId,
+        currentState,
+      );
+    }
+
+    return {
+      channelName: directChannel.name,
+      humanMessage,
+      resumedSessionId: existingExecutionWorkspace?.sessionId ?? lastExecution?.sessionId,
+      resumedWorkDir: existingExecutionWorkspace?.workDir ?? lastExecution?.workDir,
+    };
+  });
+  const {
+    channelName,
+    humanMessage,
+    resumedSessionId,
+    resumedWorkDir,
+  } = persistedMessage.value;
   const queued = enqueueNativeTaskSync({
     workspaceId: effectiveWorkspaceId,
     assignee: contact.name,
     title: `联系人私聊 · ${contact.name}`,
-    channel: directChannel.name,
+    channel: channelName,
     priority: "medium",
     triggerType: "channel_chat",
     requestedByUserId: requesterUserId,
@@ -149,10 +176,10 @@ export function sendContactMessageForHumanWithAttachmentsSync(
     metadata: {
       contactId: contact.name,
       sourceMessageId: humanMessage.id,
-      channelName: directChannel.name,
+      channelName,
       channelMessage: trimmed,
-      channelHistory: state.messages
-        .filter((message) => sameValue(message.channel ?? "", directChannel.name))
+      channelHistory: persistedMessage.state.messages
+        .filter((message) => sameValue(message.channel ?? "", channelName))
         .slice()
         .reverse()
         .map((message) => ({
@@ -166,7 +193,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
           mentions: message.mentions?.map((item) => item.token) ?? [],
           attachments: message.attachments?.map((attachment) => attachment.fileName) ?? [],
         })),
-      channelHistoryPath: getChannelHistoryFilePath(directChannel.name, effectiveWorkspaceId),
+      channelHistoryPath: getChannelHistoryFilePath(channelName, effectiveWorkspaceId),
       channelSessionId: resumedSessionId,
       ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
       attachments:
@@ -179,63 +206,67 @@ export function sendContactMessageForHumanWithAttachmentsSync(
     },
   });
 
-  if (!queued) {
-    pushWorkspaceMessageToChannel(state, directChannel.name, {
-      speaker: "System",
-      role: "agent",
-      summary: `${contact.name} does not have an executable container bound and cannot process this direct message.`,
-      code: "contact.unavailable",
-      data: { contact_name: contact.name },
-      status: "error",
-    }, effectiveWorkspaceId);
-  } else {
-    pushWorkspaceMessageToChannel(state, directChannel.name, {
-      speaker: contact.name,
-      role: "agent",
-      summary: "Thinking",
-      code: "agent.pending",
-      data: {
-        agent_name: contact.name,
-        source_message_id: humanMessage.id,
-        source_task_queue_id: queued.id,
-      },
-      status: "pending",
-    }, effectiveWorkspaceId);
-    state.ledger.unshift({
-      title: "Direct message queued",
-      note: `${humanMemberName} started a direct message with ${contact.name}, and it was queued for an agent.`,
-    });
-    upsertConversationExecutionWorkspaceState(state, {
-      channelName: directChannel.name,
-      agentId: contact.name,
-      contactId: contact.name,
-      humanMemberName,
-      sessionId: resumedSessionId,
-      workDir: resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
-        workspaceId: effectiveWorkspaceId,
-        channelName: directChannel.name,
-        agentId: contact.name,
-      }),
-      lastTaskQueueId: queued.id,
-      lastError: null,
-    });
-  }
+  return mutateWorkspaceStateSync(effectiveWorkspaceId, (currentState) => {
+    if (!queued) {
+      pushWorkspaceMessageToChannel(currentState, channelName, {
+        speaker: "System",
+        role: "agent",
+        summary: `${contact.name} does not have an executable container bound and cannot process this direct message.`,
+        code: "contact.unavailable",
+        data: { contact_name: contact.name, source_message_id: humanMessage.id },
+        status: "error",
+      }, effectiveWorkspaceId);
+      return;
+    }
 
-  const shell = ensureLegacyContactShell(state, contact.name, contact, true, humanMemberName);
-  if (shell) {
-    upsertDirectConversationStateSync(
-      {
+    const queuedTask = readQueuedTaskSync(queued.id);
+    const taskIsActive = queuedTask !== null && ["queued", "claimed", "running"].includes(queuedTask.status);
+    const hasTaskMessage = currentState.messages.some((message) =>
+      sameValue(message.channel ?? "", channelName) &&
+      message.data?.source_task_queue_id === queued.id,
+    );
+    if (taskIsActive && !hasTaskMessage) {
+      pushWorkspaceMessageToChannel(currentState, channelName, {
+        speaker: contact.name,
+        role: "agent",
+        summary: "Thinking",
+        code: "agent.pending",
+        data: {
+          agent_name: contact.name,
+          source_message_id: humanMessage.id,
+          source_task_queue_id: queued.id,
+        },
+        status: "pending",
+      }, effectiveWorkspaceId);
+    }
+    if (!currentState.ledger.some((entry) => entry.data?.source_task_queue_id === queued.id)) {
+      currentState.ledger.unshift({
+        title: "Direct message queued",
+        note: `${humanMemberName} started a direct message with ${contact.name}, and it was queued for an agent.`,
+        code: "direct_message.queued",
+        data: {
+          source_message_id: humanMessage.id,
+          source_task_queue_id: queued.id,
+        },
+      });
+    }
+    if (taskIsActive) {
+      upsertConversationExecutionWorkspaceState(currentState, {
+        channelName,
+        agentId: contact.name,
         contactId: contact.name,
         humanMemberName,
-        sessionId: lastExecution?.sessionId,
-        workDir: lastExecution?.workDir,
-      },
-      effectiveWorkspaceId,
-      state,
-    );
-  }
-
-  return writeWorkspaceStateSync(state, effectiveWorkspaceId);
+        sessionId: resumedSessionId,
+        workDir: resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
+          workspaceId: effectiveWorkspaceId,
+          channelName,
+          agentId: contact.name,
+        }),
+        lastTaskQueueId: queued.id,
+        lastError: null,
+      });
+    }
+  }, { maxAttempts: 10 }).state;
 }
 
 export function sendHumanDirectMessageSync(input: {

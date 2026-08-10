@@ -25,6 +25,7 @@ import {
   createTemplateSync,
   createWorkspaceSkillSync,
   listEmployeeKnowledgePageIdsSync,
+  mutateWorkspaceStateSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   sendChannelHumanMessageSync,
@@ -98,6 +99,27 @@ test("channel, contact, and task writes stay inside the target workspace", () =>
   );
   assert.equal(existsSync(workspaceHistoryPath), true);
   assert.equal(existsSync(defaultHistoryPath), false);
+});
+
+test("workspace mutations retry version conflicts without dropping the concurrent write", () => {
+  let attempts = 0;
+  const result = mutateWorkspaceStateSync(WORKSPACE_ID, (state) => {
+    attempts += 1;
+    if (attempts === 1) {
+      const concurrentState = readWorkspaceStateSync(WORKSPACE_ID);
+      concurrentState.organizationName = "Mars Labs Concurrent";
+      writeWorkspaceStateSync(concurrentState, WORKSPACE_ID);
+    }
+    state.ledger.unshift({
+      title: "Retried mutation",
+      note: "The intended mutation survived a workspace version conflict.",
+    });
+    return attempts;
+  });
+
+  assert.equal(result.value, 2);
+  assert.equal(result.state.organizationName, "Mars Labs Concurrent");
+  assert.equal(result.state.ledger[0]?.title, "Retried mutation");
 });
 
 test("channel document creation and export stay inside the target workspace", () => {

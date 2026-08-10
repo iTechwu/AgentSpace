@@ -663,6 +663,75 @@ test("runProviderTask starts a new Codex conversation when resume rollout is mis
   }
 });
 
+test("runProviderTask starts a new Codex conversation when a resumed transport stalls", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-stalled-resume-"));
+  const binPath = join(workDir, "codex");
+  const argsDir = join(workDir, "args");
+  const countPath = join(workDir, "count.txt");
+  mkdirSync(argsDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f \"$CODEX_COUNT_PATH\" ]; then count=$(cat \"$CODEX_COUNT_PATH\"); fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > \"$CODEX_COUNT_PATH\"",
+      "args_path=\"$CODEX_ARGS_DIR/invocation-$count.txt\"",
+      ": > \"$args_path\"",
+      "output_path=\"\"",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$args_path\"",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then output_path=\"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "if [ \"$count\" = \"1\" ]; then",
+      "  printf '%s\\n' '{\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. request timed out\"}'",
+      "  exit 1",
+      "fi",
+      "printf '%s' 'fresh codex reply' > \"$output_path\"",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-fresh\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-stalled-resume-test",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    const events: Array<{ type: string; content?: string }> = [];
+    const result = await runProviderTask(runtime, "continue work", workDir, {
+      sessionId: "session-stalled",
+      contextEnv: {
+        CODEX_ARGS_DIR: argsDir,
+        CODEX_COUNT_PATH: countPath,
+      },
+      taskTimeoutMs: 5_000,
+      onEvent: (event) => events.push(event),
+    });
+
+    const firstArgs = readFileSync(join(argsDir, "invocation-1.txt"), "utf8").trim().split(/\r?\n/);
+    const secondArgs = readFileSync(join(argsDir, "invocation-2.txt"), "utf8").trim().split(/\r?\n/);
+    assert.equal(result.output, "fresh codex reply");
+    assert.equal(result.sessionId, "session-fresh");
+    assert.deepEqual(firstArgs.slice(0, 2), ["exec", "resume"]);
+    assert.equal(secondArgs.slice(0, 2).join(" "), "exec --json");
+    assert.equal(secondArgs.includes("session-stalled"), false);
+    assert.equal(events.some((event) => event.type === "status" && event.content?.includes("starting a new conversation")), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runProviderTask passes one-shot Claude prompts as a CLI argument", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-stdin-"));
   const binPath = join(workDir, "claude");

@@ -168,7 +168,7 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(launcher, /--env HOME=\/dofe-home/);
     assert.match(
       launcher,
-      /PATH=\/workspace\/\.dofe-runtime\/skill-runner-bin:\/dofe-home\/\.local\/bin:\/pnpm:\/usr\/local\/sbin/,
+      /PATH=\/workspace\/\.dofe-runtime\/skill-runner-bin:\/dofe-home\/\.local\/bin:\/home\/npm-global\/bin:\/pnpm:\/usr\/local\/sbin/,
     );
     assert.match(launcher, /--env OPENAI_BASE_URL/);
     assert.match(launcher, /--entrypoint node/);
@@ -176,6 +176,7 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(launcher, /--env DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID/);
     assert.match(launcher, /--env DOFE_AGENT_ATTRIBUTION_ROOT_TASK_ID/);
     assert.match(launcher, /--read-only/);
+    assert.match(launcher, /--no-healthcheck/);
     assert.match(launcher, /--security-opt no-new-privileges/);
     assert.match(launcher, /--cap-drop ALL/);
     assert.doesNotMatch(launcher, /\\\n\n/, "launcher command continuation must not contain blank lines");
@@ -186,6 +187,7 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(proxy, /x-dofe-attribution-signature/);
     assert.match(proxy, /startsWith\("x-dofe-"\)/);
     assert.match(proxy, /process\.env\[runtimeKeyName\] = runtimeKey/);
+    assert.match(proxy, /prefer_websockets=false/);
     assert.match(proxy, /model_provider=\\\"dofe-managed\\\"/);
     assert.match(proxy, /model_providers\.dofe-managed\.base_url/);
     assert.match(proxy, /model_providers\.dofe-managed\.supports_websockets=false/);

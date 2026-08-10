@@ -97,6 +97,7 @@ export interface RemoteDaemonConfig {
   serverUrl?: string;
   daemonToken?: string;
   managedNode: boolean;
+  codexMcpExperimentalEnabled: boolean;
 }
 
 export interface RemoteRuntimeActivity {
@@ -646,6 +647,7 @@ export function buildRemoteDaemonConfig(
     serverUrl: getStringFlag(flags, "server-url")?.trim() || environment.DOFE_AGENT_SERVER_URL?.trim(),
     daemonToken: getStringFlag(flags, "daemon-token")?.trim() || environment.DOFE_AGENT_DAEMON_TOKEN?.trim(),
     managedNode: flags["managed-node"] === true || environment.DOFE_AGENT_MANAGED_NODE === "1" || environment.DOFE_AGENT_MANAGED_NODE === "true",
+    codexMcpExperimentalEnabled: environment.MCP_CODEX_EXPERIMENTAL_ENABLED === "1",
   };
 }
 
@@ -670,6 +672,7 @@ Environment:
   DOFE_AGENT_HEARTBEAT_INTERVAL
   DOFE_AGENT_TASK_POLL_INTERVAL
   DOFE_AGENT_TASK_TIMEOUT_MS
+  MCP_CODEX_EXPERIMENTAL_ENABLED
 
 Examples:
   dofe-agent-daemon start --foreground --server-url https://dofe-agent.example --daemon-token adt_xxx
@@ -1284,7 +1287,7 @@ async function executeRemoteTask(
       bundle.prompt,
       workDir,
       {
-        sessionId: bundle.metadata.routerSession?.providerSessionId ?? resolveRemoteTaskProviderSessionId(task.inputJson),
+        sessionId: resolveRemoteTaskExecutionSessionId(bundle.metadata.routerSession, task.inputJson),
         modelId: effectiveModelId,
         executionPolicy: bundle.metadata.executionPolicy,
         skillEnvKeys: Object.keys(skillEnvironment.providerEnv),
@@ -1316,6 +1319,7 @@ async function executeRemoteTask(
           ...skillRunner.capabilities,
         ],
         mcpGatewayUrl: mcpSession?.url,
+        codexMcpInjectionEnabled: config.codexMcpExperimentalEnabled,
         onEvent: (event) => {
           if (event.type === "usage" && event.inputJson) {
             const inputTokens = readFiniteNumber(event.inputJson.input_tokens);
@@ -2117,6 +2121,16 @@ function isConversationScopedRemoteTask(task: ClaimedDaemonTask): boolean {
 export function resolveRemoteTaskProviderSessionId(inputJson: string): string | undefined {
   const sessionId = parseTaskInputJson(inputJson).channelSessionId?.trim();
   return sessionId || undefined;
+}
+
+export function resolveRemoteTaskExecutionSessionId(
+  routerSession: DaemonTaskInputBundle["metadata"]["routerSession"],
+  inputJson: string,
+): string | undefined {
+  if (routerSession) {
+    return routerSession.providerSessionId?.trim() || undefined;
+  }
+  return resolveRemoteTaskProviderSessionId(inputJson);
 }
 
 function readRemoteTaskAgentName(task: ClaimedDaemonTask): string {

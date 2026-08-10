@@ -39,10 +39,9 @@ export interface AgentRouterRunRequest {
    */
   mcpGatewayUrl?: string;
   /**
-   * Codex MCP experiment switch (P1-2): when false, the codex adapter does NOT
-   * inject the loopback gateway as `mcp_servers`, even if `mcpGatewayUrl` is
-   * set — a gradual-rollout / kill switch for codex MCP isolation before the
-   * market eligibility gate passes E2E.
+   * Codex MCP experiment switch (P1-2): only true injects the loopback gateway
+   * as `mcp_servers`. Missing or false keeps the unverified integration closed
+   * until the market eligibility gate passes E2E.
    */
   codexMcpInjectionEnabled?: boolean;
   onApprovalRequest?: (request: AgentRouterApprovalRequest) => Promise<AgentRouterApprovalDecision>;

@@ -65,14 +65,14 @@ export function buildClaudeMcpGatewayArgs(url: string): McpGatewayInjection {
  */
 /**
  * P1-2 Codex MCP experiment switch: the gateway injection applies only when a
- * session URL is present AND the switch is not explicitly disabled. Ops can
- * kill the codex MCP isolation rollout without touching session wiring.
+ * session URL is present AND the switch is explicitly enabled. The unverified
+ * Codex MCP path stays fail-closed without affecting Claude MCP sessions.
  */
 export function shouldInjectCodexMcpGateway(input: {
   mcpGatewayUrl?: string;
   codexMcpInjectionEnabled?: boolean;
 }): boolean {
-  return Boolean(input.mcpGatewayUrl) && input.codexMcpInjectionEnabled !== false;
+  return Boolean(input.mcpGatewayUrl) && input.codexMcpInjectionEnabled === true;
 }
 
 export function buildCodexMcpGatewayArgs(url: string): McpGatewayInjection {

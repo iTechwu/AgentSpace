@@ -61,7 +61,7 @@ test("mcpGatewayUrlRedactions is empty for an empty url and does not throw", () 
 });
 
 test("shouldInjectCodexMcpGateway honors the experiment switch", () => {
-  assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL }), true, "defaults to enabled with a URL");
+  assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL }), false, "defaults to disabled until explicitly enabled");
   assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL, codexMcpInjectionEnabled: false }), false, "kill switch disables injection");
   assert.equal(shouldInjectCodexMcpGateway({}), false, "no URL → no injection");
   assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL, codexMcpInjectionEnabled: true }), true);
