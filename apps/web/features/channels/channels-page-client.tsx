@@ -627,6 +627,9 @@ export function ChannelsPageClient({
   const [detailLoadError, setDetailLoadError] = useState<string | null>(null);
   const [openMontageRefreshVersion, setOpenMontageRefreshVersion] = useState(0);
   const [hasOpenMontageJobs, setHasOpenMontageJobs] = useState(false);
+  const [composerExecutionPolicyOverrides, setComposerExecutionPolicyOverrides] = useState<
+    Map<string, EmployeeExecutionPolicy | null>
+  >(() => new Map());
   const [isPending, startTransition] = useTransition();
   const fileUploadInputRef = useRef<HTMLInputElement>(null);
   const fileSearchInputRef = useRef<HTMLInputElement>(null);
@@ -1248,12 +1251,19 @@ export function ChannelsPageClient({
   const selectedComposerAgent = useMemo(() => {
     const employeeId = selectedChannel?.contactId
       ?? (selectedChannel?.employeeNames?.length === 1 ? selectedChannel.employeeNames[0] : undefined);
-    return employeeId
+    const selected = employeeId
       ? data.composerAgents?.find((agent) =>
           agent.id.localeCompare(employeeId, "zh-CN", { sensitivity: "base" }) === 0
         )
       : undefined;
-  }, [data.composerAgents, selectedChannel]);
+    if (!selected || !composerExecutionPolicyOverrides.has(selected.id)) {
+      return selected;
+    }
+    return {
+      ...selected,
+      executionPolicy: composerExecutionPolicyOverrides.get(selected.id) ?? undefined,
+    };
+  }, [composerExecutionPolicyOverrides, data.composerAgents, selectedChannel]);
   const composerRuntime: ConversationComposerRuntime | undefined =
     selectedComposerAgent?.provider === "claude" || selectedComposerAgent?.provider === "codex"
       ? {
@@ -2200,6 +2210,11 @@ export function ChannelsPageClient({
               if (result.invalidation) {
                 onInvalidation?.(result.invalidation);
               }
+              setComposerExecutionPolicyOverrides((current) => {
+                const next = new Map(current);
+                next.set(employeeId, executionPolicy ?? null);
+                return next;
+              });
               updateSucceeded = true;
             },
             pushToast,

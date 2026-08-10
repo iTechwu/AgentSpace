@@ -13,8 +13,10 @@ import {
   createEmployeeSync,
   createWorkspaceSkillSync,
   initializeOrganizationSync,
+  readWorkspaceStateSync,
   resetWorkspaceStateSync,
   setEmployeeSkillIdsSync,
+  updateEmployeeExecutionPolicySync,
   upsertAgentSkillRequirementsSync,
 } from "../index.ts";
 
@@ -139,4 +141,17 @@ test("bindEmployeeRuntimeSync ignores unconfigured declarations when checking cr
     () => bindEmployeeRuntimeSync("Nova", runtimeId, WORKSPACE_ID, TEST_USER_ID),
     /runtime\.credential_key_conflict:OPENAI_API_KEY:skill:openai-skill/,
   );
+});
+
+test("updateEmployeeExecutionPolicySync persists the selected policy in the workspace snapshot", () => {
+  createEmployeeSync({ name: "Atlas", role: "Planner" }, WORKSPACE_ID);
+
+  updateEmployeeExecutionPolicySync(
+    "Atlas",
+    { claudePermissionMode: "plan" },
+    WORKSPACE_ID,
+  );
+
+  const persisted = readWorkspaceStateSync(WORKSPACE_ID).activeEmployees.find((employee) => employee.name === "Atlas");
+  assert.deepEqual(persisted?.executionPolicy, { claudePermissionMode: "plan" });
 });

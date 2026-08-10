@@ -9,6 +9,7 @@ import {
   createDefaultWorkspaceState,
   type ActiveEmployee,
   type DofeAgentState,
+  type EmployeeExecutionPolicy,
   type ChannelRecord,
   type DirectConversationState,
   type HumanMember,
@@ -580,6 +581,7 @@ function normalizeActiveEmployee(employee: unknown, skillPool: WorkspaceSkill[])
         : undefined,
     channelMemberAccess: normalizeEmployeeChannelMemberAccess(candidate),
     defaultModel: typeof candidate.defaultModel === "string" ? candidate.defaultModel : undefined,
+    executionPolicy: normalizeEmployeeExecutionPolicy(candidate.executionPolicy),
     origin: candidate.origin,
     summary: candidate.summary,
     traits: Array.isArray(candidate.traits) ? candidate.traits.filter((item): item is string => typeof item === "string") : [],
@@ -600,6 +602,37 @@ function normalizeEmployeeChannelMemberAccess(candidate: Partial<ActiveEmployee>
   return typeof candidate.ownerUserId === "string" && candidate.ownerUserId.trim().length > 0
     ? "disabled"
     : "enabled";
+}
+
+function normalizeEmployeeExecutionPolicy(value: unknown): EmployeeExecutionPolicy | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const policy: EmployeeExecutionPolicy = {};
+  if (
+    candidate.claudePermissionMode === "manual" ||
+    candidate.claudePermissionMode === "acceptEdits" ||
+    candidate.claudePermissionMode === "plan" ||
+    candidate.claudePermissionMode === "auto"
+  ) {
+    policy.claudePermissionMode = candidate.claudePermissionMode;
+  }
+  if (
+    candidate.codexApprovalPolicy === "untrusted" ||
+    candidate.codexApprovalPolicy === "on-request" ||
+    candidate.codexApprovalPolicy === "never"
+  ) {
+    policy.codexApprovalPolicy = candidate.codexApprovalPolicy;
+  }
+  if (
+    candidate.codexSandboxMode === "workspace-write" ||
+    candidate.codexSandboxMode === "danger-full-access"
+  ) {
+    policy.codexSandboxMode = candidate.codexSandboxMode;
+  }
+  return Object.keys(policy).length > 0 ? policy : undefined;
 }
 
 function normalizeWorkspaceSkills(skills: unknown, fallback: WorkspaceSkill[]): WorkspaceSkill[] {
