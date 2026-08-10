@@ -325,11 +325,19 @@ export async function callOpenMontageJobActionAsync(
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    throw new OpenMontageJobActionError(
+    const actionError = new OpenMontageJobActionError(
       response.status,
       await readSafeDownstreamErrorCode(response),
       readSafeTraceId(response.headers),
     );
+    if (response.status === 404 || response.status === 409) {
+      try {
+        await (options.reconcile ?? reconcileOpenMontageJobAsync)(input.jobId, { environment });
+      } catch {
+        // Keep the action conflict authoritative; scheduled reconciliation remains a recovery path.
+      }
+    }
+    throw actionError;
   }
 
   try {

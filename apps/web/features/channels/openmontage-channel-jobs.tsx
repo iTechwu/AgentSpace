@@ -29,7 +29,7 @@ export function OpenMontageChannelJobs({
     onPresenceChange?.(jobs.length > 0);
   }, [jobs.length, onPresenceChange]);
 
-  const loadJobs = useCallback(async (signal: AbortSignal): Promise<void> => {
+  const loadJobs = useCallback(async (signal: AbortSignal): Promise<OpenMontageJobProjection[]> => {
     const response = await fetch(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelName)}/openmontage/jobs`,
       { signal },
@@ -41,6 +41,7 @@ export function OpenMontageChannelJobs({
     const nextJobs = parseProjectionList(body);
     setJobs((current) => current.length === 0 && nextJobs.length === 0 ? current : nextJobs);
     setLoadError(false);
+    return nextJobs;
   }, [channelName, workspaceId]);
 
   useEffect(() => {
@@ -68,7 +69,19 @@ export function OpenMontageChannelJobs({
       },
     );
     if (!response.ok) {
-      throw new Error(await readActionError(response, tx));
+      const message = await readActionError(response, tx);
+      if (response.status === 409) {
+        try {
+          const nextJobs = await loadJobs(AbortSignal.timeout(10_000));
+          const latestJob = nextJobs.find((job) => job.jobId === action.jobId);
+          if (latestJob && latestJob.lastAppliedSequence !== action.expectedSequence) {
+            return;
+          }
+        } catch {
+          setLoadError(true);
+        }
+      }
+      throw new Error(message);
     }
     await loadJobs(AbortSignal.timeout(10_000));
   }

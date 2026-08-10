@@ -66,6 +66,7 @@ describe("OpenMontageChannelJobs", () => {
 
     expect(await screen.findByText("处理失败")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "取消任务" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
