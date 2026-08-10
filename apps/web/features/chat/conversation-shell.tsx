@@ -242,7 +242,7 @@ export function ConversationShell({
   const folderInputRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const focusComposerRequestRef = useRef<number | null>(null);
-  const pendingMessageScrollIdRef = useRef<string | null>(null);
+  const pendingMessageScrollRef = useRef<OptimisticConversationMessage | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const previousSelectedIdRef = useRef<string | null>(null);
   const threadViewportVisibleRef = useRef(false);
@@ -493,21 +493,32 @@ export function ConversationShell({
       shouldStickToBottomRef.current = savedAnchor?.stickToBottom ?? true;
       return;
     }
-    if (switchedConversation || isPending || shouldStickToBottomRef.current) {
+    if (
+      switchedConversation ||
+      (isPending && !pendingMessageScrollRef.current) ||
+      shouldStickToBottomRef.current
+    ) {
       viewport.scrollTop = viewport.scrollHeight;
     }
   }, [hasCustomThreadContent, isPending, messages, selectedItemId]);
 
   useLayoutEffect(() => {
-    const messageId = pendingMessageScrollIdRef.current;
+    const target = pendingMessageScrollRef.current;
     const viewport = threadViewportRef.current;
-    if (!messageId || !viewport) {
+    if (!target || !viewport) {
       return;
     }
 
+    const serverMessageCopy = messages.find((message) => (
+      !target.serverMessageIdsAtSubmission.includes(message.id) &&
+      message.role === "human" &&
+      message.content === target.content &&
+      message.replyToMessageId === target.replyToMessageId
+    ));
+    const targetMessageIds = new Set([target.id, serverMessageCopy?.id]);
     const submittedMessage = Array.from(
       viewport.querySelectorAll<HTMLElement>("[data-conversation-message-id]"),
-    ).find((element) => element.dataset.conversationMessageId === messageId);
+    ).find((element) => targetMessageIds.has(element.dataset.conversationMessageId));
     if (!submittedMessage) {
       return;
     }
@@ -516,8 +527,10 @@ export function ConversationShell({
       submittedMessage.scrollIntoView({ block: "center", inline: "nearest" });
       shouldStickToBottomRef.current = false;
     }
-    pendingMessageScrollIdRef.current = null;
-  }, [optimisticMessages, selectedItemId]);
+    if (!isPending || Boolean(serverMessageCopy)) {
+      pendingMessageScrollRef.current = null;
+    }
+  }, [isPending, messages, optimisticMessages, selectedItemId]);
 
   useEffect(() => {
     if (!isCompactLayout) {
@@ -568,6 +581,9 @@ export function ConversationShell({
             })
         : [],
     [activeMentionQuery, mentionCandidates],
+  );
+  const hasMentionablePeople = mentionCandidates.some((candidate) =>
+    candidate.kind === undefined || candidate.kind === "human" || candidate.kind === "agent",
   );
   const activeSlashQuery = findDraftSlashQuery(draft, draftCaretIndex);
   const slashSuggestions = useMemo(() => {
@@ -691,7 +707,7 @@ export function ConversationShell({
         deliveryStatus: "sending",
         replyToMessageId: submittedReplyToMessage?.id,
       };
-      pendingMessageScrollIdRef.current = optimisticMessageId;
+      pendingMessageScrollRef.current = optimisticMessage;
       setOptimisticMessages((current) => [
         ...current.filter((message) => !(
           message.conversationId === selectedItemId &&
@@ -1126,6 +1142,7 @@ export function ConversationShell({
                     folderInputRef={folderInputRef}
                     isPending={isPending}
                     isAgentRunning={isAgentRunning}
+                    hasMentionablePeople={hasMentionablePeople}
                     mediaInputRef={mediaInputRef}
                     mentionSuggestions={mentionSuggestions}
                     references={selectedReferences}

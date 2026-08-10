@@ -212,6 +212,40 @@ describe("ConversationShell", () => {
     expect(screen.getAllByText("Mina").length).toBeGreaterThan(0);
   });
 
+  it("keeps the no-mention warning visible while the composer draft changes", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    const warning = "当前没有可 @ 的成员或 AI员工。";
+    expect(screen.getByRole("alert")).toHaveTextContent(warning);
+
+    const composer = screen.getByRole("textbox");
+    await user.type(composer, "先写一点内容 @");
+    await user.keyboard("{Backspace}");
+
+    expect(screen.getByRole("alert")).toHaveTextContent(warning);
+  });
+
   it("keeps the active agent reply after later execution updates", () => {
     render(
       <LanguageProvider>

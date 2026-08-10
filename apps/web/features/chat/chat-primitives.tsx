@@ -810,6 +810,7 @@ export function ChatComposer({
   executionPolicyPending = false,
   feedback,
   files,
+  hasMentionablePeople,
   isPending,
   mentionSuggestions,
   references,
@@ -850,6 +851,7 @@ export function ChatComposer({
   executionPolicyPending?: boolean;
   feedback: string | null;
   files: Array<{ id: string; label: string; file: File }>;
+  hasMentionablePeople: boolean;
   isPending: boolean;
   mentionSuggestions: ConversationMentionCandidate[];
   references: Array<{ id: string; label: string; kind: "file" | "skill" }>;
@@ -895,6 +897,10 @@ export function ChatComposer({
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const executionPolicyRef = useRef<HTMLDivElement>(null);
   const hasDraft = draft.trim().length > 0 || files.length > 0 || references.length > 0;
+  const noMentionWarning = hasMentionablePeople
+    ? null
+    : tx("当前没有可 @ 的成员或 AI员工。", "There are no members or AI employees available to mention.");
+  const displayedFeedback = feedback ?? noMentionWarning;
   const isStopAction = isAgentRunning && !hasDraft;
   const activeSuggestions = slashSuggestions.length > 0 ? slashSuggestions : mentionSuggestions;
   const slashMenuOpen = slashSuggestions.length > 0 && !suggestionsDismissed;
@@ -943,7 +949,7 @@ export function ChatComposer({
 
   return (
     <div className="inbox-composer">
-      {feedback ? <FeedbackBanner feedback={{ tone: "error", message: feedback }} /> : null}
+      {displayedFeedback ? <FeedbackBanner feedback={{ tone: "error", message: displayedFeedback }} /> : null}
       {queuedMessages.length > 0 ? (
         <section aria-label={tx("消息队列", "Message queue")} className="conversation-message-queue">
           <div className="conversation-message-queue__header">
