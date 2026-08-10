@@ -118,14 +118,14 @@ describe("TaskBoardPageClient", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByText("整理行程")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "整理行程" })).toHaveAttribute("title", "整理行程");
     expect(screen.queryByText("确认酒店")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Done/i }));
+    await user.click(screen.getByRole("button", { name: /完成/i }));
     expect(screen.getByText("确认酒店")).toBeInTheDocument();
     expect(screen.queryByText("整理行程")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Todo/i }));
+    await user.click(screen.getByRole("button", { name: /待办/i }));
     await user.selectOptions(screen.getByRole("combobox", { name: "更新任务状态" }), "done");
     expect(moveTaskToColumnAction).toHaveBeenCalledWith("task-1", "done");
   });
@@ -180,7 +180,7 @@ describe("TaskBoardPageClient", () => {
       "href",
       "/w/yootun-all-%E4%BC%98%E6%83%A0%E8%B1%9A-%E5%85%A8%E4%BD%93-87e967/im",
     );
-    expect(screen.queryByRole("heading", { name: "Todo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "待办" })).not.toBeInTheDocument();
   });
 
   it("opens the shared workflow builder from the task board", () => {

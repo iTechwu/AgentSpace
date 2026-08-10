@@ -65,7 +65,7 @@ export function TaskBoardPageClient({
     return () => mediaQuery.removeListener(handleChange);
   }, []);
 
-  const columns = buildClientColumns(data.tasks, groupBy, data);
+  const columns = buildClientColumns(data.tasks, groupBy, data, tx);
 
   useEffect(() => {
     if (!isCompactLayout) {
@@ -249,7 +249,7 @@ function TaskCard({
 }) {
   return (
     <div
-      className={`task-board-card task-board-card--${task.priority}`}
+      className={`task-board-card task-board-card--${task.priority}${draggable ? " task-board-card--draggable" : ""}`}
       draggable={draggable}
       onDragStart={onDragStart}
     >
@@ -259,11 +259,7 @@ function TaskCard({
         </span>
         <span className={`task-board-status-dot task-board-status-dot--${task.status}`} />
       </div>
-      <h4 className="task-board-card__title">{task.title}</h4>
-      <div className="task-board-card__meta">
-        <span>{task.assignee}</span>
-        <span>{task.channel}</span>
-      </div>
+      <h4 className="task-board-card__title" title={task.title}>{task.title}</h4>
       {task.labels && task.labels.length > 0 ? (
         <div className="task-board-card__labels">
           {task.labels.map((label) => (
@@ -271,6 +267,10 @@ function TaskCard({
           ))}
         </div>
       ) : null}
+      <div className="task-board-card__meta">
+        <span title={task.assignee}>{task.assignee}</span>
+        <span title={task.channel}>{task.channel}</span>
+      </div>
       {compact && groupBy === "status" && onMoveStatus ? (
         <label className="task-board-card__status-control">
           <span>{tx("状态", "Status")}</span>
@@ -309,16 +309,17 @@ function buildClientColumns(
   tasks: TaskRecord[],
   groupBy: TaskBoardGroupBy,
   data: TaskBoardPageData,
+  tx: (zh: string, en: string) => string,
 ): TaskBoardColumn[] {
   const sorted = [...tasks].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
   if (groupBy === "status") {
     const statuses: TaskStatus[] = ["todo", "in_progress", "blocked", "done"];
     const labels: Record<TaskStatus, string> = {
-      todo: "Todo",
-      in_progress: "In Progress",
-      blocked: "Blocked",
-      done: "Done",
+      todo: tx("待办", "Todo"),
+      in_progress: tx("进行中", "In Progress"),
+      blocked: tx("阻塞", "Blocked"),
+      done: tx("完成", "Done"),
     };
     return statuses.map((status) => ({
       key: status,
@@ -339,9 +340,14 @@ function buildClientColumns(
 
   if (groupBy === "priority") {
     const priorities: Array<TaskRecord["priority"]> = ["high", "medium", "low"];
+    const labels: Record<TaskRecord["priority"], string> = {
+      high: tx("高优先级", "High priority"),
+      medium: tx("中优先级", "Medium priority"),
+      low: tx("低优先级", "Low priority"),
+    };
     return priorities.map((priority) => ({
       key: priority,
-      label: priority.charAt(0).toUpperCase() + priority.slice(1),
+      label: labels[priority],
       tasks: sorted.filter((t) => t.priority === priority),
     }));
   }
