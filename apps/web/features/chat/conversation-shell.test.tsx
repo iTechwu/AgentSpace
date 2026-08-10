@@ -212,7 +212,7 @@ describe("ConversationShell", () => {
     expect(screen.getAllByText("Mina").length).toBeGreaterThan(0);
   });
 
-  it("keeps the no-mention warning visible while the composer draft changes", async () => {
+  it("shows the no-mention warning only after requesting a mention", async () => {
     const user = userEvent.setup();
 
     render(
@@ -237,6 +237,9 @@ describe("ConversationShell", () => {
     );
 
     const warning = "当前没有可 @ 的成员或 AI员工。";
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "插入 @ 提及" }));
     expect(screen.getByRole("alert")).toHaveTextContent(warning);
 
     const composer = screen.getByRole("textbox");

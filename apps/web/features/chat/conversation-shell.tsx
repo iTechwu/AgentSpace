@@ -582,9 +582,6 @@ export function ConversationShell({
         : [],
     [activeMentionQuery, mentionCandidates],
   );
-  const hasMentionablePeople = mentionCandidates.some((candidate) =>
-    candidate.kind === undefined || candidate.kind === "human" || candidate.kind === "agent",
-  );
   const activeSlashQuery = findDraftSlashQuery(draft, draftCaretIndex);
   const slashSuggestions = useMemo(() => {
     if (!activeSlashQuery) {
@@ -1142,7 +1139,6 @@ export function ConversationShell({
                     folderInputRef={folderInputRef}
                     isPending={isPending}
                     isAgentRunning={isAgentRunning}
-                    hasMentionablePeople={hasMentionablePeople}
                     mediaInputRef={mediaInputRef}
                     mentionSuggestions={mentionSuggestions}
                     references={selectedReferences}
