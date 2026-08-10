@@ -250,7 +250,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("link", { name: /待审批/ })).toHaveAttribute("href", "/w/workspace-alpha/approvals");
 
     expect(screen.queryByRole("link", { name: /^审批/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /^项目看板/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^任务看板/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /绩效看板/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /模板库/ })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "待处理" })).toBeInTheDocument();

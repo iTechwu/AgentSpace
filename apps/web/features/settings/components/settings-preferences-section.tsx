@@ -99,7 +99,7 @@ function buildSidebarSectionOptions(tx: SettingsTx): Array<{
   return [
     { id: "messages", label: tx("通知", "Feed") },
     { id: "approvals", label: tx("审批", "Approvals") },
-    { id: "taskBoard", label: tx("项目看板", "Task Board") },
+    { id: "taskBoard", label: tx("任务看板", "Task Board") },
     { id: "channels", label: tx("消息", "Messages") },
     { id: "contacts", label: tx("联系人", "Contacts") },
     { id: "employeeManagement", label: tx("员工管理", "AI Employee Management") },

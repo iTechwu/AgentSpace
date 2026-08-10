@@ -213,7 +213,7 @@ function WorkspaceFrameContent({
           : logicalPathname === "/approvals"
             ? tx("审批", "Approvals")
             : logicalPathname === "/task/board"
-              ? tx("项目看板", "Task Board")
+              ? tx("任务看板", "Task Board")
             : logicalPathname === "/agents"
               ? mode === "container"
                 ? tx("执行引擎管理", "Execution Engine Management")
@@ -684,7 +684,7 @@ function WorkspaceFrameContent({
               <SidebarSectionLink
                 href={workspaceHref("/task/board")}
                 icon="taskBoard"
-                label={tx("项目看板", "Task Board")}
+                label={tx("任务看板", "Task Board")}
                 count={counters.openTaskCount}
                 active={logicalPathname === "/task/board"}
                 onClick={handleWorkspaceModuleLinkClick}

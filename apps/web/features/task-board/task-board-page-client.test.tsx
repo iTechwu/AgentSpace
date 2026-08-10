@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TaskBoardPageClient } from "@/features/task-board/task-board-page-client";
@@ -128,6 +128,43 @@ describe("TaskBoardPageClient", () => {
     await user.click(screen.getByRole("button", { name: /待办/i }));
     await user.selectOptions(screen.getByRole("combobox", { name: "更新任务状态" }), "done");
     expect(moveTaskToColumnAction).toHaveBeenCalledWith("task-1", "done");
+  });
+
+  it("opens task details and links back to the message context", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <TaskBoardPageClient data={data} workspaceSlug="workspace-alpha" />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    const taskCard = screen.getByRole("button", { name: "查看任务：整理行程" });
+    await user.click(taskCard);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "整理行程" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "查看消息上下文" })).toHaveAttribute(
+      "href",
+      "/w/workspace-alpha/im?focus=channel%3Atravel",
+    );
+
+    await user.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    taskCard.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(taskCard);
+    await user.selectOptions(within(screen.getByRole("dialog")).getByRole("combobox", { name: "更新任务状态" }), "blocked");
+    expect(moveTaskToColumnAction).toHaveBeenCalledWith("task-1", "blocked");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("uses module refresh callback after moving a task inside the workbench", async () => {

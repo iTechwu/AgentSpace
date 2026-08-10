@@ -42,6 +42,7 @@ export function TaskBoardPageClient({
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [selectedColumnKey, setSelectedColumnKey] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskRecord | null>(null);
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -126,7 +127,7 @@ export function TaskBoardPageClient({
             {tx("编排任务", "Orchestrate task")}
           </Link>
         )}
-        description={tx("集中查看进行中、阻塞和待处理的任务。任务由消息与自动化流程产生。", "Review active, blocked, and pending work in one place. Tasks are created from messages and automations.")}
+        description={tx("看板用于把消息与自动化产生的任务按状态集中管理，快速识别待办、推进中的工作与阻塞项。点击任务可查看上下文并更新状态。", "The board brings message and automation work into one status view, so you can spot pending, active, and blocked work quickly. Select a task to review its context and update its status.")}
         eyebrow={tx("协作", "Collaboration")}
         meta={(
           <>
@@ -213,6 +214,7 @@ export function TaskBoardPageClient({
                         compact={isCompactLayout}
                         groupBy={groupBy}
                         onMoveStatus={groupBy === "status" ? moveTaskToStatus : undefined}
+                        onOpen={() => setSelectedTask(task)}
                         task={task}
                         tx={tx}
                         draggable={groupBy === "status" && !isCompactLayout}
@@ -226,6 +228,18 @@ export function TaskBoardPageClient({
           </div>
         </>
       )}
+      {selectedTask ? (
+        <TaskDetailDialog
+          onClose={() => setSelectedTask(null)}
+          onMoveStatus={(taskId, status) => {
+            moveTaskToStatus(taskId, status);
+            setSelectedTask(null);
+          }}
+          task={selectedTask}
+          tx={tx}
+          workspaceSlug={workspaceSlug}
+        />
+      ) : null}
     </section>
   );
 }
@@ -238,6 +252,7 @@ function TaskCard({
   tx,
   draggable,
   onDragStart,
+  onOpen,
 }: {
   compact: boolean;
   groupBy: TaskBoardGroupBy;
@@ -246,12 +261,24 @@ function TaskCard({
   tx: (zh: string, en: string) => string;
   draggable: boolean;
   onDragStart: () => void;
+  onOpen: () => void;
 }) {
   return (
     <div
-      className={`task-board-card task-board-card--${task.priority}${draggable ? " task-board-card--draggable" : ""}`}
+      aria-label={tx(`查看任务：${task.title}`, `View task: ${task.title}`)}
+      className={`task-board-card task-board-card--${task.priority} task-board-card--interactive${draggable ? " task-board-card--draggable" : ""}`}
       draggable={draggable}
+      onClick={onOpen}
       onDragStart={onDragStart}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
       <div className="task-board-card__header">
         <span className={`task-board-priority task-board-priority--${task.priority}`}>
@@ -276,6 +303,7 @@ function TaskCard({
           <span>{tx("状态", "Status")}</span>
           <select
             aria-label={tx("更新任务状态", "Update task status")}
+            onClick={(event) => event.stopPropagation()}
             onChange={(event) => {
               const nextStatus = event.currentTarget.value as TaskStatus;
               if (nextStatus !== task.status) {
@@ -293,6 +321,102 @@ function TaskCard({
       ) : null}
     </div>
   );
+}
+
+function TaskDetailDialog({
+  onClose,
+  onMoveStatus,
+  task,
+  tx,
+  workspaceSlug,
+}: {
+  onClose: () => void;
+  onMoveStatus: (taskId: string, status: TaskStatus) => void;
+  task: TaskRecord;
+  tx: (zh: string, en: string) => string;
+  workspaceSlug: string;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="task-board-detail-overlay" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section
+        aria-labelledby="task-board-detail-title"
+        aria-modal="true"
+        className="task-board-detail-dialog"
+        role="dialog"
+      >
+        <header className="task-board-detail-dialog__header">
+          <div>
+            <span className="task-board-detail-dialog__eyebrow">{tx("任务详情", "Task details")}</span>
+            <h2 id="task-board-detail-title">{task.title}</h2>
+          </div>
+          <button autoFocus className="task-board-detail-dialog__close" onClick={onClose} type="button">
+            {tx("关闭", "Close")}
+          </button>
+        </header>
+
+        <p className="task-board-detail-dialog__purpose">
+          {tx("任务由消息或自动化流程产生。看板负责跟进状态，消息页保留执行上下文。", "Tasks come from messages or automations. Use the board to track status and messages to review execution context.")}
+        </p>
+
+        <dl className="task-board-detail-dialog__fields">
+          <div><dt>{tx("状态", "Status")}</dt><dd>{translateStatus(tx, task.status)}</dd></div>
+          <div><dt>{tx("优先级", "Priority")}</dt><dd>{translatePriority(tx, task.priority)}</dd></div>
+          <div><dt>{tx("负责人", "Assignee")}</dt><dd>{task.assignee}</dd></div>
+          <div><dt>{tx("群组", "Group")}</dt><dd>{task.channel}</dd></div>
+          {task.labels && task.labels.length > 0 ? (
+            <div><dt>{tx("标签", "Labels")}</dt><dd>{task.labels.join("、")}</dd></div>
+          ) : null}
+        </dl>
+
+        <label className="task-board-detail-dialog__status-control">
+          <span>{tx("更新状态", "Update status")}</span>
+          <select
+            aria-label={tx("更新任务状态", "Update task status")}
+            onChange={(event) => onMoveStatus(task.id, event.currentTarget.value as TaskStatus)}
+            value={task.status}
+          >
+            <option value="todo">{tx("待办", "Todo")}</option>
+            <option value="in_progress">{tx("进行中", "In Progress")}</option>
+            <option value="blocked">{tx("阻塞", "Blocked")}</option>
+            <option value="done">{tx("完成", "Done")}</option>
+          </select>
+        </label>
+
+        <footer className="task-board-detail-dialog__footer">
+          <Link
+            className="task-board-detail-dialog__context-link"
+            href={buildWorkspacePath(workspaceSlug, `/im?focus=channel%3A${encodeURIComponent(task.channel)}`)}
+            onClick={onClose}
+          >
+            {tx("查看消息上下文", "View message context")}
+          </Link>
+          <button className="knowledge-btn knowledge-btn--primary" onClick={onClose} type="button">
+            {tx("完成查看", "Done")}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function translateStatus(tx: (zh: string, en: string) => string, status: TaskStatus): string {
+  const labels: Record<TaskStatus, [string, string]> = {
+    todo: ["待办", "Todo"],
+    in_progress: ["进行中", "In Progress"],
+    blocked: ["阻塞", "Blocked"],
+    done: ["完成", "Done"],
+  };
+  return tx(...labels[status]);
 }
 
 function translatePriority(tx: (zh: string, en: string) => string, priority: string): string {
