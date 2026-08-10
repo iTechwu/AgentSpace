@@ -118,7 +118,12 @@ import {
   type FeishuWebSocketWorkerSupervisorHandle,
 } from "@dofe-agent/services";
 import type { ActiveEmployee, MessageAttachment } from "@dofe-agent/domain/workspace";
-import type { DaemonTaskInputBundle, RuntimeToolCapability } from "@dofe-agent/domain";
+import {
+  isDaemonProvider,
+  type DaemonProvider,
+  type DaemonTaskInputBundle,
+  type RuntimeToolCapability,
+} from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 import { HttpDaemonClient } from "../lib/daemon-client.ts";
@@ -290,6 +295,19 @@ async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
     return 1;
   }
 
+  const requiredProviders = resolveRequiredLocalProviders();
+  const missingProviders = requiredProviders.filter(
+    (provider) => !detected.some((candidate) => candidate.provider === provider),
+  );
+  if (missingProviders.length > 0) {
+    rmSync(pidPath, { force: true });
+    console.error(
+      `Required local runtime provider(s) unavailable: ${missingProviders.join(", ")}. `
+      + "Install the provider CLI and ensure it is on PATH.",
+    );
+    return 1;
+  }
+
   const registerLocalRuntimes = () => registerLocalDaemonRuntimes(config, detected);
   const snapshot = registerLocalRuntimes();
 
@@ -441,6 +459,20 @@ function registerLocalDaemonRuntimes(
 
 export function isMissingDaemonRegistrationError(error: unknown, daemonKey: string): boolean {
   return error instanceof Error && error.message === `Daemon "${daemonKey}" does not exist.`;
+}
+
+export function resolveRequiredLocalProviders(): DaemonProvider[] {
+  const configured = process.env.DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS?.trim();
+  if (!configured) {
+    return [];
+  }
+
+  return [...new Set(
+    configured
+      .split(",")
+      .map((provider) => provider.trim())
+      .filter(isDaemonProvider),
+  )];
 }
 
 async function runRemoteDaemonForeground(config: DaemonConfig): Promise<number> {

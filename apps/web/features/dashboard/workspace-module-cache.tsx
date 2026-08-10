@@ -70,6 +70,7 @@ type WorkspaceModuleCacheContextValue = {
 type PendingWorkspaceModuleRequest<TData = unknown> = {
   controller: AbortController;
   promise: Promise<TData>;
+  token: object;
 };
 
 const WorkspaceModuleCacheContext = createContext<WorkspaceModuleCacheContextValue | null>(null);
@@ -94,6 +95,9 @@ export function WorkspaceModuleCacheProvider({
   }));
   const entriesRef = useRef(cacheState.entries);
   const pendingRequestsRef = useRef<Map<string, PendingWorkspaceModuleRequest>>(new Map());
+  // Each cache key has one authoritative request. A browser fetch may still
+  // resolve after AbortController.abort(), so the request identity must guard
+  // both success and failure writes.
   const previousScopeSignatureRef = useRef<string | null>(null);
   entriesRef.current = cacheState.entries;
   const setEntries = useCallback((update: (current: Map<string, WorkspaceModuleCacheEntry>) => Map<string, WorkspaceModuleCacheEntry>) => {
@@ -240,6 +244,7 @@ export function WorkspaceModuleCacheProvider({
     }
 
     const controller = new AbortController();
+    const requestToken = {};
     setEntries((current) => {
       const next = new Map(current);
       const previousEntry = current.get(normalizedKey.cacheKey);
@@ -259,6 +264,9 @@ export function WorkspaceModuleCacheProvider({
     const promise = loader({ signal: controller.signal })
       .then((data) => {
         const loadedMetadata = typeof metadata === "function" ? metadata(data) : metadata;
+        if (controller.signal.aborted || pendingRequestsRef.current.get(normalizedKey.cacheKey)?.token !== requestToken) {
+          return data;
+        }
         setEntries((current) => {
           const next = new Map(current);
           next.set(normalizedKey.cacheKey, {
@@ -276,7 +284,7 @@ export function WorkspaceModuleCacheProvider({
         return data;
       })
       .catch((error) => {
-        if (controller.signal.aborted) {
+        if (controller.signal.aborted || pendingRequestsRef.current.get(normalizedKey.cacheKey)?.token !== requestToken) {
           throw error;
         }
         setEntries((current) => {
@@ -304,7 +312,7 @@ export function WorkspaceModuleCacheProvider({
         }
       });
 
-    pendingRequestsRef.current.set(normalizedKey.cacheKey, { controller, promise });
+    pendingRequestsRef.current.set(normalizedKey.cacheKey, { controller, promise, token: requestToken });
     return promise;
   }, [setEntries]);
 

@@ -76,4 +76,21 @@ describe("WorkspaceModuleHost", () => {
       "true",
     );
   });
+
+  it("does not render the previous route while a native navigation is still pending", () => {
+    const view = render(renderHost({
+      routePath: "/w/workspace-alpha/im",
+      routeStateSource: "url",
+      children: <div>Current message page</div>,
+    }));
+
+    view.rerender(renderHost({
+      routePath: "/w/workspace-alpha/runtimes",
+      routeStateSource: "next",
+      children: <div>Pending runtime page</div>,
+    }));
+
+    expect(screen.queryByText("Current message page")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-page-skeleton")).toBeInTheDocument();
+  });
 });

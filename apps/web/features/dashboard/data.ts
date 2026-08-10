@@ -2037,6 +2037,17 @@ export function getChannelsPageData(
     if (!channelName) {
       continue;
     }
+    // A cancellation can race with the daemon's final progress event. Keep a
+    // durable completed/error stop message, but never project a cancelled
+    // task's pending reply or process bubble back into the conversation.
+    const sourceTaskQueueId = message.data?.source_task_queue_id;
+    if (
+      message.status === "pending"
+      && sourceTaskQueueId
+      && cancelledTaskIds.has(sourceTaskQueueId)
+    ) {
+      continue;
+    }
     if (
       message.code === "approval.created"
       && message.data?.source_id

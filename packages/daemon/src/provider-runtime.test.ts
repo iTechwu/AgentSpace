@@ -792,6 +792,59 @@ test("runProviderTask maps Codex employee access levels to CLI approval and sand
   }
 });
 
+test("managed Codex runtimes bypass nested sandbox launch", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-managed-codex-policy-"));
+  const binPath = join(root, "codex");
+  const argsPath = join(root, "codex-args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      ": > \"$CODEX_ARGS_PATH\"",
+      "for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$CODEX_ARGS_PATH\"; done",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then printf '%s' 'managed policy applied' > \"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"managed-session\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-managed-codex-policy",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Managed Codex",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+      managedCredentialId: "credential-managed-policy",
+    },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "run managed task", root, {
+      executionPolicy: {
+        codexApprovalPolicy: "never",
+        codexSandboxMode: "workspace-write",
+      },
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(result.output, "managed policy applied");
+    assert.equal(args.includes("--sandbox"), false);
+    assert.equal(args.includes("workspace-write"), false);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("runProviderTask starts a new Claude conversation when resume session is missing", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-stale-resume-"));
   const binPath = join(workDir, "claude");

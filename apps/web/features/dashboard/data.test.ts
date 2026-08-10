@@ -604,6 +604,67 @@ describe("dashboard data", () => {
     expect(readWorkspaceStateSync().approvals.some((item) => item.id === approval.id)).toBe(true);
   });
 
+  it("does not project pending replies or process bubbles for cancelled tasks", () => {
+    createEmployeeSync({ name: "Claude", remarkName: "Claude" });
+    createChannelSync({
+      name: "research-cancelled",
+      humanMemberNames: [],
+      employeeNames: ["Claude"],
+      kind: "group",
+    });
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: "cancelled-message-projection-box",
+      deviceName: "Cancelled Message Projection Box",
+      runtimes: [{ provider: "claude", name: "Remote Claude", version: "test" }],
+    }).runtimes[0];
+    expect(runtime?.id).toBeTruthy();
+    bindEmployeeRuntimeSync("Claude", runtime!.id);
+    const queued = enqueueNativeTaskSync({
+      assignee: "Claude",
+      title: "Research",
+      channel: "research-cancelled",
+      priority: "medium",
+      triggerType: "mention_chat",
+      metadata: { channelName: "research-cancelled" },
+    });
+    expect(queued?.id).toBeTruthy();
+
+    const state = readWorkspaceStateSync();
+    state.messages.unshift(
+      {
+        id: "cancelled-pending-reply",
+        channel: "research-cancelled",
+        speaker: "Claude",
+        role: "agent",
+        time: new Date().toISOString(),
+        summary: "Thinking",
+        status: "pending",
+        data: { source_task_queue_id: queued!.id },
+      },
+      {
+        id: "cancelled-pending-process",
+        channel: "research-cancelled",
+        speaker: "Claude",
+        role: "agent",
+        time: new Date().toISOString(),
+        summary: "执行节点响应较慢，任务仍在队列中",
+        status: "pending",
+        kind: "process",
+        processType: "thinking",
+        data: { source_task_queue_id: queued!.id },
+      },
+    );
+    writeWorkspaceStateSync(state);
+
+    cancelQueuedTaskSync({ taskId: queued!.id, errorText: "Stopped by user." });
+
+    const messages = getChannelsPageData("techwu").threads
+      .find((thread) => thread.channelName === "research-cancelled")
+      ?.messages ?? [];
+    expect(messages.some((message) => message.id === "cancelled-pending-reply")).toBe(false);
+    expect(messages.some((message) => message.id === "cancelled-pending-process")).toBe(false);
+  });
+
   it("adds Feishu group binding summaries to channel page data for workspace managers", () => {
     createEmployeeSync({ name: "Codex", remarkName: "Codex" });
     createChannelSync({

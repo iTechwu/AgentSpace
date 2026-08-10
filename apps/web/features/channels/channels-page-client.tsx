@@ -980,7 +980,9 @@ export function ChannelsPageClient({
     feishuMemberSnapshotByChannelName,
     visibleFeishuGroupChannelNames,
   ]);
-  const selectedThread = selectedChannel ? indexes.threadByChannelName.get(selectedChannel.id) ?? null : null;
+  const selectedThread = selectedConversationChannelName
+    ? indexes.threadByChannelName.get(selectedConversationChannelName) ?? null
+    : null;
   const channelDocuments = selectedConversationChannelName
     ? indexes.documentsByChannelName.get(selectedConversationChannelName) ?? EMPTY_CHANNEL_DOCUMENTS
     : EMPTY_CHANNEL_DOCUMENTS;
@@ -1333,7 +1335,11 @@ export function ChannelsPageClient({
               ? tx("已建立私聊", "Direct message available")
               : tx("尚未开始私聊", "No direct message yet")
             : translateChannelAccessPreview(channel.accessState, tx)
-              ?? translateChannelPreview(channel.id, indexes.threadByChannelName, tx)
+              ?? translateChannelPreview(
+                resolveSelectedChannelName(channel) ?? channel.id,
+                indexes.threadByChannelName,
+                tx,
+              )
               ?? translateChannelListPreview(channel.lastMessage, tx)
               ?? tx("还没有消息", "No messages yet"),
           avatar: channel.avatarLabel ?? "#",

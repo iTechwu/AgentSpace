@@ -442,7 +442,12 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   flushMcpAuditOutbox();
   const mcpAuditOutboxTimer = setInterval(flushMcpAuditOutbox, 5_000);
   mcpAuditOutboxTimer.unref();
-  const heartbeatTimer = setInterval(() => {
+  let heartbeatInFlight = false;
+  const runHeartbeat = (): void => {
+    if (heartbeatInFlight) {
+      return;
+    }
+    heartbeatInFlight = true;
     void (async () => {
       try {
         const metadata = readNodeMetadata(
@@ -489,9 +494,13 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
         }
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Heartbeat failed: ${message}`);
+      } finally {
+        heartbeatInFlight = false;
       }
     })();
-  }, config.heartbeatIntervalMs);
+  };
+  runHeartbeat();
+  const heartbeatTimer = setInterval(runHeartbeat, config.heartbeatIntervalMs);
 
   let polling = false;
   const taskPollTimer = setInterval(() => {

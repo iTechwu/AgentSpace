@@ -17,6 +17,7 @@ import {
   clearTaskOutputArtifacts,
   isMissingDaemonRegistrationError,
   loadTaskOutputEnvelope,
+  resolveRequiredLocalProviders,
   runDaemonCommand,
   startManagedFeishuWorker,
 } from "./daemon.ts";
@@ -125,6 +126,20 @@ test("buildDaemonConfig allows a daemon to opt out of Feishu worker management",
       delete process.env.DOFE_AGENT_MANAGE_FEISHU_WORKER;
     } else {
       process.env.DOFE_AGENT_MANAGE_FEISHU_WORKER = previous;
+    }
+  }
+});
+
+test("resolveRequiredLocalProviders parses a deterministic local runtime contract", () => {
+  const previous = process.env.DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS;
+  process.env.DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS = "claude, codex, claude, unknown";
+  try {
+    assert.deepEqual(resolveRequiredLocalProviders(), ["claude", "codex"]);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS;
+    } else {
+      process.env.DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS = previous;
     }
   }
 });

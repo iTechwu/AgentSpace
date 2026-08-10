@@ -271,7 +271,7 @@ async function runAgentRouterProviderTask(
     executablePath: runtime.metadata.executablePath,
     model: options.modelId ?? resolveModelId(runtime),
     mode: runtime.provider === "codex"
-      ? options.executionPolicy?.codexSandboxMode ?? resolveAgentRouterMode(runtime)
+      ? resolveCodexLaunchMode(runtime, options.executionPolicy?.codexSandboxMode)
       : resolveAgentRouterMode(runtime),
     sessionId,
     env: contextEnv,
@@ -285,7 +285,7 @@ async function runAgentRouterProviderTask(
       ? options.executionPolicy?.claudePermissionMode ?? resolveClaudePermissionMode()
       : undefined,
     codexApprovalPolicy: runtime.provider === "codex" ? options.executionPolicy?.codexApprovalPolicy : undefined,
-    codexFullAccess: runtime.provider === "codex" && options.executionPolicy?.codexSandboxMode === "danger-full-access",
+    codexFullAccess: runtime.provider === "codex" && shouldUseCodexFullAccess(runtime, options.executionPolicy?.codexSandboxMode),
     allowedTools: runtime.provider === "claude" ? buildDefaultClaudeAllowedTools() : undefined,
     temporaryAllowedTools: options.temporaryAllowedTools,
     runtimeToolCapabilities,
@@ -398,6 +398,27 @@ function resolveAgentRouterMode(runtime: ProviderRuntimeRecord): string | undefi
     return process.env.OPENCLAW_THINKING?.trim() || undefined;
   }
   return undefined;
+}
+
+function resolveCodexLaunchMode(
+  runtime: ProviderRuntimeRecord,
+  requestedMode: string | undefined,
+): string | undefined {
+  // Managed provider launchers already execute Codex in a read-only,
+  // capability-dropped container without a Docker socket. Codex's own
+  // workspace-write sandbox attempts to start a nested Docker container and
+  // exits with code 125. The outer container is the isolation boundary.
+  if (runtime.metadata.managedCredentialId) {
+    return undefined;
+  }
+  return requestedMode ?? resolveAgentRouterMode(runtime);
+}
+
+function shouldUseCodexFullAccess(
+  runtime: ProviderRuntimeRecord,
+  requestedMode: string | undefined,
+): boolean {
+  return Boolean(runtime.metadata.managedCredentialId) || requestedMode === "danger-full-access";
 }
 
 function resolveAgentRouterSessionId(runtime: ProviderRuntimeRecord, sessionId: string | undefined): string | undefined {
@@ -1008,7 +1029,24 @@ function inspectProviderCredentialRequest(
   checkedAt: string,
 ): ProviderHealthSnapshot | null {
   if (!environment) return null;
-  const apiRequest = buildProviderCredentialProbe(provider, environment);
+  let apiRequest: ReturnType<typeof buildProviderCredentialProbe>;
+  try {
+    apiRequest = buildProviderCredentialProbe(provider, environment);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Provider credential configuration is invalid.";
+    return {
+      status: "broken",
+      checkedAt,
+      verificationKind: "provider_auth",
+      reason: message,
+      error: {
+        code: "provider.auth_invalid",
+        category: "auth",
+        provider,
+        message,
+      },
+    };
+  }
   if (apiRequest) {
     return executeProviderApiRequest(apiRequest, provider, environment, checkedAt);
   }

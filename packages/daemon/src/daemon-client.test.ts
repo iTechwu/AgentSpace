@@ -38,6 +38,28 @@ test("HttpDaemonClient retries retryable requests after transient server failure
   }
 });
 
+test("HttpDaemonClient aborts a hung request within the configured timeout", async () => {
+  const originalFetch = globalThis.fetch;
+  let receivedSignal: AbortSignal | undefined;
+  globalThis.fetch = (async (_input, init) => {
+    receivedSignal = init?.signal;
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("request aborted")), { once: true });
+    });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test", {
+      requestTimeoutMs: 5,
+      maxRetryAttempts: 1,
+    });
+    await assert.rejects(() => client.sendHeartbeat("daemon-1"), /request aborted/);
+    assert.ok(receivedSignal?.aborted);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HttpDaemonClient reads the lightweight task status endpoint", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";

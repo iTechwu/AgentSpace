@@ -405,7 +405,7 @@ describe("ChannelsPageClient", () => {
     expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/agents?mode=agent&create=agent");
   });
 
-  it("renders image previews and file links for channel attachments", () => {
+  it("renders preview controls for channel attachments", () => {
     render(
       <TestProviders>
         <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
@@ -413,7 +413,7 @@ describe("ChannelsPageClient", () => {
     );
 
     expect(screen.getByAltText("preview.png")).toHaveAttribute("src", "/api/attachments/att-channel-image");
-    expect(screen.getByRole("link", { name: /summary\.pdf/i })).toHaveAttribute("href", "/api/attachments/att-channel-file");
+    expect(screen.getByRole("button", { name: "预览 summary.pdf" })).toBeInTheDocument();
   });
 
   it("shows Feishu group binding context in the selected channel header", () => {
@@ -1380,6 +1380,25 @@ describe("ChannelsPageClient", () => {
     await waitFor(() => {
       expect(document.querySelector(".chat-model-selector")).not.toHaveClass("chat-model-selector--pending");
     });
+  });
+
+  it("loads a thread by its channel name when the list id is different", () => {
+    render(
+      <TestProviders>
+        <ChannelsPageClient
+          currentUserDisplayName="techwu"
+          data={{
+            ...data,
+            channels: [{ ...data.channels[0], id: "channel-row-id" }],
+          }}
+        />
+      </TestProviders>,
+    );
+
+    const threadPane = document.querySelector<HTMLElement>(".contacts-chat-pane");
+    expect(threadPane).not.toBeNull();
+    expect(within(threadPane as HTMLElement).getByText("请查看附件。")).toBeInTheDocument();
+    expect(within(threadPane as HTMLElement).queryByText("还没有消息")).not.toBeInTheDocument();
   });
 
   it("keeps direct conversation focus updates inside the workspace slug path", async () => {

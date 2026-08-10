@@ -26,11 +26,12 @@ CLI="$REPO/apps/cli/src/index.ts"
 WORKSPACE_ID="sso-team-c8c8d97ffcb845311387e967"
 PID_FILE="$REPO/data/daemon/dev-daemon.pid"
 LOG_FILE="$REPO/data/daemon/daemon.log"
+LOCAL_RUNTIME_PROVIDERS="claude,codex"
 
 cmd_for_unit() {
   case "${1:-}" in
     local-daemon)
-      echo "$NODE_BIN --experimental-strip-types $CLI daemon start --foreground --mode local --daemon-id yootun-local-20260725 --device-name Yootun\ Local --runtime-name Yootun\ Local\ Runtime --heartbeat-interval 15000 --task-timeout 43200000 --workspace-id $WORKSPACE_ID"
+      echo "DOFE_AGENT_RUNTIME_PROVIDER=$LOCAL_RUNTIME_PROVIDERS DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS=$LOCAL_RUNTIME_PROVIDERS $NODE_BIN --experimental-strip-types $CLI daemon start --foreground --mode local --daemon-id yootun-local-20260725 --device-name Yootun\ Local --runtime-name Yootun\ Local\ Runtime --heartbeat-interval 15000 --task-timeout 43200000 --workspace-id $WORKSPACE_ID"
       ;;
     feishu-worker)
       echo "$NODE_BIN --experimental-strip-types $CLI integrations feishu worker --workspace-id $WORKSPACE_ID"
@@ -42,7 +43,7 @@ cmd_for_unit() {
 run_unit() {
   cd "$REPO"
   case "${1:-}" in
-    local-daemon) exec "$NODE_BIN" --experimental-strip-types "$CLI" daemon start \
+    local-daemon) exec env DOFE_AGENT_RUNTIME_PROVIDER="$LOCAL_RUNTIME_PROVIDERS" DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS="$LOCAL_RUNTIME_PROVIDERS" "$NODE_BIN" --experimental-strip-types "$CLI" daemon start \
         --foreground --mode local --daemon-id yootun-local-20260725 \
         --device-name "Yootun Local" --runtime-name "Yootun Local Runtime" \
         --heartbeat-interval 15000 --task-timeout 43200000 --workspace-id "$WORKSPACE_ID" ;;
@@ -59,7 +60,7 @@ do_start() {
   rm -f "$PID_FILE"
   mkdir -p "$(dirname "$LOG_FILE")"
   # nohup + disown: survives terminal close; inherits the interactive environment.
-  nohup "$NODE_BIN" --experimental-strip-types "$CLI" daemon start \
+  nohup env DOFE_AGENT_RUNTIME_PROVIDER="$LOCAL_RUNTIME_PROVIDERS" DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS="$LOCAL_RUNTIME_PROVIDERS" "$NODE_BIN" --experimental-strip-types "$CLI" daemon start \
       --foreground --mode local --daemon-id yootun-local-20260725 \
       --device-name "Yootun Local" --runtime-name "Yootun Local Runtime" \
       --heartbeat-interval 15000 --task-timeout 43200000 --workspace-id "$WORKSPACE_ID" \

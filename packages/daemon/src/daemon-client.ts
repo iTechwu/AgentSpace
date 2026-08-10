@@ -149,6 +149,7 @@ export class HttpDaemonClient {
   private readonly daemonToken: string;
   private readonly retryDelayMs: number;
   private readonly maxRetryAttempts: number;
+  private readonly requestTimeoutMs: number;
 
   constructor(
     serverUrl: string,
@@ -156,12 +157,14 @@ export class HttpDaemonClient {
     options?: {
       retryDelayMs?: number;
       maxRetryAttempts?: number;
+      requestTimeoutMs?: number;
     },
   ) {
     this.serverUrl = serverUrl;
     this.daemonToken = daemonToken;
     this.retryDelayMs = options?.retryDelayMs ?? 250;
     this.maxRetryAttempts = Math.max(1, options?.maxRetryAttempts ?? 3);
+    this.requestTimeoutMs = Math.max(1_000, options?.requestTimeoutMs ?? 10_000);
   }
 
   async register(request: RegisterDaemonRequest): Promise<RegisterDaemonResponse> {
@@ -603,11 +606,14 @@ export class HttpDaemonClient {
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
       try {
         const response = await fetch(this.resolveUrl(path), {
           method: options.method,
           headers: this.buildHeaders(),
           body: options.body,
+          signal: controller.signal,
         });
 
         if (options.retryable && response.status >= 500 && attempt < this.maxRetryAttempts) {
@@ -622,6 +628,8 @@ export class HttpDaemonClient {
           throw error;
         }
         await sleep(this.retryDelayMs);
+      } finally {
+        clearTimeout(timeout);
       }
     }
 

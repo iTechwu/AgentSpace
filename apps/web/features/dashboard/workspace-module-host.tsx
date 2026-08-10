@@ -216,6 +216,15 @@ export function WorkspaceModuleHost({
   }, [cacheKey, cachedEntry?.metadata.stale, cachedEntry?.status, loadActiveModuleData, moduleId]);
 
   if (!shouldRenderClientModule) {
+    const nativeNavigationPending =
+      routeStateSource === "next" && preservedChildrenRouteSignatureRef.current !== routeSignature;
+    if (nativeNavigationPending) {
+      return (
+        <div className="workspace-module-stage workspace-module-stage--loading">
+          <WorkspacePageLoading loadingLabel={tx("正在切换页面", "Navigating")} moduleId={routeState.moduleId} />
+        </div>
+      );
+    }
     return (
       <div className="workspace-module-stage">
         {renderPreservedChildren(children)}

@@ -363,6 +363,39 @@ describe("WorkspaceModuleCacheProvider", () => {
     expect(observedStatuses).toContain("ready");
   });
 
+  it("does not let an aborted request overwrite a forced refresh", async () => {
+    const { getApi } = renderCacheProbe();
+    let resolveFirst: ((value: { value: string }) => void) | undefined;
+    let resolveSecond: ((value: { value: string }) => void) | undefined;
+    let callCount = 0;
+    const loader = vi.fn(({ signal }: { signal: AbortSignal }) => {
+      callCount += 1;
+      if (callCount === 1) {
+        return new Promise<{ value: string }>((resolve) => {
+          resolveFirst = resolve;
+          signal.addEventListener("abort", () => undefined, { once: true });
+        });
+      }
+      return new Promise<{ value: string }>((resolve) => {
+        resolveSecond = resolve;
+      });
+    });
+
+    act(() => {
+      void getApi().load({ cacheKey, loader }).catch(() => undefined);
+    });
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1));
+
+    const secondPromise = getApi().load({ cacheKey, loader, force: true });
+    resolveSecond?.({ value: "fresh" });
+    await expect(secondPromise).resolves.toEqual({ value: "fresh" });
+    await waitFor(() => expect(getApi().get<{ value: string }>(cacheKey)?.data?.value).toBe("fresh"));
+
+    resolveFirst?.({ value: "stale" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getApi().get<{ value: string }>(cacheKey)?.data?.value).toBe("fresh");
+  });
+
   it("keeps stale data for normal load failures and clears it for forbidden failures", async () => {
     const { getApi } = renderCacheProbe();
 
