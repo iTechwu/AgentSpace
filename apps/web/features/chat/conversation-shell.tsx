@@ -220,6 +220,7 @@ export function ConversationShell({
   const [showPicker, setShowPicker] = useState(false);
   const [showExecutionPolicyMenu, setShowExecutionPolicyMenu] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [mentionFeedback, setMentionFeedback] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [replyToMessage, setReplyToMessage] = useState<ConversationThreadMessage | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<QueuedConversationMessage[]>([]);
@@ -260,6 +261,10 @@ export function ConversationShell({
     setExecutionPolicyOverride(undefined);
     setShowExecutionPolicyMenu(false);
   }, [composerRuntime?.employeeId, composerRuntime?.provider, selectedItemId, serializedExecutionPolicy]);
+
+  useEffect(() => {
+    setMentionFeedback(null);
+  }, [mentionCandidates.length, selectedItemId]);
 
   useEffect(() => {
     if (!draftStorageKey || initialDraftHydratedRef.current || typeof window === "undefined") {
@@ -680,6 +685,7 @@ export function ConversationShell({
       setDraftCaretIndex(0);
       setSelectedReferences([]);
       setReplyToMessage(null);
+      setMentionFeedback(null);
       setFeedback(null);
       return;
     }
@@ -715,6 +721,7 @@ export function ConversationShell({
       ]);
       shouldStickToBottomRef.current = true;
     }
+    setMentionFeedback(null);
     setFeedback(null);
     setDraft("");
     setDraftCaretIndex(0);
@@ -813,6 +820,16 @@ export function ConversationShell({
       window.cancelAnimationFrame(focusComposerRequestRef.current);
       focusComposerRequestRef.current = null;
     }
+    const mentionQuery = findDraftMentionQuery(nextDraft, caretIndex);
+    const mentionUnavailable = mentionCandidates.length === 0 && mentionQuery?.query === "";
+    setMentionFeedback(
+      mentionUnavailable
+        ? tx("当前没有可 @ 的成员或 AI员工。", "There are no members or AI employees available to mention.")
+        : null,
+    );
+    if (mentionUnavailable) {
+      setFeedback(null);
+    }
     setDraft(nextDraft);
     setDraftCaretIndex(caretIndex);
   }
@@ -836,10 +853,6 @@ export function ConversationShell({
     if (!selectedHeader) {
       return;
     }
-    if (mentionCandidates.length === 0) {
-      setFeedback(tx("当前没有可 @ 的成员或 AI员工。", "There are no members or AI employees available to mention."));
-      return;
-    }
 
     const target = textareaRef.current;
     const currentCaretIndex = target?.selectionStart ?? draftCaretIndex;
@@ -848,6 +861,11 @@ export function ConversationShell({
     setDraft(nextDraft);
     setDraftCaretIndex(nextCaretIndex);
     setShowPicker(false);
+    setMentionFeedback(
+      mentionCandidates.length === 0
+        ? tx("当前没有可 @ 的成员或 AI员工。", "There are no members or AI employees available to mention.")
+        : null,
+    );
     setFeedback(null);
 
     scheduleComposerFocus(nextCaretIndex);
@@ -860,6 +878,7 @@ export function ConversationShell({
       : applyMentionSelection(draft, draftCaretIndex, candidate.label);
     setDraft(next.value);
     setDraftCaretIndex(next.caretIndex);
+    setMentionFeedback(null);
     const referenceKind = candidate.kind === "file" || candidate.kind === "skill" ? candidate.kind : undefined;
     const referenceSourceId = candidate.sourceId;
     if (referenceKind && referenceSourceId) {
@@ -891,6 +910,7 @@ export function ConversationShell({
     command: ConversationSlashCommand,
     next: { value: string; caretIndex: number },
   ): void {
+    setMentionFeedback(null);
     if (command.action === "clear") {
       setDraft("");
       setDraftCaretIndex(0);
@@ -1133,7 +1153,7 @@ export function ConversationShell({
                     draft={draft}
                     executionPolicy={effectiveExecutionPolicy}
                     executionPolicyPending={isExecutionPolicyPending}
-                    feedback={feedback}
+                    feedback={feedback ?? mentionFeedback}
                     fileInputRef={fileInputRef}
                     files={pendingFiles}
                     folderInputRef={folderInputRef}

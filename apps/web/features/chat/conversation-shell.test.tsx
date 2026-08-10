@@ -212,7 +212,7 @@ describe("ConversationShell", () => {
     expect(screen.getAllByText("Mina").length).toBeGreaterThan(0);
   });
 
-  it("shows the no-mention warning only after requesting a mention", async () => {
+  it("shows and clears the no-mention warning as the mention attempt changes", async () => {
     const user = userEvent.setup();
 
     render(
@@ -243,10 +243,29 @@ describe("ConversationShell", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(warning);
 
     const composer = screen.getByRole("textbox");
-    await user.type(composer, "先写一点内容 @");
-    await user.keyboard("{Backspace}");
+    expect(composer).toHaveValue("@");
+    await user.type(composer, "其他内容");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
+    await user.clear(composer);
+    await user.type(composer, "@");
     expect(screen.getByRole("alert")).toHaveTextContent(warning);
+
+    await user.keyboard("{Backspace}");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.type(composer, "@");
+    expect(screen.getByRole("alert")).toHaveTextContent(warning);
+
+    await user.type(composer, " ");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.clear(composer);
+    await user.type(composer, "@");
+    expect(screen.getByRole("alert")).toHaveTextContent(warning);
+
+    await user.type(composer, "任务");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("keeps the active agent reply after later execution updates", () => {
