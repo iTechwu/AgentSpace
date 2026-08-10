@@ -288,6 +288,76 @@ test("task claims allow local legacy runtimes but block incomplete managed provi
   assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId), null);
 });
 
+test("task claims serialize one user and employee while allowing other users and employees", () => {
+  const runtimeId = createRuntimeAndBinding();
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO workspace_employee (id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at)
+     VALUES ('emp-beta', 'default', 'Beta', 'Agent', 'manual', 'Beta test employee', 'Ready', 'active', '', ?, ?)
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at`,
+  ).run(now, now);
+  bindEmployeeRuntimeSync({ employeeName: "Beta", runtimeId });
+
+  const firstUserEmployeeTask = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "First user and employee task",
+    channel: "shared-channel",
+    priority: "high",
+    triggerType: "channel_chat",
+    requestedByUserId: "user-a",
+    requestedByDisplayName: "User A",
+  });
+  const sameUserEmployeeTask = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Same user and employee task",
+    channel: "another-channel",
+    priority: "high",
+    triggerType: "channel_chat",
+    requestedByUserId: "user-a",
+    requestedByDisplayName: "User A",
+  });
+  const otherUserTask = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Other user task",
+    channel: "shared-channel",
+    priority: "high",
+    triggerType: "channel_chat",
+    requestedByUserId: "user-b",
+    requestedByDisplayName: "User B",
+  });
+  const otherEmployeeTask = enqueueNativeTaskSync({
+    assignee: "Beta",
+    title: "Other employee task",
+    channel: "shared-channel",
+    priority: "high",
+    triggerType: "channel_chat",
+    requestedByUserId: "user-a",
+    requestedByDisplayName: "User A",
+  });
+  assert.ok(firstUserEmployeeTask);
+  assert.ok(sameUserEmployeeTask);
+  assert.ok(otherUserTask);
+  assert.ok(otherEmployeeTask);
+  assert.equal(firstUserEmployeeTask.routerSessionId, sameUserEmployeeTask.routerSessionId);
+  assert.notEqual(firstUserEmployeeTask.routerSessionId, otherUserTask.routerSessionId);
+  assert.notEqual(firstUserEmployeeTask.routerSessionId, otherEmployeeTask.routerSessionId);
+
+  assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId)?.id, firstUserEmployeeTask.id);
+  startQueuedTaskSync(firstUserEmployeeTask.id);
+
+  assert.equal(
+    claimNextQueuedTaskForRuntimeSync(runtimeId)?.id,
+    otherUserTask.id,
+    "another user can call the same employee concurrently",
+  );
+  assert.equal(
+    claimNextQueuedTaskForRuntimeSync(runtimeId)?.id,
+    otherEmployeeTask.id,
+    "the same user can call another employee concurrently",
+  );
+  assert.equal(readQueuedTaskSync(sameUserEmployeeTask.id)?.status, "queued");
+});
+
 test("cancelQueuedTaskSync removes the MCP session grant from the task workspace", () => {
   const { workspaceId, queued } = createTaskWithMcpGrant("cancel");
 

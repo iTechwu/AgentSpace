@@ -27,12 +27,15 @@ export function resolveTaskRouterConversationIdentity(
   const payload = safeParseJsonObject(task.inputJson);
   const channelName = readString(payload.channelName) ?? readString(payload.channel);
   const contactId = readString(payload.contactId);
+  const requester = readObject(payload.requester);
+  const requesterUserId = requester ? readString(requester.userId) : undefined;
   const title = readString(payload.title) ?? task.issueId ?? task.id;
 
   if ((task.triggerType === "channel_chat" || task.triggerType === "mention_chat" || contactId) && (channelName || contactId)) {
     const sourceType = contactId ? "direct_conversation" : "channel_conversation";
+    const requesterScope = requesterUserId ? `:requester:${encodeURIComponent(requesterUserId)}` : "";
     return {
-      conversationKey: `${sourceType}:${channelName ?? contactId}`,
+      conversationKey: `${sourceType}:${channelName ?? contactId}${requesterScope}`,
       sourceType,
       title,
     };
@@ -51,6 +54,12 @@ export function resolveTaskRouterConversationIdentity(
     sourceType: "task",
     title,
   };
+}
+
+function readObject(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 export function resolveRouterSessionForTaskSync(

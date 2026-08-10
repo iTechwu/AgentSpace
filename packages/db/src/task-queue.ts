@@ -1056,6 +1056,25 @@ function selectQueuedTaskForRuntime(
          )
          AND binding.runtime_id = queue.runtime_id
        WHERE queue.runtime_id = ? AND queue.status = 'queued'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM agent_task_queue active
+           WHERE active.runtime_id = queue.runtime_id
+             AND active.id <> queue.id
+             AND active.status IN ('claimed', 'running', 'preparing_commit')
+             AND (
+               (
+                 queue.requested_by_user_id IS NOT NULL
+                 AND active.requested_by_user_id = queue.requested_by_user_id
+                 AND COALESCE(active.employee_id, active.agent_id) = COALESCE(queue.employee_id, queue.agent_id)
+               )
+               OR (
+                 queue.requested_by_user_id IS NULL
+                 AND active.requested_by_user_id IS NULL
+                 AND active.router_session_id = queue.router_session_id
+               )
+             )
+         )
          AND (
            runtime.managed_credential_id IS NULL
            OR runtime.provisioning_state IS NULL
