@@ -51,6 +51,12 @@ export interface ConversationThreadMessage {
   pinned?: boolean;
   pinnedAt?: string;
   replyToMessageId?: string;
+  deliveryStatus?: "sending" | "sent" | "failed";
+}
+
+interface OptimisticConversationMessage extends ConversationThreadMessage {
+  conversationId: string;
+  serverMessageIdsAtSubmission: string[];
 }
 
 export function orderConversationMessages(messages: ConversationThreadMessage[]): ConversationThreadMessage[] {
@@ -217,6 +223,7 @@ export function ConversationShell({
   const [isPending, startTransition] = useTransition();
   const [replyToMessage, setReplyToMessage] = useState<ConversationThreadMessage | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<QueuedConversationMessage[]>([]);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticConversationMessage[]>([]);
   const [selectedReferences, setSelectedReferences] = useState<SelectedComposerReference[]>([]);
   const [executionPolicyOverride, setExecutionPolicyOverride] = useState<EmployeeExecutionPolicy | null | undefined>(undefined);
   const [isExecutionPolicyPending, setIsExecutionPolicyPending] = useState(false);
@@ -368,6 +375,19 @@ export function ConversationShell({
     }
     window.sessionStorage.setItem(queueStorageKey, JSON.stringify(queuedMessages));
   }, [queueStorageKey, queuedMessages]);
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return;
+    }
+    setOptimisticMessages((current) => {
+      const next = current.filter((optimisticMessage) => !(
+        optimisticMessage.conversationId === selectedItemId &&
+        hasServerMessageCopy(optimisticMessage, messages)
+      ));
+      return next.length === current.length ? current : next;
+    });
+  }, [messages, selectedItemId]);
 
   useEffect(() => {
     if (isAgentRunning) {
@@ -633,6 +653,32 @@ export function ConversationShell({
     const submittedFiles = pendingFiles;
     const submittedReplyToMessage = replyToMessage;
     const submittedReferences = selectedReferences;
+    const optimisticMessageId = selectedItemId
+      ? `optimistic-message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      : null;
+    if (optimisticMessageId && selectedItemId) {
+      const optimisticMessage: OptimisticConversationMessage = {
+        id: optimisticMessageId,
+        conversationId: selectedItemId,
+        serverMessageIdsAtSubmission: messages.map((message) => message.id),
+        speaker: currentUserDisplayName?.trim() || tx("你", "You"),
+        role: "human",
+        content,
+        timestamp: new Date().toISOString(),
+        status: "completed",
+        deliveryStatus: "sending",
+        replyToMessageId: submittedReplyToMessage?.id,
+      };
+      setOptimisticMessages((current) => [
+        ...current.filter((message) => !(
+          message.conversationId === selectedItemId &&
+          message.deliveryStatus === "failed" &&
+          message.content === content
+        )),
+        optimisticMessage,
+      ]);
+      shouldStickToBottomRef.current = true;
+    }
     setFeedback(null);
     setDraft("");
     setDraftCaretIndex(0);
@@ -649,6 +695,11 @@ export function ConversationShell({
           ...(referenceAttachmentIds.length > 0 ? { referenceAttachmentIds } : {}),
           ...(referenceSkillIds.length > 0 ? { referenceSkillIds } : {}),
         });
+        if (optimisticMessageId) {
+          setOptimisticMessages((current) => current.map((message) => (
+            message.id === optimisticMessageId ? { ...message, deliveryStatus: "sent" } : message
+          )));
+        }
         shouldStickToBottomRef.current = true;
         if (onDataChanged) {
           onDataChanged();
@@ -656,6 +707,11 @@ export function ConversationShell({
           router.refresh();
         }
       } catch (error) {
+        if (optimisticMessageId) {
+          setOptimisticMessages((current) => current.map((message) => (
+            message.id === optimisticMessageId ? { ...message, deliveryStatus: "failed" } : message
+          )));
+        }
         setDraft((current) => current || submittedDraft);
         setDraftCaretIndex((current) => current || submittedDraft.length);
         setPendingFiles((current) => [
@@ -878,9 +934,15 @@ export function ConversationShell({
     scheduleComposerFocus(nextDraft.length);
   }
 
-  const displayedMessages = useMemo(() => orderConversationMessages(messages), [messages]);
+  const displayedMessages = useMemo(
+    () => orderConversationMessages([
+      ...messages,
+      ...optimisticMessages.filter((message) => message.conversationId === selectedItemId),
+    ]),
+    [messages, optimisticMessages, selectedItemId],
+  );
   const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages]);
-  const messageById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+  const messageById = useMemo(() => new Map(displayedMessages.map((m) => [m.id, m])), [displayedMessages]);
   const showListPane = !isCompactLayout || !selectedHeader || mobilePane === "list";
   const showThreadPane = !isCompactLayout || (Boolean(selectedHeader) && mobilePane === "thread");
   const showSupplementarySheet = Boolean(supplementaryPanel) && isCompactLayout;
@@ -1317,6 +1379,19 @@ function isOwnHumanMessage(
     speaker === "你" ||
     speaker.localeCompare("You", "en-US", { sensitivity: "base" }) === 0
   );
+}
+
+function hasServerMessageCopy(
+  optimisticMessage: OptimisticConversationMessage,
+  serverMessages: ConversationThreadMessage[],
+): boolean {
+  const existingMessageIds = new Set(optimisticMessage.serverMessageIdsAtSubmission);
+  return serverMessages.some((serverMessage) => (
+    !existingMessageIds.has(serverMessage.id) &&
+    serverMessage.role === "human" &&
+    serverMessage.content === optimisticMessage.content &&
+    serverMessage.replyToMessageId === optimisticMessage.replyToMessageId
+  ));
 }
 
 function getConversationMessageActivityPriority(message: ConversationThreadMessage): number {

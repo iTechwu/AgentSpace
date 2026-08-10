@@ -3102,6 +3102,48 @@ textarea:focus {
   gap: 0.28rem;
 }
 
+.inbox-bubble__delivery-meta,
+.inbox-bubble__delivery-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.inbox-bubble__delivery-meta {
+  gap: 0.32rem;
+  white-space: nowrap;
+}
+
+.inbox-bubble__delivery-icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--muted);
+}
+
+.inbox-bubble__delivery-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.inbox-bubble__delivery-icon--sending svg {
+  animation: conversation-process-spin 900ms linear infinite;
+}
+
+.inbox-bubble__delivery-icon--sent {
+  color: #147a4b;
+}
+
+.inbox-bubble__delivery-icon--failed {
+  color: #c43d35;
+}
+
+.inbox-bubble--delivery-sending {
+  opacity: 0.82;
+}
+
+.inbox-bubble.inbox-bubble--delivery-failed {
+  border-color: rgba(196, 61, 53, 0.24);
+}
+
 .inbox-bubble__provider-icon {
   display: inline-flex;
   width: 0.9rem;

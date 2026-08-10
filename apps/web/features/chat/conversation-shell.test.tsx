@@ -458,7 +458,7 @@ describe("ConversationShell", () => {
     expect(onCloseSupplementaryPanel).toHaveBeenCalledTimes(1);
   });
 
-  it("clears the composer immediately while a message submission is pending", async () => {
+  it("shows the submitted message immediately while delivery is pending", async () => {
     const user = userEvent.setup();
     let resolveSubmit: (() => void) | undefined;
     const onSubmit = vi.fn(() => new Promise<void>((resolve) => {
@@ -496,10 +496,13 @@ describe("ConversationShell", () => {
       replyToMessageId: undefined,
     });
     expect(composer).toHaveValue("");
+    expect(screen.getByText("继续检查发送体验")).toBeInTheDocument();
+    expect(screen.getByLabelText("正在发送")).toBeInTheDocument();
 
     await act(async () => {
       resolveSubmit?.();
     });
+    expect(await screen.findByLabelText("已发送")).toHaveAttribute("role", "status");
   });
 
   it("restores the submitted draft when an optimistic submission fails", async () => {
@@ -534,6 +537,122 @@ describe("ConversationShell", () => {
 
     await waitFor(() => expect(screen.getByText("发送失败")).toBeInTheDocument());
     expect(composer).toHaveValue("保留这条失败消息");
+    expect(document.querySelector("[data-conversation-message-id]")).toHaveTextContent("保留这条失败消息");
+    expect(screen.getByLabelText("发送失败")).toBeInTheDocument();
+  });
+
+  it("replaces the optimistic message when the server copy arrives", async () => {
+    const user = userEvent.setup();
+    const commonProps = {
+      currentUserDisplayName: "techwu",
+      emptyListBody: "empty",
+      emptyListTitle: "empty",
+      emptyThreadBody: "empty",
+      emptyThreadTitle: "empty",
+      items: [{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }],
+      listCount: 1,
+      listKicker: "Messages",
+      listTitle: "Messages",
+      onSelectItem: vi.fn(),
+      onSubmit: vi.fn(async () => {}),
+      placeholder: "Send a message",
+      selectedHeader: { title: "Atlas", subtitle: "Agent", avatar: "A" },
+      selectedItemId: "direct-atlas",
+    };
+    const { rerender } = render(
+      <LanguageProvider>
+        <ConversationShell {...commonProps} messages={[]} />
+      </LanguageProvider>,
+    );
+
+    await user.type(screen.getByRole("textbox"), "只显示一次");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(await screen.findByLabelText("已发送")).toBeInTheDocument();
+
+    rerender(
+      <LanguageProvider>
+        <ConversationShell
+          {...commonProps}
+          messages={[{
+            id: "server-message-1",
+            speaker: "techwu",
+            role: "human",
+            content: "只显示一次",
+            timestamp: new Date().toISOString(),
+            status: "completed",
+          }]}
+        />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => expect(screen.getAllByText("只显示一次")).toHaveLength(1));
+    expect(screen.getByLabelText("已发送")).toHaveAttribute("role", "img");
+  });
+
+  it("does not reconcile an optimistic message against another conversation", async () => {
+    const user = userEvent.setup();
+    const commonProps = {
+      currentUserDisplayName: "techwu",
+      emptyListBody: "empty",
+      emptyListTitle: "empty",
+      emptyThreadBody: "empty",
+      emptyThreadTitle: "empty",
+      items: [
+        { id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" },
+        { id: "direct-nova", title: "Nova", subtitle: "Agent", meta: "meta", avatar: "N" },
+      ],
+      listCount: 2,
+      listKicker: "Messages",
+      listTitle: "Messages",
+      onSelectItem: vi.fn(),
+      onSubmit: vi.fn(async () => {}),
+      placeholder: "Send a message",
+    };
+    const { rerender } = render(
+      <LanguageProvider>
+        <ConversationShell
+          {...commonProps}
+          messages={[]}
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    await user.type(screen.getByRole("textbox"), "相同内容");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(await screen.findByLabelText("已发送")).toBeInTheDocument();
+
+    rerender(
+      <LanguageProvider>
+        <ConversationShell
+          {...commonProps}
+          messages={[{
+            id: "nova-server-message",
+            speaker: "techwu",
+            role: "human",
+            content: "相同内容",
+            timestamp: new Date().toISOString(),
+            status: "completed",
+          }]}
+          selectedHeader={{ title: "Nova", subtitle: "Agent", avatar: "N" }}
+          selectedItemId="direct-nova"
+        />
+      </LanguageProvider>,
+    );
+    rerender(
+      <LanguageProvider>
+        <ConversationShell
+          {...commonProps}
+          messages={[]}
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText("相同内容")).toBeInTheDocument();
+    expect(screen.getByLabelText("已发送")).toBeInTheDocument();
   });
 
   it("switches the composer between stop and queue actions while an agent is running", async () => {

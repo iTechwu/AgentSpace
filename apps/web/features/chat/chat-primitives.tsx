@@ -234,6 +234,9 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
     }
   }, []);
   const own = isOwn ?? message.role === "human";
+  const deliveryStatus = message.deliveryStatus ?? (
+    own && message.role === "human" && message.status === "completed" ? "sent" : undefined
+  );
   const isPendingMessage = message.status === "pending";
   const hasStreamedPendingContent = isPendingMessage && message.content.trim() !== "" && message.content.trim() !== "Thinking";
   const isError = message.status === "error";
@@ -307,7 +310,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
     );
   }
 
-  const hasActions = true;
+  const hasActions = message.deliveryStatus === undefined;
   const acknowledgements = message.acknowledgements ?? [];
   const acknowledgementLabelForCurrentUser = acknowledgementActorLabel ?? ownSpeakerLabel;
   const acknowledgedByCurrentUser = acknowledgements.some((acknowledgement) =>
@@ -335,7 +338,9 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
       <article
         className={`inbox-bubble${own ? " inbox-bubble--own" : ""}${isError ? " inbox-bubble--error" : ""}${
           isPendingMessage ? " inbox-bubble--pending" : ""
-        }${message.pinned ? " inbox-bubble--pinned" : ""}`}
+        }${message.pinned ? " inbox-bubble--pinned" : ""}${
+          deliveryStatus ? ` inbox-bubble--delivery-${deliveryStatus}` : ""
+        }`}
         tabIndex={hasActions && !isPendingMessage ? 0 : undefined}
       >
         {replyToMessage ? (
@@ -354,7 +359,16 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
             ) : null}
             {message.pinned ? <span className="inbox-bubble__pin-badge">{tx("已置顶", "Pinned")}</span> : null}
           </strong>
-          <span>{isPendingMessage ? pendingStageLabel : renderMessageTimestamp(message.timestamp)}</span>
+          <span className="inbox-bubble__delivery-meta">
+            <span>{isPendingMessage ? pendingStageLabel : renderMessageTimestamp(message.timestamp)}</span>
+            {deliveryStatus ? (
+              <MessageDeliveryIcon
+                announce={message.deliveryStatus !== undefined}
+                status={deliveryStatus}
+                tx={tx}
+              />
+            ) : null}
+          </span>
         </div>
         {isPendingMessage ? (
           hasStreamedPendingContent ? (
@@ -500,6 +514,34 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   }
 
 });
+
+function MessageDeliveryIcon({
+  announce,
+  status,
+  tx,
+}: {
+  announce: boolean;
+  status: "sending" | "sent" | "failed";
+  tx: (zh: string, en: string) => string;
+}) {
+  const label = status === "sending"
+    ? tx("正在发送", "Sending")
+    : status === "sent"
+      ? tx("已发送", "Sent")
+      : tx("发送失败", "Failed to send");
+  const iconName = status === "sending" ? "loader" : status === "sent" ? "checkCircle" : "alertCircle";
+
+  return (
+    <span
+      aria-label={label}
+      className={`inbox-bubble__delivery-icon inbox-bubble__delivery-icon--${status}`}
+      role={announce ? "status" : "img"}
+      title={label}
+    >
+      <AppIcon name={iconName} />
+    </span>
+  );
+}
 
 function resolvePendingStageLabel(
   message: ConversationThreadMessage,
