@@ -442,11 +442,20 @@ export function applyOpenMontageJobEvent(
       projection.status = "SUCCEEDED";
       projection.currentStage = null;
       break;
-    case "openmontage.job.failed":
+    case "openmontage.job.failed": {
+      const failedStageCode = typeof event.payload.stage === "string"
+        ? event.payload.stage
+        : projection.currentStage;
+      if (failedStageCode) {
+        const failedStage = requireProjectedStage(projection, failedStageCode);
+        failedStage.status = "FAILED";
+        failedStage.completedAt = event.occurredAt;
+      }
       projection.status = "FAILED";
-      projection.currentStage = typeof event.payload.stage === "string" ? event.payload.stage : projection.currentStage;
+      projection.currentStage = failedStageCode;
       projection.error = requireObject(event.payload.error, "payload.error");
       break;
+    }
     case "openmontage.job.cancel_requested":
       projection.status = "CANCEL_REQUESTED";
       break;

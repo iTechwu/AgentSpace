@@ -230,6 +230,29 @@ test("projection applies factual stage progress in sequence", () => {
   assert.equal(progressed.projection.syncStatus, "CURRENT");
 });
 
+test("projection marks the active stage as failed when the Job fails", () => {
+  const started = applyOpenMontageJobEvent(projection(), event(2, "openmontage.stage.started", {
+    stage: "research",
+    stageAttempt: 1,
+    status: "RUNNING",
+    approvalStatus: "NOT_REQUIRED",
+  }));
+  const failed = applyOpenMontageJobEvent(started.projection, event(3, "openmontage.job.failed", {
+    stage: "research",
+    status: "FAILED",
+    error: {
+      code: "OPENMONTAGE_AGENT_EXECUTOR_FAILED",
+      message: "Stage execution failed.",
+      retryable: false,
+    },
+  }));
+
+  assert.equal(failed.projection.status, "FAILED");
+  assert.equal(failed.projection.currentStage, "research");
+  assert.equal(failed.projection.stages[0]?.status, "FAILED");
+  assert.equal(failed.projection.stages[0]?.completedAt, "2026-08-05T10:00:03Z");
+});
+
 test("projection marks gaps as syncing without applying untrusted future state", () => {
   const result = applyOpenMontageJobEvent(projection(), event(3, "openmontage.stage.completed", {
     stage: "research",

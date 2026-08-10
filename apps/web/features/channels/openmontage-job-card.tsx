@@ -87,38 +87,41 @@ export function OpenMontageJobCard({
       ) : null}
 
       <ol aria-label={tx("视频制作阶段", "Video production stages")} className="openmontage-stage-list">
-        {job.stages.map((stage) => (
-          <li className={`openmontage-stage openmontage-stage--${stage.status.toLowerCase()}`} key={stage.code}>
-            <span className="openmontage-stage__marker">
-              {stage.status === "SUCCEEDED" ? <AppIcon name="checkCircle" /> : null}
-              {stage.status === "RUNNING" ? <AppIcon name="loader" /> : null}
-              {stage.status === "FAILED" || stage.status === "WAITING_APPROVAL" ? <AppIcon name="alertCircle" /> : null}
-            </span>
-            <div className="openmontage-stage__body">
-              <div className="openmontage-stage__heading">
-                <strong>{stageLabel(stage, tx)}</strong>
-                <span>{stageStatusLabel(stage.status, tx)}</span>
+        {job.stages.map((stage) => {
+          const displayStatus = stageDisplayStatus(job.status, stage.status);
+          return (
+            <li className={`openmontage-stage openmontage-stage--${displayStatus.toLowerCase()}`} key={stage.code}>
+              <span className="openmontage-stage__marker">
+                {displayStatus === "SUCCEEDED" ? <AppIcon name="checkCircle" /> : null}
+                {displayStatus === "RUNNING" ? <AppIcon name="loader" /> : null}
+                {displayStatus === "FAILED" || displayStatus === "WAITING_APPROVAL" ? <AppIcon name="alertCircle" /> : null}
+              </span>
+              <div className="openmontage-stage__body">
+                <div className="openmontage-stage__heading">
+                  <strong>{stageLabel(stage, tx)}</strong>
+                  <span>{stageStatusLabel(displayStatus, tx)}</span>
+                </div>
+                <div className="openmontage-stage__progress-slot">
+                  {stage.progress ? (
+                    <>
+                      <div
+                        aria-label={tx(`${stageLabel(stage, tx)}进度`, `${stageLabel(stage, tx)} progress`)}
+                        aria-valuemax={stage.progress.totalUnits}
+                        aria-valuemin={0}
+                        aria-valuenow={stage.progress.completedUnits}
+                        className="openmontage-stage__progress"
+                        role="progressbar"
+                      >
+                        <span style={{ width: `${Math.min(100, (stage.progress.completedUnits / stage.progress.totalUnits) * 100)}%` }} />
+                      </div>
+                      <span>{stage.progress.completedUnits} / {stage.progress.totalUnits}</span>
+                    </>
+                  ) : null}
+                </div>
               </div>
-              <div className="openmontage-stage__progress-slot">
-                {stage.progress ? (
-                  <>
-                    <div
-                      aria-label={tx(`${stageLabel(stage, tx)}进度`, `${stageLabel(stage, tx)} progress`)}
-                      aria-valuemax={stage.progress.totalUnits}
-                      aria-valuemin={0}
-                      aria-valuenow={stage.progress.completedUnits}
-                      className="openmontage-stage__progress"
-                      role="progressbar"
-                    >
-                      <span style={{ width: `${Math.min(100, (stage.progress.completedUnits / stage.progress.totalUnits) * 100)}%` }} />
-                    </div>
-                    <span>{stage.progress.completedUnits} / {stage.progress.totalUnits}</span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ol>
 
       {job.status === "WAITING_APPROVAL" && currentStage ? (
@@ -250,6 +253,13 @@ function stageStatusLabel(
     case "CANCELLED": return tx("已停止", "Cancelled");
     case "SKIPPED": return tx("已跳过", "Skipped");
   }
+}
+
+function stageDisplayStatus(
+  jobStatus: OpenMontageJobStatus,
+  stageStatus: OpenMontageStageProjection["status"],
+): OpenMontageStageProjection["status"] {
+  return jobStatus === "FAILED" && stageStatus === "RUNNING" ? "FAILED" : stageStatus;
 }
 
 function stageLabel(stage: OpenMontageStageProjection, tx: (zh: string, en: string) => string): string {

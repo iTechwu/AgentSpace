@@ -58,6 +58,16 @@ describe("OpenMontageJobCard", () => {
     expect(screen.getByText("正在同步最新进度")).toBeInTheDocument();
     expect(screen.getAllByText("生成制作方案").length).toBeGreaterThan(0);
   });
+
+  it("does not show a running stage when a legacy projection is already failed", () => {
+    renderCard(projection({ status: "FAILED" }));
+
+    const stages = screen.getByRole("list", { name: "视频制作阶段" });
+    const activeStage = within(stages).getByText("生成制作方案").closest("li");
+    expect(activeStage).toHaveClass("openmontage-stage--failed");
+    expect(within(activeStage!).getByText("失败")).toBeInTheDocument();
+    expect(within(activeStage!).queryByText("进行中")).not.toBeInTheDocument();
+  });
 });
 
 function renderCard(
