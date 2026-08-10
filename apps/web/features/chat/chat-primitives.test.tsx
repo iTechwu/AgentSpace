@@ -45,8 +45,30 @@ describe("ChatAttachmentRow", () => {
     fireEvent.error(screen.getByAltText("broken-preview.png"));
 
     expect(screen.queryByAltText("broken-preview.png")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /broken-preview\.png/i })).toHaveClass("chat-attachment-file");
+    expect(screen.getByRole("button", { name: /预览 broken-preview\.png/i })).toHaveClass("chat-attachment-file");
     expect(screen.getByText("IMG")).toBeInTheDocument();
+  });
+
+  it("opens sent images in an in-app preview with download and close actions", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ChatAttachmentRow
+          attachments={[createAttachment({ id: "att-image", fileName: "preview.png" })]}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "预览 preview.png" }));
+
+    expect(screen.getByRole("dialog", { name: "预览 preview.png" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "下载 preview.png" })).toHaveAttribute(
+      "href",
+      "/api/attachments/att-image",
+    );
+    await user.click(screen.getByRole("button", { name: "关闭预览" }));
+    expect(screen.queryByRole("dialog", { name: "预览 preview.png" })).not.toBeInTheDocument();
   });
 });
 

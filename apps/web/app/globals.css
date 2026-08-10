@@ -5835,6 +5835,8 @@ textarea:focus {
   overflow: hidden;
   border: 1px solid var(--line);
   background: var(--panel-strong);
+  padding: 0;
+  cursor: zoom-in;
   transition: border-color var(--transition);
 }
 
@@ -5902,6 +5904,8 @@ textarea:focus {
   text-decoration: none;
   font-size: 13px;
   max-width: 280px;
+  cursor: pointer;
+  text-align: left;
   transition: border-color var(--transition), background var(--transition);
 }
 
@@ -5944,6 +5948,250 @@ textarea:focus {
   color: var(--muted);
 }
 
+.composer-attachment-card {
+  position: relative;
+  display: flex;
+  width: min(240px, 100%);
+  min-height: 58px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-strong);
+}
+
+.composer-attachment-card--image {
+  width: 112px;
+  height: 88px;
+}
+
+.composer-attachment-card__preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 36px 9px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.composer-attachment-card--image .composer-attachment-card__preview {
+  position: relative;
+  display: block;
+  padding: 0;
+}
+
+.composer-attachment-card__preview:hover {
+  background: var(--accent-soft);
+}
+
+.composer-attachment-card__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.composer-attachment-card--image .composer-attachment-card__info {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  gap: 0;
+  padding: 14px 8px 7px;
+  background: linear-gradient(transparent, rgba(15, 20, 28, 0.78));
+  color: #fff;
+}
+
+.composer-attachment-card--image .composer-attachment-card__info small {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.composer-attachment-card__file-icon {
+  display: grid;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.composer-attachment-card__info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.composer-attachment-card__info strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-card__info small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.composer-attachment-card__remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg-strong) 88%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(22, 28, 45, 0.12);
+}
+
+.composer-attachment-card__remove:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.composer-attachment-card__remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.attachment-preview {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgba(17, 22, 31, 0.72);
+}
+
+.attachment-preview__dialog {
+  display: grid;
+  width: min(1040px, 100%);
+  height: min(760px, calc(100dvh - 48px));
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  outline: none;
+  background: var(--bg-strong);
+  box-shadow: 0 24px 64px rgba(13, 20, 32, 0.3);
+}
+
+.attachment-preview__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.attachment-preview__header > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attachment-preview__header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview__header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.attachment-preview__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.attachment-preview__actions a,
+.attachment-preview__actions button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-strong);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.attachment-preview__actions a:hover,
+.attachment-preview__actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.attachment-preview__body {
+  display: grid;
+  min-height: 0;
+  overflow: auto;
+  place-items: center;
+  background: var(--panel-strong);
+}
+
+.attachment-preview__body > img,
+.attachment-preview__body > video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.attachment-preview__body > audio {
+  width: min(560px, calc(100% - 40px));
+}
+
+.attachment-preview__body > iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.attachment-preview__unsupported {
+  display: flex;
+  max-width: 360px;
+  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.attachment-preview__unsupported svg {
+  width: 32px;
+  height: 32px;
+}
+
+.attachment-preview__unsupported strong {
+  color: var(--text);
+}
+
 @media (max-width: 640px) {
   .chat-attachment-image {
     max-width: 100%;
@@ -5955,6 +6203,17 @@ textarea:focus {
 
   .chat-attachment-file {
     max-width: 100%;
+  }
+
+  .attachment-preview {
+    padding: 0;
+  }
+
+  .attachment-preview__dialog {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
   }
 }
 

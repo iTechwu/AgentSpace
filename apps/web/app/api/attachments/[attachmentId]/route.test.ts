@@ -340,6 +340,16 @@ describe("attachments route", () => {
     expect(await response.text()).toBe("pdf-bytes");
   });
 
+  it("serves browser-viewable documents inline when preview is requested", async () => {
+    const response = await GET(new Request("http://localhost/api/attachments/att-file?preview=1"), {
+      params: Promise.resolve({ attachmentId: "att-file" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/pdf");
+    expect(response.headers.get("Content-Disposition")).toBe('inline; filename="summary.pdf"');
+  });
+
   it("returns a 304 for authorized file attachments when the entity tag still matches", async () => {
     const response = await GET(
       new Request("http://localhost/api/attachments/att-file", {

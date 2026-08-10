@@ -30,7 +30,8 @@ export async function GET(
   }
 
   const { attachmentId } = await context.params;
-  const requestedWorkspaceId = new URL(request.url).searchParams.get("workspaceId")?.trim() || undefined;
+  const requestUrl = new URL(request.url);
+  const requestedWorkspaceId = requestUrl.searchParams.get("workspaceId")?.trim() || undefined;
   if (requestedWorkspaceId && requestedWorkspaceId !== workspaceContext.currentWorkspace.id) {
     tryRecordWorkspaceAuditEventSync({
       workspaceId: workspaceContext.currentWorkspace.id,
@@ -84,7 +85,10 @@ export async function GET(
 
   const mediaType = resolveAttachmentMediaType(attachment.fileName, attachment.mediaType);
   const kind = inferAttachmentKind(mediaType);
-  const disposition = kind === "image" ? "inline" : "attachment";
+  const previewRequested = requestUrl.searchParams.get("preview") === "1";
+  const disposition = kind === "image" || (previewRequested && isBrowserPreviewableMediaType(mediaType))
+    ? "inline"
+    : "attachment";
   const contentDisposition = buildContentDisposition(disposition, attachment.fileName);
   const cacheControl = resolveAttachmentCacheControl(kind);
   const requestEntityTags = request.headers.get("If-None-Match");
@@ -205,6 +209,15 @@ function resolveAttachmentCacheControl(kind: MessageAttachment["kind"]): string 
     return IMAGE_ATTACHMENT_CACHE_CONTROL;
   }
   return FILE_ATTACHMENT_CACHE_CONTROL;
+}
+
+function isBrowserPreviewableMediaType(mediaType: string): boolean {
+  const normalized = mediaType.toLowerCase();
+  return normalized === "application/pdf"
+    || normalized === "application/json"
+    || normalized.startsWith("text/")
+    || normalized.startsWith("video/")
+    || normalized.startsWith("audio/");
 }
 
 function buildAttachmentEntityTag(hash: string | undefined): string | null {

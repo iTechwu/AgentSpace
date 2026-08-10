@@ -30,6 +30,14 @@ describe("ConversationShell", () => {
   beforeEach(() => {
     mockMatchMedia(false);
     window.sessionStorage.clear();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn((file: File) => `blob:${file.name}`),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
   });
 
   it("prepends an agent mention when replying to an agent message in channel chat", async () => {
@@ -505,6 +513,60 @@ describe("ConversationShell", () => {
     expect(await screen.findByLabelText("已发送")).toHaveAttribute("role", "status");
   });
 
+  it("scrolls a submitted message into view when supplementary content follows the message list", async () => {
+    const user = userEvent.setup();
+    let resolveSubmit: (() => void) | undefined;
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    }));
+    const scrollIntoView = vi.fn();
+    const previousScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      render(
+        <LanguageProvider>
+          <ConversationShell
+            emptyListBody="empty"
+            emptyListTitle="empty"
+            emptyThreadBody="empty"
+            emptyThreadTitle="empty"
+            items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+            listCount={1}
+            listKicker="Messages"
+            listTitle="Messages"
+            messages={[]}
+            onSelectItem={vi.fn()}
+            onSubmit={onSubmit}
+            placeholder="Send a message"
+            selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+            selectedItemId="direct-atlas"
+            threadAfterMessages={<div>Task details</div>}
+          />
+        </LanguageProvider>,
+      );
+
+      await user.type(screen.getByRole("textbox"), "滚动到刚发送的消息");
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+      expect(await screen.findByText("滚动到刚发送的消息")).toBeInTheDocument();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", inline: "nearest" });
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        resolveSubmit?.();
+      });
+      expect(await screen.findByLabelText("已发送")).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: previousScrollIntoView,
+      });
+    }
+  });
+
   it("restores the submitted draft when an optimistic submission fails", async () => {
     const user = userEvent.setup();
 
@@ -934,6 +996,54 @@ describe("ConversationShell", () => {
     expect(screen.getByRole("button", { name: "引用成员、文件或技能" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "本地文件" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "本地文件夹" })).toBeInTheDocument();
+  });
+
+  it("adds pasted images and documents to the composer for preview, removal, and sending", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => {});
+    const screenshot = new File(["image-bytes"], "clipboard-shot.png", { type: "image/png" });
+    const document = new File(["pdf-bytes"], "clipboard-brief.pdf", { type: "application/pdf" });
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={onSubmit}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    fireEvent.paste(screen.getByRole("textbox"), {
+      clipboardData: { files: [screenshot, document] },
+    });
+
+    expect(screen.getByRole("button", { name: "预览 clipboard-shot.png" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预览 clipboard-brief.pdf" })).toBeInTheDocument();
+    expect(screen.getByAltText("clipboard-shot.png")).toHaveAttribute("src", "blob:clipboard-shot.png");
+
+    await user.click(screen.getByRole("button", { name: "预览 clipboard-brief.pdf" }));
+    expect(screen.getByRole("dialog", { name: "预览 clipboard-brief.pdf" })).toBeInTheDocument();
+    expect(screen.getByTitle("clipboard-brief.pdf")).toHaveAttribute("src", "blob:clipboard-brief.pdf");
+    await user.click(screen.getByRole("button", { name: "关闭预览" }));
+
+    await user.click(screen.getByRole("button", { name: "移除 clipboard-brief.pdf" }));
+    expect(screen.queryByRole("button", { name: "预览 clipboard-brief.pdf" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]?.[0].files).toEqual([screenshot]);
   });
 
   it("offers all Claude Code permission modes and saves the selected mode", async () => {

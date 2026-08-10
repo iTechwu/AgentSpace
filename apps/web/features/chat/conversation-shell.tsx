@@ -242,6 +242,7 @@ export function ConversationShell({
   const folderInputRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const focusComposerRequestRef = useRef<number | null>(null);
+  const pendingMessageScrollIdRef = useRef<string | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const previousSelectedIdRef = useRef<string | null>(null);
   const threadViewportVisibleRef = useRef(false);
@@ -497,6 +498,27 @@ export function ConversationShell({
     }
   }, [hasCustomThreadContent, isPending, messages, selectedItemId]);
 
+  useLayoutEffect(() => {
+    const messageId = pendingMessageScrollIdRef.current;
+    const viewport = threadViewportRef.current;
+    if (!messageId || !viewport) {
+      return;
+    }
+
+    const submittedMessage = Array.from(
+      viewport.querySelectorAll<HTMLElement>("[data-conversation-message-id]"),
+    ).find((element) => element.dataset.conversationMessageId === messageId);
+    if (!submittedMessage) {
+      return;
+    }
+
+    if (typeof submittedMessage.scrollIntoView === "function") {
+      submittedMessage.scrollIntoView({ block: "center", inline: "nearest" });
+      shouldStickToBottomRef.current = false;
+    }
+    pendingMessageScrollIdRef.current = null;
+  }, [optimisticMessages, selectedItemId]);
+
   useEffect(() => {
     if (!isCompactLayout) {
       setMobilePane("list");
@@ -590,7 +612,7 @@ export function ConversationShell({
     }
   }
 
-  function handlePickedFiles(files: FileList | null): void {
+  function handlePickedFiles(files: FileList | File[] | null): void {
     if (!files || files.length === 0) {
       return;
     }
@@ -669,6 +691,7 @@ export function ConversationShell({
         deliveryStatus: "sending",
         replyToMessageId: submittedReplyToMessage?.id,
       };
+      pendingMessageScrollIdRef.current = optimisticMessageId;
       setOptimisticMessages((current) => [
         ...current.filter((message) => !(
           message.conversationId === selectedItemId &&
@@ -1099,7 +1122,7 @@ export function ConversationShell({
                     executionPolicyPending={isExecutionPolicyPending}
                     feedback={feedback}
                     fileInputRef={fileInputRef}
-                    files={pendingFiles.map((item) => ({ id: item.id, label: item.label }))}
+                    files={pendingFiles}
                     folderInputRef={folderInputRef}
                     isPending={isPending}
                     isAgentRunning={isAgentRunning}

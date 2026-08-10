@@ -6,6 +6,7 @@ import MDEditor from "@uiw/react-md-editor/nohighlight";
 import type { MessageAttachment, MessageMention } from "@/shared/types/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { translateSystemSpeaker, translateWorkspaceMessageSummary } from "@/features/i18n/presentation";
+import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { FeedbackBanner } from "@/shared/ui/feedback-banner";
 import { GeneratedAvatar, type GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
@@ -434,7 +435,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
             {tx("打开文档", "Open document")}
           </Link>
         ) : null}
-        {message.attachments?.length ? <ChatAttachmentRow attachments={message.attachments} /> : null}
+        {message.attachments?.length ? <ChatAttachmentRow attachments={message.attachments} tx={tx} /> : null}
         {acknowledgements.length > 0 ? (
           <div
             className="inbox-bubble__ack"
@@ -665,7 +666,16 @@ function processTitle(message: ConversationThreadMessage, tx: (zh: string, en: s
   return message.processType ?? tx("中间过程", "Process");
 }
 
-export function ChatAttachmentRow({ attachments }: { attachments: MessageAttachment[] }) {
+type ChatTranslator = (zh: string, en: string) => string;
+
+export function ChatAttachmentRow({
+  attachments,
+  tx = defaultChatTranslator,
+}: {
+  attachments: MessageAttachment[];
+  tx?: ChatTranslator;
+}) {
+  const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
   const images = attachments.filter((a) => a.kind === "image");
   const files = attachments.filter((a) => a.kind !== "image");
 
@@ -673,32 +683,70 @@ export function ChatAttachmentRow({ attachments }: { attachments: MessageAttachm
     <div className="chat-attachments">
       {images.length > 0 ? (
         <div className="chat-attachments__images">
-          {images.map((attachment) => <AttachmentImageCard attachment={attachment} key={attachment.id} />)}
+          {images.map((attachment) => (
+            <AttachmentImageCard
+              attachment={attachment}
+              key={attachment.id}
+              onPreview={() => setPreviewAttachment(attachment)}
+              previewLabel={tx(`预览 ${attachment.fileName}`, `Preview ${attachment.fileName}`)}
+            />
+          ))}
         </div>
       ) : null}
       {files.length > 0 ? (
         <div className="chat-attachments__files">
-          {files.map((attachment) => <AttachmentFileCard attachment={attachment} key={attachment.id} />)}
+          {files.map((attachment) => (
+            <AttachmentFileCard
+              attachment={attachment}
+              key={attachment.id}
+              onPreview={() => setPreviewAttachment(attachment)}
+              previewLabel={tx(`预览 ${attachment.fileName}`, `Preview ${attachment.fileName}`)}
+            />
+          ))}
         </div>
+      ) : null}
+      {previewAttachment ? (
+        <AttachmentPreviewDialog
+          downloadHref={`/api/attachments/${previewAttachment.id}`}
+          fileName={previewAttachment.fileName}
+          mediaType={previewAttachment.mediaType}
+          onClose={() => setPreviewAttachment(null)}
+          previewHref={`/api/attachments/${previewAttachment.id}?preview=1`}
+          tx={tx}
+        />
       ) : null}
     </div>
   );
 }
 
-function AttachmentImageCard({ attachment }: { attachment: MessageAttachment }) {
+function AttachmentImageCard({
+  attachment,
+  onPreview,
+  previewLabel,
+}: {
+  attachment: MessageAttachment;
+  onPreview: () => void;
+  previewLabel: string;
+}) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
   if (failed) {
-    return <AttachmentFileCard attachment={attachment} />;
+    return (
+      <AttachmentFileCard
+        attachment={attachment}
+        onPreview={onPreview}
+        previewLabel={previewLabel}
+      />
+    );
   }
 
   return (
-    <a
+    <button
+      aria-label={previewLabel}
       className="chat-attachment-image"
-      href={`/api/attachments/${attachment.id}`}
-      rel="noreferrer"
-      target="_blank"
+      onClick={onPreview}
+      type="button"
     >
       {!loaded ? <span aria-hidden="true" className="chat-attachment-image__loading" /> : null}
       <img
@@ -709,17 +757,25 @@ function AttachmentImageCard({ attachment }: { attachment: MessageAttachment }) 
         onLoad={() => setLoaded(true)}
         src={`/api/attachments/${attachment.id}`}
       />
-    </a>
+    </button>
   );
 }
 
-function AttachmentFileCard({ attachment }: { attachment: MessageAttachment }) {
+function AttachmentFileCard({
+  attachment,
+  onPreview,
+  previewLabel,
+}: {
+  attachment: MessageAttachment;
+  onPreview: () => void;
+  previewLabel: string;
+}) {
   return (
-    <a
+    <button
+      aria-label={previewLabel}
       className="chat-attachment-file"
-      href={`/api/attachments/${attachment.id}`}
-      rel="noreferrer"
-      target="_blank"
+      onClick={onPreview}
+      type="button"
     >
       <span className="chat-attachment-file__icon">
         {fileIcon(attachment.mediaType, attachment.kind)}
@@ -728,7 +784,7 @@ function AttachmentFileCard({ attachment }: { attachment: MessageAttachment }) {
         <strong>{attachment.fileName}</strong>
         <small>{formatFileSize(attachment.sizeBytes)}</small>
       </span>
-    </a>
+    </button>
   );
 }
 
@@ -793,7 +849,7 @@ export function ChatComposer({
   executionPolicy?: EmployeeExecutionPolicy;
   executionPolicyPending?: boolean;
   feedback: string | null;
-  files: Array<{ id: string; label: string }>;
+  files: Array<{ id: string; label: string; file: File }>;
   isPending: boolean;
   mentionSuggestions: ConversationMentionCandidate[];
   references: Array<{ id: string; label: string; kind: "file" | "skill" }>;
@@ -809,7 +865,7 @@ export function ChatComposer({
   onDraftChange: (value: string, caretIndex: number) => void;
   onInsertMentionTrigger: () => void;
   onTogglePicker: () => void;
-  onPickedFiles: (files: FileList | null) => void;
+  onPickedFiles: (files: FileList | File[] | null) => void;
   onRemoveFile: (id: string) => void;
   onRemoveReference: (id: string) => void;
   onSelectMention: (candidate: ConversationMentionCandidate) => void;
@@ -1002,17 +1058,7 @@ export function ChatComposer({
       {files.length > 0 || references.length > 0 ? (
         <div className="contacts-attachments">
           {files.map((item) => (
-            <span className="contacts-attachment-chip" key={item.id}>
-              <span>{item.label}</span>
-              <button
-                aria-label={tx(`移除 ${item.label}`, `Remove ${item.label}`)}
-                className="contacts-attachment-remove"
-                onClick={() => onRemoveFile(item.id)}
-                type="button"
-              >
-                ×
-              </button>
-            </span>
+            <PendingAttachmentCard item={item} key={item.id} onRemove={() => onRemoveFile(item.id)} />
           ))}
           {references.map((item) => (
             <span className={`contacts-attachment-chip contacts-attachment-chip--${item.kind}`} key={item.id}>
@@ -1034,6 +1080,14 @@ export function ChatComposer({
         <textarea
           className="contacts-composer__textarea"
           onChange={(event) => onDraftChange(event.currentTarget.value, event.currentTarget.selectionStart ?? event.currentTarget.value.length)}
+          onPaste={(event) => {
+            const pastedFiles = filesFromClipboard(event.clipboardData);
+            if (pastedFiles.length === 0) {
+              return;
+            }
+            event.preventDefault();
+            onPickedFiles(pastedFiles);
+          }}
           onKeyDown={(event) => {
             if (showExecutionPolicyMenu && event.key === "Escape") {
               event.preventDefault();
@@ -1268,6 +1322,177 @@ export function ChatComposer({
         </div>
     </div>
   );
+}
+
+function PendingAttachmentCard({
+  item,
+  onRemove,
+}: {
+  item: { id: string; label: string; file: File };
+  onRemove: () => void;
+}) {
+  const { tx } = useLanguage();
+  const objectUrl = useFileObjectUrl(item.file);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const isImage = item.file.type.startsWith("image/");
+
+  return (
+    <article className={`composer-attachment-card${isImage ? " composer-attachment-card--image" : ""}`}>
+      <button
+        aria-label={tx(`预览 ${item.label}`, `Preview ${item.label}`)}
+        className="composer-attachment-card__preview"
+        onClick={() => setPreviewOpen(true)}
+        type="button"
+      >
+        {isImage && objectUrl ? (
+          <img alt={item.label} src={objectUrl} />
+        ) : (
+          <span className="composer-attachment-card__file-icon">
+            {fileIcon(item.file.type, isImage ? "image" : "file")}
+          </span>
+        )}
+        <span className="composer-attachment-card__info">
+          <strong>{item.label}</strong>
+          <small>{formatFileSize(item.file.size)}</small>
+        </span>
+      </button>
+      <button
+        aria-label={tx(`移除 ${item.label}`, `Remove ${item.label}`)}
+        className="composer-attachment-card__remove"
+        onClick={onRemove}
+        title={tx("移除", "Remove")}
+        type="button"
+      >
+        <AppIcon name="close" />
+      </button>
+      {previewOpen && objectUrl ? (
+        <AttachmentPreviewDialog
+          downloadHref={objectUrl}
+          fileName={item.label}
+          mediaType={item.file.type}
+          onClose={() => setPreviewOpen(false)}
+          previewHref={objectUrl}
+          tx={tx}
+        />
+      ) : null}
+    </article>
+  );
+}
+
+function AttachmentPreviewDialog({
+  downloadHref,
+  fileName,
+  mediaType,
+  onClose,
+  previewHref,
+  tx,
+}: {
+  downloadHref: string;
+  fileName: string;
+  mediaType: string;
+  onClose: () => void;
+  previewHref: string;
+  tx: ChatTranslator;
+}) {
+  const { surfaceRef, handleBackdropMouseDown } = useDialogSurface<HTMLDivElement>(onClose);
+  const previewLabel = tx(`预览 ${fileName}`, `Preview ${fileName}`);
+  const previewKind = browserPreviewKind(mediaType);
+
+  return (
+    <div className="attachment-preview" onMouseDown={handleBackdropMouseDown}>
+      <div
+        aria-label={previewLabel}
+        aria-modal="true"
+        className="attachment-preview__dialog"
+        ref={surfaceRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header className="attachment-preview__header">
+          <div>
+            <strong>{fileName}</strong>
+            <span>{mediaType || tx("未知文件类型", "Unknown file type")}</span>
+          </div>
+          <div className="attachment-preview__actions">
+            <a
+              aria-label={tx(`下载 ${fileName}`, `Download ${fileName}`)}
+              download={fileName}
+              href={downloadHref}
+              title={tx("下载", "Download")}
+            >
+              <AppIcon name="download" />
+            </a>
+            <button
+              aria-label={tx("关闭预览", "Close preview")}
+              onClick={onClose}
+              title={tx("关闭", "Close")}
+              type="button"
+            >
+              <AppIcon name="close" />
+            </button>
+          </div>
+        </header>
+        <div className="attachment-preview__body">
+          {previewKind === "image" ? <img alt={fileName} src={previewHref} /> : null}
+          {previewKind === "video" ? <video controls src={previewHref} /> : null}
+          {previewKind === "audio" ? <audio controls src={previewHref} /> : null}
+          {previewKind === "document" ? (
+            <iframe sandbox="" src={previewHref} title={fileName} />
+          ) : null}
+          {previewKind === "unsupported" ? (
+            <div className="attachment-preview__unsupported">
+              <AppIcon name="fileText" />
+              <strong>{tx("此文件暂不支持在线预览", "This file cannot be previewed here")}</strong>
+              <span>{tx("可以下载后使用本地应用打开。", "Download it to open with a local application.")}</span>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function defaultChatTranslator(zh: string): string {
+  return zh;
+}
+
+function filesFromClipboard(clipboardData: DataTransfer): File[] {
+  const files = Array.from(clipboardData.files);
+  if (files.length > 0) {
+    return files;
+  }
+
+  return Array.from(clipboardData.items)
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+}
+
+function useFileObjectUrl(file: File): string | null {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextObjectUrl = URL.createObjectURL(file);
+    setObjectUrl(nextObjectUrl);
+    return () => URL.revokeObjectURL(nextObjectUrl);
+  }, [file]);
+
+  return objectUrl;
+}
+
+function browserPreviewKind(mediaType: string): "image" | "video" | "audio" | "document" | "unsupported" {
+  const normalized = mediaType.toLowerCase();
+  if (normalized.startsWith("image/")) return "image";
+  if (normalized.startsWith("video/")) return "video";
+  if (normalized.startsWith("audio/")) return "audio";
+  if (
+    normalized === "application/pdf" ||
+    normalized === "application/json" ||
+    normalized.startsWith("text/")
+  ) {
+    return "document";
+  }
+  return "unsupported";
 }
 
 export function ChatEmptyState({ title, body }: { title: string; body: string }) {
