@@ -33,9 +33,10 @@ export function resolveTaskRouterConversationIdentity(
 
   if ((task.triggerType === "channel_chat" || task.triggerType === "mention_chat" || contactId) && (channelName || contactId)) {
     const sourceType = contactId ? "direct_conversation" : "channel_conversation";
-    const requesterScope = requesterUserId ? `:requester:${encodeURIComponent(requesterUserId)}` : "";
     return {
-      conversationKey: `${sourceType}:${channelName ?? contactId}${requesterScope}`,
+      conversationKey: requesterUserId
+        ? `user_conversation:${encodeURIComponent(requesterUserId)}`
+        : `${sourceType}:${channelName ?? contactId}`,
       sourceType,
       title,
     };
