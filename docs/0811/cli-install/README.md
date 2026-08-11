@@ -99,10 +99,16 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 
 - **Phase 2**（部分）`selectCliHubReadiness` 已能从 daemon 读取 readiness；Dockerfile 版本锁定、SBOM、签名矩阵仍未补齐。Execution Profile + 多实现协商（daemon readiness 扩展 writableHome/persistentHome/runtimePackageExecutor/mcpGateway/managedServiceReachable）单列架构项推进，不在本批次。
 - **Phase 3**（部分）`runtime_app_release` 已支持 yanked；`capability_request.release_id` 已绑定（提交 workspace-private CLI 自动 pin，批准时若被 yanked 则 fail closed）；`syncCliHubCatalog` 同步时将 npm 可变版本（`latest`/`head`/…）解析为 registry 精确版本（`isMutableCliVersion` + `resolveMutableNpmVersion`）。全量 release 治理队列仍待续。
-- **Phase 4**（部分）后端 submit/approve/reject + 管理员待办面板 + 站内通知（dedupe by request id）+ 审计已落地；`createCapabilityRequestSync` CAS 幂等消除并发双审计/脏写。跨页面通知 UI 仍待续。
+- **Phase 4**（部分）后端 submit/approve/reject + 管理员待办面板 + 站内通知（dedupe by request id）+ 审计已落地；`createCapabilityRequestSync` CAS 幂等消除并发双审计/脏写；`decideCapabilityRequestSync` 返回 `{record, changed}`，调用方仅在状态真正从 pending 翻转时才派发 operation，重复批准/并发审批不会创建新 operation；`bindApprovedCapabilityRequestToMcpConnectionSync` 只匹配 `approved`，普通连接入口无法绕过 pending 审批直接运行；终态请求换申请人重开时 `requested_by_user_id` 同步转移，审批/通知路由到正确申请人。跨页面通知 UI 仍待续。
 - **Phase 5**（部分）managed/external service 调度缝隙已接通（显式审计 + `MANAGED_SERVICE_PROVISIONING_ENABLED` fail-closed，请求留 `approved` 态待驱动）；容器生命周期（镜像缓存、签名、provision、health、retire）与 `linked_runtime_provisioning_task_id` 自动绑定仍待容器驱动落地。
-- **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint 型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码。
+- **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
+
+### 6.3 MCP 派发身份与部署模式重推导（进度更新 2026-08-11）
+
+- **MCP 身份不可变引用**：submit 时把 `catalogItemId` 写入 `capability_request.metadata_json`（`buildCapabilityRequestMetadataJson`），派发时优先按 ID 读取目录条目，不再回退到 slug「最新」；同 slug 多版本不会派发到错误 release。
+- **零配置判断完整化**：`isZeroConfigMcp` 同时检查 secretFields、endpointTemplate 和 configuration schema 的必填非密钥字段；含必填配置的 MCP 进入 `configure_credentials`，不再用空配置自动连接后被校验拒绝。
+- **部署模式重推导**：`submitCapabilityRequestSync` 不再信任浏览器声明的 deploymentMode——按 CLI install strategy / MCP transport 从真实目录条目重推导（`resolveCapabilityDeploymentPlan`），浏览器声明仅作形状校验（`assertCapabilityDeploymentPlan`），displayName 采用目录权威值。
 
 ## 7. 落地代码索引
 
