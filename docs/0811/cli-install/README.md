@@ -104,6 +104,12 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
 
+### 6.6 生命周期推进（进度更新 2026-08-11 第五轮）
+
+- **retire 回收保护**：`retireUnreferencedManagedSkillServicesSync` 不再回收 capability 部署的服务——capability_request（pending/approved/running/completed）经 metadata `managedServiceCatalogId`/`serviceId` 引用即受保护；仅失败/拒绝/取消释放给空闲回收。修复 stateless 默认立即回收导致刚部署的 managed MCP 容器被误杀。
+- **Runtime baseline 门控**：`RUNTIME_BASELINE_ROLLOUT_ENABLED=1` 时缺基础工具的 CLI 投影为 `install`（自动补装文案），普通成员不再阻塞在 `request_deployment`。
+- **成员取消**：`cancelCapabilityRequestSync`（仅申请人或管理员）+ `cancelCapabilityRequestAction` + 我的请求面板取消按钮（pending/approved/running）；取消的 managed-service 能力释放容器给 retire 扫描。
+
 ### 6.5 目录重推导与身份收紧（进度更新 2026-08-11 第四轮）
 
 - **目录缺失拒绝**：`resolveCapabilityDeploymentPlan` 无法解析目录条目时 `submit` 直接拒绝（`capability_request.catalog_not_found`），不再回退浏览器声明的 deploymentMode。
