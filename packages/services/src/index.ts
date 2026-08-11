@@ -1571,6 +1571,7 @@ export {
 // Capability availability / unified install task (docs/0811/cli-install Phase 1)
 export {
   approveCapabilityRequestSync,
+  cancelCapabilityRequestSync,
   completeCapabilityRequestMcpConnectionSync,
   isCapabilityProjectionEnabled,
   isCapabilityRequestEnabled,

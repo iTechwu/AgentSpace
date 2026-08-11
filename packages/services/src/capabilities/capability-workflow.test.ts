@@ -15,6 +15,7 @@ import {
 import { resetWorkspaceStateSync } from "../index.ts";
 import {
   approveCapabilityRequestSync,
+  cancelCapabilityRequestSync,
   completeCapabilityRequestMcpConnectionSync,
   submitCapabilityRequestSync,
 } from "./capability-workflow.ts";
@@ -196,5 +197,37 @@ test("completeCapabilityRequestMcpConnectionSync refuses to spend a non-connect 
       endpoint: "https://mcp.example.com/mcp",
     }),
     /capability_request\.not_approved/,
+  );
+});
+
+test("cancelCapabilityRequestSync lets the applicant cancel their pending request", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `mcp-${randomLikeId()}`;
+  seedMcpCatalog(slug, "official");
+  const submitted = submitCapabilityRequestSync(baseMcpSubmit(runtimeId, slug));
+  // Non-admin submit → pending.
+  assert.equal(submitted.capabilityRequest.status, "pending");
+
+  const cancelled = cancelCapabilityRequestSync({
+    requestId: submitted.capabilityRequest.id,
+    workspaceId: "default",
+    actorUserId: testUserId,
+  });
+  assert.equal(cancelled?.status, "cancelled");
+});
+
+test("cancelCapabilityRequestSync refuses a non-owner cancel", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `mcp-${randomLikeId()}`;
+  seedMcpCatalog(slug, "official");
+  const submitted = submitCapabilityRequestSync(baseMcpSubmit(runtimeId, slug));
+  const otherUser = createUserSync({ displayName: "Other", primaryEmail: `other-${randomLikeId()}@example.com` }).id;
+  assert.throws(
+    () => cancelCapabilityRequestSync({
+      requestId: submitted.capabilityRequest.id,
+      workspaceId: "default",
+      actorUserId: otherUser,
+    }),
+    /capability_request\.not_owner/,
   );
 });

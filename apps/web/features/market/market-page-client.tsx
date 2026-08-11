@@ -5,6 +5,7 @@ import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  cancelCapabilityRequestAction,
   createWorkspaceRuntimeAppReleaseAction,
   decideCapabilityRequestAction,
   requestRuntimeAppOperationAction,
@@ -1076,6 +1077,20 @@ function CapabilityRequestListPanel({ data, onDataChanged }: { data: MarketPageD
     });
   }
 
+  function onCancel(requestId: string): void {
+    startTransition(async () => {
+      await runToastAction({
+        action: () => cancelCapabilityRequestAction({ requestId }),
+        onSuccess: async () => {
+          await refreshWorkspaceModule(onDataChanged, router);
+        },
+        pushToast,
+        tx,
+        fallbackError: { zh: "取消失败，请稍后重试。", en: "Failed to cancel. Please try again." },
+      });
+    });
+  }
+
   return (
     <section aria-label={tx("我的能力请求", "My capability requests")} className="market-capability-requests">
       <header className="market-section-heading">
@@ -1157,6 +1172,18 @@ function CapabilityRequestListPanel({ data, onDataChanged }: { data: MarketPageD
               <p className="market-capability-request-error" role="alert">
                 {request.lastErrorMessage}
               </p>
+            ) : null}
+            {request.status === "pending" || request.status === "approved" || request.status === "running" ? (
+              <div className="market-capability-request-actions">
+                <button
+                  className="action-button action-button--danger"
+                  disabled={isPending}
+                  onClick={() => onCancel(request.id)}
+                  type="button"
+                >
+                  {tx("取消请求", "Cancel request")}
+                </button>
+              </div>
             ) : null}
           </li>
         ))}

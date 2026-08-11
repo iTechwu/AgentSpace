@@ -10,6 +10,7 @@ import type {
 } from "@dofe-agent/db";
 import {
   approveCapabilityRequestSync,
+  cancelCapabilityRequestSync,
   createWorkspaceRuntimeAppRelease,
   rejectCapabilityRequestSync,
   requestRuntimeAppOperationSync,
@@ -199,6 +200,21 @@ export interface DecideCapabilityRequestActionResult {
  * Admin decision on a pending capability request. Approve dispatches to the
  * underlying subsystem; reject requires a user-facing reason.
  */
+export async function cancelCapabilityRequestAction(input: {
+  requestId: string;
+  reason?: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  cancelCapabilityRequestSync({
+    requestId: input.requestId,
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    reason: input.reason,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes"]);
+  return actionToastResult(undefined, successToast("能力请求已取消。", "Capability request cancelled."));
+}
+
 export async function decideCapabilityRequestAction(
   input: DecideCapabilityRequestActionInput,
 ): Promise<ActionToastResult<DecideCapabilityRequestActionResult>> {

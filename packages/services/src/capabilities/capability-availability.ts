@@ -22,6 +22,7 @@ export {
 
 export {
   approveCapabilityRequestSync,
+  cancelCapabilityRequestSync,
   completeCapabilityRequestMcpConnectionSync,
   listActiveCapabilityRequestsForRuntime,
   rejectCapabilityRequestSync,

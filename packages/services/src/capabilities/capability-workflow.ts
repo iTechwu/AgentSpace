@@ -5,6 +5,7 @@ import type {
   CapabilityRequestRecord,
 } from "@dofe-agent/db";
 import {
+  cancelCapabilityRequestSync as dbCancelCapabilityRequestSync,
   createCapabilityRequestSync,
   decideCapabilityRequestSync,
   listCapabilityRequestsSync,
@@ -398,6 +399,45 @@ export function rejectCapabilityRequestSync(input: {
     severity: "warning",
     type: "capability_request_rejected",
   });
+  return result;
+}
+
+export function cancelCapabilityRequestSync(input: {
+  requestId: string;
+  workspaceId: string;
+  actorUserId: string;
+  reason?: string;
+}): CapabilityRequestRecord | null {
+  const request = readCapabilityRequestSync(input.requestId, input.workspaceId);
+  if (!request) return null;
+  // Only the applicant (or an admin) may cancel their own request.
+  const isAdmin = isWorkspaceAdminOrOwnerSync({ workspaceId: input.workspaceId, userId: input.actorUserId });
+  if (!isAdmin && request.requestedByUserId !== input.actorUserId) {
+    throw new Error("capability_request.not_owner");
+  }
+  const result = dbCancelCapabilityRequestSync({
+    requestId: input.requestId,
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    reason: input.reason,
+  });
+  // A cancelled managed-service capability releases its container to the retire
+  // sweep; the sweep now protects pending/approved/running/completed references
+  // but treats cancelled as removable (idle TTL → retire).
+  if (result && (result.status === "cancelled")) {
+    tryRecordWorkspaceAuditEventSync({
+      workspaceId: input.workspaceId,
+      title: "Capability request cancelled",
+      note: `${result.packageDisplayName} (${result.deploymentMode}) cancelled.`,
+      code: "capability_request.cancelled",
+      data: {
+        actorType: "session_user",
+        actorUserId: input.actorUserId,
+        resourceType: "capability_request",
+        resourceId: input.requestId,
+      },
+    });
+  }
   return result;
 }
 
