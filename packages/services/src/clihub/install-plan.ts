@@ -353,6 +353,17 @@ function npmPackageName(packageSpec: string): string {
   return versionSeparator > 0 ? packageSpec.slice(0, versionSeparator) : packageSpec;
 }
 
+/**
+ * True for catalog versions that must NOT be stored as-is on a public catalog
+ * sync — `latest`, `head`, `main`, `master`, `next`, `nightly`, `snapshot`,
+ * `dev` (docs/0811/cli-install Phase 3). The sync layer resolves these to a
+ * concrete version when it can (npm registry); when it cannot, the projection
+ * already blocks the install path via {@link isImmutableVersion}.
+ */
+export function isMutableCliVersion(version: string | undefined): boolean {
+  return Boolean(version && version.trim().length > 0 && MUTABLE_VERSION_PATTERN.test(version));
+}
+
 function isImmutableVersion(version: string): boolean {
   return Boolean(
     version

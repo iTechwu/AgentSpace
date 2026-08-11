@@ -8,6 +8,7 @@ import {
   type UpsertRuntimeAppCatalogItemInput,
 } from "@dofe-agent/db";
 import { applyCliHubCatalogCompatibility, readCliHubCatalogCompatibilityOverride } from "./catalog-compatibility.ts";
+import { isMutableCliVersion } from "./install-plan.ts";
 
 export const CLIHUB_HARNESS_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json";
 export const CLIHUB_HARNESS_REGISTRY_FALLBACK_URL = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/registry.json";
@@ -71,6 +72,26 @@ export async function syncCliHubCatalog(options?: {
   for (const result of results) {
     if (result.items) items.push(...result.items);
     if (result.error) errors.push(result.error);
+  }
+
+  // Phase 3: resolve mutable versions (latest/head/main/…) for npm-strategy
+  // entries to a concrete version from the npm registry so they can enter the
+  // installable path instead of being gated as release_unpinned. Other
+  // strategies (pip/cli_hub/manual) and resolution failures are left mutable —
+  // the projection already blocks them from the install path. Mutable npm
+  // entries are rare, so a bounded concurrent fan-out is safe here.
+  const resolvable = items.filter(
+    (item) => item.installStrategy === "npm"
+      && isMutableCliVersion(item.version)
+      && extractNpmPackageNameFromInstallCmd(item.installCmd) !== undefined,
+  );
+  if (resolvable.length > 0) {
+    await Promise.all(resolvable.map(async (item) => {
+      const packageName = extractNpmPackageNameFromInstallCmd(item.installCmd);
+      if (!packageName) return;
+      const resolved = await resolveMutableNpmVersion(packageName, fetchImpl);
+      if (resolved) item.version = resolved;
+    }));
   }
 
   const syncedCount = upsertItemsSync(items);
@@ -207,4 +228,45 @@ function readString(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Extract the npm package name (without @version suffix, keeping @scope) from
+ * an `npm install -g <pkg>[@version]` command. Returns undefined when the
+ * command is not a global npm install or the trailing token is not a valid
+ * package name/spec.
+ */
+function extractNpmPackageNameFromInstallCmd(installCmd: string | undefined): string | undefined {
+  const command = installCmd?.trim();
+  if (!command || !/\bnpm\s+(?:install|i)\b/.test(command)) return undefined;
+  const tokens = command.split(/\s+/).filter(Boolean);
+  const spec = tokens[tokens.length - 1];
+  if (!spec) return undefined;
+  // Strip an @version suffix, keeping a leading @scope. The version separator
+  // is an @ that is NOT at position 0 (which marks a scope).
+  const atIdx = spec.lastIndexOf("@");
+  const name = atIdx > 0 ? spec.slice(0, atIdx) : spec;
+  if (!/^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i.test(name)) return undefined;
+  return name;
+}
+
+/**
+ * Resolve the concrete "latest" version of an npm package from the public npm
+ * registry. Returns undefined on any network/parse failure — the caller leaves
+ * the mutable version in place (already gated by the projection).
+ */
+async function resolveMutableNpmVersion(packageName: string, fetchImpl: typeof fetch): Promise<string | undefined> {
+  try {
+    const signal = AbortSignal.timeout(REGISTRY_FETCH_TIMEOUT_MS);
+    const response = await fetchImpl(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`, {
+      cache: "no-store",
+      signal,
+    });
+    if (!response.ok) return undefined;
+    const payload = (await response.json()) as { version?: unknown };
+    const version = typeof payload.version === "string" ? payload.version.trim() : "";
+    return version.length > 0 ? version : undefined;
+  } catch {
+    return undefined;
+  }
 }

@@ -101,6 +101,61 @@ test("syncs public registry from fallback URL when the primary URL is unavailabl
   assert.equal(requestedUrls.some((url) => url.includes("raw.githubusercontent.com")), true);
 });
 
+test("resolves mutable npm versions to a concrete version from the npm registry on sync", async () => {
+  const captured: Array<{ name: string; version: string | undefined }> = [];
+  const result = await syncCliHubCatalog({
+    now: new Date("2026-08-11T00:00:00.000Z"),
+    upsertItemsSync: (items) => {
+      captured.push(...items.map((item) => ({ name: item.name, version: item.version })));
+      return items.length;
+    },
+    readHealthSync: () => ({ itemCount: 1, lastSyncedAt: "2026-08-11T00:00:00.000Z", stale: false }),
+    fetchImpl: async (url) => {
+      const target = String(url);
+      if (target.includes("registry.npmjs.org")) {
+        return jsonResponse({ version: "2.3.4" });
+      }
+      return jsonResponse({
+        clis: [
+          {
+            name: "toolkit",
+            display_name: "Toolkit",
+            version: "latest",
+            install_cmd: "npm install -g toolkit",
+            entry_point: "toolkit",
+          },
+        ],
+      });
+    },
+  });
+
+  assert.equal(result.status, "fresh");
+  const toolkit = captured.find((item) => item.name === "toolkit");
+  assert.equal(toolkit?.version, "2.3.4");
+});
+
+test("leaves mutable npm versions in place when registry resolution fails", async () => {
+  const captured: Array<{ name: string; version: string | undefined }> = [];
+  await syncCliHubCatalog({
+    now: new Date("2026-08-11T00:00:00.000Z"),
+    upsertItemsSync: (items) => {
+      captured.push(...items.map((item) => ({ name: item.name, version: item.version })));
+      return items.length;
+    },
+    readHealthSync: () => ({ itemCount: 1, lastSyncedAt: "2026-08-11T00:00:00.000Z", stale: false }),
+    fetchImpl: async (url) => {
+      const target = String(url);
+      if (target.includes("registry.npmjs.org")) {
+        return new Response("internal server error", { status: 500, statusText: "Internal Server Error" });
+      }
+      return jsonResponse({ clis: [{ name: "toolkit", version: "latest", install_cmd: "npm install -g toolkit" }] });
+    },
+  });
+
+  const toolkit = captured.find((item) => item.name === "toolkit");
+  assert.equal(toolkit?.version, "latest");
+});
+
 test("syncs harness registry from fallback URL when the primary URL is unavailable", async () => {
   const requestedUrls: string[] = [];
   const result = await syncCliHubCatalog({
