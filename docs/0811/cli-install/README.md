@@ -103,16 +103,21 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 3** release 治理与不可变 manifest 完整化（`runtime_app_release` 已存在并支持 yanked，但与 `capability_request` 的 release 引用尚未绑定）。
 - **Phase 4** 普通成员申请管理员部署的端到端 UI、通知与审计。
 - **Phase 5** managed service lifecycle 与 lease/fencing（已有 `runtime_provisioning_task` 与 `managed_runtime_cleanup_request`，但 `capability_request` → `runtime_provisioning_task` 的自动绑定尚未接通）。
-- **Phase 6** CLI + MCP 统一启用向导 UI（API 已就绪，页面尚未消费 `nextAction`）。
+- **Phase 6** CLI + MCP 统一启用向导 UI（API 已就绪，详情面板已显示 `nextAction` 徽章与文案，主按钮仍走旧 `installability` 分支，待后续全量切换）。
 - **Phase 7** 灰度上线与回滚开关。
 
-## 7. 落地代码索引（Phase 1）
+## 7. 落地代码索引
 
-| 路径 | 角色 |
-| --- | --- |
-| `packages/db/src/capability-requests.ts` | capability_request CRUD + 状态机 |
-| `packages/db/src/postgres-schema.ts`（v117） | `capability_request` 表 + 索引 |
-| `packages/services/src/capabilities/capability-availability.ts` | 投影 + 提交 + 审批 |
-| `apps/web/app/api/workspaces/[workspaceId]/capabilities/availability/route.ts` | GET 投影 |
-| `apps/web/app/api/workspaces/[workspaceId]/capability-requests/route.ts` | POST 提交 + GET 我的请求 |
-| `apps/web/app/api/workspaces/[workspaceId]/capability-requests/[requestId]/decision/route.ts` | POST 管理员决策 |
+| 路径 | 角色 | 阶段 |
+| --- | --- | --- |
+| `packages/db/src/capability-requests.ts` | capability_request CRUD + 状态机 | Phase 1 |
+| `packages/db/src/postgres-schema.ts`（v117） | `capability_request` 表 + 索引 | Phase 1 |
+| `packages/services/src/capabilities/capability-availability.ts` | 投影 + 提交 + 审批 | Phase 1 |
+| `apps/web/app/api/workspaces/[workspaceId]/capabilities/availability/route.ts` | GET 投影 | Phase 1 |
+| `apps/web/app/api/workspaces/[workspaceId]/capability-requests/route.ts` | POST 提交 + GET 我的请求 | Phase 1 |
+| `apps/web/app/api/workspaces/[workspaceId]/capability-requests/[requestId]/decision/route.ts` | POST 管理员决策 | Phase 1 |
+| `apps/web/features/market/capability-projection-loader.ts` | 服务端投影包装 | Phase 6 |
+| `apps/web/features/market/capability-next-action-ui.ts` | 9 状态 → 按钮 copy + enable | Phase 6 |
+| `apps/web/features/market/market-page-loader.ts` | 注入 `capabilityProjections` + `capabilityRequests` | Phase 6 |
+| `apps/web/features/market/market-page-client.tsx` | 详情面板 `nextAction` 徽章 + 主按钮按 nextAction 分支 + 我的请求面板 | Phase 6 |
+| `apps/web/features/market/actions.ts` | `submitCapabilityRequestAction` + `decideCapabilityRequestAction` | Phase 6 |

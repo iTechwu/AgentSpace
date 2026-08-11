@@ -4,7 +4,13 @@ import type { McpCatalogCategory, McpCatalogSource, McpConnectionOperationStage,
 import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createWorkspaceRuntimeAppReleaseAction, requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
+import {
+  createWorkspaceRuntimeAppReleaseAction,
+  requestRuntimeAppOperationAction,
+  refreshRuntimeAppCatalogAction,
+  submitCapabilityRequestAction,
+  syncRuntimeAppSkillAction,
+} from "@/features/market/actions";
 import type { CreateWorkspaceRuntimeAppReleaseActionInput } from "@/features/market/actions";
 import { CreateCliReleaseModal } from "@/features/market/create-cli-release-modal";
 import { McpMarketPanel } from "@/features/market/mcp-market-panel";
@@ -147,6 +153,28 @@ export interface MarketPageData {
    *  enable state; the legacy `installability` field is kept for the
    *  compatibility status chip only. */
   capabilityProjections: CapabilityAvailabilityProjection[];
+  /** Recent capability requests for this workspace; non-admin members only
+   *  see their own, admins see all. Rendered as a " My requests" panel so
+   *  the user can track install/deploy/connect progress without re-creating
+   *  the task. */
+  capabilityRequests: Array<{
+    id: string;
+    runtimeId: string | null;
+    packageKind: "cli" | "mcp" | "service";
+    packageSlug: string;
+    packageDisplayName: string;
+    deploymentMode: "runtime_builtin" | "runtime_package" | "managed_service" | "external_service";
+    requestedAction: "install" | "deploy" | "connect" | "upgrade";
+    priority: "normal" | "urgent";
+    message: string;
+    status: "pending" | "approved" | "rejected" | "running" | "completed" | "failed" | "cancelled";
+    decisionReason?: string;
+    lastErrorCode?: string;
+    lastErrorMessage?: string;
+    createdAt: string;
+    decidedAt?: string;
+    completedAt?: string;
+  }>;
 }
 
 export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData; onDataChanged?: () => void }) {
@@ -242,6 +270,8 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
       ) : (
         <McpMarketPanel data={data} onDataChanged={onDataChanged} />
       )}
+
+      <CapabilityRequestListPanel data={data} />
     </div>
   );
 }
@@ -372,7 +402,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
     setVisibleCatalogCount(CLI_CATALOG_BATCH_SIZE);
   }, [category, installFilter, query, riskFilter, sourceFilter]);
 
-  function runAction(work: () => Promise<ActionToastResult<void>>, onSuccess?: () => void): void {
+  function runAction<T = void>(work: () => Promise<ActionToastResult<T>>, onSuccess?: () => void): void {
     startTransition(async () => {
       await runToastAction({
         action: work,
@@ -399,6 +429,43 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
       operation,
       confirmHighRisk,
     }));
+  }
+
+  /**
+   * Drives the unified primary button. Dispatches based on the server-side
+   * `nextAction` projection — the page never decides " what to do next" from
+   * multiple independent flags. `install` / `connect` go through the
+   * capability request envelope so the unified task is visible in
+   * " My requests"; legacy update/uninstall paths keep their dedicated calls.
+   */
+  function handlePrimaryAction(): void {
+    if (!selected || !selectedRuntime || !selectedProjection) return;
+    const nextAction = selectedProjection.nextAction;
+    if (nextAction === "install") {
+      requestOperation(selectedInstall?.status === "installed" ? "update" : "install");
+      return;
+    }
+    if (nextAction === "request_deployment") {
+      runAction(() => submitCapabilityRequestAction({
+        runtimeId: selectedRuntime.id,
+        packageKind: "cli",
+        packageSource: selected.source,
+        packageSlug: selected.name,
+        packageDisplayName: selected.displayName,
+        deploymentMode: selectedProjection.deploymentMode,
+        requestedAction: "install",
+        message: "",
+      }));
+      return;
+    }
+    if (nextAction === "configure_credentials") {
+      // For CLI side, fall through to install once prerequisites are met; the
+      // page keeps showing the chip until the user resolves the gate.
+      return;
+    }
+    // wait_for_approval / wait_for_operation / repair / govern_release / none /
+    // connect — the button is disabled in those states; this branch only runs
+    // when the projection explicitly says we can act now.
   }
 
   function createPrivateRelease(input: CreateWorkspaceRuntimeAppReleaseActionInput): void {
@@ -653,12 +720,13 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                 <div className="market-action-row">
                   <button
                     className="primary-button"
-                    disabled={isPending || !data.canManage || !selectedRuntime || selectedInstallability.status !== "installable" || Boolean(selectedOperation) || (selected.risk === "high" && !confirmHighRisk)}
-                    onClick={() => requestOperation(selectedInstall?.status === "installed" ? "update" : "install")}
+                    data-next-action={selectedProjectionBadge?.nextAction ?? "none"}
+                    disabled={isPending || !selectedRuntime || !selectedProjectionBadge?.primaryEnabled || Boolean(selectedOperation) || (selected.risk === "high" && !confirmHighRisk)}
+                    onClick={() => handlePrimaryAction()}
                     type="button"
                   >
-                    <AppIcon name="download" />
-                    <span>{selectedInstall?.status === "installed" ? tx("更新", "Update") : tx("安装", "Install")}</span>
+                    <AppIcon name={selectedInstall?.status === "installed" ? "refresh" : "download"} />
+                    <span>{selectedProjectionBadge?.primaryLabel ?? tx("安装", "Install")}</span>
                   </button>
                   <button
                     className="modal-secondary-button"
@@ -928,6 +996,94 @@ function Fact({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+/**
+ * " My capability requests" panel. Every install/deploy/connect the user
+ * initiates lands here as a unified task envelope, so the page never loses
+ * the user's intent on refresh.
+ */
+function CapabilityRequestListPanel({ data }: { data: MarketPageData }) {
+  const { tx } = useLanguage();
+  const requests = data.capabilityRequests ?? [];
+  if (requests.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label={tx("我的能力请求", "My capability requests")} className="market-capability-requests">
+      <header className="market-section-heading">
+        <h2>{tx("我的能力请求", "My capability requests")}</h2>
+        <p>
+          {tx(
+            "统一的安装、部署与连接任务。无需重复发起，刷新页面即可继续追踪。",
+            "Unified install, deploy and connect tasks. No need to re-submit — refresh to continue tracking.",
+          )}
+        </p>
+      </header>
+      <ul className="market-capability-request-list">
+        {requests.slice(0, 12).map((request) => (
+          <li key={request.id} className={`market-capability-request market-capability-request--${request.status}`}>
+            <div className="market-capability-request-meta">
+              <strong>{request.packageDisplayName}</strong>
+              <span className="status-chip">
+                {capabilityRequestStatusLabel(request.status, tx)}
+              </span>
+            </div>
+            <p className="market-capability-request-detail">
+              {tx("部署模式", "Deployment")}: {capabilityDeploymentModeLabel(request.deploymentMode, tx)}
+              {" · "}
+              {tx("动作", "Action")}: {capabilityActionLabel(request.requestedAction, tx)}
+              {request.decisionReason ? ` · ${request.decisionReason}` : ""}
+            </p>
+            {request.lastErrorMessage ? (
+              <p className="market-capability-request-error" role="alert">
+                {request.lastErrorMessage}
+              </p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function capabilityRequestStatusLabel(
+  status: "pending" | "approved" | "rejected" | "running" | "completed" | "failed" | "cancelled",
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (status) {
+    case "pending": return tx("等待管理员", "Awaiting admin");
+    case "approved": return tx("已批准", "Approved");
+    case "rejected": return tx("已拒绝", "Rejected");
+    case "running": return tx("执行中", "Running");
+    case "completed": return tx("已完成", "Completed");
+    case "failed": return tx("失败", "Failed");
+    case "cancelled": return tx("已取消", "Cancelled");
+  }
+}
+
+function capabilityDeploymentModeLabel(
+  mode: "runtime_builtin" | "runtime_package" | "managed_service" | "external_service",
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (mode) {
+    case "runtime_builtin": return tx("Runtime 内置", "Runtime builtin");
+    case "runtime_package": return tx("Runtime 包", "Runtime package");
+    case "managed_service": return tx("受管服务", "Managed service");
+    case "external_service": return tx("外部服务", "External service");
+  }
+}
+
+function capabilityActionLabel(
+  action: "install" | "deploy" | "connect" | "upgrade",
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (action) {
+    case "install": return tx("安装", "Install");
+    case "deploy": return tx("部署", "Deploy");
+    case "connect": return tx("连接", "Connect");
+    case "upgrade": return tx("升级", "Upgrade");
+  }
 }
 
 function formatMarketTimestamp(value: string, language: "zh" | "en"): string {

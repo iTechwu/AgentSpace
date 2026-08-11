@@ -7,6 +7,7 @@ import {
   listRuntimeInstalledAppsSync,
   readRuntimeAppCatalogHealthSync,
   readMcpCatalogItemSync,
+  listCapabilityRequestsSync,
 } from "@dofe-agent/db";
 import {
   assessRuntimeAppInstallability,
@@ -173,6 +174,27 @@ export async function loadMarketPageData(input: {
       errorMessage: operation.errorMessage,
     })),
     canManage: input.canManage,
+    capabilityRequests: listCapabilityRequestsSync({
+      workspaceId: input.workspaceId,
+      limit: 50,
+    }).map((request) => ({
+      id: request.id,
+      runtimeId: request.runtimeId ?? null,
+      packageKind: request.packageKind,
+      packageSlug: request.packageSlug,
+      packageDisplayName: request.packageDisplayName,
+      deploymentMode: request.deploymentMode,
+      requestedAction: request.requestedAction,
+      priority: request.priority,
+      message: request.message,
+      status: request.status,
+      decisionReason: request.decisionReason,
+      lastErrorCode: request.lastErrorCode,
+      lastErrorMessage: request.lastErrorMessage,
+      createdAt: request.createdAt,
+      decidedAt: request.decidedAt,
+      completedAt: request.completedAt,
+    })),
     capabilityProjections: buildCapabilityProjectionsForMarket({
       workspaceId: input.workspaceId,
       canManage: input.canManage,

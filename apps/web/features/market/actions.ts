@@ -9,7 +9,9 @@ import type {
   RuntimeAppOperationType,
 } from "@dofe-agent/db";
 import {
+  approveCapabilityRequestSync,
   createWorkspaceRuntimeAppRelease,
+  rejectCapabilityRequestSync,
   requestRuntimeAppOperationSync,
   submitCapabilityRequestSync,
   syncCliHubCatalog,
@@ -176,5 +178,73 @@ export async function submitCapabilityRequestAction(
         ? "Task created and running."
         : "Capability request recorded.",
     ),
+  );
+}
+
+export interface DecideCapabilityRequestActionInput {
+  requestId: string;
+  decision: "approved" | "rejected";
+  reason?: string;
+}
+
+export interface DecideCapabilityRequestActionResult {
+  capabilityRequestId: string;
+  nextAction: string;
+  dispatchedOperationId: string | null;
+  status: string;
+}
+
+/**
+ * Admin decision on a pending capability request. Approve dispatches to the
+ * underlying subsystem; reject requires a user-facing reason.
+ */
+export async function decideCapabilityRequestAction(
+  input: DecideCapabilityRequestActionInput,
+): Promise<ActionToastResult<DecideCapabilityRequestActionResult>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  if (input.decision === "approved") {
+    const result = approveCapabilityRequestSync({
+      requestId: input.requestId,
+      workspaceId: workspaceContext.currentWorkspace.id,
+      actorUserId: workspaceContext.currentUser.id,
+      decisionReason: input.reason,
+    });
+    revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes"]);
+    return actionToastResult(
+      {
+        capabilityRequestId: result.capabilityRequest.id,
+        nextAction: result.nextAction,
+        dispatchedOperationId: result.dispatchedOperationId ?? null,
+        status: result.capabilityRequest.status,
+      },
+      successToast(
+        result.nextAction === "wait_for_operation"
+          ? "已批准并触发执行。"
+          : "已批准。",
+        result.nextAction === "wait_for_operation"
+          ? "Approved and dispatched."
+          : "Approved.",
+      ),
+    );
+  }
+  if (!input.reason?.trim()) {
+    throw new Error("拒绝时必须填写用户可理解的原因。");
+  }
+  const rejected = rejectCapabilityRequestSync({
+    requestId: input.requestId,
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    decisionReason: input.reason,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes"]);
+  return actionToastResult(
+    {
+      capabilityRequestId: input.requestId,
+      nextAction: "none",
+      dispatchedOperationId: null,
+      status: rejected?.status ?? "rejected",
+    },
+    successToast("已拒绝申请。", "Request rejected."),
   );
 }
