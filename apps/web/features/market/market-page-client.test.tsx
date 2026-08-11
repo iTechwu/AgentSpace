@@ -357,7 +357,7 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
     expect(within(screen.getByRole("combobox", { name: "传输" })).getByRole("option", { name: "受管 stdio" })).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "MCP 服务目录" })).getByText("受管 stdio")).toBeInTheDocument();
-    expect(screen.getByText("开发工具")).toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "MCP 详情" })).getByText("开发工具")).toBeInTheDocument();
     expect(screen.getByText("chrome-devtools-mcp@1.6.0")).toBeInTheDocument();
     const progress = screen.getByRole("list", { name: "MCP 连接进度" });
     expect(progress).toBeInTheDocument();

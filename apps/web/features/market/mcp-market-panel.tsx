@@ -528,7 +528,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
 
               <div className="market-facts-grid">
                 <Fact label={tx("版本", "Release")} value={selected.version} />
-                <Fact label={tx("类别", "Category")} value={selected.category} />
+                <Fact label={tx("类别", "Category")} value={mcpCatalogCategoryLabel(selected.category, tx)} />
                 <Fact label={tx("传输", "Transport")} value={mcpTransportLabel(selected.transport, tx)} />
                 <Fact label={tx("声明工具数", "Declared tools")} value={String(selected.declaredTools.length)} />
                 <Fact label={tx("数据域", "Data domains")} value={selected.dataDomains.join(", ") || "—"} />

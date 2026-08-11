@@ -143,6 +143,7 @@ describe("RuntimeCapabilitiesPanel", () => {
     await user.click(screen.getAllByRole("button", { name: "连接 MCP" }).at(-1)!);
     await user.click(screen.getByRole("button", { name: "配置并连接" }));
 
+    expect(screen.getByText(/受管 stdio · 1 个工具/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "MCP 连接进度" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /继续：/ })).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "继续：安装依赖 CLI" }));
@@ -178,6 +179,7 @@ describe("RuntimeCapabilitiesPanel", () => {
     const endpoint = screen.getByRole("textbox", { name: "受管服务" });
     expect(endpoint).toHaveValue("managed-service://openmontage");
     expect(endpoint).toHaveAttribute("readonly");
+    expect(screen.getByText("高风险")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "确认此 Runtime 将访问声明的数据域" }));
     await user.click(screen.getByRole("button", { name: "继续：验证并连接" }));
 

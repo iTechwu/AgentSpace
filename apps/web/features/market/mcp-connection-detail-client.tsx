@@ -16,7 +16,16 @@ import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import type { AppIconName } from "@/shared/ui/app-icon";
 import type { McpConnectionOperationStage } from "@dofe-agent/db";
-import { mcpOperationStageLabel } from "@/features/market/capability-presentation";
+import {
+  mcpConnectionStatusLabel,
+  mcpOperationLabel,
+  mcpOperationSourceLabel,
+  mcpOperationStageLabel,
+  mcpOperationStatusLabel,
+  mcpRiskLabel,
+  mcpToolCallOutcomeLabel,
+  mcpTransportLabel,
+} from "@/features/market/capability-presentation";
 
 export interface McpConnectionDetailPageData {
   workspaceId: string;
@@ -136,7 +145,7 @@ export function McpConnectionDetailPageClient({
           <p>{data.connection.catalogDescription || data.connection.catalogSlug}</p>
         </div>
         <span className={`status-chip status-chip--${statusTone(data.connection.status)}`}>
-          {statusLabel(data.connection.status, tx)}
+          {mcpConnectionStatusLabel(data.connection.status, tx)}
         </span>
       </section>
 
@@ -164,8 +173,8 @@ export function McpConnectionDetailPageClient({
         <section className="market-detail-panel">
           <div className="market-facts-grid">
             <Fact label={tx("Runtime", "Runtime")} value={data.connection.runtimeLabel} />
-            <Fact label={tx("传输", "Transport")} value={data.connection.transport} />
-            <Fact label={tx("状态", "Status")} value={statusLabel(data.connection.status, tx)} />
+            <Fact label={tx("传输", "Transport")} value={mcpTransportLabel(data.connection.transport, tx)} />
+            <Fact label={tx("状态", "Status")} value={mcpConnectionStatusLabel(data.connection.status, tx)} />
             <Fact
               label={tx("已获准工具", "Approved tools")}
               value={`${data.connection.approvedTools.length}/${data.connection.declaredTools.length}`}
@@ -238,7 +247,7 @@ export function McpConnectionDetailPageClient({
                     <strong>{tool.name}</strong>
                     <small>{tool.description}</small>
                   </span>
-                  <span className={`status-chip status-chip--${riskTone(tool.risk)}`}>{tool.risk}</span>
+                  <span className={`status-chip status-chip--${riskTone(tool.risk)}`}>{mcpRiskLabel(tool.risk, tx)}</span>
                 </li>
               ))}
             </ul>
@@ -252,7 +261,7 @@ export function McpConnectionDetailPageClient({
                   <strong>{tool.name}</strong>
                   <small>{tool.description}</small>
                 </span>
-                <span className={`status-chip status-chip--${riskTone(tool.risk)}`}>{tool.risk}</span>
+                <span className={`status-chip status-chip--${riskTone(tool.risk)}`}>{mcpRiskLabel(tool.risk, tx)}</span>
               </li>
             ))}
           </ul>
@@ -311,13 +320,13 @@ function McpOperationActivityRow({
       </span>
       <span className="mcp-activity-badge">{tx("操作", "Operation")}</span>
       <span className="mcp-activity-title">
-        {operationLabel(operation.operation, tx)}
+        {mcpOperationLabel(operation.operation, tx)}
         {" "}
         <span className={`status-chip status-chip--${operationStatusTone(operation.status)}`}>
-          {mcpOperationStageLabel(operation.status === "failed" ? operation.failedStage : operation.stage, tx) ?? operationStatusLabel(operation.status, tx)}
+          {mcpOperationStageLabel(operation.status === "failed" ? operation.failedStage : operation.stage, tx) ?? mcpOperationStatusLabel(operation.status, tx)}
         </span>
       </span>
-      {operation.source ? <span className="mcp-activity-meta">{operation.source}</span> : null}
+      {operation.source ? <span className="mcp-activity-meta">{mcpOperationSourceLabel(operation.source, tx)}</span> : null}
       {operation.errorMessage ? <span className="mcp-connection-error">{operation.errorMessage}</span> : null}
     </div>
   );
@@ -340,7 +349,7 @@ function McpAuditActivityRow({
         {audit.toolName}
         {" "}
         <span className={`status-chip status-chip--${audit.outcome === "succeeded" ? "positive" : audit.outcome === "failed" ? "danger" : "neutral"}`}>
-          {audit.outcome}
+          {mcpToolCallOutcomeLabel(audit.outcome, tx)}
         </span>
       </span>
       {audit.latencyMs ? <span className="mcp-activity-meta">{audit.latencyMs} ms</span> : null}
@@ -397,45 +406,11 @@ function statusTone(status: string): "positive" | "warning" | "danger" | "neutra
   return "neutral";
 }
 
-function statusLabel(status: string, tx: (zh: string, en: string) => string): string {
-  switch (status) {
-    case "ready": return tx("已验证", "Verified");
-    case "verifying": return tx("验证中", "Verifying");
-    case "queued_verification": return tx("等待验证", "Queued");
-    case "failed": return tx("失败", "Failed");
-    case "degraded": return tx("需要处理", "Needs attention");
-    case "disabled": return tx("已停用", "Disabled");
-    default: return tx("未配置", "Needs config");
-  }
-}
-
 function operationStatusTone(status: string): "positive" | "warning" | "danger" | "neutral" {
   if (status === "succeeded") return "positive";
   if (status === "pending" || status === "claimed" || status === "running") return "warning";
   if (status === "failed") return "danger";
   return "neutral";
-}
-
-function operationStatusLabel(status: string, tx: (zh: string, en: string) => string): string {
-  switch (status) {
-    case "succeeded": return tx("成功", "Succeeded");
-    case "pending": return tx("待处理", "Pending");
-    case "claimed": return tx("已认领", "Claimed");
-    case "running": return tx("运行中", "Running");
-    case "failed": return tx("失败", "Failed");
-    case "cancelled": return tx("已取消", "Cancelled");
-    default: return status;
-  }
-}
-
-function operationLabel(operation: string, tx: (zh: string, en: string) => string): string {
-  switch (operation) {
-    case "verify": return tx("验证", "Verify");
-    case "enable": return tx("启用", "Enable");
-    case "disable": return tx("停用", "Disable");
-    case "remove": return tx("移除", "Remove");
-    default: return operation;
-  }
 }
 
 function riskTone(risk: "low" | "medium" | "high"): "positive" | "warning" | "danger" {
