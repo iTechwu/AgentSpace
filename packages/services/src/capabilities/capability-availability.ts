@@ -214,10 +214,14 @@ export function projectCliCapabilityAvailability(input: {
       reasonText: "没有可用的在线 Runtime。",
     };
   }
+  // Infra is ready and the CLI has a valid install plan — the button is enabled
+  // for everyone (docs §6 "安装：系统可以自动完成"). Members' clicks submit a
+  // capability request that goes through admin approval; admins execute the
+  // install directly. Only the infra-not-ready cases surface `request_deployment`.
   return {
     ...baseProjection,
     userState: "available",
-    nextAction: workspace.canManage ? "install" : "request_deployment",
+    nextAction: "install",
     reasonCode: installability.code,
     reasonText: "可通过 Runtime 按需安装。",
   };
