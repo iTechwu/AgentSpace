@@ -50,7 +50,7 @@ export async function GET(
   // `kind` (cli|mcp|service) or the multi-implementation alias `implementation`
   // (cli|mcp) — lets an admin request a specific implementation's projection for
   // the admin switch (docs §4.5). Defaults to all kinds.
-  const kind = (url.searchParams.get("implementation")?.trim() || url.searchParams.get("kind")?.trim()) ?? "";
+  const kind = (url.searchParams.get("implementation")?.trim() || url.searchParams.get("kind")?.trim()) || undefined;
   if (!runtimeId) {
     return Response.json({ error: "Query parameter `runtimeId` is required." }, { status: 400 });
   }
