@@ -20,10 +20,12 @@ import {
   listSkillServiceCatalogSync,
   readAgentRuntimeSync,
   readCapabilityRequestSync,
+  readManagedSkillServiceOperationSync,
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemSync,
   readWorkspaceRuntimeAppReleaseByVersionSync,
 } from "@dofe-agent/db";
+import { queueManagedSkillServiceRetireSync } from "../skill-services/bindings.ts";
 import { materializeMcpConnectionSync } from "../mcp-center/connections.ts";
 import { buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
@@ -555,6 +557,17 @@ function cancelLinkedCapabilityOperationsSync(
           `UPDATE managed_skill_service_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
            WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
         ).run(skillOpId, workspaceId);
+      }
+      // Compensation (P1): if the container was already provisioned (the op has a
+      // service instance), explicitly retire it — the retire sweep also releases
+      // cancelled references, but an explicit retire is immediate rather than
+      // waiting for the next sweep + idle cooldown.
+      const serviceOp = readManagedSkillServiceOperationSync(skillOpId, workspaceId);
+      if (serviceOp?.serviceId) {
+        queueManagedSkillServiceRetireSync({
+          workspaceId,
+          serviceId: serviceOp.serviceId,
+        });
       }
     }
   } catch {

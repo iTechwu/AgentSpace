@@ -47,9 +47,15 @@ export async function GET(
   }
   const url = new URL(request.url);
   const runtimeId = url.searchParams.get("runtimeId")?.trim() ?? "";
-  const kind = url.searchParams.get("kind")?.trim();
+  // `kind` (cli|mcp|service) or the multi-implementation alias `implementation`
+  // (cli|mcp) — lets an admin request a specific implementation's projection for
+  // the admin switch (docs §4.5). Defaults to all kinds.
+  const kind = (url.searchParams.get("implementation")?.trim() || url.searchParams.get("kind")?.trim()) ?? "";
   if (!runtimeId) {
     return Response.json({ error: "Query parameter `runtimeId` is required." }, { status: 400 });
+  }
+  if (kind && !["cli", "mcp", "service"].includes(kind)) {
+    return Response.json({ error: "`kind`/`implementation` must be cli | mcp | service." }, { status: 400 });
   }
 
   // Phase 7 rollback switch. Disabling the projection keeps the legacy

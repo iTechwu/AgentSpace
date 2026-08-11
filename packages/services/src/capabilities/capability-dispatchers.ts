@@ -6,6 +6,7 @@ import type {
 import {
   createRuntimeAppOperationSync,
   findCapabilityRequestByLinkedRuntimeAppOperationIdSync,
+  getDatabase,
   listRuntimeAppCatalogItemsSync,
   listRuntimeAppOperationsSync,
   listRuntimeInstalledAppsSync,
@@ -16,6 +17,7 @@ import {
   readRuntimeAppOperationSync,
   readWorkspaceRuntimeAppReleaseSync,
   transitionCapabilityRequestSync,
+  withTransaction,
 } from "@dofe-agent/db";
 import type { RuntimeAppInstallPlan } from "@dofe-agent/domain";
 import { requestMcpConnectionSync } from "../mcp-center/connections.ts";
@@ -706,25 +708,42 @@ export function buildRuntimeBaselineInstallPlan(
         notes: ["Runtime baseline: ensure pip via ensurepip."],
       };
     case "uv":
-      return {
-        app: { ...base, name: "uv" },
-        strategy: "pip",
-        commands: [{ executable: "python3", args: ["-m", "pip", "install", "uv"] }],
-        verifyCommands: [{ executable: "uv", args: ["--version"] }],
-        risk: "low",
-        requiresApproval: false,
-        notes: ["Runtime baseline: install uv via pip."],
-      };
+      // Ops can pin uv to an immutable artifact via env; the pip command plan is
+      // the un-governed fallback (documented — the immutable-release gate wants
+      // the pinned form).
+      return buildPinnedArtifactBaselinePlan({
+        tool: "uv",
+        envUrl: process.env.DOFE_AGENT_BASELINE_UV_ARTIFACT_URL,
+        envIntegrity: process.env.DOFE_AGENT_BASELINE_UV_ARTIFACT_INTEGRITY,
+        verify: ".baseline/bin/uv",
+        verifyArgs: ["--version"],
+        fallback: {
+          app: { ...base, name: "uv" },
+          strategy: "pip",
+          commands: [{ executable: "python3", args: ["-m", "pip", "install", "uv"] }],
+          verifyCommands: [{ executable: "uv", args: ["--version"] }],
+          risk: "low",
+          requiresApproval: false,
+          notes: ["Runtime baseline: install uv via pip (unpinned — pin via env artifact for governance)."],
+        },
+      });
     case "cli_hub":
-      return {
-        app: { ...base, name: "cli-hub" },
-        strategy: "npm",
-        commands: [{ executable: "npm", args: ["install", "-g", "cli-hub"] }],
-        verifyCommands: [{ executable: "cli-hub", args: ["--version"] }],
-        risk: "low",
-        requiresApproval: false,
-        notes: ["Runtime baseline: install cli-hub via npm."],
-      };
+      return buildPinnedArtifactBaselinePlan({
+        tool: "cli-hub",
+        envUrl: process.env.DOFE_AGENT_BASELINE_CLIHUB_ARTIFACT_URL,
+        envIntegrity: process.env.DOFE_AGENT_BASELINE_CLIHUB_ARTIFACT_INTEGRITY,
+        verify: ".baseline/bin/cli-hub",
+        verifyArgs: ["--version"],
+        fallback: {
+          app: { ...base, name: "cli-hub" },
+          strategy: "npm",
+          commands: [{ executable: "npm", args: ["install", "-g", "cli-hub"] }],
+          verifyCommands: [{ executable: "cli-hub", args: ["--version"] }],
+          risk: "low",
+          requiresApproval: false,
+          notes: ["Runtime baseline: install cli-hub via npm (unpinned — pin via env artifact for governance)."],
+        },
+      });
     // npm (node) and python are image-level by default — a runtime missing them
     // must NOT get a fabricated plan. Ops can opt into a PINNED artifact install
     // via env (URL + integrity); the daemon downloads, verifies, extracts and
@@ -756,23 +775,26 @@ function buildPinnedArtifactBaselinePlan(input: {
   envIntegrity: string | undefined;
   verify: string;
   verifyArgs: string[];
+  /** Command-plan fallback for tools where a package-manager install is a valid
+   *  default (uv, cli-hub). Tools without a fallback (npm/python) fail closed. */
+  fallback?: RuntimeAppInstallPlan;
 }): RuntimeAppInstallPlan | null {
   const url = input.envUrl?.trim();
   const integrity = input.envIntegrity?.trim();
-  if (!url || !integrity) return null;
-  if (!/^https:\/\//.test(url)) return null;
-  if (!/^sha256-[A-Fa-f0-9]{64}$/.test(integrity)) return null;
-  const localPath = `.baseline/${input.tool}.tgz`;
-  return {
-    app: { source: "clihub_harness" as const, name: input.tool, version: "1", entryPoint: input.tool },
-    strategy: "system",
-    commands: [{ executable: "tar", args: ["-xzf", localPath, "-C", ".baseline"] }],
-    verifyCommands: [{ executable: input.verify, args: input.verifyArgs }],
-    risk: "medium",
-    requiresApproval: true,
-    notes: [`Runtime baseline: pinned ${input.tool} artifact from controlled registry.`],
-    artifactLock: { url, integrity, localPath },
-  };
+  if (url && integrity && /^https:\/\//.test(url) && /^sha256-[A-Fa-f0-9]{64}$/.test(integrity)) {
+    const localPath = `.baseline/${input.tool}.tgz`;
+    return {
+      app: { source: "clihub_harness" as const, name: input.tool, version: "1", entryPoint: input.tool },
+      strategy: "system",
+      commands: [{ executable: "tar", args: ["-xzf", localPath, "-C", ".baseline"] }],
+      verifyCommands: [{ executable: input.verify, args: input.verifyArgs }],
+      risk: "medium",
+      requiresApproval: true,
+      notes: [`Runtime baseline: pinned ${input.tool} artifact from controlled registry.`],
+      artifactLock: { url, integrity, localPath },
+    };
+  }
+  return input.fallback ?? null;
 }
 
 /**
@@ -809,23 +831,30 @@ export function chainCapabilityRuntimeBaselineSync(input: {
   }
   const metadata = parseRequestMetadata(request.metadataJson);
   const cliPlan = metadata.pendingCliPlan;
-  if (typeof cliPlan !== "string" || !cliPlan.trim()) return;
-  const cliOp = createRuntimeAppOperationSync({
-    workspaceId: input.workspaceId,
-    runtimeId: request.runtimeId,
-    appSource: request.packageSource as RuntimeAppCatalogSource,
-    appName: request.packageSlug,
-    operation: "install",
-    requestedByUserId: typeof metadata.baselineActorUserId === "string"
-      ? metadata.baselineActorUserId
-      : "system",
-    commandPlanJson: cliPlan,
-  });
-  transitionCapabilityRequestSync({
-    requestId: request.id,
-    workspaceId: input.workspaceId,
-    status: "running",
-    linkedRuntimeAppOperationId: cliOp.id,
+  const runtimeId = request.runtimeId;
+  if (typeof cliPlan !== "string" || !cliPlan.trim() || !runtimeId) return;
+  // Create the CLI op and re-link the request in ONE transaction so a process
+  // crash between the two steps cannot leave an orphan CLI op (P2). On retry the
+  // request is still linked to the baseline op (transaction rolled back), so it
+  // chains exactly once.
+  withTransaction(getDatabase(), () => {
+    const cliOp = createRuntimeAppOperationSync({
+      workspaceId: input.workspaceId,
+      runtimeId,
+      appSource: request.packageSource as RuntimeAppCatalogSource,
+      appName: request.packageSlug,
+      operation: "install",
+      requestedByUserId: typeof metadata.baselineActorUserId === "string"
+        ? metadata.baselineActorUserId
+        : "system",
+      commandPlanJson: cliPlan,
+    });
+    transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "running",
+      linkedRuntimeAppOperationId: cliOp.id,
+    });
   });
 }
 
