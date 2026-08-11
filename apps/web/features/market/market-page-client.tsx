@@ -165,7 +165,7 @@ export interface MarketPageData {
     packageSlug: string;
     packageDisplayName: string;
     deploymentMode: "runtime_builtin" | "runtime_package" | "managed_service" | "external_service";
-    requestedAction: "install" | "deploy" | "connect" | "upgrade";
+    requestedAction: "install" | "deploy" | "connect" | "upgrade" | "parse";
     priority: "normal" | "urgent";
     message: string;
     status: "pending" | "approved" | "rejected" | "running" | "completed" | "failed" | "cancelled";
@@ -1166,7 +1166,7 @@ function capabilityDeploymentModeLabel(
 }
 
 function capabilityActionLabel(
-  action: "install" | "deploy" | "connect" | "upgrade",
+  action: "install" | "deploy" | "connect" | "upgrade" | "parse",
   tx: (zh: string, en: string) => string,
 ): string {
   switch (action) {
@@ -1174,6 +1174,7 @@ function capabilityActionLabel(
     case "deploy": return tx("部署", "Deploy");
     case "connect": return tx("连接", "Connect");
     case "upgrade": return tx("升级", "Upgrade");
+    case "parse": return tx("解析", "Parse");
   }
 }
 

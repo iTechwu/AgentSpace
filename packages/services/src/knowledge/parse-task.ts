@@ -10,7 +10,7 @@
  * 之所以用 fire-and-forget 而不是常驻 worker：解析属于一次性、低频（用户主动触发）的副作用，
  * capability_request 的 'running' 行就是事实上的"任务队列"，进程崩溃后用 stuck_at + reaper 兜底是后续事项。
  */
-import { createKnowledgePageSync } from "./knowledge.ts";
+import { createKnowledgePageSync, listKnowledgePagesSync } from "./knowledge.ts";
 import { persistWorkspaceAttachmentFromBytesSync, readWorkspaceAttachmentBytesSync } from "../attachments/attachments.ts";
 import {
   createCapabilityRequestSync,
@@ -129,18 +129,22 @@ function runParseAndCreatePage(input: RunParseArgs): void {
   void (async () => {
     try {
       const result = await parseFileToMarkdown(input.contentBytes, input.fileName, input.mediaType);
-      const knowledgePage = createKnowledgePageSync({
+      createKnowledgePageSync({
         title: deriveTitleFromFileName(input.fileName),
         contentMarkdown: result.markdown || `_（文件 ${input.fileName} 解析后没有可用文字，仅保留附件）_`,
         tags: ["imported-from-upload"],
         createdBy: input.requestedByDisplayName ?? input.requestedByUserId ?? "system",
         sourceAttachmentId: input.attachmentId,
-      });
+      }, input.workspaceId);
+      const createdPage = listKnowledgePagesSync(input.workspaceId)
+        .slice()
+        .reverse()
+        .find((page) => page.sourceAttachmentId === input.attachmentId);
       transitionCapabilityRequestSync({
         requestId: input.requestId,
         workspaceId: input.workspaceId,
         status: "completed",
-        linkedKnowledgePageId: knowledgePage.id,
+        linkedKnowledgePageId: createdPage?.id,
         metadataJson: JSON.stringify({
           warnings: result.warnings,
           detectedKind: result.detectedKind,

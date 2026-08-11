@@ -68,6 +68,10 @@ export async function POST(
   if (!isCapabilityRequestedAction(requestedAction)) {
     return Response.json({ error: "Field `requestedAction` must be one of install | deploy | connect | upgrade." }, { status: 400 });
   }
+  // parse 走独立的 /knowledge/upload 路由
+  if (requestedAction === "parse") {
+    return Response.json({ error: "Field `requestedAction` cannot be `parse` here; use POST /knowledge/upload." }, { status: 400 });
+  }
 
   try {
     const result = submitCapabilityRequestSync({

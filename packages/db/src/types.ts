@@ -797,8 +797,9 @@ export type WorkspaceNotificationResourceType =
   | "task"
   | "approval"
   | "data_protection"
-  | "skill";
-export type WorkspaceNotificationSeverity = "info" | "success" | "warning" | "critical";
+  | "skill"
+  | "capability_request";
+export type WorkspaceNotificationSeverity = "info" | "success" | "warning" | "critical" | "error";
 export type WorkspaceNotificationStatus = "unread" | "read" | "archived";
 
 export interface WorkspaceNotificationRecord {

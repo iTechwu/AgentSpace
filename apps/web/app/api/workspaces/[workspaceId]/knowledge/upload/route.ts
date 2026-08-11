@@ -70,7 +70,7 @@ export async function POST(
     const result = submitFileParseTaskSync({
       workspaceId,
       requestedByUserId: workspaceContext.currentUser.id,
-      requestedByDisplayName: workspaceContext.currentUser.displayName ?? workspaceContext.currentUser.name ?? "unknown",
+      requestedByDisplayName: workspaceContext.currentUser.displayName ?? "unknown",
       contentBytes,
       fileName: file.name || "upload",
       mediaType: file.type || undefined,

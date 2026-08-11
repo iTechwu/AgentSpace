@@ -125,7 +125,8 @@ export interface SubmitCapabilityRequestActionInput {
   packageSlug: string;
   packageDisplayName: string;
   deploymentMode: CapabilityDeploymentMode;
-  requestedAction: CapabilityRequestedAction;
+  // parse 走独立的 /knowledge/upload 路由，不在市场页提交
+  requestedAction: Exclude<CapabilityRequestedAction, "parse">;
   priority?: "normal" | "urgent";
   message?: string;
 }

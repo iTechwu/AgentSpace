@@ -5261,7 +5261,7 @@ export interface KnowledgePageData {
 export interface KnowledgeParseTask {
   id: string;
   fileName: string;
-  status: "pending" | "approved" | "running" | "completed" | "failed" | "cancelled";
+  status: "pending" | "approved" | "running" | "completed" | "failed" | "cancelled" | "rejected";
   intent: "auto_deposit" | "document_only";
   mediaType: string;
   sizeBytes: number;

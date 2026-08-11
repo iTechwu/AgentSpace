@@ -46,7 +46,8 @@ export type AppIconName =
   | "taskBoard"
   | "templates"
   | "terminal"
-  | "trash";
+  | "trash"
+  | "upload";
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {
   readonly name: AppIconName;
@@ -531,6 +532,13 @@ function renderIcon(name: AppIconName) {
         <>
           <path d="M5.25 6.5h7.5M7.25 6.5v6.25M10.75 6.5v6.25" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
           <path d="M6.25 6.5 6.7 14h4.6l.45-7.5M7.5 4.5h3L11.25 6h-4.5L7.5 4.5Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+        </>
+      );
+    case "upload":
+      return (
+        <>
+          <path d="M9 12.5V4.5M9 4.5 6 7.5M9 4.5l3 3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+          <path d="M4 12.5v2.25h10V12.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
         </>
       );
     case "settings":
