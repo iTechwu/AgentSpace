@@ -71,7 +71,7 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 
 1. **数据库**
    - 新增 `capability_request` 表（schema v117），承载 4 种部署模式（`runtime_builtin` / `runtime_package` / `managed_service` / `external_service`）与 4 类动作（`install` / `deploy` / `connect` / `upgrade`）的二维状态机。
-   - 同 `(workspace, runtime, package_kind, package_source, package_slug, requested_action)` 唯一键约束，重复提交幂等。
+   - 同 `(workspace, runtime, package_kind, package_source, package_slug, requested_action)` 唯一键约束，重复提交幂等；`createCapabilityRequestSync` 已迁移为 compare-and-set（返回 `{record, outcome}`），并发双提交只产生一条审计事件，非终态请求（pending/approved/running）不被脏写，终态请求自动重开。
    - `metadata_json` / `linked_runtime_app_operation_id` / `linked_runtime_mcp_connection_id` / `linked_runtime_provisioning_task_id` 保留到 4 类底层子系统的指针，避免拆表。
    - `packages/db/src/capability-requests.ts` 提供 `createCapabilityRequestSync` / `decideCapabilityRequestSync` / `transitionCapabilityRequestSync` / `cancelCapabilityRequestSync` / `listCapabilityRequestsSync` 等 CRUD。
 
@@ -95,16 +95,14 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
    - 底层子系统保持分离：`runtime_app_operation`（CLI）、`runtime_mcp_operation` + `runtime_mcp_connection`（MCP）、`runtime_provisioning_task`（受管 Runtime）。统一任务层不替代它们，只持久化 envelope 与跨子系统指针。
    - “把能力当作一条 shell 命令安装到 Runtime” 仅在 `runtime_package` + 管理员同意 + 受控 install plan 的窄路径下发生；其它路径（`runtime_builtin` / `managed_service` / `external_service`）由 daemon / managed node / MCP Gateway 处理。
 
-### 6.2 Phase 2-7（待续）
+### 6.2 Phase 2-7（进度更新 2026-08-11）
 
-未落地项（按 docs 优先级）：
-
-- **Phase 2** Runtime baseline 镜像与 readiness 探针的强制管线化（当前 `selectCliHubReadiness` 已能从 daemon 读取 readiness，但 Dockerfile 版本锁定、SBOM、签名矩阵未补齐）。
-- **Phase 3** release 治理与不可变 manifest 完整化（`runtime_app_release` 已存在并支持 yanked，但与 `capability_request` 的 release 引用尚未绑定）。
-- **Phase 4** 普通成员申请管理员部署的端到端 UI、通知与审计。
-- **Phase 5** managed service lifecycle 与 lease/fencing（已有 `runtime_provisioning_task` 与 `managed_runtime_cleanup_request`，但 `capability_request` → `runtime_provisioning_task` 的自动绑定尚未接通）。
-- **Phase 6** CLI + MCP 统一启用向导 UI（API 已就绪，详情面板已显示 `nextAction` 徽章与文案，主按钮仍走旧 `installability` 分支，待后续全量切换）。
-- **Phase 7** 灰度上线与回滚开关。
+- **Phase 2**（部分）`selectCliHubReadiness` 已能从 daemon 读取 readiness；Dockerfile 版本锁定、SBOM、签名矩阵仍未补齐。Execution Profile + 多实现协商（daemon readiness 扩展 writableHome/persistentHome/runtimePackageExecutor/mcpGateway/managedServiceReachable）单列架构项推进，不在本批次。
+- **Phase 3**（部分）`runtime_app_release` 已支持 yanked；`capability_request.release_id` 已绑定（提交 workspace-private CLI 自动 pin，批准时若被 yanked 则 fail closed）；`syncCliHubCatalog` 同步时将 npm 可变版本（`latest`/`head`/…）解析为 registry 精确版本（`isMutableCliVersion` + `resolveMutableNpmVersion`）。全量 release 治理队列仍待续。
+- **Phase 4**（部分）后端 submit/approve/reject + 管理员待办面板 + 站内通知（dedupe by request id）+ 审计已落地；`createCapabilityRequestSync` CAS 幂等消除并发双审计/脏写。跨页面通知 UI 仍待续。
+- **Phase 5**（部分）managed/external service 调度缝隙已接通（显式审计 + `MANAGED_SERVICE_PROVISIONING_ENABLED` fail-closed，请求留 `approved` 态待驱动）；容器生命周期（镜像缓存、签名、provision、health、retire）与 `linked_runtime_provisioning_task_id` 自动绑定仍待容器驱动落地。
+- **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint 型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码。
+- **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
 
 ## 7. 落地代码索引
 
@@ -112,7 +110,8 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 | --- | --- | --- |
 | `packages/db/src/capability-requests.ts` | capability_request CRUD + 状态机 | Phase 1 |
 | `packages/db/src/postgres-schema.ts`（v117） | `capability_request` 表 + 索引 | Phase 1 |
-| `packages/services/src/capabilities/capability-availability.ts` | 投影 + 提交 + 审批 | Phase 1 |
+| `packages/services/src/capabilities/capability-availability.ts` | 投影 + 提交 + 审批 + MCP 调度统一 | Phase 1/4/6 |
+| `packages/services/src/clihub/catalog.ts` + `install-plan.ts` | 公共目录同步时解析 npm `latest` 为精确版本（`isMutableCliVersion` / `resolveMutableNpmVersion`） | Phase 3 |
 | `apps/web/app/api/workspaces/[workspaceId]/capabilities/availability/route.ts` | GET 投影 | Phase 1 |
 | `apps/web/app/api/workspaces/[workspaceId]/capability-requests/route.ts` | POST 提交 + GET 我的请求 | Phase 1 |
 | `apps/web/app/api/workspaces/[workspaceId]/capability-requests/[requestId]/decision/route.ts` | POST 管理员决策 | Phase 1 |
