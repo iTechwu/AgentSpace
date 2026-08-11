@@ -648,18 +648,40 @@ export function completeCapabilityRequestMcpConnectionSync(
 
   // Ungated materialization — authorization was verified above via the owned
   // approved request. There is no caller-forgeable bypass boolean.
+  // Server-side endpoint resolution (Spec P0): when the daemon already reported
+  // the provisioned container's runtime-private endpoint, the browser must not
+  // re-supply it — use the stored ref, never the client-supplied endpoint.
+  const provisionedRef = readProvisionedEndpointRef(approvedRequest.metadataJson);
+  const endpoint = provisionedRef ?? input.endpoint;
   const result = materializeMcpConnectionSync({
     workspaceId: input.workspaceId,
     actorUserId: input.actorUserId,
     runtimeId: input.runtimeId,
     catalogItemId: catalog.id,
-    endpoint: input.endpoint,
+    endpoint,
     nonSecretParams: input.nonSecretParams,
     secrets: input.secrets,
     approvedTools: input.approvedTools,
     confirmHighRisk: input.confirmHighRisk,
   });
   return { connectionId: result.connection.id, operationId: result.operation.id };
+}
+
+/**
+ * The daemon-reported endpoint (runtime-private://...) of a just-provisioned
+ * managed-service container, persisted by the provision convergence into request
+ * metadata. When present, the completion path resolves it server-side instead of
+ * trusting a browser re-submission of the catalog template (Spec P0).
+ */
+function readProvisionedEndpointRef(metadataJson: string): string | undefined {
+  try {
+    const parsed = JSON.parse(metadataJson) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const ref = (parsed as Record<string, unknown>).provisionedEndpointRef;
+    return typeof ref === "string" && ref.trim() ? ref : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

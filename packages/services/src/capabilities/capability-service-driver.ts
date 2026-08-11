@@ -328,10 +328,18 @@ function convergeSingleServiceProvisionedRequest(
         lastErrorMessage: input.errorMessage ?? "容器部署失败。",
       }) ?? request;
     }
+    // Persist the daemon-reported container endpoint (runtime-private://...) so
+    // the applicant's completion resolves the endpoint SERVER-side instead of
+    // re-submitting the catalog template through the browser (Spec P0).
+    const metadata = {
+      ...parseCapabilityMetadata(request.metadataJson),
+      ...(input.endpointRef ? { provisionedEndpointRef: input.endpointRef } : {}),
+    };
     return transitionCapabilityRequestSync({
       requestId: request.id,
       workspaceId: input.workspaceId,
       status: "approved",
+      metadataJson: JSON.stringify(metadata),
     }) ?? request;
   }
 

@@ -310,9 +310,14 @@ test("converge returns a credential-bearing managed MCP to approved (not complet
     operationId: queued.operationId!,
     workspaceId: "default",
     outcome: "succeeded",
+    endpointRef: "runtime-private://svc-abc",
   });
   assert.equal(converged?.id, request.id);
   assert.equal(converged?.status, "approved", "credential managed MCP must await configure_credentials, not auto-complete");
+  // The daemon's container endpoint must be persisted for server-side resolution
+  // on completion — the browser never re-submits the private endpoint (Spec P0).
+  const stored = JSON.parse(converged?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(stored.provisionedEndpointRef, "runtime-private://svc-abc", "provisionedEndpointRef must be persisted for the completion path");
 });
 
 test("a signature-required template without a trusted key fails closed at dispatch", () => {

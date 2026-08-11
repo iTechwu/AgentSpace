@@ -7,6 +7,7 @@ import {
   decideCapabilityRequestSync,
   getDatabase,
   listManagedSkillServiceOperationsSync,
+  listMcpConnectionsSync,
   randomLikeId,
   readCapabilityRequestSync,
   readRuntimeAppOperationSync,
@@ -231,6 +232,66 @@ test("completeCapabilityRequestMcpConnectionSync accepts a deploy approval (P0) 
     }),
     /capability_request\.not_approved/,
   );
+});
+
+test("completion resolves the daemon provisioned endpoint server-side (Spec P0)", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `mcp-${randomLikeId()}`;
+  // managed_service transport catalog (not the openmontage static template) —
+  // only a runtime-private:// endpoint passes its validation.
+  const catalogId = upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    source: "official" as never,
+    slug,
+    version: "1.0.0",
+    transport: "managed_service",
+    displayName: "Managed MCP",
+    category: "productivity",
+    risk: "medium",
+    declaredToolsJson: JSON.stringify([{ name: "tool", description: "T", risk: "low" }]),
+    defaultApprovedToolsJson: JSON.stringify(["tool"]),
+    endpointTemplate: "managed-service://test",
+    configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, additionalProperties: false }),
+  }).id;
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+  // Approved request whose provision convergence stored the daemon's container
+  // endpoint (provisionedEndpointRef), as the driver now does.
+  const request = createCapabilityRequestSync({
+    workspaceId: "default",
+    requestedByUserId: testUserId,
+    runtimeId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: slug,
+    packageDisplayName: "Managed MCP",
+    deploymentMode: "managed_service",
+    requestedAction: "connect",
+    metadataJson: JSON.stringify({ catalogItemId: catalogId, provisionedEndpointRef: "runtime-private://svc-abc" }),
+  }).record;
+  decideCapabilityRequestSync({
+    requestId: request.id,
+    workspaceId: "default",
+    decidedByUserId: testUserId,
+    decision: "approved",
+  });
+  // The client submits a bogus public endpoint — the server must override it with
+  // the stored runtime-private ref (the browser never carries the private one).
+  const completed = completeCapabilityRequestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: testUserId,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://evil.example.com/mcp",
+  });
+  const conn = listMcpConnectionsSync({ workspaceId: "default", runtimeId, limit: 10 })
+    .find((candidate) => candidate.id === completed.connectionId);
+  assert.equal(conn?.endpoint, "runtime-private://svc-abc", "completion must use the server-stored provisioned endpoint");
 });
 
 test("cancelCapabilityRequestSync lets the applicant cancel their pending request", () => {
