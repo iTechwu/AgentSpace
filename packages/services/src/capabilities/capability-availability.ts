@@ -508,7 +508,10 @@ export function submitCapabilityRequestSync(
       resourceType: "capability_request",
       resourceId: request.id,
       actionHref: "/market",
-      dedupeKey: `capability_request.submitted:${request.id}`,
+      // Round-scoped key: a reopened terminal request reuses the same request
+      // id, so including updatedAt gives each round its own unread notification
+      // instead of silently updating the previous round's row.
+      dedupeKey: `capability_request.submitted:${request.id}:${request.updatedAt}`,
     });
   }
   if (isAdmin) {
@@ -657,13 +660,20 @@ export function rejectCapabilityRequestSync(input: {
   if (!input.decisionReason.trim()) {
     throw new Error("Rejection requires a user-facing reason.");
   }
-  const { record: result } = decideCapabilityRequestSync({
+  const { record: result, changed } = decideCapabilityRequestSync({
     requestId: input.requestId,
     workspaceId: input.workspaceId,
     decidedByUserId: input.actorUserId,
     decision: "rejected",
     decisionReason: input.decisionReason,
   });
+  if (!result) throw new Error("capability_request.not_found");
+  // Rejecting an already-terminal or non-pending request is a CAS no-op —
+  // the status did not change, so we must not write a fresh "rejected" audit
+  // or notify the owner as if the rejection landed (docs/0811/cli-install P1).
+  if (!changed) {
+    return result;
+  }
   tryRecordWorkspaceAuditEventSync({
     workspaceId: input.workspaceId,
     title: "Capability request rejected",
@@ -676,16 +686,14 @@ export function rejectCapabilityRequestSync(input: {
       resourceId: input.requestId,
     },
   });
-  if (result) {
-    notifyCapabilityRequestOwnerSync({
-      workspaceId: input.workspaceId,
-      request: result,
-      title: `能力申请被拒绝：${result.packageDisplayName}`,
-      body: `原因：${input.decisionReason}`,
-      severity: "warning",
-      type: "capability_request_rejected",
-    });
-  }
+  notifyCapabilityRequestOwnerSync({
+    workspaceId: input.workspaceId,
+    request: result,
+    title: `能力申请被拒绝：${result.packageDisplayName}`,
+    body: `原因：${input.decisionReason}`,
+    severity: "warning",
+    type: "capability_request_rejected",
+  });
   return result;
 }
 
@@ -947,6 +955,80 @@ function dispatchMcpCapabilityRequestSync(input: {
   return { request, capabilityRequest: request, nextAction: "configure_credentials" };
 }
 
+export interface CompleteCapabilityRequestMcpConnectionInput {
+  workspaceId: string;
+  actorUserId: string;
+  runtimeId: string;
+  catalogItemId: string;
+  endpoint: string;
+  nonSecretParams?: Record<string, unknown>;
+  secrets?: Record<string, string>;
+  approvedTools?: string[];
+  confirmHighRisk?: boolean;
+}
+
+export interface CompleteCapabilityRequestMcpConnectionResult {
+  connectionId: string;
+  operationId: string;
+}
+
+/**
+ * Member completion of an approved credential-bearing MCP connection
+ * (docs/0811/cli-install P0). After an admin approves a request whose catalog
+ * item needs secrets/endpoint/config, the projection surfaces
+ * `configure_credentials`. The applicant (or an admin) fills the form and calls
+ * this — it verifies an `approved` capability_request covers the exact
+ * (workspace, runtime, catalog item) tuple and that the actor is the request
+ * owner (or an admin), then materializes the connection via
+ * {@link requestMcpConnectionSync} with the admin-gate bypass. The link-back
+ * inside that call binds the approved request to the new connection and drives
+ * it to running; the verify op then converges it to completed/failed.
+ */
+export function completeCapabilityRequestMcpConnectionSync(
+  input: CompleteCapabilityRequestMcpConnectionInput,
+): CompleteCapabilityRequestMcpConnectionResult {
+  const catalog = readMcpCatalogItemSync(input.catalogItemId, input.workspaceId);
+  if (!catalog) throw new Error("mcp_catalog.not_found");
+
+  // Only the request owner (or an admin) may complete the connection. We find
+  // the approved request by its catalog item identity so a same-slug newer
+  // release can never hijack the approval.
+  const requests = listCapabilityRequestsSync({
+    workspaceId: input.workspaceId,
+    runtimeId: input.runtimeId,
+    packageKind: "mcp",
+    packageSlug: catalog.slug,
+    statuses: ["approved"],
+    limit: 10,
+  });
+  const approvedRequest = requests.find((request) => {
+    const pinned = resolveMcpCatalogItemIdFromRequest(request);
+    return request.packageSource === catalog.source && (!pinned || pinned === catalog.id);
+  });
+  if (!approvedRequest) {
+    throw new Error("capability_request.not_approved");
+  }
+  const isAdmin = isWorkspaceAdminOrOwnerSync({ workspaceId: input.workspaceId, userId: input.actorUserId });
+  if (!isAdmin && approvedRequest.requestedByUserId !== input.actorUserId) {
+    throw new Error("capability_request.not_owner");
+  }
+
+  const result = requestMcpConnectionSync({
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    runtimeId: input.runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: input.endpoint,
+    nonSecretParams: input.nonSecretParams,
+    secrets: input.secrets,
+    approvedTools: input.approvedTools,
+    confirmHighRisk: input.confirmHighRisk,
+    // Authorization was verified above via the approved request ownership.
+    requireManage: false,
+  });
+  return { connectionId: result.connection.id, operationId: result.operation.id };
+}
+
 function resolveMcpCatalogItemIdFromRequest(request: CapabilityRequestRecord): string | undefined {
   try {
     const metadata = JSON.parse(request.metadataJson) as unknown;
@@ -1154,8 +1236,10 @@ export function isRuntimeBaselineRolloutEnabled(): boolean {
 /**
  * Send a workspace notification to the user who originally requested the
  * capability (the applicant), so they learn the outcome of their request
- * without polling the page. We dedupe per request id + notification type so
- * admin retries don't flood the inbox.
+ * without polling the page. We dedupe per request id + notification type +
+ * round (updatedAt) so admin retries within a round don't flood the inbox,
+ * while a reopened terminal request gets a fresh unread row instead of silently
+ * updating the previous round's row.
  */
 function notifyCapabilityRequestOwnerSync(input: {
   workspaceId: string;
@@ -1176,6 +1260,6 @@ function notifyCapabilityRequestOwnerSync(input: {
     resourceType: "capability_request",
     resourceId: input.request.id,
     actionHref: "/market",
-    dedupeKey: `${input.type}:${input.request.id}`,
+    dedupeKey: `${input.type}:${input.request.id}:${input.request.updatedAt}`,
   });
 }

@@ -99,6 +99,15 @@ export interface RequestMcpConnectionInput {
   secrets?: Record<string, string>;
   approvedTools?: string[];
   confirmHighRisk?: boolean;
+  /**
+   * Admin-gate bypass for the capability_request completion flow
+   * (docs/0811/cli-install P0). When false, the caller has already verified the
+   * actor is the owner of an approved capability_request covering this exact
+   * (workspace, runtime, catalog item) tuple — the admin approval of that
+   * request IS the high-risk authorization, so the applicant (or an admin) can
+   * finish the credential-bearing connection. Defaults to true (admin required).
+   */
+  requireManage?: boolean;
 }
 
 export interface RequestMcpConnectionResult {
@@ -107,7 +116,9 @@ export interface RequestMcpConnectionResult {
 }
 
 export function requestMcpConnectionSync(input: RequestMcpConnectionInput): RequestMcpConnectionResult {
-  assertCanManageMcpCenterSync({ workspaceId: input.workspaceId, actorUserId: input.actorUserId });
+  if (input.requireManage !== false) {
+    assertCanManageMcpCenterSync({ workspaceId: input.workspaceId, actorUserId: input.actorUserId });
+  }
 
   const runtime = readAgentRuntimeSync(input.runtimeId);
   if (!runtime || runtime.workspaceId !== input.workspaceId) {

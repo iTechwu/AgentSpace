@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
+  completeCapabilityRequestMcpConnectionAction,
   createMcpCatalogItemAction,
   disableMcpConnectionAction,
   enableMcpConnectionAction,
@@ -76,7 +77,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const categories = useMemo(() => Array.from(new Set(data.mcpCatalog.map((item) => item.category))).sort(), [data.mcpCatalog]);
   const transports = useMemo(() => Array.from(new Set(data.mcpCatalog
     .map((item) => item.transport)
-    .filter((transport) => transport === "streamable_http" || transport === "managed_stdio"))).sort(), [data.mcpCatalog]);
+    .filter((transport) => transport === "streamable_http" || transport === "managed_stdio" || transport === "managed_service"))).sort(), [data.mcpCatalog]);
   const catalogConnectionState = useMemo(() => new Map(data.mcpCatalog.map((item) => {
     const connections = data.mcpConnections.filter((connection) => connection.catalogItemId === item.id);
     const state = connections.length === 0
@@ -132,7 +133,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const targetRuntime = editingConnection
     ? data.runtimes.find((runtime) => runtime.id === editingConnection.runtimeId)
     : selectedRuntime;
-  const supportsSelectedTransport = selected?.transport === "streamable_http" || selected?.transport === "managed_stdio";
+  const supportsSelectedTransport = selected?.transport === "streamable_http" || selected?.transport === "managed_stdio" || selected?.transport === "managed_service";
   const requiredRuntimeApp = selected?.requiredRuntimeApp;
   const requiredRuntimeInstallation = requiredRuntimeApp && targetRuntime
     ? data.installedApps.find((app) =>
@@ -272,7 +273,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   function submitConnection(): void {
     if (!selected || (!editingConnection && !selectedRuntime)) return;
     if (!editingConnection) {
-      runAction(() => requestMcpConnectionAction({
+      const connectionInput = {
         runtimeId: selectedRuntime.id,
         catalogItemId: selected.id,
         endpoint,
@@ -280,7 +281,18 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
         secrets,
         approvedTools: Array.from(approvedTools),
         confirmHighRisk,
-      }));
+      };
+      // Member path: an approved capability_request covering this tuple is the
+      // authorization to complete the connection; admins connect directly.
+      const approvedRequest = data.capabilityRequests.find((request) =>
+        request.runtimeId === selectedRuntime.id &&
+        request.packageKind === "mcp" &&
+        request.packageSlug === selected.slug &&
+        request.status === "approved",
+      );
+      runAction(() => !data.canManage && approvedRequest
+        ? completeCapabilityRequestMcpConnectionAction(connectionInput)
+        : requestMcpConnectionAction(connectionInput));
       return;
     }
     // Atomic replacement: only send fields the user actually touched. Untouched
@@ -299,11 +311,27 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
 
   function installRequiredRuntimeApp(): void {
     if (!requiredRuntimeApp || !targetRuntime || targetRuntime.status !== "online") return;
-    runAction(() => requestRuntimeAppOperationAction({
+    if (data.canManage) {
+      runAction(() => requestRuntimeAppOperationAction({
+        runtimeId: targetRuntime.id,
+        source: requiredRuntimeApp.source,
+        name: requiredRuntimeApp.name,
+        operation: "install",
+      }));
+      return;
+    }
+    // Member path: the direct install action is admin-gated. Members submit a
+    // capability request so the dependency CLI install goes through the same
+    // approval → dispatch pipeline as any other capability.
+    runAction(() => submitCapabilityRequestAction({
       runtimeId: targetRuntime.id,
-      source: requiredRuntimeApp.source,
-      name: requiredRuntimeApp.name,
-      operation: "install",
+      packageKind: "cli",
+      packageSource: requiredRuntimeApp.source,
+      packageSlug: requiredRuntimeApp.name,
+      packageDisplayName: requiredRuntimeCatalogApp?.displayName ?? requiredRuntimeApp.name,
+      deploymentMode: "runtime_package",
+      requestedAction: "install",
+      message: "",
     }));
   }
 
@@ -321,6 +349,20 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       if (data.canManage) {
         submitConnection();
       } else if (selectedProjection) {
+        // Member path. If an approved capability_request already covers this
+        // tuple, submitConnection completes it (the admin approval is the
+        // authorization — docs/0811/cli-install P0). Otherwise submit a new
+        // request for approval.
+        const approvedRequest = data.capabilityRequests.find((request) =>
+          request.runtimeId === targetRuntime.id &&
+          request.packageKind === "mcp" &&
+          request.packageSlug === selected.slug &&
+          request.status === "approved",
+        );
+        if (approvedRequest) {
+          submitConnection();
+          return;
+        }
         runAction(() => submitCapabilityRequestAction({
           runtimeId: targetRuntime.id,
           packageKind: "mcp",
@@ -595,14 +637,14 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                   </select>
                 </label>
                 <label className="form-field">
-                  <span>{selected.transport === "managed_stdio" ? tx("受管 stdio 入口", "Managed stdio entrypoint") : tx("Endpoint (HTTPS)", "Endpoint (HTTPS)")}</span>
+                  <span>{selected.transport === "managed_stdio" ? tx("受管 stdio 入口", "Managed stdio entrypoint") : selected.transport === "managed_service" ? tx("服务入口", "Service entrypoint") : tx("Endpoint (HTTPS)", "Endpoint (HTTPS)")}</span>
                   <input
                     onChange={(event) => {
                       setDirtyEndpoint(true);
                       setEndpoint(event.currentTarget.value);
                     }}
-                    placeholder={selected.transport === "managed_stdio" ? "stdio://my-mcp-server" : "https://mcp.example.com/mcp"}
-                    readOnly={selected.transport === "managed_stdio"}
+                    placeholder={selected.transport === "managed_stdio" ? "stdio://my-mcp-server" : selected.transport === "managed_service" ? "managed-service://my-service" : "https://mcp.example.com/mcp"}
+                    readOnly={selected.transport === "managed_stdio" || selected.transport === "managed_service"}
                     value={endpoint}
                   />
                 </label>

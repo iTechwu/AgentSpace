@@ -146,7 +146,12 @@ export function notifyWorkspaceAdminsSync(input: {
       resourceType: input.resourceType ?? "workspace",
       resourceId: input.resourceId,
       actionHref: input.actionHref,
-      dedupeKey: input.dedupeKey,
+      // The notification dedupe is per (workspace, dedupe_key, recipient):
+      // the DB conflict is on (workspace_id, dedupe_key), so a workspace-level
+      // key would collapse all admins' rows into the last one written. Scoping
+      // by recipient gives every admin their own unread row while still
+      // suppressing duplicate sends of the same event to the same admin.
+      dedupeKey: input.dedupeKey ? `${input.dedupeKey}:${admin.userId}` : undefined,
       metadata: input.metadata,
     })),
   );

@@ -91,7 +91,12 @@ export async function GET(
   const activeOps = listRuntimeAppOperationsSync({ workspaceId, runtimeId, limit: 50 });
   const mcpConnections = listMcpConnectionsSync({ workspaceId, runtimeId, limit: 500 });
   const mcpOps = listMcpOperationsSync({ workspaceId, runtimeId, limit: 50 });
-  const capabilityRequests = listActiveCapabilityRequestsForRuntime({ workspaceId, runtimeId });
+  // Permission boundary: owners/admins see the full workspace queue (the
+  // projections they render need the overlay); non-admins only ever see their
+  // own requests so the API cannot leak other members' requests, states or
+  // timestamps.
+  const capabilityRequests = listActiveCapabilityRequestsForRuntime({ workspaceId, runtimeId })
+    .filter((request) => canManage || request.requestedByUserId === workspaceContext.currentUser?.id);
 
   const projections: CapabilityAvailabilityProjection[] = [];
 

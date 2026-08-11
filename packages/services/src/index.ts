@@ -1571,6 +1571,7 @@ export {
 // Capability availability / unified install task (docs/0811/cli-install Phase 1)
 export {
   approveCapabilityRequestSync,
+  completeCapabilityRequestMcpConnectionSync,
   isCapabilityProjectionEnabled,
   isCapabilityRequestEnabled,
   isManagedServiceProvisioningEnabled,
@@ -1585,6 +1586,8 @@ export {
   type CapabilityInfrastructureState,
   type CapabilityNextAction,
   type CapabilityUserState,
+  type CompleteCapabilityRequestMcpConnectionInput,
+  type CompleteCapabilityRequestMcpConnectionResult,
   type SubmitCapabilityRequestInput,
   type SubmitCapabilityRequestResult,
 } from "./capabilities/capability-availability.ts";

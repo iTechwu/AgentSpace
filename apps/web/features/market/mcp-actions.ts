@@ -2,6 +2,7 @@
 
 import type { McpCatalogCategory, McpRisk, McpTransport, RuntimeAppCatalogSource } from "@dofe-agent/db";
 import {
+  completeCapabilityRequestMcpConnectionSync,
   createMcpCatalogItemSync,
   disableMcpConnectionSync,
   enableMcpConnectionSync,
@@ -77,6 +78,33 @@ export async function requestMcpConnectionAction(
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   requestMcpConnectionSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    runtimeId: input.runtimeId.trim(),
+    catalogItemId: input.catalogItemId,
+    endpoint: input.endpoint.trim(),
+    nonSecretParams: input.nonSecretParams,
+    secrets: input.secrets,
+    approvedTools: input.approvedTools,
+    confirmHighRisk: input.confirmHighRisk,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
+  return actionToastResult(undefined, successToast("MCP 连接已创建，正在验证。", "MCP connection created; verifying."));
+}
+
+/**
+ * Member completion of an approved credential-bearing MCP connection
+ * (docs/0811/cli-install P0). The applicant (or an admin) fills the form after
+ * approval and submits — the server verifies an `approved` capability_request
+ * covers the tuple and that the actor owns it, then materializes the
+ * connection and binds it to the request. Not gated on admin because the admin
+ * approval of the request is the high-risk authorization.
+ */
+export async function completeCapabilityRequestMcpConnectionAction(
+  input: RequestMcpConnectionActionInput,
+): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  completeCapabilityRequestMcpConnectionSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     actorUserId: workspaceContext.currentUser.id,
     runtimeId: input.runtimeId.trim(),
