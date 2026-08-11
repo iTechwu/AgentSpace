@@ -1764,7 +1764,7 @@ export interface ManagedSkillServiceOperationRecord {
    *  (the control plane switches bindings away from it on completion). */
   replacesServiceId?: string;
   operation: "provision" | "retire";
-  status: "pending" | "claimed" | "running" | "succeeded" | "failed";
+  status: "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
   errorCode?: string;
   errorMessage?: string;
   claimedAt?: string;
