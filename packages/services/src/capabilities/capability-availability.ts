@@ -24,6 +24,7 @@ import {
   readAgentRuntimeSync,
   readCapabilityRequestSync,
   readMcpCatalogItemBySlugSync,
+  readMcpCatalogItemSync,
   transitionCapabilityRequestSync,
   readWorkspaceRuntimeAppReleaseByVersionSync,
   readWorkspaceRuntimeAppReleaseSync,
@@ -441,6 +442,10 @@ export function submitCapabilityRequestSync(
     throw new Error("runtime.not_found");
   }
   const isAdmin = isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
+  // For MCP/service requests we pin the exact catalog item id in metadata so
+  // dispatch cannot silently drift to a newer release with the same slug
+  // (docs/0811/cli-install P1-3).
+  const metadataJson = buildCapabilityRequestMetadataJson(input.packageKind, input.packageSlug, workspaceId);
   // CAS idempotency: createCapabilityRequestSync atomically inserts a new row,
   // reopens a terminal request, or returns an in-flight request unchanged. Only
   // the created/reopened cases record an audit event and notify admins, so a
@@ -461,6 +466,7 @@ export function submitCapabilityRequestSync(
     // Pin workspace-private CLI installs to the exact release id so the
     // approved install plan cannot drift to a yanked release.
     releaseId: resolveCliReleaseId(input.workspaceId, input.packageSource, input.packageSlug),
+    metadataJson,
   });
   if (outcome === "in_flight") {
     return {
@@ -499,11 +505,7 @@ export function submitCapabilityRequestSync(
       dedupeKey: `capability_request.submitted:${request.id}`,
     });
   }
-  if (
-    isAdmin
-    && input.deploymentMode === "runtime_package"
-    && input.requestedAction === "install"
-  ) {
+  if (isAdmin) {
     const { record: approved, changed } = decideCapabilityRequestSync({
       requestId: request.id,
       workspaceId,
@@ -526,10 +528,19 @@ export function submitCapabilityRequestSync(
   }
   return {
     capabilityRequest: request,
-    nextAction: isAdmin && input.deploymentMode !== "runtime_package"
-      ? "wait_for_operation"
-      : "wait_for_approval",
+    nextAction: "wait_for_approval",
   };
+}
+
+function buildCapabilityRequestMetadataJson(
+  packageKind: CapabilityPackageKind,
+  packageSlug: string,
+  workspaceId: string,
+): string {
+  if (packageKind !== "mcp") return "{}";
+  const catalog = readMcpCatalogItemBySlugSync(packageSlug, workspaceId);
+  if (!catalog) return "{}";
+  return JSON.stringify({ catalogItemId: catalog.id });
 }
 
 export function approveCapabilityRequestSync(input: {
@@ -808,7 +819,10 @@ function dispatchMcpCapabilityRequestSync(input: {
     return { request: final, capabilityRequest: final, nextAction: "repair" };
   }
 
-  const catalog = readMcpCatalogItemBySlugSync(request.packageSlug, input.workspaceId);
+  const catalogItemId = resolveMcpCatalogItemIdFromRequest(request);
+  const catalog = catalogItemId
+    ? readMcpCatalogItemSync(catalogItemId, input.workspaceId)
+    : readMcpCatalogItemBySlugSync(request.packageSlug, input.workspaceId);
   if (!catalog) {
     const failed = transitionCapabilityRequestSync({
       requestId: request.id,
@@ -821,26 +835,22 @@ function dispatchMcpCapabilityRequestSync(input: {
     return { request: final, capabilityRequest: final, nextAction: "repair" };
   }
 
-  const secretFields = safeParseJsonArray(catalog.secretFieldsJson);
-  const endpointTemplate = catalog.endpointTemplate;
-
-  // Zero-config MCPs (no secret fields AND a deterministic endpoint template)
-  // can be auto-connected on approval. Credential-bearing MCPs, or those whose
-  // endpoint the applicant must supply, stay approved and surface
-  // configure_credentials — the applicant finishes via "配置并连接", and the
-  // link-back in requestMcpConnectionSync then binds + runs this request.
-  if (secretFields.length === 0 && endpointTemplate) {
+  if (isZeroConfigMcp(catalog)) {
     const approvedTools = safeParseJsonArray(catalog.defaultApprovedToolsJson);
     try {
       // requestMcpConnectionSync is admin-gated; actorUserId is the approver.
       // The link-back inside it binds THIS request to the new connection and
       // transitions it to running, so read the updated request back afterwards.
+      if (!catalog.endpointTemplate) {
+        // Defensive: isZeroConfigMcp already checked this, but narrow the type.
+        throw new Error("mcp.endpoint_template_missing");
+      }
       requestMcpConnectionSync({
         workspaceId: input.workspaceId,
         actorUserId: input.actorUserId,
         runtimeId,
         catalogItemId: catalog.id,
-        endpoint: endpointTemplate,
+        endpoint: catalog.endpointTemplate,
         approvedTools,
         confirmHighRisk: catalog.risk === "high",
       });
@@ -864,16 +874,18 @@ function dispatchMcpCapabilityRequestSync(input: {
     }
   }
 
-  // Credential-bearing / endpoint-bearing MCP: leave approved and surface
-  // configure_credentials. The applicant completes the connection via the
-  // "配置并连接" flow; the link-back then binds + runs this request.
+  // Credential-bearing / endpoint-bearing / configuration-required MCP: leave
+  // approved and surface configure_credentials. The applicant completes the
+  // connection via the "配置并连接" flow; the link-back then binds + runs this
+  // request.
+  const secretFields = safeParseJsonArray(catalog.secretFieldsJson);
   tryRecordWorkspaceAuditEventSync({
     workspaceId: input.workspaceId,
     title: "MCP 能力待申请人补全配置",
     note:
       secretFields.length > 0
         ? `${request.packageDisplayName} 已批准，但需要申请人补全凭据（${secretFields.length} 个密钥字段）。`
-        : `${request.packageDisplayName} 已批准，但需要申请人补全连接端点。`,
+        : `${request.packageDisplayName} 已批准，但需要申请人补全连接配置。`,
     code: "capability_request.mcp_awaiting_configuration",
     data: {
       resourceType: "capability_request",
@@ -883,6 +895,39 @@ function dispatchMcpCapabilityRequestSync(input: {
     },
   });
   return { request, capabilityRequest: request, nextAction: "configure_credentials" };
+}
+
+function resolveMcpCatalogItemIdFromRequest(request: CapabilityRequestRecord): string | undefined {
+  try {
+    const metadata = JSON.parse(request.metadataJson) as unknown;
+    if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+      const catalogItemId = (metadata as Record<string, unknown>).catalogItemId;
+      if (typeof catalogItemId === "string" && catalogItemId.trim()) return catalogItemId;
+    }
+  } catch {
+    // ignore malformed metadata
+  }
+  return undefined;
+}
+
+function isZeroConfigMcp(catalog: { secretFieldsJson: string; endpointTemplate?: string; configurationSchemaJson: string }): boolean {
+  const secretFields = safeParseJsonArray(catalog.secretFieldsJson);
+  if (secretFields.length > 0) return false;
+  if (!catalog.endpointTemplate) return false;
+  const schema = safeParseJsonObject(catalog.configurationSchemaJson);
+  if (!schema || schema.type !== "object") return true;
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  return !required.some((name) => typeof name === "string" && name.trim() && !secretFields.includes(name));
+}
+
+function safeParseJsonObject(value: string | undefined | null): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(value ?? "{}") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 function safeParseJsonArray(value: string | undefined | null): string[] {
