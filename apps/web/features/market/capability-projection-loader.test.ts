@@ -231,6 +231,32 @@ describe("runtime baseline rollout gating", () => {
 });
 
 describe("CLI/MCP multi-implementation negotiation", () => {
+  it("blocks MCP actions while the target Runtime is offline", () => {
+    const projection = projectMcpCapabilityAvailability({
+      workspace: {
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        runtimeStatus: "offline",
+        canManage: true,
+        readiness: { npm: true, python: true, pip: true, cliHub: true },
+      },
+      catalogItem: {
+        id: "mcp-offline",
+        transport: "streamable_http",
+        slug: "offline-mcp",
+        displayName: "Offline MCP",
+        risk: "low",
+        declaredToolsJson: "[]",
+        requiredRuntimeCapabilitiesJson: "[]",
+      },
+      connectionStatus: null,
+      activeOperations: [],
+    });
+    expect(projection.userState).toBe("blocked");
+    expect(projection.nextAction).toBe("request_deployment");
+    expect(projection.reasonCode).toBe("runtime.offline");
+  });
+
   it("offers the dependency CLI as an alternative for a managed_stdio MCP", () => {
     const projection = projectMcpCapabilityAvailability({
       workspace: {

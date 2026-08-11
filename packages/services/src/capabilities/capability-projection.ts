@@ -356,6 +356,16 @@ export function projectMcpCapabilityAvailability(input: {
       operationId: activeOperations[0].id,
     };
   }
+  if (workspace.runtimeStatus !== "online") {
+    return {
+      ...baseProjection,
+      infrastructureState: "not_ready",
+      userState: "blocked",
+      nextAction: "request_deployment",
+      reasonCode: "runtime.offline",
+      reasonText: "没有可用的在线 Runtime。",
+    };
+  }
   if (catalogItem.transport === "streamable_http") {
     return {
       ...baseProjection,
