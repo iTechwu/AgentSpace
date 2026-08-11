@@ -20,7 +20,10 @@ import { buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { listWorkspaceRuntimeAppCatalogItemsSync } from "../clihub/private-releases.ts";
 import { isManagedServiceProvisioningEnabled } from "./capability-config.ts";
 import type { CapabilityNextAction } from "./capability-projection.ts";
-import { queueCapabilityManagedServiceProvisionSync } from "./capability-service-driver.ts";
+import {
+  autoConnectManagedMcpAfterProvisionSync,
+  queueCapabilityManagedServiceProvisionSync,
+} from "./capability-service-driver.ts";
 
 /**
  * Dispatch of an approved capability_request into the underlying subsystem
@@ -222,6 +225,62 @@ function dispatchMcpCapabilityRequestSync(input: {
     return { request: final, capabilityRequest: final, nextAction: "repair" };
   }
 
+  // Spec: a managed_service-mode MCP (e.g. OpenMontage) must be deployed as a
+  // container FIRST — the MCP connection is only materialized once the service
+  // instance is ready. This routes managed MCP through the container driver
+  // instead of skipping straight to a connection (which would fail against a
+  // non-existent container).
+  if (request.deploymentMode === "managed_service") {
+    const provision = queueCapabilityManagedServiceProvisionSync({
+      workspaceId: input.workspaceId,
+      request,
+      mcpAutoConnect: isZeroConfigMcp(catalog) && catalog.endpointTemplate
+        ? {
+          actorUserId: input.actorUserId,
+          catalogItemId: catalog.id,
+          endpoint: catalog.endpointTemplate,
+          approvedTools: safeParseJsonArray(catalog.defaultApprovedToolsJson),
+        }
+        : undefined,
+    });
+    if (provision.code === "provision_queued" || provision.code === "provision_in_flight") {
+      // Container provisioning is in flight; the daemon provisions it and the
+      // convergence hook auto-connects the MCP afterwards (mcpAutoConnect marker).
+      const running = readCapabilityRequestSync(request.id, input.workspaceId) ?? request;
+      return {
+        request: running,
+        capabilityRequest: running,
+        operationId: provision.operationId,
+        nextAction: "wait_for_operation",
+      };
+    }
+    if (provision.code === "template_not_admitted") {
+      // No digest-pinned template: fail closed — never fabricate a connection
+      // against a container that cannot exist. Stay approved with an audit.
+      tryRecordWorkspaceAuditEventSync({
+        workspaceId: input.workspaceId,
+        title: "Managed MCP template not admitted",
+        note: `${request.packageDisplayName} 需要容器部署，但目录未接纳 digest-pinned 模板；请求保持 approved。`,
+        code: "capability_request.managed_mcp_template_not_admitted",
+        data: { resourceType: "capability_request", resourceId: request.id },
+      });
+      return { request, capabilityRequest: request, nextAction: "wait_for_operation" };
+    }
+    if (provision.code === "no_runtime") {
+      const failed = transitionCapabilityRequestSync({
+        requestId: request.id,
+        workspaceId: input.workspaceId,
+        status: "failed",
+        lastErrorCode: "capability_request.no_runtime",
+        lastErrorMessage: "MCP 请求未绑定运行时。",
+      });
+      const final = failed ?? request;
+      return { request: final, capabilityRequest: final, nextAction: "repair" };
+    }
+    // service_ready: the container is already provisioned — fall through to the
+    // connection logic below.
+  }
+
   if (isZeroConfigMcp(catalog)) {
     const approvedTools = safeParseJsonArray(catalog.defaultApprovedToolsJson);
     try {
@@ -369,15 +428,21 @@ function dispatchManagedServiceCapabilityRequestSync(input: {
   });
   tryRecordWorkspaceAuditEventSync({
     workspaceId: input.workspaceId,
-    title: queued.queued
-      ? "Managed service provisioning queued"
-      : "Managed service template not admitted",
-    note: queued.queued
-      ? `${request.packageDisplayName} (${request.deploymentMode}) provision operation ${queued.operationId} queued.`
-      : `${request.packageDisplayName} (${request.deploymentMode}) has no admitted digest-pinned template; request stays approved.`,
-    code: queued.queued
-      ? "capability_request.managed_service_provisioning_queued"
-      : (queued.code ?? "capability_request.managed_service_template_not_admitted"),
+    title: queued.code === "service_ready"
+      ? "Managed service already provisioned"
+      : queued.queued
+        ? "Managed service provisioning queued"
+        : "Managed service template not admitted",
+    note: queued.code === "service_ready"
+      ? `${request.packageDisplayName} (${request.deploymentMode}) 已有就绪服务实例 ${queued.serviceId}，无需重复部署。`
+      : queued.queued
+        ? `${request.packageDisplayName} (${request.deploymentMode}) provision operation ${queued.operationId} queued.`
+        : `${request.packageDisplayName} (${request.deploymentMode}) has no admitted digest-pinned template; request stays approved.`,
+    code: queued.code === "service_ready"
+      ? "capability_request.managed_service_already_ready"
+      : queued.queued
+        ? "capability_request.managed_service_provisioning_queued"
+        : "capability_request.managed_service_template_not_admitted",
     data: {
       resourceType: "capability_request",
       resourceId: request.id,
@@ -388,6 +453,22 @@ function dispatchManagedServiceCapabilityRequestSync(input: {
       operationId: queued.operationId,
     },
   });
+  if (queued.code === "service_ready") {
+    // S3: the service is already provisioned and healthy — converge the request
+    // to completed instead of re-provisioning or leaving it approved forever.
+    const completed = transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "completed",
+      metadataJson: JSON.stringify({
+        ...parseRequestMetadata(request.metadataJson),
+        managedServiceCatalogId: readManagedServiceCatalogId(request),
+        serviceId: queued.serviceId,
+      }),
+    });
+    const final = completed ?? request;
+    return { request: final, capabilityRequest: final, nextAction: "none" };
+  }
   if (!queued.queued) {
     // No template / no runtime: keep the request approved and audited rather
     // than failing it — a template may be admitted later.
@@ -400,6 +481,23 @@ function dispatchManagedServiceCapabilityRequestSync(input: {
     operationId: queued.operationId,
     nextAction: "wait_for_operation",
   };
+}
+
+function parseRequestMetadata(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function readManagedServiceCatalogId(request: CapabilityRequestRecord): string | undefined {
+  const metadata = parseRequestMetadata(request.metadataJson);
+  const id = metadata.managedServiceCatalogId;
+  return typeof id === "string" ? id : undefined;
 }
 
 function safeBuildInstallPlan(item: RuntimeAppCatalogItemRecord): RuntimeAppInstallPlan | null {

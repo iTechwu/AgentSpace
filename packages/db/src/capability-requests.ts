@@ -230,6 +230,27 @@ export function readCapabilityRequestSync(
   return row ? mapCapabilityRequest(row) : null;
 }
 
+/**
+ * Finds the (at most one) capability_request whose metadata_json references the
+ * given managed-skill-service operation id (docs/0811/cli-install Phase 5).
+ * Indexed by the JSONB field rather than scanning the full request table, so an
+ * old request that completed long ago is still found when its provision
+ * operation converges.
+ */
+export function findCapabilityRequestByServiceOperationIdSync(
+  workspaceId: string,
+  operationId: string,
+): CapabilityRequestRecord | null {
+  const row = getDatabase()
+    .prepare(
+      `SELECT ${SELECT_FIELDS} FROM capability_request
+       WHERE workspace_id = ? AND metadata_json->>'skillServiceOperationId' = ?
+       ORDER BY updated_at DESC LIMIT 1`,
+    )
+    .get(workspaceId, operationId) as Record<string, unknown> | undefined;
+  return row ? mapCapabilityRequest(row) : null;
+}
+
 export function listCapabilityRequestsSync(
   options: ListCapabilityRequestsOptions = {},
 ): CapabilityRequestRecord[] {
@@ -468,9 +489,11 @@ export function convergeCapabilityRequestFromMcpConnectionSync(input: {
  * convergence point: the verify op that follows will then drive it to
  * completed/failed via {@link convergeCapabilityRequestFromMcpConnectionSync}.
  *
- * Only `approved` requests are eligible — a pending request must still go
- * through the admin approval flow, and a running request is already bound.
- * No-op when no matching approved request exists.
+ * Only post-approval states are eligible: `approved` (member finishes a
+ * credential-type connection) or `running` (a managed-MCP request whose
+ * container finished provisioning and is now auto-connecting). A `pending`
+ * request must still go through the admin approval flow. No-op when no matching
+ * request exists.
  */
 export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
   workspaceId: string;
@@ -485,7 +508,7 @@ export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
        WHERE workspace_id = ? AND runtime_id = ?
          AND package_kind = 'mcp'
          AND package_source = ? AND package_slug = ?
-         AND status = 'approved'
+         AND status IN ('approved', 'running')
        ORDER BY updated_at DESC
        LIMIT 1`,
     )

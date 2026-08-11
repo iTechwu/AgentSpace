@@ -70,7 +70,7 @@ export function readRuntimeExecutionProfile(
   const homeDir = runtimeHomeDir ?? environment.HOME;
   const profile: RuntimeExecutionProfile = {
     writableHome: probeWritableHome(homeDir),
-    persistentHome: { available: true },
+    persistentHome: probePersistentHome(homeDir),
     runtimePackageExecutor: { available: true },
     chromium: pickAvailableChromium(pathValue, environment),
   };
@@ -81,6 +81,50 @@ export function readRuntimeExecutionProfile(
     profile.managedServiceReachable = { available: true };
   }
   return profile;
+}
+
+/**
+ * Honest persistentHome probe: CLI installs land in Runtime HOME, so a home on
+ * ephemeral storage (tmpfs/ramfs/zram) would lose all installs on restart and
+ * must NOT be reported persistent. Reads /proc/mounts (Linux managed nodes);
+ * on platforms without it (e.g. local macOS where HOME is the machine home) the
+ * probe cannot find a mount and conservatively reports available — the machine
+ * home persists across daemon restarts.
+ */
+function probePersistentHome(homeDir: string | undefined): RuntimeAppReadinessItem {
+  const target = homeDir?.trim();
+  if (!target) {
+    return { available: false, error: "HOME is not set." };
+  }
+  const fileSystemType = findMountFileSystemType(target);
+  if (fileSystemType && ["tmpfs", "ramfs", "zram", "devtmpfs"].includes(fileSystemType)) {
+    return {
+      available: false,
+      error: `Runtime HOME "${target}" is on ephemeral ${fileSystemType} storage; CLI installs would not persist across restarts.`,
+    };
+  }
+  return { available: true };
+}
+
+function findMountFileSystemType(target: string): string | undefined {
+  try {
+    const resolved = resolve(target);
+    let best: { mountPoint: string; fileSystemType: string } | undefined;
+    for (const line of readFileSync("/proc/mounts", "utf8").split("\n")) {
+      const parts = line.split(/\s+/);
+      if (parts.length < 3) continue;
+      const [device, mountPoint, fileSystemType] = parts;
+      if (resolved === mountPoint || resolved.startsWith(`${mountPoint}/`)) {
+        if (!best || mountPoint.length > best.mountPoint.length) {
+          best = { mountPoint, fileSystemType };
+        }
+      }
+    }
+    return best?.fileSystemType;
+  } catch {
+    // /proc/mounts unavailable (non-Linux) — caller falls back to conservative.
+    return undefined;
+  }
 }
 
 function probeWritableHome(homeDir: string | undefined): RuntimeAppReadinessItem {

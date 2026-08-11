@@ -448,7 +448,11 @@ function isResourceType(value: unknown): value is WorkspaceNotificationResourceT
     value === "task" ||
     value === "approval" ||
     value === "data_protection" ||
-    value === "skill"
+    value === "skill" ||
+    // Capability request notifications (docs/0811/cli-install Phase 4): the type
+    // union has always allowed this value, but the runtime guard was missing it,
+    // so every member capability submission crashed at the notify step.
+    value === "capability_request"
   );
 }
 

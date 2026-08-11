@@ -12,13 +12,14 @@ import {
   listMcpOperationsSync,
   listRuntimeAppOperationsSync,
   listRuntimeInstalledAppsSync,
+  listSkillServiceCatalogSync,
   readAgentRuntimeSync,
   readCapabilityRequestSync,
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemSync,
   readWorkspaceRuntimeAppReleaseByVersionSync,
 } from "@dofe-agent/db";
-import { requestMcpConnectionSync } from "../mcp-center/connections.ts";
+import { materializeMcpConnectionSync } from "../mcp-center/connections.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { createNotificationSync, notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
@@ -57,7 +58,10 @@ function assertCapabilityDeploymentPlan(
   const allowedDeploymentModes: Record<CapabilityPackageKind, CapabilityDeploymentMode[]> = {
     cli: ["runtime_builtin", "runtime_package"],
     mcp: ["managed_service", "external_service"],
-    service: ["managed_service", "external_service"],
+    // A `service` is a heavyweight container deployed on the managed node; there
+    // is no external-connection lifecycle for it, so external_service is not an
+    // allowed combination (docs/0811/cli-install §4.3).
+    service: ["managed_service"],
   };
   const allowedActions: Record<CapabilityPackageKind, string[]> = {
     cli: ["install", "upgrade"],
@@ -105,7 +109,17 @@ export function submitCapabilityRequestSync(
   // service or `external_service` for a CLI tool. The generic kind matrix is a
   // first line of defense; the catalog re-derivation is authoritative.
   const catalogPlan = resolveCapabilityDeploymentPlan(input, workspaceId);
-  const deploymentMode = catalogPlan?.deploymentMode ?? input.deploymentMode;
+  // P1: a catalog entry that cannot be resolved (yanked / removed / wrong
+  // source) must REJECT the submission — never fall back to the browser's
+  // declared deployment mode, or we would persist a request for an arbitrary
+  // slug/source the server cannot back with a real release.
+  if (!catalogPlan) {
+    throw new Error("capability_request.catalog_not_found");
+  }
+  const deploymentMode = catalogPlan.deploymentMode;
+  // P1: the catalog entry is the authoritative source — a same-slug multi-source
+  // catalog must not let the client pick the source.
+  const packageSource = catalogPlan.packageSource ?? input.packageSource;
   assertCapabilityDeploymentPlan(input.packageKind, deploymentMode, input.requestedAction);
   // P1-7: the runtime must belong to the target workspace. Without this a
   // member could submit a request pinned to another workspace's runtime id.
@@ -114,10 +128,10 @@ export function submitCapabilityRequestSync(
     throw new Error("runtime.not_found");
   }
   const isAdmin = isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
-  // For MCP/service requests we pin the exact catalog item id in metadata so
-  // dispatch cannot silently drift to a newer release with the same slug
-  // (docs/0811/cli-install P1-3).
-  const metadataJson = buildCapabilityRequestMetadataJson(input.packageKind, input.packageSlug, workspaceId, catalogPlan?.catalogItemId);
+  // For MCP/service requests we pin the exact catalog item / template id in
+  // metadata so dispatch cannot silently drift to a newer same-slug release
+  // (docs/0811/cli-install P1-3, S2).
+  const metadataJson = buildCapabilityRequestMetadataJson(input.packageKind, input.packageSlug, workspaceId, catalogPlan);
   // CAS idempotency: createCapabilityRequestSync atomically inserts a new row,
   // reopens a terminal request, or returns an in-flight request unchanged. Only
   // the created/reopened cases record an audit event and notify admins, so a
@@ -128,16 +142,16 @@ export function submitCapabilityRequestSync(
     requestedByUserId: input.actorUserId,
     runtimeId: input.runtimeId,
     packageKind: input.packageKind,
-    packageSource: input.packageSource,
+    packageSource,
     packageSlug: input.packageSlug,
-    packageDisplayName: catalogPlan?.displayName ?? input.packageDisplayName,
+    packageDisplayName: catalogPlan.displayName ?? input.packageDisplayName,
     deploymentMode,
     requestedAction: input.requestedAction,
     priority: input.priority ?? "normal",
     message: input.message ?? "",
     // Pin workspace-private CLI installs to the exact release id so the
     // approved install plan cannot drift to a yanked release.
-    releaseId: resolveCliReleaseId(input.workspaceId, input.packageSource, input.packageSlug),
+    releaseId: resolveCliReleaseId(input.workspaceId, packageSource, input.packageSlug),
     metadataJson,
   });
   if (outcome === "in_flight") {
@@ -209,7 +223,12 @@ export function submitCapabilityRequestSync(
 
 interface ResolvedCapabilityCatalogPlan {
   deploymentMode: CapabilityDeploymentMode;
+  /** Authoritative source from the catalog entry (SP4) — overrides the client. */
+  packageSource?: string;
+  /** Immutable MCP catalog item id (mcp kind). */
   catalogItemId?: string;
+  /** Immutable managed-service template id (service kind, S2). */
+  managedServiceCatalogId?: string;
   displayName?: string;
 }
 
@@ -218,13 +237,12 @@ interface ResolvedCapabilityCatalogPlan {
  * P1-7). The browser submits identifiers only; the server looks up the real
  * catalog entry and derives the deployment mode from it:
  *   - CLI:   install strategy (cli_hub/bundled → runtime_builtin, else
- *            runtime_package)
+ *            runtime_package); source must match the catalog item.
  *   - MCP:   transport (streamable_http → external_service, else
- *            managed_service)
- *   - service: same MCP catalog resolution.
- * When the entry cannot be found (e.g. a yanked/removed item), we fall back to
- * the browser's declared mode so the generic kind matrix still bounds it, but
- * dispatch will fail closed on the missing entry.
+ *            managed_service); the catalog's source is authoritative.
+ *   - service: heavyweight container → the skill_service_catalog managed_service
+ *            template; its immutable id is pinned.
+ * Returns null when the entry cannot be resolved — the caller MUST reject.
  */
 function resolveCapabilityDeploymentPlan(
   input: SubmitCapabilityRequestInput,
@@ -235,15 +253,29 @@ function resolveCapabilityDeploymentPlan(
     if (!item) return null;
     return {
       deploymentMode: classifyCliDeploymentMode(item),
+      packageSource: item.source,
       displayName: item.displayName,
     };
   }
-  // MCP / service — resolve the workspace catalog item by slug, pin the exact
-  // catalogItemId so dispatch cannot drift to a newer same-slug release.
+  if (input.packageKind === "service") {
+    const template = listSkillServiceCatalogSync(workspaceId)
+      .filter((entry) => entry.slug === input.packageSlug && entry.deploymentType === "managed_service")
+      .sort((left, right) => right.templateVersion.localeCompare(left.templateVersion))[0];
+    if (!template) return null;
+    return {
+      deploymentMode: "managed_service",
+      managedServiceCatalogId: template.id,
+      displayName: template.slug,
+    };
+  }
+  // MCP — resolve the workspace catalog item by slug, pin the exact
+  // catalogItemId so dispatch cannot drift to a newer same-slug release, and
+  // make the catalog's source authoritative.
   const catalog = readMcpCatalogItemBySlugSync(input.packageSlug, workspaceId);
   if (!catalog) return null;
   return {
     deploymentMode: catalog.transport === "streamable_http" ? "external_service" : "managed_service",
+    packageSource: catalog.source,
     catalogItemId: catalog.id,
     displayName: catalog.displayName,
   };
@@ -253,13 +285,19 @@ function buildCapabilityRequestMetadataJson(
   packageKind: CapabilityPackageKind,
   packageSlug: string,
   workspaceId: string,
-  resolvedCatalogItemId?: string,
+  plan: ResolvedCapabilityCatalogPlan | null,
 ): string {
-  if (packageKind !== "mcp") return "{}";
-  const catalogItemId = resolvedCatalogItemId
-    ?? readMcpCatalogItemBySlugSync(packageSlug, workspaceId)?.id;
-  if (!catalogItemId) return "{}";
-  return JSON.stringify({ catalogItemId });
+  const metadata: Record<string, unknown> = {};
+  if (packageKind === "mcp") {
+    const catalogItemId = plan?.catalogItemId
+      ?? readMcpCatalogItemBySlugSync(packageSlug, workspaceId)?.id;
+    if (catalogItemId) metadata.catalogItemId = catalogItemId;
+  }
+  if (packageKind === "service") {
+    const templateId = plan?.managedServiceCatalogId;
+    if (templateId) metadata.managedServiceCatalogId = templateId;
+  }
+  return JSON.stringify(metadata);
 }
 
 export function approveCapabilityRequestSync(input: {
@@ -385,10 +423,10 @@ export interface CompleteCapabilityRequestMcpConnectionResult {
  * (docs/0811/cli-install P0). After an admin approves a request whose catalog
  * item needs secrets/endpoint/config, the projection surfaces
  * `configure_credentials`. The applicant (or an admin) fills the form and calls
- * this — it verifies an `approved` capability_request covers the exact
- * (workspace, runtime, catalog item) tuple and that the actor is the request
- * owner (or an admin), then materializes the connection via
- * {@link requestMcpConnectionSync} with the admin-gate bypass. The link-back
+ * this — it verifies an `approved` capability_request covering the exact
+ * (workspace, runtime, catalog item) tuple AND whose requestedAction is
+ * `connect`, and that the actor is the request owner (or an admin), then
+ * materializes the connection via the ungated internal path. The link-back
  * inside that call binds the approved request to the new connection and drives
  * it to running; the verify op then converges it to completed/failed.
  */
@@ -398,9 +436,11 @@ export function completeCapabilityRequestMcpConnectionSync(
   const catalog = readMcpCatalogItemSync(input.catalogItemId, input.workspaceId);
   if (!catalog) throw new Error("mcp_catalog.not_found");
 
-  // Only the request owner (or an admin) may complete the connection. We find
-  // the approved request by its catalog item identity so a same-slug newer
-  // release can never hijack the approval.
+  // Only the request owner (or an admin) may complete the connection, and only
+  // a `connect` request is consumable — a `deploy`/`upgrade` approval must not
+  // be spent on the connect-completion path. We find the approved request by
+  // its catalog item identity so a same-slug newer release can never hijack the
+  // approval.
   const requests = listCapabilityRequestsSync({
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
@@ -411,7 +451,9 @@ export function completeCapabilityRequestMcpConnectionSync(
   });
   const approvedRequest = requests.find((request) => {
     const pinned = resolveMcpCatalogItemIdFromRequest(request);
-    return request.packageSource === catalog.source && (!pinned || pinned === catalog.id);
+    return request.requestedAction === "connect"
+      && request.packageSource === catalog.source
+      && (!pinned || pinned === catalog.id);
   });
   if (!approvedRequest) {
     throw new Error("capability_request.not_approved");
@@ -421,7 +463,9 @@ export function completeCapabilityRequestMcpConnectionSync(
     throw new Error("capability_request.not_owner");
   }
 
-  const result = requestMcpConnectionSync({
+  // Ungated materialization — authorization was verified above via the owned
+  // approved request. There is no caller-forgeable bypass boolean.
+  const result = materializeMcpConnectionSync({
     workspaceId: input.workspaceId,
     actorUserId: input.actorUserId,
     runtimeId: input.runtimeId,
@@ -431,8 +475,6 @@ export function completeCapabilityRequestMcpConnectionSync(
     secrets: input.secrets,
     approvedTools: input.approvedTools,
     confirmHighRisk: input.confirmHighRisk,
-    // Authorization was verified above via the approved request ownership.
-    requireManage: false,
   });
   return { connectionId: result.connection.id, operationId: result.operation.id };
 }

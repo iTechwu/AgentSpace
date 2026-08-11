@@ -40,10 +40,14 @@ function createTestRuntime(): string {
 }
 
 function seedManagedServiceTemplate(slug: string): string {
+  return seedManagedServiceTemplateVersion(slug, "1.0.0");
+}
+
+function seedManagedServiceTemplateVersion(slug: string, templateVersion: string): string {
   return upsertSkillServiceCatalogSync({
     workspaceId: "default",
     slug,
-    templateVersion: "1.0.0",
+    templateVersion,
     deploymentType: "managed_service",
     imageDigest: `sha256:${"a".repeat(64)}`,
     templateDigest: `sha256:${"b".repeat(64)}`,
@@ -120,7 +124,46 @@ test("queueCapabilityManagedServiceProvisionSync fails closed when no template i
   const request = createApprovedServiceRequest(runtimeId, `not-admitted-${randomLikeId()}`);
   const queued = queueCapabilityManagedServiceProvisionSync({ workspaceId: "default", request });
   assert.equal(queued.queued, false);
-  assert.equal(queued.code, "capability_request.managed_service_template_not_admitted");
+  assert.equal(queued.code, "template_not_admitted");
+});
+
+test("queueCapabilityManagedServiceProvisionSync does NOT re-provision an already-ready instance", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `driver-${randomLikeId()}`;
+  const templateId = seedManagedServiceTemplate(slug);
+  const request = createApprovedServiceRequest(runtimeId, slug);
+  const first = queueCapabilityManagedServiceProvisionSync({ workspaceId: "default", request });
+  assert.equal(first.code, "provision_queued");
+
+  // Mark the instance ready (as the daemon does after a successful provision).
+  getDatabase().prepare(
+    "UPDATE managed_skill_service SET status = 'ready' WHERE id = ?",
+  ).run(first.serviceId!);
+
+  const again = queueCapabilityManagedServiceProvisionSync({ workspaceId: "default", request });
+  assert.equal(again.code, "service_ready", "ready instance must not be re-provisioned");
+  assert.equal(again.queued, false);
+  const ops = listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: first.serviceId!, limit: 20 });
+  assert.equal(ops.filter((op) => op.operation === "provision").length, 1, "no duplicate provision operations");
+});
+
+test("queueCapabilityManagedServiceProvisionSync uses the PINNED template id, not the latest by slug", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `driver-${randomLikeId()}`;
+  // Two templates, same slug; the pinned one is the OLDER version.
+  const oldTemplateId = seedManagedServiceTemplate(slug); // version 1.0.0
+  seedManagedServiceTemplateVersion(slug, "2.0.0");
+  // Submit pins the older template id (S2).
+  const request = createApprovedServiceRequest(runtimeId, slug);
+  getDatabase().prepare(
+    "UPDATE capability_request SET metadata_json = ? WHERE id = ?",
+  ).run(JSON.stringify({ managedServiceCatalogId: oldTemplateId }), request.id);
+  const pinnedRequest = readCapabilityRequestSync(request.id, "default")!;
+
+  const queued = queueCapabilityManagedServiceProvisionSync({ workspaceId: "default", request: pinnedRequest });
+  assert.equal(queued.queued, true);
+  const service = readManagedSkillServiceSync(queued.serviceId!, "default");
+  assert.equal(service.catalogId, oldTemplateId, "dispatch must use the pinned template, not the newest by slug");
 });
 
 test("convergeCapabilityRequestFromSkillServiceOperationSync converges the request on operation completion", () => {
@@ -150,4 +193,57 @@ test("convergeCapabilityRequestFromSkillServiceOperationSync converges the reque
   });
   assert.equal(failed?.id, failedRequest.id);
   assert.equal(failed?.status, "failed");
+});
+
+test("queueCapabilityManagedServiceProvisionSync stores the mcpAutoConnect marker for managed MCP dispatch", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `driver-${randomLikeId()}`;
+  seedManagedServiceTemplate(slug);
+  const request = createApprovedServiceRequest(runtimeId, slug);
+  const queued = queueCapabilityManagedServiceProvisionSync({
+    workspaceId: "default",
+    request,
+    mcpAutoConnect: {
+      actorUserId: testUserId,
+      catalogItemId: "mcp-catalog-1",
+      endpoint: "stdio://test-mcp",
+      approvedTools: ["search"],
+    },
+  });
+  assert.equal(queued.code, "provision_queued");
+  const updated = readCapabilityRequestSync(request.id, "default");
+  const metadata = JSON.parse(updated?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(metadata.skillServiceOperationId, queued.operationId);
+  assert.ok(metadata.mcpAutoConnect, "auto-connect marker must be persisted");
+  const marker = metadata.mcpAutoConnect as Record<string, unknown>;
+  assert.equal(marker.catalogItemId, "mcp-catalog-1");
+  assert.equal(updated?.status, "running");
+});
+
+test("convergeCapabilityRequestFromSkillServiceOperationSync fails a managed MCP closed when auto-connect cannot materialize", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `driver-${randomLikeId()}`;
+  seedManagedServiceTemplate(slug);
+  const request = createApprovedServiceRequest(runtimeId, slug);
+  const queued = queueCapabilityManagedServiceProvisionSync({
+    workspaceId: "default",
+    request,
+    // Marker references a catalog item that does not exist → auto-connect fails closed.
+    mcpAutoConnect: {
+      actorUserId: testUserId,
+      catalogItemId: "mcp-missing",
+      endpoint: "stdio://test-mcp",
+      approvedTools: [],
+    },
+  });
+  assert.equal(queued.code, "provision_queued");
+
+  const converged = convergeCapabilityRequestFromSkillServiceOperationSync({
+    operationId: queued.operationId!,
+    workspaceId: "default",
+    outcome: "succeeded",
+  });
+  assert.equal(converged?.id, request.id);
+  assert.equal(converged?.status, "failed", "missing MCP catalog must fail closed, not stay running");
+  assert.equal(converged?.lastErrorCode, "mcp.connection_dispatch_failed");
 });

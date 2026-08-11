@@ -99,15 +99,6 @@ export interface RequestMcpConnectionInput {
   secrets?: Record<string, string>;
   approvedTools?: string[];
   confirmHighRisk?: boolean;
-  /**
-   * Admin-gate bypass for the capability_request completion flow
-   * (docs/0811/cli-install P0). When false, the caller has already verified the
-   * actor is the owner of an approved capability_request covering this exact
-   * (workspace, runtime, catalog item) tuple — the admin approval of that
-   * request IS the high-risk authorization, so the applicant (or an admin) can
-   * finish the credential-bearing connection. Defaults to true (admin required).
-   */
-  requireManage?: boolean;
 }
 
 export interface RequestMcpConnectionResult {
@@ -115,11 +106,27 @@ export interface RequestMcpConnectionResult {
   operation: RuntimeMcpOperationRecord;
 }
 
+/**
+ * Admin-gated MCP connection entry point. The capability_request completion
+ * flow uses {@link materializeMcpConnectionSync} (internal to the module) after
+ * verifying the actor owns an approved request — there is intentionally no
+ * caller-forgeable bypass boolean here.
+ */
 export function requestMcpConnectionSync(input: RequestMcpConnectionInput): RequestMcpConnectionResult {
-  if (input.requireManage !== false) {
-    assertCanManageMcpCenterSync({ workspaceId: input.workspaceId, actorUserId: input.actorUserId });
-  }
+  assertCanManageMcpCenterSync({ workspaceId: input.workspaceId, actorUserId: input.actorUserId });
+  return materializeMcpConnectionSync(input);
+}
 
+/**
+ * Ungated connection materialization (create + queue verify). The admin gate is
+ * intentionally NOT here — callers must have already verified authorization:
+ *   - requestMcpConnectionSync calls it after the admin check;
+ *   - completeCapabilityRequestMcpConnectionSync calls it after verifying the
+ *     actor owns an APPROVED capability_request for the exact tuple (docs
+ *     P0). Keep this function out of the public package index so the ungated
+ *     path cannot be reached casually.
+ */
+export function materializeMcpConnectionSync(input: RequestMcpConnectionInput): RequestMcpConnectionResult {
   const runtime = readAgentRuntimeSync(input.runtimeId);
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
     throw new Error("runtime.not_found");
