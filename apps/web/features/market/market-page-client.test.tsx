@@ -571,6 +571,41 @@ describe("MarketPageClient", () => {
     expect(screen.getByRole("button", { name: "安装" })).toBeDisabled();
   });
 
+  it("surfaces the projection diagnostic code to admins but not to members", () => {
+    const projection = {
+      packageId: "clihub_harness:mermaid",
+      runtimeId: "runtime-online",
+      kind: "cli" as const,
+      deploymentMode: "runtime_package" as const,
+      catalogState: "pending" as const,
+      infrastructureState: "ready" as const,
+      userState: "blocked" as const,
+      nextAction: "govern_release" as const,
+      reasonCode: "runtime_app.release_unpinned",
+      reasonText: "目录条目暂不可用，可申请管理员处理。",
+      canManage: true,
+    };
+
+    const { unmount: unmountAdmin } = render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{ ...data, capabilityProjections: [projection], canManage: true }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+    expect(screen.getByText(/runtime_app\.release_unpinned/)).toBeInTheDocument();
+    unmountAdmin();
+
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{ ...data, capabilityProjections: [{ ...projection, canManage: false }], canManage: false }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+    expect(screen.queryByText(/runtime_app\.release_unpinned/)).not.toBeInTheDocument();
+  });
+
   it("keeps uninstall available when a catalog release no longer passes install preflight", () => {
     render(
       <LanguageProvider>

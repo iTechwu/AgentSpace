@@ -703,6 +703,11 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                         {capabilityNextActionLabel(selectedProjectionBadge.nextAction, tx)}
                       </span>
                       <p>{selectedProjection?.reasonText ?? ""}</p>
+                      {data.canManage && selectedProjection?.reasonCode ? (
+                        <p className="market-installability-diagnostic" data-reason-code={selectedProjection.reasonCode}>
+                          {tx("诊断码：", "Diagnostic code: ")}{selectedProjection.reasonCode}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="market-install-state">

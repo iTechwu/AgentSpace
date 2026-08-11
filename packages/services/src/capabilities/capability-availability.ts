@@ -179,7 +179,7 @@ export function projectCliCapabilityAvailability(input: {
       userState: "blocked",
       nextAction: "govern_release",
       reasonCode: finalStatus.code,
-      reasonText: finalStatus.code ?? "目录条目未通过治理。",
+      reasonText: "目录条目暂不可用，可申请管理员处理。",
     };
   }
 
