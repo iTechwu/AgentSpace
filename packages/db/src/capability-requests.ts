@@ -654,9 +654,9 @@ export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
       input.packageSlug,
     ) as Array<{ id: string; status: string; metadata_json: string }>;
   if (rows.length === 0) return null;
-  // Only bind a request whose pinned catalogItemId (when present) matches the
-  // connection's catalog — a same-slug newer release must never hijack an older
-  // request's approval. Unpinned historical requests fall back to source+slug.
+  // Only bind a request whose immutable catalogItemId matches the connection's
+  // catalog. Unpinned historical requests fail closed instead of allowing a
+  // same-slug release or another request to consume the approval.
   const row = rows.find((candidate) => {
     let pinned: string | undefined;
     try {
@@ -665,7 +665,7 @@ export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
     } catch {
       pinned = undefined;
     }
-    return !pinned || (input.catalogItemId != null && pinned === input.catalogItemId);
+    return input.catalogItemId != null && pinned === input.catalogItemId;
   });
   if (!row) return null;
   return transitionCapabilityRequestSync({

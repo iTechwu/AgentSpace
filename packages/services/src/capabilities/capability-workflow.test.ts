@@ -351,6 +351,40 @@ test("completeCapabilityRequestMcpConnectionSync accepts a deploy approval (P0) 
   );
 });
 
+test("MCP completion refuses a legacy approved request without an immutable catalog pin", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `legacy-mcp-${randomLikeId()}`;
+  const catalogId = seedMcpCatalog(slug, "official");
+  const request = createCapabilityRequestSync({
+    workspaceId: "default",
+    requestedByUserId: testUserId,
+    runtimeId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: slug,
+    packageDisplayName: "Legacy MCP",
+    deploymentMode: "external_service",
+    requestedAction: "connect",
+    metadataJson: "{}",
+  }).record;
+  decideCapabilityRequestSync({
+    requestId: request.id,
+    workspaceId: "default",
+    decidedByUserId: testUserId,
+    decision: "approved",
+  });
+  assert.throws(
+    () => completeCapabilityRequestMcpConnectionSync({
+      workspaceId: "default",
+      actorUserId: testUserId,
+      runtimeId,
+      catalogItemId: catalogId,
+      endpoint: "https://mcp.example.com/mcp",
+    }),
+    /capability_request\.not_approved/,
+  );
+});
+
 test("completion resolves the daemon provisioned endpoint server-side (Spec P0)", () => {
   const runtimeId = createTestRuntime();
   const slug = `mcp-${randomLikeId()}`;

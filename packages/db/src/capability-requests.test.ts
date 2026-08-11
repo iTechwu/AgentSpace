@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  bindApprovedCapabilityRequestToMcpConnectionSync,
   createCapabilityRequestSync,
   createWorkspaceSync,
   createUserSync,
@@ -151,4 +152,37 @@ test("re-submitting a terminal request reopens it to pending and clears the deci
   assert.equal(reopened.record.decisionReason, undefined);
   assert.equal(reopened.record.decidedByUserId, undefined);
   assert.equal(reopened.record.completedAt, undefined);
+});
+
+test("MCP connection binding ignores approved requests without a catalog pin", () => {
+  const { userId, workspaceId, runtimeId } = seed();
+  const request = createCapabilityRequestSync({
+    workspaceId,
+    requestedByUserId: userId,
+    runtimeId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: "legacy-mcp",
+    packageDisplayName: "Legacy MCP",
+    deploymentMode: "external_service",
+    requestedAction: "connect",
+    metadataJson: "{}",
+  }).record;
+  decideCapabilityRequestSync({
+    requestId: request.id,
+    workspaceId,
+    decidedByUserId: userId,
+    decision: "approved",
+  });
+
+  const bound = bindApprovedCapabilityRequestToMcpConnectionSync({
+    workspaceId,
+    runtimeId,
+    packageSource: "official",
+    packageSlug: "legacy-mcp",
+    catalogItemId: "catalog-new-release",
+    connectionId: "connection-not-created",
+  });
+  assert.equal(bound, null);
+  assert.equal(readCapabilityRequestSync(request.id, workspaceId)?.linkedMcpConnectionId, undefined);
 });

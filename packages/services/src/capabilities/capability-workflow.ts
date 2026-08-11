@@ -655,10 +655,12 @@ export function completeCapabilityRequestMcpConnectionSync(
     const pinned = resolveMcpCatalogItemIdFromRequest(request);
     // connect OR deploy: the market panel submits `deploy` for request_deployment
     // on a managed MCP, then the applicant finishes the connection afterwards —
-    // the completion must accept both actions (P0).
+    // the completion must accept both actions (P0). An immutable catalog pin is
+    // mandatory; historical unpinned requests fail closed rather than allowing
+    // a same-slug release to consume the approval.
     return (request.requestedAction === "connect" || request.requestedAction === "deploy")
       && request.packageSource === catalog.source
-      && (!pinned || pinned === catalog.id);
+      && pinned === catalog.id;
   });
   if (!approvedRequest) {
     throw new Error("capability_request.not_approved");
