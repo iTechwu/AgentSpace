@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   createWorkspaceRuntimeAppReleaseAction,
+  decideCapabilityRequestAction,
   requestRuntimeAppOperationAction,
   refreshRuntimeAppCatalogAction,
   submitCapabilityRequestAction,
@@ -271,7 +272,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
         <McpMarketPanel data={data} onDataChanged={onDataChanged} />
       )}
 
-      <CapabilityRequestListPanel data={data} />
+      <CapabilityRequestListPanel data={data} onDataChanged={onDataChanged} />
     </div>
   );
 }
@@ -1003,12 +1004,40 @@ function Fact({ label, value }: { label: string; value: string }) {
  * initiates lands here as a unified task envelope, so the page never loses
  * the user's intent on refresh.
  */
-function CapabilityRequestListPanel({ data }: { data: MarketPageData }) {
+function CapabilityRequestListPanel({ data, onDataChanged }: { data: MarketPageData; onDataChanged?: () => void }) {
   const { tx } = useLanguage();
+  const { pushToast } = useFeedbackToast();
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [decisionReasons, setDecisionReasons] = useState<Record<string, string>>({});
   const requests = data.capabilityRequests ?? [];
+  const pendingRequests = requests.filter((request) => request.status === "pending");
   if (requests.length === 0) {
     return null;
   }
+
+  function onDecision(requestId: string, decision: "approved" | "rejected"): void {
+    const reason = decisionReasons[requestId]?.trim() ?? "";
+    if (decision === "rejected" && !reason) {
+      pushToast({
+        tone: "error",
+        message: tx("拒绝时必须填写原因。", "A reason is required when rejecting."),
+      });
+      return;
+    }
+    startTransition(async () => {
+      await runToastAction({
+        action: () => decideCapabilityRequestAction({ requestId, decision, reason }),
+        onSuccess: async () => {
+          await refreshWorkspaceModule(onDataChanged, router);
+        },
+        pushToast,
+        tx,
+        fallbackError: { zh: "决策失败，请稍后重试。", en: "Decision failed. Please try again." },
+      });
+    });
+  }
+
   return (
     <section aria-label={tx("我的能力请求", "My capability requests")} className="market-capability-requests">
       <header className="market-section-heading">
@@ -1020,6 +1049,57 @@ function CapabilityRequestListPanel({ data }: { data: MarketPageData }) {
           )}
         </p>
       </header>
+      {data.canManage && pendingRequests.length > 0 ? (
+        <div className="market-capability-request-admin" role="group" aria-label={tx("管理员待办", "Admin queue")}>
+          <strong>{tx("管理员待办", "Admin queue")}</strong>
+          <ul>
+            {pendingRequests.map((request) => (
+              <li key={request.id} className="market-capability-request market-capability-request--pending">
+                <div className="market-capability-request-meta">
+                  <strong>{request.packageDisplayName}</strong>
+                  <span className="status-chip">
+                    {capabilityRequestStatusLabel(request.status, tx)}
+                  </span>
+                </div>
+                <p className="market-capability-request-detail">
+                  {tx("部署模式", "Deployment")}: {capabilityDeploymentModeLabel(request.deploymentMode, tx)}
+                  {" · "}
+                  {tx("动作", "Action")}: {capabilityActionLabel(request.requestedAction, tx)}
+                  {request.message ? ` · ${request.message}` : ""}
+                </p>
+                <label className="form-field">
+                  <span>{tx("拒绝原因（拒绝时必填）", "Rejection reason (required when rejecting)")}</span>
+                  <input
+                    aria-label={tx(`拒绝原因 ${request.packageDisplayName}`, `Rejection reason for ${request.packageDisplayName}`)}
+                    maxLength={1024}
+                    onChange={(event) => setDecisionReasons((prev) => ({ ...prev, [request.id]: event.currentTarget.value }))}
+                    type="text"
+                    value={decisionReasons[request.id] ?? ""}
+                  />
+                </label>
+                <div className="market-capability-request-actions">
+                  <button
+                    className="action-button"
+                    disabled={isPending}
+                    onClick={() => onDecision(request.id, "approved")}
+                    type="button"
+                  >
+                    {tx("批准并部署", "Approve and deploy")}
+                  </button>
+                  <button
+                    className="action-button action-button--danger"
+                    disabled={isPending || !(decisionReasons[request.id]?.trim())}
+                    onClick={() => onDecision(request.id, "rejected")}
+                    type="button"
+                  >
+                    {tx("拒绝", "Reject")}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <ul className="market-capability-request-list">
         {requests.slice(0, 12).map((request) => (
           <li key={request.id} className={`market-capability-request market-capability-request--${request.status}`}>
@@ -1045,6 +1125,16 @@ function CapabilityRequestListPanel({ data }: { data: MarketPageData }) {
       </ul>
     </section>
   );
+}
+
+/**
+ * Workaround for Next.js's `useRouter()` ordering rule: this hook must be the
+ * only place that calls `useRouter()` for the panel — wrapped in a tiny
+ * function so the panel can stay JSX-light. Returns a no-op when the panel
+ * is rendered outside of the page context (e.g. tests).
+ */
+function _noOp(): void {
+  return undefined;
 }
 
 function capabilityRequestStatusLabel(

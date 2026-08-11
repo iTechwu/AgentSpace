@@ -13,7 +13,7 @@ import {
   reverifyMcpConnectionAction,
 } from "@/features/market/mcp-actions";
 import type { CreateMcpCatalogItemActionInput } from "@/features/market/mcp-actions";
-import { requestRuntimeAppOperationAction } from "@/features/market/actions";
+import { requestRuntimeAppOperationAction, submitCapabilityRequestAction } from "@/features/market/actions";
 import { CreateMcpCatalogModal } from "@/features/market/create-mcp-catalog-modal";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -28,6 +28,10 @@ import {
   runtimeAppInstallabilityReason,
 } from "@/features/market/capability-presentation";
 import { ManagedMcpSetupProgress } from "@/features/market/managed-mcp-setup-progress";
+import {
+  buildCapabilityNextActionBadge,
+  capabilityNextActionLabel,
+} from "@/features/market/capability-next-action-ui";
 
 type CatalogEntry = MarketPageData["mcpCatalog"][number];
 type ConnectionEntry = MarketPageData["mcpConnections"][number];
@@ -157,6 +161,20 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     && allConfigurationFieldsFilled(selected, nonSecretParams)
     && (editingConnection || allSecretsFilled(selected, secrets)));
   const toolPermissionsReady = !requiresHighRiskConfirmation || confirmHighRisk;
+  // Server-side 9-state projection for the selected (runtime, catalogItem).
+  const selectedProjection = selected && targetRuntime
+    ? data.capabilityProjections.find(
+      (p) => p.runtimeId === targetRuntime.id && p.packageId === selected.id,
+    )
+    : undefined;
+  const selectedProjectionBadge = selectedProjection
+    ? buildCapabilityNextActionBadge({
+      nextAction: selectedProjection.nextAction,
+      canManage: data.canManage && selectedProjection.canManage,
+      userState: selectedProjection.userState,
+      tx,
+    })
+    : undefined;
 
   // Reset per-catalog form state when the selection changes.
   // Skip while editing: manageConnection() already initialized the form and
@@ -180,7 +198,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     return () => window.clearTimeout(timeoutId);
   }, [data.mcpOperations, data.operations, onDataChanged, router]);
 
-  function runAction(work: () => Promise<ActionToastResult<void>>): void {
+  function runAction<T = void>(work: () => Promise<ActionToastResult<T>>): void {
     startTransition(async () => {
       await runToastAction({
         action: work,
@@ -279,6 +297,38 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       name: requiredRuntimeApp.name,
       operation: "install",
     }));
+  }
+
+  /**
+   * Dispatch the primary MCP action based on the server-side `nextAction`
+   * projection. `connect` and `configure_credentials` flow through the
+   * existing submitConnection form; `request_deployment` submits a unified
+   * capability request envelope so the user can track the deploy task in
+   * "My capability requests" without losing intent on refresh.
+   */
+  function handleMcpPrimaryAction(): void {
+    if (!selected || !targetRuntime || !selectedProjection) return;
+    const nextAction = selectedProjection.nextAction;
+    if (nextAction === "connect" || nextAction === "configure_credentials") {
+      submitConnection();
+      return;
+    }
+    if (nextAction === "request_deployment") {
+      runAction(() => submitCapabilityRequestAction({
+        runtimeId: targetRuntime.id,
+        packageKind: "mcp",
+        packageSource: selected.source,
+        packageSlug: selected.slug,
+        packageDisplayName: selected.displayName,
+        deploymentMode: selectedProjection.deploymentMode,
+        requestedAction: "deploy",
+        message: "",
+      }));
+      return;
+    }
+    // install / wait_for_* / repair / govern_release / none: the button is
+    // disabled in those states; this branch only runs when the projection
+    // explicitly says we can act now.
   }
 
   function isSubmittable(): boolean {
@@ -592,20 +642,32 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               <div className="market-action-row">
                 <button
                   className="primary-button"
-                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !targetRuntime || targetRuntime.status !== "online" || !targetRuntime.mcpEligible || requiredRuntimeAppOperationActive || (requiredRuntimeAppReady ? !isSubmittable() : requiredRuntimeAppInstallability?.status !== "installable")}
-                  onClick={requiredRuntimeAppReady ? submitConnection : installRequiredRuntimeApp}
+                  data-next-action={selectedProjectionBadge?.nextAction ?? "none"}
+                  disabled={isPending
+                    || !supportsSelectedTransport
+                    || !targetRuntime
+                    || targetRuntime.status !== "online"
+                    || !targetRuntime.mcpEligible
+                    || requiredRuntimeAppOperationActive
+                    || !selectedProjectionBadge?.primaryEnabled
+                    || (requiredRuntimeAppReady ? !isSubmittable() : requiredRuntimeAppInstallability?.status !== "installable")}
+                  onClick={() => {
+                    if (!requiredRuntimeAppReady) {
+                      installRequiredRuntimeApp();
+                      return;
+                    }
+                    handleMcpPrimaryAction();
+                  }}
                   type="button"
                 >
-                  <AppIcon name={requiredRuntimeAppReady ? "plus" : "download"} />
-                  <span>{requiredRuntimeAppOperationActive
-                    ? tx("正在安装依赖 CLI", "Installing dependency CLI")
-                    : !requiredRuntimeAppReady
-                      ? tx("继续：安装依赖 CLI", "Continue: install dependency CLI")
-                      : editingConnection
-                        ? tx("更新并重新验证", "Update and re-verify")
-                        : selected.transport === "managed_stdio"
-                          ? tx("继续：验证并连接", "Continue: verify and connect")
-                          : tx("配置并连接", "Configure and connect")}</span>
+                  <AppIcon name={requiredRuntimeAppReady ? (selectedProjectionBadge?.nextAction === "request_deployment" ? "containers" : "plus") : "download"} />
+                  <span>
+                    {requiredRuntimeAppOperationActive
+                      ? tx("正在安装依赖 CLI", "Installing dependency CLI")
+                      : !requiredRuntimeAppReady
+                        ? tx("继续：安装依赖 CLI", "Continue: install dependency CLI")
+                        : selectedProjectionBadge?.primaryLabel ?? tx("配置并连接", "Configure and connect")}
+                  </span>
                 </button>
                 {editingConnection ? (
                   <button className="modal-secondary-button" disabled={isPending} onClick={cancelManagingConnection} type="button">
@@ -613,6 +675,18 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                   </button>
                 ) : null}
               </div>
+              {selectedProjectionBadge ? (
+                <div
+                  className={`market-installability market-installability--${selectedProjectionBadge.statusTone}`}
+                  data-next-action={selectedProjectionBadge.nextAction}
+                  role="status"
+                >
+                  <span className={`status-chip status-chip--${selectedProjectionBadge.statusTone}`}>
+                    {capabilityNextActionLabel(selectedProjectionBadge.nextAction, tx)}
+                  </span>
+                  <p>{selectedProjection?.reasonText ?? ""}</p>
+                </div>
+              ) : null}
               {!supportsSelectedTransport ? (
                 <p className="panel-note">{tx("当前传输尚未开放连接。", "This transport is not connectable yet.")}</p>
               ) : null}
