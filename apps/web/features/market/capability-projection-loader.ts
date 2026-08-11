@@ -33,18 +33,34 @@ const TERMINAL_REQUEST_STATUS = new Set(["completed", "failed", "rejected", "can
 
 /**
  * When a non-terminal capability_request covers this (runtime, package) tuple,
- * it becomes the source of truth for the button: pending/approved →
- * wait_for_approval, running → wait_for_operation, and we attach its id so the
- * UI can deep-link to "我的请求". Terminal requests do not overlay — the
- * package reflects its actual installed/connection state.
+ * it becomes the source of truth for the button:
+ *   pending            → wait_for_approval (admin must approve)
+ *   approved + mcp     → configure_credentials (applicant must finish the
+ *                        connection — dispatch cannot auto-connect a
+ *                        credential/endpoint-bearing MCP, so it lingers in
+ *                        approved; the market panel routes this to the same
+ *                        connect form as `connect`)
+ *   approved + non-mcp → wait_for_approval (defensive; CLI/zero-config MCP
+ *                        auto-dispatch to running on approval, so this is at
+ *                        most a transient frame)
+ *   running            → wait_for_operation
+ * We attach the request id so the UI can deep-link to "我的请求". Terminal
+ * requests do not overlay — the package reflects its actual installed/
+ * connection state.
  */
 export function overlayCapabilityRequestState(
   projection: CapabilityAvailabilityProjection,
   request: CapabilityRequestProjectionInput | undefined,
 ): CapabilityAvailabilityProjection {
   if (!request || TERMINAL_REQUEST_STATUS.has(request.status)) return projection;
-  const nextAction: CapabilityNextAction =
-    request.status === "running" ? "wait_for_operation" : "wait_for_approval";
+  let nextAction: CapabilityNextAction;
+  if (request.status === "running") {
+    nextAction = "wait_for_operation";
+  } else if (request.status === "approved" && request.packageKind === "mcp") {
+    nextAction = "configure_credentials";
+  } else {
+    nextAction = "wait_for_approval";
+  }
   return { ...projection, capabilityRequestId: request.id, nextAction };
 }
 

@@ -45,6 +45,21 @@ describe("overlayCapabilityRequestState", () => {
     expect(result.capabilityRequestId).toBe("req-2");
   });
 
+  it("maps an approved MCP request to configure_credentials (applicant must finish the connection)", () => {
+    // Credential/endpoint-bearing MCPs cannot be auto-dispatched, so they
+    // linger in `approved` until the applicant completes "配置并连接". The
+    // market panel routes configure_credentials to the same connect form.
+    const result = overlayCapabilityRequestState(baseProjection, {
+      id: "req-mcp",
+      packageKind: "mcp",
+      packageSource: "official",
+      packageSlug: "official-openmontage",
+      status: "approved",
+    });
+    expect(result.nextAction).toBe("configure_credentials");
+    expect(result.capabilityRequestId).toBe("req-mcp");
+  });
+
   it("maps a running request to wait_for_operation", () => {
     const result = overlayCapabilityRequestState(baseProjection, {
       id: "req-3",
