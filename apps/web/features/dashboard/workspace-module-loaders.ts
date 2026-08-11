@@ -255,7 +255,7 @@ async function loadWorkspaceModuleDataUncached(
     case "knowledge":
       return {
         moduleId,
-        data: getKnowledgePageData(viewer?.displayName ?? "", workspaceId),
+        data: getKnowledgePageData(viewer?.displayName ?? "", workspaceId, viewer?.id, viewer?.role),
       };
     case "market":
       return {

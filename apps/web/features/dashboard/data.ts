@@ -5309,6 +5309,8 @@ export interface KnowledgeDocumentPageRecord {
 export function getKnowledgePageData(
   currentUserDisplayName?: string,
   workspaceId = DEFAULT_WORKSPACE_ID,
+  currentUserId?: string,
+  currentMembershipRole?: WorkspaceRole,
 ): KnowledgePageData {
   const state = readWorkspaceStateCached(workspaceId);
   const knowledgePolicies = listKnowledgeAssignmentPoliciesCached(workspaceId);
@@ -5336,7 +5338,7 @@ export function getKnowledgePageData(
     state.knowledgePages,
   );
   const knowledgePagePreview = limitLoadtestDashboardPayload(knowledgePageRecords, KNOWLEDGE_PAGE_PREVIEW_LIMIT);
-  const parseTasks = buildKnowledgeParseTasks(currentUserDisplayName, workspaceId);
+  const parseTasks = buildKnowledgeParseTasks(currentUserDisplayName, workspaceId, currentUserId, currentMembershipRole);
 
   return {
     workspaceId,
@@ -5360,6 +5362,8 @@ export function getKnowledgePageData(
 function buildKnowledgeParseTasks(
   currentUserDisplayName: string | undefined,
   workspaceId: string,
+  currentUserId: string | undefined,
+  currentMembershipRole: WorkspaceRole | undefined,
 ): KnowledgeParseTask[] {
   // 先回收卡住的解析任务（进程崩溃/重启后 fire-and-forget 解析留下的永久 running 行），
   // 再读取，避免 UI 把已死的任务渲染成永久转圈。
@@ -5369,13 +5373,13 @@ function buildKnowledgeParseTasks(
     packageKind: "service",
     limit: 50,
   }).filter((request) => request.requestedAction === "parse");
-  const currentUserId = currentUserDisplayName?.trim();
+  const isManager = isWorkspaceManagerRole(currentMembershipRole);
   return requests
     .filter((request) => {
-      // 普通成员只看到自己的任务；管理员全可见。
-      if (!currentUserId) return true;
-      if (request.requestedByUserId === currentUserId) return true;
-      return false;
+      // 管理员全可见；匿名（无 userId，如搜索/测试）全可见兜底；
+      // 普通成员只看自己提交的任务（按真实 userId 匹配，而非 displayName）。
+      if (isManager || !currentUserId) return true;
+      return request.requestedByUserId === currentUserId;
     })
     .map((request) => {
       let metadata: Record<string, unknown> = {};
