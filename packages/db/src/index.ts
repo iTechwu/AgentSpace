@@ -688,6 +688,7 @@ export {
 // Runtime apps
 export {
   claimNextRuntimeAppOperationForRuntimeSync,
+  cancelRuntimeAppOperationSync,
   completeRuntimeAppOperationSync,
   createRuntimeAppOperationSync,
   failRuntimeAppOperationSync,
@@ -1191,6 +1192,7 @@ export {
   renewManagedSkillServiceOperationLeaseSync,
   requeueExpiredManagedSkillServiceOperationLeasesSync,
   completeManagedSkillServiceOperationSync,
+  cancelManagedSkillServiceOperationSync,
   failManagedSkillServiceOperationSync,
   SKILL_SERVICE_OPERATION_LEASE_SECONDS,
   type CreateManagedSkillServiceOperationInput,

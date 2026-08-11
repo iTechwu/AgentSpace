@@ -189,6 +189,24 @@ export function completeManagedSkillServiceOperationSync(input: {
   return result.changes > 0;
 }
 
+/**
+ * Cancels an in-flight managed-skill-service operation (pending/claimed/running →
+ * cancelled). Callers must NOT hand-update the operation table directly
+ * (Feature Envy).
+ */
+export function cancelManagedSkillServiceOperationSync(input: {
+  operationId: string;
+  workspaceId?: string;
+}): boolean {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const result = getDatabase().prepare(
+    `UPDATE managed_skill_service_operation
+     SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
+     WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
+  ).run(input.operationId, workspaceId);
+  return result.changes > 0;
+}
+
 export function failManagedSkillServiceOperationSync(input: {
   operationId: string;
   claimGeneration: number;

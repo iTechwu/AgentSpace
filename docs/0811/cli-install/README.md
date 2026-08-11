@@ -104,6 +104,11 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
 
+### 6.11 Feature Envy 重构与前端切换入口（进度更新 2026-08-11 第十轮）
+
+- **Feature Envy 重构**：取消/补偿不再手改三个子系统数据表——新增 `cancelRuntimeAppOperationSync`（runtime-app）、`cancelManagedSkillServiceOperationSync`（skill-service）、MCP 走 `cancelUnfinishedMcpOperationsForConnectionSync` + `updateMcpConnectionStatusSync(disabled)` + `queueManagedSkillServiceRetireSync`。
+- **前端多实现切换**：MCP 详情面板展示 `selectionReason` + `selectedImplementation`（CLI/MCP）+ alternatives（依赖 CLI 可切换），管理员可见协商结果。
+
 ### 6.10 事务、补偿与多实现切换（进度更新 2026-08-11 第九轮）
 
 - **baseline 链式事务**：CLI op 创建 + request 重链接同一事务，进程中断不产生孤儿 op，重试恰好一次。

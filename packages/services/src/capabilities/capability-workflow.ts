@@ -6,6 +6,8 @@ import type {
 } from "@dofe-agent/db";
 import {
   cancelCapabilityRequestSync as dbCancelCapabilityRequestSync,
+  cancelManagedSkillServiceOperationSync,
+  cancelRuntimeAppOperationSync,
   cancelUnfinishedMcpOperationsForConnectionSync,
   claimCapabilityRequestForDispatchSync,
   createCapabilityRequestSync,
@@ -24,6 +26,7 @@ import {
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemSync,
   readWorkspaceRuntimeAppReleaseByVersionSync,
+  updateMcpConnectionStatusSync,
 } from "@dofe-agent/db";
 import { queueManagedSkillServiceRetireSync } from "../skill-services/bindings.ts";
 import { materializeMcpConnectionSync } from "../mcp-center/connections.ts";
@@ -522,26 +525,27 @@ function cancelLinkedCapabilityOperationsSync(
   workspaceId: string,
   request: CapabilityRequestRecord,
 ): void {
+  // Each subsystem owns its cancellation — this orchestrates via their APIs
+  // rather than hand-updating tables (Feature Envy): the runtime-app cancel, the
+  // MCP fence + status transition, and the managed-service cancel + retire.
   if (request.linkedRuntimeAppOperationId) {
-    // The runtime-app complete/fail guards skip cancelled ops, so stamping the op
-    // cancelled here prevents a late daemon callback from re-completing it.
-    getDatabase().prepare(
-      `UPDATE runtime_app_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
-       WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
-    ).run(request.linkedRuntimeAppOperationId, workspaceId);
+    cancelRuntimeAppOperationSync({
+      operationId: request.linkedRuntimeAppOperationId,
+      workspaceId,
+    });
   }
   if (request.linkedMcpConnectionId) {
     // Fence the in-flight verify ops so a running verify cannot write the
-    // connection back to ready after cancellation (St3), then remove the
-    // connection.
+    // connection back to ready after cancellation (St3), then disable it.
     cancelUnfinishedMcpOperationsForConnectionSync({
       connectionId: request.linkedMcpConnectionId,
       workspaceId,
     });
-    getDatabase().prepare(
-      `UPDATE runtime_mcp_connection SET status = 'removed'
-       WHERE id = ? AND workspace_id = ?`,
-    ).run(request.linkedMcpConnectionId, workspaceId);
+    updateMcpConnectionStatusSync({
+      connectionId: request.linkedMcpConnectionId,
+      workspaceId,
+      status: "disabled",
+    });
   }
   try {
     const metadata = JSON.parse(request.metadataJson) as Record<string, unknown>;
@@ -553,10 +557,10 @@ function cancelLinkedCapabilityOperationsSync(
       const othersStillActive = listCapabilityRequestsByServiceOperationIdSync(workspaceId, skillOpId)
         .some((candidate) => candidate.id !== request.id && candidate.status !== "cancelled");
       if (!othersStillActive) {
-        getDatabase().prepare(
-          `UPDATE managed_skill_service_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
-           WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
-        ).run(skillOpId, workspaceId);
+        cancelManagedSkillServiceOperationSync({
+          operationId: skillOpId,
+          workspaceId,
+        });
       }
       // Compensation (P1): if the container was already provisioned (the op has a
       // service instance), explicitly retire it — the retire sweep also releases

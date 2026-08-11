@@ -515,6 +515,25 @@ export function updateRuntimeAppOperationStageSync(input: {
   return operation;
 }
 
+/**
+ * Cancels an in-flight runtime-app operation (pending/claimed/running → cancelled).
+ * The complete/fail handlers skip cancelled ops, so this is the single controlled
+ * cancellation path — callers must NOT hand-update the operation table directly
+ * (Feature Envy).
+ */
+export function cancelRuntimeAppOperationSync(input: {
+  operationId: string;
+  workspaceId?: string;
+}): RuntimeAppOperationRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `UPDATE runtime_app_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, ?)
+     WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
+  ).run(now, input.operationId, workspaceId);
+  return readRuntimeAppOperationSync(input.operationId, workspaceId);
+}
+
 export function completeRuntimeAppOperationSync(input: CompleteRuntimeAppOperationInput): RuntimeAppOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;

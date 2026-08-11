@@ -751,6 +751,20 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                   <p>{selectedProjection?.reasonText ?? ""}</p>
                 </div>
               ) : null}
+              {selectedProjection?.selectionReason ? (
+                <p className="panel-note" data-implementation={selectedProjection.selectedImplementation ?? "mcp"}>
+                  {tx("实现方式：", "Implementation: ")}
+                  {selectedProjection.selectedImplementation === "cli"
+                    ? tx("CLI（安装到 Runtime）", "CLI (installed on the runtime)")
+                    : tx("MCP（连接方式）", "MCP (connected)")}
+                  {selectedProjection.alternativeImplementations?.includes("cli") ? (
+                    <>
+                      {" · "}
+                      {tx("可改为仅安装依赖 CLI", "Can switch to installing the dependency CLI only")}
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
               {!supportsSelectedTransport ? (
                 <p className="panel-note">{tx("当前传输尚未开放连接。", "This transport is not connectable yet.")}</p>
               ) : null}
