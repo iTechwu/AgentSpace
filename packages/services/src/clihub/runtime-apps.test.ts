@@ -515,3 +515,56 @@ test("reports stable preflight reasons for mutable and runtime-incompatible rele
     installCmd: "python exploit.py toolkit@1.2.3",
   }).code, "runtime_app.install_artifact_unpinned");
 });
+
+test("normalizeCliHubReadiness carries the execution profile and drops unasserted items", () => {
+  const readiness = selectCliHubReadiness(
+    JSON.stringify({
+      cliHubReadiness: {
+        checkedAt: "2026-08-11T00:00:00.000Z",
+        npm: { available: true, version: "10.0.0" },
+        python: { available: true, version: "3.12.0" },
+        pip: { available: true },
+        cliHub: { available: true },
+        uv: { available: false },
+        executionProfile: {
+          writableHome: { available: true },
+          persistentHome: { available: true },
+          runtimePackageExecutor: { available: true },
+          mcpGateway: { available: false, error: "gateway not enabled" },
+        },
+      },
+    }),
+    undefined,
+  );
+  assert.equal(readiness.executionProfile?.writableHome?.available, true);
+  assert.equal(readiness.executionProfile?.runtimePackageExecutor?.available, true);
+  // Fail-safe: an explicit `false` assertion is preserved for the projection to
+  // negotiate; an unasserted item (managedServiceReachable) is dropped.
+  assert.equal(readiness.executionProfile?.mcpGateway?.available, false);
+  assert.equal(readiness.executionProfile?.managedServiceReachable, undefined);
+});
+
+test("selectCliHubReadiness prefers the runtime metadata profile when present", () => {
+  const runtimeReady = selectCliHubReadiness(
+    JSON.stringify({
+      cliHubReadiness: {
+        checkedAt: "2026-08-11T00:00:00.000Z",
+        npm: { available: true },
+        python: { available: true },
+        pip: { available: true },
+        cliHub: { available: true },
+        uv: { available: false },
+        executionProfile: { writableHome: { available: true } },
+      },
+    }),
+    JSON.stringify({
+      cliHubReadiness: {
+        checkedAt: "2026-08-10T00:00:00.000Z",
+        npm: { available: false, error: "stale" },
+        executionProfile: { writableHome: { available: false } },
+      },
+    }),
+  );
+  assert.equal(runtimeReady.npm.available, true);
+  assert.equal(runtimeReady.executionProfile?.writableHome?.available, true);
+});

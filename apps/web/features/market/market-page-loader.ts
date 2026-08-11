@@ -92,6 +92,7 @@ export async function loadMarketPageData(input: {
           runtimeId: runtime.id,
           runtimeMetadataJson: runtime.metadataJson,
         });
+        const profile = readiness.executionProfile;
         return {
           id: runtime.id,
           label: runtime.name,
@@ -104,6 +105,18 @@ export async function loadMarketPageData(input: {
             python: readiness.python.available,
             pip: readiness.pip.available,
             cliHub: readiness.cliHub.available,
+          },
+          // Runtime execution profile (docs/0811/cli-install Phase 2): the
+          // daemon's asserted capabilities. Optional items are absent when the
+          // daemon cannot assert them (older daemon) — the UI must not render
+          // them as failures.
+          executionProfile: {
+            writableHome: profile?.writableHome?.available,
+            persistentHome: profile?.persistentHome?.available,
+            runtimePackageExecutor: profile?.runtimePackageExecutor?.available,
+            mcpGateway: profile?.mcpGateway?.available,
+            managedServiceReachable: profile?.managedServiceReachable?.available,
+            chromium: profile?.chromium?.available,
           },
           // MCP gateway eligibility: neither claude nor codex has passed real CLI
           // E2E (call, revoke, audit, lifecycle) in the designated CI env, so BOTH

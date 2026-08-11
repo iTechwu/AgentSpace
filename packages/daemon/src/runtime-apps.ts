@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { accessSync, closeSync, constants as fsConstants, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
 import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 
@@ -20,6 +20,30 @@ export interface RuntimeAppReadinessItem {
   error?: string;
 }
 
+/**
+ * Runtime execution profile (docs/0811/cli-install Phase 2 / §4.5).
+ *
+ * Beyond the tool versions in {@link CliHubReadiness}, this describes WHAT the
+ * runtime can execute so the control plane can negotiate CLI vs MCP instead of
+ * deriving capability from `daemonMode`:
+ *   - writableHome          — the runtime HOME is writable (CLI installs land here)
+ *   - persistentHome        — HOME persists across restarts
+ *   - runtimePackageExecutor — the runtime package executor is present
+ *   - mcpGateway            — the MCP gateway is wired on this runtime
+ *   - managedServiceReachable — managed-service containers are reachable
+ *   - chromium              — a Chromium binary is available
+ * Fail-safe: optional profile items are omitted (unknown) unless the daemon can
+ * assert them, so a missing signal never claims a capability it cannot prove.
+ */
+export interface RuntimeExecutionProfile {
+  writableHome: RuntimeAppReadinessItem;
+  persistentHome: RuntimeAppReadinessItem;
+  runtimePackageExecutor: RuntimeAppReadinessItem;
+  chromium: RuntimeAppReadinessItem;
+  mcpGateway?: RuntimeAppReadinessItem;
+  managedServiceReachable?: RuntimeAppReadinessItem;
+}
+
 export interface CliHubReadiness {
   checkedAt: string;
   python: RuntimeAppReadinessItem;
@@ -27,6 +51,60 @@ export interface CliHubReadiness {
   cliHub: RuntimeAppReadinessItem;
   npm: RuntimeAppReadinessItem;
   uv: RuntimeAppReadinessItem;
+  executionProfile?: RuntimeExecutionProfile;
+}
+
+/**
+ * Builds the host-side execution profile. Tool versions are probed; the
+ * profile facts are asserted by the daemon from its own environment — a managed
+ * node mounts a writable persistent HOME by construction, and the runtime
+ * package executor ships with the daemon. mcpGateway / managedServiceReachable
+ * are only asserted when explicitly enabled via env, so an unasserted profile
+ * never over-claims.
+ */
+export function readRuntimeExecutionProfile(
+  environment: NodeJS.ProcessEnv = process.env,
+  runtimeHomeDir?: string,
+): RuntimeExecutionProfile {
+  const pathValue = environment.PATH ?? "";
+  const homeDir = runtimeHomeDir ?? environment.HOME;
+  const profile: RuntimeExecutionProfile = {
+    writableHome: probeWritableHome(homeDir),
+    persistentHome: { available: true },
+    runtimePackageExecutor: { available: true },
+    chromium: pickAvailableChromium(pathValue, environment),
+  };
+  if (environment.DOFE_AGENT_MCP_GATEWAY_ENABLED === "1") {
+    profile.mcpGateway = { available: true };
+  }
+  if (environment.DOFE_AGENT_MANAGED_SERVICE_REACHABLE === "1") {
+    profile.managedServiceReachable = { available: true };
+  }
+  return profile;
+}
+
+function probeWritableHome(homeDir: string | undefined): RuntimeAppReadinessItem {
+  const target = homeDir?.trim();
+  if (!target) {
+    return { available: false, error: "HOME is not set." };
+  }
+  try {
+    accessSync(target, fsConstants.W_OK);
+    return { available: true };
+  } catch (error) {
+    return {
+      available: false,
+      error: `Runtime HOME "${target}" is not writable: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function pickAvailableChromium(pathValue: string, environment: NodeJS.ProcessEnv): RuntimeAppReadinessItem {
+  for (const candidate of ["chromium", "google-chrome", "chromium-browser"]) {
+    const probe = checkCommand(candidate, ["--version"], pathValue, environment);
+    if (probe.available) return probe;
+  }
+  return { available: false, error: "No Chromium binary found in PATH." };
 }
 
 export interface RuntimeAppExecutionResult {
@@ -209,6 +287,7 @@ export function readCliHubReadiness(options: {
     cliHub: checkCommand("cli-hub", ["--version"], executionEnvironment.path, environment),
     npm: checkCommand("npm", ["--version"], executionEnvironment.path, environment),
     uv: checkCommand("uv", ["--version"], executionEnvironment.path, environment),
+    executionProfile: readRuntimeExecutionProfile(environment, options.runtimeHomeDir),
   };
 }
 
@@ -242,6 +321,9 @@ export function readManagedCliHubReadiness(options: {
   try {
     const parsed = JSON.parse(result.stdout.trim()) as CliHubReadiness;
     if (!parsed.checkedAt || !parsed.python || !parsed.cliHub || !parsed.npm) throw new Error("invalid readiness response");
+    // The probe container is deliberately read-only + no-network, so it cannot
+    // assert the execution profile; the managed node asserts it host-side.
+    parsed.executionProfile = readRuntimeExecutionProfile(environment, options.runtimeHomeDir);
     return parsed;
   } catch {
     return unavailableCliHubReadiness("Managed Runtime readiness probe returned invalid output.");
@@ -504,6 +586,12 @@ function unavailableCliHubReadiness(error: string): CliHubReadiness {
     cliHub: unavailable(),
     npm: unavailable(),
     uv: unavailable(),
+    executionProfile: {
+      writableHome: unavailable(),
+      persistentHome: unavailable(),
+      runtimePackageExecutor: unavailable(),
+      chromium: unavailable(),
+    },
   };
 }
 

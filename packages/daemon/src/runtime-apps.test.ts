@@ -9,6 +9,7 @@ import {
   executeRuntimeAppPlan,
   parseRuntimeAppInstallPlan,
   readCliHubReadiness,
+  readRuntimeExecutionProfile,
   resolveRuntimeAppCommandTimeoutMs,
   resolveRuntimeAppRegistryEnvironment,
 } from "./runtime-apps.ts";
@@ -376,4 +377,38 @@ test("runtime app execution supports python fallback and platform-specific user 
     else process.env.FAKE_PYTHON_USER_BASE = originalPythonUserBase;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("readCliHubReadiness reports the runtime execution profile and only asserts gated capabilities when enabled", () => {
+  const profile = readRuntimeExecutionProfile(
+    {
+      HOME: "/tmp",
+      PATH: process.env.PATH ?? "",
+      DOFE_AGENT_MCP_GATEWAY_ENABLED: "1",
+      DOFE_AGENT_MANAGED_SERVICE_REACHABLE: "1",
+    },
+    "/tmp",
+  );
+  // Concrete host-side facts the daemon can assert without external config.
+  assert.equal(profile.writableHome.available, true);
+  assert.equal(profile.persistentHome.available, true);
+  assert.equal(profile.runtimePackageExecutor.available, true);
+  // Gated capabilities only asserted when explicitly enabled (fail-safe: no
+  // unknown signal ever claims a capability it cannot prove).
+  assert.equal(profile.mcpGateway?.available, true);
+  assert.equal(profile.managedServiceReachable?.available, true);
+});
+
+test("readRuntimeExecutionProfile leaves gated capabilities unasserted by default", () => {
+  const profile = readRuntimeExecutionProfile({ HOME: "/tmp" }, "/tmp");
+  assert.equal(profile.mcpGateway, undefined);
+  assert.equal(profile.managedServiceReachable, undefined);
+  assert.equal(profile.writableHome.available, true);
+});
+
+test("readCliHubReadiness carries the execution profile for downstream negotiation", () => {
+  const readiness = readCliHubReadiness();
+  assert.ok(readiness.executionProfile, "readiness must include an execution profile");
+  assert.equal(typeof readiness.executionProfile.writableHome.available, "boolean");
+  assert.equal(typeof readiness.executionProfile.runtimePackageExecutor.available, "boolean");
 });

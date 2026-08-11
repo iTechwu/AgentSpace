@@ -78,6 +78,15 @@ export interface MarketPageData {
       pip: boolean;
       cliHub: boolean;
     };
+    /** Runtime execution profile asserted by the daemon (optional = unknown). */
+    executionProfile?: {
+      writableHome?: boolean;
+      persistentHome?: boolean;
+      runtimePackageExecutor?: boolean;
+      mcpGateway?: boolean;
+      managedServiceReachable?: boolean;
+      chromium?: boolean;
+    };
     /** Runtime can host the MCP gateway (provider has a validated one-shot MCP config path). */
     mcpEligible: boolean;
   }>;

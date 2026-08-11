@@ -160,6 +160,15 @@ export function readRuntimeAppAvailabilityForSkillSync(input: {
   return app && app.status === "installed" && app.enabled ? "available" : "unavailable";
 }
 
+export interface ExecutionProfileView {
+  writableHome?: { available: boolean; version?: string; error?: string };
+  persistentHome?: { available: boolean; version?: string; error?: string };
+  runtimePackageExecutor?: { available: boolean; version?: string; error?: string };
+  mcpGateway?: { available: boolean; version?: string; error?: string };
+  managedServiceReachable?: { available: boolean; version?: string; error?: string };
+  chromium?: { available: boolean; version?: string; error?: string };
+}
+
 export interface CliHubReadinessView {
   checkedAt?: string;
   python: { available: boolean; version?: string; error?: string };
@@ -167,6 +176,9 @@ export interface CliHubReadinessView {
   cliHub: { available: boolean; version?: string; error?: string };
   npm: { available: boolean; version?: string; error?: string };
   uv: { available: boolean; version?: string; error?: string };
+  /** Runtime execution profile (docs/0811/cli-install Phase 2). Optional items
+   *  are absent when the daemon cannot assert them. */
+  executionProfile?: ExecutionProfileView;
 }
 
 export function readCliHubReadinessFromRuntimeMetadata(metadataJson: string): CliHubReadinessView {
@@ -217,7 +229,30 @@ export function normalizeCliHubReadiness(value: unknown): CliHubReadinessView {
     cliHub: readReadinessItem(record.cliHub),
     npm: readReadinessItem(record.npm),
     uv: readReadinessItem(record.uv),
+    executionProfile: readExecutionProfile(record.executionProfile),
   };
+}
+
+function readExecutionProfile(value: unknown): ExecutionProfileView | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const profile: ExecutionProfileView = {};
+  for (const key of [
+    "writableHome",
+    "persistentHome",
+    "runtimePackageExecutor",
+    "mcpGateway",
+    "managedServiceReachable",
+    "chromium",
+  ] as const) {
+    const raw = record[key];
+    // Fail-safe: an ABSENT item stays undefined (unknown) so the projection
+    // never negotiates on a capability the daemon did not assert. Only an
+    // explicitly-present `{ available }` item is carried through.
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    profile[key] = readReadinessItem(raw);
+  }
+  return Object.keys(profile).length > 0 ? profile : undefined;
 }
 
 function readReadinessItem(value: unknown): CliHubReadinessView["python"] {
@@ -244,6 +279,7 @@ function hasCliHubReadinessSignal(readiness: CliHubReadinessView): boolean {
     readiness.cliHub.available ||
     readiness.npm.available ||
     readiness.uv.available ||
+    readiness.executionProfile ||
     readiness.python.error !== "Readiness check is missing." ||
     readiness.pip.error !== "Readiness check is missing." ||
     readiness.cliHub.error !== "Readiness check is missing." ||

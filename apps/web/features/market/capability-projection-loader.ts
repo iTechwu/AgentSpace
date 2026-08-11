@@ -95,6 +95,7 @@ export function computeMarketCapabilityProjections(input: {
   const byPackageKey = new Map<string, CapabilityAvailabilityProjection>();
   for (const runtime of input.runtimes) {
     const readiness = selectCliHubReadiness(runtime.metadataJson, runtime.daemonMetadataJson);
+    const profile = readiness.executionProfile;
     const workspaceInput = {
       workspaceId: input.workspaceId,
       runtimeId: runtime.id,
@@ -105,6 +106,15 @@ export function computeMarketCapabilityProjections(input: {
         python: readiness.python.available,
         pip: readiness.pip.available,
         cliHub: readiness.cliHub.available,
+      },
+      // Execution profile negotiation: only map explicit assertions; unknown
+      // profile items (older daemon) are left undefined and never degrade.
+      profile: {
+        writableHome: profile?.writableHome?.available,
+        persistentHome: profile?.persistentHome?.available,
+        runtimePackageExecutor: profile?.runtimePackageExecutor?.available,
+        mcpGateway: profile?.mcpGateway?.available,
+        managedServiceReachable: profile?.managedServiceReachable?.available,
       },
     };
     for (const item of input.cliCatalog) {

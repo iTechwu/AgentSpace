@@ -74,6 +74,7 @@ export async function GET(
   );
   const canManage = isWorkspaceAdmin(workspaceContext.currentMembership.role);
 
+  const profile = readiness.executionProfile;
   const workspace: Parameters<typeof projectCliCapabilityAvailability>[0]["workspace"] = {
     workspaceId,
     runtimeId,
@@ -84,6 +85,15 @@ export async function GET(
       python: readiness.python.available,
       pip: readiness.pip.available,
       cliHub: readiness.cliHub.available,
+    },
+    // Execution profile negotiation: only map explicit assertions; unknown
+    // profile items (older daemon) are left undefined and never degrade.
+    profile: {
+      writableHome: profile?.writableHome?.available,
+      persistentHome: profile?.persistentHome?.available,
+      runtimePackageExecutor: profile?.runtimePackageExecutor?.available,
+      mcpGateway: profile?.mcpGateway?.available,
+      managedServiceReachable: profile?.managedServiceReachable?.available,
     },
   };
 

@@ -79,6 +79,22 @@ interface ProjectCapabilityInput {
     pip: boolean;
     cliHub: boolean;
   };
+  /**
+   * Runtime execution profile (docs/0811/cli-install Phase 2 / §4.5). Optional
+   * boolean flags; a missing flag (older daemon, unasserted profile) is treated
+   * as "unknown" and never degrades the projection — only an explicit `false`
+   * (or `true`) assertion changes negotiation:
+   *   writableHome            — false ⇒ the runtime cannot install CLI
+   *   runtimePackageExecutor  — false ⇒ the runtime cannot run package installs
+   *   mcpGateway              — false ⇒ the runtime cannot host MCP connections
+   */
+  profile?: {
+    writableHome?: boolean;
+    persistentHome?: boolean;
+    runtimePackageExecutor?: boolean;
+    mcpGateway?: boolean;
+    managedServiceReachable?: boolean;
+  };
 }
 
 export function projectCliCapabilityAvailability(input: {
@@ -178,6 +194,27 @@ export function projectCliCapabilityAvailability(input: {
     };
   }
 
+  // Execution profile negotiation (docs/0811/cli-install Phase 2): an explicit
+  // `writableHome=false` or `runtimePackageExecutor=false` means the runtime
+  // cannot install CLI at all, so we never offer an install button — the
+  // projection degrades to a governed repair/request path.
+  if (
+    workspace.profile?.writableHome === false
+    || workspace.profile?.runtimePackageExecutor === false
+  ) {
+    const reasonCode = workspace.profile?.writableHome === false
+      ? "runtime.profile_home_not_writable"
+      : "runtime.profile_executor_unavailable";
+    return {
+      ...baseProjection,
+      infrastructureState: "not_ready",
+      userState: "blocked",
+      nextAction: "request_deployment",
+      reasonCode,
+      reasonText: "该 Runtime 无法落盘安装 CLI，请申请管理员处理。",
+    };
+  }
+
   if (workspace.runtimeStatus !== "online") {
     return {
       ...baseProjection,
@@ -245,6 +282,21 @@ export function projectMcpCapabilityAvailability(input: {
       nextAction: "repair",
       reasonText: "健康检查失败，请稍后重试或重新验证。",
       operationId: activeOperations[0]?.id,
+    };
+  }
+  // Execution profile negotiation (docs/0811/cli-install Phase 2 / §4.5): an
+  // explicit `mcpGateway=false` means the runtime cannot host MCP connections —
+  // the projection must not misreport MCP as available (Local Runtime without a
+  // Gateway no longer fakes MCP readiness). Unknown (older daemon) keeps the
+  // legacy behavior.
+  if (workspace.profile?.mcpGateway === false && !connectionStatus) {
+    return {
+      ...baseProjection,
+      infrastructureState: "not_ready",
+      userState: "blocked",
+      nextAction: "request_deployment",
+      reasonCode: "runtime.profile_mcp_gateway_unavailable",
+      reasonText: "该 Runtime 未连接 MCP Gateway，请申请管理员处理。",
     };
   }
   if (activeOperations.length > 0) {
