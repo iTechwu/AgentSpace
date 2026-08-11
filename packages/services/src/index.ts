@@ -1573,6 +1573,8 @@ export {
   approveCapabilityRequestSync,
   isCapabilityProjectionEnabled,
   isCapabilityRequestEnabled,
+  isManagedServiceProvisioningEnabled,
+  isRuntimeBaselineRolloutEnabled,
   listActiveCapabilityRequestsForRuntime,
   projectCliCapabilityAvailability,
   projectMcpCapabilityAvailability,

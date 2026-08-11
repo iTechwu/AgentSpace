@@ -672,6 +672,69 @@ function dispatchApprovedCapabilityRequestSync(input: {
       nextAction: "wait_for_operation",
     };
   }
+  // Managed / external service deployment (docs/0811/cli-install §8, Phase 5).
+  // These requests cannot be executed as a shell install on the runtime; they
+  // require the managed-service container lifecycle (image cache, signature
+  // verify, provision, health, retire) which is rolled out behind
+  // MANAGED_SERVICE_PROVISIONING_ENABLED. We deliberately do NOT fabricate a
+  // runtime_provisioning_task row here: that table's runtimeType is a model
+  // DaemonProvider (claude/codex/gemini…), so writing an MCP managed-service
+  // request into it would mis-drive the model-runtime pipeline (billing
+  // preflight, credential issuance). Instead we record an explicit, audited,
+  // fail-closed seam and leave the request in its approved state so it can be
+  // dispatched once the container driver lands and the flag is on.
+  if (
+    (request.packageKind === "mcp" || request.packageKind === "service")
+    && (request.deploymentMode === "managed_service"
+      || request.deploymentMode === "external_service")
+  ) {
+    return dispatchManagedServiceCapabilityRequestSync({
+      workspaceId: input.workspaceId,
+      request,
+    });
+  }
+  return { request, capabilityRequest: request, nextAction: "wait_for_operation" };
+}
+
+/**
+ * Phase 5 dispatch seam for managed_service / external_service capabilities.
+ *
+ * Fail-closed by default: when MANAGED_SERVICE_PROVISIONING_ENABLED is off the
+ * approved request is left in place (not failed, not phantom-running) so the
+ * "turning the flag off only stops new operations" contract holds — the request
+ * stays visible in the active queue and can be dispatched when ops enables it.
+ * Either way we record an audit event so platform operations can see which
+ * requests are gated and why no container was provisioned.
+ */
+function dispatchManagedServiceCapabilityRequestSync(input: {
+  workspaceId: string;
+  request: CapabilityRequestRecord;
+}): DispatchResult {
+  const { request } = input;
+  const provisioningEnabled = isManagedServiceProvisioningEnabled();
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: input.workspaceId,
+    title: provisioningEnabled
+      ? "Managed service provisioning accepted (pending driver)"
+      : "Managed service provisioning gated",
+    note: provisioningEnabled
+      ? `${request.packageDisplayName} (${request.deploymentMode}) approved; container lifecycle driver not yet connected.`
+      : `${request.packageDisplayName} (${request.deploymentMode}) approved but MANAGED_SERVICE_PROVISIONING_ENABLED=0; request queued.`,
+    code: provisioningEnabled
+      ? "capability_request.managed_service_pending_driver"
+      : "capability_request.managed_service_gated",
+    data: {
+      resourceType: "capability_request",
+      resourceId: request.id,
+      deploymentMode: request.deploymentMode,
+      packageKind: request.packageKind,
+      packageSource: request.packageSource,
+      packageSlug: request.packageSlug,
+    },
+  });
+  // The request stays in its `approved` state. The actual
+  // `linked_runtime_provisioning_task_id` binding is written by the managed
+  // service container driver when it lands (Phase 5 continuation).
   return { request, capabilityRequest: request, nextAction: "wait_for_operation" };
 }
 
@@ -770,6 +833,29 @@ function resolveCliReleaseId(
 export function isCapabilityProjectionEnabled(): boolean {
   const flag = process.env.CAPABILITY_AVAILABILITY_PROJECTION_V2;
   return flag !== "0";
+}
+
+/**
+ * Feature flag for the managed-service container lifecycle (docs Phase 5/§8).
+ * Fail-closed: defaults to disabled. While off, approved managed_service /
+ * external_service capability requests are recorded and queued but not
+ * provisioned — the dispatch seam (see dispatchManagedServiceCapabilityRequestSync)
+ * leaves them in their approved state with an audit trail. Flipping this on is
+ * a no-op until the container driver is connected; it only unblocks dispatch.
+ */
+export function isManagedServiceProvisioningEnabled(): boolean {
+  return process.env.MANAGED_SERVICE_PROVISIONING_ENABLED === "1";
+}
+
+/**
+ * Feature flag for the Runtime baseline rollout (docs Phase 7). Fail-closed:
+ * defaults to disabled. Controls whether missing base tools (npm/pip/uv) are
+ * auto-rolled-out to a runtime as part of capability installation, rather than
+ * surfacing a manual "repair" nextAction. While off, the projection keeps
+ * pointing users at the governed repair path.
+ */
+export function isRuntimeBaselineRolloutEnabled(): boolean {
+  return process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED === "1";
 }
 
 /**
