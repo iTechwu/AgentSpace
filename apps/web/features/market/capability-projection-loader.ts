@@ -27,6 +27,8 @@ interface CapabilityRequestProjectionInput {
   packageSource: string;
   packageSlug: string;
   status: string;
+  deploymentMode?: "runtime_builtin" | "runtime_package" | "managed_service" | "external_service";
+  metadataJson?: string;
 }
 
 const TERMINAL_REQUEST_STATUS = new Set(["completed", "failed", "rejected", "cancelled"]);
@@ -57,11 +59,29 @@ export function overlayCapabilityRequestState(
   if (request.status === "running") {
     nextAction = "wait_for_operation";
   } else if (request.status === "approved" && request.packageKind === "mcp") {
-    nextAction = "configure_credentials";
+    // External MCPs and managed_stdio workers can be configured immediately
+    // after approval. A container-backed managed service must first publish its
+    // daemon-owned runtime-private endpoint; otherwise "approved" can also mean
+    // provisioning is gated or its template is not admitted.
+    const containerReady = projection.selectedImplementation !== "managed_service"
+      || hasProvisionedEndpoint(request.metadataJson);
+    nextAction = containerReady ? "configure_credentials" : "wait_for_approval";
   } else {
     nextAction = "wait_for_approval";
   }
   return { ...projection, capabilityRequestId: request.id, nextAction };
+}
+
+function hasProvisionedEndpoint(metadataJson: string | undefined): boolean {
+  if (!metadataJson) return false;
+  try {
+    const metadata = JSON.parse(metadataJson) as unknown;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+    const endpoint = (metadata as Record<string, unknown>).provisionedEndpointRef;
+    return typeof endpoint === "string" && endpoint.startsWith("runtime-private://");
+  } catch {
+    return false;
+  }
 }
 
 /**

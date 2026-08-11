@@ -48,10 +48,21 @@ export async function loadMarketPageData(input: {
   // Fetched once and shared between the UI request list and the capability
   // projection overlay (P1-2). Permission boundary: non-admins only see their
   // own requests; admins (canManage) see the full workspace queue.
-  const capabilityRequestRecords = listCapabilityRequestsSync({
+  const requestVisibility = {
     workspaceId: input.workspaceId,
     requestedByUserId: input.canManage ? undefined : input.actorUserId,
+  };
+  const capabilityRequestRecords = listCapabilityRequestsSync({
+    ...requestVisibility,
     limit: 50,
+  });
+  // The recent-history panel and the projection overlay have different paging
+  // contracts. Terminal history must not push an older still-active request out
+  // of the overlay and make the page offer a duplicate action.
+  const activeCapabilityRequestRecords = listCapabilityRequestsSync({
+    ...requestVisibility,
+    statuses: ["pending", "approved", "running"],
+    limit: 1000,
   });
   const officialRuntimeApps = new Set(mcpCatalogRecords.flatMap((item) => {
     if (item.source !== "official") return [];
@@ -233,7 +244,7 @@ export async function loadMarketPageData(input: {
         mcpCatalog: mcpCatalogRecords,
         mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }),
         mcpOperations: listMcpOperationsSync({ workspaceId: input.workspaceId, limit: 200 }),
-        capabilityRequests: capabilityRequestRecords,
+        capabilityRequests: activeCapabilityRequestRecords,
       })
       : [],
   };

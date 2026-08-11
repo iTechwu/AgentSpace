@@ -45,11 +45,16 @@ describe("overlayCapabilityRequestState", () => {
     expect(result.capabilityRequestId).toBe("req-2");
   });
 
-  it("maps an approved MCP request to configure_credentials (applicant must finish the connection)", () => {
+  it("maps an approved external MCP request to configure_credentials", () => {
     // Credential/endpoint-bearing MCPs cannot be auto-dispatched, so they
     // linger in `approved` until the applicant completes "配置并连接". The
     // market panel routes configure_credentials to the same connect form.
-    const result = overlayCapabilityRequestState(baseProjection, {
+    const result = overlayCapabilityRequestState({
+      ...baseProjection,
+      kind: "mcp",
+      deploymentMode: "external_service",
+      selectedImplementation: "external_service",
+    }, {
       id: "req-mcp",
       packageKind: "mcp",
       packageSource: "official",
@@ -58,6 +63,36 @@ describe("overlayCapabilityRequestState", () => {
     });
     expect(result.nextAction).toBe("configure_credentials");
     expect(result.capabilityRequestId).toBe("req-mcp");
+  });
+
+  it("keeps an approved container MCP waiting until the daemon publishes its endpoint", () => {
+    const projection: CapabilityAvailabilityProjection = {
+      ...baseProjection,
+      kind: "mcp",
+      deploymentMode: "managed_service",
+      selectedImplementation: "managed_service",
+    };
+    const waiting = overlayCapabilityRequestState(projection, {
+      id: "req-container",
+      packageKind: "mcp",
+      packageSource: "official",
+      packageSlug: "container-mcp",
+      status: "approved",
+      deploymentMode: "managed_service",
+      metadataJson: JSON.stringify({ managedServiceCatalogId: "template-1" }),
+    });
+    expect(waiting.nextAction).toBe("wait_for_approval");
+
+    const ready = overlayCapabilityRequestState(projection, {
+      id: "req-container",
+      packageKind: "mcp",
+      packageSource: "official",
+      packageSlug: "container-mcp",
+      status: "approved",
+      deploymentMode: "managed_service",
+      metadataJson: JSON.stringify({ provisionedEndpointRef: "runtime-private://svc-1" }),
+    });
+    expect(ready.nextAction).toBe("configure_credentials");
   });
 
   it("maps a running request to wait_for_operation", () => {
