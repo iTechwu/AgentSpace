@@ -45,6 +45,7 @@ import {
   findCliCatalogItem,
   resolveMcpCatalogItemIdFromRequest,
 } from "./capability-dispatchers.ts";
+import { compareTemplateVersions } from "./template-version.ts";
 
 /**
  * Capability request workflow (docs/0811/cli-install §3.4, Phase 4/6).
@@ -287,7 +288,7 @@ function resolveCapabilityDeploymentPlan(
   if (input.packageKind === "service") {
     const template = listSkillServiceCatalogSync(workspaceId)
       .filter((entry) => entry.slug === input.packageSlug && entry.deploymentType === "managed_service")
-      .sort((left, right) => right.templateVersion.localeCompare(left.templateVersion))[0];
+      .sort((left, right) => compareTemplateVersions(right.templateVersion, left.templateVersion))[0];
     if (!template) return null;
     return {
       deploymentMode: "managed_service",
@@ -306,7 +307,7 @@ function resolveCapabilityDeploymentPlan(
   const template = isContainer
     ? listSkillServiceCatalogSync(workspaceId)
         .filter((entry) => entry.slug === input.packageSlug && entry.deploymentType === "managed_service")
-        .sort((left, right) => right.templateVersion.localeCompare(left.templateVersion))[0]
+        .sort((left, right) => compareTemplateVersions(right.templateVersion, left.templateVersion))[0]
     : undefined;
   // Sp4: a container MCP with no admitted digest-pinned template must be
   // REJECTED at submit — accepting it and letting a later approval pick the then

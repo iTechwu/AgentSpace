@@ -104,9 +104,16 @@ export async function GET(
   };
 
   const installedApps = listRuntimeInstalledAppsSync({ workspaceId, runtimeId });
-  const activeOps = listRuntimeAppOperationsSync({ workspaceId, runtimeId, limit: 50 });
+  // Query active statuses directly. Fetching the latest N operations and then
+  // filtering in memory lets terminal history hide a real pending/running task
+  // and makes projection treat completed work as still in flight.
+  const activeOps = (['pending', 'claimed', 'running'] as const).flatMap((status) =>
+    listRuntimeAppOperationsSync({ workspaceId, runtimeId, status, limit: 50 }),
+  );
   const mcpConnections = listMcpConnectionsSync({ workspaceId, runtimeId, limit: 500 });
-  const mcpOps = listMcpOperationsSync({ workspaceId, runtimeId, limit: 50 });
+  const mcpOps = (['pending', 'claimed', 'running'] as const).flatMap((status) =>
+    listMcpOperationsSync({ workspaceId, runtimeId, status, limit: 50 }),
+  );
   // Permission boundary: owners/admins see the full workspace queue (the
   // projections they render need the overlay); non-admins only ever see their
   // own requests so the API cannot leak other members' requests, states or

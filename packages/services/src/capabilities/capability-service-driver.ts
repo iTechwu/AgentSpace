@@ -10,6 +10,7 @@ import {
   transitionCapabilityRequestSync,
 } from "@dofe-agent/db";
 import { requestMcpConnectionSync } from "../mcp-center/connections.ts";
+import { compareTemplateVersions } from "./template-version.ts";
 
 /**
  * Managed-service container driver for capability requests (docs/0811/cli-install
@@ -133,7 +134,7 @@ function resolveManagedServiceTemplateSync(
     ? listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === pinnedId)
     : listSkillServiceCatalogSync(workspaceId)
         .filter((entry) => entry.slug === request.packageSlug && entry.deploymentType === "managed_service")
-        .sort((left, right) => right.templateVersion.localeCompare(left.templateVersion))[0];
+        .sort((left, right) => compareTemplateVersions(right.templateVersion, left.templateVersion))[0];
   if (!template || template.deploymentType !== "managed_service") return null;
   // Signature policy (docs/0811/cli-install §4.3, Phase 5): a template that
   // REQUIRES image signature verification but has no trusted key can never be
