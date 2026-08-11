@@ -28,7 +28,7 @@ import {
   readWorkspaceRuntimeAppReleaseSync,
 } from "@dofe-agent/db";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
-import { notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
+import { createNotificationSync, notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
 import { assessRuntimeAppInstallability, buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { listMcpCatalogItemsForWorkspaceSync } from "../mcp-center/catalog.ts";
@@ -483,9 +483,11 @@ export function submitCapabilityRequestSync(
       requestedAction: input.requestedAction,
     },
   });
-  // Notify admins when a non-admin member needs an admin decision; admins
-  // who submit their own requests already have access to the same panel.
-  if (!isAdmin && input.requestedAction !== "install" || (!isAdmin && input.requestedAction === "install" && input.deploymentMode !== "runtime_package")) {
+  // Notify admins whenever a non-admin submits a request — every non-admin
+  // request needs an admin decision (approval or dispatch), including a
+  // runtime_package install, which only auto-approves when an admin submits it.
+  // Admins who submit their own requests already have access to the same panel.
+  if (!isAdmin) {
     notifyWorkspaceAdminsSync({
       workspaceId,
       title: `能力申请待批准：${input.packageDisplayName}`,
@@ -912,8 +914,9 @@ export function isRuntimeBaselineRolloutEnabled(): boolean {
 
 /**
  * Send a workspace notification to the user who originally requested the
- * capability. We dedupe per request id + notification type so admin retries
- * don't flood the inbox.
+ * capability (the applicant), so they learn the outcome of their request
+ * without polling the page. We dedupe per request id + notification type so
+ * admin retries don't flood the inbox.
  */
 function notifyCapabilityRequestOwnerSync(input: {
   workspaceId: string;
@@ -923,8 +926,10 @@ function notifyCapabilityRequestOwnerSync(input: {
   severity: "info" | "warning" | "error";
   type: string;
 }): void {
-  notifyWorkspaceAdminsSync({
+  createNotificationSync({
     workspaceId: input.workspaceId,
+    recipientType: "human",
+    recipientId: input.request.requestedByUserId,
     title: input.title,
     body: input.body,
     type: input.type,
