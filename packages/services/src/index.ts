@@ -8,6 +8,14 @@ export {
 } from "./runtime-maintenance/runtime-maintenance.ts";
 
 export {
+  detectDocumentKind,
+  parseFileToMarkdown,
+  type ParseResult,
+  type ParseFailure,
+  type SupportedDocumentKind,
+} from "./document-parsing/parse-file.ts";
+
+export {
   getWorkspaceStateFilePath,
   getWorkspaceDatabaseFilePath,
   ensureWorkspaceStateSync,
@@ -822,6 +830,12 @@ export {
   deleteKnowledgePageSync,
   materialToKnowledgePageSync,
 } from "./knowledge/knowledge.ts";
+export {
+  submitFileParseTaskSync,
+  type FileParseIntent,
+  type SubmitFileParseTaskInput,
+  type SubmitFileParseTaskResult,
+} from "./knowledge/parse-task.ts";
 export {
   approveKnowledgeProposalForActorSync,
   createKnowledgeProposalFromAgentSync,

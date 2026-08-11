@@ -21,6 +21,7 @@ export interface CreateCapabilityRequestInput {
   priority?: CapabilityRequestPriority;
   message?: string;
   metadataJson?: string;
+  linkedKnowledgePageId?: string;
 }
 
 export interface DecideCapabilityRequestInput {
@@ -41,6 +42,7 @@ export interface TransitionCapabilityRequestInput {
   linkedRuntimeInstalledAppId?: string;
   linkedMcpConnectionId?: string;
   linkedRuntimeProvisioningTaskId?: string;
+  linkedKnowledgePageId?: string;
   metadataJson?: string;
 }
 
@@ -66,6 +68,8 @@ const SELECT_FIELDS = `
   linked_runtime_installed_app_id AS linkedRuntimeInstalledAppId,
   linked_mcp_connection_id AS linkedMcpConnectionId,
   linked_runtime_provisioning_task_id AS linkedRuntimeProvisioningTaskId,
+  linked_knowledge_page_id AS linkedKnowledgePageId,
+  release_id AS releaseId,
   metadata_json AS metadataJson,
   created_at AS createdAt, updated_at AS updatedAt,
   decided_at AS decidedAt, completed_at AS completedAt
@@ -224,6 +228,14 @@ export function transitionCapabilityRequestSync(
     fields.push("linked_runtime_provisioning_task_id = ?");
     params.push(input.linkedRuntimeProvisioningTaskId);
   }
+  if (input.linkedKnowledgePageId !== undefined) {
+    fields.push("linked_knowledge_page_id = ?");
+    params.push(input.linkedKnowledgePageId);
+  }
+  if (input.releaseId !== undefined) {
+    fields.push("release_id = ?");
+    params.push(input.releaseId);
+  }
   if (input.metadataJson !== undefined) {
     fields.push("metadata_json = ?");
     params.push(input.metadataJson);
@@ -321,6 +333,7 @@ function mapCapabilityRequest(value: Record<string, unknown>): CapabilityRequest
     linkedRuntimeInstalledAppId: optionalString(alias("linkedRuntimeInstalledAppId", "linkedruntimeinstalledappid")),
     linkedMcpConnectionId: optionalString(alias("linkedMcpConnectionId", "linkedmcpconnectionid")),
     linkedRuntimeProvisioningTaskId: optionalString(alias("linkedRuntimeProvisioningTaskId", "linkedruntimeprovisioningtaskid")),
+    linkedKnowledgePageId: optionalString(alias("linkedKnowledgePageId", "linkedknowledgepageid")),
     metadataJson,
     createdAt,
     updatedAt,

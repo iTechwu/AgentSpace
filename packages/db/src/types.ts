@@ -2130,7 +2130,7 @@ export type CapabilityDeploymentMode =
 
 export type CapabilityPackageKind = "cli" | "mcp" | "service";
 
-export type CapabilityRequestedAction = "install" | "deploy" | "connect" | "upgrade";
+export type CapabilityRequestedAction = "install" | "deploy" | "connect" | "upgrade" | "parse";
 
 export type CapabilityRequestStatus =
   | "pending"
@@ -2165,6 +2165,11 @@ export interface CapabilityRequestRecord {
   linkedRuntimeInstalledAppId?: string;
   linkedMcpConnectionId?: string;
   linkedRuntimeProvisioningTaskId?: string;
+  linkedKnowledgePageId?: string;
+  /** When the package has an immutable release (e.g. workspace-private CLI),
+   *  the request pins the release id so the underlying install plan cannot
+   *  drift after the request is approved. */
+  releaseId?: string;
   metadataJson: string;
   createdAt: string;
   updatedAt: string;
@@ -2190,7 +2195,8 @@ export function isCapabilityRequestedAction(value: unknown): value is Capability
     value === "install" ||
     value === "deploy" ||
     value === "connect" ||
-    value === "upgrade"
+    value === "upgrade" ||
+    value === "parse"
   );
 }
 

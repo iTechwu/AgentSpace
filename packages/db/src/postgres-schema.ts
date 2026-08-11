@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "117";
+export const POSTGRES_SCHEMA_VERSION = "118";
 // 跨版本固定锁：不能使用 schema 版本作为锁键，否则滚动升级中的相邻版本会并发迁移。
 // 取 116 兼容已经发布的 schema 116 实例；后续版本必须保持此值不变。
 export const POSTGRES_SCHEMA_ADVISORY_LOCK_ID = 116;
@@ -2529,6 +2529,8 @@ export function getPostgresSchemaStatements(): string[] {
         linked_runtime_installed_app_id TEXT REFERENCES runtime_installed_app(id) ON DELETE SET NULL,
         linked_mcp_connection_id TEXT REFERENCES runtime_mcp_connection(id) ON DELETE SET NULL,
         linked_runtime_provisioning_task_id TEXT REFERENCES runtime_provisioning_task(id) ON DELETE SET NULL,
+        linked_knowledge_page_id TEXT,
+        release_id TEXT REFERENCES runtime_app_release(id) ON DELETE SET NULL,
         metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
@@ -2537,6 +2539,8 @@ export function getPostgresSchemaStatements(): string[] {
         UNIQUE(workspace_id, runtime_id, package_kind, package_source, package_slug, requested_action)
       )
     `,
+    `ALTER TABLE capability_request ADD COLUMN IF NOT EXISTS linked_knowledge_page_id TEXT`,
+    `ALTER TABLE capability_request ADD COLUMN IF NOT EXISTS release_id TEXT REFERENCES runtime_app_release(id) ON DELETE SET NULL`,
     `
       CREATE INDEX IF NOT EXISTS idx_capability_request_workspace_status
         ON capability_request(workspace_id, status, created_at DESC)
