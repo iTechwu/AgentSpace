@@ -26,27 +26,27 @@ export function buildCapabilityNextActionBadge(input: {
       return {
         nextAction,
         primaryLabel: userState === "installed" ? tx("更新", "Update") : tx("安装", "Install"),
-        primaryEnabled: canManage,
+        primaryEnabled: true,
         statusTone: "positive",
       };
     case "connect":
       return {
         nextAction,
         primaryLabel: userState === "connected" ? tx("重新连接", "Reconnect") : tx("连接", "Connect"),
-        primaryEnabled: canManage,
+        primaryEnabled: true,
         statusTone: "positive",
       };
     case "configure_credentials":
       return {
         nextAction,
         primaryLabel: tx("配置凭据", "Configure credentials"),
-        primaryEnabled: canManage,
+        primaryEnabled: true,
         statusTone: "warning",
       };
     case "request_deployment":
       return {
         nextAction,
-        primaryLabel: tx("申请管理员部署", "Request admin deployment"),
+        primaryLabel: canManage ? tx("部署并启用", "Deploy and enable") : tx("申请管理员部署", "Request admin deployment"),
         primaryEnabled: true,
         statusTone: "warning",
       };

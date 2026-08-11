@@ -443,17 +443,30 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
 
   /**
    * Drives the unified primary button. Dispatches based on the server-side
-   * `nextAction` projection — the page never decides " what to do next" from
-   * multiple independent flags. `install` / `connect` go through the
-   * capability request envelope so the unified task is visible in
-   * " My requests"; legacy update/uninstall paths keep their dedicated calls.
+   * `nextAction` projection — the page never decides "what to do next" from
+   * multiple independent flags. Members submit a capability request for approval;
+   * admins with manage permission execute directly for CLI installs and submit
+   * a tracked request for deployment-gated actions.
    */
   function handlePrimaryAction(): void {
     if (!selected || !selectedRuntime) return;
     const nextAction = selectedProjection?.nextAction
       ?? (selectedInstallability.status === "installable" ? "install" : "none");
     if (nextAction === "install") {
-      requestOperation(selectedInstall?.status === "installed" ? "update" : "install");
+      if (data.canManage) {
+        requestOperation(selectedInstall?.status === "installed" ? "update" : "install");
+      } else if (selectedProjection) {
+        runAction(() => submitCapabilityRequestAction({
+          runtimeId: selectedRuntime.id,
+          packageKind: "cli",
+          packageSource: selected.source,
+          packageSlug: selected.name,
+          packageDisplayName: selected.displayName,
+          deploymentMode: selectedProjection.deploymentMode,
+          requestedAction: "install",
+          message: "",
+        }));
+      }
       return;
     }
     if (nextAction === "request_deployment") {
@@ -475,9 +488,9 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
       // page keeps showing the chip until the user resolves the gate.
       return;
     }
-    // wait_for_approval / wait_for_operation / repair / govern_release / none /
-    // connect — the button is disabled in those states; this branch only runs
-    // when the projection explicitly says we can act now.
+    // wait_for_approval / wait_for_operation / repair / govern_release / none —
+    // the button is disabled in those states; this branch only runs when the
+    // projection explicitly says we can act now.
   }
 
   function createPrivateRelease(input: CreateWorkspaceRuntimeAppReleaseActionInput): void {

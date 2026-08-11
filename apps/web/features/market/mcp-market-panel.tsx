@@ -309,16 +309,29 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
 
   /**
    * Dispatch the primary MCP action based on the server-side `nextAction`
-   * projection. `connect` and `configure_credentials` flow through the
-   * existing submitConnection form; `request_deployment` submits a unified
-   * capability request envelope so the user can track the deploy task in
-   * "My capability requests" without losing intent on refresh.
+   * projection. Admins execute the connection directly; members submit a
+   * tracked capability request so the approval flow can auto-connect
+   * zero-config MCPs or surface configure_credentials after approval.
+   * `request_deployment` always submits a unified capability request envelope.
    */
   function handleMcpPrimaryAction(): void {
     if (!selected || !targetRuntime) return;
     const nextAction = selectedProjection?.nextAction ?? "connect";
     if (nextAction === "connect" || nextAction === "configure_credentials") {
-      submitConnection();
+      if (data.canManage) {
+        submitConnection();
+      } else if (selectedProjection) {
+        runAction(() => submitCapabilityRequestAction({
+          runtimeId: targetRuntime.id,
+          packageKind: "mcp",
+          packageSource: selected.source,
+          packageSlug: selected.slug,
+          packageDisplayName: selected.displayName,
+          deploymentMode: selectedProjection.deploymentMode,
+          requestedAction: "connect",
+          message: "",
+        }));
+      }
       return;
     }
     if (nextAction === "request_deployment") {

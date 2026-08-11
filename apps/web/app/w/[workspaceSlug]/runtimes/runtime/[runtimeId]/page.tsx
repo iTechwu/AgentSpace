@@ -55,6 +55,7 @@ export default async function ManagedRuntimeDetailPage({
   const marketData = await loadMarketPageData({
     workspaceId: workspaceContext.currentWorkspace.id,
     canManage: true,
+    actorUserId: workspaceContext.currentUser.id,
   });
 
   const presentation = presentRuntimeState(runtime.provisioningState, runtime.status);

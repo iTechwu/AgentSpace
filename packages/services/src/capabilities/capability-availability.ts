@@ -504,14 +504,14 @@ export function submitCapabilityRequestSync(
     && input.deploymentMode === "runtime_package"
     && input.requestedAction === "install"
   ) {
-    const approved = decideCapabilityRequestSync({
+    const { record: approved, changed } = decideCapabilityRequestSync({
       requestId: request.id,
       workspaceId,
       decidedByUserId: input.actorUserId,
       decision: "approved",
       decisionReason: "auto-approved by workspace admin",
     });
-    if (approved) {
+    if (approved && changed) {
       const dispatched = dispatchApprovedCapabilityRequestSync({
         workspaceId,
         requestId: approved.id,
@@ -545,7 +545,7 @@ export function approveCapabilityRequestSync(input: {
   if (!isAdmin) {
     throw new Error("Only workspace owners and admins can approve capability requests.");
   }
-  const decided = decideCapabilityRequestSync({
+  const { record: decided, changed } = decideCapabilityRequestSync({
     requestId: input.requestId,
     workspaceId: input.workspaceId,
     decidedByUserId: input.actorUserId,
@@ -553,6 +553,18 @@ export function approveCapabilityRequestSync(input: {
     decisionReason: input.decisionReason,
   });
   if (!decided) throw new Error("capability_request.not_found");
+  // Only dispatch when the approval actually changed the row. A repeated
+  // approval, an approval of an already-terminal request, or a lost race with
+  // another admin must not spawn a second operation (docs/0811/cli-install P1).
+  if (!changed) {
+    const request = readCapabilityRequestSync(input.requestId, input.workspaceId);
+    if (!request) throw new Error("capability_request.not_found");
+    return {
+      capabilityRequest: request,
+      dispatchedOperationId: request.linkedRuntimeAppOperationId ?? request.linkedMcpConnectionId ?? undefined,
+      nextAction: request.status === "running" ? "wait_for_operation" : "wait_for_approval",
+    };
+  }
   const dispatched = dispatchApprovedCapabilityRequestSync({
     workspaceId: input.workspaceId,
     requestId: decided.id,
@@ -584,7 +596,7 @@ export function rejectCapabilityRequestSync(input: {
   if (!input.decisionReason.trim()) {
     throw new Error("Rejection requires a user-facing reason.");
   }
-  const result = decideCapabilityRequestSync({
+  const { record: result } = decideCapabilityRequestSync({
     requestId: input.requestId,
     workspaceId: input.workspaceId,
     decidedByUserId: input.actorUserId,

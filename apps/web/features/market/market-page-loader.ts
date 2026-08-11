@@ -33,6 +33,9 @@ export async function loadMarketPageData(input: {
    *  can scope the list. */
   actorUserId?: string;
 }): Promise<MarketPageData> {
+  if (!input.canManage && !input.actorUserId) {
+    throw new Error("market-page-loader: actorUserId is required when canManage is false");
+  }
   let catalogHealth = readRuntimeAppCatalogHealthSync();
   if (catalogHealth.itemCount === 0) {
     await syncCliHubCatalog();

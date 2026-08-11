@@ -34,6 +34,12 @@ export interface DecideCapabilityRequestInput {
   decisionReason?: string;
 }
 
+export interface DecideCapabilityRequestResult {
+  record: CapabilityRequestRecord | null;
+  /** True when the row's status actually changed from `pending` to the decision. */
+  changed: boolean;
+}
+
 export interface TransitionCapabilityRequestInput {
   requestId: string;
   workspaceId?: string;
@@ -173,15 +179,15 @@ export function createCapabilityRequestSync(
       return { id: owner.id, outcome: "in_flight" as const };
     }
 
-    // Terminal → reopen to pending. Reset the decision/error/link columns and
-    // refresh the request fields the requester is re-declaring. Ownership
-    // (requested_by_user_id) is intentionally preserved to match the prior
-    // ON CONFLICT semantics.
+    // Terminal → reopen to pending. Reset the decision/error/link columns,
+    // refresh the request fields the requester is re-declaring, and transfer
+    // ownership to the current requester so notifications/approvals are routed
+    // to the right person (docs/0811/cli-install P1-4).
     getDatabase()
       .prepare(
         `UPDATE capability_request SET
-           package_display_name = ?, deployment_mode = ?, priority = ?, message = ?,
-           release_id = ?, metadata_json = ?,
+           requested_by_user_id = ?, package_display_name = ?, deployment_mode = ?,
+           priority = ?, message = ?, release_id = ?, metadata_json = ?,
            status = 'pending',
            decided_by_user_id = NULL, decision_reason = NULL, decided_at = NULL,
            completed_at = NULL, last_error_code = NULL, last_error_message = NULL,
@@ -192,6 +198,7 @@ export function createCapabilityRequestSync(
          WHERE id = ? AND workspace_id = ?`,
       )
       .run(
+        input.requestedByUserId,
         input.packageDisplayName,
         input.deploymentMode,
         input.priority ?? "normal",
@@ -261,7 +268,7 @@ export function listCapabilityRequestsSync(
 
 export function decideCapabilityRequestSync(
   input: DecideCapabilityRequestInput,
-): CapabilityRequestRecord | null {
+): DecideCapabilityRequestResult {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
   const result = getDatabase()
@@ -280,8 +287,8 @@ export function decideCapabilityRequestSync(
       input.requestId,
       workspaceId,
     );
-  if (result.changes === 0) return readCapabilityRequestSync(input.requestId, workspaceId);
-  return readCapabilityRequestSync(input.requestId, workspaceId);
+  const record = readCapabilityRequestSync(input.requestId, workspaceId);
+  return { record, changed: result.changes > 0 };
 }
 
 export function transitionCapabilityRequestSync(
@@ -455,16 +462,15 @@ export function convergeCapabilityRequestFromMcpConnectionSync(input: {
 }
 
 /**
- * Link-back binding (P1-1). When an MCP connection is materialized — either by
- * the dispatch path (approved zero-config MCP auto-connected) or by the manual
- * "配置并连接" path (credential-bearing MCP the applicant finishes themselves)
- * — find the matching approved/pending capability_request and converge it to
- * running with linked_mcp_connection_id set. This is the single convergence
- * point: the verify op that follows will then drive it to completed/failed via
- * {@link convergeCapabilityRequestFromMcpConnectionSync}.
+ * Link-back binding (P1-1). When an MCP connection is materialized through the
+ * approved dispatch path, find the matching approved capability_request and
+ * converge it to running with linked_mcp_connection_id set. This is the single
+ * convergence point: the verify op that follows will then drive it to
+ * completed/failed via {@link convergeCapabilityRequestFromMcpConnectionSync}.
  *
- * No-op when no matching non-terminal request exists. A request already in
- * running state just gets its connection id ensured.
+ * Only `approved` requests are eligible — a pending request must still go
+ * through the admin approval flow, and a running request is already bound.
+ * No-op when no matching approved request exists.
  */
 export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
   workspaceId: string;
@@ -479,7 +485,7 @@ export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
        WHERE workspace_id = ? AND runtime_id = ?
          AND package_kind = 'mcp'
          AND package_source = ? AND package_slug = ?
-         AND status IN ('pending', 'approved', 'running')
+         AND status = 'approved'
        ORDER BY updated_at DESC
        LIMIT 1`,
     )
