@@ -4062,6 +4062,7 @@ function buildWorkspaceAgentRecord(
   const recentMessages = state.messages.filter((message) => isMessageRelevantToAgent(message, employee.name, tasks)).slice(0, 6);
   const workspaceTaskIndex = new Map(state.tasks.map((task) => [task.id, task]));
   const workAreaMap = new Map<string, AgentWorkAreaRecord>();
+  const workAreaUpdatedAt = new Map<string, number>();
   const relevantQueuedTasks = queuedTasks
     .filter((queuedTask) => queuedTask.agentId === employee.name)
     .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
@@ -4088,6 +4089,10 @@ function buildWorkspaceAgentRecord(
       workDirHostLabel: runtime?.deviceName,
       errorText: workspace.lastError ?? queuedTask?.errorText,
     });
+    workAreaUpdatedAt.set(
+      workspace.conversationKey,
+      latestTimestampMs(workspace.updatedAt, queuedTask?.updatedAt),
+    );
   }
 
   for (const queuedTask of relevantQueuedTasks) {
@@ -4102,7 +4107,18 @@ function buildWorkspaceAgentRecord(
             ? `channel:${task.channel}`
             : queuedTask.workDir ?? queuedTask.id;
 
-    if (workAreaMap.has(workAreaKey)) {
+    const queuedUpdatedAt = Date.parse(queuedTask.updatedAt);
+    const existingUpdatedAt = workAreaUpdatedAt.get(workAreaKey) ?? Number.NEGATIVE_INFINITY;
+    const existingWorkArea = workAreaMap.get(workAreaKey);
+    const sameTimestampTerminalWins = existingWorkArea
+      && queuedUpdatedAt === existingUpdatedAt
+      && isTerminalQueueStatus(queuedTask.status)
+      && isActiveQueueStatus(existingWorkArea.queueStatus);
+    if (
+      existingWorkArea
+      && !isLaterTimestamp(queuedUpdatedAt, existingUpdatedAt)
+      && !sameTimestampTerminalWins
+    ) {
       continue;
     }
 
@@ -4123,6 +4139,7 @@ function buildWorkspaceAgentRecord(
       workDirHostLabel: runtime?.deviceName,
       errorText: queuedTask.errorText,
     });
+    workAreaUpdatedAt.set(workAreaKey, queuedUpdatedAt);
   }
 
   const workAreas = Array.from(workAreaMap.values());
@@ -4458,13 +4475,37 @@ function statusForWorkspaceAgent(
   if (tasks.some((task) => task.status === "blocked")) {
     return "blocked";
   }
-  if (workAreas.some((area) => area.queueStatus === "running" || area.queueStatus === "claimed" || area.queueStatus === "queued")) {
+  if (workAreas.some((area) => isActiveQueueStatus(area.queueStatus))) {
     return "busy";
   }
   if (tasks.some((task) => task.status === "in_progress")) {
     return "busy";
   }
   return "online";
+}
+
+function latestTimestampMs(...values: Array<string | undefined>): number {
+  const timestamps = values
+    .map((value) => (value ? Date.parse(value) : Number.NaN))
+    .filter((value) => Number.isFinite(value));
+  return timestamps.length > 0 ? Math.max(...timestamps) : Number.NEGATIVE_INFINITY;
+}
+
+function isLaterTimestamp(candidate: number, current: number): boolean {
+  if (!Number.isFinite(candidate)) return false;
+  if (!Number.isFinite(current)) return true;
+  return candidate > current;
+}
+
+function isActiveQueueStatus(status: string): boolean {
+  return status === "queued"
+    || status === "claimed"
+    || status === "running"
+    || status === "preparing_commit";
+}
+
+function isTerminalQueueStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled" || status === "committed";
 }
 
 function formatTaskStatus(status: TaskStatus): string {

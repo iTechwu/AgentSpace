@@ -12,12 +12,14 @@ import {
   createWorkspaceSync,
   createWorkspaceMembershipSync,
   cancelQueuedTaskSync,
+  completeQueuedTaskSync,
   enqueueNativeTaskSync,
   getDatabase,
   readWorkspaceStateRecordSync,
   readWorkspaceSync,
   recordTokenUsageSync,
   registerDaemonRuntimesSync,
+  startQueuedTaskSync,
   updateAgentRuntimeManagedFieldsSync,
   upsertBudgetSync,
   upsertExternalChannelBindingSync,
@@ -560,6 +562,61 @@ describe("dashboard data", () => {
       task_queue_status: "queued",
       task_queue_delayed: "true",
     });
+  });
+
+  it("uses the newest queue state when a conversation workspace points to an older task", () => {
+    createEmployeeSync({ name: "Claude E2E", remarkName: "Claude E2E" });
+    createChannelSync({
+      name: "claude-direct",
+      humanMemberNames: [],
+      employeeNames: ["Claude E2E"],
+      kind: "group",
+    });
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: "claude-state-box",
+      deviceName: "Claude State Box",
+      runtimes: [{ provider: "claude", name: "Managed Claude", version: "test" }],
+    }).runtimes[0];
+    expect(runtime?.id).toBeTruthy();
+    bindEmployeeRuntimeSync("Claude E2E", runtime!.id);
+
+    const stale = enqueueNativeTaskSync({
+      assignee: "Claude E2E",
+      title: "stale task",
+      channel: "claude-direct",
+      priority: "medium",
+      triggerType: "mention_chat",
+      metadata: { channelName: "claude-direct" },
+    });
+    const latest = enqueueNativeTaskSync({
+      assignee: "Claude E2E",
+      title: "latest task",
+      channel: "claude-direct",
+      priority: "medium",
+      triggerType: "mention_chat",
+      metadata: { channelName: "claude-direct" },
+    });
+    expect(stale?.id).toBeTruthy();
+    expect(latest?.id).toBeTruthy();
+    const staleAt = new Date(Date.now() - 60_000).toISOString();
+    getDatabase().prepare("UPDATE agent_task_queue SET updated_at = ?, queued_at = ? WHERE id = ?").run(staleAt, staleAt, stale!.id);
+    startQueuedTaskSync(latest!.id);
+    completeQueuedTaskSync({ taskId: latest!.id, resultJson: { output: "done" } });
+
+    const state = readWorkspaceStateSync();
+    state.conversationExecutionWorkspaces = [{
+      conversationKey: "channel:claude-direct",
+      conversationKind: "group",
+      channelName: "claude-direct",
+      agentId: "Claude E2E",
+      updatedAt: staleAt,
+      lastTaskQueueId: stale!.id,
+    }];
+    writeWorkspaceStateSync(state);
+
+    const agent = getAgentsPageData().agents.find((candidate) => candidate.internalName === "Claude E2E");
+    expect(agent?.workAreas[0]?.queueStatus).toBe("completed");
+    expect(agent?.status).toBe("online");
   });
 
   it("does not project runtime approval cards after their task is cancelled", () => {
