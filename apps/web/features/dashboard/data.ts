@@ -257,6 +257,8 @@ export interface InboxItem {
     workDirHostLabel?: string;
     errorText?: string;
     messageCount: number;
+    /** Lossless provider/runtime stream. The lifecycle timeline below is a normalized summary. */
+    runtimeTrace: TaskMessageRecord[];
     currentEvent?: TaskExecutionTimelineEntry;
     timeline: TaskExecutionTimelineEntry[];
   };
@@ -2223,21 +2225,19 @@ export function getChannelsPageData(
     }),
   }));
 
-  // Attach the structured execution stream (task_message rows) for the most recent
-  // tasks referenced by each thread, so the chat UI can render the execution timeline.
-  const MAX_THREAD_EXECUTION_TASKS = 10;
+  // Attach the complete structured execution stream (task_message rows) for every
+  // task referenced by a loaded thread. The detail scope already limits this to
+  // the channels being rendered, so an arbitrary task-count cap would silently
+  // hide older runtime traces from the message inbox.
   const threadExecutionTaskIds = threadsWithQueueState.map((thread) => {
-    const taskIds: string[] = [];
+    const taskIds = new Set<string>();
     for (const message of thread.messages) {
       const taskId = message.data?.source_task_queue_id;
-      if (taskId && !taskIds.includes(taskId)) {
-        taskIds.push(taskId);
-        if (taskIds.length >= MAX_THREAD_EXECUTION_TASKS) {
-          break;
-        }
+      if (taskId) {
+        taskIds.add(taskId);
       }
     }
-    return taskIds;
+    return [...taskIds];
   });
   const taskMessagesByTaskId = listTaskMessagesForTasksSync([...new Set(threadExecutionTaskIds.flat())]);
   const threadsWithExecutions: ChannelThreadData[] = threadsWithQueueState.map((thread, index) => {
@@ -2500,6 +2500,7 @@ export function getInboxPageData(
   const runtimeDisplayNames = buildRuntimeDisplayNameIndex(workspaceId);
   const runtimeRecords = buildNativeRuntimeRecords(state, runtimeSnapshots, bindings, queuedTasks, runtimeDisplayNames, installedApps, runtimeAppOperations);
   const runtimeIndex = new Map(runtimeRecords.map((runtime) => [runtime.runtimeId, runtime]));
+  const runtimeTracesByTaskId = listTaskMessagesForTasksSync(queuedTasks.map((task) => task.id));
   const taskItems = buildTaskInboxItems(
     state,
     new Map(bindings.map((binding) => [binding.employeeName, binding])),
@@ -2509,6 +2510,7 @@ export function getInboxPageData(
     currentUser,
     readableChannels,
     messagesByChannelName,
+    runtimeTracesByTaskId,
   );
   const notificationItems = buildNotificationInboxItems(state, workspaceId, currentUser);
   const channelItems = buildChannelInboxItems(
@@ -2519,6 +2521,7 @@ export function getInboxPageData(
     currentUser,
     readableChannels,
     messagesByChannelName,
+    runtimeTracesByTaskId,
   );
   const activityItems = buildActivityInboxItems(state, workspaceId, currentUser, readableChannels);
   const items = [...notificationItems, ...taskItems, ...channelItems, ...activityItems];
@@ -3770,6 +3773,7 @@ function buildTaskInboxItems(
   currentUser?: DashboardCurrentUser,
   readableChannels: ReadableChannelLookup = buildReadableChannelLookup(state, workspaceId, currentUser),
   messagesByChannelName: Map<string, WorkspaceMessage[]> = buildMessagesByChannelName(state.messages ?? []),
+  runtimeTracesByTaskId: Map<string, TaskMessageRecord[]> = new Map(),
 ): InboxItem[] {
   const queueByIssueId = new Map(queuedTasks.map((task) => [task.issueId ?? "", task]));
   const employeeByName = new Map(state.activeEmployees.map((employee) => [employee.name, employee]));
@@ -3815,7 +3819,8 @@ function buildTaskInboxItems(
     const workDirAccess: "local" | "remote" | undefined =
       runtime?.daemonMode === "remote" ? "remote" : runtime?.daemonMode === "local" ? "local" : undefined;
     const workDirHostLabel = runtime?.deviceName;
-    const executionMessageCount = queued ? listTaskMessagesForTaskSync(queued.id).length : 0;
+    const runtimeTrace = queued ? runtimeTracesByTaskId.get(queued.id) ?? [] : [];
+    const executionMessageCount = runtimeTrace.length;
     const timeline = queued ? buildTaskExecutionTimeline(queued.id, workspaceId) : [];
     const router = buildRouterExecutionView(queued);
     const history = relatedMessages.slice(-12);
@@ -3851,6 +3856,7 @@ function buildTaskInboxItems(
             workDirHostLabel,
             errorText: queued.errorText,
             messageCount: executionMessageCount,
+            runtimeTrace,
             currentEvent: timeline.at(-1),
             timeline,
           }, currentUser)
@@ -3862,6 +3868,7 @@ function buildTaskInboxItems(
               runtimeName: runtime?.name,
               provider: runtime?.provider,
               messageCount: 0,
+              runtimeTrace: [],
               timeline: [],
             }, currentUser)
           : undefined,
@@ -3877,6 +3884,7 @@ function buildChannelInboxItems(
   currentUser?: DashboardCurrentUser,
   readableChannels: ReadableChannelLookup = buildReadableChannelLookup(state, workspaceId, currentUser),
   messagesByChannelName: Map<string, WorkspaceMessage[]> = buildMessagesByChannelName(state.messages ?? []),
+  runtimeTracesByTaskId: Map<string, TaskMessageRecord[]> = new Map(),
 ): InboxItem[] {
   const items: InboxItem[] = [];
   const queuedTaskIndex = new Map(queuedTasks.map((queuedTask) => [queuedTask.id, queuedTask]));
@@ -3905,7 +3913,8 @@ function buildChannelInboxItems(
       ? queuedTaskIndex.get(latestExecutionWorkspace.lastTaskQueueId)
       : undefined;
     const runtime = queuedTask?.runtimeId ? runtimeIndex.get(queuedTask.runtimeId) : undefined;
-    const executionMessageCount = queuedTask ? listTaskMessagesForTaskSync(queuedTask.id).length : 0;
+    const runtimeTrace = queuedTask ? runtimeTracesByTaskId.get(queuedTask.id) ?? [] : [];
+    const executionMessageCount = runtimeTrace.length;
     const timeline = queuedTask ? buildTaskExecutionTimeline(queuedTask.id, workspaceId) : [];
     const router = buildRouterExecutionView(queuedTask);
 
@@ -3948,6 +3957,7 @@ function buildChannelInboxItems(
             workDirHostLabel: runtime?.deviceName,
             errorText: latestExecutionWorkspace.lastError ?? queuedTask?.errorText,
             messageCount: executionMessageCount,
+            runtimeTrace,
             currentEvent: timeline.at(-1),
             timeline,
           }, currentUser)

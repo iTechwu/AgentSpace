@@ -87,20 +87,27 @@ export function mapClaudeNativeEvent(event: Record<string, unknown>, state?: Cla
   }
 
   if (type === "tool_use") {
+    const tool = typeof event.name === "string" ? event.name : "unknown";
+    const useId = typeof event.id === "string" ? event.id : undefined;
+    if (useId && state) {
+      state.toolNameByUseId.set(useId, tool);
+    }
     return [{
       type: "tool_started",
-      tool: typeof event.name === "string" ? event.name : "unknown",
-      title: typeof event.name === "string" ? event.name : undefined,
+      tool,
+      title: tool,
       input: typeof event.input === "object" && event.input ? event.input : undefined,
+      toolUseId: useId,
     }];
   }
 
   if (type === "tool_result") {
-    const tool = typeof event.name === "string" ? event.name : "unknown";
+    const useId = typeof event.tool_use_id === "string" ? event.tool_use_id : undefined;
+    const tool = typeof event.name === "string" ? event.name : (useId && state?.toolNameByUseId.get(useId)) || "unknown";
     const output = extractText(event.output ?? event.content);
     return [
-      { type: "tool_output", tool, output },
-      { type: "tool_finished", tool, status: "completed" },
+      { type: "tool_output", tool, output, toolUseId: useId },
+      { type: "tool_finished", tool, status: "completed", toolUseId: useId },
     ];
   }
 

@@ -61,6 +61,24 @@ function formatToolInputDetail(inputJson: string | undefined): string | undefine
   return JSON.stringify(parsed, null, 2);
 }
 
+function formatRuntimePayload(message: TaskMessageRecord): string | undefined {
+  const sections: string[] = [];
+  const content = message.content?.trim();
+  const input = message.inputJson?.trim();
+  const output = message.output?.trim();
+  if (content) {
+    sections.push(content);
+  }
+  if (input && input !== "{}") {
+    const parsed = parseToolInput(input);
+    sections.push(`input:\n${parsed ? JSON.stringify(parsed, null, 2) : input}`);
+  }
+  if (output && output !== content) {
+    sections.push(`output:\n${output}`);
+  }
+  return sections.length > 0 ? sections.join("\n\n") : undefined;
+}
+
 function appendDetail(existing: string | undefined, addition: string | undefined): string | undefined {
   const trimmed = addition?.trim();
   if (!trimmed) {
@@ -73,11 +91,13 @@ function appendDetail(existing: string | undefined, addition: string | undefined
  * Reduce the raw task_message stream of one task into Kimi-style timeline items:
  * status rows, merged thinking blocks, and tool calls paired with their results.
  * When `options.taskRunning` is false, leftover running items are settled to done.
+ * `options.includeText` is intended for audit/inbox surfaces where the raw
+ * stream must remain self-contained; chat already renders text as bubbles.
  */
 export function buildExecutionTimeline(
   messages: TaskMessageRecord[],
-  labels: { thinking: string },
-  options?: { taskRunning?: boolean },
+  labels: { thinking: string; usage?: string; runtimeEvent?: string },
+  options?: { taskRunning?: boolean; includeText?: boolean },
 ): ExecutionTimelineItem[] {
   const items: ExecutionTimelineItem[] = [];
   /** Indexes into `items` for tool calls still waiting for their result, in open order. */
@@ -86,7 +106,17 @@ export function buildExecutionTimeline(
   const sorted = [...messages].sort((left, right) => left.seq - right.seq);
   for (const message of sorted) {
     if (message.type === "text") {
-      // The final reply is rendered by the conversation bubble, not the timeline.
+      const content = message.content?.trim();
+      if (options?.includeText && content) {
+        items.push({
+          id: message.id,
+          kind: "narration",
+          title: content,
+          status: "done",
+        });
+      }
+      // Chat renders the final reply as a conversation bubble. Audit/inbox
+      // surfaces opt in above so their raw stream stays complete on its own.
       continue;
     }
 
@@ -99,6 +129,18 @@ export function buildExecutionTimeline(
         id: message.id,
         kind: "status",
         title: content,
+        status: "done",
+      });
+      continue;
+    }
+
+    if (message.type === "usage") {
+      items.push({
+        id: message.id,
+        kind: "status",
+        title: labels.usage ?? "Runtime usage",
+        subtitle: message.content ? truncateSubtitle(message.content) : undefined,
+        detail: formatRuntimePayload(message),
         status: "done",
       });
       continue;
@@ -206,9 +248,22 @@ export function buildExecutionTimeline(
         id: message.id,
         kind: "error",
         title: content,
+        detail: message.output && message.output.trim() !== content ? formatRuntimePayload(message) : undefined,
         status: "error",
       });
+      continue;
     }
+
+    // Preserve forward-compatible provider events instead of silently dropping
+    // them when a runtime adds a new stream item type.
+    const unknownDetail = formatRuntimePayload(message);
+    items.push({
+      id: message.id,
+      kind: "status",
+      title: message.type.trim() || labels.runtimeEvent || "Runtime event",
+      detail: unknownDetail,
+      status: "done",
+    });
   }
 
   // A thinking block is "running" only while it is the latest timeline entry;

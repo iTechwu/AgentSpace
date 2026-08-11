@@ -12,6 +12,7 @@ import {
   enqueueNativeTaskSync,
   failQueuedTaskSync,
   listTaskExecutionEventsSync,
+  listTaskMessagesForTaskSync,
   registerDaemonRuntimesSync,
   startQueuedTaskSync,
   updateAgentRuntimeManagedFieldsSync,
@@ -67,8 +68,22 @@ test("records lifecycle, tool, message, and artifact execution events", () => {
 
   claimNextQueuedTaskForRuntimeSync(runtimeId);
   startQueuedTaskSync(queued.id);
-  appendTaskMessageSync({ taskId: queued.id, type: "tool_use", tool: "exec_command", content: "bash: npm test" });
-  appendTaskMessageSync({ taskId: queued.id, type: "tool_result", tool: "exec_command", content: "tests passed" });
+  appendTaskMessageSync({
+    taskId: queued.id,
+    type: "tool_use",
+    tool: "exec_command",
+    content: "bash: npm test",
+    inputJson: { command: "npm test" },
+    refId: "command-1",
+  });
+  appendTaskMessageSync({
+    taskId: queued.id,
+    type: "tool_result",
+    tool: "exec_command",
+    content: "tests passed",
+    output: "tests passed",
+    refId: "command-1",
+  });
   appendTaskMessageSync({ taskId: queued.id, type: "text", content: "Launch plan ready." });
   completeQueuedTaskSync({
     taskId: queued.id,
@@ -82,6 +97,12 @@ test("records lifecycle, tool, message, and artifact execution events", () => {
   });
 
   const events = listTaskExecutionEventsSync({ taskId: queued.id });
+  const runtimeTrace = listTaskMessagesForTaskSync(queued.id);
+  assert.deepEqual(runtimeTrace.map((message) => message.type), ["tool_use", "tool_result", "text"]);
+  assert.deepEqual(JSON.parse(runtimeTrace[0]?.inputJson ?? "{}"), { command: "npm test" });
+  assert.equal(runtimeTrace[0]?.refId, "command-1");
+  assert.equal(runtimeTrace[1]?.output, "tests passed");
+  assert.equal(runtimeTrace[1]?.refId, "command-1");
   assert.deepEqual(events.map((event) => event.type), [
     "queued",
     "assigned",

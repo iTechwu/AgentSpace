@@ -54,6 +54,33 @@ test("mapClaudeNativeEvent attributes user tool_result blocks to the original to
   ]);
 });
 
+test("mapClaudeNativeEvent preserves call ids for top-level tool events", () => {
+  const state = createClaudeEventMapperState();
+  const started = mapClaudeNativeEvent({
+    type: "tool_use",
+    id: "toolu_top_1",
+    name: "Bash",
+    input: { command: "pwd" },
+  }, state);
+  const finished = mapClaudeNativeEvent({
+    type: "tool_result",
+    tool_use_id: "toolu_top_1",
+    output: "/tmp",
+  }, state);
+
+  assert.deepEqual(started, [{
+    type: "tool_started",
+    tool: "Bash",
+    title: "Bash",
+    input: { command: "pwd" },
+    toolUseId: "toolu_top_1",
+  }]);
+  assert.deepEqual(finished, [
+    { type: "tool_output", tool: "Bash", output: "/tmp", toolUseId: "toolu_top_1" },
+    { type: "tool_finished", tool: "Bash", status: "completed", toolUseId: "toolu_top_1" },
+  ]);
+});
+
 test("mapClaudeNativeEvent surfaces thinking blocks as thought deltas", () => {
   const mapped = mapClaudeNativeEvent({
     type: "assistant",

@@ -2243,6 +2243,7 @@ function mapCodexExecEvent(event: Record<string, unknown>): ProviderTaskEvent[] 
 
     const typedItem = item as Record<string, unknown>;
     const itemType = typeof typedItem.type === "string" ? typedItem.type : "";
+    const refId = readProviderRefId(typedItem);
 
     if (itemType === "commandExecution" || itemType === "command_execution") {
       const command =
@@ -2257,6 +2258,7 @@ function mapCodexExecEvent(event: Record<string, unknown>): ProviderTaskEvent[] 
           tool: "exec_command",
           content: command ? `bash: ${command}` : "bash",
           inputJson: command ? { command } : undefined,
+          refId,
         }];
       }
 
@@ -2273,14 +2275,15 @@ function mapCodexExecEvent(event: Record<string, unknown>): ProviderTaskEvent[] 
         tool: "exec_command",
         content: output ? truncateToolOutput(output) : "bash 执行完成",
         output: output ? truncateToolOutput(output) : undefined,
+        refId,
       }];
     }
 
     if (itemType === "fileChange" || itemType === "file_change") {
       if (type === "item.started") {
-        return [{ type: "tool_use", tool: "patch_apply", content: "开始修改文件" }];
+        return [{ type: "tool_use", tool: "patch_apply", content: "开始修改文件", refId }];
       }
-      return [{ type: "tool_result", tool: "patch_apply", content: "文件修改完成" }];
+      return [{ type: "tool_result", tool: "patch_apply", content: "文件修改完成", refId }];
     }
 
     if ((itemType === "agentMessage" || itemType === "agent_message") && typeof typedItem.text === "string") {
@@ -2310,6 +2313,7 @@ function mapClaudeEvent(event: Record<string, unknown>): ProviderTaskEvent[] {
       tool: typeof event.name === "string" ? event.name : "unknown",
       content: typeof event.name === "string" ? event.name : "tool call",
       inputJson: typeof event.input === "object" && event.input ? event.input as Record<string, unknown> : undefined,
+      refId: readProviderRefId(event),
     }];
   }
 
@@ -2319,6 +2323,7 @@ function mapClaudeEvent(event: Record<string, unknown>): ProviderTaskEvent[] {
       tool: typeof event.name === "string" ? event.name : undefined,
       content: typeof event.output === "string" ? truncateToolOutput(event.output) : "completed",
       output: typeof event.output === "string" ? truncateToolOutput(event.output) : undefined,
+      refId: readProviderRefId(event),
     }];
   }
 
@@ -2344,17 +2349,32 @@ function mapGeminiEvent(event: Record<string, unknown>): ProviderTaskEvent[] {
       type: "tool_use",
       tool: typeof event.name === "string" ? event.name : "unknown",
       content: typeof event.name === "string" ? event.name : "tool call",
+      inputJson: typeof event.input === "object" && event.input ? event.input as Record<string, unknown> : undefined,
+      refId: readProviderRefId(event),
     }];
   }
 
   if (type === "tool_result" || type === "function_response") {
     return [{
       type: "tool_result",
+      tool: typeof event.name === "string" ? event.name : undefined,
       content: typeof event.output === "string" ? truncateToolOutput(event.output) : "completed",
+      output: typeof event.output === "string" ? truncateToolOutput(event.output) : undefined,
+      refId: readProviderRefId(event),
     }];
   }
 
   return [];
+}
+
+function readProviderRefId(value: Record<string, unknown>): string | undefined {
+  for (const key of ["id", "tool_use_id", "toolUseId", "call_id", "callId"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
 }
 
 function truncateToolOutput(value: string): string {

@@ -34387,8 +34387,57 @@ button[aria-disabled="true"] svg {
   font-size: 0.8rem;
 }
 
+.notification-runtime-trace {
+  padding: 1.25rem 0 1.4rem;
+  border-bottom: 1px solid var(--console-border, var(--line));
+}
+
+.notification-runtime-trace__header,
+.notification-lifecycle__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.notification-runtime-trace__header h4,
+.notification-lifecycle__header h4 {
+  margin: 0;
+  color: var(--console-text, var(--text));
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.notification-runtime-trace__header p {
+  margin: 0.22rem 0 0;
+  color: var(--console-muted, var(--muted));
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.notification-runtime-trace__header > span {
+  display: grid;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--console-subtle, var(--panel-strong));
+  color: var(--console-muted, var(--muted));
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.notification-runtime-trace .execution-timeline {
+  margin-top: 0.75rem;
+}
+
+.notification-lifecycle {
+  padding-top: 1.25rem;
+}
+
 .notification-timeline-detail .notification-timeline {
-  padding-top: 1.45rem;
+  padding-top: 0.85rem;
 }
 
 .notification-timeline-detail .notification-timeline__marker {

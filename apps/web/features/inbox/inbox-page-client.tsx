@@ -17,6 +17,8 @@ import { useAutoRefresh } from "@/shared/lib/use-auto-refresh";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { GeneratedAvatar, type GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
+import { TaskExecutionTimeline } from "@/features/chat/chat-primitives";
+import { buildExecutionTimeline } from "@/features/chat/task-execution-timeline";
 
 type FilterKey = "all" | InboxItemKind;
 const INBOX_REFRESH_POLL_MS = 2000;
@@ -80,6 +82,23 @@ export function InboxPageClient({
 
   const selectedItem = filteredItems.find((item) => item.id === selectedId) ?? filteredItems[0] ?? null;
   const timelineEntries = selectedItem ? buildInboxTimeline(selectedItem, tx) : [];
+  const runtimeTrace = selectedItem?.execution?.runtimeTrace ?? [];
+  const runtimeRunning = selectedItem?.execution
+    ? selectedItem.execution.queueStatus === "queued"
+      || selectedItem.execution.queueStatus === "claimed"
+      || selectedItem.execution.queueStatus === "running"
+    : false;
+  const runtimeItems = runtimeTrace.length
+    ? buildExecutionTimeline(
+        runtimeTrace,
+        {
+          thinking: tx("思考过程", "Thinking"),
+          usage: tx("Runtime 用量", "Runtime usage"),
+          runtimeEvent: tx("Runtime 事件", "Runtime event"),
+        },
+        { taskRunning: runtimeRunning, includeText: true },
+      )
+    : [];
   const shouldPollInboxUpdates = useMemo(
     () => data.items.some((item) =>
       item.execution?.queueStatus === "queued"
@@ -172,7 +191,23 @@ export function InboxPageClient({
               </div>
             </header>
 
-            <ol className="notification-timeline">
+            {runtimeItems.length > 0 ? (
+              <section className="notification-runtime-trace" aria-labelledby="notification-runtime-trace-title">
+                <header className="notification-runtime-trace__header">
+                  <div>
+                    <h4 id="notification-runtime-trace-title">{tx("Runtime 执行详情", "Runtime execution detail")}</h4>
+                    <p>{tx("显示思考、工具调用、输入输出和运行事件原文。", "Raw thinking, tool calls, inputs, outputs, and runtime events.")}</p>
+                  </div>
+                  <span>{runtimeTrace.length}</span>
+                </header>
+                <TaskExecutionTimeline items={runtimeItems} running={runtimeRunning} />
+              </section>
+            ) : null}
+            <section className="notification-lifecycle" aria-labelledby="notification-lifecycle-title">
+              <header className="notification-lifecycle__header">
+                <h4 id="notification-lifecycle-title">{tx("任务生命周期", "Task lifecycle")}</h4>
+              </header>
+              <ol className="notification-timeline">
               {timelineEntries.map((entry) => (
                 <li className="notification-timeline__entry" key={entry.id}>
                   <time dateTime={entry.dateTime}>{entry.timestamp}</time>
@@ -194,7 +229,8 @@ export function InboxPageClient({
                   </article>
                 </li>
               ))}
-            </ol>
+              </ol>
+            </section>
           </>
         ) : (
           <EmptyState

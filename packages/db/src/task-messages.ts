@@ -50,15 +50,15 @@ export function appendTaskMessageSync(input: {
     .prepare(
       `SELECT
         id,
-        task_id AS taskId,
+        task_id,
         seq,
         type,
         tool,
         content,
-        input_json AS inputJson,
+        input_json,
         output,
-        ref_id AS refId,
-        created_at AS createdAt
+        ref_id,
+        created_at
       FROM task_message
       WHERE id = ?`,
     )
@@ -78,15 +78,15 @@ export function listTaskMessagesForTaskSync(taskId: string): TaskMessageRecord[]
     .prepare(
       `SELECT
         id,
-        task_id AS taskId,
+        task_id,
         seq,
         type,
         tool,
         content,
-        input_json AS inputJson,
+        input_json,
         output,
-        ref_id AS refId,
-        created_at AS createdAt
+        ref_id,
+        created_at
       FROM task_message
       WHERE task_id = ?
       ORDER BY seq ASC`,
@@ -111,15 +111,15 @@ export function listTaskMessagesForTasksSync(taskIds: string[]): Map<string, Tas
     .prepare(
       `SELECT
         id,
-        task_id AS taskId,
+        task_id,
         seq,
         type,
         tool,
         content,
-        input_json AS inputJson,
+        input_json,
         output,
-        ref_id AS refId,
-        created_at AS createdAt
+        ref_id,
+        created_at
       FROM task_message
       WHERE task_id IN (${placeholders})
       ORDER BY task_id ASC, seq ASC`,

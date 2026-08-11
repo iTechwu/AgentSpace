@@ -43,7 +43,62 @@ const data: InboxPageData = {
         workDir: "/tmp/remote/workdir",
         workDirAccess: "remote",
         workDirHostLabel: "Build Box 1",
-        messageCount: 2,
+        messageCount: 6,
+        runtimeTrace: [
+          {
+            id: "task-message-thinking",
+            taskId: "queue-1",
+            seq: 1,
+            type: "thinking",
+            content: "先检查行程约束，再检索交通信息。",
+            createdAt: "2026-05-06T09:59:10.000Z",
+          },
+          {
+            id: "task-message-tool-use",
+            taskId: "queue-1",
+            seq: 2,
+            type: "tool_use",
+            tool: "web_search",
+            inputJson: JSON.stringify({ query: "大阪近期交通信息" }),
+            refId: "search-1",
+            createdAt: "2026-05-06T09:59:20.000Z",
+          },
+          {
+            id: "task-message-tool-result",
+            taskId: "queue-1",
+            seq: 3,
+            type: "tool_result",
+            tool: "web_search",
+            output: "已找到 12 条交通信息。",
+            refId: "search-1",
+            createdAt: "2026-05-06T09:59:30.000Z",
+          },
+          {
+            id: "task-message-usage",
+            taskId: "queue-1",
+            seq: 4,
+            type: "usage",
+            content: "tokens: in=120 out=40",
+            inputJson: JSON.stringify({ input_tokens: 120, output_tokens: 40 }),
+            createdAt: "2026-05-06T09:59:40.000Z",
+          },
+          {
+            id: "task-message-provider-event",
+            taskId: "queue-1",
+            seq: 5,
+            type: "provider_checkpoint",
+            content: "checkpoint saved",
+            createdAt: "2026-05-06T09:59:50.000Z",
+          },
+          {
+            id: "task-message-text",
+            taskId: "queue-1",
+            seq: 6,
+            type: "text",
+            content: "行程已整理。",
+            createdAt: "2026-05-06T10:00:00.000Z",
+          },
+        ],
         timeline: [
           {
             id: "event-queued-1",
@@ -112,6 +167,19 @@ describe("InboxPageClient", () => {
     expect(screen.getByText("已进入执行队列")).toBeInTheDocument();
     expect(screen.getByText("The artifact is available as a workspace attachment.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看关联内容" })).toHaveAttribute("href", "/api/attachments/att-file");
+  });
+
+  it("shows the complete runtime trace before the normalized task lifecycle", () => {
+    renderInbox();
+
+    expect(screen.getByRole("heading", { name: "Runtime 执行详情" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "任务生命周期" })).toBeInTheDocument();
+    expect(screen.getByText("先检查行程约束，再检索交通信息。")).toBeInTheDocument();
+    expect(screen.getByText("大阪近期交通信息")).toBeInTheDocument();
+    expect(screen.getByText(/已找到 12 条交通信息/)).toBeInTheDocument();
+    expect(screen.getByText("Runtime 用量")).toBeInTheDocument();
+    expect(screen.getByText("provider_checkpoint")).toBeInTheDocument();
+    expect(screen.getByText("行程已整理。")).toBeInTheDocument();
   });
 
   it("refreshes inbox data while an employee execution is active", () => {

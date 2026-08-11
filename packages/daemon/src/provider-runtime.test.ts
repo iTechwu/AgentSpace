@@ -401,6 +401,8 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
       "  previous_arg=\"$arg\"",
       "done",
       "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-next\"}'",
+      "printf '%s\\n' '{\"type\":\"item.started\",\"item\":{\"type\":\"commandExecution\",\"id\":\"codex-tool-1\",\"command\":\"pwd\"}}'",
+      "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"commandExecution\",\"id\":\"codex-tool-1\",\"aggregatedOutput\":\"/tmp\"}}'",
       "",
     ].join("\n"),
     "utf8",
@@ -420,10 +422,12 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
   };
 
   try {
+    const events: Array<{ type: string; refId?: string }> = [];
     const result = await runProviderTask(runtime, "continue work", workDir, {
       sessionId: "session-prev",
       contextEnv: { CODEX_ARGS_PATH: argsPath },
       taskTimeoutMs: 5_000,
+      onEvent: (event) => events.push(event),
     });
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
 
@@ -436,6 +440,10 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
     assert.equal(args.includes("--sandbox"), false);
     assert.equal(args.includes("workspace-write"), false);
     assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+    assert.deepEqual(events.filter((event) => event.type === "tool_use" || event.type === "tool_result").map((event) => event.refId), [
+      "codex-tool-1",
+      "codex-tool-1",
+    ]);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
@@ -747,6 +755,8 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
       "done",
       "cat > \"$CLAUDE_STDIN_PATH\"",
       "printf '%s\\n' '{\"type\":\"system\",\"session_id\":\"session-next\"}'",
+      "printf '%s\\n' '{\"type\":\"tool_use\",\"id\":\"claude-tool-1\",\"name\":\"Bash\",\"input\":{\"command\":\"pwd\"}}'",
+      "printf '%s\\n' '{\"type\":\"tool_result\",\"tool_use_id\":\"claude-tool-1\",\"name\":\"Bash\",\"output\":\"/tmp\"}'",
       "printf '%s\\n' '{\"type\":\"result\",\"result\":\"hello from claude\",\"session_id\":\"session-next\",\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}'",
       "",
     ].join("\n"),
@@ -768,7 +778,7 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
 
   try {
     await withProcessGetuid(1000, async () => {
-      const events: Array<{ type: string; inputJson?: Record<string, unknown> }> = [];
+      const events: Array<{ type: string; inputJson?: Record<string, unknown>; refId?: string }> = [];
       const result = await runProviderTask(runtime, "write a short reply", workDir, {
         executionPolicy: { claudePermissionMode: "plan" },
         contextEnv: {
@@ -793,6 +803,10 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
       assert.deepEqual(args.slice(-2), ["--tools", "default"]);
       assert.equal(readFileSync(stdinPath, "utf8"), "");
       assert.equal(events.some((event) => event.type === "usage" && event.inputJson?.input_tokens === 3), true);
+      assert.deepEqual(events.filter((event) => event.type === "tool_use" || event.type === "tool_result").map((event) => event.refId), [
+        "claude-tool-1",
+        "claude-tool-1",
+      ]);
     });
   } finally {
     rmSync(workDir, { recursive: true, force: true });

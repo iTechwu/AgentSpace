@@ -171,6 +171,18 @@ describe("buildExecutionTimeline", () => {
     ]);
   });
 
+  it("includes final text when an audit surface requests a self-contained trace", () => {
+    const items = buildExecutionTimeline(
+      [taskMessage({ seq: 1, type: "text", content: "CODEX-0801-OK" })],
+      LABELS,
+      { includeText: true },
+    );
+
+    expect(items).toEqual([
+      { id: "task-msg-1", kind: "narration", title: "CODEX-0801-OK", status: "done" },
+    ]);
+  });
+
   it("truncates long subtitles and falls back to content when input has no known field", () => {
     const longCommand = `run ${"x".repeat(200)}`;
     const items = buildExecutionTimeline(
@@ -185,5 +197,31 @@ describe("buildExecutionTimeline", () => {
     expect(items[0].subtitle?.endsWith("…")).toBe(true);
     expect(items[1].subtitle).toBe("do the thing");
     expect(items[1].detail).toBe(JSON.stringify({ foo: 1 }, null, 2));
+  });
+
+  it("renders usage and forward-compatible provider events instead of dropping them", () => {
+    const items = buildExecutionTimeline(
+      [
+        taskMessage({
+          seq: 1,
+          type: "usage",
+          content: "tokens: in=120 out=40",
+          inputJson: JSON.stringify({ input_tokens: 120, output_tokens: 40 }),
+        }),
+        taskMessage({
+          seq: 2,
+          type: "provider_checkpoint",
+          content: "checkpoint saved",
+          output: "checkpoint-42",
+        }),
+      ],
+      { ...LABELS, usage: "Runtime 用量", runtimeEvent: "Runtime 事件" },
+    );
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ kind: "status", title: "Runtime 用量", subtitle: "tokens: in=120 out=40", status: "done" });
+    expect(items[0].detail).toContain('"input_tokens": 120');
+    expect(items[1]).toMatchObject({ kind: "status", title: "provider_checkpoint", status: "done" });
+    expect(items[1].detail).toBe("checkpoint saved\n\noutput:\ncheckpoint-42");
   });
 });
