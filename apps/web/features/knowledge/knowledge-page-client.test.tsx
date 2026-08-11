@@ -193,7 +193,9 @@ describe("KnowledgePageClient", () => {
 
     expect(await screen.findByRole("button", { name: "返回列表" })).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes("创建者") && content.includes("techwu"))).toBeInTheDocument();
-    expect(screen.getByText((content) => content.includes("## 第一天") && content.includes("大阪"))).toBeInTheDocument();
+    // 知识页查看器现在用 MDEditor.Markdown 渲染，所以看到的是格式化后的标题（无 `##`）
+    expect(screen.getByRole("heading", { level: 2, name: "第一天" })).toBeInTheDocument();
+    expect(screen.getByText("大阪")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "返回列表" }));
 
@@ -219,7 +221,9 @@ describe("KnowledgePageClient", () => {
     expect(screen.getByRole("combobox", { name: "文档排序" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "itinerary.md" })).toBeInTheDocument();
     expect(screen.getByText("共享附件")).toBeInTheDocument();
-    expect(screen.getByText((content) => content.includes("# Osaka Trip") && content.includes("Day 1"))).toBeInTheDocument();
+    // 文档查看器现在用 MDEditor.Markdown 渲染，所以看到的是格式化后的标题（无 `#`）
+    expect(screen.getByRole("heading", { level: 1, name: "Osaka Trip" })).toBeInTheDocument();
+    expect(screen.getByText("Day 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "沉淀为知识页面" }));
     expect(await screen.findByRole("heading", { name: "沉淀为知识页面" })).toBeInTheDocument();

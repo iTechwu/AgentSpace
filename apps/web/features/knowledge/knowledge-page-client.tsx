@@ -21,6 +21,8 @@ import { AppIcon } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import MDEditor, { commands } from "@uiw/react-md-editor";
+import "@uiw/react-md-editor/markdown-editor.css";
 
 type KnowledgeView = "knowledge" | "documents";
 
@@ -757,12 +759,16 @@ export function KnowledgePageClient({
                       value={editTags}
                     />
                   </div>
-                  <textarea
-                    className="knowledge-editor__content"
-                    onChange={(event) => setEditContent(event.target.value)}
-                    placeholder={tx("Markdown 内容…", "Markdown content…")}
-                    value={editContent}
-                  />
+                  <div className="knowledge-editor__md-container" data-color-mode="light">
+                    <MDEditor
+                      commands={commands.getCommands()}
+                      height={520}
+                      onChange={(value) => setEditContent(value ?? "")}
+                      preview="live"
+                      value={editContent}
+                      visibleDragbar={false}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div className="knowledge-viewer">
@@ -818,7 +824,12 @@ export function KnowledgePageClient({
                   />
                   <div className="knowledge-viewer__body">
                     {selected.contentMarkdown ? (
-                      <pre className="knowledge-viewer__markdown">{selected.contentMarkdown}</pre>
+                      <div className="knowledge-viewer__md-container" data-color-mode="light">
+                        <MDEditor.Markdown
+                          source={selected.contentMarkdown}
+                          style={{ minHeight: 120, padding: "16px 20px", background: "transparent" }}
+                        />
+                      </div>
                     ) : (
                       <p className="knowledge-viewer__empty">
                         {tx("页面内容为空，点击编辑添加内容。", "Empty page. Click Edit to add content.")}
@@ -1246,7 +1257,12 @@ function DocumentPageViewer({
 
       <div className="knowledge-viewer__body">
         {document.isMarkdown ? (
-          <pre className="knowledge-viewer__markdown">{document.previewText || tx("暂无内容", "No content yet")}</pre>
+          <div className="knowledge-viewer__md-container" data-color-mode="light">
+            <MDEditor.Markdown
+              source={document.previewText || tx("暂无内容", "No content yet")}
+              style={{ minHeight: 120, padding: "16px 20px", background: "transparent" }}
+            />
+          </div>
         ) : (
           <div className="knowledge-document-note">
             {tx(
