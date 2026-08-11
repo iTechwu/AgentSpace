@@ -441,21 +441,12 @@ export function submitCapabilityRequestSync(
     throw new Error("runtime.not_found");
   }
   const isAdmin = isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
-  const existing = listCapabilityRequestsSync({
-    workspaceId,
-    runtimeId: input.runtimeId,
-    packageKind: input.packageKind,
-    packageSlug: input.packageSlug,
-    statuses: ["pending", "approved", "running"],
-    limit: 1,
-  })[0];
-  if (existing) {
-    return {
-      capabilityRequest: existing,
-      nextAction: existing.status === "running" ? "wait_for_operation" : "wait_for_approval",
-    };
-  }
-  const request = createCapabilityRequestSync({
+  // CAS idempotency: createCapabilityRequestSync atomically inserts a new row,
+  // reopens a terminal request, or returns an in-flight request unchanged. Only
+  // the created/reopened cases record an audit event and notify admins, so a
+  // concurrent double-submit writes exactly one audit row. The DB CAS is the
+  // single source of truth — the previous read-before-create guard is gone.
+  const { record: request, outcome } = createCapabilityRequestSync({
     workspaceId,
     requestedByUserId: input.actorUserId,
     runtimeId: input.runtimeId,
@@ -471,6 +462,12 @@ export function submitCapabilityRequestSync(
     // approved install plan cannot drift to a yanked release.
     releaseId: resolveCliReleaseId(input.workspaceId, input.packageSource, input.packageSlug),
   });
+  if (outcome === "in_flight") {
+    return {
+      capabilityRequest: request,
+      nextAction: request.status === "running" ? "wait_for_operation" : "wait_for_approval",
+    };
+  }
   tryRecordWorkspaceAuditEventSync({
     workspaceId,
     title: "Capability request submitted",

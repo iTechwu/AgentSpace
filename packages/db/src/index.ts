@@ -729,6 +729,8 @@ export {
   readCapabilityRequestSync,
   transitionCapabilityRequestSync,
   type CreateCapabilityRequestInput,
+  type CreateCapabilityRequestResult,
+  type CapabilityRequestCreateOutcome,
   type DecideCapabilityRequestInput,
   type ListCapabilityRequestsOptions,
   type TransitionCapabilityRequestInput,

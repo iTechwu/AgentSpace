@@ -78,51 +78,44 @@ const SELECT_FIELDS = `
   decided_at AS decidedAt, completed_at AS completedAt
 `;
 
+export type CapabilityRequestCreateOutcome = "created" | "reopened" | "in_flight";
+
+export interface CreateCapabilityRequestResult {
+  record: CapabilityRequestRecord;
+  /**
+   * `created` = a new row was inserted.
+   * `reopened` = an existing terminal row was reset to pending.
+   * `in_flight` = an existing non-terminal row was returned unchanged (no-op);
+   *   re-submission against a pending/approved/running request must not clobber
+   *   server-side state. Callers gate side-effects (audit, notifications) on
+   *   `outcome !== "in_flight"` so a concurrent double-submit writes exactly one
+   *   audit event (docs/0811/cli-install §3.4 idempotency, CAS migration).
+   */
+  outcome: CapabilityRequestCreateOutcome;
+}
+
 export function createCapabilityRequestSync(
   input: CreateCapabilityRequestInput,
-): CapabilityRequestRecord {
+): CreateCapabilityRequestResult {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
   const id = `capability-request-${randomLikeId()}`;
-  // Predicate that selects terminal requests so a re-submission of the same
-  // idempotency key reopens them instead of silently staying rejected/failed.
-  const terminal = "capability_request.status IN ('rejected','failed','completed','cancelled')";
-  // Each terminal-only reset: clear the column when reopening, otherwise keep
-  // the existing value. Repeated predicate is intentional — ON CONFLICT SET
-  // cannot reference an aliased expression across columns.
-  const reopen = (column: string) =>
-    `CASE WHEN ${terminal} THEN NULL ELSE capability_request.${column} END`;
-  const row = withTransaction(getDatabase(), () =>
-    getDatabase()
+  const resolution = withTransaction(getDatabase(), () => {
+    // CAS step 1 — insert only when no row owns this idempotency key. ON
+    // CONFLICT DO NOTHING keeps the compare-and-set atomic; the classification
+    // read below runs inside the same transaction so a concurrent inserter's
+    // committed owner is visible by the time we look it up.
+    const inserted = getDatabase()
       .prepare(
         `INSERT INTO capability_request (
-          id, workspace_id, requested_by_user_id, runtime_id,
-          package_kind, package_source, package_slug, package_display_name,
-          deployment_mode, requested_action, priority, message,
-          status, release_id, metadata_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-        ON CONFLICT(workspace_id, runtime_id, package_kind, package_source, package_slug, requested_action)
-        DO UPDATE SET
-          package_display_name = excluded.package_display_name,
-          deployment_mode = excluded.deployment_mode,
-          priority = excluded.priority,
-          message = excluded.message,
-          release_id = excluded.release_id,
-          metadata_json = excluded.metadata_json,
-          status = CASE WHEN ${terminal} THEN 'pending' ELSE capability_request.status END,
-          decided_by_user_id = ${reopen("decided_by_user_id")},
-          decision_reason = ${reopen("decision_reason")},
-          decided_at = ${reopen("decided_at")},
-          completed_at = ${reopen("completed_at")},
-          last_error_code = ${reopen("last_error_code")},
-          last_error_message = ${reopen("last_error_message")},
-          linked_runtime_app_operation_id = ${reopen("linked_runtime_app_operation_id")},
-          linked_runtime_installed_app_id = ${reopen("linked_runtime_installed_app_id")},
-          linked_mcp_connection_id = ${reopen("linked_mcp_connection_id")},
-          linked_runtime_provisioning_task_id = ${reopen("linked_runtime_provisioning_task_id")},
-          linked_knowledge_page_id = ${reopen("linked_knowledge_page_id")},
-          updated_at = excluded.updated_at
-        RETURNING id`,
+           id, workspace_id, requested_by_user_id, runtime_id,
+           package_kind, package_source, package_slug, package_display_name,
+           deployment_mode, requested_action, priority, message,
+           status, release_id, metadata_json, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+         ON CONFLICT(workspace_id, runtime_id, package_kind, package_source, package_slug, requested_action)
+         DO NOTHING
+         RETURNING id`,
       )
       .get(
         id,
@@ -141,16 +134,80 @@ export function createCapabilityRequestSync(
         input.metadataJson ?? "{}",
         now,
         now,
-      ) as { id: string } | undefined,
-  );
-  // ON CONFLICT returns the persisted id (existing row on conflict, new row
-  // otherwise). Read back with THAT id — using the locally-generated `id`
-  // would miss on conflict and throw a spurious create_failed.
-  const persistedId = row?.id;
-  if (!persistedId) throw new Error("capability_request.create_failed");
-  const record = readCapabilityRequestSync(persistedId, workspaceId);
+      ) as { id: string } | undefined;
+    if (inserted) return { id: inserted.id, outcome: "created" as const };
+
+    // CAS step 2 — a row already owns the key. Classify by status: terminal
+    // rows reopen to pending; in-flight rows are immutable. The SELECT uses
+    // `=` to mirror the unique constraint's NULL-distinct semantics — and this
+    // branch is only reachable when the conflict fired, which requires a
+    // non-NULL runtime_id match, so the equality lookup always finds the owner.
+    const owner = getDatabase()
+      .prepare(
+        `SELECT id, status FROM capability_request
+         WHERE workspace_id = ? AND runtime_id = ?
+           AND package_kind = ? AND package_source = ? AND package_slug = ?
+           AND requested_action = ?`,
+      )
+      .get(
+        workspaceId,
+        input.runtimeId ?? null,
+        input.packageKind,
+        input.packageSource,
+        input.packageSlug,
+        input.requestedAction,
+      ) as { id: string; status: string } | undefined;
+    // ON CONFLICT fired, so an owner must exist. If it vanished (e.g. a
+    // concurrent cascade delete), surface a hard failure rather than silently
+    // dropping the request.
+    if (!owner) return null;
+
+    const isTerminal =
+      owner.status === "rejected"
+      || owner.status === "failed"
+      || owner.status === "completed"
+      || owner.status === "cancelled";
+    if (!isTerminal) {
+      // In-flight (pending/approved/running): CAS no-op. Return the owner
+      // unchanged — do NOT overwrite its fields, release pin, or metadata.
+      return { id: owner.id, outcome: "in_flight" as const };
+    }
+
+    // Terminal → reopen to pending. Reset the decision/error/link columns and
+    // refresh the request fields the requester is re-declaring. Ownership
+    // (requested_by_user_id) is intentionally preserved to match the prior
+    // ON CONFLICT semantics.
+    getDatabase()
+      .prepare(
+        `UPDATE capability_request SET
+           package_display_name = ?, deployment_mode = ?, priority = ?, message = ?,
+           release_id = ?, metadata_json = ?,
+           status = 'pending',
+           decided_by_user_id = NULL, decision_reason = NULL, decided_at = NULL,
+           completed_at = NULL, last_error_code = NULL, last_error_message = NULL,
+           linked_runtime_app_operation_id = NULL, linked_runtime_installed_app_id = NULL,
+           linked_mcp_connection_id = NULL, linked_runtime_provisioning_task_id = NULL,
+           linked_knowledge_page_id = NULL,
+           updated_at = ?
+         WHERE id = ? AND workspace_id = ?`,
+      )
+      .run(
+        input.packageDisplayName,
+        input.deploymentMode,
+        input.priority ?? "normal",
+        input.message ?? "",
+        input.releaseId ?? null,
+        input.metadataJson ?? "{}",
+        now,
+        owner.id,
+        workspaceId,
+      );
+    return { id: owner.id, outcome: "reopened" as const };
+  });
+  if (!resolution) throw new Error("capability_request.create_failed");
+  const record = readCapabilityRequestSync(resolution.id, workspaceId);
   if (!record) throw new Error("capability_request.create_failed");
-  return record;
+  return { record, outcome: resolution.outcome };
 }
 
 export function readCapabilityRequestSync(

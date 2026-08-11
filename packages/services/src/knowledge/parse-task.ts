@@ -57,7 +57,8 @@ export function submitFileParseTaskSync(
   });
 
   // 2. 用 attachment.id 作为 capability_request 的包标识（slug+source），便于 dedup 唯一约束
-  const request = createCapabilityRequestSync({
+  //    每次上传 attachment.id 唯一，CAS 返回 outcome 必为 "created"。
+  const { record: request } = createCapabilityRequestSync({
     workspaceId,
     requestedByUserId: input.requestedByUserId,
     packageKind: "service",

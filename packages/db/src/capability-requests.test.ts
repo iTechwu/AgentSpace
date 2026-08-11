@@ -59,10 +59,57 @@ test("createCapabilityRequestSync returns the same id when re-submitted with the
   };
 
   const first = createCapabilityRequestSync(base);
+  assert.equal(first.outcome, "created");
   const second = createCapabilityRequestSync(base);
+  assert.equal(second.outcome, "in_flight");
 
-  assert.equal(second.id, first.id);
-  assert.equal(second.status, "pending");
+  assert.equal(second.record.id, first.record.id);
+  assert.equal(second.record.status, "pending");
+});
+
+test("re-submitting an in-flight request is a CAS no-op that preserves server-side state", () => {
+  const { userId, workspaceId, runtimeId } = seed();
+  const base = {
+    workspaceId,
+    requestedByUserId: userId,
+    runtimeId,
+    packageKind: "cli" as const,
+    packageSource: "clihub_harness",
+    packageSlug: "mermaid",
+    packageDisplayName: "Mermaid",
+    deploymentMode: "runtime_package" as const,
+    requestedAction: "install" as const,
+  };
+
+  const first = createCapabilityRequestSync(base);
+  const firstUpdatedAt = first.record.updatedAt;
+  // Simulate the dispatch flow pinning a release + enriching metadata after
+  // the request was created/approved.
+  decideCapabilityRequestSync({
+    requestId: first.record.id,
+    workspaceId,
+    decidedByUserId: userId,
+    decision: "approved",
+    decisionReason: "Ship it.",
+  });
+
+  // Re-submit with a DIFFERENT display name, message, and metadata. A true CAS
+  // must NOT clobber the approved request — outcome is in_flight and nothing
+  // the requester re-declared overwrites the server-side decision/metadata.
+  const resubmitted = createCapabilityRequestSync({
+    ...base,
+    packageDisplayName: "Mermaid (renamed by re-submitter)",
+    message: "hijack",
+    metadataJson: JSON.stringify({ hijacked: true }),
+  });
+  assert.equal(resubmitted.outcome, "in_flight");
+  assert.equal(resubmitted.record.id, first.record.id);
+  assert.equal(resubmitted.record.status, "approved");
+  assert.equal(resubmitted.record.packageDisplayName, "Mermaid");
+  assert.equal(resubmitted.record.message, "");
+  assert.equal(resubmitted.record.decisionReason, "Ship it.");
+  assert.deepEqual(resubmitted.record.metadataJson, {});
+  assert.equal(resubmitted.record.updatedAt, firstUpdatedAt);
 });
 
 test("re-submitting a terminal request reopens it to pending and clears the decision", () => {
@@ -81,20 +128,21 @@ test("re-submitting a terminal request reopens it to pending and clears the deci
 
   const first = createCapabilityRequestSync(base);
   decideCapabilityRequestSync({
-    requestId: first.id,
+    requestId: first.record.id,
     workspaceId,
     decidedByUserId: userId,
     decision: "rejected",
     decisionReason: "Not now.",
   });
-  const rejected = readCapabilityRequestSync(first.id, workspaceId);
+  const rejected = readCapabilityRequestSync(first.record.id, workspaceId);
   assert.equal(rejected?.status, "rejected");
   assert.equal(rejected?.decisionReason, "Not now.");
 
   const reopened = createCapabilityRequestSync(base);
-  assert.equal(reopened.id, first.id);
-  assert.equal(reopened.status, "pending");
-  assert.equal(reopened.decisionReason, undefined);
-  assert.equal(reopened.decidedByUserId, undefined);
-  assert.equal(reopened.completedAt, undefined);
+  assert.equal(reopened.outcome, "reopened");
+  assert.equal(reopened.record.id, first.record.id);
+  assert.equal(reopened.record.status, "pending");
+  assert.equal(reopened.record.decisionReason, undefined);
+  assert.equal(reopened.record.decidedByUserId, undefined);
+  assert.equal(reopened.record.completedAt, undefined);
 });
