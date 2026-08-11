@@ -1552,3 +1552,21 @@ export {
   assertOpenMontageRuntimePurgeableSync,
   OpenMontagePurgeBlockedError,
 } from "./openmontage/purge-guard.ts";
+
+// Capability availability / unified install task (docs/0811/cli-install Phase 1)
+export {
+  approveCapabilityRequestSync,
+  listActiveCapabilityRequestsForRuntime,
+  projectCliCapabilityAvailability,
+  projectMcpCapabilityAvailability,
+  rejectCapabilityRequestSync,
+  submitCapabilityRequestSync,
+  type CapabilityAvailabilityProjection,
+  type CapabilityCatalogState,
+  type CapabilityInfrastructureState,
+  type CapabilityNextAction,
+  type CapabilityUserState,
+  type SubmitCapabilityRequestInput,
+  type SubmitCapabilityRequestResult,
+} from "./capabilities/capability-availability.ts";
+export { selectCliHubReadiness } from "./clihub/runtime-apps.ts";

@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "116";
+export const POSTGRES_SCHEMA_VERSION = "117";
 // 跨版本固定锁：不能使用 schema 版本作为锁键，否则滚动升级中的相邻版本会并发迁移。
 // 取 116 兼容已经发布的 schema 116 实例；后续版本必须保持此值不变。
 export const POSTGRES_SCHEMA_ADVISORY_LOCK_ID = 116;
@@ -100,6 +100,7 @@ export const POSTGRES_TABLE_NAMES = [
   "runtime_provisioning_task_event",
   "runtime_credential_recovery_task",
   "managed_runtime_cleanup_request",
+  "capability_request",
   "mcp_catalog_item",
   "runtime_mcp_connection",
   "runtime_mcp_secret",
@@ -2504,6 +2505,49 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_managed_runtime_cleanup_request_running_timeout
         ON managed_runtime_cleanup_request(status, claimed_at)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS capability_request (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        requested_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        decided_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        runtime_id TEXT REFERENCES agent_runtime(id) ON DELETE SET NULL,
+        package_kind TEXT NOT NULL,
+        package_source TEXT NOT NULL,
+        package_slug TEXT NOT NULL,
+        package_display_name TEXT NOT NULL,
+        deployment_mode TEXT NOT NULL,
+        requested_action TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'normal',
+        message TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        decision_reason TEXT,
+        last_error_code TEXT,
+        last_error_message TEXT,
+        linked_runtime_app_operation_id TEXT REFERENCES runtime_app_operation(id) ON DELETE SET NULL,
+        linked_runtime_installed_app_id TEXT REFERENCES runtime_installed_app(id) ON DELETE SET NULL,
+        linked_mcp_connection_id TEXT REFERENCES runtime_mcp_connection(id) ON DELETE SET NULL,
+        linked_runtime_provisioning_task_id TEXT REFERENCES runtime_provisioning_task(id) ON DELETE SET NULL,
+        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        decided_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        UNIQUE(workspace_id, runtime_id, package_kind, package_source, package_slug, requested_action)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_capability_request_workspace_status
+        ON capability_request(workspace_id, status, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_capability_request_runtime_status
+        ON capability_request(workspace_id, runtime_id, status)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_capability_request_requester
+        ON capability_request(workspace_id, requested_by_user_id, created_at DESC)
     `,
     ...[
       "channelDocumentVersions",

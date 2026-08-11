@@ -717,6 +717,20 @@ export {
   type InsertWorkspaceRuntimeAppReleaseInput,
 } from "./runtime-app-releases.ts";
 
+// Capability request — unified install/deploy/connect task (docs/0811/cli-install)
+export {
+  cancelCapabilityRequestSync,
+  createCapabilityRequestSync,
+  decideCapabilityRequestSync,
+  listCapabilityRequestsSync,
+  readCapabilityRequestSync,
+  transitionCapabilityRequestSync,
+  type CreateCapabilityRequestInput,
+  type DecideCapabilityRequestInput,
+  type ListCapabilityRequestsOptions,
+  type TransitionCapabilityRequestInput,
+} from "./capability-requests.ts";
+
 // MCP center
 export {
   cancelUnfinishedMcpOperationsForConnectionSync,
@@ -1177,6 +1191,21 @@ export type {
   StoredSkillServiceBindingRecord,
   ManagedSkillServiceOperationRecord,
   StoredWorkspaceServiceSecretRecord,
+} from "./types.ts";
+export type {
+  CapabilityDeploymentMode,
+  CapabilityPackageKind,
+  CapabilityRequestedAction,
+  CapabilityRequestPriority,
+  CapabilityRequestRecord,
+  CapabilityRequestStatus,
+} from "./types.ts";
+export {
+  isCapabilityDeploymentMode,
+  isCapabilityPackageKind,
+  isCapabilityRequestedAction,
+  isCapabilityRequestPriority,
+  isCapabilityRequestStatus,
 } from "./types.ts";
 export {
   upsertWorkspaceServiceSecretSync,

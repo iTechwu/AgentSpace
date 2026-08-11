@@ -2,7 +2,7 @@
 
 > 日期：2026-08-11
 >
-> 状态：实施提案，待评审
+> 状态：Phase 1 已落地，Phase 2-7 待续
 >
 > 范围：AgentSpace CLI 应用、MCP 服务、Docker Runtime 基础能力，以及管理员部署流程
 
@@ -59,4 +59,60 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 ## 5. 研究限制
 
 当前结论基于页面截图、现有代码、目录数据规则、Dockerfile 和既有产品文档，已形成明确的问题证据，但尚未完成 5 至 8 名真实用户的可用性测试。实施时应先交付可测试原型，再以任务完成率、处理时间和错误率验证文案与流程。
+
+## 6. 实施进度（已落地）
+
+> 本节在每次代码落地后由维护者追加。落地内容必须与代码同次提交。
+
+### 6.1 Phase 1 — 统一能力任务（已落地）
+
+落地要点：
+
+1. **数据库**
+   - 新增 `capability_request` 表（schema v117），承载 4 种部署模式（`runtime_builtin` / `runtime_package` / `managed_service` / `external_service`）与 4 类动作（`install` / `deploy` / `connect` / `upgrade`）的二维状态机。
+   - 同 `(workspace, runtime, package_kind, package_source, package_slug, requested_action)` 唯一键约束，重复提交幂等。
+   - `metadata_json` / `linked_runtime_app_operation_id` / `linked_runtime_mcp_connection_id` / `linked_runtime_provisioning_task_id` 保留到 4 类底层子系统的指针，避免拆表。
+   - `packages/db/src/capability-requests.ts` 提供 `createCapabilityRequestSync` / `decideCapabilityRequestSync` / `transitionCapabilityRequestSync` / `cancelCapabilityRequestSync` / `listCapabilityRequestsSync` 等 CRUD。
+
+2. **服务端投影（4 模式 → 9 nextAction）**
+   - `packages/services/src/capabilities/capability-availability.ts` 提供 `projectCliCapabilityAvailability` 与 `projectMcpCapabilityAvailability` 两条投影：
+     - `runtime_builtin` / `runtime_package` 走 CLI 投影，按 runtime readiness + 不可变 release 决策；
+     - `managed_service` / `external_service` 走 MCP 投影，按 `runtime_mcp_connection.status` + 活跃 `runtime_mcp_operation` 决策；
+     - 任意投影都收敛到 9 个 `CapabilityNextAction` 之一。
+   - 投影输入只有持久化标识（id、runtime 状态、readiness、active operation），不接受浏览器提交的 endpoint、image digest、command、release 引用。
+   - `submitCapabilityRequestSync` 是用户面统一入口：自动管理员的 `runtime_package` 安装会立刻触发底层 `runtime_app_operation` 创建并回写 `linked_runtime_app_operation_id`；其它模式进入 `wait_for_operation` 或 `wait_for_approval`。
+
+3. **API 路由**
+   - `GET /api/workspaces/:workspaceId/capabilities/availability?runtimeId=…&kind=cli|mcp`：返回 projections + activeRequests，普通成员/管理员共用。
+   - `POST /api/workspaces/:workspaceId/capability-requests`：用户主动作入口，校验输入仅暴露给业务字段。
+   - `GET /api/workspaces/:workspaceId/capability-requests?mine=1&statuses=…`：我的请求列表。
+   - `POST /api/workspaces/:workspaceId/capability-requests/:requestId/decision`：管理员批准 / 拒绝入口。
+   - 所有路由使用 `getCurrentWorkspaceContext`，管理员分支独立校验 `role ∈ {owner, admin}`。
+
+4. **关键不变量（docs §1 结论落地点）**
+   - 用户始终只看到 9 个 `nextAction` 之一对应的按钮，不再出现长期禁用的“不可安装”。
+   - 底层子系统保持分离：`runtime_app_operation`（CLI）、`runtime_mcp_operation` + `runtime_mcp_connection`（MCP）、`runtime_provisioning_task`（受管 Runtime）。统一任务层不替代它们，只持久化 envelope 与跨子系统指针。
+   - “把能力当作一条 shell 命令安装到 Runtime” 仅在 `runtime_package` + 管理员同意 + 受控 install plan 的窄路径下发生；其它路径（`runtime_builtin` / `managed_service` / `external_service`）由 daemon / managed node / MCP Gateway 处理。
+
+### 6.2 Phase 2-7（待续）
+
+未落地项（按 docs 优先级）：
+
+- **Phase 2** Runtime baseline 镜像与 readiness 探针的强制管线化（当前 `selectCliHubReadiness` 已能从 daemon 读取 readiness，但 Dockerfile 版本锁定、SBOM、签名矩阵未补齐）。
+- **Phase 3** release 治理与不可变 manifest 完整化（`runtime_app_release` 已存在并支持 yanked，但与 `capability_request` 的 release 引用尚未绑定）。
+- **Phase 4** 普通成员申请管理员部署的端到端 UI、通知与审计。
+- **Phase 5** managed service lifecycle 与 lease/fencing（已有 `runtime_provisioning_task` 与 `managed_runtime_cleanup_request`，但 `capability_request` → `runtime_provisioning_task` 的自动绑定尚未接通）。
+- **Phase 6** CLI + MCP 统一启用向导 UI（API 已就绪，页面尚未消费 `nextAction`）。
+- **Phase 7** 灰度上线与回滚开关。
+
+## 7. 落地代码索引（Phase 1）
+
+| 路径 | 角色 |
+| --- | --- |
+| `packages/db/src/capability-requests.ts` | capability_request CRUD + 状态机 |
+| `packages/db/src/postgres-schema.ts`（v117） | `capability_request` 表 + 索引 |
+| `packages/services/src/capabilities/capability-availability.ts` | 投影 + 提交 + 审批 |
+| `apps/web/app/api/workspaces/[workspaceId]/capabilities/availability/route.ts` | GET 投影 |
+| `apps/web/app/api/workspaces/[workspaceId]/capability-requests/route.ts` | POST 提交 + GET 我的请求 |
+| `apps/web/app/api/workspaces/[workspaceId]/capability-requests/[requestId]/decision/route.ts` | POST 管理员决策 |
 
