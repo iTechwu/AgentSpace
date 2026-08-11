@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { convergeCapabilityRequestFromRuntimeAppOperationSync } from "./capability-requests.ts";
 import type {
   RuntimeAppCatalogItemRecord,
   RuntimeAppCatalogSource,
@@ -581,6 +582,12 @@ export function completeRuntimeAppOperationSync(input: CompleteRuntimeAppOperati
         metadataJson: input.installedApp?.metadataJson,
       });
     }
+    // Converge any capability_request linked to this operation (P1-3).
+    convergeCapabilityRequestFromRuntimeAppOperationSync({
+      operationId: completed.id,
+      workspaceId,
+      outcome: "succeeded",
+    });
   });
   return completed!;
 }
@@ -621,6 +628,14 @@ export function failRuntimeAppOperationSync(input: FailRuntimeAppOperationInput)
       lastError: input.errorMessage,
       updatedAt: now,
       lastCheckedAt: now,
+    });
+    // Converge any capability_request linked to this operation (P1-3).
+    convergeCapabilityRequestFromRuntimeAppOperationSync({
+      operationId: failed.id,
+      workspaceId,
+      outcome: "failed",
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
     });
   });
   return failed!;

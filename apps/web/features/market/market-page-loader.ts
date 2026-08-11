@@ -41,6 +41,14 @@ export async function loadMarketPageData(input: {
   const daemonSnapshots = listDaemonSnapshotsSync(input.workspaceId);
   const mcpCatalogRecords = listMcpCatalogItemsForWorkspaceSync(input.workspaceId);
   const mcpCatalogById = new Map(mcpCatalogRecords.map((item) => [item.id, item]));
+  // Fetched once and shared between the UI request list and the capability
+  // projection overlay (P1-2). Permission boundary: non-admins only see their
+  // own requests; admins (canManage) see the full workspace queue.
+  const capabilityRequestRecords = listCapabilityRequestsSync({
+    workspaceId: input.workspaceId,
+    requestedByUserId: input.canManage ? undefined : input.actorUserId,
+    limit: 50,
+  });
   const officialRuntimeApps = new Set(mcpCatalogRecords.flatMap((item) => {
     if (item.source !== "official") return [];
     const requirement = resolveMcpRuntimeAppRequirement(item);
@@ -178,13 +186,7 @@ export async function loadMarketPageData(input: {
       errorMessage: operation.errorMessage,
     })),
     canManage: input.canManage,
-    capabilityRequests: listCapabilityRequestsSync({
-      workspaceId: input.workspaceId,
-      // Permission boundary: non-admins only see their own requests. Admins
-      // (canManage) see the full workspace list so they can work the queue.
-      requestedByUserId: input.canManage ? undefined : input.actorUserId,
-      limit: 50,
-    }).map((request) => ({
+    capabilityRequests: capabilityRequestRecords.map((request) => ({
       id: request.id,
       runtimeId: request.runtimeId ?? null,
       packageKind: request.packageKind,
@@ -213,6 +215,7 @@ export async function loadMarketPageData(input: {
       mcpCatalog: mcpCatalogRecords,
       mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }),
       mcpOperations: listMcpOperationsSync({ workspaceId: input.workspaceId, limit: 200 }),
+      capabilityRequests: capabilityRequestRecords,
     }),
   };
 }
@@ -288,6 +291,7 @@ function buildCapabilityProjectionsForMarket(input: {
   mcpCatalog: ReturnType<typeof listMcpCatalogItemsForWorkspaceSync>;
   mcpConnections: ReturnType<typeof listMcpConnectionsSync>;
   mcpOperations: ReturnType<typeof listMcpOperationsSync>;
+  capabilityRequests: ReturnType<typeof listCapabilityRequestsSync>;
 }): CapabilityAvailabilityProjection[] {
   const runtimes = input.daemonSnapshots.flatMap((snapshot) =>
     snapshot.runtimes.filter((runtime) => runtime.status === "online").map((runtime) => ({
@@ -308,6 +312,7 @@ function buildCapabilityProjectionsForMarket(input: {
     mcpCatalog: input.mcpCatalog,
     mcpConnections: input.mcpConnections,
     mcpOperations: input.mcpOperations,
+    capabilityRequests: input.capabilityRequests,
   });
   return projections;
 }

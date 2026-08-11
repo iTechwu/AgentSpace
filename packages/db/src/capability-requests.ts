@@ -305,6 +305,53 @@ export function cancelCapabilityRequestSync(input: {
   });
 }
 
+/**
+ * Operation→request convergence (docs/0811/cli-install §6, P1-3).
+ *
+ * When a runtime_app_operation reaches a terminal state, find the (at most one)
+ * capability_request linked to it via linked_runtime_app_operation_id and
+ * converge its status. No-op when no request is linked or the request is
+ * already terminal — the subsystem reaching terminal state must never reopen or
+ * re-stamp an already-closed request. Called from the operation transition
+ * functions so convergence happens regardless of which caller drove the op.
+ */
+export function convergeCapabilityRequestFromRuntimeAppOperationSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  outcome: "succeeded" | "failed";
+  installedAppId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+}): CapabilityRequestRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const row = getDatabase()
+    .prepare(
+      `SELECT id FROM capability_request
+       WHERE workspace_id = ? AND linked_runtime_app_operation_id = ?
+       LIMIT 1`,
+    )
+    .get(workspaceId, input.operationId) as { id: string } | undefined;
+  if (!row) return null;
+  const request = readCapabilityRequestSync(row.id, workspaceId);
+  if (!request) return null;
+  if (
+    request.status === "completed"
+    || request.status === "failed"
+    || request.status === "cancelled"
+  ) {
+    return request;
+  }
+  const status: CapabilityRequestStatus = input.outcome === "succeeded" ? "completed" : "failed";
+  return transitionCapabilityRequestSync({
+    requestId: row.id,
+    workspaceId,
+    status,
+    linkedRuntimeInstalledAppId: input.installedAppId,
+    lastErrorCode: input.outcome === "failed" ? input.errorCode : undefined,
+    lastErrorMessage: input.outcome === "failed" ? input.errorMessage : undefined,
+  });
+}
+
 function mapCapabilityRequest(value: Record<string, unknown>): CapabilityRequestRecord | null {
   const alias = (camel: string, lower: string): unknown => value[camel] ?? value[lower];
   const id = value.id;

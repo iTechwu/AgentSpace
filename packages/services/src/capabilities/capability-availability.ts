@@ -635,7 +635,16 @@ function dispatchApprovedCapabilityRequestSync(input: {
       runtimeId: request.runtimeId,
       limit: 5,
     });
-    const activeOp = cliOps.find((op) => isActiveRuntimeAppOperation(op));
+    // Match the in-flight operation to THIS request's package — appSource +
+    // appName must line up with the requested catalog item, not just any active
+    // op on the runtime (otherwise a concurrent install of a different CLI
+    // would be mis-linked to this request).
+    const activeOp = cliOps.find(
+      (op) =>
+        isActiveRuntimeAppOperation(op) &&
+        op.appSource === request.packageSource &&
+        op.appName === request.packageSlug,
+    );
     if (activeOp) {
       const linked = transitionCapabilityRequestSync({
         requestId: request.id,

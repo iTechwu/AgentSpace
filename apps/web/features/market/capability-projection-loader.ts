@@ -11,7 +11,42 @@ import {
   projectMcpCapabilityAvailability,
   selectCliHubReadiness,
   type CapabilityAvailabilityProjection,
+  type CapabilityNextAction,
 } from "@dofe-agent/services";
+import { isActiveCapabilityOperationStatus } from "./capability-presentation";
+
+/**
+ * Minimal view of a capability_request used to overlay request state onto the
+ * market projection (P1-2). We accept the raw DB record shape; only these
+ * fields are read.
+ */
+interface CapabilityRequestProjectionInput {
+  id: string;
+  runtimeId?: string;
+  packageKind: "cli" | "mcp" | "service";
+  packageSource: string;
+  packageSlug: string;
+  status: string;
+}
+
+const TERMINAL_REQUEST_STATUS = new Set(["completed", "failed", "rejected", "cancelled"]);
+
+/**
+ * When a non-terminal capability_request covers this (runtime, package) tuple,
+ * it becomes the source of truth for the button: pending/approved →
+ * wait_for_approval, running → wait_for_operation, and we attach its id so the
+ * UI can deep-link to "我的请求". Terminal requests do not overlay — the
+ * package reflects its actual installed/connection state.
+ */
+export function overlayCapabilityRequestState(
+  projection: CapabilityAvailabilityProjection,
+  request: CapabilityRequestProjectionInput | undefined,
+): CapabilityAvailabilityProjection {
+  if (!request || TERMINAL_REQUEST_STATUS.has(request.status)) return projection;
+  const nextAction: CapabilityNextAction =
+    request.status === "running" ? "wait_for_operation" : "wait_for_approval";
+  return { ...projection, capabilityRequestId: request.id, nextAction };
+}
 
 /**
  * Compute the server-side 9-state projection for the (workspace, runtime)
@@ -35,6 +70,7 @@ export function computeMarketCapabilityProjections(input: {
   mcpCatalog: McpCatalogItemRecord[];
   mcpConnections: RuntimeMcpConnectionRecord[];
   mcpOperations: RuntimeMcpOperationRecord[];
+  capabilityRequests: CapabilityRequestProjectionInput[];
 }): {
   projections: CapabilityAvailabilityProjection[];
   byPackageKey: Map<string, CapabilityAvailabilityProjection>;
@@ -59,24 +95,41 @@ export function computeMarketCapabilityProjections(input: {
       const installed = input.installedApps.find(
         (app) => app.runtimeId === runtime.id && app.source === item.source && app.name === item.name,
       ) ?? null;
+      // Only pending/claimed/running operations block a new action; terminal
+      // (succeeded/failed/cancelled) ops must not be treated as in-flight.
       const itemOps = input.cliOperations.filter(
-        (op) => op.runtimeId === runtime.id && op.appSource === item.source && op.appName === item.name,
+        (op) =>
+          op.runtimeId === runtime.id &&
+          op.appSource === item.source &&
+          op.appName === item.name &&
+          isActiveCapabilityOperationStatus(op.status),
       );
-      const projection = projectCliCapabilityAvailability({
+      const baseProjection = projectCliCapabilityAvailability({
         workspace: workspaceInput,
         item,
         installed,
         activeOperations: itemOps,
       });
+      const cliRequest = input.capabilityRequests.find(
+        (r) =>
+          r.runtimeId === runtime.id &&
+          r.packageKind === "cli" &&
+          r.packageSource === item.source &&
+          r.packageSlug === item.name,
+      );
+      const projection = overlayCapabilityRequestState(baseProjection, cliRequest);
       projections.push(projection);
       byPackageKey.set(`${projection.runtimeId}:cli:${item.source}:${item.name}`, projection);
     }
     for (const catalogItem of input.mcpCatalog) {
       const connection = input.mcpConnections.find((c) => c.runtimeId === runtime.id && c.catalogItemId === catalogItem.id) ?? null;
       const itemOps = input.mcpOperations.filter(
-        (op) => op.runtimeId === runtime.id && (connection ? op.connectionId === connection.id : false),
+        (op) =>
+          op.runtimeId === runtime.id &&
+          (connection ? op.connectionId === connection.id : false) &&
+          isActiveCapabilityOperationStatus(op.status),
       );
-      const projection = projectMcpCapabilityAvailability({
+      const baseProjection = projectMcpCapabilityAvailability({
         workspace: workspaceInput,
         catalogItem: {
           id: catalogItem.id,
@@ -90,6 +143,14 @@ export function computeMarketCapabilityProjections(input: {
         connectionStatus: connection?.status ?? null,
         activeOperations: itemOps,
       });
+      const mcpRequest = input.capabilityRequests.find(
+        (r) =>
+          r.runtimeId === runtime.id &&
+          r.packageKind === "mcp" &&
+          r.packageSource === catalogItem.source &&
+          r.packageSlug === catalogItem.slug,
+      );
+      const projection = overlayCapabilityRequestState(baseProjection, mcpRequest);
       projections.push(projection);
       byPackageKey.set(`${projection.runtimeId}:mcp:${catalogItem.id}`, projection);
     }

@@ -60,6 +60,8 @@ const data: MarketPageData = {
   }],
   mcpConnections: [],
   mcpOperations: [],
+  capabilityProjections: [],
+  capabilityRequests: [],
   canManage: true,
 };
 
