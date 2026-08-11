@@ -1,0 +1,106 @@
+import type { CapabilityNextAction } from "@dofe-agent/services";
+import type { CapabilityTranslator } from "./capability-presentation";
+
+export interface CapabilityNextActionBadge {
+  nextAction: CapabilityNextAction;
+  primaryLabel: string;
+  primaryEnabled: boolean;
+  statusTone: "positive" | "warning" | "danger" | "neutral";
+}
+
+/**
+ * Maps the server-side 9-state `CapabilityNextAction` projection to the
+ * primary button copy and enabled state shown on the catalog detail pane.
+ * The projection itself is computed server-side; this table is the only
+ * place the UI translates the projection into copy + enable.
+ */
+export function buildCapabilityNextActionBadge(input: {
+  nextAction: CapabilityNextAction;
+  canManage: boolean;
+  userState: "available" | "installed" | "connected" | "requested" | "blocked";
+  tx: CapabilityTranslator;
+}): CapabilityNextActionBadge {
+  const { nextAction, canManage, userState, tx } = input;
+  switch (nextAction) {
+    case "install":
+      return {
+        nextAction,
+        primaryLabel: userState === "installed" ? tx("更新", "Update") : tx("安装", "Install"),
+        primaryEnabled: canManage,
+        statusTone: "positive",
+      };
+    case "connect":
+      return {
+        nextAction,
+        primaryLabel: userState === "connected" ? tx("重新连接", "Reconnect") : tx("连接", "Connect"),
+        primaryEnabled: canManage,
+        statusTone: "positive",
+      };
+    case "configure_credentials":
+      return {
+        nextAction,
+        primaryLabel: tx("配置凭据", "Configure credentials"),
+        primaryEnabled: canManage,
+        statusTone: "warning",
+      };
+    case "request_deployment":
+      return {
+        nextAction,
+        primaryLabel: tx("申请管理员部署", "Request admin deployment"),
+        primaryEnabled: true,
+        statusTone: "warning",
+      };
+    case "wait_for_approval":
+      return {
+        nextAction,
+        primaryLabel: tx("查看申请", "View request"),
+        primaryEnabled: false,
+        statusTone: "neutral",
+      };
+    case "wait_for_operation":
+      return {
+        nextAction,
+        primaryLabel: tx("查看进度", "View progress"),
+        primaryEnabled: false,
+        statusTone: "neutral",
+      };
+    case "repair":
+      return {
+        nextAction,
+        primaryLabel: tx("暂时不可用", "Temporarily unavailable"),
+        primaryEnabled: false,
+        statusTone: "danger",
+      };
+    case "govern_release":
+      return {
+        nextAction,
+        primaryLabel: tx("暂未开放", "Not yet available"),
+        primaryEnabled: false,
+        statusTone: "neutral",
+      };
+    case "none":
+      return {
+        nextAction,
+        primaryLabel: tx("已启用", "Enabled"),
+        primaryEnabled: false,
+        statusTone: "positive",
+      };
+  }
+}
+
+export function capabilityNextActionLabel(
+  nextAction: CapabilityNextAction,
+  tx: CapabilityTranslator,
+): string {
+  switch (nextAction) {
+    case "install": return tx("安装", "Install");
+    case "connect": return tx("连接", "Connect");
+    case "configure_credentials": return tx("配置凭据", "Configure credentials");
+    case "request_deployment": return tx("申请管理员部署", "Request admin deployment");
+    case "wait_for_approval": return tx("等待审核", "Awaiting approval");
+    case "wait_for_operation": return tx("处理中", "In progress");
+    case "repair": return tx("需要修复", "Needs repair");
+    case "govern_release": return tx("暂未开放", "Not yet available");
+    case "none": return tx("已启用", "Enabled");
+  }
+}

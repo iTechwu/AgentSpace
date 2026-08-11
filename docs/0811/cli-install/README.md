@@ -30,6 +30,7 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 5. 目录条目只有通过发布治理后才进入普通用户的“可获取能力”列表。
 6. 安全门禁继续保留：固定版本、镜像 digest、签名验证、受控 argv、最小网络、最小权限和审计。
 7. PostgreSQL、Redis、RabbitMQ 始终使用 `../docker-helm.dofe.ai` 的集中服务，本方案不创建这些依赖容器。
+8. 不使用 `daemonMode=local|remote` 直接决定 CLI/MCP；由 Runtime 的持久 HOME、受控安装器、MCP Gateway 和服务可达性进行能力协商。
 
 ## 3. 文档导航
 
@@ -115,4 +116,3 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 | `apps/web/app/api/workspaces/[workspaceId]/capabilities/availability/route.ts` | GET 投影 |
 | `apps/web/app/api/workspaces/[workspaceId]/capability-requests/route.ts` | POST 提交 + GET 我的请求 |
 | `apps/web/app/api/workspaces/[workspaceId]/capability-requests/[requestId]/decision/route.ts` | POST 管理员决策 |
-

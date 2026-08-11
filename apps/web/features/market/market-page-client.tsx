@@ -1,6 +1,7 @@
 "use client";
 
 import type { McpCatalogCategory, McpCatalogSource, McpConnectionOperationStage, RuntimeAppCatalogSource, RuntimeAppOperationStage, RuntimeAppOperationType } from "@dofe-agent/db";
+import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createWorkspaceRuntimeAppReleaseAction, requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
@@ -17,6 +18,10 @@ import {
   runtimeAppSourceLabel,
   type CliCatalogProductSource,
 } from "@/features/market/capability-presentation";
+import {
+  buildCapabilityNextActionBadge,
+  capabilityNextActionLabel,
+} from "@/features/market/capability-next-action-ui";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-action";
@@ -137,6 +142,11 @@ export interface MarketPageData {
     errorMessage?: string;
   }>;
   canManage: boolean;
+  /** Server-side 9-state projection for every (runtime, package) tuple.
+   *  The page consumes this to drive the primary action button copy and
+   *  enable state; the legacy `installability` field is kept for the
+   *  compatibility status chip only. */
+  capabilityProjections: CapabilityAvailabilityProjection[];
 }
 
 export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData; onDataChanged?: () => void }) {
@@ -333,6 +343,20 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
   const selectedInstallability = selected && selectedRuntime
     ? runtimeAppInstallability(selected, selectedRuntime)
     : { status: "unsupported" as const, code: "runtime.offline" };
+  // Server-side unified 9-state projection for the currently selected (runtime, package).
+  const selectedProjection = selected && selectedRuntime
+    ? data.capabilityProjections.find(
+      (p) => p.runtimeId === selectedRuntime.id && p.packageId === `${selected.source}:${selected.name}`,
+    )
+    : undefined;
+  const selectedProjectionBadge = selectedProjection
+    ? buildCapabilityNextActionBadge({
+      nextAction: selectedProjection.nextAction,
+      canManage: data.canManage && selectedProjection.canManage,
+      userState: selectedProjection.userState,
+      tx,
+    })
+    : undefined;
 
   useEffect(() => {
     if (!data.operations.some((operation) => isActiveCapabilityOperationStatus(operation.status))) {
@@ -590,6 +614,18 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                     </span>
                     <p>{runtimeAppInstallabilityReason(selectedInstallability.code, tx)}</p>
                   </div>
+                  {selectedProjectionBadge ? (
+                    <div
+                      className={`market-installability market-installability--${selectedProjectionBadge.statusTone}`}
+                      data-next-action={selectedProjectionBadge.nextAction}
+                      role="status"
+                    >
+                      <span className={`status-chip status-chip--${selectedProjectionBadge.statusTone}`}>
+                        {capabilityNextActionLabel(selectedProjectionBadge.nextAction, tx)}
+                      </span>
+                      <p>{selectedProjection?.reasonText ?? ""}</p>
+                    </div>
+                  ) : null}
                   <div className="market-install-state">
                     <span className={`status-chip status-chip--${installStateTone}`}>
                       {installStateLabel}

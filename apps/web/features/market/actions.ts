@@ -1,9 +1,17 @@
 "use server";
 
-import type { RuntimeAppArtifactKind, RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
+import type {
+  CapabilityDeploymentMode,
+  CapabilityPackageKind,
+  CapabilityRequestedAction,
+  RuntimeAppArtifactKind,
+  RuntimeAppCatalogSource,
+  RuntimeAppOperationType,
+} from "@dofe-agent/db";
 import {
   createWorkspaceRuntimeAppRelease,
   requestRuntimeAppOperationSync,
+  submitCapabilityRequestSync,
   syncCliHubCatalog,
   syncRuntimeAppSkill,
 } from "@dofe-agent/services";
@@ -104,6 +112,69 @@ export async function syncRuntimeAppSkillAction(input: {
     successToast(
       result.status === "not_available" ? (result.warning ?? "暂时没有可导入的 SKILL.md。") : "Runtime app skill 已同步。",
       result.status === "not_available" ? (result.warning ?? "No SKILL.md is available to import yet.") : "Runtime app skill synced.",
+    ),
+  );
+}
+
+export interface SubmitCapabilityRequestActionInput {
+  runtimeId: string;
+  packageKind: CapabilityPackageKind;
+  packageSource: string;
+  packageSlug: string;
+  packageDisplayName: string;
+  deploymentMode: CapabilityDeploymentMode;
+  requestedAction: CapabilityRequestedAction;
+  priority?: "normal" | "urgent";
+  message?: string;
+}
+
+export interface SubmitCapabilityRequestActionResult {
+  capabilityRequestId: string;
+  nextAction: string;
+  dispatchedOperationId: string | null;
+}
+
+/**
+ * Submit a unified capability request. The browser only submits identifiers;
+ * the server decides the deployment mode, dispatches to the right subsystem
+ * (CLI install / MCP connect / managed service provision) and returns the
+ * persisted task envelope. The page reloads from the same source of truth.
+ */
+export async function submitCapabilityRequestAction(
+  input: SubmitCapabilityRequestActionInput,
+): Promise<ActionToastResult<SubmitCapabilityRequestActionResult>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const result = submitCapabilityRequestSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    runtimeId: input.runtimeId.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+    packageKind: input.packageKind,
+    packageSource: input.packageSource.trim(),
+    packageSlug: input.packageSlug.trim(),
+    packageDisplayName: input.packageDisplayName.trim() || input.packageSlug.trim(),
+    deploymentMode: input.deploymentMode,
+    requestedAction: input.requestedAction,
+    priority: input.priority ?? "normal",
+    message: input.message ?? "",
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes"]);
+  return actionToastResult(
+    {
+      capabilityRequestId: result.capabilityRequest.id,
+      nextAction: result.nextAction,
+      dispatchedOperationId: result.dispatchedOperationId ?? null,
+    },
+    successToast(
+      result.nextAction === "wait_for_approval"
+        ? "已提交管理员部署申请。"
+        : result.nextAction === "wait_for_operation"
+        ? "任务已创建，正在执行。"
+        : "能力请求已记录。",
+      result.nextAction === "wait_for_approval"
+        ? "Submitted an admin deployment request."
+        : result.nextAction === "wait_for_operation"
+        ? "Task created and running."
+        : "Capability request recorded.",
     ),
   );
 }

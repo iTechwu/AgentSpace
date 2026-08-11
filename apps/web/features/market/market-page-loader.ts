@@ -20,6 +20,8 @@ import {
 } from "@dofe-agent/services";
 import type { MarketPageData } from "@/features/market/market-page-client";
 import { parseMcpDeclaredTools } from "@/features/market/mcp-declared-tools";
+import { computeMarketCapabilityProjections } from "@/features/market/capability-projection-loader";
+import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
 
 export async function loadMarketPageData(input: {
   workspaceId: string;
@@ -171,6 +173,17 @@ export async function loadMarketPageData(input: {
       errorMessage: operation.errorMessage,
     })),
     canManage: input.canManage,
+    capabilityProjections: buildCapabilityProjectionsForMarket({
+      workspaceId: input.workspaceId,
+      canManage: input.canManage,
+      daemonSnapshots,
+      cliCatalog: catalogRecords,
+      installedApps: listRuntimeInstalledAppsSync({ workspaceId: input.workspaceId }),
+      cliOperations: listRuntimeAppOperationsSync({ workspaceId: input.workspaceId, limit: 200 }),
+      mcpCatalog: mcpCatalogRecords,
+      mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }),
+      mcpOperations: listMcpOperationsSync({ workspaceId: input.workspaceId, limit: 200 }),
+    }),
   };
 }
 
@@ -233,4 +246,38 @@ function safeConfigurationFields(value: string | undefined): Array<{ name: strin
   } catch {
     return [];
   }
+}
+
+function buildCapabilityProjectionsForMarket(input: {
+  workspaceId: string;
+  canManage: boolean;
+  daemonSnapshots: ReturnType<typeof listDaemonSnapshotsSync>;
+  cliCatalog: ReturnType<typeof listRuntimeAppCatalogItemsSync>;
+  installedApps: ReturnType<typeof listRuntimeInstalledAppsSync>;
+  cliOperations: ReturnType<typeof listRuntimeAppOperationsSync>;
+  mcpCatalog: ReturnType<typeof listMcpCatalogItemsForWorkspaceSync>;
+  mcpConnections: ReturnType<typeof listMcpConnectionsSync>;
+  mcpOperations: ReturnType<typeof listMcpOperationsSync>;
+}): CapabilityAvailabilityProjection[] {
+  const runtimes = input.daemonSnapshots.flatMap((snapshot) =>
+    snapshot.runtimes.filter((runtime) => runtime.status === "online").map((runtime) => ({
+      id: runtime.id,
+      label: runtime.name,
+      status: runtime.status as "online" | "offline",
+      metadataJson: runtime.metadataJson,
+      daemonMetadataJson: snapshot.daemon.metadataJson,
+    })),
+  );
+  const { projections } = computeMarketCapabilityProjections({
+    workspaceId: input.workspaceId,
+    canManage: input.canManage,
+    runtimes,
+    cliCatalog: input.cliCatalog,
+    installedApps: input.installedApps,
+    cliOperations: input.cliOperations,
+    mcpCatalog: input.mcpCatalog,
+    mcpConnections: input.mcpConnections,
+    mcpOperations: input.mcpOperations,
+  });
+  return projections;
 }

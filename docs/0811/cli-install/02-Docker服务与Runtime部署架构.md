@@ -8,6 +8,7 @@
 4. 服务通过受管 connection reference 接入 MCP Gateway，浏览器不持有私网 endpoint。
 5. 镜像以 digest 固定，必要时使用 cosign 公钥验证后才能拉取。
 6. PostgreSQL、Redis、RabbitMQ 使用外部集中管理实例，不由应用部署创建。
+7. `daemonMode` 不作为 CLI/MCP 分流开关；Runtime 通过 execution profile 声明实际能力。
 
 ## 2. 逻辑拓扑
 
@@ -54,6 +55,11 @@ Runtime heartbeat 或注册时上报：
 interface RuntimeReadiness {
   checkedAt: string;
   architecture: string;
+  writableHome: boolean;
+  persistentHome: boolean;
+  runtimePackageExecutor: boolean;
+  mcpGateway: boolean;
+  managedServiceReachable: boolean;
   node: { available: boolean; version?: string };
   npm: { available: boolean; version?: string };
   python: { available: boolean; version?: string };
@@ -67,7 +73,21 @@ interface RuntimeReadiness {
 
 readiness 是部署决策输入，不是用户可修改的前端布尔值。若检查过期，状态应为“需要重新检查”，而不是直接声称可安装。
 
-### 3.3 镜像发布门禁
+### 3.3 Local/Remote 语义
+
+`local` 和 `remote` 只描述 daemon/工作目录位置。能力支持由 readiness/execution profile 决定：
+
+| 条件 | CLI 结论 | MCP 结论 |
+| --- | --- | --- |
+| `writableHome && persistentHome && runtimePackageExecutor` | 可以评估 `runtime_package` | 不受影响 |
+| `mcpGateway && managedServiceReachable` | 不受影响 | 可以评估 MCP/managed service |
+| Remote 但具备以上全部条件 | CLI 可用 | MCP 可用 |
+| Local 但没有 MCP Gateway | CLI 可用 | MCP 不可用 |
+| Remote 且只读、无安装器 | CLI 不可用 | MCP 可用时使用 MCP-only |
+
+这避免把远程受管 Docker Runtime 错误降级为 MCP-only，也避免本地 Runtime 因为“本地”标签就被假定支持所有能力。
+
+### 3.4 镜像发布门禁
 
 - 基础镜像来源固定并记录 digest；
 - 生成 SBOM 和漏洞扫描结果；
@@ -209,4 +229,3 @@ Provider Runtime
 ## 8. 安全边界
 
 本方案不通过“提前装 Docker 服务”绕过供应链安全。每个服务仍需 immutable release、网络策略、secret schema、工具批准和审计。集中管理的数据库、缓存和消息队列不作为应用服务附带部署。
-
