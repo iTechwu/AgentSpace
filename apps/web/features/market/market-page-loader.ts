@@ -27,6 +27,10 @@ import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
 export async function loadMarketPageData(input: {
   workspaceId: string;
   canManage: boolean;
+  /** Non-admin members only see their own capability requests; admins see all.
+   *  When canManage is false this MUST be the viewer's user id so the loader
+   *  can scope the list. */
+  actorUserId?: string;
 }): Promise<MarketPageData> {
   let catalogHealth = readRuntimeAppCatalogHealthSync();
   if (catalogHealth.itemCount === 0) {
@@ -176,6 +180,9 @@ export async function loadMarketPageData(input: {
     canManage: input.canManage,
     capabilityRequests: listCapabilityRequestsSync({
       workspaceId: input.workspaceId,
+      // Permission boundary: non-admins only see their own requests. Admins
+      // (canManage) see the full workspace list so they can work the queue.
+      requestedByUserId: input.canManage ? undefined : input.actorUserId,
       limit: 50,
     }).map((request) => ({
       id: request.id,

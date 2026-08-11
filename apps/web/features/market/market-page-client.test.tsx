@@ -139,6 +139,11 @@ const data: MarketPageData = {
   ],
   mcpConnections: [],
   mcpOperations: [],
+  // The page is now projection-driven: these are required (non-optional) on
+  // MarketPageData. Empty arrays keep the legacy tests focused on the
+  // installability / connection flows they were written for.
+  capabilityProjections: [],
+  capabilityRequests: [],
   canManage: true,
 };
 
@@ -350,7 +355,9 @@ describe("MarketPageClient", () => {
     );
 
     await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
-    expect(within(screen.getByRole("combobox", { name: "传输" })).getByRole("option", { name: "managed_stdio" })).toBeInTheDocument();
+    expect(within(screen.getByRole("combobox", { name: "传输" })).getByRole("option", { name: "受管 stdio" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "MCP 服务目录" })).getByText("受管 stdio")).toBeInTheDocument();
+    expect(screen.getByText("开发工具")).toBeInTheDocument();
     expect(screen.getByText("chrome-devtools-mcp@1.6.0")).toBeInTheDocument();
     const progress = screen.getByRole("list", { name: "MCP 连接进度" });
     expect(progress).toBeInTheDocument();
@@ -405,7 +412,7 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
 
     expect(screen.queryByRole("button", { name: "继续：安装依赖 CLI" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "继续：验证并连接" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "配置并连接" })).toBeEnabled();
   });
 
   it("groups one MCP service connected to multiple runtimes without presenting duplicate services", async () => {
@@ -1007,6 +1014,9 @@ describe("MarketPageClient", () => {
     expect(within(catalogRegion).getByRole("button", { name: /Official Search/ })).toBeInTheDocument();
     expect(within(catalogRegion).queryByRole("button", { name: /Workspace Search/ })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Official Search" })).toBeInTheDocument();
+    const detailPanel = screen.getByRole("complementary", { name: "MCP 详情" });
+    expect(within(detailPanel).getByText("高风险")).toBeInTheDocument();
+    expect(within(screen.getByRole("listitem", { name: "Official Search · Online Runtime" })).getByText("连接异常")).toBeInTheDocument();
   });
 
   it("shows connection verification diagnostics and safely enters configuration replacement mode", async () => {
@@ -1035,6 +1045,7 @@ describe("MarketPageClient", () => {
 
     await user.click(screen.getByRole("tab", { name: /MCP/ }));
     expect(screen.getByText(/上次验证/)).toBeInTheDocument();
+    expect(screen.getByText("已验证")).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Workspace Search · Online Runtime" })).toBeInTheDocument();
     const toolSummary = screen.getByText("查看工具 (1)");
     await user.click(toolSummary);
@@ -1042,7 +1053,7 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
     expect(screen.getByText(/不会回显/)).toBeInTheDocument();
     await user.type(screen.getByLabelText("X-Workspace *"), "workspace-42");
-    await user.click(screen.getByRole("button", { name: "更新并重新验证" }));
+    await user.click(screen.getByRole("button", { name: "配置并连接" }));
 
     await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
       connectionId: "connection-1",
@@ -1117,7 +1128,7 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("tab", { name: /MCP/ }));
     await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
     // Do not re-type the required X-Workspace field.
-    await user.click(screen.getByRole("button", { name: "更新并重新验证" }));
+    await user.click(screen.getByRole("button", { name: "配置并连接" }));
 
     await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
       connectionId: "connection-1",
@@ -1167,7 +1178,7 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("button", { name: /Other Search/ }));
     // Then enter edit mode for a connection of the first catalog.
     await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
-    await user.click(screen.getByRole("button", { name: "更新并重新验证" }));
+    await user.click(screen.getByRole("button", { name: "配置并连接" }));
 
     await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
       connectionId: "connection-1",

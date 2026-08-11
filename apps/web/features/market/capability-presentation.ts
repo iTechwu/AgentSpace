@@ -82,6 +82,105 @@ export function mcpOperationStageLabel(
   }
 }
 
+export function mcpTransportLabel(transport: string, tx: CapabilityTranslator): string {
+  switch (transport) {
+    case "streamable_http": return tx("流式 HTTP", "Streamable HTTP");
+    case "managed_stdio": return tx("受管 stdio", "Managed stdio");
+    case "managed_service": return tx("受管服务", "Managed service");
+    case "sse": return tx("SSE", "SSE");
+    default: return tx("未知传输", "Unknown transport");
+  }
+}
+
+export function mcpCatalogCategoryLabel(category: string, tx: CapabilityTranslator): string {
+  const labels: Record<string, [string, string]> = {
+    developer_tools: ["开发工具", "Developer tools"],
+    productivity: ["生产力", "Productivity"],
+    data_analytics: ["数据分析", "Data analytics"],
+    communication: ["沟通协作", "Communication"],
+    knowledge: ["知识管理", "Knowledge"],
+    automation: ["自动化", "Automation"],
+    other: ["其他", "Other"],
+  };
+  const label = labels[category];
+  return label ? tx(label[0], label[1]) : tx("其他", "Other");
+}
+
+export function mcpCatalogSourceLabel(source: string, tx: CapabilityTranslator): string {
+  const labels: Record<string, [string, string]> = {
+    official: ["官方", "Official"],
+    verified_partner: ["认证伙伴", "Verified partner"],
+    workspace_private: ["工作区私有", "Workspace private"],
+  };
+  const label = labels[source];
+  return label ? tx(label[0], label[1]) : tx("未知来源", "Unknown source");
+}
+
+export function mcpRiskLabel(risk: string, tx: CapabilityTranslator): string {
+  switch (risk) {
+    case "low": return tx("低风险", "Low risk");
+    case "medium": return tx("中风险", "Medium risk");
+    case "high": return tx("高风险", "High risk");
+    default: return tx("风险未知", "Unknown risk");
+  }
+}
+
+export function mcpConnectionStatusLabel(status: string, tx: CapabilityTranslator): string {
+  switch (status) {
+    case "pending_configuration": return tx("待配置", "Needs config");
+    case "queued_verification": return tx("等待验证", "Queued");
+    case "verifying": return tx("验证中", "Verifying");
+    case "ready": return tx("已验证", "Verified");
+    case "degraded": return tx("连接异常", "Degraded");
+    case "failed": return tx("验证失败", "Verification failed");
+    case "disabled": return tx("已停用", "Disabled");
+    default: return tx("状态未知", "Unknown status");
+  }
+}
+
+export function mcpOperationLabel(operation: string, tx: CapabilityTranslator): string {
+  const labels: Record<string, [string, string]> = {
+    verify: ["验证", "Verify"],
+    enable: ["启用", "Enable"],
+    disable: ["停用", "Disable"],
+    remove: ["移除", "Remove"],
+  };
+  const label = labels[operation];
+  return label ? tx(label[0], label[1]) : tx("未知操作", "Unknown operation");
+}
+
+export function mcpOperationSourceLabel(source: string, tx: CapabilityTranslator): string {
+  const labels: Record<string, [string, string]> = {
+    user_verify: ["用户验证", "User verification"],
+    config_change: ["配置变更", "Configuration change"],
+    secret_rotation: ["密钥轮换", "Secret rotation"],
+    health_check: ["健康检查", "Health check"],
+    enable: ["启用", "Enable"],
+    remove: ["移除", "Remove"],
+  };
+  const label = labels[source];
+  return label ? tx(label[0], label[1]) : tx("未知来源", "Unknown source");
+}
+
+export function mcpOperationStatusLabel(status: string, tx: CapabilityTranslator): string {
+  const labels: Record<string, [string, string]> = {
+    pending: ["等待中", "Pending"],
+    claimed: ["已领取", "Claimed"],
+    running: ["进行中", "Running"],
+    succeeded: ["已成功", "Succeeded"],
+    failed: ["失败", "Failed"],
+    cancelled: ["已取消", "Cancelled"],
+  };
+  const label = labels[status];
+  return label ? tx(label[0], label[1]) : tx("状态未知", "Unknown status");
+}
+
+export function mcpToolCallOutcomeLabel(outcome: string, tx: CapabilityTranslator): string {
+  if (outcome === "succeeded") return tx("成功", "Succeeded");
+  if (outcome === "failed") return tx("失败", "Failed");
+  return tx("结果未知", "Unknown result");
+}
+
 export function projectRuntimeAppInstallability(
   installability: CliInstallabilityProjection,
   readiness: RuntimeCliReadinessProjection,

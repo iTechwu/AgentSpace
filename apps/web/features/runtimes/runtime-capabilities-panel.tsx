@@ -8,7 +8,10 @@ import { removeMcpConnectionAction, requestMcpConnectionAction, reverifyMcpConne
 import type { MarketPageData } from "@/features/market/market-page-client";
 import {
   isActiveCapabilityOperationStatus,
+  mcpConnectionStatusLabel,
+  mcpRiskLabel,
   mcpOperationStageLabel,
+  mcpTransportLabel,
   projectRuntimeAppInstallability,
   runtimeAppOperationStageLabel,
   runtimeAppInstallabilityReason,
@@ -288,20 +291,10 @@ export function RuntimeCapabilitiesPanel({
                   <span className="runtime-capability-row__icon"><AppIcon name="containers" /></span>
                   <div className="runtime-capability-row__identity">
                     <strong>{item.displayName}</strong>
-                    <span>{item.transport} · {item.declaredTools.length} {tx("个工具", "tools")}</span>
+                    <span>{mcpTransportLabel(item.transport, tx)} · {item.declaredTools.length} {tx("个工具", "tools")}</span>
                   </div>
                   <span className={`status-chip status-chip--${connection?.status === "ready" ? "positive" : connection?.status === "failed" || connection?.status === "degraded" ? "danger" : connection ? "warning" : "neutral"}`}>
-                    {connection?.status === "ready"
-                      ? tx("已连接", "Connected")
-                      : connection?.status === "failed"
-                        ? tx("验证失败", "Failed")
-                        : connection?.status === "degraded"
-                          ? tx("连接异常", "Degraded")
-                          : connection?.status === "disabled"
-                            ? tx("已停用", "Disabled")
-                            : connection
-                              ? tx("验证中", "Verifying")
-                              : tx("可连接", "Available")}
+                    {connection ? mcpConnectionStatusLabel(connection.status, tx) : tx("可连接", "Available")}
                   </span>
                   <div className="runtime-capability-row__actions">
                     {connection ? (
@@ -330,7 +323,7 @@ export function RuntimeCapabilitiesPanel({
               </div>
               <details className="mcp-tool-scope" open={selectedMcp.declaredTools.length <= 6}>
                 <summary className="mcp-tool-scope__summary"><span className="mcp-section-label">{tx("工具范围", "Tool scope")}</span><span>{approvedTools.size}/{selectedMcp.declaredTools.length}</span></summary>
-                <div className="mcp-tool-scope__list">{selectedMcp.declaredTools.map((tool) => <label className="mcp-tool-row" key={tool.name}><input checked={approvedTools.has(tool.name)} onChange={() => toggleTool(tool.name)} type="checkbox" /><span><strong>{tool.name}</strong><small>{tool.description}</small></span><span className={`status-chip status-chip--${tool.risk === "high" ? "danger" : tool.risk === "medium" ? "warning" : "positive"}`}>{tool.risk}</span></label>)}</div>
+                <div className="mcp-tool-scope__list">{selectedMcp.declaredTools.map((tool) => <label className="mcp-tool-row" key={tool.name}><input checked={approvedTools.has(tool.name)} onChange={() => toggleTool(tool.name)} type="checkbox" /><span><strong>{tool.name}</strong><small>{tool.description}</small></span><span className={`status-chip status-chip--${tool.risk === "high" ? "danger" : tool.risk === "medium" ? "warning" : "positive"}`}>{mcpRiskLabel(tool.risk, tx)}</span></label>)}</div>
               </details>
               {selectedMcpRequiresHighRiskConfirmation ? <label className="market-confirm-risk"><input checked={confirmHighRisk} onChange={(event) => setConfirmHighRisk(event.currentTarget.checked)} type="checkbox" /><span>{tx("确认此 Runtime 将访问声明的数据域", "Confirm access to the declared data domains")}</span></label> : null}
               {selectedMcp.transport === "managed_stdio" ? <ManagedMcpSetupProgress configurationReady={Boolean(endpoint.trim()) && selectedMcp.configurationFields.every((field) => !field.required || Boolean(nonSecretParams[field.name]?.trim())) && selectedMcp.secretFields.every((field) => Boolean(secrets[field]?.trim()))} dependencyReady={requiredRuntimeAppReady} dependencyRequired={Boolean(requiredRuntimeApp)} permissionsReady={!selectedMcpRequiresHighRiskConfirmation || confirmHighRisk} runtimeReady={Boolean(runtime)} tx={tx} /> : null}

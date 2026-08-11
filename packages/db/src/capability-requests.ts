@@ -84,7 +84,15 @@ export function createCapabilityRequestSync(
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
   const id = `capability-request-${randomLikeId()}`;
-  withTransaction(getDatabase(), () => {
+  // Predicate that selects terminal requests so a re-submission of the same
+  // idempotency key reopens them instead of silently staying rejected/failed.
+  const terminal = "capability_request.status IN ('rejected','failed','completed','cancelled')";
+  // Each terminal-only reset: clear the column when reopening, otherwise keep
+  // the existing value. Repeated predicate is intentional — ON CONFLICT SET
+  // cannot reference an aliased expression across columns.
+  const reopen = (column: string) =>
+    `CASE WHEN ${terminal} THEN NULL ELSE capability_request.${column} END`;
+  const row = withTransaction(getDatabase(), () =>
     getDatabase()
       .prepare(
         `INSERT INTO capability_request (
@@ -101,6 +109,18 @@ export function createCapabilityRequestSync(
           message = excluded.message,
           release_id = excluded.release_id,
           metadata_json = excluded.metadata_json,
+          status = CASE WHEN ${terminal} THEN 'pending' ELSE capability_request.status END,
+          decided_by_user_id = ${reopen("decided_by_user_id")},
+          decision_reason = ${reopen("decision_reason")},
+          decided_at = ${reopen("decided_at")},
+          completed_at = ${reopen("completed_at")},
+          last_error_code = ${reopen("last_error_code")},
+          last_error_message = ${reopen("last_error_message")},
+          linked_runtime_app_operation_id = ${reopen("linked_runtime_app_operation_id")},
+          linked_runtime_installed_app_id = ${reopen("linked_runtime_installed_app_id")},
+          linked_mcp_connection_id = ${reopen("linked_mcp_connection_id")},
+          linked_runtime_provisioning_task_id = ${reopen("linked_runtime_provisioning_task_id")},
+          linked_knowledge_page_id = ${reopen("linked_knowledge_page_id")},
           updated_at = excluded.updated_at
         RETURNING id`,
       )
@@ -121,9 +141,14 @@ export function createCapabilityRequestSync(
         input.metadataJson ?? "{}",
         now,
         now,
-      );
-  });
-  const record = readCapabilityRequestSync(id, workspaceId);
+      ) as { id: string } | undefined,
+  );
+  // ON CONFLICT returns the persisted id (existing row on conflict, new row
+  // otherwise). Read back with THAT id — using the locally-generated `id`
+  // would miss on conflict and throw a spurious create_failed.
+  const persistedId = row?.id;
+  if (!persistedId) throw new Error("capability_request.create_failed");
+  const record = readCapabilityRequestSync(persistedId, workspaceId);
   if (!record) throw new Error("capability_request.create_failed");
   return record;
 }
