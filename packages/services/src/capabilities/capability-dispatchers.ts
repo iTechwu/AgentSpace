@@ -95,7 +95,11 @@ export function dispatchApprovedCapabilityRequestSync(input: {
       const final = failed ?? request;
       return { request: final, capabilityRequest: final, nextAction: "repair" };
     }
-    const plan = safeBuildInstallPlan(item);
+    // Prefer the plan pinned at submission (metadata.cliPlan) so an approved
+    // dispatch cannot drift to a newer catalog version/integrity (Sp5). Fall back
+    // to rebuilding from the current catalog item for legacy unpinned requests.
+    const pinnedPlan = readPinnedCliPlan(request.metadataJson);
+    const plan = pinnedPlan ?? safeBuildInstallPlan(item);
     if (!plan) {
       const failed = transitionCapabilityRequestSync({
         requestId: request.id,
@@ -281,12 +285,15 @@ function dispatchMcpCapabilityRequestSync(input: {
     return { request: final, capabilityRequest: final, nextAction: "repair" };
   }
 
-  // Spec: a managed_service-mode MCP (e.g. OpenMontage) must be deployed as a
-  // container FIRST — the MCP connection is only materialized once the service
-  // instance is ready. This routes managed MCP through the container driver
-  // instead of skipping straight to a connection (which would fail against a
-  // non-existent container).
-  if (request.deploymentMode === "managed_service") {
+  // Spec: a managed_service-mode MCP whose catalog transport is genuinely a
+  // CONTAINER (e.g. OpenMontage) must be deployed as a container FIRST — the MCP
+  // connection is only materialized once the service instance is ready. A
+  // managed_stdio MCP (Chrome DevTools, MiniMax) is NOT a Docker service: it
+  // installs a Runtime CLI dependency and runs a stdio worker, so it skips the
+  // container driver and goes straight to the connection lifecycle below.
+  const isContainerManagedMcp = request.deploymentMode === "managed_service"
+    && catalog.transport === "managed_service";
+  if (isContainerManagedMcp) {
     const provision = queueCapabilityManagedServiceProvisionSync({
       workspaceId: input.workspaceId,
       request,
@@ -559,6 +566,20 @@ function readManagedServiceCatalogId(request: CapabilityRequestRecord): string |
 function safeBuildInstallPlan(item: RuntimeAppCatalogItemRecord): RuntimeAppInstallPlan | null {
   try {
     return buildRuntimeAppInstallPlan({ item, operation: "install" });
+  } catch {
+    return null;
+  }
+}
+
+function readPinnedCliPlan(metadataJson: string): RuntimeAppInstallPlan | null {
+  try {
+    const metadata = parseRequestMetadata(metadataJson);
+    const raw = metadata.cliPlan;
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    const parsed = JSON.parse(raw) as RuntimeAppInstallPlan;
+    return parsed && typeof parsed.app === "object" && Array.isArray(parsed.commands)
+      ? parsed
+      : null;
   } catch {
     return null;
   }

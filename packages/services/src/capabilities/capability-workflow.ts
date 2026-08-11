@@ -8,6 +8,7 @@ import {
   cancelCapabilityRequestSync as dbCancelCapabilityRequestSync,
   createCapabilityRequestSync,
   decideCapabilityRequestSync,
+  getDatabase,
   listCapabilityRequestsSync,
   listMcpConnectionsSync,
   listMcpOperationsSync,
@@ -21,6 +22,7 @@ import {
   readWorkspaceRuntimeAppReleaseByVersionSync,
 } from "@dofe-agent/db";
 import { materializeMcpConnectionSync } from "../mcp-center/connections.ts";
+import { buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { createNotificationSync, notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
@@ -228,8 +230,10 @@ interface ResolvedCapabilityCatalogPlan {
   packageSource?: string;
   /** Immutable MCP catalog item id (mcp kind). */
   catalogItemId?: string;
-  /** Immutable managed-service template id (service kind, S2). */
+  /** Immutable managed-service template id (service kind / container MCP, S2/Sp3). */
   managedServiceCatalogId?: string;
+  /** Pinned CLI install plan JSON (cli kind, Sp5) — dispatch uses this exact plan. */
+  cliPlan?: string;
   displayName?: string;
 }
 
@@ -252,10 +256,23 @@ function resolveCapabilityDeploymentPlan(
   if (input.packageKind === "cli") {
     const item = findCliCatalogItem(workspaceId, input.packageSource, input.packageSlug);
     if (!item) return null;
+    // Pin the exact install plan at submission so the approved dispatch cannot
+    // drift to a newer catalog version / integrity (Sp5). Runtime_builtin
+    // (cli_hub/bundled) tools have no package plan to pin.
+    let cliPlan: string | undefined;
+    if (classifyCliDeploymentMode(item) === "runtime_package") {
+      try {
+        const plan = buildRuntimeAppInstallPlan({ item, operation: "install" });
+        cliPlan = JSON.stringify(plan);
+      } catch {
+        cliPlan = undefined;
+      }
+    }
     return {
       deploymentMode: classifyCliDeploymentMode(item),
       packageSource: item.source,
       displayName: item.displayName,
+      cliPlan,
     };
   }
   if (input.packageKind === "service") {
@@ -271,13 +288,22 @@ function resolveCapabilityDeploymentPlan(
   }
   // MCP — resolve the workspace catalog item by slug, pin the exact
   // catalogItemId so dispatch cannot drift to a newer same-slug release, and
-  // make the catalog's source authoritative.
+  // make the catalog's source authoritative. A container MCP (transport
+  // managed_service) also pins its skill_service template id so the deployed
+  // image cannot drift after approval (Sp3).
   const catalog = readMcpCatalogItemBySlugSync(input.packageSlug, workspaceId);
   if (!catalog) return null;
+  const isContainer = catalog.transport === "managed_service";
+  const template = isContainer
+    ? listSkillServiceCatalogSync(workspaceId)
+        .filter((entry) => entry.slug === input.packageSlug && entry.deploymentType === "managed_service")
+        .sort((left, right) => right.templateVersion.localeCompare(left.templateVersion))[0]
+    : undefined;
   return {
     deploymentMode: catalog.transport === "streamable_http" ? "external_service" : "managed_service",
     packageSource: catalog.source,
     catalogItemId: catalog.id,
+    managedServiceCatalogId: template?.id,
     displayName: catalog.displayName,
   };
 }
@@ -289,10 +315,16 @@ function buildCapabilityRequestMetadataJson(
   plan: ResolvedCapabilityCatalogPlan | null,
 ): string {
   const metadata: Record<string, unknown> = {};
+  if (packageKind === "cli") {
+    // Pin the exact install plan so dispatch cannot drift (Sp5).
+    if (plan?.cliPlan) metadata.cliPlan = plan.cliPlan;
+  }
   if (packageKind === "mcp") {
     const catalogItemId = plan?.catalogItemId
       ?? readMcpCatalogItemBySlugSync(packageSlug, workspaceId)?.id;
     if (catalogItemId) metadata.catalogItemId = catalogItemId;
+    // Container MCP also pins the skill_service template (Sp3).
+    if (plan?.managedServiceCatalogId) metadata.managedServiceCatalogId = plan.managedServiceCatalogId;
   }
   if (packageKind === "service") {
     const templateId = plan?.managedServiceCatalogId;
@@ -328,6 +360,23 @@ export function approveCapabilityRequestSync(input: {
   if (!changed) {
     const request = readCapabilityRequestSync(input.requestId, input.workspaceId);
     if (!request) throw new Error("capability_request.not_found");
+    // Reconciler (Sp4): an `approved` request that was blocked at dispatch time
+    // (feature flag off / template not yet admitted) has no linked operation. A
+    // re-approval after ops enables the flag / admits the template re-dispatches
+    // it instead of leaving it stuck — dispatch is idempotent, so a request that
+    // already has an in-flight operation is a no-op.
+    if (request.status === "approved" && !request.linkedRuntimeAppOperationId && !request.linkedMcpConnectionId) {
+      const recovered = dispatchApprovedCapabilityRequestSync({
+        workspaceId: input.workspaceId,
+        requestId: request.id,
+        actorUserId: input.actorUserId,
+      });
+      return {
+        capabilityRequest: recovered.request,
+        dispatchedOperationId: recovered.operationId,
+        nextAction: recovered.nextAction,
+      };
+    }
     return {
       capabilityRequest: request,
       dispatchedOperationId: request.linkedRuntimeAppOperationId ?? request.linkedMcpConnectionId ?? undefined,
@@ -421,10 +470,15 @@ export function cancelCapabilityRequestSync(input: {
     actorUserId: input.actorUserId,
     reason: input.reason,
   });
-  // A cancelled managed-service capability releases its container to the retire
-  // sweep; the sweep now protects pending/approved/running/completed references
-  // but treats cancelled as removable (idle TTL → retire).
-  if (result && (result.status === "cancelled")) {
+  if (result && result.status === "cancelled") {
+    // Spec: cancelling the envelope must also stop the in-flight work — the
+    // linked CLI/baseline op, the skill-service provision op, and the MCP
+    // connection (Sp6). Otherwise the page shows "cancelled" while the daemon
+    // still installs or creates the container.
+    cancelLinkedCapabilityOperationsSync(input.workspaceId, result);
+    // A cancelled managed-service capability releases its container to the retire
+    // sweep; the sweep now protects pending/approved/running/completed references
+    // but treats cancelled as removable (idle TTL → retire).
     tryRecordWorkspaceAuditEventSync({
       workspaceId: input.workspaceId,
       title: "Capability request cancelled",
@@ -439,6 +493,36 @@ export function cancelCapabilityRequestSync(input: {
     });
   }
   return result;
+}
+
+function cancelLinkedCapabilityOperationsSync(
+  workspaceId: string,
+  request: CapabilityRequestRecord,
+): void {
+  if (request.linkedRuntimeAppOperationId) {
+    getDatabase().prepare(
+      `UPDATE runtime_app_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
+       WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
+    ).run(request.linkedRuntimeAppOperationId, workspaceId);
+  }
+  if (request.linkedMcpConnectionId) {
+    getDatabase().prepare(
+      `UPDATE runtime_mcp_connection SET status = 'removed'
+       WHERE id = ? AND workspace_id = ?`,
+    ).run(request.linkedMcpConnectionId, workspaceId);
+  }
+  try {
+    const metadata = JSON.parse(request.metadataJson) as Record<string, unknown>;
+    const skillOpId = metadata.skillServiceOperationId;
+    if (typeof skillOpId === "string" && skillOpId) {
+      getDatabase().prepare(
+        `UPDATE managed_skill_service_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
+         WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
+      ).run(skillOpId, workspaceId);
+    }
+  } catch {
+    // malformed metadata — nothing further to cancel
+  }
 }
 
 export interface CompleteCapabilityRequestMcpConnectionInput {

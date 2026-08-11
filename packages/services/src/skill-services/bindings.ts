@@ -438,6 +438,7 @@ export function retireUnreferencedManagedSkillServicesSync(
         workspaceId,
         serviceId: service.id,
         catalogId: service.catalogId,
+        runtimeId: service.runtimeId,
       });
     if (referenced) {
       if (service.unreferencedSince) {

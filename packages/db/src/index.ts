@@ -728,6 +728,7 @@ export {
   findCapabilityRequestByLinkedRuntimeAppOperationIdSync,
   findCapabilityRequestByServiceOperationIdSync,
   hasActiveCapabilityRequestForManagedServiceSync,
+  listCapabilityRequestsByServiceOperationIdSync,
   listCapabilityRequestsSync,
   readCapabilityRequestSync,
   transitionCapabilityRequestSync,

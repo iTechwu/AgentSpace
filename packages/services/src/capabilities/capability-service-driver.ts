@@ -2,7 +2,7 @@ import type { CapabilityRequestRecord, StoredSkillServiceCatalogRecord } from "@
 import {
   createManagedSkillServiceOperationSync,
   createManagedSkillServiceSync,
-  findCapabilityRequestByServiceOperationIdSync,
+  listCapabilityRequestsByServiceOperationIdSync,
   listManagedSkillServiceOperationsSync,
   listSkillServiceCatalogSync,
   readCapabilityRequestSync,
@@ -170,6 +170,10 @@ function persistProvisionLinkage(
 export function autoConnectManagedMcpAfterProvisionSync(input: {
   workspaceId: string;
   request: CapabilityRequestRecord;
+  /** Provisioned container endpoint (runtime-private://...) — preferred over the
+   *  catalog's static template so the connection targets the JUST-provisioned
+   *  container, not a pre-existing service. */
+  endpointRef?: string;
 }): boolean {
   const marker = readMcpAutoConnectMarker(input.request);
   if (!marker) return false;
@@ -181,7 +185,9 @@ export function autoConnectManagedMcpAfterProvisionSync(input: {
     actorUserId: marker.actorUserId,
     runtimeId: input.request.runtimeId,
     catalogItemId: catalog.id,
-    endpoint: marker.endpoint,
+    // Spec: the provisioned container endpoint is the real connection target; the
+    // static catalog template ("managed-service://...") is only the fallback.
+    endpoint: input.endpointRef?.trim() || marker.endpoint,
     approvedTools: marker.approvedTools,
     confirmHighRisk: catalog.risk === "high",
   });
@@ -211,29 +217,57 @@ function readMcpAutoConnectMarker(request: CapabilityRequestRecord): McpAutoConn
 
 /**
  * Operation→request convergence. When a skill-service provision operation
- * referenced by a capability_request reaches a terminal state, converge the
- * request (running → completed/failed). No-op when no request references the
- * operation or the request is already terminal. Uses a JSONB-targeted lookup so
- * an old request (outside any recent-200 window) is still converged.
+ * referenced by capability_requests reaches a terminal state, converge EVERY
+ * linked request (multiple requests can share one in-flight provision op, so a
+ * LIMIT-1 lookup would leave the rest permanently running). Uses a JSONB-targeted
+ * lookup so an old request (outside any recent window) is still converged.
+ *
+ * Per-request terminal policy:
+ *   - zero-config managed MCP (auto-connect marker) → create the connection
+ *     (endpointRef from the provisioned container), do NOT stamp terminal;
+ *   - credential/endpoint-bearing managed MCP (no marker) → container is ready,
+ *     request returns to `approved` so configure_credentials surfaces for the
+ *     applicant to finish;
+ *   - plain service → completed/failed.
  */
 export function convergeCapabilityRequestFromSkillServiceOperationSync(input: {
   operationId: string;
   workspaceId: string;
   outcome: "succeeded" | "failed";
+  /** Provisioned container endpoint (runtime-private://...) the daemon reported. */
+  endpointRef?: string;
   errorCode?: string;
   errorMessage?: string;
 }): CapabilityRequestRecord | null {
-  const request = findCapabilityRequestByServiceOperationIdSync(input.workspaceId, input.operationId);
-  if (!request) return null;
-  if (
-    request.status === "completed"
-    || request.status === "failed"
-    || request.status === "cancelled"
-  ) {
-    return request;
+  const requests = listCapabilityRequestsByServiceOperationIdSync(input.workspaceId, input.operationId);
+  if (requests.length === 0) return null;
+  let last: CapabilityRequestRecord | null = null;
+  for (const request of requests) {
+    if (
+      request.status === "completed"
+      || request.status === "failed"
+      || request.status === "cancelled"
+    ) {
+      last = request;
+      continue;
+    }
+    last = convergeSingleServiceProvisionedRequest(input, request);
   }
+  return last;
+}
 
-  // Managed-MCP request: the container is now provisioned (or failed). On
+function convergeSingleServiceProvisionedRequest(
+  input: {
+    workspaceId: string;
+    operationId: string;
+    outcome: "succeeded" | "failed";
+    endpointRef?: string;
+    errorCode?: string;
+    errorMessage?: string;
+  },
+  request: CapabilityRequestRecord,
+): CapabilityRequestRecord {
+  // Zero-config managed MCP: container is now provisioned (or failed). On
   // success, materialize the MCP connection — the link-back binds it to this
   // running request and the verify op drives completion, so we do NOT stamp the
   // request terminal here. On failure, converge to failed.
@@ -245,21 +279,22 @@ export function convergeCapabilityRequestFromSkillServiceOperationSync(input: {
         status: "failed",
         lastErrorCode: input.errorCode ?? "capability_request.managed_mcp_provision_failed",
         lastErrorMessage: input.errorMessage ?? "容器部署失败，MCP 未连接。",
-      });
+      }) ?? request;
     }
     try {
-      const connected = autoConnectManagedMcpAfterProvisionSync({ workspaceId: input.workspaceId, request });
+      const connected = autoConnectManagedMcpAfterProvisionSync({
+        workspaceId: input.workspaceId,
+        request,
+        endpointRef: input.endpointRef,
+      });
       if (!connected) {
-        // The marker is present but the connection could not be materialized
-        // (catalog withdrawn / missing runtime / invalid marker) — fail closed
-        // rather than leave the request permanently running.
         return transitionCapabilityRequestSync({
           requestId: request.id,
           workspaceId: input.workspaceId,
           status: "failed",
           lastErrorCode: "mcp.connection_dispatch_failed",
           lastErrorMessage: "容器已就绪但 MCP 连接无法创建（目录条目或运行时缺失）。",
-        });
+        }) ?? request;
       }
       return readCapabilityRequestSync(request.id, input.workspaceId) ?? request;
     } catch (error) {
@@ -270,17 +305,39 @@ export function convergeCapabilityRequestFromSkillServiceOperationSync(input: {
         status: "failed",
         lastErrorCode: "mcp.connection_dispatch_failed",
         lastErrorMessage: message,
-      });
+      }) ?? request;
     }
   }
 
+  // Credential/endpoint-bearing managed MCP: the container is provisioned but
+  // the applicant must still supply secrets/endpoint. Return to `approved` so
+  // configure_credentials surfaces (the overlay maps approved+mcp → that state);
+  // the applicant completes via completeCapabilityRequestMcpConnectionSync.
+  if (request.packageKind === "mcp" && request.deploymentMode === "managed_service") {
+    if (input.outcome !== "succeeded") {
+      return transitionCapabilityRequestSync({
+        requestId: request.id,
+        workspaceId: input.workspaceId,
+        status: "failed",
+        lastErrorCode: input.errorCode ?? "capability_request.managed_mcp_provision_failed",
+        lastErrorMessage: input.errorMessage ?? "容器部署失败。",
+      }) ?? request;
+    }
+    return transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "approved",
+    }) ?? request;
+  }
+
+  // Plain service request.
   return transitionCapabilityRequestSync({
     requestId: request.id,
     workspaceId: input.workspaceId,
     status: input.outcome === "succeeded" ? "completed" : "failed",
     lastErrorCode: input.outcome === "failed" ? input.errorCode : undefined,
     lastErrorMessage: input.outcome === "failed" ? input.errorMessage : undefined,
-  });
+  }) ?? request;
 }
 
 function parseCapabilityMetadata(value: string): Record<string, unknown> {

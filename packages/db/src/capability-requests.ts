@@ -266,6 +266,28 @@ export function findCapabilityRequestByServiceOperationIdSync(
 }
 
 /**
+ * All capability_requests referencing a skill-service provision operation.
+ * Multiple requests may share one operation (the driver reuses an in-flight
+ * provision for re-plans), so convergence must touch every linked request, not
+ * just the newest (docs/0811/cli-install Phase 5).
+ */
+export function listCapabilityRequestsByServiceOperationIdSync(
+  workspaceId: string,
+  operationId: string,
+): CapabilityRequestRecord[] {
+  const rows = getDatabase()
+    .prepare(
+      `SELECT ${SELECT_FIELDS} FROM capability_request
+       WHERE workspace_id = ? AND metadata_json->>'skillServiceOperationId' = ?
+       ORDER BY updated_at ASC`,
+    )
+    .all(workspaceId, operationId) as Array<Record<string, unknown>>;
+  return rows
+    .map(mapCapabilityRequest)
+    .filter((value): value is CapabilityRequestRecord => value !== null);
+}
+
+/**
  * True when a capability_request still backs this managed service — either by
  * pinning its catalog template (metadata.managedServiceCatalogId) or by
  * recording the deployed instance (metadata.serviceId). Covers non-terminal AND
@@ -279,16 +301,20 @@ export function hasActiveCapabilityRequestForManagedServiceSync(input: {
   workspaceId: string;
   serviceId: string;
   catalogId: string;
+  runtimeId: string;
 }): boolean {
+  // Runtime-restricted: a request on runtime A must NOT protect the same
+  // template's instance on runtime B (a completed request on one node would
+  // otherwise block retirement of every replica).
   const row = getDatabase()
     .prepare(
       `SELECT 1 AS present FROM capability_request
-       WHERE workspace_id = ?
+       WHERE workspace_id = ? AND runtime_id = ?
          AND status IN ('pending', 'approved', 'running', 'completed')
          AND (metadata_json->>'managedServiceCatalogId' = ? OR metadata_json->>'serviceId' = ?)
        LIMIT 1`,
     )
-    .get(input.workspaceId, input.catalogId, input.serviceId) as { present?: number } | undefined;
+    .get(input.workspaceId, input.runtimeId, input.catalogId, input.serviceId) as { present?: number } | undefined;
   return row?.present === 1;
 }
 
@@ -550,24 +576,41 @@ export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
   runtimeId: string;
   packageSource: string;
   packageSlug: string;
+  /** Catalog id the connection was created against — pinned requests must match. */
+  catalogItemId?: string;
   connectionId: string;
 }): CapabilityRequestRecord | null {
-  const row = getDatabase()
+  const rows = getDatabase()
     .prepare(
-      `SELECT id, status FROM capability_request
+      `SELECT id, status, metadata_json FROM capability_request
        WHERE workspace_id = ? AND runtime_id = ?
          AND package_kind = 'mcp'
          AND package_source = ? AND package_slug = ?
+         AND requested_action = 'connect'
          AND status IN ('approved', 'running')
        ORDER BY updated_at DESC
-       LIMIT 1`,
+       LIMIT 10`,
     )
-    .get(
+    .all(
       input.workspaceId,
       input.runtimeId,
       input.packageSource,
       input.packageSlug,
-    ) as { id: string; status: string } | undefined;
+    ) as Array<{ id: string; status: string; metadata_json: string }>;
+  if (rows.length === 0) return null;
+  // Only bind a request whose pinned catalogItemId (when present) matches the
+  // connection's catalog — a same-slug newer release must never hijack an older
+  // request's approval. Unpinned historical requests fall back to source+slug.
+  const row = rows.find((candidate) => {
+    let pinned: string | undefined;
+    try {
+      const metadata = JSON.parse(candidate.metadata_json) as Record<string, unknown>;
+      if (typeof metadata.catalogItemId === "string") pinned = metadata.catalogItemId;
+    } catch {
+      pinned = undefined;
+    }
+    return !pinned || (input.catalogItemId != null && pinned === input.catalogItemId);
+  });
   if (!row) return null;
   return transitionCapabilityRequestSync({
     requestId: row.id,

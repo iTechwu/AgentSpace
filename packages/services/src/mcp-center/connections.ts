@@ -239,6 +239,7 @@ export function materializeMcpConnectionSync(input: RequestMcpConnectionInput): 
     runtimeId: runtime.id,
     packageSource: catalog.source,
     packageSlug: catalog.slug,
+    catalogItemId: catalog.id,
     connectionId: connection.id,
   });
 

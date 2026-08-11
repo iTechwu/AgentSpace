@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "118";
+export const POSTGRES_SCHEMA_VERSION = "119";
 // 跨版本固定锁：不能使用 schema 版本作为锁键，否则滚动升级中的相邻版本会并发迁移。
 // 取 116 兼容已经发布的 schema 116 实例；后续版本必须保持此值不变。
 export const POSTGRES_SCHEMA_ADVISORY_LOCK_ID = 116;
@@ -281,6 +281,22 @@ export function getPostgresSchemaStatements(): string[] {
     // 若表不存在则跳过——后续 CREATE TABLE IF NOT EXISTS 会按 TEXT 新建。须位于任何枚举↔text
     // 比较语句之前。
     `
+      CREATE OR REPLACE FUNCTION column_is_enum(table_name text, column_name text)
+      RETURNS boolean AS $$
+      DECLARE result boolean;
+      BEGIN
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_attribute a
+          JOIN pg_class c ON c.oid = a.attrelid
+          JOIN pg_type t ON t.oid = a.atttypid
+          WHERE c.relname = table_name AND a.attname = column_name AND t.typtype = 'e'
+        ) INTO result;
+        RETURN COALESCE(result, false);
+      END;
+      $$ LANGUAGE plpgsql;
+    `,
+    `
       DO $$
       BEGIN
         ALTER TABLE IF EXISTS workflow_trigger ALTER COLUMN type TYPE TEXT USING type::text;
@@ -294,14 +310,21 @@ export function getPostgresSchemaStatements(): string[] {
           CHECK (misfire_policy IN ('skip', 'fire_once'));
         ALTER TABLE IF EXISTS workflow_definition ALTER COLUMN status TYPE TEXT USING status::text;
         -- 这三列有部分索引，其 WHERE 谓词被存储为显式枚举强转（status = 'pending'::enum），ALTER 时
-        -- 重新校验谓词会报 text = enum。先删索引再 ALTER；本迁移后续的 CREATE INDEX IF NOT EXISTS
-        -- 会在 TEXT 列上用纯字面量重建（schema 已含对应索引定义）。
-        DROP INDEX IF EXISTS idx_openmontage_delegation_intent_recovery;
+        -- 重新校验谓词会报 text = enum。仅在列仍为枚举时删索引（P2: 避免常规启动对已 TEXT 的大表
+        -- 反复 DROP/重建索引的 DDL 锁）；本迁移后续的 CREATE INDEX IF NOT EXISTS 会在 TEXT 列上
+        -- 用纯字面量重建（schema 已含对应索引定义）。
+        IF column_is_enum('openmontage_delegation_intent', 'status') THEN
+          DROP INDEX IF EXISTS idx_openmontage_delegation_intent_recovery;
+        END IF;
         ALTER TABLE IF EXISTS openmontage_delegation_intent ALTER COLUMN status TYPE TEXT USING status::text;
         ALTER TABLE IF EXISTS openmontage_job_projection ALTER COLUMN sync_status TYPE TEXT USING sync_status::text;
-        DROP INDEX IF EXISTS idx_openmontage_job_event_pending;
+        IF column_is_enum('openmontage_job_event', 'application_status') THEN
+          DROP INDEX IF EXISTS idx_openmontage_job_event_pending;
+        END IF;
         ALTER TABLE IF EXISTS openmontage_job_event ALTER COLUMN application_status TYPE TEXT USING application_status::text;
-        DROP INDEX IF EXISTS idx_openmontage_notification_outbox_due;
+        IF column_is_enum('openmontage_notification_outbox', 'status') THEN
+          DROP INDEX IF EXISTS idx_openmontage_notification_outbox_due;
+        END IF;
         ALTER TABLE IF EXISTS openmontage_notification_outbox ALTER COLUMN status TYPE TEXT USING status::text;
         -- openmontage_artifact_grant.operation 的两条 CHECK 被存储为显式枚举强转（operation = 'READ'::enum），
         -- text = enum 无法在 ALTER 时重新校验。先删两条 CHECK，ALTER 为 TEXT 后再以纯字面量重建。
@@ -2603,6 +2626,15 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_capability_request_requester
         ON capability_request(workspace_id, requested_by_user_id, created_at DESC)
+    `,
+    // Phase 5: managed-service provision convergence looks requests up by the
+    // JSONB field metadata_json->>'skillServiceOperationId' — an expression
+    // index keeps that lookup from degrading into a workspace scan as requests
+    // grow (docs/0811/cli-install Phase 5).
+    `
+      CREATE INDEX IF NOT EXISTS idx_capability_request_skill_service_operation
+        ON capability_request ((metadata_json->>'skillServiceOperationId'))
+        WHERE metadata_json->>'skillServiceOperationId' IS NOT NULL
     `,
     ...[
       "channelDocumentVersions",

@@ -283,3 +283,34 @@ test("retire sweep does not retire a service backed by a completed capability, b
   assert.ok(!sweptWithCancelled.includes(queued.serviceId!), "completed capability service stays protected");
   assert.ok(sweptWithCancelled.includes(queued2.serviceId!), "cancelled capability service should be retired");
 });
+
+test("converge returns a credential-bearing managed MCP to approved (not completed) after container provision", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `driver-${randomLikeId()}`;
+  seedManagedServiceTemplate(slug);
+  // mcp-kind managed_service request WITHOUT an auto-connect marker (credential /
+  // endpoint-bearing) — the container is provisioned but the applicant must
+  // still finish the connection, so the request returns to approved.
+  const request = createCapabilityRequestSync({
+    workspaceId: "default",
+    requestedByUserId: testUserId,
+    runtimeId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: slug,
+    packageDisplayName: "Managed MCP",
+    deploymentMode: "managed_service",
+    requestedAction: "connect",
+    metadataJson: "{}",
+  }).record;
+  const queued = queueCapabilityManagedServiceProvisionSync({ workspaceId: "default", request });
+  assert.equal(queued.code, "provision_queued");
+
+  const converged = convergeCapabilityRequestFromSkillServiceOperationSync({
+    operationId: queued.operationId!,
+    workspaceId: "default",
+    outcome: "succeeded",
+  });
+  assert.equal(converged?.id, request.id);
+  assert.equal(converged?.status, "approved", "credential managed MCP must await configure_credentials, not auto-complete");
+});

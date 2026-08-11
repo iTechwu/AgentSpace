@@ -48,14 +48,17 @@ export async function POST(
     return Response.json({ error: completed.reason }, { status: 400 });
   }
 
-  // Capability convergence (docs/0811/cli-install Phase 5): a capability_request
-  // that queued this provision op converges to completed now that the service
-  // is healthy. No-op when the op belongs to a skill installation instead.
+  // Capability convergence (docs/0811/cli-install Phase 5): capability_requests
+  // that queued this provision op converge now that the service is healthy. The
+  // provisioned container endpoint (runtime-private://...) is passed through so a
+  // managed MCP connects to the JUST-provisioned container, not a pre-existing
+  // service. No-op when the op belongs to a skill installation instead.
   if (operation.operation === "provision") {
     convergeCapabilityRequestFromSkillServiceOperationSync({
       operationId,
       workspaceId: auth.workspaceId,
       outcome: "succeeded",
+      endpointRef: typeof body.endpointRef === "string" ? body.endpointRef : undefined,
     });
   }
 
