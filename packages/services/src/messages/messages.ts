@@ -866,9 +866,8 @@ export function updatePendingAgentChannelReplySync(input: {
 }
 
 /**
- * Persists user-facing execution milestones next to a pending agent reply. Raw
- * reasoning is deliberately reduced to a generic analysis step rather than
- * exposing provider chain-of-thought in the conversation.
+ * Persists a concise execution milestone next to a pending agent reply while
+ * retaining the runtime detail in message data for an explicit user expansion.
  */
 export function recordAgentChannelProgressSync(input: {
   channel: string;
@@ -876,7 +875,9 @@ export function recordAgentChannelProgressSync(input: {
   speaker: string;
   type: "thinking" | "tool_use" | "tool_result" | "status";
   tool?: string;
+  refId?: string;
   content?: string;
+  detail?: string;
 }, workspaceId?: string): WorkspaceMessage | null {
   const sourceTaskQueueId = input.sourceTaskQueueId.trim();
   if (!sourceTaskQueueId) {
@@ -903,7 +904,28 @@ export function recordAgentChannelProgressSync(input: {
   if (input.type === "thinking" && progressMessages.some((message) =>
     message.processType === "thinking" && message.status === "pending",
   )) {
-    return null;
+    const runningThinking = progressMessages.find((message) =>
+      message.processType === "thinking" && message.status === "pending",
+    );
+    if (!runningThinking) {
+      return null;
+    }
+    if (runningThinking && input.detail?.trim()) {
+      const previousDetail = runningThinking.data?.execution_detail;
+      const nextDetail = previousDetail ? `${previousDetail}\n\n${input.detail.trim()}` : input.detail.trim();
+      const message: WorkspaceMessage = {
+        ...runningThinking,
+        data: { ...(runningThinking.data ?? {}), execution_detail: nextDetail },
+      };
+      state.messages = state.messages.map((candidate) => candidate.id === message.id ? message : candidate);
+      writeWorkspaceStateSync(state, effectiveWorkspaceId);
+      publishChannelThreadChangedEvent({
+        workspaceId: effectiveWorkspaceId,
+        channelName: input.channel,
+        changedAt: new Date().toISOString(),
+      });
+    }
+    return runningThinking;
   }
 
   const tool = input.tool?.trim();
@@ -911,7 +933,9 @@ export function recordAgentChannelProgressSync(input: {
     const runningTool = progressMessages.find((message) =>
       message.processType === "tool_use" &&
       message.status === "pending" &&
-      sameValue(message.tool ?? "", tool ?? ""),
+      (input.refId
+        ? message.data?.execution_ref_id === input.refId
+        : sameValue(message.tool ?? "", tool ?? "")),
     );
     if (runningTool) {
       const message: WorkspaceMessage = {
@@ -919,6 +943,14 @@ export function recordAgentChannelProgressSync(input: {
         processType: "tool_result",
         status: "completed",
         summary: tool ? `已完成 ${tool}` : "工具执行完成",
+        data: {
+          ...(runningTool.data ?? {}),
+          ...(input.detail?.trim()
+            ? {
+                execution_detail: `${runningTool.data?.execution_detail ?? ""}${runningTool.data?.execution_detail ? "\n\n" : ""}${input.detail.trim()}`,
+              }
+            : {}),
+        },
       };
       state.messages = state.messages.map((candidate) => candidate.id === message.id ? message : candidate);
       writeWorkspaceStateSync(state, effectiveWorkspaceId);
@@ -937,7 +969,11 @@ export function recordAgentChannelProgressSync(input: {
     role: "agent",
     summary,
     code: "agent.progress",
-    data: { source_task_queue_id: sourceTaskQueueId },
+    data: {
+      source_task_queue_id: sourceTaskQueueId,
+      ...(input.refId ? { execution_ref_id: input.refId } : {}),
+      ...(input.detail?.trim() ? { execution_detail: input.detail.trim() } : {}),
+    },
     status: input.type === "tool_use" || input.type === "thinking" ? "pending" : "completed",
     kind: "process",
     processType: input.type,

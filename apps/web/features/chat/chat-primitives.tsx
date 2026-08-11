@@ -304,7 +304,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
               {message.status === "pending" ? tx("进行中", "In progress") : renderMessageTimestamp(message.timestamp)}
             </span>
           </summary>
-          <pre>{message.content}</pre>
+          <pre>{message.executionDetail ?? message.data?.execution_detail ?? message.content}</pre>
         </details>
         )}
       </div>

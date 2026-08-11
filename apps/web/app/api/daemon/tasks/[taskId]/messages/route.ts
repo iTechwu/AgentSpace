@@ -54,12 +54,21 @@ export async function POST(
           speaker: pendingSpeaker,
           type: progressType,
           tool: message.tool,
+          refId: message.refId,
           content: message.content,
+          detail: progressDetail(message),
         }, task.workspaceId);
       }
     }
   }
   return Response.json({ messages: appended });
+}
+
+function progressDetail(message: DaemonTaskMessageInput): string | undefined {
+  if (message.type === "tool_use" && message.inputJson && Object.keys(message.inputJson).length > 0) {
+    return JSON.stringify(message.inputJson, null, 2);
+  }
+  return message.output ?? message.content;
 }
 
 function toProgressType(type: string): "thinking" | "tool_use" | "tool_result" | "status" | null {

@@ -1430,6 +1430,7 @@ export function ChannelsPageClient({
           content: message.summary,
           code: message.code,
           data: message.data,
+          executionDetail: message.data?.execution_detail,
           timestamp: formatCompactTimestamp(message.time, { emptyFallback: message.time }),
           status: message.status ?? "completed",
           attachments: message.attachments,

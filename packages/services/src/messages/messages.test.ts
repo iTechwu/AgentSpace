@@ -1330,7 +1330,7 @@ test("streaming task output only updates its own pending reply", () => {
   assert.equal(state.messages[0]?.summary, "最终回复");
 });
 
-test("task progress is shown as bounded, task-scoped channel steps", () => {
+test("task progress keeps concise summaries and expandable runtime details", () => {
   seedWorkspace();
   postMessageSync({
     channel: "tour visit",
@@ -1346,7 +1346,8 @@ test("task progress is shown as bounded, task-scoped channel steps", () => {
     sourceTaskQueueId: "task-progress-1",
     speaker: "Atlas",
     type: "thinking",
-    content: "Provider-private reasoning must not be rendered.",
+    content: "Provider reasoning is available in the detail view.",
+    detail: "Provider reasoning is available in the detail view.",
   });
   recordAgentChannelProgressSync({
     channel: "tour visit",
@@ -1372,7 +1373,8 @@ test("task progress is shown as bounded, task-scoped channel steps", () => {
 
   const progress = readWorkspaceStateSync().messages.filter((message) => message.kind === "process");
   assert.equal(progress.length, 2);
-  assert.equal(progress.some((message) => message.summary.includes("Provider-private")), false);
+  assert.equal(progress.some((message) => message.summary.includes("Provider reasoning")), false);
+  assert.equal(progress.find((message) => message.processType === "thinking")?.data?.execution_detail, "Provider reasoning is available in the detail view.");
   assert.equal(progress.find((message) => message.tool === "web_search")?.processType, "tool_result");
   assert.equal(progress.some((message) => message.status === "pending"), false);
 });

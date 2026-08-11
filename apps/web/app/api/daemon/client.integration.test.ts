@@ -221,20 +221,20 @@ describe("remote daemon client integration", () => {
         )?.summary,
       ).toBe("正在整理大阪行程。");
       expect(
-        streamingState.messages.some((message) =>
+        streamingState.messages.find((message) =>
           message.channel === streamingDirectChannel?.name &&
           message.kind === "process" &&
           message.processType === "thinking",
-        ),
-      ).toBe(true);
+        )?.data?.execution_detail,
+      ).toBe("先梳理行程约束。");
       expect(
-        streamingState.messages.some((message) =>
+        streamingState.messages.find((message) =>
           message.channel === streamingDirectChannel?.name &&
           message.kind === "process" &&
           message.processType === "tool_result" &&
           message.tool === "web_search",
-        ),
-      ).toBe(true);
+        )?.data?.execution_detail,
+      ).toBe("搜索大阪近期交通信息。\n\n搜索完成。");
 
       const persistentPlan = Buffer.from("persistent plan", "utf8");
       const persistentPlanSha256 = createHash("sha256").update(persistentPlan).digest("hex");

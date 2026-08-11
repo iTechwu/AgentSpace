@@ -35,6 +35,8 @@ export interface ConversationThreadMessage {
   content: string;
   code?: string;
   data?: Record<string, string>;
+  /** Raw runtime thinking/tool detail retained for process-message fallback rendering. */
+  executionDetail?: string;
   timestamp: string;
   status: "pending" | "completed" | "error";
   attachments?: MessageAttachment[];

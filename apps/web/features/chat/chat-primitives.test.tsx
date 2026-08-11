@@ -304,7 +304,7 @@ describe("ConversationMessageBubble", () => {
     expect(screen.getByText("执行节点已领取，正在准备环境")).toBeInTheDocument();
   });
 
-  it("shows an active execution milestone without revealing raw thought content", () => {
+  it("shows an active execution milestone with expandable raw runtime detail", () => {
     render(
       <LanguageProvider initialLanguage="zh">
         <ConversationMessageBubble
@@ -317,14 +317,16 @@ describe("ConversationMessageBubble", () => {
             status: "pending",
             kind: "process",
             processType: "thinking",
+            data: { execution_detail: "先检查任务约束，再分析执行路径。" },
           }}
         />
       </LanguageProvider>,
     );
 
-    expect(screen.getAllByText("正在分析任务")).toHaveLength(2);
+    expect(screen.getByText("正在分析任务")).toBeInTheDocument();
     expect(screen.getByText("进行中")).toBeInTheDocument();
     expect(document.querySelector(".conversation-process__spinner")).toBeInTheDocument();
+    expect(screen.getByText("先检查任务约束，再分析执行路径。")).toBeInTheDocument();
   });
 
   it("renders inline runtime approval actions", async () => {
