@@ -23,6 +23,11 @@ import { AppIcon } from "@/shared/ui/app-icon";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import type { MarketPageData } from "@/features/market/market-page-client";
 import {
+  mcpCatalogCategoryLabel,
+  mcpCatalogSourceLabel,
+  mcpConnectionStatusLabel,
+  mcpRiskLabel,
+  mcpTransportLabel,
   isActiveCapabilityOperationStatus,
   projectRuntimeAppInstallability,
   runtimeAppInstallabilityReason,
@@ -30,6 +35,7 @@ import {
 import { ManagedMcpSetupProgress } from "@/features/market/managed-mcp-setup-progress";
 import {
   buildCapabilityNextActionBadge,
+  buildLegacyMcpCapabilityBadge,
   capabilityNextActionLabel,
 } from "@/features/market/capability-next-action-ui";
 
@@ -174,7 +180,9 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       userState: selectedProjection.userState,
       tx,
     })
-    : undefined;
+    : selected && targetRuntime
+      ? buildLegacyMcpCapabilityBadge({ canManage: data.canManage, tx })
+      : undefined;
 
   // Reset per-catalog form state when the selection changes.
   // Skip while editing: manageConnection() already initialized the form and
@@ -307,13 +315,14 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
    * "My capability requests" without losing intent on refresh.
    */
   function handleMcpPrimaryAction(): void {
-    if (!selected || !targetRuntime || !selectedProjection) return;
-    const nextAction = selectedProjection.nextAction;
+    if (!selected || !targetRuntime) return;
+    const nextAction = selectedProjection?.nextAction ?? "connect";
     if (nextAction === "connect" || nextAction === "configure_credentials") {
       submitConnection();
       return;
     }
     if (nextAction === "request_deployment") {
+      if (!selectedProjection) return;
       runAction(() => submitCapabilityRequestAction({
         runtimeId: targetRuntime.id,
         packageKind: "mcp",
@@ -417,30 +426,30 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                   <span>{tx("类别", "Category")}</span>
                   <select onChange={(event) => setCategoryFilter(event.currentTarget.value as "all" | CatalogEntry["category"])} value={categoryFilter}>
                     <option value="all">{tx("全部类别", "All categories")}</option>
-                    {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                    {categories.map((category) => <option key={category} value={category}>{mcpCatalogCategoryLabel(category, tx)}</option>)}
                   </select>
                 </label>
                 <label className="form-field">
                   <span>{tx("来源", "Source")}</span>
                   <select onChange={(event) => setSourceFilter(event.currentTarget.value as "all" | CatalogEntry["source"])} value={sourceFilter}>
                     <option value="all">{tx("全部来源", "All sources")}</option>
-                    {sources.map((source) => <option key={source} value={source}>{source}</option>)}
+                    {sources.map((source) => <option key={source} value={source}>{mcpCatalogSourceLabel(source, tx)}</option>)}
                   </select>
                 </label>
                 <label className="form-field">
                   <span>{tx("传输", "Transport")}</span>
                   <select onChange={(event) => setTransportFilter(event.currentTarget.value as "all" | CatalogEntry["transport"])} value={transportFilter}>
                     <option value="all">{tx("全部传输", "All transports")}</option>
-                    {transports.map((transport) => <option key={transport} value={transport}>{transport}</option>)}
+                    {transports.map((transport) => <option key={transport} value={transport}>{mcpTransportLabel(transport, tx)}</option>)}
                   </select>
                 </label>
                 <label className="form-field">
                   <span>{tx("风险", "Risk")}</span>
                   <select onChange={(event) => setRiskFilter(event.currentTarget.value as "all" | CatalogEntry["risk"])} value={riskFilter}>
                     <option value="all">{tx("全部风险", "All risks")}</option>
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
+                    <option value="low">{mcpRiskLabel("low", tx)}</option>
+                    <option value="medium">{mcpRiskLabel("medium", tx)}</option>
+                    <option value="high">{mcpRiskLabel("high", tx)}</option>
                   </select>
                 </label>
                 <label className="form-field">
@@ -486,7 +495,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                       <small>{item.description || item.slug}</small>
                     </span>
                     <span className="market-app-meta">
-                      <strong>{transportLabel(item.transport, tx)}</strong>
+                      <strong>{mcpTransportLabel(item.transport, tx)}</strong>
                       <small>
                         {connectionState === "needs_attention" ? tx("需要处理", "Needs attention") : connectionState === "connected" ? tx("已连接", "Connected") : tx("未连接", "Not connected")}
                         {connectedCount > 0 ? tx(` · ${connectedCount} 个 Runtime`, ` · ${connectedCount} runtime(s)`) : ""}
@@ -510,17 +519,17 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               <>
                 <div className="market-detail-heading">
                   <div>
-                    <span className="market-detail-kicker">MCP · {selected.category}</span>
+                    <span className="market-detail-kicker">MCP · {mcpCatalogCategoryLabel(selected.category, tx)}</span>
                     <h2>{selected.displayName}</h2>
                     <p>{selected.description || selected.slug}</p>
                   </div>
-                  <span className={`status-chip status-chip--${riskTone(selected.risk)}`}>{selected.risk}</span>
+                  <span className={`status-chip status-chip--${riskTone(selected.risk)}`}>{mcpRiskLabel(selected.risk, tx)}</span>
                 </div>
 
               <div className="market-facts-grid">
                 <Fact label={tx("版本", "Release")} value={selected.version} />
                 <Fact label={tx("类别", "Category")} value={selected.category} />
-                <Fact label={tx("传输", "Transport")} value={selected.transport} />
+                <Fact label={tx("传输", "Transport")} value={mcpTransportLabel(selected.transport, tx)} />
                 <Fact label={tx("声明工具数", "Declared tools")} value={String(selected.declaredTools.length)} />
                 <Fact label={tx("数据域", "Data domains")} value={selected.dataDomains.join(", ") || "—"} />
                 <Fact label={tx("允许网络", "Allowed hosts")} value={selected.allowedHosts.join(", ") || "—"} />
@@ -549,7 +558,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                         <strong>{tool.name}</strong>
                         <small>{tool.description}</small>
                       </span>
-                      <span className={`status-chip status-chip--${riskTone(tool.risk)}`}>{tool.risk}</span>
+                      <span className={`status-chip status-chip--${riskTone(tool.risk)}`}>{mcpRiskLabel(tool.risk, tx)}</span>
                     </label>
                   ))}
                 </div>
@@ -732,7 +741,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                     <span className="mcp-service-group__icon"><AppIcon name="containers" /></span>
                     <div>
                       <strong>{service.catalogDisplayName}</strong>
-                      <span>{service.transport} · {tx(`${connections.length} 个 Runtime`, `${connections.length} runtimes`)}</span>
+                      <span>{mcpTransportLabel(service.transport, tx)} · {tx(`${connections.length} 个 Runtime`, `${connections.length} runtimes`)}</span>
                     </div>
                   </div>
                   <ul className="mcp-runtime-connection-list">
@@ -869,7 +878,7 @@ function ConnectionRow(props: {
             <strong>{runtimeLabel}</strong>
           </span>
         </span>
-        <span className={`status-chip status-chip--${statusTone(connection.status)}`}>{statusLabel(connection.status, tx)}</span>
+        <span className={`status-chip status-chip--${statusTone(connection.status)}`}>{mcpConnectionStatusLabel(connection.status, tx)}</span>
       </div>
       <div className="mcp-connection-meta">
         <span>{tx("已获准工具", "Approved tools")}: {connection.approvedTools.length}/{connection.declaredToolCount}</span>
@@ -920,13 +929,6 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function transportLabel(transport: string, tx: (zh: string, en: string) => string): string {
-  if (transport === "streamable_http" || transport === "managed_stdio") return transport;
-  // Transports beyond streamable_http are type/UI placeholders: they are
-  // visible in the catalog but not connectable yet, so they must say so.
-  return `${transport} · ${tx("待支持", "not yet")}`;
-}
-
 function riskTone(risk: "low" | "medium" | "high"): "positive" | "warning" | "danger" {
   return risk === "high" ? "danger" : risk === "medium" ? "warning" : "positive";
 }
@@ -936,20 +938,6 @@ function statusTone(status: string): "positive" | "warning" | "danger" | "neutra
   if (status === "verifying" || status === "queued_verification") return "warning";
   if (status === "failed" || status === "degraded") return "danger";
   return "neutral";
-}
-
-function statusLabel(status: string, tx: (zh: string, en: string) => string): string {
-  switch (status) {
-    // `ready` currently means the remote endpoint and credentials were verified.
-    // Do not claim task availability until the isolated runtime gateway is enabled.
-    case "ready": return tx("已验证", "Verified");
-    case "verifying": return tx("验证中", "Verifying");
-    case "queued_verification": return tx("等待验证", "Queued");
-    case "failed": return tx("失败", "Failed");
-    case "degraded": return tx("需要处理", "Needs attention");
-    case "disabled": return tx("已停用", "Disabled");
-    default: return tx("未配置", "Needs config");
-  }
 }
 
 function formatVerificationTime(value: string | undefined, tx: (zh: string, en: string) => string): string {

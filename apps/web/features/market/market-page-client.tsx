@@ -27,6 +27,7 @@ import {
 } from "@/features/market/capability-presentation";
 import {
   buildCapabilityNextActionBadge,
+  buildLegacyCliCapabilityBadge,
   capabilityNextActionLabel,
 } from "@/features/market/capability-next-action-ui";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
@@ -388,7 +389,14 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
       userState: selectedProjection.userState,
       tx,
     })
-    : undefined;
+    : selected && selectedRuntime
+      ? buildLegacyCliCapabilityBadge({
+        installable: selectedInstallability.status === "installable",
+        installed: Boolean(selectedInstall),
+        canManage: data.canManage,
+        tx,
+      })
+      : undefined;
 
   useEffect(() => {
     if (!data.operations.some((operation) => isActiveCapabilityOperationStatus(operation.status))) {
@@ -441,13 +449,15 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
    * " My requests"; legacy update/uninstall paths keep their dedicated calls.
    */
   function handlePrimaryAction(): void {
-    if (!selected || !selectedRuntime || !selectedProjection) return;
-    const nextAction = selectedProjection.nextAction;
+    if (!selected || !selectedRuntime) return;
+    const nextAction = selectedProjection?.nextAction
+      ?? (selectedInstallability.status === "installable" ? "install" : "none");
     if (nextAction === "install") {
       requestOperation(selectedInstall?.status === "installed" ? "update" : "install");
       return;
     }
     if (nextAction === "request_deployment") {
+      if (!selectedProjection) return;
       runAction(() => submitCapabilityRequestAction({
         runtimeId: selectedRuntime.id,
         packageKind: "cli",

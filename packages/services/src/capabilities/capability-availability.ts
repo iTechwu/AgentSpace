@@ -21,6 +21,7 @@ import {
   listRuntimeAppCatalogItemsSync,
   listRuntimeAppOperationsSync,
   listRuntimeInstalledAppsSync,
+  readAgentRuntimeSync,
   readCapabilityRequestSync,
   transitionCapabilityRequestSync,
   readWorkspaceRuntimeAppReleaseByVersionSync,
@@ -363,6 +364,36 @@ function reasonForMcpOperation(op: RuntimeMcpOperationLike): string {
 }
 
 /**
+ * Server-side deployment-plan boundary (P1-7). The browser only submits
+ * identifiers; the server must reject a (packageKind, deploymentMode,
+ * requestedAction) triple that the catalog model could never produce. This
+ * stops a crafted request from pinning, say, a CLI install to a managed
+ * service lifecycle or an MCP connect to a runtime package install.
+ */
+function assertCapabilityDeploymentPlan(
+  packageKind: CapabilityPackageKind,
+  deploymentMode: CapabilityDeploymentMode,
+  requestedAction: "install" | "deploy" | "connect" | "upgrade",
+): void {
+  const allowedDeploymentModes: Record<CapabilityPackageKind, CapabilityDeploymentMode[]> = {
+    cli: ["runtime_builtin", "runtime_package"],
+    mcp: ["managed_service", "external_service"],
+    service: ["managed_service", "external_service"],
+  };
+  const allowedActions: Record<CapabilityPackageKind, string[]> = {
+    cli: ["install", "upgrade"],
+    mcp: ["connect", "deploy", "upgrade"],
+    service: ["deploy", "upgrade"],
+  };
+  if (!allowedDeploymentModes[packageKind].includes(deploymentMode)) {
+    throw new Error(`capability_request.deployment_mode_mismatch:${packageKind}:${deploymentMode}`);
+  }
+  if (!allowedActions[packageKind].includes(requestedAction)) {
+    throw new Error(`capability_request.requested_action_mismatch:${packageKind}:${requestedAction}`);
+  }
+}
+
+/**
  * Submit a unified capability request. Underlying execution (CLI install,
  * MCP connect, managed service provision) is still dispatched to the
  * corresponding lower-level subsystem — this entry point only persists the
@@ -394,6 +425,18 @@ export function submitCapabilityRequestSync(
   const workspaceId = input.workspaceId;
   if (!isCapabilityRequestEnabled()) {
     throw new Error("Capability request channel is disabled (CAPABILITY_REQUESTS_ENABLED=0).");
+  }
+  // P1-7: never trust the browser's deployment decision. The server re-derives
+  // the allowed (packageKind, deploymentMode) pairing from the catalog model —
+  // a browser cannot claim `runtime_package` for an MCP service or
+  // `managed_service` for a CLI tool. requestedAction is validated against the
+  // actions that make sense for the kind.
+  assertCapabilityDeploymentPlan(input.packageKind, input.deploymentMode, input.requestedAction);
+  // P1-7: the runtime must belong to the target workspace. Without this a
+  // member could submit a request pinned to another workspace's runtime id.
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId) {
+    throw new Error("runtime.not_found");
   }
   const isAdmin = isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
   const existing = listCapabilityRequestsSync({

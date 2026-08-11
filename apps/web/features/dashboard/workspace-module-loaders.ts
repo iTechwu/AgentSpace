@@ -263,6 +263,7 @@ async function loadWorkspaceModuleDataUncached(
         data: await loadMarketPageData({
           workspaceId,
           canManage: viewer?.role === "owner" || viewer?.role === "admin",
+          actorUserId: viewer?.id,
         }),
       };
     case "task-board":

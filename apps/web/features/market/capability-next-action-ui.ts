@@ -88,6 +88,46 @@ export function buildCapabilityNextActionBadge(input: {
   }
 }
 
+/**
+ * Legacy fallback for the CLI primary button when the server-side V2
+ * projection is absent (feature flag off, or no projection computed for this
+ * tuple). Reconstructs the pre-projection label + enabled state from the
+ * legacy `installability` + installed signals so the page keeps working
+ * during a rollback and so the market flow remains testable without V2.
+ */
+export function buildLegacyCliCapabilityBadge(input: {
+  installable: boolean;
+  installed: boolean;
+  canManage: boolean;
+  tx: CapabilityTranslator;
+}): CapabilityNextActionBadge {
+  const enabled = input.installable && input.canManage;
+  return {
+    nextAction: input.installable ? "install" : "none",
+    primaryLabel: input.installed ? input.tx("更新", "Update") : input.tx("安装", "Install"),
+    primaryEnabled: enabled,
+    statusTone: enabled ? "positive" : "neutral",
+  };
+}
+
+/**
+ * Legacy fallback for the MCP primary button when no V2 projection exists.
+ * The pre-projection button always offered "配置并连接" once the dependency
+ * CLI was ready and the form was submittable; both `connect` and
+ * `configure_credentials` route to the same submit handler.
+ */
+export function buildLegacyMcpCapabilityBadge(input: {
+  canManage: boolean;
+  tx: CapabilityTranslator;
+}): CapabilityNextActionBadge {
+  return {
+    nextAction: "connect",
+    primaryLabel: input.tx("配置并连接", "Configure and connect"),
+    primaryEnabled: input.canManage,
+    statusTone: "positive",
+  };
+}
+
 export function capabilityNextActionLabel(
   nextAction: CapabilityNextAction,
   tx: CapabilityTranslator,

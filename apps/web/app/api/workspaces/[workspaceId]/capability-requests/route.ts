@@ -118,10 +118,15 @@ export async function GET(
   const statusFilter = url.searchParams.get("statuses")?.split(",") ?? null;
   const { listCapabilityRequestsSync, isCapabilityRequestStatus } = await import("@dofe-agent/db");
   const statuses = statusFilter?.filter(isCapabilityRequestStatus) ?? undefined;
+  // Permission boundary: owners/admins can list all workspace requests (so they
+  // can work the approval queue); everyone else is forced to their own requests
+  // regardless of the `mine` param — a non-admin can never enumerate others.
+  const role = workspaceContext.currentMembership?.role;
+  const isAdmin = role === "owner" || role === "admin";
   const records = listCapabilityRequestsSync({
     workspaceId,
     statuses,
-    requestedByUserId: requestedByMe ? workspaceContext.currentUser?.id : undefined,
+    requestedByUserId: isAdmin ? (requestedByMe ? workspaceContext.currentUser?.id : undefined) : workspaceContext.currentUser?.id,
     limit: 200,
   });
   return Response.json({ requests: records }, { headers: { "Cache-Control": "private, no-store" } });
