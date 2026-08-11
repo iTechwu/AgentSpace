@@ -237,6 +237,20 @@ export function readCapabilityRequestSync(
  * old request that completed long ago is still found when its provision
  * operation converges.
  */
+export function findCapabilityRequestByLinkedRuntimeAppOperationIdSync(
+  workspaceId: string,
+  operationId: string,
+): CapabilityRequestRecord | null {
+  const row = getDatabase()
+    .prepare(
+      `SELECT ${SELECT_FIELDS} FROM capability_request
+       WHERE workspace_id = ? AND linked_runtime_app_operation_id = ?
+       LIMIT 1`,
+    )
+    .get(workspaceId, operationId) as Record<string, unknown> | undefined;
+  return row ? mapCapabilityRequest(row) : null;
+}
+
 export function findCapabilityRequestByServiceOperationIdSync(
   workspaceId: string,
   operationId: string,
@@ -451,6 +465,15 @@ export function convergeCapabilityRequestFromRuntimeAppOperationSync(input: {
     || request.status === "failed"
     || request.status === "cancelled"
   ) {
+    return request;
+  }
+  // Runtime baseline ops (app_name prefix 'runtime-baseline:') are a chaining
+  // step, not the terminal CLI install — the service layer creates the CLI op on
+  // baseline success, so this function must NOT stamp the request terminal.
+  const op = getDatabase()
+    .prepare("SELECT app_name FROM runtime_app_operation WHERE id = ? AND workspace_id = ?")
+    .get(input.operationId, workspaceId) as { app_name?: string } | undefined;
+  if (op?.app_name?.startsWith("runtime-baseline:")) {
     return request;
   }
   const status: CapabilityRequestStatus = input.outcome === "succeeded" ? "completed" : "failed";

@@ -5,11 +5,14 @@ import type {
 } from "@dofe-agent/db";
 import {
   createRuntimeAppOperationSync,
+  findCapabilityRequestByLinkedRuntimeAppOperationIdSync,
   listRuntimeAppCatalogItemsSync,
   listRuntimeAppOperationsSync,
+  readAgentRuntimeSync,
   readCapabilityRequestSync,
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemSync,
+  readRuntimeAppOperationSync,
   readWorkspaceRuntimeAppReleaseSync,
   transitionCapabilityRequestSync,
 } from "@dofe-agent/db";
@@ -18,7 +21,8 @@ import { requestMcpConnectionSync } from "../mcp-center/connections.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { listWorkspaceRuntimeAppCatalogItemsSync } from "../clihub/private-releases.ts";
-import { isManagedServiceProvisioningEnabled } from "./capability-config.ts";
+import { readCliHubReadinessForRuntimeSync } from "../clihub/runtime-apps.ts";
+import { isManagedServiceProvisioningEnabled, isRuntimeBaselineRolloutEnabled } from "./capability-config.ts";
 import type { CapabilityNextAction } from "./capability-projection.ts";
 import {
   autoConnectManagedMcpAfterProvisionSync,
@@ -118,6 +122,58 @@ export function dispatchApprovedCapabilityRequestSync(input: {
         });
         const final = failed ?? request;
         return { request: final, capabilityRequest: final, nextAction: "govern_release" };
+      }
+    }
+    // Runtime baseline rollout (docs Phase 7): when the plan requires a base
+    // tool the runtime lacks AND RUNTIME_BASELINE_ROLLOUT_ENABLED is on, queue a
+    // baseline op to install the tool first. The daemon runs the baseline plan,
+    // and chainCapabilityRuntimeBaselineSync creates the CLI op once the tool is
+    // present. Tools that are image-level (npm/python) have no baseline plan and
+    // fall through to the normal CLI op (which the daemon fails closed if the
+    // tool is genuinely missing).
+    const requiredTool = requiredBaselineToolForStrategy(plan.strategy);
+    if (requiredTool && isRuntimeBaselineRolloutEnabled()) {
+      const readiness = readCliHubReadinessForRuntimeSync({
+        workspaceId: input.workspaceId,
+        runtimeId: request.runtimeId,
+        runtimeMetadataJson: readAgentRuntimeSync(request.runtimeId)?.metadataJson,
+      });
+      const toolReady = readiness[requiredToolKey(requiredTool)]?.available;
+      const baselinePlan = toolReady === false ? buildRuntimeBaselineInstallPlan(requiredTool) : null;
+      if (baselinePlan) {
+        const baselineOp = createRuntimeAppOperationSync({
+          workspaceId: input.workspaceId,
+          runtimeId: request.runtimeId,
+          appSource: "clihub_harness" as RuntimeAppCatalogSource,
+          // Reserved app_name namespace: runtime_app_operation.app_source must be
+          // a real catalog source (the record mapper rejects unknown sources), so
+          // the baseline identity lives in the name prefix. The CLI active-op
+          // matcher compares op.appName === request.packageSlug, so a baseline op
+          // can never be mis-linked as a CLI install.
+          appName: `runtime-baseline:${requiredTool}`,
+          operation: "install",
+          requestedByUserId: input.actorUserId,
+          commandPlanJson: JSON.stringify(baselinePlan),
+        });
+        const baselineMetadata = {
+          ...parseRequestMetadata(request.metadataJson),
+          pendingCliPlan: JSON.stringify(plan),
+          baselineActorUserId: input.actorUserId,
+        };
+        const baselineLinked = transitionCapabilityRequestSync({
+          requestId: request.id,
+          workspaceId: input.workspaceId,
+          status: "running",
+          linkedRuntimeAppOperationId: baselineOp.id,
+          metadataJson: JSON.stringify(baselineMetadata),
+        });
+        const baselineFinal = baselineLinked ?? request;
+        return {
+          request: baselineFinal,
+          capabilityRequest: baselineFinal,
+          operationId: baselineOp.id,
+          nextAction: "wait_for_operation",
+        };
       }
     }
     const operation = createRuntimeAppOperationSync({
@@ -518,4 +574,124 @@ export function findCliCatalogItem(workspaceId: string, source: string, slug: st
 
 export function isActiveRuntimeAppOperation(op: { status: string }): boolean {
   return op.status === "pending" || op.status === "claimed" || op.status === "running";
+}
+
+/**
+ * Runtime baseline (docs Phase 7): the base tool a CLI install strategy needs.
+ * Image-level tools (npm/python) have no installable baseline — they return
+ * undefined and the normal CLI op proceeds (the daemon fails closed if missing).
+ */
+function requiredBaselineToolForStrategy(
+  strategy: RuntimeAppInstallPlan["strategy"],
+): "npm" | "pip" | "uv" | "cli_hub" | undefined {
+  switch (strategy) {
+    case "npm": return "npm";
+    case "pip": return "pip";
+    case "uv": return "uv";
+    case "cli_hub": return "cli_hub";
+    default: return undefined;
+  }
+}
+
+function requiredToolKey(tool: "npm" | "pip" | "uv" | "cli_hub"): "npm" | "pip" | "uv" | "cliHub" {
+  return tool === "cli_hub" ? "cliHub" : tool;
+}
+
+/**
+ * Builds a digest-free baseline install plan the runtime-app executor can run to
+ * install a missing base tool into the Runtime HOME. Returns null for tools the
+ * system cannot auto-install (npm/python are image-level) — the caller then lets
+ * the normal CLI op fail closed instead of fabricating an unverifiable plan.
+ */
+export function buildRuntimeBaselineInstallPlan(
+  tool: "npm" | "pip" | "uv" | "cli_hub",
+): RuntimeAppInstallPlan | null {
+  // The plan's app.source must be a real catalog source; the baseline identity
+  // is carried by the runtime_app_operation.app_source field (written separately
+  // as "runtime_baseline"), not by the plan metadata.
+  const base = { source: "clihub_harness" as const, version: "1", entryPoint: tool };
+  switch (tool) {
+    case "pip":
+      return {
+        app: { ...base, name: "pip" },
+        strategy: "pip",
+        commands: [{ executable: "python3", args: ["-m", "ensurepip", "--upgrade"] }],
+        verifyCommands: [{ executable: "python3", args: ["-m", "pip", "--version"] }],
+        risk: "low",
+        requiresApproval: false,
+        notes: ["Runtime baseline: ensure pip via ensurepip."],
+      };
+    case "uv":
+      return {
+        app: { ...base, name: "uv" },
+        strategy: "pip",
+        commands: [{ executable: "python3", args: ["-m", "pip", "install", "uv"] }],
+        verifyCommands: [{ executable: "uv", args: ["--version"] }],
+        risk: "low",
+        requiresApproval: false,
+        notes: ["Runtime baseline: install uv via pip."],
+      };
+    case "cli_hub":
+      return {
+        app: { ...base, name: "cli-hub" },
+        strategy: "npm",
+        commands: [{ executable: "npm", args: ["install", "-g", "cli-hub"] }],
+        verifyCommands: [{ executable: "cli-hub", args: ["--version"] }],
+        risk: "low",
+        requiresApproval: false,
+        notes: ["Runtime baseline: install cli-hub via npm."],
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Chaining half of the Runtime baseline (docs Phase 7): when a baseline op
+ * (app_source = 'runtime_baseline') referenced by a capability_request reaches a
+ * terminal state, create the pending CLI op and re-link the request (baseline
+ * success), or fail the request (baseline failure). Called from the daemon
+ * runtime-app complete/fail routes after the operation is stamped.
+ */
+export function chainCapabilityRuntimeBaselineSync(input: {
+  workspaceId: string;
+  operationId: string;
+  outcome: "succeeded" | "failed";
+  errorCode?: string;
+  errorMessage?: string;
+}): void {
+  const op = readRuntimeAppOperationSync(input.operationId, input.workspaceId);
+  if (!op || !op.appName.startsWith("runtime-baseline:")) return;
+  const request = findCapabilityRequestByLinkedRuntimeAppOperationIdSync(input.workspaceId, input.operationId);
+  if (!request || !request.runtimeId) return;
+  if (input.outcome !== "succeeded") {
+    transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "failed",
+      lastErrorCode: input.errorCode ?? "runtime_app.baseline_failed",
+      lastErrorMessage: input.errorMessage ?? "Runtime 基础工具补装失败。",
+    });
+    return;
+  }
+  const metadata = parseRequestMetadata(request.metadataJson);
+  const cliPlan = metadata.pendingCliPlan;
+  if (typeof cliPlan !== "string" || !cliPlan.trim()) return;
+  const cliOp = createRuntimeAppOperationSync({
+    workspaceId: input.workspaceId,
+    runtimeId: request.runtimeId,
+    appSource: request.packageSource as RuntimeAppCatalogSource,
+    appName: request.packageSlug,
+    operation: "install",
+    requestedByUserId: typeof metadata.baselineActorUserId === "string"
+      ? metadata.baselineActorUserId
+      : "system",
+    commandPlanJson: cliPlan,
+  });
+  transitionCapabilityRequestSync({
+    requestId: request.id,
+    workspaceId: input.workspaceId,
+    status: "running",
+    linkedRuntimeAppOperationId: cliOp.id,
+  });
 }

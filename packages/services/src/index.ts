@@ -1597,4 +1597,8 @@ export {
   queueCapabilityManagedServiceProvisionSync,
   type QueueCapabilityManagedServiceProvisionResult,
 } from "./capabilities/capability-service-driver.ts";
+export {
+  buildRuntimeBaselineInstallPlan,
+  chainCapabilityRuntimeBaselineSync,
+} from "./capabilities/capability-dispatchers.ts";
 export { selectCliHubReadiness } from "./clihub/runtime-apps.ts";

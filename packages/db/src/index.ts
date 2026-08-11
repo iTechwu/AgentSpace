@@ -725,6 +725,7 @@ export {
   convergeCapabilityRequestFromRuntimeAppOperationSync,
   createCapabilityRequestSync,
   decideCapabilityRequestSync,
+  findCapabilityRequestByLinkedRuntimeAppOperationIdSync,
   findCapabilityRequestByServiceOperationIdSync,
   hasActiveCapabilityRequestForManagedServiceSync,
   listCapabilityRequestsSync,

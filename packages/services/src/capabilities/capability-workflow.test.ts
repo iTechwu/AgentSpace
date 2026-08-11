@@ -9,10 +9,12 @@ import {
   listManagedSkillServiceOperationsSync,
   randomLikeId,
   readCapabilityRequestSync,
+  readRuntimeAppOperationSync,
   upsertMcpCatalogItemSync,
+  upsertRuntimeAppCatalogItemsSync,
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
-import { resetWorkspaceStateSync } from "../index.ts";
+import { chainCapabilityRuntimeBaselineSync, resetWorkspaceStateSync } from "../index.ts";
 import {
   approveCapabilityRequestSync,
   cancelCapabilityRequestSync,
@@ -230,4 +232,103 @@ test("cancelCapabilityRequestSync refuses a non-owner cancel", () => {
     }),
     /capability_request\.not_owner/,
   );
+});
+
+function seedBaselineCli(name: string): void {
+  upsertRuntimeAppCatalogItemsSync([{
+    source: "clihub_public",
+    name,
+    displayName: "Baseline CLI",
+    version: "1.0.0",
+    entryPoint: "requests",
+    installStrategy: "pip",
+    installCmd: "pip install requests",
+    registryJson: JSON.stringify({ pypi_package_spec: "requests==2.31.0" }),
+  }]);
+}
+
+test("admin CLI install dispatches a baseline op first when the runtime lacks the tool (rollout enabled)", () => {
+  process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED = "1";
+  process.env.MANAGED_SERVICE_PROVISIONING_ENABLED = "1";
+  const runtimeId = createTestRuntime();
+  const name = `baseline-cli-${randomLikeId()}`;
+  // Seed a pip-strategy CLI; no daemon snapshot ⇒ readiness reports pip missing,
+  // so dispatch queues a pip baseline op (ensurepip) before the CLI op.
+  seedBaselineCli(name);
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+
+  const submitted = submitCapabilityRequestSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "cli",
+    packageSource: "clihub_public",
+    packageSlug: name,
+    packageDisplayName: "Baseline CLI",
+    deploymentMode: "runtime_package",
+    requestedAction: "install",
+  });
+  assert.equal(submitted.capabilityRequest.status, "running");
+
+  const baselineOp = readRuntimeAppOperationSync(submitted.dispatchedOperationId!, "default");
+  assert.ok(baselineOp?.appName.startsWith("runtime-baseline:"), "dispatch must queue a baseline op first");
+  assert.equal(baselineOp?.appName, "runtime-baseline:pip", "baseline op installs the missing tool");
+  const linked = readCapabilityRequestSync(submitted.capabilityRequest.id, "default");
+  const metadata = JSON.parse(linked?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(typeof metadata.pendingCliPlan, "string", "CLI plan must be stored for chaining");
+
+  // Baseline succeeds → CLI op is created and the request re-links to it.
+  chainCapabilityRuntimeBaselineSync({
+    workspaceId: "default",
+    operationId: submitted.dispatchedOperationId!,
+    outcome: "succeeded",
+  });
+  const afterBaseline = readCapabilityRequestSync(submitted.capabilityRequest.id, "default");
+  const cliOp = readRuntimeAppOperationSync(afterBaseline?.linkedRuntimeAppOperationId ?? "", "default");
+  assert.equal(cliOp?.appName, name, "CLI op must be created after baseline");
+  assert.equal(afterBaseline?.status, "running");
+});
+
+test("a failed baseline install fails the capability request closed", () => {
+  process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED = "1";
+  const runtimeId = createTestRuntime();
+  const name = `baseline-cli-${randomLikeId()}`;
+  seedBaselineCli(name);
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+  const submitted = submitCapabilityRequestSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "cli",
+    packageSource: "clihub_public",
+    packageSlug: name,
+    packageDisplayName: "Baseline CLI",
+    deploymentMode: "runtime_package",
+    requestedAction: "install",
+  });
+  const baselineOp = readRuntimeAppOperationSync(submitted.dispatchedOperationId!, "default");
+  assert.ok(baselineOp?.appName.startsWith("runtime-baseline:"));
+
+  chainCapabilityRuntimeBaselineSync({
+    workspaceId: "default",
+    operationId: submitted.dispatchedOperationId!,
+    outcome: "failed",
+    errorCode: "runtime_app.baseline_failed",
+    errorMessage: "ensurepip failed",
+  });
+  const afterFail = readCapabilityRequestSync(submitted.capabilityRequest.id, "default");
+  assert.equal(afterFail?.status, "failed");
+  assert.equal(afterFail?.lastErrorCode, "runtime_app.baseline_failed");
 });

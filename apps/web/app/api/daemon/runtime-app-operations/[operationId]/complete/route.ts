@@ -1,6 +1,6 @@
 import { completeRuntimeAppOperationSync } from "@dofe-agent/db";
 import type { CompleteRuntimeAppOperationRequest } from "@dofe-agent/domain";
-import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { chainCapabilityRuntimeBaselineSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { readRuntimeAppOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -28,6 +28,13 @@ export async function POST(
     safeStdoutTail: body.safeStdoutTail,
     safeStderrTail: body.safeStderrTail,
     installedApp: normalizeInstalledApp(body.installedApp),
+  });
+  // Runtime baseline chaining (docs Phase 7): if this op was a baseline install,
+  // queue the pending CLI install once the tool is present.
+  chainCapabilityRuntimeBaselineSync({
+    workspaceId: auth.workspaceId,
+    operationId,
+    outcome: "succeeded",
   });
   tryRecordWorkspaceAuditEventSync({
     workspaceId: auth.workspaceId,
