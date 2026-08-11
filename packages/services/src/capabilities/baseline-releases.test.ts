@@ -9,7 +9,7 @@ import {
 const GOVERNED_UV: BaselineRelease = {
   tool: "uv",
   version: "0.4.10",
-  artifactUrl: "https://github.com/astral-sh/uv/releases/download/0.4.10/uv-x86_64-unknown-linux-gnu.tar.gz",
+  artifactUrl: "https://files.pythonhosted.org/packages/uv-0.4.10.tar.gz",
   integrity: `sha256-${"a".repeat(64)}`,
   signatureRequired: true,
 };
@@ -37,11 +37,11 @@ test("resolveBaselineRelease reads the governed JSON registry", () => {
 
 test("per-tool env override wins over the governed registry", () => {
   setBaselineRegistryForTests([GOVERNED_UV]);
-  process.env.DOFE_AGENT_BASELINE_UV_ARTIFACT_URL = "https://mirror.example.com/uv-other.tar.gz";
+  process.env.DOFE_AGENT_BASELINE_UV_ARTIFACT_URL = "https://registry.npmjs.org/uv/-/uv-0.4.11.tgz";
   process.env.DOFE_AGENT_BASELINE_UV_ARTIFACT_INTEGRITY = `sha256-${"b".repeat(64)}`;
   const release = resolveBaselineRelease("uv");
   assert.ok(release);
-  assert.equal(release.artifactUrl, "https://mirror.example.com/uv-other.tar.gz");
+  assert.equal(release.artifactUrl, "https://registry.npmjs.org/uv/-/uv-0.4.11.tgz");
   assert.equal(release.integrity, `sha256-${"b".repeat(64)}`);
 });
 
@@ -51,4 +51,9 @@ test("malformed registry entries (non-https / bad integrity) are rejected", () =
     { ...GOVERNED_UV, integrity: "md5-abc" },
   ]);
   assert.equal(resolveBaselineRelease("uv"), null, "malformed pins must fail closed");
+});
+
+test("baseline releases reject hosts outside the daemon download allowlist", () => {
+  setBaselineRegistryForTests([{ ...GOVERNED_UV, artifactUrl: "https://github.com/astral-sh/uv/releases/download/0.4.10/uv.tgz" }]);
+  assert.equal(resolveBaselineRelease("uv"), null);
 });

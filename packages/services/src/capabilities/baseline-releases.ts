@@ -24,12 +24,21 @@ export interface BaselineRelease {
   artifactUrl: string;
   /** sha256-<64 hex> — the daemon verifies the download against this digest. */
   integrity: string;
-  /** When true the managed node MUST verify the artifact's cosign signature. */
+  /** Reserved until the runtime plan carries a verifiable signature payload. */
   signatureRequired?: boolean;
 }
 
 const INTEGRITY_PATTERN = /^sha256-[A-Fa-f0-9]{64}$/;
 const TOOLS: BaselineTool[] = ["npm", "python", "uv", "cli_hub"];
+// Keep the producer-side URL policy identical to the daemon consumer. A valid
+// digest cannot compensate for an unbounded redirect/host policy.
+const BASELINE_ARTIFACT_ALLOWED_HOSTS = new Set([
+  "registry.npmjs.org",
+  "files.pythonhosted.org",
+  "nodejs.org",
+  "python.org",
+  "www.python.org",
+]);
 
 function envKeyFor(tool: BaselineTool, suffix: "ARTIFACT_URL" | "ARTIFACT_INTEGRITY"): string {
   // npm's artifact is the node runtime — the env prefix is NODE.
@@ -70,11 +79,16 @@ function parseRegistryJson(raw: string | undefined): BaselineRelease[] {
 }
 
 function isValidBaselineRelease(release: BaselineRelease): boolean {
-  return (
-    /^https:\/\//.test(release.artifactUrl)
-    && INTEGRITY_PATTERN.test(release.integrity)
-    && TOOLS.includes(release.tool)
-  );
+  try {
+    const url = new URL(release.artifactUrl);
+    return url.protocol === "https:"
+      && BASELINE_ARTIFACT_ALLOWED_HOSTS.has(url.hostname)
+      && !url.username && !url.password && !url.search && !url.hash
+      && INTEGRITY_PATTERN.test(release.integrity)
+      && TOOLS.includes(release.tool);
+  } catch {
+    return false;
+  }
 }
 
 const governedRegistry: BaselineRelease[] = parseRegistryJson(

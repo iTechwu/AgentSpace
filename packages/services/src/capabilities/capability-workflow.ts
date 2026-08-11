@@ -724,6 +724,14 @@ export function switchCapabilityImplementationSync(input: {
   packageDisplayName: string;
   targetImplementation: CapabilityImplementation;
 }): SubmitCapabilityRequestResult {
+  if (!isWorkspaceAdminOrOwnerSync({ workspaceId: input.workspaceId, userId: input.actorUserId })) {
+    throw new Error("Only workspace owners and admins can switch capability implementations.");
+  }
+  const requestedAction = input.packageKind === "service"
+    ? "deploy"
+    : input.packageKind === "mcp"
+    ? input.targetImplementation === "external_service" ? "connect" : "deploy"
+    : "install";
   const submitInput: SubmitCapabilityRequestInput = {
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
@@ -733,7 +741,7 @@ export function switchCapabilityImplementationSync(input: {
     packageSlug: input.packageSlug,
     packageDisplayName: input.packageDisplayName,
     deploymentMode: input.targetImplementation,
-    requestedAction: input.packageKind === "service" ? "deploy" : "install",
+    requestedAction,
   };
   const plan = resolveCapabilityDeploymentPlan(submitInput, input.workspaceId);
   if (!plan || plan.deploymentMode !== input.targetImplementation) {

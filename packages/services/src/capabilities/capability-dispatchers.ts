@@ -732,10 +732,13 @@ export function buildRuntimeBaselineInstallPlan(
 
 function buildBaselinePlanForTool(tool: BaselineTool): RuntimeAppInstallPlan | null {
   const release = resolveBaselineRelease(tool);
-  if (!release) return null;
+  // The release metadata can declare a signature requirement, but the current
+  // RuntimeAppInstallPlan/daemon contract has no signature payload or verifier.
+  // Refuse to build a plan instead of claiming cosign enforcement in notes while
+  // executing an integrity-only download.
+  if (!release || release.signatureRequired) return null;
   // Governed pinned-artifact plan (immutable-release gate): the daemon
-  // downloads, verifies integrity (and cosign when signatureRequired),
-  // extracts and verifies the binary.
+  // downloads, verifies the digest, extracts and verifies the binary.
   return buildPinnedArtifactBaselinePlan({
     tool,
     release,
@@ -768,11 +771,14 @@ function buildPinnedArtifactBaselinePlan(input: {
   const plan: RuntimeAppInstallPlan = {
     app: { source: "workspace_private" as const, name: input.release.tool, version: input.release.version, entryPoint: input.release.tool },
     strategy: "system",
-    commands: [{ executable: "tar", args: ["-xzf", localPath, "-C", ".baseline"] }],
+    commands: [
+      { executable: "mkdir", args: ["-p", ".baseline"] },
+      { executable: "tar", args: ["-xzf", localPath, "-C", ".baseline"] },
+    ],
     verifyCommands: [{ executable: input.verify, args: input.verifyArgs }],
     risk: "medium",
     requiresApproval: true,
-    notes: [`Runtime baseline: pinned ${input.release.tool}@${input.release.version} artifact${input.release.signatureRequired ? " (cosign signature required)" : ""}.`],
+    notes: [`Runtime baseline: pinned ${input.release.tool}@${input.release.version} artifact.`],
     artifactLock: {
       url: input.release.artifactUrl,
       integrity: input.release.integrity,
@@ -780,9 +786,6 @@ function buildPinnedArtifactBaselinePlan(input: {
     },
     integrityLock: input.release.integrity,
   };
-  if (input.release.signatureRequired) {
-    plan.notes.push("Signature verification is enforced by the managed node before pull.");
-  }
   return plan;
 }
 

@@ -23,6 +23,7 @@ import {
   submitCapabilityRequestSync,
   switchCapabilityImplementationSync,
 } from "./capability-workflow.ts";
+import { setBaselineRegistryForTests } from "./baseline-releases.ts";
 
 /**
  * Capability request workflow (docs/0811/cli-install Phase 4/6): submit-time
@@ -229,6 +230,43 @@ test("switchCapabilityImplementationSync fails closed when the catalog cannot ba
     }),
     /capability_request\.implementation_not_supported/,
   );
+});
+
+test("switchCapabilityImplementationSync requires an admin and maps external MCP to connect", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `switch-mcp-${randomLikeId()}`;
+  seedMcpCatalog(slug, "official");
+  assert.throws(
+    () => switchCapabilityImplementationSync({
+      workspaceId: "default",
+      runtimeId,
+      actorUserId: testUserId,
+      packageKind: "mcp",
+      packageSource: "official",
+      packageSlug: slug,
+      packageDisplayName: "Switch MCP",
+      targetImplementation: "external_service",
+    }),
+    /owners and admins can switch/,
+  );
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+  const switched = switchCapabilityImplementationSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: slug,
+    packageDisplayName: "Switch MCP",
+    targetImplementation: "external_service",
+  });
+  assert.equal(switched.capabilityRequest.requestedAction, "connect");
 });
 
 function seedManagedServiceTemplate(slug: string): string {
@@ -579,8 +617,22 @@ test("baseline npm plan conforms to the daemon artifact contract when ops pins o
   assert.equal(plan.app.source, "workspace_private", "plan app.source must satisfy the daemon contract");
   assert.ok(plan.artifactLock?.localPath.startsWith(".runtime-app-artifacts/"), "artifact localPath must be under .runtime-app-artifacts/");
   assert.equal(plan.integrityLock, plan.artifactLock?.integrity, "integrityLock must equal the artifact integrity");
+  assert.equal(plan.commands[0]?.executable, "mkdir");
+  assert.deepEqual(plan.commands[0]?.args, ["-p", ".baseline"]);
   delete process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_URL;
   delete process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_INTEGRITY;
+});
+
+test("baseline plan fails closed when a release requires unsupported signature verification", () => {
+  setBaselineRegistryForTests([{
+    tool: "uv",
+    version: "0.4.10",
+    artifactUrl: "https://files.pythonhosted.org/packages/uv-0.4.10.tar.gz",
+    integrity: `sha256-${"a".repeat(64)}`,
+    signatureRequired: true,
+  }]);
+  assert.equal(buildRuntimeBaselineInstallPlan("uv"), null);
+  setBaselineRegistryForTests([]);
 });
 
 test("managed_stdio MCP dispatches a dependency CLI install first (P0)", () => {
