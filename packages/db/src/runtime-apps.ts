@@ -540,7 +540,7 @@ export function completeRuntimeAppOperationSync(input: CompleteRuntimeAppOperati
   const now = new Date().toISOString();
   let completed: RuntimeAppOperationRecord | null = null;
   withTransaction(db, () => {
-    db.prepare(
+    const result = db.prepare(
       `UPDATE runtime_app_operation
        SET status = 'succeeded',
            stage = 'completed',
@@ -562,6 +562,11 @@ export function completeRuntimeAppOperationSync(input: CompleteRuntimeAppOperati
     if (!completed) {
       throw new Error(`Runtime app operation "${input.operationId}" does not exist.`);
     }
+    // The SQL already refuses to overwrite a cancelled op. When the UPDATE touched
+    // nothing (the op was cancelled or already terminal), a late/duplicate
+    // completion callback must NOT write the installed-app projection nor converge
+    // the request — return with zero side effects (Standard P1).
+    if (result.changes === 0) return;
     if (completed.operation === "uninstall") {
       markRuntimeInstalledAppStatusFromOperationSync(completed, {
         status: "missing",
@@ -617,7 +622,7 @@ export function failRuntimeAppOperationSync(input: FailRuntimeAppOperationInput)
   const now = new Date().toISOString();
   let failed: RuntimeAppOperationRecord | null = null;
   withTransaction(db, () => {
-    db.prepare(
+    const result = db.prepare(
       `UPDATE runtime_app_operation
        SET status = 'failed',
            failed_stage = stage,
@@ -642,6 +647,9 @@ export function failRuntimeAppOperationSync(input: FailRuntimeAppOperationInput)
     if (!failed) {
       throw new Error(`Runtime app operation "${input.operationId}" does not exist.`);
     }
+    // Symmetric to completeRuntimeAppOperationSync: a cancelled op must not be
+    // marked failed in the installed-app projection nor converge the request.
+    if (result.changes === 0) return;
     markRuntimeInstalledAppStatusFromOperationSync(failed, {
       status: "failed",
       lastError: input.errorMessage,

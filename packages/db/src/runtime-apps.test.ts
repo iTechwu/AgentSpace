@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
 import {
+  cancelRuntimeAppOperationSync,
   claimNextRuntimeAppOperationForRuntimeSync,
   completeRuntimeAppOperationSync,
   createRuntimeAppOperationSync,
@@ -105,6 +106,36 @@ test("runtime app operation preserves the stage that failed", () => {
   assert.equal(failed.status, "failed");
   assert.equal(failed.stage, "verifying");
   assert.equal(failed.failedStage, "verifying");
+});
+
+test("a late complete/fail callback on a cancelled operation has no side effects (Standard P1)", () => {
+  const runtimeId = createRuntime();
+  const operation = createRuntimeAppOperationSync({
+    runtimeId,
+    appSource: "clihub_public",
+    appName: "cancelled-cli",
+    operation: "install",
+    commandPlanJson: "{}",
+  });
+  claimNextRuntimeAppOperationForRuntimeSync({ runtimeId });
+  startRuntimeAppOperationSync(operation.id);
+  cancelRuntimeAppOperationSync({ operationId: operation.id });
+  assert.equal(readRuntimeAppOperationSync(operation.id)?.status, "cancelled");
+
+  // The claim already created an "installing" projection — a late completion
+  // callback must NOT flip it to installed (Standard P1).
+  const completed = completeRuntimeAppOperationSync({
+    operationId: operation.id,
+    installedApp: { displayName: "Cancelled", version: "9.9.9", entryPoint: "cancelled-cli", installStrategy: "cli_hub" },
+  });
+  assert.equal(completed.status, "cancelled", "cancelled op must stay cancelled");
+  assert.equal(listRuntimeInstalledAppsSync({ runtimeId }).length, 1, "claim's installing projection is retained");
+  assert.notEqual(listRuntimeInstalledAppsSync({ runtimeId })[0]?.status, "installed", "cancelled op must not be marked installed");
+
+  // A late failure callback likewise stays a no-op on the projection.
+  const failed = failRuntimeAppOperationSync({ operationId: operation.id, errorMessage: "late failure" });
+  assert.equal(failed.status, "cancelled", "cancelled op must not be flipped to failed");
+  assert.notEqual(listRuntimeInstalledAppsSync({ runtimeId })[0]?.status, "failed", "cancelled op must not be marked failed");
 });
 
 test.after(() => {
