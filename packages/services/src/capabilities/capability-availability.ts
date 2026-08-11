@@ -430,11 +430,13 @@ export function submitCapabilityRequestSync(
     throw new Error("Capability request channel is disabled (CAPABILITY_REQUESTS_ENABLED=0).");
   }
   // P1-7: never trust the browser's deployment decision. The server re-derives
-  // the allowed (packageKind, deploymentMode) pairing from the catalog model —
-  // a browser cannot claim `runtime_package` for an MCP service or
-  // `managed_service` for a CLI tool. requestedAction is validated against the
-  // actions that make sense for the kind.
-  assertCapabilityDeploymentPlan(input.packageKind, input.deploymentMode, input.requestedAction);
+  // the deployment mode from the actual catalog entry (transport / install
+  // strategy / release), so a browser cannot claim `runtime_package` for an MCP
+  // service or `external_service` for a CLI tool. The generic kind matrix is a
+  // first line of defense; the catalog re-derivation is authoritative.
+  const catalogPlan = resolveCapabilityDeploymentPlan(input, workspaceId);
+  const deploymentMode = catalogPlan?.deploymentMode ?? input.deploymentMode;
+  assertCapabilityDeploymentPlan(input.packageKind, deploymentMode, input.requestedAction);
   // P1-7: the runtime must belong to the target workspace. Without this a
   // member could submit a request pinned to another workspace's runtime id.
   const runtime = readAgentRuntimeSync(input.runtimeId);
@@ -445,7 +447,7 @@ export function submitCapabilityRequestSync(
   // For MCP/service requests we pin the exact catalog item id in metadata so
   // dispatch cannot silently drift to a newer release with the same slug
   // (docs/0811/cli-install P1-3).
-  const metadataJson = buildCapabilityRequestMetadataJson(input.packageKind, input.packageSlug, workspaceId);
+  const metadataJson = buildCapabilityRequestMetadataJson(input.packageKind, input.packageSlug, workspaceId, catalogPlan?.catalogItemId);
   // CAS idempotency: createCapabilityRequestSync atomically inserts a new row,
   // reopens a terminal request, or returns an in-flight request unchanged. Only
   // the created/reopened cases record an audit event and notify admins, so a
@@ -458,8 +460,8 @@ export function submitCapabilityRequestSync(
     packageKind: input.packageKind,
     packageSource: input.packageSource,
     packageSlug: input.packageSlug,
-    packageDisplayName: input.packageDisplayName,
-    deploymentMode: input.deploymentMode,
+    packageDisplayName: catalogPlan?.displayName ?? input.packageDisplayName,
+    deploymentMode,
     requestedAction: input.requestedAction,
     priority: input.priority ?? "normal",
     message: input.message ?? "",
@@ -477,14 +479,14 @@ export function submitCapabilityRequestSync(
   tryRecordWorkspaceAuditEventSync({
     workspaceId,
     title: "Capability request submitted",
-    note: `${input.packageDisplayName} (${input.deploymentMode}/${input.requestedAction}) requested.`,
+    note: `${request.packageDisplayName} (${deploymentMode}/${input.requestedAction}) requested.`,
     code: "capability_request.submitted",
     data: {
       actorType: "session_user",
       actorUserId: input.actorUserId,
       resourceType: "capability_request",
       resourceId: request.id,
-      deploymentMode: input.deploymentMode,
+      deploymentMode,
       requestedAction: input.requestedAction,
     },
   });
@@ -495,8 +497,8 @@ export function submitCapabilityRequestSync(
   if (!isAdmin) {
     notifyWorkspaceAdminsSync({
       workspaceId,
-      title: `能力申请待批准：${input.packageDisplayName}`,
-      body: `${input.packageDisplayName} (${input.deploymentMode}) 需要管理员处理。`,
+      title: `能力申请待批准：${request.packageDisplayName}`,
+      body: `${request.packageDisplayName} (${deploymentMode}) 需要管理员处理。`,
       type: "capability_request_pending",
       severity: "info",
       resourceType: "capability_request",
@@ -532,15 +534,59 @@ export function submitCapabilityRequestSync(
   };
 }
 
+interface ResolvedCapabilityCatalogPlan {
+  deploymentMode: CapabilityDeploymentMode;
+  catalogItemId?: string;
+  displayName?: string;
+}
+
+/**
+ * Authoritative server-side deployment re-derivation (docs/0811/cli-install
+ * P1-7). The browser submits identifiers only; the server looks up the real
+ * catalog entry and derives the deployment mode from it:
+ *   - CLI:   install strategy (cli_hub/bundled → runtime_builtin, else
+ *            runtime_package)
+ *   - MCP:   transport (streamable_http → external_service, else
+ *            managed_service)
+ *   - service: same MCP catalog resolution.
+ * When the entry cannot be found (e.g. a yanked/removed item), we fall back to
+ * the browser's declared mode so the generic kind matrix still bounds it, but
+ * dispatch will fail closed on the missing entry.
+ */
+function resolveCapabilityDeploymentPlan(
+  input: SubmitCapabilityRequestInput,
+  workspaceId: string,
+): ResolvedCapabilityCatalogPlan | null {
+  if (input.packageKind === "cli") {
+    const item = findCliCatalogItem(workspaceId, input.packageSource, input.packageSlug);
+    if (!item) return null;
+    return {
+      deploymentMode: classifyCliDeploymentMode(item),
+      displayName: item.displayName,
+    };
+  }
+  // MCP / service — resolve the workspace catalog item by slug, pin the exact
+  // catalogItemId so dispatch cannot drift to a newer same-slug release.
+  const catalog = readMcpCatalogItemBySlugSync(input.packageSlug, workspaceId);
+  if (!catalog) return null;
+  return {
+    deploymentMode: catalog.transport === "streamable_http" ? "external_service" : "managed_service",
+    catalogItemId: catalog.id,
+    displayName: catalog.displayName,
+  };
+}
+
 function buildCapabilityRequestMetadataJson(
   packageKind: CapabilityPackageKind,
   packageSlug: string,
   workspaceId: string,
+  resolvedCatalogItemId?: string,
 ): string {
   if (packageKind !== "mcp") return "{}";
-  const catalog = readMcpCatalogItemBySlugSync(packageSlug, workspaceId);
-  if (!catalog) return "{}";
-  return JSON.stringify({ catalogItemId: catalog.id });
+  const catalogItemId = resolvedCatalogItemId
+    ?? readMcpCatalogItemBySlugSync(packageSlug, workspaceId)?.id;
+  if (!catalogItemId) return "{}";
+  return JSON.stringify({ catalogItemId });
 }
 
 export function approveCapabilityRequestSync(input: {
