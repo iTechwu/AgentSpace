@@ -481,6 +481,18 @@ async function downloadAndVerifyRuntimeAppArtifact(
   }
 }
 
+// Integrity-verified artifact hosts the daemon will download from. The canonical
+// package registries (npm/pypi) plus the two natural binary hosts for the
+// runtime baseline's node/python artifacts (docs Phase 7). All downloads are
+// sha256-pinned, so a host here cannot inject content without the preimage.
+const RUNTIME_APP_ARTIFACT_ALLOWED_HOSTS = new Set([
+  "registry.npmjs.org",
+  "files.pythonhosted.org",
+  "nodejs.org",
+  "python.org",
+  "www.python.org",
+]);
+
 function isRuntimeAppArtifactLock(value: unknown): value is NonNullable<RuntimeAppInstallPlan["artifactLock"]> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const artifact = value as Record<string, unknown>;
@@ -488,7 +500,7 @@ function isRuntimeAppArtifactLock(value: unknown): value is NonNullable<RuntimeA
   try {
     const url = new URL(artifact.url);
     return url.protocol === "https:"
-      && (url.hostname === "registry.npmjs.org" || url.hostname === "files.pythonhosted.org")
+      && RUNTIME_APP_ARTIFACT_ALLOWED_HOSTS.has(url.hostname)
       && !url.username && !url.password && !url.search && !url.hash
       && Boolean(parseArtifactIntegrity(artifact.integrity))
       && /^\.runtime-app-artifacts\/[A-Za-z0-9][A-Za-z0-9._-]{0,380}$/.test(artifact.localPath);

@@ -685,18 +685,21 @@ function requiredToolKey(tool: "npm" | "pip" | "uv" | "cli_hub" | "python"): "np
 }
 
 /**
- * Builds a digest-free baseline install plan the runtime-app executor can run to
- * install a missing base tool into the Runtime HOME. Returns null for tools the
- * system cannot auto-install (npm/python are image-level) — the caller then lets
- * the normal CLI op fail closed instead of fabricating an unverifiable plan.
+ * Builds a governed baseline install plan the runtime-app executor can run to
+ * install a missing base tool into the Runtime HOME. Every installable tool
+ * (npm/python/uv/cli-hub) MUST have a pinned artifact — no un-governed package
+ * manager install is allowed (immutable-release gate, docs Phase 7). Returns
+ * null when no pin is configured; the caller then lets the normal CLI op fail
+ * closed instead of fabricating an unverifiable plan.
  */
 export function buildRuntimeBaselineInstallPlan(
   tool: "npm" | "pip" | "uv" | "cli_hub" | "python",
 ): RuntimeAppInstallPlan | null {
-  // The plan's app.source must be a real catalog source; the baseline identity
-  // is carried by the runtime_app_operation.app_source field (written separately
-  // as "runtime_baseline"), not by the plan metadata.
-  const base = { source: "clihub_harness" as const, version: "1", entryPoint: tool };
+  // The plan's app.source must be `workspace_private` so the daemon's
+  // parseRuntimeAppInstallPlan accepts the pinned-artifact contract (docs
+  // Phase 7). The baseline op identity lives in the runtime_app_operation
+  // app_name prefix (runtime-baseline:), not in the plan metadata.
+  const base = { source: "workspace_private" as const, version: "1", entryPoint: tool };
   switch (tool) {
     case "pip":
       return {
@@ -709,38 +712,30 @@ export function buildRuntimeBaselineInstallPlan(
         notes: ["Runtime baseline: ensure pip via ensurepip."],
       };
     case "uv":
-      return buildBaselinePlanForTool(base, "uv");
+      return buildBaselinePlanForTool("uv");
     case "cli_hub":
-      return buildBaselinePlanForTool(base, "cli_hub");
+      return buildBaselinePlanForTool("cli_hub");
     case "npm":
-      return buildBaselinePlanForTool(base, "npm");
+      return buildBaselinePlanForTool("npm");
     case "python":
-      return buildBaselinePlanForTool(base, "python");
+      return buildBaselinePlanForTool("python");
     default:
       return null;
   }
 }
 
-function buildBaselinePlanForTool(
-  base: { source: "clihub_harness"; version: string; entryPoint: string },
-  tool: BaselineTool,
-): RuntimeAppInstallPlan | null {
+function buildBaselinePlanForTool(tool: BaselineTool): RuntimeAppInstallPlan | null {
   const release = resolveBaselineRelease(tool);
-  if (release) {
-    // Governed pinned-artifact plan (immutable-release gate): the daemon
-    // downloads, verifies integrity (and cosign when signatureRequired),
-    // extracts and verifies the binary.
-    return buildPinnedArtifactBaselinePlan({
-      tool,
-      release,
-      verify: baselineVerifyPath(tool),
-      verifyArgs: ["--version"],
-      fallback: buildBaselineCommandFallback(base, tool),
-    });
-  }
-  // No governed release: npm/python (image-level) fail closed; uv/cli-hub fall
-  // back to the explicitly un-governed command plan.
-  return buildBaselineCommandFallback(base, tool);
+  if (!release) return null;
+  // Governed pinned-artifact plan (immutable-release gate): the daemon
+  // downloads, verifies integrity (and cosign when signatureRequired),
+  // extracts and verifies the binary.
+  return buildPinnedArtifactBaselinePlan({
+    tool,
+    release,
+    verify: baselineVerifyPath(tool),
+    verifyArgs: ["--version"],
+  });
 }
 
 function baselineVerifyPath(tool: BaselineTool): string {
@@ -752,49 +747,20 @@ function baselineVerifyPath(tool: BaselineTool): string {
   }
 }
 
-function buildBaselineCommandFallback(
-  base: { source: "clihub_harness"; version: string; entryPoint: string },
-  tool: BaselineTool,
-): RuntimeAppInstallPlan | null {
-  switch (tool) {
-    case "uv":
-      return {
-        app: { ...base, name: "uv" },
-        strategy: "pip",
-        commands: [{ executable: "python3", args: ["-m", "pip", "install", "uv"] }],
-        verifyCommands: [{ executable: "uv", args: ["--version"] }],
-        risk: "low",
-        requiresApproval: false,
-        notes: ["Runtime baseline: install uv via pip (UNPINNED — govern via DOFE_AGENT_BASELINE_RELEASES_JSON / env artifact)."],
-      };
-    case "cli_hub":
-      return {
-        app: { ...base, name: "cli-hub" },
-        strategy: "npm",
-        commands: [{ executable: "npm", args: ["install", "-g", "cli-hub"] }],
-        verifyCommands: [{ executable: "cli-hub", args: ["--version"] }],
-        risk: "low",
-        requiresApproval: false,
-        notes: ["Runtime baseline: install cli-hub via npm (UNPINNED — govern via DOFE_AGENT_BASELINE_RELEASES_JSON / env artifact)."],
-      };
-    default:
-      // npm/python are image-level; without a governed release they fail closed.
-      return null;
-  }
-}
-
 function buildPinnedArtifactBaselinePlan(input: {
   tool: BaselineTool;
   release: BaselineRelease;
   verify: string;
   verifyArgs: string[];
-  /** Command-plan fallback for tools where a package-manager install is a valid
-   *  default (uv, cli-hub). Tools without a fallback (npm/python) fail closed. */
-  fallback?: RuntimeAppInstallPlan | null;
 }): RuntimeAppInstallPlan | null {
-  const localPath = `.baseline/${input.release.tool}.tgz`;
+  // Daemon execution contract (docs Phase 7): pinned artifacts must declare
+  // source workspace_private, land under .runtime-app-artifacts/, and carry an
+  // integrityLock equal to the artifact integrity — otherwise the daemon's
+  // parseRuntimeAppInstallPlan rejects the plan before execution. The artifact
+  // URL host must be in the daemon allowlist (npm/pypi, nodejs.org, python.org).
+  const localPath = `.runtime-app-artifacts/${input.release.tool}.tgz`;
   const plan: RuntimeAppInstallPlan = {
-    app: { source: "clihub_harness" as const, name: input.release.tool, version: input.release.version, entryPoint: input.release.tool },
+    app: { source: "workspace_private" as const, name: input.release.tool, version: input.release.version, entryPoint: input.release.tool },
     strategy: "system",
     commands: [{ executable: "tar", args: ["-xzf", localPath, "-C", ".baseline"] }],
     verifyCommands: [{ executable: input.verify, args: input.verifyArgs }],
@@ -806,6 +772,7 @@ function buildPinnedArtifactBaselinePlan(input: {
       integrity: input.release.integrity,
       localPath,
     },
+    integrityLock: input.release.integrity,
   };
   if (input.release.signatureRequired) {
     plan.notes.push("Signature verification is enforced by the managed node before pull.");
