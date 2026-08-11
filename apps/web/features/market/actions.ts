@@ -15,8 +15,10 @@ import {
   rejectCapabilityRequestSync,
   requestRuntimeAppOperationSync,
   submitCapabilityRequestSync,
+  switchCapabilityImplementationSync,
   syncCliHubCatalog,
   syncRuntimeAppSkill,
+  type CapabilityImplementation,
 } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
@@ -180,6 +182,44 @@ export async function submitCapabilityRequestAction(
         ? "Task created and running."
         : "Capability request recorded.",
     ),
+  );
+}
+
+export interface SwitchCapabilityImplementationActionInput {
+  runtimeId: string;
+  packageKind: CapabilityPackageKind;
+  packageSource: string;
+  packageSlug: string;
+  packageDisplayName: string;
+  targetImplementation: CapabilityImplementation;
+}
+
+/** Switch a capability to an alternative implementation (docs §4.5). The panel
+ *  renders this control only when the projection actually offers an
+ *  alternative; the action submits the capability through the normal approval →
+ *  dispatch pipeline with the alternative implementation's deployment mode. */
+export async function switchCapabilityImplementationAction(
+  input: SwitchCapabilityImplementationActionInput,
+): Promise<ActionToastResult<SubmitCapabilityRequestActionResult>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const result = switchCapabilityImplementationSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    runtimeId: input.runtimeId.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+    packageKind: input.packageKind,
+    packageSource: input.packageSource.trim(),
+    packageSlug: input.packageSlug.trim(),
+    packageDisplayName: input.packageDisplayName.trim() || input.packageSlug.trim(),
+    targetImplementation: input.targetImplementation,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes"]);
+  return actionToastResult(
+    {
+      capabilityRequestId: result.capabilityRequest.id,
+      nextAction: result.nextAction,
+      dispatchedOperationId: result.dispatchedOperationId ?? null,
+    },
+    successToast("已提交切换为备选实现方式。", "Switched to the alternative implementation."),
   );
 }
 

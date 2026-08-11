@@ -50,6 +50,16 @@ export type CapabilityUserState =
   | "requested"
   | "blocked";
 
+/** How a capability actually runs on the target runtime (docs §4.5). This is the
+ *  implementation axis the spec defines — NOT the cli|mcp presentation axis. A
+ *  managed_stdio MCP (Chrome DevTools) IS a runtime_package: it installs a CLI
+ *  dependency and runs a stdio worker, so its dependency CLI is a PREREQUISITE,
+ *  not a switchable alternative implementation. */
+export type CapabilityImplementation =
+  | "runtime_package"   // installed as a package on the runtime (CLI, managed_stdio worker)
+  | "managed_service"   // platform-deployed container
+  | "external_service"; // existing external HTTPS service
+
 export interface CapabilityAvailabilityProjection {
   packageId: string;
   releaseId?: string;
@@ -69,8 +79,8 @@ export interface CapabilityAvailabilityProjection {
   operationId?: string;
   /** Negotiated implementation (docs §4.5): the selected way this capability runs
    *  on the target runtime, plus any alternatives the admin can switch to. */
-  selectedImplementation?: "cli" | "mcp";
-  alternativeImplementations?: Array<"cli" | "mcp">;
+  selectedImplementation?: CapabilityImplementation;
+  alternativeImplementations?: CapabilityImplementation[];
   selectionReason?: string;
   /** Revision of the execution profile the negotiation used — lets the UI detect
    *  that a runtime's readiness changed and re-negotiate. */
@@ -140,9 +150,9 @@ export function projectCliCapabilityAvailability(input: {
       ? ("not_ready" as const)
       : ("unknown" as const),
     canManage: workspace.canManage,
-    selectedImplementation: "cli" as const,
+    selectedImplementation: "runtime_package" as const,
     alternativeImplementations: undefined,
-    selectionReason: "该能力以 CLI 形式安装到 Runtime HOME。",
+    selectionReason: "该能力以运行时包（CLI）形式安装到 Runtime HOME。",
     runtimeProfileRevision: computeRuntimeProfileRevision(workspace),
   };
 
@@ -165,7 +175,6 @@ export function projectCliCapabilityAvailability(input: {
       operationId: activeOperations[0].id,
     };
   }
-
   if (finalStatus.status === "unsupported" && finalStatus.code === "runtime_app.release_unpinned") {
     return {
       ...baseProjection,
@@ -325,6 +334,19 @@ export function projectMcpCapabilityAvailability(input: {
       reasonText: "该 Runtime 未连接 MCP Gateway，请申请管理员处理。",
     };
   }
+  // Per-implementation profile gate (Spec P1): a managed_service MCP needs a
+  // reachable managed-service endpoint; a managed_stdio MCP needs a CLI executor.
+  // An asserted `false` blocks the projection; unknown keeps legacy behavior.
+  if (negotiation.profileBlocked && !connectionStatus) {
+    return {
+      ...baseProjection,
+      infrastructureState: "not_ready",
+      userState: "blocked",
+      nextAction: "request_deployment",
+      reasonCode: negotiation.profileBlocked.code,
+      reasonText: negotiation.profileBlocked.message,
+    };
+  }
   if (activeOperations.length > 0) {
     return {
       ...baseProjection,
@@ -423,11 +445,13 @@ function reasonForMcpOperation(op: RuntimeMcpOperationLike): string {
 }
 
 /**
- * CLI/MCP multi-implementation negotiation (docs/0811/cli-install §4.5). A
- * managed MCP (e.g. Chrome DevTools) needs its dependency CLI installed first,
- * so the MCP is the selected implementation and the dependency CLI is offered
- * as the alternative an admin can switch to. Other MCPs negotiate with no
- * alternative.
+ * Implementation negotiation (docs/0811/cli-install §4.5). The spec's
+ * implementation axis is runtime_package | managed_service | external_service —
+ * NOT the cli|mcp presentation axis. A managed_stdio MCP (e.g. Chrome DevTools)
+ * runs as a runtime_package: its dependency CLI is a PREREQUISITE for that
+ * implementation, never a switchable alternative (the old "可改为仅安装依赖 CLI"
+ * was a presentation-only claim). Each implementation is gated on the runtime
+ * execution profile (Spec P1).
  */
 function negotiateMcpImplementation(
   workspace: ProjectCapabilityInput,
@@ -436,26 +460,34 @@ function negotiateMcpImplementation(
     requiredRuntimeApp?: { source: string; name: string; version: string } | null;
   },
 ): {
-  selectedImplementation: "mcp";
-  alternativeImplementations?: Array<"cli" | "mcp">;
+  selectedImplementation: CapabilityImplementation;
+  alternativeImplementations?: CapabilityImplementation[];
   selectionReason: string;
+  /** When the runtime profile explicitly forbids the selected implementation. */
+  profileBlocked?: { code: string; message: string };
 } {
   if (catalogItem.requiredRuntimeApp) {
     const dep = catalogItem.requiredRuntimeApp;
     return {
-      selectedImplementation: "mcp",
-      alternativeImplementations: ["cli"],
-      selectionReason: `该 MCP 需要依赖 CLI ${dep.name}@${dep.version} 先安装到 Runtime；系统推荐以 MCP 运行，可切换为仅安装依赖 CLI。`,
+      selectedImplementation: "runtime_package",
+      selectionReason: `该 MCP 以运行时包形式运行：先安装依赖 CLI ${dep.name}@${dep.version}，再以 stdio 连接。`,
+      profileBlocked: workspace.profile?.runtimePackageExecutor === false
+        || workspace.profile?.writableHome === false
+        ? { code: "runtime.profile_mcp_cli_executor_unavailable", message: "该 Runtime 无法承载该 MCP 所需的 CLI 安装，请申请管理员处理。" }
+        : undefined,
     };
   }
   if (catalogItem.transport === "managed_service") {
     return {
-      selectedImplementation: "mcp",
+      selectedImplementation: "managed_service",
       selectionReason: "受管服务容器由平台按需部署，以 MCP 连接方式暴露。",
+      profileBlocked: workspace.profile?.managedServiceReachable === false
+        ? { code: "runtime.profile_managed_service_unreachable", message: "该 Runtime 无法触达受管服务，请申请管理员处理。" }
+        : undefined,
     };
   }
   return {
-    selectedImplementation: "mcp",
+    selectedImplementation: "external_service",
     selectionReason: "外部 HTTPS 服务以 MCP 连接方式暴露。",
   };
 }

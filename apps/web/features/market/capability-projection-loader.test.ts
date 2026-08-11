@@ -254,8 +254,8 @@ describe("CLI/MCP multi-implementation negotiation", () => {
       connectionStatus: null,
       activeOperations: [],
     });
-    expect(projection.selectedImplementation).toBe("mcp");
-    expect(projection.alternativeImplementations).toEqual(["cli"]);
+    expect(projection.selectedImplementation).toBe("runtime_package");
+    expect(projection.alternativeImplementations).toBeUndefined();
     expect(projection.selectionReason).toContain("依赖 CLI");
     expect(typeof projection.runtimeProfileRevision).toBe("string");
   });

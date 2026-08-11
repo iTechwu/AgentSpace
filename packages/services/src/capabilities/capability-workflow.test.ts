@@ -21,6 +21,7 @@ import {
   cancelCapabilityRequestSync,
   completeCapabilityRequestMcpConnectionSync,
   submitCapabilityRequestSync,
+  switchCapabilityImplementationSync,
 } from "./capability-workflow.ts";
 
 /**
@@ -188,6 +189,46 @@ test("re-approval of a still-gated managed_service request restores approved ins
   assert.equal(reapproved.capabilityRequest.status, "approved", "still-gated re-approval must restore approved, not phantom-run");
   const after = readCapabilityRequestSync(submitted.capabilityRequest.id, "default");
   assert.ok(after?.linkedRuntimeAppOperationId == null, "no operation may be created while gated");
+});
+
+test("switchCapabilityImplementationSync fails closed when the catalog cannot back the alternative (Spec P1)", () => {
+  const runtimeId = createTestRuntime();
+  const name = `switch-cli-${randomLikeId()}`;
+  // pip-strategy CLI → the catalog resolves it to runtime_package.
+  seedBaselineCli(name);
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+  // Same implementation the catalog resolves → the switch submits a request.
+  const switched = switchCapabilityImplementationSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "cli",
+    packageSource: "clihub_public",
+    packageSlug: name,
+    packageDisplayName: "Switch CLI",
+    targetImplementation: "runtime_package",
+  });
+  assert.equal(switched.capabilityRequest.deploymentMode, "runtime_package");
+  // A different implementation the catalog cannot back → fail closed, no request.
+  assert.throws(
+    () => switchCapabilityImplementationSync({
+      workspaceId: "default",
+      runtimeId,
+      actorUserId: testUserId,
+      packageKind: "cli",
+      packageSource: "clihub_public",
+      packageSlug: name,
+      packageDisplayName: "Switch CLI",
+      targetImplementation: "external_service",
+    }),
+    /capability_request\.implementation_not_supported/,
+  );
 });
 
 function seedManagedServiceTemplate(slug: string): string {

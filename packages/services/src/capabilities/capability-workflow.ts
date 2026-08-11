@@ -39,7 +39,7 @@ import { listMcpCatalogItemsForWorkspaceSync } from "../mcp-center/catalog.ts";
 import { resolveMcpRuntimeAppRequirement } from "../mcp-center/official-catalog.ts";
 import { selectCliHubReadiness } from "../clihub/runtime-apps.ts";
 import { isCapabilityRequestEnabled } from "./capability-config.ts";
-import { classifyCliDeploymentMode, type CapabilityNextAction } from "./capability-projection.ts";
+import { classifyCliDeploymentMode, type CapabilityImplementation, type CapabilityNextAction } from "./capability-projection.ts";
 import {
   dispatchApprovedCapabilityRequestSync,
   findCliCatalogItem,
@@ -703,6 +703,43 @@ function readProvisionedEndpointRef(metadataJson: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Switch a capability to an alternative implementation (docs §4.5, Spec P1).
+ * The spec's implementation axis maps 1:1 to deployment modes — runtime_package,
+ * managed_service, external_service. The catalog resolution is authoritative
+ * (P1-7), so a switch the catalog cannot back MUST fail closed rather than
+ * re-submit the same capability under a browser-declared mode the server would
+ * silently re-derive. The panel renders the control only when the projection
+ * actually offers an alternative.
+ */
+export function switchCapabilityImplementationSync(input: {
+  workspaceId: string;
+  runtimeId: string;
+  actorUserId: string;
+  packageKind: CapabilityPackageKind;
+  packageSource: string;
+  packageSlug: string;
+  packageDisplayName: string;
+  targetImplementation: CapabilityImplementation;
+}): SubmitCapabilityRequestResult {
+  const submitInput: SubmitCapabilityRequestInput = {
+    workspaceId: input.workspaceId,
+    runtimeId: input.runtimeId,
+    actorUserId: input.actorUserId,
+    packageKind: input.packageKind,
+    packageSource: input.packageSource,
+    packageSlug: input.packageSlug,
+    packageDisplayName: input.packageDisplayName,
+    deploymentMode: input.targetImplementation,
+    requestedAction: input.packageKind === "service" ? "deploy" : "install",
+  };
+  const plan = resolveCapabilityDeploymentPlan(submitInput, input.workspaceId);
+  if (!plan || plan.deploymentMode !== input.targetImplementation) {
+    throw new Error("capability_request.implementation_not_supported");
+  }
+  return submitCapabilityRequestSync(submitInput);
 }
 
 /**

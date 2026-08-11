@@ -17,6 +17,25 @@ export interface RuntimeCliReadinessProjection {
   cliHub: boolean;
 }
 
+/** Label for the spec's implementation axis (docs §4.5): how a capability runs
+ *  on the target runtime — runtime_package / managed_service / external_service.
+ *  NOT the cli|mcp presentation axis. */
+export function implementationKindLabel(
+  implementation: string | undefined,
+  tx: CapabilityTranslator,
+): string {
+  switch (implementation) {
+    case "runtime_package":
+      return tx("运行时包（安装到 Runtime）", "Runtime package (installed on the runtime)");
+    case "managed_service":
+      return tx("受管服务（平台部署容器）", "Managed service (platform-deployed container)");
+    case "external_service":
+      return tx("外部服务（HTTPS 连接）", "External service (HTTPS connection)");
+    default:
+      return tx("未协商", "Not negotiated");
+  }
+}
+
 export function runtimeAppSourceLabel(
   source: CliCatalogProductSource,
   tx: CapabilityTranslator,

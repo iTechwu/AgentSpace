@@ -14,7 +14,7 @@ import {
   reverifyMcpConnectionAction,
 } from "@/features/market/mcp-actions";
 import type { CreateMcpCatalogItemActionInput } from "@/features/market/mcp-actions";
-import { requestRuntimeAppOperationAction, submitCapabilityRequestAction } from "@/features/market/actions";
+import { requestRuntimeAppOperationAction, submitCapabilityRequestAction, switchCapabilityImplementationAction } from "@/features/market/actions";
 import { CreateMcpCatalogModal } from "@/features/market/create-mcp-catalog-modal";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -22,8 +22,10 @@ import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-actio
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
+import type { CapabilityImplementation } from "@dofe-agent/services";
 import type { MarketPageData } from "@/features/market/market-page-client";
 import {
+  implementationKindLabel,
   mcpCatalogCategoryLabel,
   mcpCatalogSourceLabel,
   mcpConnectionStatusLabel,
@@ -395,6 +397,24 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     // explicitly says we can act now.
   }
 
+  /**
+   * Switch the selected capability to an alternative implementation (docs §4.5).
+   * Rendered only when the projection offers alternatives; the action submits
+   * the capability through the normal approval → dispatch pipeline with the
+   * alternative implementation's deployment mode.
+   */
+  function switchImplementation(impl: CapabilityImplementation): void {
+    if (!selected || !targetRuntime) return;
+    runAction(() => switchCapabilityImplementationAction({
+      runtimeId: targetRuntime.id,
+      packageKind: "mcp",
+      packageSource: selected.source,
+      packageSlug: selected.slug,
+      packageDisplayName: selected.displayName,
+      targetImplementation: impl,
+    }));
+  }
+
   function isSubmittable(): boolean {
     if (!selected) return false;
     if (requiresHighRiskConfirmation && !confirmHighRisk) return false;
@@ -752,15 +772,24 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 </div>
               ) : null}
               {selectedProjection?.selectionReason ? (
-                <p className="panel-note" data-implementation={selectedProjection.selectedImplementation ?? "mcp"}>
+                <p className="panel-note" data-implementation={selectedProjection.selectedImplementation ?? "runtime_package"}>
                   {tx("实现方式：", "Implementation: ")}
-                  {selectedProjection.selectedImplementation === "cli"
-                    ? tx("CLI（安装到 Runtime）", "CLI (installed on the runtime)")
-                    : tx("MCP（连接方式）", "MCP (connected)")}
-                  {selectedProjection.alternativeImplementations?.includes("cli") ? (
+                  {implementationKindLabel(selectedProjection.selectedImplementation, tx)}
+                  {selectedProjection.alternativeImplementations && selectedProjection.alternativeImplementations.length > 0 ? (
                     <>
                       {" · "}
-                      {tx("可改为仅安装依赖 CLI", "Can switch to installing the dependency CLI only")}
+                      {tx("可切换：", "Switchable: ")}
+                      {selectedProjection.alternativeImplementations.map((impl) => (
+                        <button
+                          key={impl}
+                          className="link-button"
+                          disabled={isPending || !data.canManage}
+                          onClick={() => switchImplementation(impl)}
+                          type="button"
+                        >
+                          {implementationKindLabel(impl, tx)}
+                        </button>
+                      ))}
                     </>
                   ) : null}
                 </p>
