@@ -26,6 +26,7 @@ import {
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemSync,
   readWorkspaceRuntimeAppReleaseByVersionSync,
+  transitionCapabilityRequestSync,
   updateMcpConnectionStatusSync,
 } from "@dofe-agent/db";
 import { queueManagedSkillServiceRetireSync } from "../skill-services/bindings.ts";
@@ -389,9 +390,29 @@ export function approveCapabilityRequestSync(input: {
           requestId: request.id,
           actorUserId: input.actorUserId,
         });
+        const current = recovered.capabilityRequest;
+        const operationId = recovered.operationId ?? current.linkedRuntimeAppOperationId ?? current.linkedMcpConnectionId ?? undefined;
+        // A dispatch that did NOT actually start anything (feature flag still off
+        // / template still not admitted) leaves the CAS-claimed request
+        // phantom-running with no link — the reconciler can never reclaim it and
+        // the request locks forever (Spec P1). Restore it to approved so a later
+        // re-approval, once ops enables the flag / admits the template, can
+        // re-dispatch.
+        if (!operationId && current.status === "running") {
+          const restored = transitionCapabilityRequestSync({
+            requestId: request.id,
+            workspaceId: input.workspaceId,
+            status: "approved",
+          });
+          return {
+            capabilityRequest: restored ?? current,
+            dispatchedOperationId: undefined,
+            nextAction: "wait_for_approval",
+          };
+        }
         return {
-          capabilityRequest: recovered.request,
-          dispatchedOperationId: recovered.operationId,
+          capabilityRequest: current,
+          dispatchedOperationId: operationId,
           nextAction: recovered.nextAction,
         };
       }

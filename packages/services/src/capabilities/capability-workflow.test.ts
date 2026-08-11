@@ -152,6 +152,44 @@ test("admin approval of a managed_service request dispatches a real container pr
   assert.equal(ops.some((op) => op.id === submitted.dispatchedOperationId && op.operation === "provision"), true);
 });
 
+test("re-approval of a still-gated managed_service request restores approved instead of phantom-running (Spec P1)", () => {
+  process.env.MANAGED_SERVICE_PROVISIONING_ENABLED = "0";
+  const runtimeId = createTestRuntime();
+  const slug = `svc-${randomLikeId()}`;
+  seedManagedServiceTemplate(slug);
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+  const submitted = submitCapabilityRequestSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "service",
+    packageSource: "official",
+    packageSlug: slug,
+    packageDisplayName: "Gated Service",
+    deploymentMode: "managed_service",
+    requestedAction: "deploy",
+  });
+  assert.equal(submitted.capabilityRequest.status, "approved", "gated managed_service stays approved (no phantom op)");
+  assert.equal(submitted.dispatchedOperationId, undefined, "no operation is queued while gated");
+  // Re-approval while STILL gated must not leave the CAS-claimed request stuck
+  // in running — it must be restored to approved for a future re-dispatch.
+  const reapproved = approveCapabilityRequestSync({
+    workspaceId: "default",
+    requestId: submitted.capabilityRequest.id,
+    actorUserId: testUserId,
+    decision: "approved",
+  });
+  assert.equal(reapproved.capabilityRequest.status, "approved", "still-gated re-approval must restore approved, not phantom-run");
+  const after = readCapabilityRequestSync(submitted.capabilityRequest.id, "default");
+  assert.ok(after?.linkedRuntimeAppOperationId == null, "no operation may be created while gated");
+});
+
 function seedManagedServiceTemplate(slug: string): string {
   return upsertSkillServiceCatalogSync({
     workspaceId: "default",
