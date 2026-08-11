@@ -104,6 +104,10 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
 
+### 6.12 取消真实生命周期验证（进度更新 2026-08-11 第十一轮）
+
+- **端到端取消生命周期测试**：provision op 派发 → 容器置 ready（模拟 daemon 部署完成）→ 取消 → 断言请求 cancelled、显式 retire op 入队（补偿）、provision op 被 fence（迟到完成回调不能回写）。控制面 workflow 13/13、daemon service-operation-worker 8/8（retire 执行路径）均通过。
+
 ### 6.11 Feature Envy 重构与前端切换入口（进度更新 2026-08-11 第十轮）
 
 - **Feature Envy 重构**：取消/补偿不再手改三个子系统数据表——新增 `cancelRuntimeAppOperationSync`（runtime-app）、`cancelManagedSkillServiceOperationSync`（skill-service）、MCP 走 `cancelUnfinishedMcpOperationsForConnectionSync` + `updateMcpConnectionStatusSync(disabled)` + `queueManagedSkillServiceRetireSync`。

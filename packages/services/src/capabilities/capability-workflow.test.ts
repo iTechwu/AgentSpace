@@ -441,3 +441,52 @@ test("managed_stdio MCP dispatches a dependency CLI install first (P0)", () => {
   const depOp = readRuntimeAppOperationSync(submitted.dispatchedOperationId!, "default");
   assert.ok(depOp?.appName.startsWith("mcp-dependency:"), "dependency CLI install must be queued before connecting");
 });
+
+test("cancel after container provision queues an explicit retire and frees the request (real lifecycle)", () => {
+  process.env.MANAGED_SERVICE_PROVISIONING_ENABLED = "1";
+  const runtimeId = createTestRuntime();
+  const slug = `svc-${randomLikeId()}`;
+  seedManagedServiceTemplate(slug);
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+  const submitted = submitCapabilityRequestSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "service",
+    packageSource: "official",
+    packageSlug: slug,
+    packageDisplayName: "Heavy Service",
+    deploymentMode: "managed_service",
+    requestedAction: "deploy",
+  });
+  assert.equal(submitted.capabilityRequest.status, "running");
+  assert.ok(submitted.dispatchedOperationId, "provision op must be dispatched");
+
+  // Simulate the daemon provisioning the container to ready.
+  const provisionOpId = submitted.dispatchedOperationId;
+  const op = getDatabase().prepare(
+    "SELECT service_id FROM managed_skill_service_operation WHERE id = ? AND workspace_id = 'default'",
+  ).get(provisionOpId) as { service_id: string } | undefined;
+  assert.ok(op?.service_id, "provision op must reference a service instance");
+  getDatabase().prepare("UPDATE managed_skill_service SET status = 'ready' WHERE id = ?").run(op.service_id);
+
+  // Cancel after the container is provisioned.
+  const cancelled = cancelCapabilityRequestSync({
+    requestId: submitted.capabilityRequest.id,
+    workspaceId: "default",
+    actorUserId: testUserId,
+  });
+  assert.equal(cancelled?.status, "cancelled");
+
+  // The explicit retire must be queued for the provisioned container (compensation).
+  const ops = listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: op.service_id, limit: 20 });
+  assert.ok(ops.some((o) => o.operation === "retire"), "cancel must queue an explicit retire for the provisioned container");
+  // The provision op is cancelled (fenced) — a late daemon completion cannot flip it back.
+  assert.equal(ops.find((o) => o.id === provisionOpId)?.status, "cancelled");
+});
