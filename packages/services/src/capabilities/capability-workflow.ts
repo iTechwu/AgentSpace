@@ -6,9 +6,12 @@ import type {
 } from "@dofe-agent/db";
 import {
   cancelCapabilityRequestSync as dbCancelCapabilityRequestSync,
+  cancelUnfinishedMcpOperationsForConnectionSync,
+  claimCapabilityRequestForDispatchSync,
   createCapabilityRequestSync,
   decideCapabilityRequestSync,
   getDatabase,
+  listCapabilityRequestsByServiceOperationIdSync,
   listCapabilityRequestsSync,
   listMcpConnectionsSync,
   listMcpOperationsSync,
@@ -299,6 +302,10 @@ function resolveCapabilityDeploymentPlan(
         .filter((entry) => entry.slug === input.packageSlug && entry.deploymentType === "managed_service")
         .sort((left, right) => right.templateVersion.localeCompare(left.templateVersion))[0]
     : undefined;
+  // Sp4: a container MCP with no admitted digest-pinned template must be
+  // REJECTED at submit — accepting it and letting a later approval pick the then
+  // -latest template by slug would let the approval target drift.
+  if (isContainer && !template) return null;
   return {
     deploymentMode: catalog.transport === "streamable_http" ? "external_service" : "managed_service",
     packageSource: catalog.source,
@@ -363,18 +370,32 @@ export function approveCapabilityRequestSync(input: {
     // Reconciler (Sp4): an `approved` request that was blocked at dispatch time
     // (feature flag off / template not yet admitted) has no linked operation. A
     // re-approval after ops enables the flag / admits the template re-dispatches
-    // it instead of leaving it stuck — dispatch is idempotent, so a request that
-    // already has an in-flight operation is a no-op.
+    // it instead of leaving it stuck. The CAS claim makes the re-dispatch
+    // single-winner across concurrent admins (St4): only the admin whose claim
+    // transitioned approved→running dispatches.
     if (request.status === "approved" && !request.linkedRuntimeAppOperationId && !request.linkedMcpConnectionId) {
-      const recovered = dispatchApprovedCapabilityRequestSync({
-        workspaceId: input.workspaceId,
+      const claimed = claimCapabilityRequestForDispatchSync({
         requestId: request.id,
-        actorUserId: input.actorUserId,
+        workspaceId: input.workspaceId,
       });
+      if (claimed) {
+        const recovered = dispatchApprovedCapabilityRequestSync({
+          workspaceId: input.workspaceId,
+          requestId: request.id,
+          actorUserId: input.actorUserId,
+        });
+        return {
+          capabilityRequest: recovered.request,
+          dispatchedOperationId: recovered.operationId,
+          nextAction: recovered.nextAction,
+        };
+      }
+      // Lost the claim race — another admin is dispatching; return current state.
+      const current = readCapabilityRequestSync(input.requestId, input.workspaceId) ?? request;
       return {
-        capabilityRequest: recovered.request,
-        dispatchedOperationId: recovered.operationId,
-        nextAction: recovered.nextAction,
+        capabilityRequest: current,
+        dispatchedOperationId: current.linkedRuntimeAppOperationId ?? current.linkedMcpConnectionId ?? undefined,
+        nextAction: current.status === "running" ? "wait_for_operation" : "wait_for_approval",
       };
     }
     return {
@@ -500,12 +521,21 @@ function cancelLinkedCapabilityOperationsSync(
   request: CapabilityRequestRecord,
 ): void {
   if (request.linkedRuntimeAppOperationId) {
+    // The runtime-app complete/fail guards skip cancelled ops, so stamping the op
+    // cancelled here prevents a late daemon callback from re-completing it.
     getDatabase().prepare(
       `UPDATE runtime_app_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
        WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
     ).run(request.linkedRuntimeAppOperationId, workspaceId);
   }
   if (request.linkedMcpConnectionId) {
+    // Fence the in-flight verify ops so a running verify cannot write the
+    // connection back to ready after cancellation (St3), then remove the
+    // connection.
+    cancelUnfinishedMcpOperationsForConnectionSync({
+      connectionId: request.linkedMcpConnectionId,
+      workspaceId,
+    });
     getDatabase().prepare(
       `UPDATE runtime_mcp_connection SET status = 'removed'
        WHERE id = ? AND workspace_id = ?`,
@@ -515,10 +545,17 @@ function cancelLinkedCapabilityOperationsSync(
     const metadata = JSON.parse(request.metadataJson) as Record<string, unknown>;
     const skillOpId = metadata.skillServiceOperationId;
     if (typeof skillOpId === "string" && skillOpId) {
-      getDatabase().prepare(
-        `UPDATE managed_skill_service_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
-         WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
-      ).run(skillOpId, workspaceId);
+      // Shared provision op: multiple requests can reference one operation.
+      // Only cancel it if this is the LAST non-terminal reference — otherwise
+      // the other requests would strand in `running` (St2).
+      const othersStillActive = listCapabilityRequestsByServiceOperationIdSync(workspaceId, skillOpId)
+        .some((candidate) => candidate.id !== request.id && candidate.status !== "cancelled");
+      if (!othersStillActive) {
+        getDatabase().prepare(
+          `UPDATE managed_skill_service_operation SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
+           WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed', 'running')`,
+        ).run(skillOpId, workspaceId);
+      }
     }
   } catch {
     // malformed metadata — nothing further to cancel
@@ -575,7 +612,10 @@ export function completeCapabilityRequestMcpConnectionSync(
   });
   const approvedRequest = requests.find((request) => {
     const pinned = resolveMcpCatalogItemIdFromRequest(request);
-    return request.requestedAction === "connect"
+    // connect OR deploy: the market panel submits `deploy` for request_deployment
+    // on a managed MCP, then the applicant finishes the connection afterwards —
+    // the completion must accept both actions (P0).
+    return (request.requestedAction === "connect" || request.requestedAction === "deploy")
       && request.packageSource === catalog.source
       && (!pinned || pinned === catalog.id);
   });

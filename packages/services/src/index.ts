@@ -1599,6 +1599,7 @@ export {
 } from "./capabilities/capability-service-driver.ts";
 export {
   buildRuntimeBaselineInstallPlan,
+  chainCapabilityMcpDependencySync,
   chainCapabilityRuntimeBaselineSync,
 } from "./capabilities/capability-dispatchers.ts";
 export { selectCliHubReadiness } from "./clihub/runtime-apps.ts";

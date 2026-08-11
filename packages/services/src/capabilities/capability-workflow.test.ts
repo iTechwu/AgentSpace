@@ -57,8 +57,9 @@ function seedMcpCatalog(slug: string, source = "official"): string {
     risk: "low",
     declaredToolsJson: JSON.stringify([{ name: "search", description: "Search", risk: "low" }]),
     defaultApprovedToolsJson: JSON.stringify(["search"]),
+    allowedHostsJson: JSON.stringify(["mcp.example.com"]),
     endpointTemplate: "https://mcp.example.com/mcp",
-    configurationSchemaJson: JSON.stringify({ type: "object", properties: {} }),
+    configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, additionalProperties: false }),
   }).id;
 }
 
@@ -166,11 +167,13 @@ function seedManagedServiceTemplate(slug: string): string {
   }).id;
 }
 
-test("completeCapabilityRequestMcpConnectionSync refuses to spend a non-connect approval", () => {
+test("completeCapabilityRequestMcpConnectionSync accepts a deploy approval (P0) and refuses an unapproved request", () => {
   const runtimeId = createTestRuntime();
   const slug = `mcp-${randomLikeId()}`;
   const catalogId = seedMcpCatalog(slug, "official");
-  // A `deploy` request must not be consumable by the connect-completion path.
+  // The market panel submits `deploy` for request_deployment on a managed MCP,
+  // then the applicant finishes the connection — a deploy approval MUST be
+  // consumable by the completion path (P0-S2).
   const request = createCapabilityRequestSync({
     workspaceId: "default",
     requestedByUserId: testUserId,
@@ -189,7 +192,35 @@ test("completeCapabilityRequestMcpConnectionSync refuses to spend a non-connect 
     decidedByUserId: testUserId,
     decision: "approved",
   });
+  const completed = completeCapabilityRequestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: testUserId,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://mcp.example.com/mcp",
+  });
+  assert.ok(completed.connectionId, "deploy approval must be consumable by the connection completion");
 
+  // A rejected request must still be refused.
+  const rejected = createCapabilityRequestSync({
+    workspaceId: "default",
+    requestedByUserId: testUserId,
+    runtimeId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: `mcp-${randomLikeId()}`,
+    packageDisplayName: "Test MCP",
+    deploymentMode: "managed_service",
+    requestedAction: "deploy",
+    metadataJson: "{}",
+  }).record;
+  decideCapabilityRequestSync({
+    requestId: rejected.id,
+    workspaceId: "default",
+    decidedByUserId: testUserId,
+    decision: "rejected",
+    decisionReason: "no",
+  });
   assert.throws(
     () => completeCapabilityRequestMcpConnectionSync({
       workspaceId: "default",
@@ -353,4 +384,60 @@ test("baseline npm plan uses a pinned verified artifact when ops configures one"
   assert.equal(plan.artifactLock?.integrity, `sha256-${"a".repeat(64)}`);
   delete process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_URL;
   delete process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_INTEGRITY;
+});
+
+test("managed_stdio MCP dispatches a dependency CLI install first (P0)", () => {
+  process.env.MANAGED_SERVICE_PROVISIONING_ENABLED = "1";
+  const runtimeId = createTestRuntime();
+  const depName = `dep-${randomLikeId()}`;
+  // CLI dependency the MCP needs.
+  upsertRuntimeAppCatalogItemsSync([{
+    source: "clihub_public",
+    name: depName,
+    displayName: "Dep CLI",
+    version: "1.0.0",
+    entryPoint: depName,
+    installStrategy: "npm",
+    installCmd: `npm install -g ${depName}`,
+    registryJson: JSON.stringify({ npm_package_spec: `${depName}@1.0.0` }),
+  }]);
+  // managed_stdio MCP requiring that CLI; NOT installed on the runtime.
+  const mcpSlug = `mcp-${randomLikeId()}`;
+  upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    source: "official" as never,
+    slug: mcpSlug,
+    version: "1.0.0",
+    transport: "managed_stdio",
+    displayName: "Stdio MCP",
+    category: "productivity",
+    risk: "medium",
+    declaredToolsJson: JSON.stringify([{ name: "tool", description: "T", risk: "low" }]),
+    defaultApprovedToolsJson: JSON.stringify(["tool"]),
+    endpointTemplate: "stdio://dep",
+    configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, additionalProperties: false }),
+    requiredRuntimeAppJson: JSON.stringify({ source: "clihub_public", name: depName, version: "1.0.0" }),
+  });
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+
+  const submitted = submitCapabilityRequestSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: mcpSlug,
+    packageDisplayName: "Stdio MCP",
+    deploymentMode: "managed_service",
+    requestedAction: "connect",
+  });
+  assert.equal(submitted.capabilityRequest.status, "running");
+  const depOp = readRuntimeAppOperationSync(submitted.dispatchedOperationId!, "default");
+  assert.ok(depOp?.appName.startsWith("mcp-dependency:"), "dependency CLI install must be queued before connecting");
 });

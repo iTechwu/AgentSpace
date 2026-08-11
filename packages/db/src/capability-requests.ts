@@ -354,6 +354,31 @@ export function listCapabilityRequestsSync(
     .filter((value): value is CapabilityRequestRecord => value !== null);
 }
 
+/**
+ * CAS claim used by the approve reconciler (P1): atomically moves an approved
+ * request with no linked operation to `running` so only ONE admin's re-dispatch
+ * wins. Returns the claimed record, or null when another actor already claimed
+ * it (or it gained a link).
+ */
+export function claimCapabilityRequestForDispatchSync(input: {
+  requestId: string;
+  workspaceId?: string;
+}): CapabilityRequestRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  const result = getDatabase()
+    .prepare(
+      `UPDATE capability_request
+       SET status = 'running', updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND status = 'approved'
+         AND linked_runtime_app_operation_id IS NULL
+         AND linked_mcp_connection_id IS NULL`,
+    )
+    .run(now, input.requestId, workspaceId);
+  if (result.changes === 0) return null;
+  return readCapabilityRequestSync(input.requestId, workspaceId);
+}
+
 export function decideCapabilityRequestSync(
   input: DecideCapabilityRequestInput,
 ): DecideCapabilityRequestResult {
@@ -493,13 +518,14 @@ export function convergeCapabilityRequestFromRuntimeAppOperationSync(input: {
   ) {
     return request;
   }
-  // Runtime baseline ops (app_name prefix 'runtime-baseline:') are a chaining
-  // step, not the terminal CLI install — the service layer creates the CLI op on
-  // baseline success, so this function must NOT stamp the request terminal.
+  // Chained runtime-app ops (app_name prefixes 'runtime-baseline:' and
+  // 'mcp-dependency:') are intermediate steps — the service layer creates the
+  // next op / the MCP connection on success, so this function must NOT stamp the
+  // request terminal here.
   const op = getDatabase()
     .prepare("SELECT app_name FROM runtime_app_operation WHERE id = ? AND workspace_id = ?")
     .get(input.operationId, workspaceId) as { app_name?: string } | undefined;
-  if (op?.app_name?.startsWith("runtime-baseline:")) {
+  if (op?.app_name?.startsWith("runtime-baseline:") || op?.app_name?.startsWith("mcp-dependency:")) {
     return request;
   }
   const status: CapabilityRequestStatus = input.outcome === "succeeded" ? "completed" : "failed";
@@ -586,7 +612,7 @@ export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
        WHERE workspace_id = ? AND runtime_id = ?
          AND package_kind = 'mcp'
          AND package_source = ? AND package_slug = ?
-         AND requested_action = 'connect'
+         AND requested_action IN ('connect', 'deploy')
          AND status IN ('approved', 'running')
        ORDER BY updated_at DESC
        LIMIT 10`,

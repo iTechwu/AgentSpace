@@ -1,6 +1,6 @@
 import { failRuntimeAppOperationSync } from "@dofe-agent/db";
 import type { FailRuntimeAppOperationRequest } from "@dofe-agent/domain";
-import { chainCapabilityRuntimeBaselineSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { chainCapabilityMcpDependencySync, chainCapabilityRuntimeBaselineSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { readRuntimeAppOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -33,9 +33,16 @@ export async function POST(
     errorCode: body.errorCode,
     errorMessage: body.errorMessage.trim(),
   });
-  // Runtime baseline chaining (docs Phase 7): a failed baseline install fails the
-  // capability request (the CLI cannot proceed without the tool).
+  // Chained-op failure: a failed baseline install or a failed managed_stdio
+  // dependency install fails the capability request closed.
   chainCapabilityRuntimeBaselineSync({
+    workspaceId: auth.workspaceId,
+    operationId,
+    outcome: "failed",
+    errorCode: body.errorCode,
+    errorMessage: body.errorMessage.trim(),
+  });
+  chainCapabilityMcpDependencySync({
     workspaceId: auth.workspaceId,
     operationId,
     outcome: "failed",

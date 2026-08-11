@@ -721,6 +721,7 @@ export {
 export {
   bindApprovedCapabilityRequestToMcpConnectionSync,
   cancelCapabilityRequestSync,
+  claimCapabilityRequestForDispatchSync,
   convergeCapabilityRequestFromMcpConnectionSync,
   convergeCapabilityRequestFromRuntimeAppOperationSync,
   createCapabilityRequestSync,

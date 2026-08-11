@@ -104,6 +104,15 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
 
+### 6.9 MCP 主链闭环与取消状态机（进度更新 2026-08-11 第八轮）
+
+- **P0-S1**：managed_service 端点校验接受 `runtime-private://`（provisioned 容器端点），连接真正指向刚部署的容器而非静态预部署服务。
+- **P0-S2**：MCP 回绑与成员补凭据接受 `deploy` + `connect`——request_deployment 生成的 deploy 请求不再无法收敛/完成。
+- **P0-S3**：managed_stdio 依赖 CLI 自动安装——缺依赖时先排 `mcp-dependency:` CLI op，就绪后由 chain 创建 MCP connection；依赖失败则请求 fail-closed。
+- **取消状态机**：runtime-app complete/fail 跳过 `cancelled` op（不能回写 succeeded）；baseline/MCP 依赖 chain 仅在请求仍 running 时接续；共享 provision op 仅最后一个引用取消；MCP 取消 fence 未完成 verify op。
+- **reconciler CAS**：重新批准恢复用 `claimCapabilityRequestForDispatchSync`（approved→running 原子认领），并发管理员只一个派发。
+- **Sp4**：容器 MCP 无已接纳模板时 submit 拒绝（防审批对象漂移）。
+
 ### 6.8 协商、签名与 baseline 补全（进度更新 2026-08-11 第七轮）
 
 - **CLI/MCP 多实现协商**：投影新增 `selectedImplementation` / `alternativeImplementations` / `selectionReason` / `runtimeProfileRevision`。managed MCP 需要依赖 CLI 时以 MCP 为主实现、依赖 CLI 为可切换替代；profile 修订号让 UI 检测 runtime 能力变化后重新协商。

@@ -530,7 +530,7 @@ export function completeRuntimeAppOperationSync(input: CompleteRuntimeAppOperati
            safe_stdout_tail = ?,
            safe_stderr_tail = ?,
            completed_at = ?
-       WHERE id = ? AND workspace_id = ?`,
+       WHERE id = ? AND workspace_id = ? AND status <> 'cancelled'`,
     ).run(
       now,
       input.safeStdoutTail ?? null,
@@ -608,7 +608,7 @@ export function failRuntimeAppOperationSync(input: FailRuntimeAppOperationInput)
            error_code = ?,
            error_message = ?,
            completed_at = ?
-       WHERE id = ? AND workspace_id = ?`,
+       WHERE id = ? AND workspace_id = ? AND status <> 'cancelled'`,
     ).run(
       now,
       input.safeStdoutTail ?? null,

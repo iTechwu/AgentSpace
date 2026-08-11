@@ -1433,11 +1433,17 @@ function validateConnectionEndpoint(
       : { ok: false, code: "mcp.policy_denied" as const, message: "Managed stdio entrypoint must match the immutable catalog release." };
   }
   if (catalog.transport === "managed_service") {
-    const trusted = catalog.source === "official"
+    // Two trusted endpoint forms: the immutable static template (a pre-existing
+    // platform service) and a runtime-private:// reference — the endpoint of the
+    // JUST-provisioned container the daemon reported. The latter lets a managed
+    // MCP connect to its freshly-deployed container, not a stale pre-existing
+    // service (docs/0811/cli-install Phase 5).
+    const staticTemplate = catalog.source === "official"
       && catalog.slug === OPENMONTAGE_MCP_SLUG
       && catalog.endpointTemplate === "managed-service://openmontage"
       && endpoint === catalog.endpointTemplate;
-    return trusted
+    const provisionedContainer = endpoint.startsWith("runtime-private://");
+    return (staticTemplate || provisionedContainer)
       ? { ok: true as const }
       : { ok: false as const, code: "mcp.policy_denied" as const, message: "Managed service reference is not trusted." };
   }

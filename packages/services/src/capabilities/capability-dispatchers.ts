@@ -8,6 +8,7 @@ import {
   findCapabilityRequestByLinkedRuntimeAppOperationIdSync,
   listRuntimeAppCatalogItemsSync,
   listRuntimeAppOperationsSync,
+  listRuntimeInstalledAppsSync,
   readAgentRuntimeSync,
   readCapabilityRequestSync,
   readMcpCatalogItemBySlugSync,
@@ -283,6 +284,68 @@ function dispatchMcpCapabilityRequestSync(input: {
     });
     const final = failed ?? request;
     return { request: final, capabilityRequest: final, nextAction: "repair" };
+  }
+
+  // Spec (P0): a managed_stdio MCP (Chrome DevTools, MiniMax) is NOT a Docker
+  // service — it installs a pinned Runtime CLI dependency and runs a stdio
+  // worker. If the dependency CLI isn't installed on the runtime, queue its
+  // install first and defer the connection to a chaining hook (mcpPendingConnect
+  // marker); the connection is only created once the CLI is present. Without the
+  // install, the connection layer would throw mcp.runtime_app_required.
+  const requiredApp = catalog.requiredRuntimeApp;
+  if (requiredApp && request.runtimeId) {
+    const installed = listRuntimeInstalledAppsSync({ workspaceId: input.workspaceId, runtimeId: request.runtimeId })
+      .find((app) => app.source === requiredApp.source && app.name === requiredApp.name);
+    if (!installed || installed.status !== "installed" || !installed.enabled) {
+      const depItem = findCliCatalogItem(input.workspaceId, requiredApp.source, requiredApp.name);
+      const depPlan = depItem ? safeBuildInstallPlan(depItem) : null;
+      if (!depPlan) {
+        const failed = transitionCapabilityRequestSync({
+          requestId: request.id,
+          workspaceId: input.workspaceId,
+          status: "failed",
+          lastErrorCode: "mcp.runtime_app_required",
+          lastErrorMessage: `依赖 CLI ${requiredApp.name}@${requiredApp.version} 无法安装（目录条目缺失）。`,
+        });
+        const final = failed ?? request;
+        return { request: final, capabilityRequest: final, nextAction: "repair" };
+      }
+      const depOp = createRuntimeAppOperationSync({
+        workspaceId: input.workspaceId,
+        runtimeId: request.runtimeId,
+        appSource: "clihub_harness" as RuntimeAppCatalogSource,
+        // Reserved app_name namespace (mcp-dependency:) so the runtime-app
+        // convergence does NOT stamp this request terminal — the chaining hook
+        // connects the MCP once the CLI is installed.
+        appName: `mcp-dependency:${requiredApp.name}`,
+        operation: "install",
+        requestedByUserId: input.actorUserId,
+        commandPlanJson: JSON.stringify(depPlan),
+      });
+      const depMetadata = {
+        ...parseRequestMetadata(request.metadataJson),
+        mcpPendingConnect: {
+          actorUserId: input.actorUserId,
+          catalogItemId: catalog.id,
+          endpoint: catalog.endpointTemplate ?? "",
+          approvedTools: safeParseJsonArray(catalog.defaultApprovedToolsJson),
+        },
+      };
+      const depLinked = transitionCapabilityRequestSync({
+        requestId: request.id,
+        workspaceId: input.workspaceId,
+        status: "running",
+        linkedRuntimeAppOperationId: depOp.id,
+        metadataJson: JSON.stringify(depMetadata),
+      });
+      const depFinal = depLinked ?? request;
+      return {
+        request: depFinal,
+        capabilityRequest: depFinal,
+        operationId: depOp.id,
+        nextAction: "wait_for_operation",
+      };
+    }
   }
 
   // Spec: a managed_service-mode MCP whose catalog transport is genuinely a
@@ -730,6 +793,10 @@ export function chainCapabilityRuntimeBaselineSync(input: {
   if (!op || !op.appName.startsWith("runtime-baseline:")) return;
   const request = findCapabilityRequestByLinkedRuntimeAppOperationIdSync(input.workspaceId, input.operationId);
   if (!request || !request.runtimeId) return;
+  // A cancelled (or otherwise terminal) request must NOT be chained onward —
+  // otherwise a late baseline-completion callback would re-create the CLI op and
+  // flip the cancelled request back to running (P1).
+  if (request.status !== "running") return;
   if (input.outcome !== "succeeded") {
     transitionCapabilityRequestSync({
       requestId: request.id,
@@ -760,4 +827,71 @@ export function chainCapabilityRuntimeBaselineSync(input: {
     status: "running",
     linkedRuntimeAppOperationId: cliOp.id,
   });
+}
+
+/**
+ * Dependency half of the managed_stdio MCP flow (P0): when a mcp-dependency op
+ * (app_name prefix 'mcp-dependency:') referenced by a capability_request reaches
+ * a terminal state, create the MCP connection once the dependency CLI is
+ * installed (success), or fail the request closed (failure). Called from the
+ * daemon runtime-app complete/fail routes.
+ */
+export function chainCapabilityMcpDependencySync(input: {
+  workspaceId: string;
+  operationId: string;
+  outcome: "succeeded" | "failed";
+  errorCode?: string;
+  errorMessage?: string;
+}): void {
+  const op = readRuntimeAppOperationSync(input.operationId, input.workspaceId);
+  if (!op || !op.appName.startsWith("mcp-dependency:")) return;
+  const request = findCapabilityRequestByLinkedRuntimeAppOperationIdSync(input.workspaceId, input.operationId);
+  if (!request || !request.runtimeId) return;
+  // A cancelled (or otherwise terminal) request must NOT be connected onward —
+  // a late dependency-completion callback must not flip a cancelled request back
+  // to running (P1).
+  if (request.status !== "running") return;
+  const metadata = parseRequestMetadata(request.metadataJson);
+  const marker = metadata.mcpPendingConnect as { actorUserId?: string; catalogItemId?: string; endpoint?: string; approvedTools?: string[] } | undefined;
+  if (input.outcome !== "succeeded") {
+    transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "failed",
+      lastErrorCode: input.errorCode ?? "mcp.dependency_install_failed",
+      lastErrorMessage: input.errorMessage ?? "依赖 CLI 安装失败，MCP 未连接。",
+    });
+    return;
+  }
+  if (!marker || typeof marker.catalogItemId !== "string") return;
+  const catalog = readMcpCatalogItemSync(marker.catalogItemId, input.workspaceId);
+  if (!catalog || !catalog.endpointTemplate) {
+    transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "failed",
+      lastErrorCode: "mcp.connection_dispatch_failed",
+      lastErrorMessage: "依赖 CLI 已就绪但 MCP 连接无法创建（目录条目缺失）。",
+    });
+    return;
+  }
+  try {
+    requestMcpConnectionSync({
+      workspaceId: input.workspaceId,
+      actorUserId: typeof marker.actorUserId === "string" ? marker.actorUserId : "system",
+      runtimeId: request.runtimeId,
+      catalogItemId: catalog.id,
+      endpoint: marker.endpoint || catalog.endpointTemplate,
+      approvedTools: Array.isArray(marker.approvedTools) ? marker.approvedTools : safeParseJsonArray(catalog.defaultApprovedToolsJson),
+      confirmHighRisk: catalog.risk === "high",
+    });
+  } catch (error) {
+    transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "failed",
+      lastErrorCode: "mcp.connection_dispatch_failed",
+      lastErrorMessage: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
