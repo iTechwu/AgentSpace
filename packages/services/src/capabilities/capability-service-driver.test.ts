@@ -314,3 +314,25 @@ test("converge returns a credential-bearing managed MCP to approved (not complet
   assert.equal(converged?.id, request.id);
   assert.equal(converged?.status, "approved", "credential managed MCP must await configure_credentials, not auto-complete");
 });
+
+test("a signature-required template without a trusted key fails closed at dispatch", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `driver-${randomLikeId()}`;
+  upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug,
+    templateVersion: "1.0.0",
+    deploymentType: "managed_service",
+    imageDigest: `sha256:${"a".repeat(64)}`,
+    templateDigest: `sha256:${"b".repeat(64)}`,
+    protocol: "http",
+    networkJson: JSON.stringify({ ingress: "private" }),
+    healthJson: JSON.stringify({ path: "/healthz" }),
+    resourcesJson: JSON.stringify({ cpu: "250m", memory: "128Mi" }),
+    signatureRequired: true, // requires verification, but no signatureKeyPem
+  });
+  const request = createApprovedServiceRequest(runtimeId, slug);
+  const queued = queueCapabilityManagedServiceProvisionSync({ workspaceId: "default", request });
+  assert.equal(queued.queued, false);
+  assert.equal(queued.code, "template_not_admitted", "unverifiable image must not be provisioned");
+});

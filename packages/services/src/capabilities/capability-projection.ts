@@ -67,6 +67,14 @@ export interface CapabilityAvailabilityProjection {
    *  we attach its id so the UI can deep-link to "我的请求". */
   capabilityRequestId?: string;
   operationId?: string;
+  /** Negotiated implementation (docs §4.5): the selected way this capability runs
+   *  on the target runtime, plus any alternatives the admin can switch to. */
+  selectedImplementation?: "cli" | "mcp";
+  alternativeImplementations?: Array<"cli" | "mcp">;
+  selectionReason?: string;
+  /** Revision of the execution profile the negotiation used — lets the UI detect
+   *  that a runtime's readiness changed and re-negotiate. */
+  runtimeProfileRevision?: string;
 }
 
 interface ProjectCapabilityInput {
@@ -132,6 +140,10 @@ export function projectCliCapabilityAvailability(input: {
       ? ("not_ready" as const)
       : ("unknown" as const),
     canManage: workspace.canManage,
+    selectedImplementation: "cli" as const,
+    alternativeImplementations: undefined,
+    selectionReason: "该能力以 CLI 形式安装到 Runtime HOME。",
+    runtimeProfileRevision: computeRuntimeProfileRevision(workspace),
   };
 
   if (installed && installed.status === "installed" && installed.enabled) {
@@ -255,11 +267,14 @@ export function projectMcpCapabilityAvailability(input: {
     risk: string;
     declaredToolsJson: string;
     requiredRuntimeCapabilitiesJson: string;
+    /** CLI dependency the MCP needs installed on the runtime first. */
+    requiredRuntimeApp?: { source: string; name: string; version: string } | null;
   };
   connectionStatus?: McpConnectionStatus | null;
   activeOperations: RuntimeMcpOperationLike[];
 }): CapabilityAvailabilityProjection {
   const { workspace, catalogItem, connectionStatus, activeOperations } = input;
+  const negotiation = negotiateMcpImplementation(workspace, catalogItem);
   const baseProjection = {
     packageId: catalogItem.id,
     runtimeId: workspace.runtimeId,
@@ -270,6 +285,10 @@ export function projectMcpCapabilityAvailability(input: {
     catalogState: "approved" as const,
     infrastructureState: workspace.runtimeStatus === "online" ? ("ready" as const) : ("unknown" as const),
     canManage: workspace.canManage,
+    selectedImplementation: negotiation.selectedImplementation,
+    alternativeImplementations: negotiation.alternativeImplementations,
+    selectionReason: negotiation.selectionReason,
+    runtimeProfileRevision: computeRuntimeProfileRevision(workspace),
   };
 
   if (connectionStatus === "ready") {
@@ -401,4 +420,67 @@ function reasonForMcpOperation(op: RuntimeMcpOperationLike): string {
   if (op.status === "failed") return `MCP 连接失败：${op.errorMessage ?? op.errorCode ?? "未知错误"}`;
   if (op.status === "completed") return "MCP 连接已完成。";
   return "MCP 任务进行中。";
+}
+
+/**
+ * CLI/MCP multi-implementation negotiation (docs/0811/cli-install §4.5). A
+ * managed MCP (e.g. Chrome DevTools) needs its dependency CLI installed first,
+ * so the MCP is the selected implementation and the dependency CLI is offered
+ * as the alternative an admin can switch to. Other MCPs negotiate with no
+ * alternative.
+ */
+function negotiateMcpImplementation(
+  workspace: ProjectCapabilityInput,
+  catalogItem: {
+    transport: string;
+    requiredRuntimeApp?: { source: string; name: string; version: string } | null;
+  },
+): {
+  selectedImplementation: "mcp";
+  alternativeImplementations?: Array<"cli" | "mcp">;
+  selectionReason: string;
+} {
+  if (catalogItem.requiredRuntimeApp) {
+    const dep = catalogItem.requiredRuntimeApp;
+    return {
+      selectedImplementation: "mcp",
+      alternativeImplementations: ["cli"],
+      selectionReason: `该 MCP 需要依赖 CLI ${dep.name}@${dep.version} 先安装到 Runtime；系统推荐以 MCP 运行，可切换为仅安装依赖 CLI。`,
+    };
+  }
+  if (catalogItem.transport === "managed_service") {
+    return {
+      selectedImplementation: "mcp",
+      selectionReason: "受管服务容器由平台按需部署，以 MCP 连接方式暴露。",
+    };
+  }
+  return {
+    selectedImplementation: "mcp",
+    selectionReason: "外部 HTTPS 服务以 MCP 连接方式暴露。",
+  };
+}
+
+/**
+ * A compact revision of the runtime's execution profile + tool readiness, so the
+ * UI can detect that a runtime's capabilities changed and re-negotiate.
+ */
+function computeRuntimeProfileRevision(workspace: ProjectCapabilityInput): string {
+  const profile = workspace.profile ?? {};
+  const bits = [
+    workspace.runtimeStatus,
+    workspace.readiness.npm,
+    workspace.readiness.python,
+    workspace.readiness.pip,
+    workspace.readiness.cliHub,
+    profile.writableHome ?? "u",
+    profile.persistentHome ?? "u",
+    profile.runtimePackageExecutor ?? "u",
+    profile.mcpGateway ?? "u",
+    profile.managedServiceReachable ?? "u",
+  ].join("|");
+  let hash = 0;
+  for (let i = 0; i < bits.length; i += 1) {
+    hash = ((hash << 5) - hash + bits.charCodeAt(i)) | 0;
+  }
+  return `r${(hash >>> 0).toString(36)}`;
 }

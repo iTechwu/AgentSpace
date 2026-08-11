@@ -614,7 +614,7 @@ function requiredBaselineToolForStrategy(
   }
 }
 
-function requiredToolKey(tool: "npm" | "pip" | "uv" | "cli_hub"): "npm" | "pip" | "uv" | "cliHub" {
+function requiredToolKey(tool: "npm" | "pip" | "uv" | "cli_hub" | "python"): "npm" | "pip" | "uv" | "cliHub" | "python" {
   return tool === "cli_hub" ? "cliHub" : tool;
 }
 
@@ -625,7 +625,7 @@ function requiredToolKey(tool: "npm" | "pip" | "uv" | "cli_hub"): "npm" | "pip" 
  * the normal CLI op fail closed instead of fabricating an unverifiable plan.
  */
 export function buildRuntimeBaselineInstallPlan(
-  tool: "npm" | "pip" | "uv" | "cli_hub",
+  tool: "npm" | "pip" | "uv" | "cli_hub" | "python",
 ): RuntimeAppInstallPlan | null {
   // The plan's app.source must be a real catalog source; the baseline identity
   // is carried by the runtime_app_operation.app_source field (written separately
@@ -662,9 +662,54 @@ export function buildRuntimeBaselineInstallPlan(
         requiresApproval: false,
         notes: ["Runtime baseline: install cli-hub via npm."],
       };
+    // npm (node) and python are image-level by default — a runtime missing them
+    // must NOT get a fabricated plan. Ops can opt into a PINNED artifact install
+    // via env (URL + integrity); the daemon downloads, verifies, extracts and
+    // verifies the binary. Without a configured pin we fail closed (null).
+    case "npm":
+      return buildPinnedArtifactBaselinePlan({
+        tool: "node",
+        envUrl: process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_URL,
+        envIntegrity: process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_INTEGRITY,
+        verify: ".baseline/bin/node",
+        verifyArgs: ["--version"],
+      });
+    case "python":
+      return buildPinnedArtifactBaselinePlan({
+        tool: "python",
+        envUrl: process.env.DOFE_AGENT_BASELINE_PYTHON_ARTIFACT_URL,
+        envIntegrity: process.env.DOFE_AGENT_BASELINE_PYTHON_ARTIFACT_INTEGRITY,
+        verify: ".baseline/bin/python3",
+        verifyArgs: ["--version"],
+      });
     default:
       return null;
   }
+}
+
+function buildPinnedArtifactBaselinePlan(input: {
+  tool: string;
+  envUrl: string | undefined;
+  envIntegrity: string | undefined;
+  verify: string;
+  verifyArgs: string[];
+}): RuntimeAppInstallPlan | null {
+  const url = input.envUrl?.trim();
+  const integrity = input.envIntegrity?.trim();
+  if (!url || !integrity) return null;
+  if (!/^https:\/\//.test(url)) return null;
+  if (!/^sha256-[A-Fa-f0-9]{64}$/.test(integrity)) return null;
+  const localPath = `.baseline/${input.tool}.tgz`;
+  return {
+    app: { source: "clihub_harness" as const, name: input.tool, version: "1", entryPoint: input.tool },
+    strategy: "system",
+    commands: [{ executable: "tar", args: ["-xzf", localPath, "-C", ".baseline"] }],
+    verifyCommands: [{ executable: input.verify, args: input.verifyArgs }],
+    risk: "medium",
+    requiresApproval: true,
+    notes: [`Runtime baseline: pinned ${input.tool} artifact from controlled registry.`],
+    artifactLock: { url, integrity, localPath },
+  };
 }
 
 /**

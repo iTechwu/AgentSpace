@@ -147,6 +147,7 @@ export async function GET(
             risk: catalogItem.risk,
             declaredToolsJson: catalogItem.declaredToolsJson,
             requiredRuntimeCapabilitiesJson: catalogItem.requiredRuntimeCapabilitiesJson,
+            requiredRuntimeApp: catalogItem.requiredRuntimeApp ?? null,
           },
           connectionStatus: connection?.status ?? null,
           activeOperations: itemOps,

@@ -229,3 +229,52 @@ describe("runtime baseline rollout gating", () => {
     expect(projection.nextAction).toBe("request_deployment");
   });
 });
+
+describe("CLI/MCP multi-implementation negotiation", () => {
+  it("offers the dependency CLI as an alternative for a managed_stdio MCP", () => {
+    const projection = projectMcpCapabilityAvailability({
+      workspace: {
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        runtimeStatus: "online",
+        canManage: true,
+        readiness: { npm: true, python: true, pip: true, cliHub: true },
+        profile: undefined,
+      },
+      catalogItem: {
+        id: "mcp-1",
+        transport: "managed_stdio",
+        slug: "chrome-devtools-mcp",
+        displayName: "Chrome DevTools",
+        risk: "medium",
+        declaredToolsJson: "[]",
+        requiredRuntimeCapabilitiesJson: "[]",
+        requiredRuntimeApp: { source: "clihub_public", name: "chrome-devtools-mcp", version: "1.0.0" },
+      },
+      connectionStatus: null,
+      activeOperations: [],
+    });
+    expect(projection.selectedImplementation).toBe("mcp");
+    expect(projection.alternativeImplementations).toEqual(["cli"]);
+    expect(projection.selectionReason).toContain("依赖 CLI");
+    expect(typeof projection.runtimeProfileRevision).toBe("string");
+  });
+
+  it("reports a stable runtimeProfileRevision for an unchanged profile", () => {
+    const base = {
+      workspace: {
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        runtimeStatus: "online" as const,
+        canManage: true,
+        readiness: { npm: true, python: true, pip: true, cliHub: true },
+        profile: { mcpGateway: true } as const,
+      },
+      item: cliItem(),
+      activeOperations: [] as never[],
+    };
+    const a = projectCliCapabilityAvailability(base);
+    const b = projectCliCapabilityAvailability({ ...base, workspace: { ...base.workspace } });
+    expect(a.runtimeProfileRevision).toBe(b.runtimeProfileRevision);
+  });
+});

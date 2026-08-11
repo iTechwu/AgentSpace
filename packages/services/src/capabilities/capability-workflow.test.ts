@@ -332,3 +332,25 @@ test("a failed baseline install fails the capability request closed", () => {
   assert.equal(afterFail?.status, "failed");
   assert.equal(afterFail?.lastErrorCode, "runtime_app.baseline_failed");
 });
+
+import { buildRuntimeBaselineInstallPlan } from "./capability-dispatchers.ts";
+
+test("baseline npm/python plans fail closed without a configured pinned artifact", () => {
+  delete process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_URL;
+  delete process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_INTEGRITY;
+  delete process.env.DOFE_AGENT_BASELINE_PYTHON_ARTIFACT_URL;
+  delete process.env.DOFE_AGENT_BASELINE_PYTHON_ARTIFACT_INTEGRITY;
+  assert.equal(buildRuntimeBaselineInstallPlan("npm"), null, "image-level npm must fail closed unless pinned");
+  assert.equal(buildRuntimeBaselineInstallPlan("python"), null);
+});
+
+test("baseline npm plan uses a pinned verified artifact when ops configures one", () => {
+  process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_URL = "https://nodejs.org/dist/v20.0.0/node-v20.0.0-darwin-x64.tar.gz";
+  process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_INTEGRITY = `sha256-${"a".repeat(64)}`;
+  const plan = buildRuntimeBaselineInstallPlan("npm");
+  assert.ok(plan, "configured pin must produce a plan");
+  assert.equal(plan.artifactLock?.url, "https://nodejs.org/dist/v20.0.0/node-v20.0.0-darwin-x64.tar.gz");
+  assert.equal(plan.artifactLock?.integrity, `sha256-${"a".repeat(64)}`);
+  delete process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_URL;
+  delete process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_INTEGRITY;
+});

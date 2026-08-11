@@ -129,13 +129,18 @@ function resolveManagedServiceTemplateSync(
 ): StoredSkillServiceCatalogRecord | null {
   const metadata = parseCapabilityMetadata(request.metadataJson);
   const pinnedId = metadata.managedServiceCatalogId;
-  if (typeof pinnedId === "string" && pinnedId) {
-    const pinned = listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === pinnedId);
-    return pinned && pinned.deploymentType === "managed_service" ? pinned : null;
-  }
-  return listSkillServiceCatalogSync(workspaceId)
-    .filter((entry) => entry.slug === request.packageSlug && entry.deploymentType === "managed_service")
-    .sort((left, right) => right.templateVersion.localeCompare(left.templateVersion))[0] ?? null;
+  const template = typeof pinnedId === "string" && pinnedId
+    ? listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === pinnedId)
+    : listSkillServiceCatalogSync(workspaceId)
+        .filter((entry) => entry.slug === request.packageSlug && entry.deploymentType === "managed_service")
+        .sort((left, right) => right.templateVersion.localeCompare(left.templateVersion))[0];
+  if (!template || template.deploymentType !== "managed_service") return null;
+  // Signature policy (docs/0811/cli-install §4.3, Phase 5): a template that
+  // REQUIRES image signature verification but has no trusted key can never be
+  // verified by the managed node — fail closed rather than provision an
+  // unverifiable image.
+  if (template.signatureRequired && !template.signatureKeyPem) return null;
+  return template;
 }
 
 function persistProvisionLinkage(

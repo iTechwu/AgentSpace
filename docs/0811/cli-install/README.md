@@ -104,6 +104,12 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
 
+### 6.8 协商、签名与 baseline 补全（进度更新 2026-08-11 第七轮）
+
+- **CLI/MCP 多实现协商**：投影新增 `selectedImplementation` / `alternativeImplementations` / `selectionReason` / `runtimeProfileRevision`。managed MCP 需要依赖 CLI 时以 MCP 为主实现、依赖 CLI 为可切换替代；profile 修订号让 UI 检测 runtime 能力变化后重新协商。
+- **baseline npm/python 计划**：npm/python 为图像级组件默认 fail-closed；ops 配置 `DOFE_AGENT_BASELINE_NODE_ARTIFACT_URL/INTEGRITY`（或 python 版）时生成 pinned artifact 计划（下载 + sha256 校验 + 解压 + 验证）。pip/uv/cli-hub 走 ensurepip/pip/npm 计划。
+- **镜像签名策略 fail-closed**：`signatureRequired` 模板若无 `signatureKeyPem` 则派发前拒绝（`template_not_admitted`），不部署无法校验的镜像。
+
 ### 6.7 收敛与路由收紧（进度更新 2026-08-11 第六轮）
 
 - **全量收敛**：provision operation 收敛所有关联请求（不再 LIMIT 1 遗留 running）。
