@@ -86,3 +86,104 @@ describe("overlayCapabilityRequestState", () => {
     }
   });
 });
+
+import { projectCliCapabilityAvailability, projectMcpCapabilityAvailability } from "@dofe-agent/services";
+
+function cliItem(): Parameters<typeof projectCliCapabilityAvailability>[0]["item"] {
+  return {
+    source: "clihub_public",
+    name: "mermaid-cli",
+    displayName: "Mermaid",
+    description: "Render diagrams",
+    version: "1.0.0",
+    category: "diagram",
+    entryPoint: "mmdc",
+    installStrategy: "npm",
+    installCmd: "npm install -g mermaid-cli",
+    registryJson: JSON.stringify({ npm_package_spec: "mermaid-cli@1.0.0" }),
+    syncedAt: "2026-08-11T00:00:00.000Z",
+  };
+}
+
+function cliWorkspace(profile?: Parameters<typeof projectCliCapabilityAvailability>[0]["workspace"]["profile"]): Parameters<typeof projectCliCapabilityAvailability>[0]["workspace"] {
+  return {
+    workspaceId: "default",
+    runtimeId: "runtime-1",
+    runtimeStatus: "online",
+    canManage: true,
+    readiness: { npm: true, python: true, pip: true, cliHub: true },
+    profile,
+  };
+}
+
+describe("execution profile negotiation", () => {
+  it("degrades CLI to request_deployment when the runtime cannot persist installs", () => {
+    const projection = projectCliCapabilityAvailability({
+      workspace: cliWorkspace({ writableHome: false, runtimePackageExecutor: true }),
+      item: cliItem(),
+      activeOperations: [],
+    });
+    expect(projection.nextAction).toBe("request_deployment");
+    expect(projection.reasonCode).toBe("runtime.profile_home_not_writable");
+  });
+
+  it("keeps CLI installable when the profile is unknown (older daemon)", () => {
+    const projection = projectCliCapabilityAvailability({
+      workspace: cliWorkspace(undefined),
+      item: cliItem(),
+      activeOperations: [],
+    });
+    expect(projection.nextAction).toBe("install");
+  });
+
+  it("degrades MCP to request_deployment when the runtime has no MCP gateway", () => {
+    const projection = projectMcpCapabilityAvailability({
+      workspace: {
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        runtimeStatus: "online",
+        canManage: true,
+        readiness: { npm: true, python: true, pip: true, cliHub: true },
+        profile: { mcpGateway: false },
+      },
+      catalogItem: {
+        id: "mcp-1",
+        transport: "streamable_http",
+        slug: "test-mcp",
+        displayName: "Test MCP",
+        risk: "low",
+        declaredToolsJson: "[]",
+        requiredRuntimeCapabilitiesJson: "[]",
+      },
+      connectionStatus: null,
+      activeOperations: [],
+    });
+    expect(projection.nextAction).toBe("request_deployment");
+    expect(projection.reasonCode).toBe("runtime.profile_mcp_gateway_unavailable");
+  });
+
+  it("keeps MCP connectable when the profile does not assert the gateway", () => {
+    const projection = projectMcpCapabilityAvailability({
+      workspace: {
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        runtimeStatus: "online",
+        canManage: true,
+        readiness: { npm: true, python: true, pip: true, cliHub: true },
+        profile: undefined,
+      },
+      catalogItem: {
+        id: "mcp-1",
+        transport: "streamable_http",
+        slug: "test-mcp",
+        displayName: "Test MCP",
+        risk: "low",
+        declaredToolsJson: "[]",
+        requiredRuntimeCapabilitiesJson: "[]",
+      },
+      connectionStatus: null,
+      activeOperations: [],
+    });
+    expect(projection.nextAction).toBe("configure_credentials");
+  });
+});

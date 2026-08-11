@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import {
+  createCapabilityRequestSync,
   createUserSync,
   createWorkspaceMembershipSync,
+  decideCapabilityRequestSync,
   getDatabase,
   listManagedSkillServiceOperationsSync,
   randomLikeId,
@@ -13,6 +15,7 @@ import {
 import { resetWorkspaceStateSync } from "../index.ts";
 import {
   approveCapabilityRequestSync,
+  completeCapabilityRequestMcpConnectionSync,
   submitCapabilityRequestSync,
 } from "./capability-workflow.ts";
 
@@ -159,3 +162,39 @@ function seedManagedServiceTemplate(slug: string): string {
     resourcesJson: JSON.stringify({ cpu: "250m", memory: "128Mi" }),
   }).id;
 }
+
+test("completeCapabilityRequestMcpConnectionSync refuses to spend a non-connect approval", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `mcp-${randomLikeId()}`;
+  const catalogId = seedMcpCatalog(slug, "official");
+  // A `deploy` request must not be consumable by the connect-completion path.
+  const request = createCapabilityRequestSync({
+    workspaceId: "default",
+    requestedByUserId: testUserId,
+    runtimeId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: slug,
+    packageDisplayName: "Test MCP",
+    deploymentMode: "managed_service",
+    requestedAction: "deploy",
+    metadataJson: JSON.stringify({ catalogItemId: catalogId }),
+  }).record;
+  decideCapabilityRequestSync({
+    requestId: request.id,
+    workspaceId: "default",
+    decidedByUserId: testUserId,
+    decision: "approved",
+  });
+
+  assert.throws(
+    () => completeCapabilityRequestMcpConnectionSync({
+      workspaceId: "default",
+      actorUserId: testUserId,
+      runtimeId,
+      catalogItemId: catalogId,
+      endpoint: "https://mcp.example.com/mcp",
+    }),
+    /capability_request\.not_approved/,
+  );
+});
