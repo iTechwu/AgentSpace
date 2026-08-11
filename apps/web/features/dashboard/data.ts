@@ -31,6 +31,7 @@ import {
   readWorkspaceAttachmentBytesSync,
   projectLegacySchedulesForCutover,
   readWorkflowCutoverModeSync,
+  reapStuckParseTasksSync,
 } from "@dofe-agent/services";
 import type {
   AgentAccessRequestRecord,
@@ -5360,6 +5361,9 @@ function buildKnowledgeParseTasks(
   currentUserDisplayName: string | undefined,
   workspaceId: string,
 ): KnowledgeParseTask[] {
+  // 先回收卡住的解析任务（进程崩溃/重启后 fire-and-forget 解析留下的永久 running 行），
+  // 再读取，避免 UI 把已死的任务渲染成永久转圈。
+  reapStuckParseTasksSync(workspaceId);
   const requests = listCapabilityRequestsSync({
     workspaceId,
     packageKind: "service",

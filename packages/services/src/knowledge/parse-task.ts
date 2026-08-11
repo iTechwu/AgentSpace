@@ -14,6 +14,7 @@ import { createKnowledgePageSync, listKnowledgePagesSync } from "./knowledge.ts"
 import { persistWorkspaceAttachmentFromBytesSync, readWorkspaceAttachmentBytesSync } from "../attachments/attachments.ts";
 import {
   createCapabilityRequestSync,
+  listCapabilityRequestsSync,
   transitionCapabilityRequestSync,
 } from "@dofe-agent/db";
 import { parseFileToMarkdown, type ParseFailure, type ParseResult } from "../document-parsing/parse-file.ts";
@@ -209,4 +210,47 @@ function asParseFailure(error: unknown): ParseFailure {
     { code: "parser_error" as const },
   );
   return fallback;
+}
+
+/** running 状态超过该时长视为卡住（进程崩溃/重启后 fire-and-forget 解析无法收尾）。 */
+const STUCK_PARSE_TASK_MAX_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * 兜底回收：把"卡住"的解析任务（requested_action='parse' 且 status='running'，
+ * 且 updatedAt 早于 maxAgeMs）标记为 failed。fire-and-forget 解析在进程崩溃或
+ * 重启时会留下永久的 running 行，知识页加载时调用本函数扫一遍，避免 UI 永远转圈。
+ *
+ * 返回本次被回收的任务数量。
+ */
+export function reapStuckParseTasksSync(
+  workspaceId: string | undefined,
+  maxAgeMs: number = STUCK_PARSE_TASK_MAX_AGE_MS,
+): number {
+  const running = listCapabilityRequestsSync({
+    workspaceId,
+    packageKind: "service",
+    statuses: ["running"],
+    limit: 200,
+  }).filter((request) => request.requestedAction === "parse");
+  if (running.length === 0) {
+    return 0;
+  }
+  const now = Date.now();
+  let reaped = 0;
+  for (const request of running) {
+    const updatedAtMs = new Date(request.updatedAt).getTime();
+    // updatedAt 非法或未超阈值则跳过。
+    if (!Number.isFinite(updatedAtMs) || now - updatedAtMs < maxAgeMs) {
+      continue;
+    }
+    transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId,
+      status: "failed",
+      lastErrorCode: "parse_task_stuck",
+      lastErrorMessage: `解析任务已运行超过 ${Math.round(maxAgeMs / 1000)}s 仍为 running，疑似进程中断，已自动标记为失败。`,
+    });
+    reaped += 1;
+  }
+  return reaped;
 }

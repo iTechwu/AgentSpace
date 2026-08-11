@@ -831,6 +831,7 @@ export {
   materialToKnowledgePageSync,
 } from "./knowledge/knowledge.ts";
 export {
+  reapStuckParseTasksSync,
   submitFileParseTaskSync,
   type FileParseIntent,
   type SubmitFileParseTaskInput,
