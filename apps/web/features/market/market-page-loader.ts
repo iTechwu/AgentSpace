@@ -12,6 +12,7 @@ import {
 import {
   assessRuntimeAppInstallability,
   assessRuntimeAppRisk,
+  isCapabilityProjectionEnabled,
   listMcpCatalogItemsForWorkspaceSync,
   readCliHubReadinessForRuntimeSync,
   listWorkspaceRuntimeAppCatalogItemsSync,
@@ -205,18 +206,20 @@ export async function loadMarketPageData(input: {
       decidedAt: request.decidedAt,
       completedAt: request.completedAt,
     })),
-    capabilityProjections: buildCapabilityProjectionsForMarket({
-      workspaceId: input.workspaceId,
-      canManage: input.canManage,
-      daemonSnapshots,
-      cliCatalog: catalogRecords,
-      installedApps: listRuntimeInstalledAppsSync({ workspaceId: input.workspaceId }),
-      cliOperations: listRuntimeAppOperationsSync({ workspaceId: input.workspaceId, limit: 200 }),
-      mcpCatalog: mcpCatalogRecords,
-      mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }),
-      mcpOperations: listMcpOperationsSync({ workspaceId: input.workspaceId, limit: 200 }),
-      capabilityRequests: capabilityRequestRecords,
-    }),
+    capabilityProjections: isCapabilityProjectionEnabled()
+      ? buildCapabilityProjectionsForMarket({
+        workspaceId: input.workspaceId,
+        canManage: input.canManage,
+        daemonSnapshots,
+        cliCatalog: catalogRecords,
+        installedApps: listRuntimeInstalledAppsSync({ workspaceId: input.workspaceId }),
+        cliOperations: listRuntimeAppOperationsSync({ workspaceId: input.workspaceId, limit: 200 }),
+        mcpCatalog: mcpCatalogRecords,
+        mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }),
+        mcpOperations: listMcpOperationsSync({ workspaceId: input.workspaceId, limit: 200 }),
+        capabilityRequests: capabilityRequestRecords,
+      })
+      : [],
   };
 }
 
