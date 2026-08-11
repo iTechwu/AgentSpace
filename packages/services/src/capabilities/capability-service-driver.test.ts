@@ -10,7 +10,7 @@ import {
   readManagedSkillServiceSync,
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
-import { resetWorkspaceStateSync } from "../index.ts";
+import { resetWorkspaceStateSync, retireUnreferencedManagedSkillServicesSync } from "../index.ts";
 import {
   convergeCapabilityRequestFromSkillServiceOperationSync,
   queueCapabilityManagedServiceProvisionSync,
@@ -246,4 +246,40 @@ test("convergeCapabilityRequestFromSkillServiceOperationSync fails a managed MCP
   assert.equal(converged?.id, request.id);
   assert.equal(converged?.status, "failed", "missing MCP catalog must fail closed, not stay running");
   assert.equal(converged?.lastErrorCode, "mcp.connection_dispatch_failed");
+});
+
+test("retire sweep does not retire a service backed by a completed capability, but retires a cancelled one", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `driver-${randomLikeId()}`;
+  const templateId = seedManagedServiceTemplate(slug);
+  const request = createApprovedServiceRequest(runtimeId, slug);
+  const queued = queueCapabilityManagedServiceProvisionSync({ workspaceId: "default", request });
+  assert.equal(queued.code, "provision_queued");
+  getDatabase().prepare("UPDATE managed_skill_service SET status = 'ready' WHERE id = ?").run(queued.serviceId!);
+
+  // A completed capability still backs the service (live deployment) → protected.
+  const completed = readCapabilityRequestSync(request.id, "default")!;
+  getDatabase().prepare(
+    "UPDATE capability_request SET status = 'completed', metadata_json = ? WHERE id = ?",
+  ).run(JSON.stringify({ managedServiceCatalogId: templateId, serviceId: queued.serviceId }), completed.id);
+
+  const sweptWithCompleted = retireUnreferencedManagedSkillServicesSync({ workspaceId: "default" });
+  assert.ok(!sweptWithCompleted.includes(queued.serviceId!), "completed capability service must not be swept");
+
+  // A cancelled capability releases the service → swept. Use a distinct slug so
+  // a separate service instance is created (createManagedSkillServiceSync is
+  // idempotent per workspace+runtime+catalog).
+  const slug2 = `driver-${randomLikeId()}`;
+  const template2Id = seedManagedServiceTemplate(slug2);
+  const request2 = createApprovedServiceRequest(runtimeId, slug2);
+  const queued2 = queueCapabilityManagedServiceProvisionSync({ workspaceId: "default", request: request2 });
+  assert.notEqual(queued2.serviceId, queued.serviceId);
+  getDatabase().prepare("UPDATE managed_skill_service SET status = 'ready' WHERE id = ?").run(queued2.serviceId!);
+  getDatabase().prepare(
+    "UPDATE capability_request SET status = 'cancelled', metadata_json = ? WHERE id = ?",
+  ).run(JSON.stringify({ managedServiceCatalogId: template2Id, serviceId: queued2.serviceId }), request2.id);
+
+  const sweptWithCancelled = retireUnreferencedManagedSkillServicesSync({ workspaceId: "default" });
+  assert.ok(!sweptWithCancelled.includes(queued.serviceId!), "completed capability service stays protected");
+  assert.ok(sweptWithCancelled.includes(queued2.serviceId!), "cancelled capability service should be retired");
 });

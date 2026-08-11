@@ -5,6 +5,7 @@ import {
   createManagedSkillServiceSync,
   createSkillServiceBindingSync,
   getDatabase,
+  hasActiveCapabilityRequestForManagedServiceSync,
   listManagedSkillServiceOperationsSync,
   listManagedSkillServicesSync,
   listSkillServiceBindingsForServiceSync,
@@ -428,7 +429,16 @@ export function retireUnreferencedManagedSkillServicesSync(
     if (service.status !== "ready" && service.status !== "degraded") {
       continue;
     }
-    const referenced = listSkillServiceBindingsForServiceSync(service.id).length > 0;
+    // A service is referenced by a skill installation binding OR by a
+    // non-terminal capability_request (metadata.managedServiceCatalogId /
+    // serviceId). A capability-deployed container must never be swept just
+    // because no skill installation binds it (docs/0811/cli-install Phase 5).
+    const referenced = listSkillServiceBindingsForServiceSync(service.id).length > 0
+      || hasActiveCapabilityRequestForManagedServiceSync({
+        workspaceId,
+        serviceId: service.id,
+        catalogId: service.catalogId,
+      });
     if (referenced) {
       if (service.unreferencedSince) {
         setManagedSkillServiceUnreferencedSinceSync({ serviceId: service.id, workspaceId });

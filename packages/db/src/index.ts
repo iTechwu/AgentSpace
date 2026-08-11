@@ -726,6 +726,7 @@ export {
   createCapabilityRequestSync,
   decideCapabilityRequestSync,
   findCapabilityRequestByServiceOperationIdSync,
+  hasActiveCapabilityRequestForManagedServiceSync,
   listCapabilityRequestsSync,
   readCapabilityRequestSync,
   transitionCapabilityRequestSync,

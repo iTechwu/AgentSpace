@@ -251,6 +251,33 @@ export function findCapabilityRequestByServiceOperationIdSync(
   return row ? mapCapabilityRequest(row) : null;
 }
 
+/**
+ * True when a capability_request still backs this managed service — either by
+ * pinning its catalog template (metadata.managedServiceCatalogId) or by
+ * recording the deployed instance (metadata.serviceId). Covers non-terminal AND
+ * completed requests: a completed capability IS a live deployment, so its
+ * container must not be swept as "unreferenced" the moment provisioning
+ * finishes (the stateless retire default would otherwise kill a just-deployed
+ * managed MCP). Only failed / rejected / cancelled requests release the service
+ * to the retire sweep (explicit removal → idle TTL → retire).
+ */
+export function hasActiveCapabilityRequestForManagedServiceSync(input: {
+  workspaceId: string;
+  serviceId: string;
+  catalogId: string;
+}): boolean {
+  const row = getDatabase()
+    .prepare(
+      `SELECT 1 AS present FROM capability_request
+       WHERE workspace_id = ?
+         AND status IN ('pending', 'approved', 'running', 'completed')
+         AND (metadata_json->>'managedServiceCatalogId' = ? OR metadata_json->>'serviceId' = ?)
+       LIMIT 1`,
+    )
+    .get(input.workspaceId, input.catalogId, input.serviceId) as { present?: number } | undefined;
+  return row?.present === 1;
+}
+
 export function listCapabilityRequestsSync(
   options: ListCapabilityRequestsOptions = {},
 ): CapabilityRequestRecord[] {

@@ -10,6 +10,7 @@ import type {
   RuntimeInstalledAppRecord,
 } from "@dofe-agent/db";
 import { assessRuntimeAppInstallability } from "../clihub/install-plan.ts";
+import { isRuntimeBaselineRolloutEnabled } from "./capability-config.ts";
 
 /**
  * Capability availability projection (docs/0811/cli-install §3, Phase 1).
@@ -185,12 +186,18 @@ export function projectCliCapabilityAvailability(input: {
         reasonText: "目标 Runtime 当前离线，请等待恢复或申请管理员处理。",
       };
     }
+    // RUNTIME_BASELINE_ROLLOUT_ENABLED: the system auto-rolls-out missing base
+    // tools as part of capability installation, so the button stays installable
+    // instead of blocking on an admin request (docs Phase 7).
+    const baselineEnabled = isRuntimeBaselineRolloutEnabled();
     return {
       ...baseProjection,
       userState: "available",
-      nextAction: workspace.canManage ? "install" : "request_deployment",
+      nextAction: baselineEnabled || workspace.canManage ? "install" : "request_deployment",
       reasonCode: finalStatus.code,
-      reasonText: "Runtime 缺少基础工具，请先准备 Runtime。",
+      reasonText: baselineEnabled
+        ? "Runtime 将自动补装缺失的基础工具后安装。"
+        : "Runtime 缺少基础工具，请先准备 Runtime。",
     };
   }
 

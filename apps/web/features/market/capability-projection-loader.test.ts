@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { overlayCapabilityRequestState } from "./capability-projection-loader";
 import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
 
@@ -185,5 +185,47 @@ describe("execution profile negotiation", () => {
       activeOperations: [],
     });
     expect(projection.nextAction).toBe("configure_credentials");
+  });
+});
+
+describe("runtime baseline rollout gating", () => {
+  const originalBaselineFlag = process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED;
+
+  afterEach(() => {
+    if (originalBaselineFlag === undefined) delete process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED;
+    else process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED = originalBaselineFlag;
+  });
+
+  it("offers install for a missing-tool CLI when baseline rollout is enabled", () => {
+    process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED = "1";
+    const projection = projectCliCapabilityAvailability({
+      workspace: {
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        runtimeStatus: "online",
+        canManage: false, // member — normally blocked on request_deployment
+        readiness: { npm: false, python: true, pip: true, cliHub: true },
+      },
+      item: cliItem(), // requires npm
+      activeOperations: [],
+    });
+    expect(projection.nextAction).toBe("install");
+    expect(projection.reasonText).toContain("自动补装");
+  });
+
+  it("keeps request_deployment for a member when baseline rollout is disabled", () => {
+    process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED = "0";
+    const projection = projectCliCapabilityAvailability({
+      workspace: {
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        runtimeStatus: "online",
+        canManage: false,
+        readiness: { npm: false, python: true, pip: true, cliHub: true },
+      },
+      item: cliItem(),
+      activeOperations: [],
+    });
+    expect(projection.nextAction).toBe("request_deployment");
   });
 });
