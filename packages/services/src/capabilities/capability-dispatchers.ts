@@ -31,6 +31,7 @@ import {
   autoConnectManagedMcpAfterProvisionSync,
   queueCapabilityManagedServiceProvisionSync,
 } from "./capability-service-driver.ts";
+import { resolveBaselineRelease, type BaselineRelease, type BaselineTool } from "./baseline-releases.ts";
 
 /**
  * Dispatch of an approved capability_request into the underlying subsystem
@@ -708,93 +709,108 @@ export function buildRuntimeBaselineInstallPlan(
         notes: ["Runtime baseline: ensure pip via ensurepip."],
       };
     case "uv":
-      // Ops can pin uv to an immutable artifact via env; the pip command plan is
-      // the un-governed fallback (documented — the immutable-release gate wants
-      // the pinned form).
-      return buildPinnedArtifactBaselinePlan({
-        tool: "uv",
-        envUrl: process.env.DOFE_AGENT_BASELINE_UV_ARTIFACT_URL,
-        envIntegrity: process.env.DOFE_AGENT_BASELINE_UV_ARTIFACT_INTEGRITY,
-        verify: ".baseline/bin/uv",
-        verifyArgs: ["--version"],
-        fallback: {
-          app: { ...base, name: "uv" },
-          strategy: "pip",
-          commands: [{ executable: "python3", args: ["-m", "pip", "install", "uv"] }],
-          verifyCommands: [{ executable: "uv", args: ["--version"] }],
-          risk: "low",
-          requiresApproval: false,
-          notes: ["Runtime baseline: install uv via pip (unpinned — pin via env artifact for governance)."],
-        },
-      });
+      return buildBaselinePlanForTool(base, "uv");
     case "cli_hub":
-      return buildPinnedArtifactBaselinePlan({
-        tool: "cli-hub",
-        envUrl: process.env.DOFE_AGENT_BASELINE_CLIHUB_ARTIFACT_URL,
-        envIntegrity: process.env.DOFE_AGENT_BASELINE_CLIHUB_ARTIFACT_INTEGRITY,
-        verify: ".baseline/bin/cli-hub",
-        verifyArgs: ["--version"],
-        fallback: {
-          app: { ...base, name: "cli-hub" },
-          strategy: "npm",
-          commands: [{ executable: "npm", args: ["install", "-g", "cli-hub"] }],
-          verifyCommands: [{ executable: "cli-hub", args: ["--version"] }],
-          risk: "low",
-          requiresApproval: false,
-          notes: ["Runtime baseline: install cli-hub via npm (unpinned — pin via env artifact for governance)."],
-        },
-      });
-    // npm (node) and python are image-level by default — a runtime missing them
-    // must NOT get a fabricated plan. Ops can opt into a PINNED artifact install
-    // via env (URL + integrity); the daemon downloads, verifies, extracts and
-    // verifies the binary. Without a configured pin we fail closed (null).
+      return buildBaselinePlanForTool(base, "cli_hub");
     case "npm":
-      return buildPinnedArtifactBaselinePlan({
-        tool: "node",
-        envUrl: process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_URL,
-        envIntegrity: process.env.DOFE_AGENT_BASELINE_NODE_ARTIFACT_INTEGRITY,
-        verify: ".baseline/bin/node",
-        verifyArgs: ["--version"],
-      });
+      return buildBaselinePlanForTool(base, "npm");
     case "python":
-      return buildPinnedArtifactBaselinePlan({
-        tool: "python",
-        envUrl: process.env.DOFE_AGENT_BASELINE_PYTHON_ARTIFACT_URL,
-        envIntegrity: process.env.DOFE_AGENT_BASELINE_PYTHON_ARTIFACT_INTEGRITY,
-        verify: ".baseline/bin/python3",
-        verifyArgs: ["--version"],
-      });
+      return buildBaselinePlanForTool(base, "python");
     default:
       return null;
   }
 }
 
+function buildBaselinePlanForTool(
+  base: { source: "clihub_harness"; version: string; entryPoint: string },
+  tool: BaselineTool,
+): RuntimeAppInstallPlan | null {
+  const release = resolveBaselineRelease(tool);
+  if (release) {
+    // Governed pinned-artifact plan (immutable-release gate): the daemon
+    // downloads, verifies integrity (and cosign when signatureRequired),
+    // extracts and verifies the binary.
+    return buildPinnedArtifactBaselinePlan({
+      tool,
+      release,
+      verify: baselineVerifyPath(tool),
+      verifyArgs: ["--version"],
+      fallback: buildBaselineCommandFallback(base, tool),
+    });
+  }
+  // No governed release: npm/python (image-level) fail closed; uv/cli-hub fall
+  // back to the explicitly un-governed command plan.
+  return buildBaselineCommandFallback(base, tool);
+}
+
+function baselineVerifyPath(tool: BaselineTool): string {
+  switch (tool) {
+    case "npm": return ".baseline/bin/node";
+    case "python": return ".baseline/bin/python3";
+    case "uv": return ".baseline/bin/uv";
+    case "cli_hub": return ".baseline/bin/cli-hub";
+  }
+}
+
+function buildBaselineCommandFallback(
+  base: { source: "clihub_harness"; version: string; entryPoint: string },
+  tool: BaselineTool,
+): RuntimeAppInstallPlan | null {
+  switch (tool) {
+    case "uv":
+      return {
+        app: { ...base, name: "uv" },
+        strategy: "pip",
+        commands: [{ executable: "python3", args: ["-m", "pip", "install", "uv"] }],
+        verifyCommands: [{ executable: "uv", args: ["--version"] }],
+        risk: "low",
+        requiresApproval: false,
+        notes: ["Runtime baseline: install uv via pip (UNPINNED — govern via DOFE_AGENT_BASELINE_RELEASES_JSON / env artifact)."],
+      };
+    case "cli_hub":
+      return {
+        app: { ...base, name: "cli-hub" },
+        strategy: "npm",
+        commands: [{ executable: "npm", args: ["install", "-g", "cli-hub"] }],
+        verifyCommands: [{ executable: "cli-hub", args: ["--version"] }],
+        risk: "low",
+        requiresApproval: false,
+        notes: ["Runtime baseline: install cli-hub via npm (UNPINNED — govern via DOFE_AGENT_BASELINE_RELEASES_JSON / env artifact)."],
+      };
+    default:
+      // npm/python are image-level; without a governed release they fail closed.
+      return null;
+  }
+}
+
 function buildPinnedArtifactBaselinePlan(input: {
-  tool: string;
-  envUrl: string | undefined;
-  envIntegrity: string | undefined;
+  tool: BaselineTool;
+  release: BaselineRelease;
   verify: string;
   verifyArgs: string[];
   /** Command-plan fallback for tools where a package-manager install is a valid
    *  default (uv, cli-hub). Tools without a fallback (npm/python) fail closed. */
-  fallback?: RuntimeAppInstallPlan;
+  fallback?: RuntimeAppInstallPlan | null;
 }): RuntimeAppInstallPlan | null {
-  const url = input.envUrl?.trim();
-  const integrity = input.envIntegrity?.trim();
-  if (url && integrity && /^https:\/\//.test(url) && /^sha256-[A-Fa-f0-9]{64}$/.test(integrity)) {
-    const localPath = `.baseline/${input.tool}.tgz`;
-    return {
-      app: { source: "clihub_harness" as const, name: input.tool, version: "1", entryPoint: input.tool },
-      strategy: "system",
-      commands: [{ executable: "tar", args: ["-xzf", localPath, "-C", ".baseline"] }],
-      verifyCommands: [{ executable: input.verify, args: input.verifyArgs }],
-      risk: "medium",
-      requiresApproval: true,
-      notes: [`Runtime baseline: pinned ${input.tool} artifact from controlled registry.`],
-      artifactLock: { url, integrity, localPath },
-    };
+  const localPath = `.baseline/${input.release.tool}.tgz`;
+  const plan: RuntimeAppInstallPlan = {
+    app: { source: "clihub_harness" as const, name: input.release.tool, version: input.release.version, entryPoint: input.release.tool },
+    strategy: "system",
+    commands: [{ executable: "tar", args: ["-xzf", localPath, "-C", ".baseline"] }],
+    verifyCommands: [{ executable: input.verify, args: input.verifyArgs }],
+    risk: "medium",
+    requiresApproval: true,
+    notes: [`Runtime baseline: pinned ${input.release.tool}@${input.release.version} artifact${input.release.signatureRequired ? " (cosign signature required)" : ""}.`],
+    artifactLock: {
+      url: input.release.artifactUrl,
+      integrity: input.release.integrity,
+      localPath,
+    },
+  };
+  if (input.release.signatureRequired) {
+    plan.notes.push("Signature verification is enforced by the managed node before pull.");
   }
-  return input.fallback ?? null;
+  return plan;
 }
 
 /**

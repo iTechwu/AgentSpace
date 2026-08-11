@@ -104,6 +104,12 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
 
+### 6.13 受治理 baseline release 与真实 Docker E2E（进度更新 2026-08-11 第十二轮）
+
+- **受治理 baseline release**：新增 `baseline-releases.ts` 受治理 release registry——每工具必须 pin 具体 artifact URL + sha256 integrity（env per-tool 覆盖或 `DOFE_AGENT_BASELINE_RELEASES_JSON` 治理 JSON），计划构建走 `resolveBaselineRelease`；malformed pin（非 https/坏 integrity）fail-closed。npm/python 无治理 release 时 fail-closed；uv/cli-hub 回退显式标注"未治理"命令计划。
+- **真实 Docker baseline E2E**：`runtime-apps.e2e-real-docker.test.ts`（`DOFE_AGENT_RUN_DOCKER_E2E=1` 门控，本机 Docker 已验证）——docker-run 执行包装在真实 provider 镜像内运行命令 + 写入 Runtime HOME 的 marker 在第二个容器可见（baseline 安装持久化机制）。发现并记录：provider 镜像 python 无 ensurepip，工具级安装依赖镜像内容。
+- cosign 签名镜像 E2E 需指定 CI 环境（cosign + 已签名镜像 + 公钥，见 `skill-service/e2e-real-docker.test.ts` 门控）。
+
 ### 6.12 取消真实生命周期验证（进度更新 2026-08-11 第十一轮）
 
 - **端到端取消生命周期测试**：provision op 派发 → 容器置 ready（模拟 daemon 部署完成）→ 取消 → 断言请求 cancelled、显式 retire op 入队（补偿）、provision op 被 fence（迟到完成回调不能回写）。控制面 workflow 13/13、daemon service-operation-worker 8/8（retire 执行路径）均通过。
