@@ -100,9 +100,17 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 2**（部分）`selectCliHubReadiness` 已能从 daemon 读取 readiness；Execution Profile 已落地：daemon 就绪上报扩展 `executionProfile`（writableHome/persistentHome/runtimePackageExecutor/chromium 由宿主机断言，mcpGateway/managedServiceReachable 仅显式启用时断言，fail-safe 未知不宣称），投影按 profile 协商 CLI/MCP（writableHome/runtimePackageExecutor=false 时 CLI 降级 request_deployment；mcpGateway=false 时 MCP 不再误报可用），market loader/availability API/MarketPageData 均暴露 profile。Dockerfile 版本锁定、SBOM、签名矩阵仍未补齐。
 - **Phase 3**（部分）`runtime_app_release` 已支持 yanked；`capability_request.release_id` 已绑定（提交 workspace-private CLI 自动 pin，批准时若被 yanked 则 fail closed）；`syncCliHubCatalog` 同步时将 npm 可变版本（`latest`/`head`/…）解析为 registry 精确版本（`isMutableCliVersion` + `resolveMutableNpmVersion`）。全量 release 治理队列仍待续。
 - **Phase 4**（部分）后端 submit/approve/reject + 管理员待办面板 + 站内通知（dedupe by request id）+ 审计已落地；`createCapabilityRequestSync` CAS 幂等消除并发双审计/脏写；`decideCapabilityRequestSync` 返回 `{record, changed}`，调用方仅在状态真正从 pending 翻转时才派发 operation，重复批准/并发审批不会创建新 operation；`bindApprovedCapabilityRequestToMcpConnectionSync` 只匹配 `approved`，普通连接入口无法绕过 pending 审批直接运行；终态请求换申请人重开时 `requested_by_user_id` 同步转移，审批/通知路由到正确申请人。跨页面通知 UI 仍待续。
-- **Phase 5**（部分）managed service 容器驱动已接通：`capability-service-driver.ts` 在获批 `managed_service`/`external_service` 请求派发时创建真实 `managed_skill_service` 实例 + provision operation（digest-pinned 模板 + 幂等复用 in-flight op），请求转 running 并在 metadata_json 记录 operation 链接；daemon complete/fail 路由按 operation 收敛 capability_request；无已接纳模板时 fail-closed 不伪造镜像引用。镜像签名/健康/回收的策略与 `linked_runtime_provisioning_task_id` 自动绑定仍待容器驱动继续完善。
+- **Phase 5**（部分）managed service 容器驱动已接通：`capability-service-driver.ts` 在获批 `managed_service` 请求派发时创建真实 `managed_skill_service` 实例 + provision operation（**不可变模板 ID pin**——`metadata_json.managedServiceCatalogId`，派发只认 pin 防 catalog 漂移；幂等复用 in-flight op；**ready 实例不重复 provision**），请求转 running 并在 metadata_json 记录 operation 链接；daemon complete/fail 路由按 operation 收敛 capability_request（metadata_json 定向查找，不受 200 条限制）；**managed-service 模式 MCP 先经容器驱动再连接**（provision 期间 running + mcpAutoConnect 标记，容器就绪后收敛钩子 auto-connect）；无已接纳模板时 fail-closed 不伪造镜像引用。镜像签名/健康/回收的策略与 `linked_runtime_provisioning_task_id` 自动绑定仍待容器驱动继续完善。
 - **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
+
+### 6.5 目录重推导与身份收紧（进度更新 2026-08-11 第四轮）
+
+- **目录缺失拒绝**：`resolveCapabilityDeploymentPlan` 无法解析目录条目时 `submit` 直接拒绝（`capability_request.catalog_not_found`），不再回退浏览器声明的 deploymentMode。
+- **source 权威化**：MCP 重推导以目录 `source` 覆盖客户端提交的 source（同 slug 多来源不再不一致）。
+- **service 类目仅 managed_service**：`external_service` 不是 service 的可执行组合，客户端声明被服务端重推导为 managed_service。
+- **MCP 完成入口收紧**：`completeCapabilityRequestMcpConnectionSync` 只消费 `requestedAction=connect` 的获批请求；`requireManage` 公开布尔改为内部 `materializeMcpConnectionSync`（无调用方可伪造旁路）。
+- **Execution Profile 诚实上报**：`persistentHome` 按 `/proc/mounts` 探测（tmpfs/ramfs/zram 报 ephemeral，本地或临时 Runtime 不误报持久）。
 
 ### 6.4 代码结构（进度更新 2026-08-11）
 
