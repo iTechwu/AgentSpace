@@ -45,6 +45,7 @@ export interface TransitionCapabilityRequestInput {
   linkedMcpConnectionId?: string;
   linkedRuntimeProvisioningTaskId?: string;
   linkedKnowledgePageId?: string;
+  releaseId?: string;
   metadataJson?: string;
 }
 
