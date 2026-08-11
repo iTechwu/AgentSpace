@@ -352,6 +352,95 @@ export function convergeCapabilityRequestFromRuntimeAppOperationSync(input: {
   });
 }
 
+/**
+ * MCP operation→request convergence (docs/0811/cli-install §6, P1-1).
+ *
+ * Symmetric to the runtime-app convergence, but keyed by linked_mcp_connection_id
+ * — the single connection that an MCP capability_request tracks. Called from the
+ * MCP operation transition functions when a *verify* op reaches a terminal
+ * state, so the request converges regardless of which caller drove the op.
+ * Guarded upstream (only verify ops converge) so remove/health-check ops never
+ * close a request. No-op when no request is linked or it is already terminal.
+ */
+export function convergeCapabilityRequestFromMcpConnectionSync(input: {
+  connectionId: string;
+  workspaceId?: string;
+  outcome: "succeeded" | "failed";
+  errorCode?: string;
+  errorMessage?: string;
+}): CapabilityRequestRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const row = getDatabase()
+    .prepare(
+      `SELECT id FROM capability_request
+       WHERE workspace_id = ? AND linked_mcp_connection_id = ?
+       LIMIT 1`,
+    )
+    .get(workspaceId, input.connectionId) as { id: string } | undefined;
+  if (!row) return null;
+  const request = readCapabilityRequestSync(row.id, workspaceId);
+  if (!request) return null;
+  if (
+    request.status === "completed"
+    || request.status === "failed"
+    || request.status === "cancelled"
+  ) {
+    return request;
+  }
+  const status: CapabilityRequestStatus = input.outcome === "succeeded" ? "completed" : "failed";
+  return transitionCapabilityRequestSync({
+    requestId: row.id,
+    workspaceId,
+    status,
+    lastErrorCode: input.outcome === "failed" ? input.errorCode : undefined,
+    lastErrorMessage: input.outcome === "failed" ? input.errorMessage : undefined,
+  });
+}
+
+/**
+ * Link-back binding (P1-1). When an MCP connection is materialized — either by
+ * the dispatch path (approved zero-config MCP auto-connected) or by the manual
+ * "配置并连接" path (credential-bearing MCP the applicant finishes themselves)
+ * — find the matching approved/pending capability_request and converge it to
+ * running with linked_mcp_connection_id set. This is the single convergence
+ * point: the verify op that follows will then drive it to completed/failed via
+ * {@link convergeCapabilityRequestFromMcpConnectionSync}.
+ *
+ * No-op when no matching non-terminal request exists. A request already in
+ * running state just gets its connection id ensured.
+ */
+export function bindApprovedCapabilityRequestToMcpConnectionSync(input: {
+  workspaceId: string;
+  runtimeId: string;
+  packageSource: string;
+  packageSlug: string;
+  connectionId: string;
+}): CapabilityRequestRecord | null {
+  const row = getDatabase()
+    .prepare(
+      `SELECT id, status FROM capability_request
+       WHERE workspace_id = ? AND runtime_id = ?
+         AND package_kind = 'mcp'
+         AND package_source = ? AND package_slug = ?
+         AND status IN ('pending', 'approved', 'running')
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+    )
+    .get(
+      input.workspaceId,
+      input.runtimeId,
+      input.packageSource,
+      input.packageSlug,
+    ) as { id: string; status: string } | undefined;
+  if (!row) return null;
+  return transitionCapabilityRequestSync({
+    requestId: row.id,
+    workspaceId: input.workspaceId,
+    status: "running",
+    linkedMcpConnectionId: input.connectionId,
+  });
+}
+
 function mapCapabilityRequest(value: Record<string, unknown>): CapabilityRequestRecord | null {
   const alias = (camel: string, lower: string): unknown => value[camel] ?? value[lower];
   const id = value.id;

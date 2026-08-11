@@ -1,4 +1,5 @@
 import {
+  bindApprovedCapabilityRequestToMcpConnectionSync,
   cancelUnfinishedMcpOperationsForConnectionSync,
   claimMcpTaskSessionAtomicallySync,
   completeMcpOperationSync,
@@ -207,6 +208,20 @@ export function requestMcpConnectionSync(input: RequestMcpConnectionInput): Requ
       risk: catalog.risk,
       approvedToolCount: approvedTools.length,
     },
+  });
+
+  // P1-1 link-back: a connection materializes either via the dispatch path
+  // (approved zero-config MCP auto-connected) or the manual "配置并连接" path
+  // (credential-bearing MCP the applicant finishes themselves). In both cases,
+  // if a matching non-terminal capability_request exists, bind it to this
+  // connection and converge to running — the verify op queued above then drives
+  // it to completed/failed. No-op when no request covers this tuple.
+  bindApprovedCapabilityRequestToMcpConnectionSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    packageSource: catalog.source,
+    packageSlug: catalog.slug,
+    connectionId: connection.id,
   });
 
   return { connection, operation };

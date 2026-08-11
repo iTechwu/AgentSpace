@@ -23,10 +23,12 @@ import {
   listRuntimeInstalledAppsSync,
   readAgentRuntimeSync,
   readCapabilityRequestSync,
+  readMcpCatalogItemBySlugSync,
   transitionCapabilityRequestSync,
   readWorkspaceRuntimeAppReleaseByVersionSync,
   readWorkspaceRuntimeAppReleaseSync,
 } from "@dofe-agent/db";
+import { requestMcpConnectionSync } from "../mcp-center/connections.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { createNotificationSync, notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
@@ -726,6 +728,21 @@ function dispatchApprovedCapabilityRequestSync(input: {
       nextAction: "wait_for_operation",
     };
   }
+  // MCP capability dispatch (docs/0811/cli-install §6, P1-1). Both MCP
+  // deployment modes — external_service (streamable_http) and managed_service
+  // (managed_stdio) — provision through the MCP-center connection lifecycle
+  // (create connection → queue verify → daemon claims → complete/fail), NOT the
+  // skill_service container pipeline. This branch unifies the two halves the
+  // user explicitly asked to connect ("两个半边都接"): zero-config MCPs are
+  // auto-connected on approval; credential/endpoint-bearing MCPs stay approved
+  // and surface configure_credentials so the applicant finishes them.
+  if (request.packageKind === "mcp" && request.runtimeId) {
+    return dispatchMcpCapabilityRequestSync({
+      workspaceId: input.workspaceId,
+      request,
+      actorUserId: input.actorUserId,
+    });
+  }
   // Managed / external service deployment (docs/0811/cli-install §8, Phase 5).
   // These requests cannot be executed as a shell install on the runtime; they
   // require the managed-service container lifecycle (image cache, signature
@@ -738,7 +755,7 @@ function dispatchApprovedCapabilityRequestSync(input: {
   // fail-closed seam and leave the request in its approved state so it can be
   // dispatched once the container driver lands and the flag is on.
   if (
-    (request.packageKind === "mcp" || request.packageKind === "service")
+    request.packageKind === "service"
     && (request.deploymentMode === "managed_service"
       || request.deploymentMode === "external_service")
   ) {
@@ -748,6 +765,124 @@ function dispatchApprovedCapabilityRequestSync(input: {
     });
   }
   return { request, capabilityRequest: request, nextAction: "wait_for_operation" };
+}
+
+/**
+ * MCP dispatch (P1-1). Resolves the catalog item by the request's packageSlug,
+ * then either auto-connects (zero-config: no secret fields + deterministic
+ * endpoint template) or surfaces configure_credentials for the applicant to
+ * finish. The actual connection create + verify-op queue happens in
+ * {@link requestMcpConnectionSync}, whose link-back binds this approved request
+ * to the new connection and transitions it to running; the verify op then
+ * drives it to completed/failed via convergeCapabilityRequestFromMcpConnectionSync.
+ *
+ * Admin approval is the high-risk authorization, so a high-risk catalog item is
+ * auto-confirmed here (the approver already accepted the risk).
+ */
+function dispatchMcpCapabilityRequestSync(input: {
+  workspaceId: string;
+  request: CapabilityRequestRecord;
+  actorUserId: string;
+}): DispatchResult {
+  const { request } = input;
+  const runtimeId = request.runtimeId;
+  if (!runtimeId) {
+    // Caller guards on runtimeId, but defend in depth.
+    const failed = transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "failed",
+      lastErrorCode: "capability_request.no_runtime",
+      lastErrorMessage: "MCP 请求未绑定运行时。",
+    });
+    const final = failed ?? request;
+    return { request: final, capabilityRequest: final, nextAction: "repair" };
+  }
+
+  const catalog = readMcpCatalogItemBySlugSync(request.packageSlug, input.workspaceId);
+  if (!catalog) {
+    const failed = transitionCapabilityRequestSync({
+      requestId: request.id,
+      workspaceId: input.workspaceId,
+      status: "failed",
+      lastErrorCode: "mcp_catalog.not_found",
+      lastErrorMessage: "MCP 目录条目已下线或被撤回。",
+    });
+    const final = failed ?? request;
+    return { request: final, capabilityRequest: final, nextAction: "repair" };
+  }
+
+  const secretFields = safeParseJsonArray(catalog.secretFieldsJson);
+  const endpointTemplate = catalog.endpointTemplate;
+
+  // Zero-config MCPs (no secret fields AND a deterministic endpoint template)
+  // can be auto-connected on approval. Credential-bearing MCPs, or those whose
+  // endpoint the applicant must supply, stay approved and surface
+  // configure_credentials — the applicant finishes via "配置并连接", and the
+  // link-back in requestMcpConnectionSync then binds + runs this request.
+  if (secretFields.length === 0 && endpointTemplate) {
+    const approvedTools = safeParseJsonArray(catalog.defaultApprovedToolsJson);
+    try {
+      // requestMcpConnectionSync is admin-gated; actorUserId is the approver.
+      // The link-back inside it binds THIS request to the new connection and
+      // transitions it to running, so read the updated request back afterwards.
+      requestMcpConnectionSync({
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        runtimeId,
+        catalogItemId: catalog.id,
+        endpoint: endpointTemplate,
+        approvedTools,
+        confirmHighRisk: catalog.risk === "high",
+      });
+      const updated = readCapabilityRequestSync(request.id, input.workspaceId) ?? request;
+      return {
+        request: updated,
+        capabilityRequest: updated,
+        nextAction: "wait_for_operation",
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failed = transitionCapabilityRequestSync({
+        requestId: request.id,
+        workspaceId: input.workspaceId,
+        status: "failed",
+        lastErrorCode: "mcp.connection_dispatch_failed",
+        lastErrorMessage: message,
+      });
+      const final = failed ?? request;
+      return { request: final, capabilityRequest: final, nextAction: "repair" };
+    }
+  }
+
+  // Credential-bearing / endpoint-bearing MCP: leave approved and surface
+  // configure_credentials. The applicant completes the connection via the
+  // "配置并连接" flow; the link-back then binds + runs this request.
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: input.workspaceId,
+    title: "MCP 能力待申请人补全配置",
+    note:
+      secretFields.length > 0
+        ? `${request.packageDisplayName} 已批准，但需要申请人补全凭据（${secretFields.length} 个密钥字段）。`
+        : `${request.packageDisplayName} 已批准，但需要申请人补全连接端点。`,
+    code: "capability_request.mcp_awaiting_configuration",
+    data: {
+      resourceType: "capability_request",
+      resourceId: request.id,
+      packageSlug: request.packageSlug,
+      secretFieldCount: secretFields.length,
+    },
+  });
+  return { request, capabilityRequest: request, nextAction: "configure_credentials" };
+}
+
+function safeParseJsonArray(value: string | undefined | null): string[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 /**

@@ -21,6 +21,7 @@ import type {
   RuntimeMcpToolAuditRecord,
 } from "./types.ts";
 import { readOpenMontageMcpPurgeGuardSync } from "./openmontage-jobs.ts";
+import { convergeCapabilityRequestFromMcpConnectionSync } from "./capability-requests.ts";
 
 /* ------------------------------------------------------------------ */
 /* Input interfaces                                                    */
@@ -928,6 +929,18 @@ export function completeMcpOperationSync(input: CompleteMcpOperationInput): Runt
         completed.connectionId,
         workspaceId,
       );
+      // P1-1: converge the linked capability_request to the verify outcome.
+      // ready/degraded means the server was reached and tools discovered —
+      // provisioning succeeded; anything else (failed) is a provisioning failure.
+      const verifyOk =
+        input.verification.status === "ready" || input.verification.status === "degraded";
+      convergeCapabilityRequestFromMcpConnectionSync({
+        connectionId: completed.connectionId,
+        workspaceId,
+        outcome: verifyOk ? "succeeded" : "failed",
+        errorCode: verifyOk ? undefined : input.verification.errorCode,
+        errorMessage: verifyOk ? undefined : input.verification.errorMessage,
+      });
       return;
     }
     // Non-verify completion (enable/disable): clear transient error state.
@@ -987,6 +1000,18 @@ export function failMcpOperationSync(input: FailMcpOperationInput): RuntimeMcpOp
     db.prepare(
       `UPDATE runtime_mcp_connection SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
     ).run(...params);
+    // P1-1: a failed verify op means MCP provisioning failed — converge the
+    // linked capability_request. Other op types (enable/disable/health-check)
+    // do not close a request. remove ops already returned above.
+    if (failed.operation === "verify") {
+      convergeCapabilityRequestFromMcpConnectionSync({
+        connectionId: failed.connectionId,
+        workspaceId,
+        outcome: "failed",
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+      });
+    }
   });
   if (!failed) {
     throw new Error(`MCP operation "${input.operationId}" does not exist.`);

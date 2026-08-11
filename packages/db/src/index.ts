@@ -719,7 +719,10 @@ export {
 
 // Capability request — unified install/deploy/connect task (docs/0811/cli-install)
 export {
+  bindApprovedCapabilityRequestToMcpConnectionSync,
   cancelCapabilityRequestSync,
+  convergeCapabilityRequestFromMcpConnectionSync,
+  convergeCapabilityRequestFromRuntimeAppOperationSync,
   createCapabilityRequestSync,
   decideCapabilityRequestSync,
   listCapabilityRequestsSync,
