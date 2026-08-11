@@ -561,17 +561,19 @@ function cancelLinkedCapabilityOperationsSync(
           operationId: skillOpId,
           workspaceId,
         });
-      }
-      // Compensation (P1): if the container was already provisioned (the op has a
-      // service instance), explicitly retire it — the retire sweep also releases
-      // cancelled references, but an explicit retire is immediate rather than
-      // waiting for the next sweep + idle cooldown.
-      const serviceOp = readManagedSkillServiceOperationSync(skillOpId, workspaceId);
-      if (serviceOp?.serviceId) {
-        queueManagedSkillServiceRetireSync({
-          workspaceId,
-          serviceId: serviceOp.serviceId,
-        });
+        // Compensation (P1): if the container was already provisioned (the op has
+        // a service instance), explicitly retire it — the retire sweep also
+        // releases cancelled references, but an explicit retire is immediate
+        // rather than waiting for the next sweep + idle cooldown. Retire ONLY in
+        // this branch: when another request still references the service, the
+        // container must keep serving it (Standard P1).
+        const serviceOp = readManagedSkillServiceOperationSync(skillOpId, workspaceId);
+        if (serviceOp?.serviceId) {
+          queueManagedSkillServiceRetireSync({
+            workspaceId,
+            serviceId: serviceOp.serviceId,
+          });
+        }
       }
     }
   } catch {
