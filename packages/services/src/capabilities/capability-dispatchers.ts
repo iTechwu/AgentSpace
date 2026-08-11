@@ -20,6 +20,7 @@ import { buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { listWorkspaceRuntimeAppCatalogItemsSync } from "../clihub/private-releases.ts";
 import { isManagedServiceProvisioningEnabled } from "./capability-config.ts";
 import type { CapabilityNextAction } from "./capability-projection.ts";
+import { queueCapabilityManagedServiceProvisionSync } from "./capability-service-driver.ts";
 
 /**
  * Dispatch of an approved capability_request into the underlying subsystem
@@ -326,14 +327,17 @@ function safeParseJsonArray(value: string | undefined | null): string[] {
 }
 
 /**
- * Phase 5 dispatch seam for managed_service / external_service capabilities.
+ * Phase 5 dispatch for managed_service / external_service capabilities.
  *
  * Fail-closed by default: when MANAGED_SERVICE_PROVISIONING_ENABLED is off the
  * approved request is left in place (not failed, not phantom-running) so the
  * "turning the flag off only stops new operations" contract holds — the request
  * stays visible in the active queue and can be dispatched when ops enables it.
- * Either way we record an audit event so platform operations can see which
- * requests are gated and why no container was provisioned.
+ * When the flag is on, we create a REAL service instance + provision operation
+ * through the skill-service container lifecycle (digest-pinned template →
+ * managed_skill_service → operation the remote managed node claims). Requests
+ * without an admitted template stay approved with an explicit audit trail —
+ * we never fabricate an image reference.
  */
 function dispatchManagedServiceCapabilityRequestSync(input: {
   workspaceId: string;
@@ -341,30 +345,61 @@ function dispatchManagedServiceCapabilityRequestSync(input: {
 }): DispatchResult {
   const { request } = input;
   const provisioningEnabled = isManagedServiceProvisioningEnabled();
+  if (!provisioningEnabled) {
+    tryRecordWorkspaceAuditEventSync({
+      workspaceId: input.workspaceId,
+      title: "Managed service provisioning gated",
+      note: `${request.packageDisplayName} (${request.deploymentMode}) approved but MANAGED_SERVICE_PROVISIONING_ENABLED=0; request queued.`,
+      code: "capability_request.managed_service_gated",
+      data: {
+        resourceType: "capability_request",
+        resourceId: request.id,
+        deploymentMode: request.deploymentMode,
+        packageKind: request.packageKind,
+        packageSource: request.packageSource,
+        packageSlug: request.packageSlug,
+      },
+    });
+    return { request, capabilityRequest: request, nextAction: "wait_for_operation" };
+  }
+
+  const queued = queueCapabilityManagedServiceProvisionSync({
+    workspaceId: input.workspaceId,
+    request,
+  });
   tryRecordWorkspaceAuditEventSync({
     workspaceId: input.workspaceId,
-    title: provisioningEnabled
-      ? "Managed service provisioning accepted (pending driver)"
-      : "Managed service provisioning gated",
-    note: provisioningEnabled
-      ? `${request.packageDisplayName} (${request.deploymentMode}) approved; container lifecycle driver not yet connected.`
-      : `${request.packageDisplayName} (${request.deploymentMode}) approved but MANAGED_SERVICE_PROVISIONING_ENABLED=0; request queued.`,
-    code: provisioningEnabled
-      ? "capability_request.managed_service_pending_driver"
-      : "capability_request.managed_service_gated",
+    title: queued.queued
+      ? "Managed service provisioning queued"
+      : "Managed service template not admitted",
+    note: queued.queued
+      ? `${request.packageDisplayName} (${request.deploymentMode}) provision operation ${queued.operationId} queued.`
+      : `${request.packageDisplayName} (${request.deploymentMode}) has no admitted digest-pinned template; request stays approved.`,
+    code: queued.queued
+      ? "capability_request.managed_service_provisioning_queued"
+      : (queued.code ?? "capability_request.managed_service_template_not_admitted"),
     data: {
       resourceType: "capability_request",
       resourceId: request.id,
       deploymentMode: request.deploymentMode,
       packageKind: request.packageKind,
-      packageSource: request.packageSource,
       packageSlug: request.packageSlug,
+      serviceId: queued.serviceId,
+      operationId: queued.operationId,
     },
   });
-  // The request stays in its `approved` state. The actual
-  // `linked_runtime_provisioning_task_id` binding is written by the managed
-  // service container driver when it lands (Phase 5 continuation).
-  return { request, capabilityRequest: request, nextAction: "wait_for_operation" };
+  if (!queued.queued) {
+    // No template / no runtime: keep the request approved and audited rather
+    // than failing it — a template may be admitted later.
+    return { request, capabilityRequest: request, nextAction: "wait_for_operation" };
+  }
+  const running = readCapabilityRequestSync(request.id, input.workspaceId) ?? request;
+  return {
+    request: running,
+    capabilityRequest: running,
+    operationId: queued.operationId,
+    nextAction: "wait_for_operation",
+  };
 }
 
 function safeBuildInstallPlan(item: RuntimeAppCatalogItemRecord): RuntimeAppInstallPlan | null {

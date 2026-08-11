@@ -1,5 +1,5 @@
 import { failManagedSkillServiceOperationSync } from "@dofe-agent/db";
-import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { convergeCapabilityRequestFromSkillServiceOperationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { readManagedSkillServiceOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import { parseClaimGenerationValue, parseJsonObjectBody } from "../../../_lib/claim-generation";
 
@@ -46,6 +46,16 @@ export async function POST(
   if (!failed) {
     return Response.json({ error: "skill_service.operation_not_failable" }, { status: 409 });
   }
+
+  // Capability convergence (docs/0811/cli-install Phase 5): a capability_request
+  // that queued this provision op converges to failed. No-op for skill ops.
+  convergeCapabilityRequestFromSkillServiceOperationSync({
+    operationId,
+    workspaceId: auth.workspaceId,
+    outcome: "failed",
+    errorCode: typeof body.errorCode === "string" ? body.errorCode : undefined,
+    errorMessage: body.errorMessage.trim(),
+  });
 
   tryRecordWorkspaceAuditEventSync({
     workspaceId: auth.workspaceId,

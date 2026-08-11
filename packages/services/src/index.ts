@@ -1591,4 +1591,9 @@ export {
   type SubmitCapabilityRequestInput,
   type SubmitCapabilityRequestResult,
 } from "./capabilities/capability-availability.ts";
+export {
+  convergeCapabilityRequestFromSkillServiceOperationSync,
+  queueCapabilityManagedServiceProvisionSync,
+  type QueueCapabilityManagedServiceProvisionResult,
+} from "./capabilities/capability-service-driver.ts";
 export { selectCliHubReadiness } from "./clihub/runtime-apps.ts";

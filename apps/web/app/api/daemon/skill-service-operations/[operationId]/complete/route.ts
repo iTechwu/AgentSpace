@@ -1,6 +1,7 @@
 import {
   completeManagedSkillServiceProvisionOperationSync,
   completeManagedSkillServiceRetireOperationSync,
+  convergeCapabilityRequestFromSkillServiceOperationSync,
   tryRecordWorkspaceAuditEventSync,
 } from "@dofe-agent/services";
 import { readManagedSkillServiceOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
@@ -45,6 +46,17 @@ export async function POST(
       });
   if (!completed.ok) {
     return Response.json({ error: completed.reason }, { status: 400 });
+  }
+
+  // Capability convergence (docs/0811/cli-install Phase 5): a capability_request
+  // that queued this provision op converges to completed now that the service
+  // is healthy. No-op when the op belongs to a skill installation instead.
+  if (operation.operation === "provision") {
+    convergeCapabilityRequestFromSkillServiceOperationSync({
+      operationId,
+      workspaceId: auth.workspaceId,
+      outcome: "succeeded",
+    });
   }
 
   tryRecordWorkspaceAuditEventSync({
