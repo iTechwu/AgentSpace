@@ -37,11 +37,10 @@ const TERMINAL_REQUEST_STATUS = new Set(["completed", "failed", "rejected", "can
  * When a non-terminal capability_request covers this (runtime, package) tuple,
  * it becomes the source of truth for the button:
  *   pending            → wait_for_approval (admin must approve)
- *   approved + mcp     → configure_credentials (applicant must finish the
- *                        connection — dispatch cannot auto-connect a
- *                        credential/endpoint-bearing MCP, so it lingers in
- *                        approved; the market panel routes this to the same
- *                        connect form as `connect`)
+ *   approved + mcp     → configure_credentials for external/stdio MCPs, or for
+ *                        a container MCP after provisionedEndpointRef exists;
+ *                        otherwise wait_for_approval while infrastructure is
+ *                        gated or still being prepared
  *   approved + non-mcp → wait_for_approval (defensive; CLI/zero-config MCP
  *                        auto-dispatch to running on approval, so this is at
  *                        most a transient frame)
