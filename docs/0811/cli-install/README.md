@@ -104,6 +104,17 @@ AgentSpace 应把“安装一个能力”设计成用户可以从页面发起并
 - **Phase 6**（**已落地**）CLI + MCP 统一启用向导 UI：详情面板按 `nextAction` 分支（install / request_deployment / connect / configure_credentials）；MCP 两种部署模式统一经 MCP-center 连接生命周期调度（零配置 MCP 批准即连，凭据/endpoint/必填配置型投影 `configure_credentials`），verify op 双向收敛；repair 态对成员显示友好文案、管理员可见 `reasonCode` 诊断码；普通成员 `install` / `connect` / `configure_credentials` 不再要求 canManage——点击后提交统一 capability_request，管理员 `request_deployment` 显示「部署并启用」而非「申请管理员部署」；管理员提交任意能力请求自动批准并 dispatch，返回真实 nextAction（MCP 不再假「处理中」）。
 - **Phase 7**（部分）四个回滚开关全部就位（`CAPABILITY_REQUESTS_ENABLED` / `CAPABILITY_AVAILABILITY_PROJECTION_V2` 同时门控 loader 与 API / `MANAGED_SERVICE_PROVISIONING_ENABLED` / `RUNTIME_BASELINE_ROLLOUT_ENABLED`，后两者默认 fail-closed）。Runtime baseline 自动铺开执行体仍待续。
 
+### 6.7 收敛与路由收紧（进度更新 2026-08-11 第六轮）
+
+- **全量收敛**：provision operation 收敛所有关联请求（不再 LIMIT 1 遗留 running）。
+- **managed MCP 终态分流**：零配置 MCP 容器就绪后 auto-connect；凭据/endpoint 型 MCP 回 `approved`（configure_credentials）；容器 endpointRef（runtime-private://）接入 connection 而非静态模板。
+- **managed_stdio 不进容器驱动**：仅 `catalog.transport=managed_service`（如 OpenMontage）走 Docker 容器；Chrome DevTools / MiniMax 走依赖 CLI + stdio worker。
+- **MCP 回绑收紧**：校验 `requestedAction=connect` + 固定 `catalogItemId`。
+- **reconciler**：被 flag/缺模板阻塞的 approved 请求重新批准时重新派发。
+- **公共 CLI plan pin**：submit 时固定精确 install plan，派发不再重建漂移。
+- **取消联动**：取消 envelope 时联动取消已关联 CLI/baseline/skill-service op 与 MCP connection。
+- **retire 保护限定 runtime**；`metadata_json->>'skillServiceOperationId'` 表达式索引（schema v119）。
+
 ### 6.6 生命周期推进（进度更新 2026-08-11 第五轮）
 
 - **retire 回收保护**：`retireUnreferencedManagedSkillServicesSync` 不再回收 capability 部署的服务——capability_request（pending/approved/running/completed）经 metadata `managedServiceCatalogId`/`serviceId` 引用即受保护；仅失败/拒绝/取消释放给空闲回收。修复 stateless 默认立即回收导致刚部署的 managed MCP 容器被误杀。
