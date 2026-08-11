@@ -129,6 +129,8 @@ const data: KnowledgePageData = {
   ],
   documentCount: 1,
   linkedDocumentCount: 0,
+  workspaceId: "ws-1",
+  parseTasks: [],
 };
 
 describe("KnowledgePageClient", () => {

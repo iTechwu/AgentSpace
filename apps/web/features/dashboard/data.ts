@@ -66,6 +66,7 @@ import {
   listWorkspaceMemberUsersSync,
   listWorkflowDefinitionsSync,
   readWorkflowTriggerForWorkflowSync,
+  listCapabilityRequestsSync,
 } from "@dofe-agent/db";
 import type { BudgetAction, BudgetPeriod, BudgetScope, TaskExecutionEventRecord, TaskExecutionEventType, TaskMessageRecord, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
 import type {
@@ -5244,6 +5245,7 @@ export function getBudgetPageData(workspaceId = DEFAULT_WORKSPACE_ID): BudgetPag
 // ── Knowledge ──
 
 export interface KnowledgePageData {
+  workspaceId: string;
   pages: KnowledgePageRecord[];
   totalCount: number;
   rootCount: number;
@@ -5253,6 +5255,23 @@ export interface KnowledgePageData {
   documentPages: KnowledgeDocumentPageRecord[];
   documentCount: number;
   linkedDocumentCount: number;
+  parseTasks: KnowledgeParseTask[];
+}
+
+export interface KnowledgeParseTask {
+  id: string;
+  fileName: string;
+  status: "pending" | "approved" | "running" | "completed" | "failed" | "cancelled";
+  intent: "auto_deposit" | "document_only";
+  mediaType: string;
+  sizeBytes: number;
+  attachmentId: string;
+  linkedKnowledgePageId?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  warnings: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface KnowledgeDocumentPageRecord {
@@ -5316,8 +5335,10 @@ export function getKnowledgePageData(
     state.knowledgePages,
   );
   const knowledgePagePreview = limitLoadtestDashboardPayload(knowledgePageRecords, KNOWLEDGE_PAGE_PREVIEW_LIMIT);
+  const parseTasks = buildKnowledgeParseTasks(currentUserDisplayName, workspaceId);
 
   return {
+    workspaceId,
     pages: knowledgePagePreview,
     totalCount: state.knowledgePages.length,
     rootCount: state.knowledgePages.filter((page) => page.parentId === null).length,
@@ -5331,7 +5352,58 @@ export function getKnowledgePageData(
     documentPages,
     documentCount: documentPages.length,
     linkedDocumentCount: documentPages.filter((document) => document.linkedKnowledgePages.length > 0).length,
+    parseTasks,
   };
+}
+
+function buildKnowledgeParseTasks(
+  currentUserDisplayName: string | undefined,
+  workspaceId: string,
+): KnowledgeParseTask[] {
+  const requests = listCapabilityRequestsSync({
+    workspaceId,
+    packageKind: "service",
+    limit: 50,
+  }).filter((request) => request.requestedAction === "parse");
+  const currentUserId = currentUserDisplayName?.trim();
+  return requests
+    .filter((request) => {
+      // 普通成员只看到自己的任务；管理员全可见。
+      if (!currentUserId) return true;
+      if (request.requestedByUserId === currentUserId) return true;
+      return false;
+    })
+    .map((request) => {
+      let metadata: Record<string, unknown> = {};
+      try {
+        const parsed: unknown = JSON.parse(request.metadataJson);
+        if (parsed && typeof parsed === "object") {
+          metadata = parsed as Record<string, unknown>;
+        }
+      } catch {
+        metadata = {};
+      }
+      const intent = metadata.intent === "document_only" ? "document_only" : "auto_deposit";
+      const warnings = Array.isArray(metadata.warnings)
+        ? (metadata.warnings as unknown[]).filter((value): value is string => typeof value === "string")
+        : [];
+      const sizeBytes = typeof metadata.sizeBytes === "number" ? metadata.sizeBytes : 0;
+      return {
+        id: request.id,
+        fileName: request.packageDisplayName,
+        status: request.status,
+        intent,
+        mediaType: typeof metadata.mediaType === "string" ? metadata.mediaType : "",
+        sizeBytes,
+        attachmentId: typeof metadata.attachmentId === "string" ? metadata.attachmentId : "",
+        linkedKnowledgePageId: request.linkedKnowledgePageId,
+        lastErrorCode: request.lastErrorCode,
+        lastErrorMessage: request.lastErrorMessage,
+        warnings,
+        createdAt: request.createdAt,
+        updatedAt: request.updatedAt,
+      } satisfies KnowledgeParseTask;
+    });
 }
 
 function buildKnowledgeAgentOptions(state: DofeAgentState): KnowledgeAgentOption[] {

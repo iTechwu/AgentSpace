@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { KnowledgeDocumentPageRecord, KnowledgePageData, KnowledgePageRecord } from "@/features/dashboard/data";
+import type { KnowledgeDocumentPageRecord, KnowledgeParseTask, KnowledgePageData, KnowledgePageRecord } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import type { KnowledgeAssignmentMode, KnowledgePage } from "@dofe-agent/domain/workspace";
 import { createChannelDocumentFromAttachmentAction } from "@/features/channels/actions";
@@ -69,6 +69,12 @@ export function KnowledgePageClient({
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [mobilePane, setMobilePane] = useState<"list" | "detail">("list");
   const [isPending, startTransition] = useTransition();
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const knowledgeUploadInputRef = useRef<HTMLInputElement>(null);
+  const documentsUploadInputRef = useRef<HTMLInputElement>(null);
+  const parseTasks = data.parseTasks ?? [];
+  const hasActiveParseTasks = parseTasks.some((task) => task.status === "running" || task.status === "pending" || task.status === "approved");
   const agentOptions = data.agentOptions ?? [];
   const assignmentStats = data.assignmentStats ?? {
     allAgentsPageCount: data.pages.filter((page) => page.assignmentMode !== "selected_agents").length,
@@ -243,6 +249,17 @@ export function KnowledgePageClient({
     }
   }, [activeView, data.pages, isCompactLayout, searchParams, selectedId]);
 
+  // 解析任务进行中时 2.5s 轮询数据（与市场页 capability_request 节奏一致）
+  useEffect(() => {
+    if (!hasActiveParseTasks) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      refreshWorkspaceModule(onDataChanged, router);
+    }, 2_500);
+    return () => window.clearTimeout(timeoutId);
+  }, [hasActiveParseTasks, onDataChanged, parseTasks, router]);
+
   function updateLocation(nextView: KnowledgeView, documentId?: string | null): void {
     const params = new URLSearchParams(searchParams.toString());
     if (nextView === "documents") {
@@ -325,6 +342,38 @@ export function KnowledgePageClient({
       });
       refreshWorkspaceModule(onDataChanged, router);
     });
+  }
+
+  function handleUploadFile(file: File, intent: "auto_deposit" | "document_only"): void {
+    setUploadError(null);
+    setIsUploading(true);
+    const workspaceId = data.workspaceId;
+    if (!workspaceId) {
+      setUploadError(tx("当前工作区信息缺失，请刷新页面后重试。", "Workspace context is missing. Refresh and try again."));
+      setIsUploading(false);
+      return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("intent", intent);
+    void (async () => {
+      try {
+        const response = await fetch(`/api/workspaces/${workspaceId}/knowledge/upload`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!response.ok) {
+          const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(errorPayload?.error ?? `Upload failed: ${response.status}`);
+        }
+        refreshWorkspaceModule(onDataChanged, router);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Upload failed.";
+        setUploadError(message);
+      } finally {
+        setIsUploading(false);
+      }
+    })();
   }
 
   function openCreateModal(parentId: string | null): void {
@@ -526,6 +575,28 @@ export function KnowledgePageClient({
                   >
                     <AppIcon name="plus" />
                   </button>
+                  <button
+                    aria-label={tx("上传文件到知识库", "Upload file to knowledge base")}
+                    className="knowledge-btn knowledge-btn--ghost"
+                    disabled={isUploading}
+                    onClick={() => knowledgeUploadInputRef.current?.click()}
+                    type="button"
+                  >
+                    <AppIcon name="upload" />
+                  </button>
+                  <input
+                    accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/markdown,text/plain,.md,.txt,.pdf,.docx,.pptx,.xlsx"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        handleUploadFile(file, "auto_deposit");
+                      }
+                      event.target.value = "";
+                    }}
+                    ref={knowledgeUploadInputRef}
+                    type="file"
+                  />
                   {data.materials.length > 0 ? (
                     <button
                       className="knowledge-btn knowledge-btn--ghost"
@@ -609,6 +680,31 @@ export function KnowledgePageClient({
                       `${data.linkedDocumentCount} document(s) already linked to knowledge pages`,
                     )}
                   </p>
+                </div>
+                <div className="knowledge-sidebar__actions">
+                  <button
+                    aria-label={tx("上传文件到文档页面", "Upload file to documents page")}
+                    className="knowledge-btn knowledge-btn--primary"
+                    disabled={isUploading}
+                    onClick={() => documentsUploadInputRef.current?.click()}
+                    type="button"
+                  >
+                    <AppIcon name="upload" />
+                    {tx("上传", "Upload")}
+                  </button>
+                  <input
+                    accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/markdown,text/plain,.md,.txt,.pdf,.docx,.pptx,.xlsx"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        handleUploadFile(file, "document_only");
+                      }
+                      event.target.value = "";
+                    }}
+                    ref={documentsUploadInputRef}
+                    type="file"
+                  />
                 </div>
               </div>
 
@@ -720,6 +816,15 @@ export function KnowledgePageClient({
                 <span>{currentMobileSubtitle}</span>
               </div>
             </div>
+          ) : null}
+
+          {(parseTasks.length > 0 || uploadError || isUploading) ? (
+            <ParseTaskPanel
+              isUploading={isUploading}
+              parseTasks={parseTasks}
+              uploadError={uploadError}
+              onSelectPage={openPage}
+            />
           ) : null}
 
           {activeView === "knowledge" ? (
@@ -1394,4 +1499,82 @@ function KnowledgeTreeNode({
       ) : null}
     </div>
   );
+}
+
+function ParseTaskPanel({
+  isUploading,
+  parseTasks,
+  uploadError,
+  onSelectPage,
+}: {
+  isUploading: boolean;
+  parseTasks: KnowledgeParseTask[];
+  uploadError: string | null;
+  onSelectPage: (page: KnowledgePage) => void;
+}) {
+  const { tx } = useLanguage();
+  return (
+    <section className="knowledge-parse-panel" aria-label={tx("文件解析任务", "File parse tasks")}>
+      <div className="knowledge-parse-panel__header">
+        <strong>{tx("文件解析任务", "File parse tasks")}</strong>
+        {isUploading ? <span>{tx("上传中…", "Uploading…")}</span> : null}
+      </div>
+      {uploadError ? (
+        <div className="knowledge-parse-panel__error" role="alert">
+          {uploadError}
+        </div>
+      ) : null}
+      <ul className="knowledge-parse-panel__list">
+        {parseTasks.map((task) => (
+          <li className="knowledge-parse-panel__item" key={task.id}>
+            <div className="knowledge-parse-panel__name">{task.fileName}</div>
+            <div className="knowledge-parse-panel__meta">
+              <span className={`knowledge-parse-panel__status knowledge-parse-panel__status--${task.status}`}>
+                {parseTaskStatusLabel(task.status, tx)}
+              </span>
+              <span>
+                {task.intent === "auto_deposit"
+                  ? tx("自动沉淀为知识页", "Auto-deposit to knowledge page")
+                  : tx("仅解析，沉淀由你决定", "Parse only, deposit manually")}
+              </span>
+              {task.lastErrorMessage ? (
+                <span className="knowledge-parse-panel__error">{task.lastErrorMessage}</span>
+              ) : null}
+            </div>
+            {task.status === "completed" && task.linkedKnowledgePageId ? (
+              <button
+                className="knowledge-btn knowledge-btn--ghost"
+                onClick={() => onSelectPage({ id: task.linkedKnowledgePageId! } as unknown as KnowledgePage)}
+                type="button"
+              >
+                {tx("打开知识页", "Open knowledge page")}
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function parseTaskStatusLabel(
+  status: KnowledgeParseTask["status"],
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (status) {
+    case "pending":
+      return tx("排队中", "Queued");
+    case "approved":
+      return tx("已批准", "Approved");
+    case "running":
+      return tx("解析中", "Parsing");
+    case "completed":
+      return tx("解析完成", "Parsed");
+    case "failed":
+      return tx("解析失败", "Parse failed");
+    case "cancelled":
+      return tx("已取消", "Cancelled");
+    default:
+      return status;
+  }
 }

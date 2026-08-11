@@ -17737,6 +17737,92 @@ textarea:focus {
   margin: 0 0 12px;
 }
 
+/* 上传解析任务面板 */
+.knowledge-parse-panel {
+  margin: 0 0 16px;
+  padding: 14px 18px;
+  border: 1px solid rgba(71, 56, 42, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 252, 247, 0.78);
+  box-shadow: 0 18px 36px rgba(92, 64, 39, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.knowledge-parse-panel__header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.knowledge-parse-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.knowledge-parse-panel__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-strong);
+  font-size: 13px;
+}
+
+.knowledge-parse-panel__name {
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.knowledge-parse-panel__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.knowledge-parse-panel__status {
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: var(--panel-strong);
+  color: var(--text);
+}
+
+.knowledge-parse-panel__status--running,
+.knowledge-parse-panel__status--pending,
+.knowledge-parse-panel__status--approved {
+  background: rgba(199, 104, 58, 0.16);
+  color: var(--accent, #c7683a);
+}
+
+.knowledge-parse-panel__status--completed {
+  background: rgba(58, 134, 86, 0.16);
+  color: #2f6b48;
+}
+
+.knowledge-parse-panel__status--failed,
+.knowledge-parse-panel__status--cancelled {
+  background: rgba(176, 52, 52, 0.16);
+  color: #b03434;
+}
+
+.knowledge-parse-panel__error {
+  color: #b03434;
+  font-size: 12px;
+}
+
 .knowledge-modal__input {
   width: 100%;
   padding: 8px 12px;
