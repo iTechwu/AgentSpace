@@ -270,6 +270,57 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `ALTER TABLE workflow_trigger DROP CONSTRAINT IF EXISTS workflow_trigger_misfire_policy_check`,
     `ALTER TABLE workflow_trigger ADD CONSTRAINT workflow_trigger_misfire_policy_check CHECK (misfire_policy IN ('skip', 'fire_once'))`,
+    // 归一化历史枚举列为 TEXT：早期 schema（≤115）把一批列建成枚举类型（workflow_trigger_type、
+    // workflow_trigger_misfire_policy、workflow_definition_status、openmontage_* 等），后续版本
+    // 改为 TEXT 但从未 ALTER 既有列。116→118 迁移的去重/去误链语句会把 workflow_trigger.type 与
+    // workflow_run.trigger_type（TEXT）比较——PostgreSQL 不允许枚举与 text 之间隐式比较，报
+    // `operator does not exist: workflow_trigger_type <> text`；运行时 INSERT 也会报
+    // `column ... is of type <enum> but expression is of type text`。
+    // 这里幂等地把所有历史枚举列归一为 TEXT：已是 TEXT 的列是 no-op；枚举列用 ::text 转换
+    // （枚举标签即当前 CHECK/DEFAULT 允许值）。`ALTER TABLE IF EXISTS` 兼容表尚未创建的位置；
+    // 若表不存在则跳过——后续 CREATE TABLE IF NOT EXISTS 会按 TEXT 新建。须位于任何枚举↔text
+    // 比较语句之前。
+    `
+      DO $$
+      BEGIN
+        ALTER TABLE IF EXISTS workflow_trigger ALTER COLUMN type TYPE TEXT USING type::text;
+        -- misfire_policy 的 CHECK 在本迁移靠前被重建为 misfire_policy = ANY(ARRAY[...'::workflow_trigger_misfire_policy])
+        -- （列仍为枚举时字面量被强转成枚举，text = enum 无法校验）。ALTER 前先删 CHECK，ALTER 后再以
+        -- 纯字面量重建（此时列已是 TEXT，字面量落为 text），否则 ALTER COLUMN ... TYPE 重新校验会报
+        -- operator does not exist: text = workflow_trigger_misfire_policy。
+        ALTER TABLE IF EXISTS workflow_trigger DROP CONSTRAINT IF EXISTS workflow_trigger_misfire_policy_check;
+        ALTER TABLE IF EXISTS workflow_trigger ALTER COLUMN misfire_policy TYPE TEXT USING misfire_policy::text;
+        ALTER TABLE IF EXISTS workflow_trigger ADD CONSTRAINT workflow_trigger_misfire_policy_check
+          CHECK (misfire_policy IN ('skip', 'fire_once'));
+        ALTER TABLE IF EXISTS workflow_definition ALTER COLUMN status TYPE TEXT USING status::text;
+        -- 这三列有部分索引，其 WHERE 谓词被存储为显式枚举强转（status = 'pending'::enum），ALTER 时
+        -- 重新校验谓词会报 text = enum。先删索引再 ALTER；本迁移后续的 CREATE INDEX IF NOT EXISTS
+        -- 会在 TEXT 列上用纯字面量重建（schema 已含对应索引定义）。
+        DROP INDEX IF EXISTS idx_openmontage_delegation_intent_recovery;
+        ALTER TABLE IF EXISTS openmontage_delegation_intent ALTER COLUMN status TYPE TEXT USING status::text;
+        ALTER TABLE IF EXISTS openmontage_job_projection ALTER COLUMN sync_status TYPE TEXT USING sync_status::text;
+        DROP INDEX IF EXISTS idx_openmontage_job_event_pending;
+        ALTER TABLE IF EXISTS openmontage_job_event ALTER COLUMN application_status TYPE TEXT USING application_status::text;
+        DROP INDEX IF EXISTS idx_openmontage_notification_outbox_due;
+        ALTER TABLE IF EXISTS openmontage_notification_outbox ALTER COLUMN status TYPE TEXT USING status::text;
+        -- openmontage_artifact_grant.operation 的两条 CHECK 被存储为显式枚举强转（operation = 'READ'::enum），
+        -- text = enum 无法在 ALTER 时重新校验。先删两条 CHECK，ALTER 为 TEXT 后再以纯字面量重建。
+        ALTER TABLE IF EXISTS openmontage_artifact_grant DROP CONSTRAINT IF EXISTS openmontage_artifact_grant_operation_check;
+        ALTER TABLE IF EXISTS openmontage_artifact_grant DROP CONSTRAINT IF EXISTS openmontage_artifact_grant_shape_check;
+        ALTER TABLE IF EXISTS openmontage_artifact_grant ALTER COLUMN operation TYPE TEXT USING operation::text;
+        ALTER TABLE IF EXISTS openmontage_artifact_grant ADD CONSTRAINT openmontage_artifact_grant_operation_check
+          CHECK (operation IN ('READ', 'WRITE'));
+        ALTER TABLE IF EXISTS openmontage_artifact_grant ADD CONSTRAINT openmontage_artifact_grant_shape_check
+          CHECK (
+            (operation = 'READ' AND attachment_id IS NOT NULL AND artifact_role IS NULL AND file_name IS NULL
+             AND media_type IS NULL AND size_bytes IS NULL AND sha256 IS NULL)
+            OR
+            (operation = 'WRITE' AND attachment_id IS NULL AND artifact_role IS NOT NULL AND file_name IS NOT NULL
+             AND media_type IS NOT NULL AND size_bytes > 0 AND sha256 IS NOT NULL)
+          );
+        ALTER TABLE IF EXISTS employee_data_legal_hold ALTER COLUMN resource_type TYPE TEXT USING resource_type::text;
+      END $$;
+    `,
     `
       CREATE TABLE IF NOT EXISTS workflow_run (
         id TEXT PRIMARY KEY,

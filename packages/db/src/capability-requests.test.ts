@@ -82,7 +82,6 @@ test("re-submitting an in-flight request is a CAS no-op that preserves server-si
   };
 
   const first = createCapabilityRequestSync(base);
-  const firstUpdatedAt = first.record.updatedAt;
   // Simulate the dispatch flow pinning a release + enriching metadata after
   // the request was created/approved.
   decideCapabilityRequestSync({
@@ -92,6 +91,11 @@ test("re-submitting an in-flight request is a CAS no-op that preserves server-si
     decision: "approved",
     decisionReason: "Ship it.",
   });
+  // Capture updatedAt AFTER the decision — approval stamps updated_at, and the
+  // CAS no-op's contract is "re-submitting does not touch the CURRENT record",
+  // not "does not touch the original create timestamp".
+  const approvedRecord = readCapabilityRequestSync(first.record.id, workspaceId);
+  const firstUpdatedAt = approvedRecord?.updatedAt;
 
   // Re-submit with a DIFFERENT display name, message, and metadata. A true CAS
   // must NOT clobber the approved request — outcome is in_flight and nothing
@@ -108,7 +112,9 @@ test("re-submitting an in-flight request is a CAS no-op that preserves server-si
   assert.equal(resubmitted.record.packageDisplayName, "Mermaid");
   assert.equal(resubmitted.record.message, "");
   assert.equal(resubmitted.record.decisionReason, "Ship it.");
-  assert.deepEqual(resubmitted.record.metadataJson, {});
+  // metadataJson is a JSONB string on the record — the CAS no-op must preserve
+  // the original `'{}'`, not the re-submitter's `{"hijacked":true}`.
+  assert.equal(resubmitted.record.metadataJson, "{}");
   assert.equal(resubmitted.record.updatedAt, firstUpdatedAt);
 });
 
