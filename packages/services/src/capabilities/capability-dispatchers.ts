@@ -299,7 +299,11 @@ function dispatchMcpCapabilityRequestSync(input: {
   if (requiredApp && request.runtimeId) {
     const installed = listRuntimeInstalledAppsSync({ workspaceId: input.workspaceId, runtimeId: request.runtimeId })
       .find((app) => app.source === requiredApp.source && app.name === requiredApp.name);
-    if (!installed || installed.status !== "installed" || !installed.enabled) {
+    // The connection layer requires the EXACT required version (Spec P0): an
+    // older installed CLI would pass a source/name-only precheck and then fail at
+    // connection time with mcp.runtime_app_required. Any version mismatch
+    // re-queues the install (the plan is pinned to requiredApp.version).
+    if (!installed || installed.status !== "installed" || !installed.enabled || installed.version !== requiredApp.version) {
       const depItem = findCliCatalogItem(input.workspaceId, requiredApp.source, requiredApp.name);
       const depPlan = depItem ? safeBuildInstallPlan(depItem) : null;
       if (!depPlan) {
@@ -313,14 +317,16 @@ function dispatchMcpCapabilityRequestSync(input: {
         const final = failed ?? request;
         return { request: final, capabilityRequest: final, nextAction: "repair" };
       }
+      // Use the REAL catalog identity (requiredApp.source/name) so the
+      // installed-app lands under the same key the connection layer's
+      // isRequiredRuntimeAppReady checks (Standard P0). The intermediate-step
+      // marker is the request's mcpPendingConnect metadata — convergence and the
+      // chaining hook key off that, not a synthetic app-name namespace.
       const depOp = createRuntimeAppOperationSync({
         workspaceId: input.workspaceId,
         runtimeId: request.runtimeId,
-        appSource: "clihub_harness" as RuntimeAppCatalogSource,
-        // Reserved app_name namespace (mcp-dependency:) so the runtime-app
-        // convergence does NOT stamp this request terminal — the chaining hook
-        // connects the MCP once the CLI is installed.
-        appName: `mcp-dependency:${requiredApp.name}`,
+        appSource: requiredApp.source,
+        appName: requiredApp.name,
         operation: "install",
         requestedByUserId: input.actorUserId,
         commandPlanJson: JSON.stringify(depPlan),
@@ -842,11 +848,13 @@ export function chainCapabilityRuntimeBaselineSync(input: {
 }
 
 /**
- * Dependency half of the managed_stdio MCP flow (P0): when a mcp-dependency op
- * (app_name prefix 'mcp-dependency:') referenced by a capability_request reaches
- * a terminal state, create the MCP connection once the dependency CLI is
- * installed (success), or fail the request closed (failure). Called from the
- * daemon runtime-app complete/fail routes.
+ * Dependency half of the managed_stdio MCP flow (P0): when a runtime-app op
+ * linked to a capability_request that carries the mcpPendingConnect marker
+ * reaches a terminal state, create the MCP connection once the dependency CLI is
+ * installed (success), or fail the request closed (failure). The op uses the
+ * REAL catalog identity (source/name), so the marker — not an app-name prefix —
+ * identifies the intermediate dependency step. Called from the daemon
+ * runtime-app complete/fail routes.
  */
 export function chainCapabilityMcpDependencySync(input: {
   workspaceId: string;
@@ -856,7 +864,7 @@ export function chainCapabilityMcpDependencySync(input: {
   errorMessage?: string;
 }): void {
   const op = readRuntimeAppOperationSync(input.operationId, input.workspaceId);
-  if (!op || !op.appName.startsWith("mcp-dependency:")) return;
+  if (!op) return;
   const request = findCapabilityRequestByLinkedRuntimeAppOperationIdSync(input.workspaceId, input.operationId);
   if (!request || !request.runtimeId) return;
   // A cancelled (or otherwise terminal) request must NOT be connected onward —
@@ -865,6 +873,9 @@ export function chainCapabilityMcpDependencySync(input: {
   if (request.status !== "running") return;
   const metadata = parseRequestMetadata(request.metadataJson);
   const marker = metadata.mcpPendingConnect as { actorUserId?: string; catalogItemId?: string; endpoint?: string; approvedTools?: string[] } | undefined;
+  // Only a request the dispatcher marked as pending-connect chains here. A plain
+  // CLI op (no marker) must never re-create the connection.
+  if (!marker || typeof marker.catalogItemId !== "string") return;
   if (input.outcome !== "succeeded") {
     transitionCapabilityRequestSync({
       requestId: request.id,

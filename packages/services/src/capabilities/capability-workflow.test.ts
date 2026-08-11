@@ -452,7 +452,75 @@ test("managed_stdio MCP dispatches a dependency CLI install first (P0)", () => {
   });
   assert.equal(submitted.capabilityRequest.status, "running");
   const depOp = readRuntimeAppOperationSync(submitted.dispatchedOperationId!, "default");
-  assert.ok(depOp?.appName.startsWith("mcp-dependency:"), "dependency CLI install must be queued before connecting");
+  // The dependency op uses the REAL catalog identity so the installed-app lands
+  // under the key the connection readiness check queries (Standard P0) — not a
+  // synthetic mcp-dependency: namespace.
+  assert.equal(depOp?.appName, depName, "dependency op must use the real CLI catalog identity");
+  assert.equal(depOp?.appSource, "clihub_public", "dependency op must use the real CLI catalog source");
+  const requestRow = getDatabase()
+    .prepare("SELECT metadata_json AS metadataJson FROM capability_request WHERE id = ?")
+    .get(submitted.capabilityRequest.id) as { metadataJson?: string };
+  const metadata = JSON.parse(requestRow?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.ok(metadata.mcpPendingConnect, "dependency dispatch must mark mcpPendingConnect so convergence does not stamp terminal");
+});
+
+test("managed_stdio MCP re-queues the dependency when an older version is installed (Spec P0)", () => {
+  process.env.MANAGED_SERVICE_PROVISIONING_ENABLED = "1";
+  const runtimeId = createTestRuntime();
+  const depName = `dep-${randomLikeId()}`;
+  upsertRuntimeAppCatalogItemsSync([{
+    source: "clihub_public",
+    name: depName,
+    displayName: "Dep CLI",
+    version: "2.0.0",
+    entryPoint: depName,
+    installStrategy: "npm",
+    installCmd: `npm install -g ${depName}`,
+    registryJson: JSON.stringify({ npm_package_spec: `${depName}@2.0.0` }),
+  }]);
+  const mcpSlug = `mcp-${randomLikeId()}`;
+  upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    source: "official" as never,
+    slug: mcpSlug,
+    version: "1.0.0",
+    transport: "managed_stdio",
+    displayName: "Stdio MCP",
+    category: "productivity",
+    risk: "medium",
+    declaredToolsJson: JSON.stringify([{ name: "tool", description: "T", risk: "low" }]),
+    defaultApprovedToolsJson: JSON.stringify(["tool"]),
+    endpointTemplate: "stdio://dep",
+    configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, additionalProperties: false }),
+    requiredRuntimeAppJson: JSON.stringify({ source: "clihub_public", name: depName, version: "2.0.0" }),
+  });
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+  // An OLD version is already installed on the runtime.
+  getDatabase().prepare(
+    `INSERT INTO runtime_installed_app (id, workspace_id, runtime_id, source, name, display_name, version, entry_point, status, install_strategy, enabled, installed_at, updated_at)
+     VALUES (?, 'default', ?, ?, ?, ?, '1.0.0', ?, 'installed', 'npm', 1, ?, ?)`,
+  ).run(`runtime-app-${randomLikeId()}`, runtimeId, "clihub_public", depName, depName, depName, new Date().toISOString(), new Date().toISOString());
+
+  const submitted = submitCapabilityRequestSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "mcp",
+    packageSource: "official",
+    packageSlug: mcpSlug,
+    packageDisplayName: "Stdio MCP",
+    deploymentMode: "managed_service",
+    requestedAction: "connect",
+  });
+  assert.equal(submitted.capabilityRequest.status, "running");
+  const depOp = readRuntimeAppOperationSync(submitted.dispatchedOperationId!, "default");
+  assert.equal(depOp?.appName, depName, "version mismatch must re-queue the dependency install (pinned to required version)");
 });
 
 test("cancel after container provision queues an explicit retire and frees the request (real lifecycle)", () => {

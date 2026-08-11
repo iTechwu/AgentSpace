@@ -518,14 +518,15 @@ export function convergeCapabilityRequestFromRuntimeAppOperationSync(input: {
   ) {
     return request;
   }
-  // Chained runtime-app ops (app_name prefixes 'runtime-baseline:' and
-  // 'mcp-dependency:') are intermediate steps — the service layer creates the
-  // next op / the MCP connection on success, so this function must NOT stamp the
-  // request terminal here.
+  // Chained runtime-app ops are intermediate steps — the service layer creates
+  // the next op / the MCP connection on success, so this function must NOT stamp
+  // the request terminal here. Two forms: a runtime-baseline: op (name prefix),
+  // or ANY op linked to a request carrying the mcpPendingConnect marker (the
+  // managed_stdio dependency install, which now uses the REAL catalog identity).
   const op = getDatabase()
     .prepare("SELECT app_name FROM runtime_app_operation WHERE id = ? AND workspace_id = ?")
     .get(input.operationId, workspaceId) as { app_name?: string } | undefined;
-  if (op?.app_name?.startsWith("runtime-baseline:") || op?.app_name?.startsWith("mcp-dependency:")) {
+  if (op?.app_name?.startsWith("runtime-baseline:") || hasMcpPendingConnectMarker(request)) {
     return request;
   }
   const status: CapabilityRequestStatus = input.outcome === "succeeded" ? "completed" : "failed";
@@ -537,6 +538,22 @@ export function convergeCapabilityRequestFromRuntimeAppOperationSync(input: {
     lastErrorCode: input.outcome === "failed" ? input.errorCode : undefined,
     lastErrorMessage: input.outcome === "failed" ? input.errorMessage : undefined,
   });
+}
+
+/**
+ * True when the request is a managed_stdio MCP waiting on its dependency CLI —
+ * the dispatcher wrote metadata.mcpPendingConnect. Such a request must not be
+ * stamped terminal by a runtime-app convergence; the chaining hook creates the
+ * MCP connection once the CLI is installed.
+ */
+function hasMcpPendingConnectMarker(request: Pick<CapabilityRequestRecord, "metadataJson">): boolean {
+  try {
+    const parsed = JSON.parse(request.metadataJson) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    return Boolean((parsed as Record<string, unknown>).mcpPendingConnect);
+  } catch {
+    return false;
+  }
 }
 
 /**
