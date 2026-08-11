@@ -800,33 +800,34 @@ export function chainCapabilityRuntimeBaselineSync(input: {
   errorCode?: string;
   errorMessage?: string;
 }): void {
-  const op = readRuntimeAppOperationSync(input.operationId, input.workspaceId);
-  if (!op || !op.appName.startsWith("runtime-baseline:")) return;
-  const request = findCapabilityRequestByLinkedRuntimeAppOperationIdSync(input.workspaceId, input.operationId);
-  if (!request || !request.runtimeId) return;
-  // A cancelled (or otherwise terminal) request must NOT be chained onward —
-  // otherwise a late baseline-completion callback would re-create the CLI op and
-  // flip the cancelled request back to running (P1).
-  if (request.status !== "running") return;
-  if (input.outcome !== "succeeded") {
-    transitionCapabilityRequestSync({
-      requestId: request.id,
-      workspaceId: input.workspaceId,
-      status: "failed",
-      lastErrorCode: input.errorCode ?? "runtime_app.baseline_failed",
-      lastErrorMessage: input.errorMessage ?? "Runtime 基础工具补装失败。",
-    });
-    return;
-  }
-  const metadata = parseRequestMetadata(request.metadataJson);
-  const cliPlan = metadata.pendingCliPlan;
-  const runtimeId = request.runtimeId;
-  if (typeof cliPlan !== "string" || !cliPlan.trim() || !runtimeId) return;
-  // Create the CLI op and re-link the request in ONE transaction so a process
-  // crash between the two steps cannot leave an orphan CLI op (P2). On retry the
-  // request is still linked to the baseline op (transaction rolled back), so it
-  // chains exactly once.
+  // The reads AND the CLI-op creation + re-link run inside ONE transaction. A
+  // concurrent completion callback for the same baseline op must not see the old
+  // link and create a second CLI op: the CAS guard (onlyIfLinkedRuntimeAppOperationId)
+  // makes the re-link single-winner, and the loser throws → its CLI-op creation
+  // rolls back (Spec P1, exactly-once).
   withTransaction(getDatabase(), () => {
+    const op = readRuntimeAppOperationSync(input.operationId, input.workspaceId);
+    if (!op || !op.appName.startsWith("runtime-baseline:")) return;
+    const request = findCapabilityRequestByLinkedRuntimeAppOperationIdSync(input.workspaceId, input.operationId);
+    if (!request || !request.runtimeId) return;
+    // A cancelled (or otherwise terminal) request must NOT be chained onward —
+    // otherwise a late baseline-completion callback would re-create the CLI op
+    // and flip the cancelled request back to running (P1).
+    if (request.status !== "running") return;
+    if (input.outcome !== "succeeded") {
+      transitionCapabilityRequestSync({
+        requestId: request.id,
+        workspaceId: input.workspaceId,
+        status: "failed",
+        lastErrorCode: input.errorCode ?? "runtime_app.baseline_failed",
+        lastErrorMessage: input.errorMessage ?? "Runtime 基础工具补装失败。",
+      });
+      return;
+    }
+    const metadata = parseRequestMetadata(request.metadataJson);
+    const cliPlan = metadata.pendingCliPlan;
+    const runtimeId = request.runtimeId;
+    if (typeof cliPlan !== "string" || !cliPlan.trim() || !runtimeId) return;
     const cliOp = createRuntimeAppOperationSync({
       workspaceId: input.workspaceId,
       runtimeId,
@@ -838,12 +839,16 @@ export function chainCapabilityRuntimeBaselineSync(input: {
         : "system",
       commandPlanJson: cliPlan,
     });
-    transitionCapabilityRequestSync({
+    const linked = transitionCapabilityRequestSync({
       requestId: request.id,
       workspaceId: input.workspaceId,
       status: "running",
       linkedRuntimeAppOperationId: cliOp.id,
+      onlyIfLinkedRuntimeAppOperationId: input.operationId,
     });
+    // Lost the race to a concurrent callback (request already re-linked):
+    // throwing rolls back the CLI-op creation inside this transaction.
+    if (!linked) throw new Error("runtime_app.baseline_already_chained");
   });
 }
 

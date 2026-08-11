@@ -53,6 +53,11 @@ export interface TransitionCapabilityRequestInput {
   linkedKnowledgePageId?: string;
   releaseId?: string;
   metadataJson?: string;
+  /** CAS guard: only transition when the request is currently linked to this
+   *  runtime-app operation. Used by the baseline chain to make the CLI-op
+   *  creation + re-link exactly-once under concurrent completion callbacks.
+   *  Returns null (and affects no row) when the guard fails. */
+  onlyIfLinkedRuntimeAppOperationId?: string;
 }
 
 export interface ListCapabilityRequestsOptions {
@@ -452,12 +457,20 @@ export function transitionCapabilityRequestSync(
     params.push(now);
   }
   params.push(input.requestId, workspaceId);
-  getDatabase()
+  const whereClauses = ["id = ?", "workspace_id = ?"];
+  if (input.onlyIfLinkedRuntimeAppOperationId !== undefined) {
+    whereClauses.push("linked_runtime_app_operation_id = ?");
+    params.push(input.onlyIfLinkedRuntimeAppOperationId);
+  }
+  const result = getDatabase()
     .prepare(
       `UPDATE capability_request SET ${fields.join(", ")}
-       WHERE id = ? AND workspace_id = ?`,
+       WHERE ${whereClauses.join(" AND ")}`,
     )
     .run(...params);
+  if (input.onlyIfLinkedRuntimeAppOperationId !== undefined && result.changes === 0) {
+    return null;
+  }
   return readCapabilityRequestSync(input.requestId, workspaceId);
 }
 

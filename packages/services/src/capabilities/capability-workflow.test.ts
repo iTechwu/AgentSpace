@@ -425,6 +425,50 @@ test("admin CLI install dispatches a baseline op first when the runtime lacks th
   assert.equal(afterBaseline?.status, "running");
 });
 
+test("concurrent baseline completion callbacks chain exactly once (Spec P1)", () => {
+  process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED = "1";
+  process.env.MANAGED_SERVICE_PROVISIONING_ENABLED = "1";
+  const runtimeId = createTestRuntime();
+  const name = `baseline-cli-${randomLikeId()}`;
+  seedBaselineCli(name);
+  createWorkspaceMembershipSync({
+    workspaceId: "default",
+    userId: testUserId,
+    role: "owner",
+    status: "active",
+    invitedBy: testUserId,
+  });
+  const submitted = submitCapabilityRequestSync({
+    workspaceId: "default",
+    runtimeId,
+    actorUserId: testUserId,
+    packageKind: "cli",
+    packageSource: "clihub_public",
+    packageSlug: name,
+    packageDisplayName: "Baseline CLI",
+    deploymentMode: "runtime_package",
+    requestedAction: "install",
+  });
+  const baselineOp = readRuntimeAppOperationSync(submitted.dispatchedOperationId!, "default");
+  assert.ok(baselineOp?.appName.startsWith("runtime-baseline:"));
+
+  // A duplicate completion callback (the CAS guard / re-link makes this a no-op)
+  // must NOT create a second CLI op.
+  chainCapabilityRuntimeBaselineSync({ workspaceId: "default", operationId: baselineOp!.id, outcome: "succeeded" });
+  chainCapabilityRuntimeBaselineSync({ workspaceId: "default", operationId: baselineOp!.id, outcome: "succeeded" });
+
+  const after = readCapabilityRequestSync(submitted.capabilityRequest.id, "default");
+  assert.equal(after?.status, "running");
+  const cliOps = getDatabase().prepare(
+    "SELECT id FROM runtime_app_operation WHERE app_name = ? AND workspace_id = 'default'",
+  ).all(name);
+  assert.equal(cliOps.length, 1, "exactly one CLI op must be created across duplicate callbacks");
+  const linkedCli = getDatabase().prepare(
+    "SELECT app_name FROM runtime_app_operation WHERE id = ?",
+  ).get(after?.linkedRuntimeAppOperationId ?? "") as { app_name?: string } | undefined;
+  assert.equal(linkedCli?.app_name, name, "request must link to the single CLI op");
+});
+
 test("a failed baseline install fails the capability request closed", () => {
   process.env.RUNTIME_BASELINE_ROLLOUT_ENABLED = "1";
   const runtimeId = createTestRuntime();
