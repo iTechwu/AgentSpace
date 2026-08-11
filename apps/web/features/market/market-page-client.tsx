@@ -172,6 +172,7 @@ export interface MarketPageData {
     decisionReason?: string;
     lastErrorCode?: string;
     lastErrorMessage?: string;
+    releaseId?: string | null;
     createdAt: string;
     decidedAt?: string;
     completedAt?: string;

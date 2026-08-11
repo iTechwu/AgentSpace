@@ -23,8 +23,11 @@ import {
   listRuntimeInstalledAppsSync,
   readCapabilityRequestSync,
   transitionCapabilityRequestSync,
+  readWorkspaceRuntimeAppReleaseByVersionSync,
+  readWorkspaceRuntimeAppReleaseSync,
 } from "@dofe-agent/db";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
+import { notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
 import { assessRuntimeAppInstallability, buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { listMcpCatalogItemsForWorkspaceSync } from "../mcp-center/catalog.ts";
@@ -389,6 +392,9 @@ export function submitCapabilityRequestSync(
   input: SubmitCapabilityRequestInput,
 ): SubmitCapabilityRequestResult {
   const workspaceId = input.workspaceId;
+  if (!isCapabilityRequestEnabled()) {
+    throw new Error("Capability request channel is disabled (CAPABILITY_REQUESTS_ENABLED=0).");
+  }
   const isAdmin = isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
   const existing = listCapabilityRequestsSync({
     workspaceId,
@@ -416,6 +422,9 @@ export function submitCapabilityRequestSync(
     requestedAction: input.requestedAction,
     priority: input.priority ?? "normal",
     message: input.message ?? "",
+    // Pin workspace-private CLI installs to the exact release id so the
+    // approved install plan cannot drift to a yanked release.
+    releaseId: resolveCliReleaseId(input.workspaceId, input.packageSource, input.packageSlug),
   });
   tryRecordWorkspaceAuditEventSync({
     workspaceId,
@@ -431,6 +440,21 @@ export function submitCapabilityRequestSync(
       requestedAction: input.requestedAction,
     },
   });
+  // Notify admins when a non-admin member needs an admin decision; admins
+  // who submit their own requests already have access to the same panel.
+  if (!isAdmin && input.requestedAction !== "install" || (!isAdmin && input.requestedAction === "install" && input.deploymentMode !== "runtime_package")) {
+    notifyWorkspaceAdminsSync({
+      workspaceId,
+      title: `能力申请待批准：${input.packageDisplayName}`,
+      body: `${input.packageDisplayName} (${input.deploymentMode}) 需要管理员处理。`,
+      type: "capability_request_pending",
+      severity: "info",
+      resourceType: "capability_request",
+      resourceId: request.id,
+      actionHref: "/market",
+      dedupeKey: `capability_request.submitted:${request.id}`,
+    });
+  }
   if (
     isAdmin
     && input.deploymentMode === "runtime_package"
@@ -470,6 +494,9 @@ export function approveCapabilityRequestSync(input: {
   actorUserId: string;
   decisionReason?: string;
 }): SubmitCapabilityRequestResult {
+  if (!isCapabilityRequestEnabled()) {
+    throw new Error("Capability request channel is disabled (CAPABILITY_REQUESTS_ENABLED=0).");
+  }
   const isAdmin = isWorkspaceAdminOrOwnerSync({ workspaceId: input.workspaceId, userId: input.actorUserId });
   if (!isAdmin) {
     throw new Error("Only workspace owners and admins can approve capability requests.");
@@ -482,11 +509,23 @@ export function approveCapabilityRequestSync(input: {
     decisionReason: input.decisionReason,
   });
   if (!decided) throw new Error("capability_request.not_found");
-  return dispatchApprovedCapabilityRequestSync({
+  const dispatched = dispatchApprovedCapabilityRequestSync({
     workspaceId: input.workspaceId,
     requestId: decided.id,
     actorUserId: input.actorUserId,
   });
+  // Notify the original requester that their submission has been approved.
+  notifyCapabilityRequestOwnerSync({
+    workspaceId: input.workspaceId,
+    request: dispatched.capabilityRequest,
+    title: `能力申请已批准：${dispatched.capabilityRequest.packageDisplayName}`,
+    body: dispatched.nextAction === "wait_for_operation"
+      ? `已批准并开始执行（${dispatched.capabilityRequest.deploymentMode}）。`
+      : `已批准，等待下一步执行（${dispatched.capabilityRequest.deploymentMode}）。`,
+    severity: "info",
+    type: "capability_request_approved",
+  });
+  return dispatched;
 }
 
 export function rejectCapabilityRequestSync(input: {
@@ -520,6 +559,16 @@ export function rejectCapabilityRequestSync(input: {
       resourceId: input.requestId,
     },
   });
+  if (result) {
+    notifyCapabilityRequestOwnerSync({
+      workspaceId: input.workspaceId,
+      request: result,
+      title: `能力申请被拒绝：${result.packageDisplayName}`,
+      body: `原因：${input.decisionReason}`,
+      severity: "warning",
+      type: "capability_request_rejected",
+    });
+  }
   return result;
 }
 
@@ -582,6 +631,23 @@ function dispatchApprovedCapabilityRequestSync(input: {
       });
       const final = failed ?? request;
       return { request: final, capabilityRequest: final, nextAction: "govern_release" };
+    }
+    // Verify the pinned release still exists and is not yanked. workspace-private
+    // requests captured a `release_id` at submission time; if a maintainer
+    // yanked it between submit and approve, fail closed.
+    if (request.releaseId) {
+      const pinned = readWorkspaceRuntimeAppReleaseSync(request.releaseId, input.workspaceId);
+      if (!pinned || pinned.yankedAt) {
+        const failed = transitionCapabilityRequestSync({
+          requestId: request.id,
+          workspaceId: input.workspaceId,
+          status: "failed",
+          lastErrorCode: "runtime_app.release_yanked",
+          lastErrorMessage: "请求绑定的 release 已被撤回或下线。",
+        });
+        const final = failed ?? request;
+        return { request: final, capabilityRequest: final, nextAction: "govern_release" };
+      }
     }
     const operation = createRuntimeAppOperationSync({
       workspaceId: input.workspaceId,
@@ -658,3 +724,76 @@ export {
   selectCliHubReadiness,
   resolveMcpRuntimeAppRequirement,
 };
+
+/**
+ * Feature flag: when disabled, all capability-request entry points return
+ * "temporarily unavailable" without persisting or dispatching. The page
+ * keeps its UI but every action becomes a no-op. Fail-closed: missing env
+ * var defaults to the legacy CLI/MCP path being still available, so a
+ * freshly deployed instance does not surprise users.
+ */
+export function isCapabilityRequestEnabled(): boolean {
+  const flag = process.env.CAPABILITY_REQUESTS_ENABLED;
+  return flag !== "0";
+}
+
+/**
+ * For workspace-private CLI installs, pin the request to a specific release.
+ * For non-workspace sources we deliberately leave it null — the runtime
+ * already fetches the exact (source, name) pair, and a release row only
+ * exists for private artifacts. Public catalog items continue to flow
+ * through the runtime-side resolution path.
+ */
+function resolveCliReleaseId(
+  workspaceId: string,
+  packageSource: string,
+  packageSlug: string,
+): string | undefined {
+  if (packageSource !== "workspace_private") return undefined;
+  const catalogItem = findCliCatalogItem(workspaceId, packageSource, packageSlug);
+  if (!catalogItem?.version) return undefined;
+  const release = readWorkspaceRuntimeAppReleaseByVersionSync({
+    workspaceId,
+    slug: packageSlug,
+    version: catalogItem.version,
+  });
+  return release?.id;
+}
+
+/**
+ * Feature flag for the new server-side projection endpoint. When disabled,
+ * the loader falls back to the legacy client-side `installability` flag
+ * (see `projectRuntimeAppInstallability` in market-page-client). The page
+ * keeps rendering — only the unified `nextAction` source of truth is
+ * removed.
+ */
+export function isCapabilityProjectionEnabled(): boolean {
+  const flag = process.env.CAPABILITY_AVAILABILITY_PROJECTION_V2;
+  return flag !== "0";
+}
+
+/**
+ * Send a workspace notification to the user who originally requested the
+ * capability. We dedupe per request id + notification type so admin retries
+ * don't flood the inbox.
+ */
+function notifyCapabilityRequestOwnerSync(input: {
+  workspaceId: string;
+  request: CapabilityRequestRecord;
+  title: string;
+  body: string;
+  severity: "info" | "warning" | "error";
+  type: string;
+}): void {
+  notifyWorkspaceAdminsSync({
+    workspaceId: input.workspaceId,
+    title: input.title,
+    body: input.body,
+    type: input.type,
+    severity: input.severity,
+    resourceType: "capability_request",
+    resourceId: input.request.id,
+    actionHref: "/market",
+    dedupeKey: `${input.type}:${input.request.id}`,
+  });
+}

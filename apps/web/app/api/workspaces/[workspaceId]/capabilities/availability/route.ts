@@ -10,6 +10,7 @@ import {
   type RuntimeInstalledAppRecord,
 } from "@dofe-agent/db";
 import {
+  isCapabilityProjectionEnabled,
   listActiveCapabilityRequestsForRuntime,
   listMcpCatalogItemsForWorkspaceSync,
   listWorkspaceRuntimeAppCatalogItemsSync,
@@ -49,6 +50,15 @@ export async function GET(
   const kind = url.searchParams.get("kind")?.trim();
   if (!runtimeId) {
     return Response.json({ error: "Query parameter `runtimeId` is required." }, { status: 400 });
+  }
+
+  // Phase 7 rollback switch. Disabling the projection keeps the legacy
+  // client-side installability path active so the page still renders.
+  if (!isCapabilityProjectionEnabled()) {
+    return Response.json(
+      { runtimeId, projections: [], activeRequests: [], disabled: true },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   }
 
   const runtime = readAgentRuntimeSync(runtimeId);

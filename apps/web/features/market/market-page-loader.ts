@@ -191,6 +191,7 @@ export async function loadMarketPageData(input: {
       decisionReason: request.decisionReason,
       lastErrorCode: request.lastErrorCode,
       lastErrorMessage: request.lastErrorMessage,
+      releaseId: request.releaseId ?? null,
       createdAt: request.createdAt,
       decidedAt: request.decidedAt,
       completedAt: request.completedAt,

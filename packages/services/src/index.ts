@@ -1570,6 +1570,8 @@ export {
 // Capability availability / unified install task (docs/0811/cli-install Phase 1)
 export {
   approveCapabilityRequestSync,
+  isCapabilityProjectionEnabled,
+  isCapabilityRequestEnabled,
   listActiveCapabilityRequestsForRuntime,
   projectCliCapabilityAvailability,
   projectMcpCapabilityAvailability,

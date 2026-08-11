@@ -22,6 +22,8 @@ export interface CreateCapabilityRequestInput {
   message?: string;
   metadataJson?: string;
   linkedKnowledgePageId?: string;
+  /** Pin the request to a specific immutable release id (CLI installs only). */
+  releaseId?: string;
 }
 
 export interface DecideCapabilityRequestInput {
@@ -88,14 +90,15 @@ export function createCapabilityRequestSync(
           id, workspace_id, requested_by_user_id, runtime_id,
           package_kind, package_source, package_slug, package_display_name,
           deployment_mode, requested_action, priority, message,
-          status, metadata_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+          status, release_id, metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
         ON CONFLICT(workspace_id, runtime_id, package_kind, package_source, package_slug, requested_action)
         DO UPDATE SET
           package_display_name = excluded.package_display_name,
           deployment_mode = excluded.deployment_mode,
           priority = excluded.priority,
           message = excluded.message,
+          release_id = excluded.release_id,
           metadata_json = excluded.metadata_json,
           updated_at = excluded.updated_at
         RETURNING id`,
@@ -113,6 +116,7 @@ export function createCapabilityRequestSync(
         input.requestedAction,
         input.priority ?? "normal",
         input.message ?? "",
+        input.releaseId ?? null,
         input.metadataJson ?? "{}",
         now,
         now,
@@ -334,6 +338,7 @@ function mapCapabilityRequest(value: Record<string, unknown>): CapabilityRequest
     linkedMcpConnectionId: optionalString(alias("linkedMcpConnectionId", "linkedmcpconnectionid")),
     linkedRuntimeProvisioningTaskId: optionalString(alias("linkedRuntimeProvisioningTaskId", "linkedruntimeprovisioningtaskid")),
     linkedKnowledgePageId: optionalString(alias("linkedKnowledgePageId", "linkedknowledgepageid")),
+    releaseId: optionalString(alias("releaseId", "releaseid")),
     metadataJson,
     createdAt,
     updatedAt,
