@@ -473,6 +473,30 @@ describe("daemon API routes", () => {
     expect(repeatedHeartbeatPayload.daemon.status).toBe("online");
   });
 
+  it("returns 400 for malformed or empty heartbeat bodies instead of crashing", async () => {
+    const daemonToken = createDaemonApiTokenSync({
+      label: "heartbeat-empty-body",
+      createdBy: "techwu",
+    });
+
+    const emptyBodyResponse = await heartbeatPOST(
+      new Request("http://localhost/api/daemon/heartbeat", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+      }),
+    );
+    expect(emptyBodyResponse.status).toBe(400);
+
+    const malformedResponse = await heartbeatPOST(
+      new Request("http://localhost/api/daemon/heartbeat", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: "{not json",
+      }),
+    );
+    expect(malformedResponse.status).toBe(400);
+  });
+
   it("advances and fails managed provisioning stages in the daemon token workspace", async () => {
     vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
     const workspaceId = "workspace-managed-stage-routes";

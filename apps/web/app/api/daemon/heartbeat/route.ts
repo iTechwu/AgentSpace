@@ -23,8 +23,13 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  const body = (await request.json()) as Partial<HeartbeatDaemonRequest>;
-  if (!body.daemonKey?.trim()) {
+  let body: Partial<HeartbeatDaemonRequest>;
+  try {
+    body = (await request.json()) as Partial<HeartbeatDaemonRequest>;
+  } catch {
+    return Response.json({ error: "Request body must be valid JSON." }, { status: 400 });
+  }
+  if (!body || !body.daemonKey?.trim()) {
     return Response.json({ error: "daemonKey is required." }, { status: 400 });
   }
 
