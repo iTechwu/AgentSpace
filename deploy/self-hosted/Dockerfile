@@ -30,7 +30,13 @@ ENV PNPM_HOME=/pnpm \
 
 WORKDIR /srv/DofeAgent
 
-RUN npm install --global pnpm@10.26.2
+# Artifact and attachment storage use curl for signed TOS transfers. Keep it in
+# the shared runtime stage so web, maintenance, and daemon processes fail the
+# same way at build time rather than discovering a missing binary in production.
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install --global pnpm@10.26.2
 
 COPY --from=build /srv/DofeAgent /srv/DofeAgent
 

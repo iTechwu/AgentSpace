@@ -18,6 +18,10 @@ const localRuntimeDockerfile = readFileSync(
   new URL("../../../deploy/daemon/Dockerfile", import.meta.url),
   "utf8",
 );
+const selfHostedDockerfile = readFileSync(
+  new URL("../../../deploy/self-hosted/Dockerfile", import.meta.url),
+  "utf8",
+);
 const runtimeBuildScript = readFileSync(
   new URL("../../../deploy/staging/build-managed-runtime-images.sh", import.meta.url),
   "utf8",
@@ -132,6 +136,13 @@ test("local runtime builds include provider probe tools and a pinned Codex CLI",
   );
   assert.match(runtimeBuildScript, /@openai\/codex@0\.145\.0/);
   assert.doesNotMatch(runtimeBuildScript, /codex\).*@openai\/codex@latest/);
+});
+
+test("self-hosted application runtime includes curl for TOS-backed Skill artifacts", () => {
+  assert.match(
+    selfHostedDockerfile,
+    /apt-get install --yes --no-install-recommends ca-certificates curl/,
+  );
 });
 
 test("local managed-node recovery preserves required operational settings", () => {
