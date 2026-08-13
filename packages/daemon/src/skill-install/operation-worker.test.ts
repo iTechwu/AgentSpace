@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
 import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
-import { executeSkillInstallationOperation, readManifestDependencies } from "./operation-worker.ts";
+import { executeSkillInstallationOperation, readManifestDependencies, verifySystemDependenciesInRunner } from "./operation-worker.ts";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import type { RemoteDaemonConfig } from "../remote-daemon.ts";
 
@@ -379,4 +379,65 @@ test("a verification failure reports component statuses via FAIL (no complete-af
   assert.equal(statuses![0]!.key, "run.sh");
   assert.equal(statuses![0]!.status, "failed");
   assert.equal(lastFail!.body.errorCode, "skill_installation.script_not_in_manifest");
+});
+
+const RUNNER_IMAGE = `bash@sha256:${"a".repeat(64)}`;
+
+test("verifySystemDependenciesInRunner fails closed on unknown system packages (skill defect)", () => {
+  const results = verifySystemDependenciesInRunner(
+    [{ name: "htop", version: "system" }],
+    { resolveRunnerImage: () => RUNNER_IMAGE, inspectRunnerImage: () => true, probeBinary: () => true },
+  );
+  const outcome = results.get("system:htop@system");
+  assert.equal(outcome?.ok, false);
+  assert.equal(outcome?.blocked, undefined, "unknown packages are a skill defect, not a Runtime gap");
+  assert.match(outcome?.reason ?? "", /allow-list/);
+});
+
+test("verifySystemDependenciesInRunner probes catalog binaries (not package names) in the Runner image", () => {
+  const probed: string[] = [];
+  const results = verifySystemDependenciesInRunner(
+    [{ name: "graphviz", version: "system" }],
+    {
+      resolveRunnerImage: () => RUNNER_IMAGE,
+      inspectRunnerImage: () => true,
+      probeBinary: (_image, binary) => { probed.push(binary); return binary === "dot"; },
+    },
+  );
+  // graphviz catalog binaries are [dot, neato]; package name "graphviz" is never probed.
+  assert.ok(probed.includes("dot"));
+  assert.ok(!probed.includes("graphviz"));
+  assert.equal(results.get("system:graphviz@system")?.ok, true);
+});
+
+test("verifySystemDependenciesInRunner marks a missing binary blocked (Runtime gap)", () => {
+  const results = verifySystemDependenciesInRunner(
+    [{ name: "poppler-utils", version: "system" }],
+    {
+      resolveRunnerImage: () => RUNNER_IMAGE,
+      inspectRunnerImage: () => true,
+      probeBinary: () => false,
+    },
+  );
+  const outcome = results.get("system:poppler-utils@system");
+  assert.equal(outcome?.ok, false);
+  assert.equal(outcome?.blocked, true);
+  assert.match(outcome?.reason ?? "", /update the Runtime image|contact an admin/);
+});
+
+test("verifySystemDependenciesInRunner is blocked when no Runner image is configured or available", () => {
+  assert.equal(
+    verifySystemDependenciesInRunner(
+      [{ name: "curl", version: "system" }],
+      { resolveRunnerImage: () => undefined },
+    ).get("system:curl@system")?.blocked,
+    true,
+  );
+  assert.equal(
+    verifySystemDependenciesInRunner(
+      [{ name: "curl", version: "system" }],
+      { resolveRunnerImage: () => RUNNER_IMAGE, inspectRunnerImage: () => false },
+    ).get("system:curl@system")?.blocked,
+    true,
+  );
 });

@@ -645,6 +645,66 @@ export function isSkillRunnerImageAvailableLocally(image: string, env: NodeJS.Pr
   return !result.error && result.status === 0;
 }
 
+const SYSTEM_PROBE_TIMEOUT_MS = 10_000;
+
+export interface SkillRunnerSystemProbeInput {
+  /** Digest-pinned Skill Runner image. */
+  image: string;
+  /** Catalog binary name to verify present on PATH inside the image. */
+  binary: string;
+}
+
+/**
+ * Plans the docker invocation that verifies a cataloged system binary exists
+ * on PATH inside an immutable Skill Runner image. The binary name is passed as
+ * a positional arg to a fixed `command -v` script — it never enters the script
+ * string, so command injection is impossible regardless of the value (which is
+ * also allow-listed below and re-resolved from the curated system-dependency
+ * catalog by the caller). The probe is hermetic: read-only, no network, no
+ * mounts, dropped capabilities.
+ */
+export function buildSkillRunnerSystemProbeDockerArgs(input: SkillRunnerSystemProbeInput): string[] {
+  if (!/@sha256:[a-f0-9]{64}$/i.test(input.image)) {
+    throw new Error("Skill Runner system probe image must be pinned by an immutable digest.");
+  }
+  if (!/^[a-zA-Z0-9_.+-]+$/.test(input.binary)) {
+    throw new Error(`Skill Runner system probe binary name is unsafe: ${input.binary}`);
+  }
+  return [
+    "run", "--rm", "--pull", "never",
+    "--read-only", "--network", "none",
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
+    "--user", "65532:65532",
+    "--pids-limit", "32",
+    "--memory", "64m",
+    "--memory-swap", "64m",
+    "--cpus", "0.25",
+    input.image,
+    "sh", "-c", 'command -v "$1" >/dev/null 2>&1 || exit 1', "sh", input.binary,
+  ];
+}
+
+/** Runs the system-binary presence probe; true only if the binary resolves in the image. */
+export function runSkillRunnerSystemProbe(
+  input: SkillRunnerSystemProbeInput,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  let args: string[];
+  try {
+    args = buildSkillRunnerSystemProbeDockerArgs(input);
+  } catch {
+    return false;
+  }
+  const result = spawnSync(env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
+    env: minimalRunnerHostEnvironment(env),
+    encoding: "utf8",
+    timeout: SYSTEM_PROBE_TIMEOUT_MS,
+    stdio: "ignore",
+  });
+  return !result.error && result.status === 0;
+}
+
 function resolveRunnerTimeout(env: NodeJS.ProcessEnv): number {
   const parsed = Number(env.DOFE_SKILL_RUNNER_TIMEOUT_MS);
   return Number.isFinite(parsed) && parsed > 0 ? Math.min(Math.floor(parsed), MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;

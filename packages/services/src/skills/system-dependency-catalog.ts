@@ -32,10 +32,13 @@ export interface SystemDependencyResolution {
 }
 
 const CATALOG: SystemDependencyCatalogEntry[] = [
-  // The managed container runtime images (claude-code-cli, codex-cli) bake in
-  // curl; a local-sandbox runtime instead probes the daemon host PATH. This
-  // declaration only verifies the binary is present — it installs nothing and
-  // never executes a download script.
+  // curl is NOT auto-exposed to agents. A skill that needs it declares
+  // `system:curl`; the daemon verifies the binary exists inside the immutable
+  // Runner image (it installs nothing and never runs a download script). Note
+  // the Runner is `--network none`, so this only confirms presence — runtime
+  // HTTP egress is unavailable unless a future restricted-egress runner profile
+  // is attached. The daemon's own curl use goes through a node subprocess and
+  // never reaches the agent.
   { name: "curl", description: "HTTP client for approved runtime integrations", binaries: ["curl"], apt: "curl", apk: "curl", risk: "medium", allowInstall: true },
   { name: "ffmpeg", description: "Audio/video transcoding and capture", binaries: ["ffmpeg", "ffprobe"], apt: "ffmpeg", apk: "ffmpeg", risk: "low", allowInstall: true },
   { name: "graphviz", description: "Graph visualization and layout", binaries: ["dot", "neato"], apt: "graphviz", apk: "graphviz", risk: "low", allowInstall: true },

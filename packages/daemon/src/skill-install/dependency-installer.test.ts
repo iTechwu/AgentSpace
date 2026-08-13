@@ -124,16 +124,11 @@ test("verify passes when the installed package/version is present in the envs di
   assert.equal(results.get("pip:requests@2.31.0")?.ok, true);
 });
 
-test("system dependencies are ready after the runtime binary probe succeeds", async () => {
+test("system dependencies are not installed by the envs installer (verified in the Runner image instead)", async () => {
   const envsDir = tempEnvsDir();
-  const commands: Array<{ command: string; args?: string[] }> = [];
   const sandbox = fakeSandbox({
-    async exec(input): Promise<ExecResult> {
-      commands.push({ command: input.command, args: input.args });
-      return { stdout: "/usr/bin/curl\n", stderr: "", exitCode: 0, durationMs: 1, timedOut: false };
-    },
-    async readDir(): Promise<Array<{ name: string; isDirectory: boolean }>> {
-      throw new Error("system dependency verification must not inspect the package env");
+    async exec(): Promise<ExecResult> {
+      throw new Error("exec must not be called for system dependencies");
     },
   });
 
@@ -143,8 +138,10 @@ test("system dependencies are ready after the runtime binary probe succeeds", as
     sandbox,
   });
 
-  assert.deepEqual(commands, [{ command: "sh", args: ["-c", "command -v curl || exit 1"] }]);
-  assert.deepEqual(results.get("system:curl@system"), { ok: true });
+  // System deps are split out by the operation worker and verified inside the
+  // immutable Runner image; reaching this installer is a defensive failure.
+  assert.equal(results.get("system:curl@system")?.ok, false);
+  assert.match(results.get("system:curl@system")?.reason ?? "", /Skill Runner image/i);
 });
 
 test("verify fails when the package is missing or the version mismatches", async () => {

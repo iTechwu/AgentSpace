@@ -472,22 +472,14 @@ function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>
     },
   ];
 
-  // Exposing curl grants the agent general HTTP egress (the "curl *" pattern
-  // matches any invocation), so it is only attached when curl is on PATH and is
-  // meant to be bounded by the runtime egress policy.
-  const curlPath = findExecutableOnPath("curl");
-  if (curlPath) {
-    capabilities.push({
-      id: "builtin:curl",
-      command: "curl",
-      displayName: "curl HTTP client",
-      binPath: curlPath,
-      binDir: dirname(curlPath),
-      allowedShellPatterns: ["curl *", "curl --version", "command -v curl"],
-      diagnosticCommands: ["command -v curl"],
-      source: "builtin",
-    });
-  }
+  // curl is deliberately NOT a built-in capability. Auto-injecting
+  // `Bash(curl *)` into every task bypassed the task-frozen approved-capability
+  // gate, and the Skill Runner runs with `--network none`, so agent-side curl
+  // could not make HTTP requests anyway. A skill that needs curl declares
+  // `system:curl`, which resolves through the curated system-dependency catalog
+  // and the readiness/approval flow before reaching the Provider. The daemon's
+  // own curl use (e.g. provider credential probing) runs through a node
+  // subprocess and never touches the agent.
 
   const feishuLarkCliCapability = buildFeishuLarkCliDiagnosticRuntimeToolCapability({
     environment: process.env,

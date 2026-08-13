@@ -20,6 +20,13 @@ export interface ComponentVerificationResult {
 export interface DependencyInstallOutcome {
   ok: boolean;
   reason?: string;
+  /**
+   * When true, the dependency declaration is valid but this Runtime cannot
+   * satisfy it (e.g. a cataloged system binary is absent from the immutable
+   * Runner image). Maps to component status "blocked" (Runtime/admin action),
+   * not "failed" (skill defect).
+   */
+  blocked?: boolean;
 }
 
 export type SkillRunnerImageResolver = (runtime: "node" | "python" | "bash") => string | undefined;
@@ -171,6 +178,15 @@ function verifyDependencyComponent(
       };
     }
     if (!outcome.ok) {
+      if (outcome.blocked) {
+        return {
+          kind: "dependency",
+          key,
+          status: "blocked",
+          errorCode: "skill_installation.system_dependency_unavailable",
+          errorMessage: outcome.reason ?? `Dependency "${key}" is not satisfiable by this Runtime.`,
+        };
+      }
       return {
         kind: "dependency",
         key,

@@ -3,10 +3,15 @@ import { chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSyn
 import { dirname, join, relative } from "node:path";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
 import { connectSandbox } from "@dofe-agent/sandbox";
-import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services";
+import { computeArtifactDigest, resolveSystemDependencySync, type SkillArtifactManifest } from "@dofe-agent/services";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import type { RemoteDaemonConfig } from "../remote-daemon.ts";
+import {
+  isSkillRunnerImageAvailableLocally,
+  resolveSkillRunnerImage,
+  runSkillRunnerSystemProbe,
+} from "../skill-runner.ts";
 import {
   materializeSkillInstallationArtifact,
   SkillMaterializationError,
@@ -110,30 +115,45 @@ export async function executeSkillInstallationOperation(
 
     // Real dependency install + verify (02-架构设计.md §4.1): npm/pip/uv go into
     // an isolated per-installation envs dir with an allow-listed registry;
-    // cataloged system dependencies are verified against the immutable Runtime
-    // image. Only an artifact with zero dependencies skips this.
+    // cataloged system dependencies are verified inside the immutable Runner
+    // image (they ship with the image and cannot be installed at runtime). Only
+    // an artifact with zero dependencies skips this.
     const dependencies = readManifestDependencies(operation.manifestJson);
+    const installableDeps = dependencies.filter((dep) => dep.manager !== "system");
+    const systemDeps = dependencies.filter((dep) => dep.manager === "system");
     const installedDependencies: string[] = [];
     let dependencyInstallResults: Map<string, DependencyInstallOutcome> | undefined;
-    if (dependencies.length > 0) {
+    if (installableDeps.length > 0 || systemDeps.length > 0) {
+      dependencyInstallResults = new Map();
+    }
+
+    if (installableDeps.length > 0) {
       const envsDir = getDaemonSkillInstallEnvsDirPath(config.stateDir, {
         workspaceId: operation.workspaceId,
         installationId: operation.installationId,
       });
       const sandbox = await connectSandbox({ runtimeId: operation.runtimeId, workDir: config.stateDir });
       try {
-        dependencyInstallResults = await installSkillDependenciesSync({
-          dependencies,
+        const installResults = await installSkillDependenciesSync({
+          dependencies: installableDeps,
           envsDir,
           sandbox,
         });
-        for (const [key, result] of dependencyInstallResults) {
+        for (const [key, result] of installResults) {
+          dependencyInstallResults!.set(key, result);
           if (result.ok) {
             installedDependencies.push(key);
           }
         }
       } finally {
         await sandbox.stop();
+      }
+    }
+
+    if (systemDeps.length > 0) {
+      const systemResults = verifySystemDependenciesInRunner(systemDeps);
+      for (const [key, result] of systemResults) {
+        dependencyInstallResults!.set(key, result);
       }
     }
 
@@ -159,7 +179,7 @@ export async function executeSkillInstallationOperation(
       );
     }
 
-    if (dependencies.length > 0) {
+    if (installableDeps.length > 0) {
       if (!operation.releaseLockDigest) {
         throw new Error("skill_dependency_environment_snapshot_invalid: dependency installation has no release lock digest.");
       }
@@ -233,6 +253,89 @@ export function readManifestDependencies(manifestJson: string): Array<{ manager:
   } catch {
     return [];
   }
+}
+
+export type SystemDependencyRunnerImageResolver = () => string | undefined;
+export type SystemDependencyRunnerImageInspector = (image: string) => boolean;
+export type SystemDependencyRunnerBinaryProbe = (image: string, binary: string) => boolean;
+
+export interface VerifySystemDependenciesDeps {
+  /** Resolves the Runner image used as the canonical system-binary environment (bash). */
+  resolveRunnerImage?: SystemDependencyRunnerImageResolver;
+  inspectRunnerImage?: SystemDependencyRunnerImageInspector;
+  probeBinary?: SystemDependencyRunnerBinaryProbe;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Verifies cataloged `system:<name>` dependencies inside the immutable Skill
+ * Runner image (02-架构设计.md §4.1). System packages ship with the image and
+ * cannot be installed at runtime, so this only PROBES presence — it installs
+ * nothing and never executes a download. Names are re-resolved through the
+ * curated catalog (fail-closed on unknown/uninstallable). A missing binary is a
+ * Runtime gap (blocked: update the image / contact admin), not a skill defect
+ * (failed). The probe runs in the Runner image — the same environment skill
+ * scripts execute in — not the daemon host PATH.
+ */
+export function verifySystemDependenciesInRunner(
+  systemDeps: Array<{ name: string; version: string }>,
+  deps?: VerifySystemDependenciesDeps,
+): Map<string, DependencyInstallOutcome> {
+  const env = deps?.env ?? process.env;
+  const resolveRunnerImage = deps?.resolveRunnerImage ?? (() => resolveSkillRunnerImage("bash", env));
+  const inspectRunnerImage = deps?.inspectRunnerImage ?? ((image) => isSkillRunnerImageAvailableLocally(image, env));
+  const probeBinary = deps?.probeBinary ?? ((image, binary) => runSkillRunnerSystemProbe({ image, binary }, env));
+
+  const results = new Map<string, DependencyInstallOutcome>();
+  for (const dep of systemDeps) {
+    const key = `system:${dep.name}@${dep.version}`;
+    const resolved = resolveSystemDependencySync(dep.name);
+    if (!resolved) {
+      results.set(key, {
+        ok: false,
+        reason: `Unknown system package "${dep.name}"; it is not in the allow-list catalog.`,
+      });
+      continue;
+    }
+    if (!resolved.allowInstall) {
+      results.set(key, {
+        ok: false,
+        reason: `System package "${resolved.name}" is not allowed for installation.`,
+      });
+      continue;
+    }
+    const image = resolveRunnerImage();
+    if (!image) {
+      results.set(key, {
+        ok: false,
+        blocked: true,
+        reason: `No immutable Skill Runner image is configured to verify system dependency "${resolved.name}".`,
+      });
+      continue;
+    }
+    if (!inspectRunnerImage(image)) {
+      results.set(key, {
+        ok: false,
+        blocked: true,
+        reason: `Immutable Skill Runner image is not available locally to verify system dependency "${resolved.name}".`,
+      });
+      continue;
+    }
+    // At least one cataloged binary present means the package is installed; we
+    // avoid requiring ALL binaries (e.g. imagemagick ships `convert` or `magick`
+    // depending on the major version) to prevent false negatives.
+    const present = resolved.binaries.some((binary) => probeBinary(image, binary));
+    if (!present) {
+      results.set(key, {
+        ok: false,
+        blocked: true,
+        reason: `None of [${resolved.binaries.join(", ")}] for system package "${resolved.name}" found in Runner image ${image}; update the Runtime image or contact an admin.`,
+      });
+      continue;
+    }
+    results.set(key, { ok: true });
+  }
+  return results;
 }
 
 function readCachedMaterializeResult(

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { getDaemonSkillInstallCachePath } from "@dofe-agent/db";
-import { buildSkillRunnerDockerArgs, startSkillRunnerBroker } from "./skill-runner.ts";
+import { buildSkillRunnerDockerArgs, buildSkillRunnerSystemProbeDockerArgs, startSkillRunnerBroker } from "./skill-runner.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -70,6 +70,32 @@ test("buildSkillRunnerDockerArgs requires an immutable image digest and safe ent
   assert.throws(
     () => buildSkillRunnerDockerArgs({ ...base, image: `node@sha256:${"a".repeat(64)}`, entrypointPath: "../escape.sh" }),
     /entrypoint path/,
+  );
+});
+
+test("buildSkillRunnerSystemProbeDockerArgs probes a catalog binary hermetically with a fixed argv", () => {
+  const image = `bash@sha256:${"a".repeat(64)}`;
+  const args = buildSkillRunnerSystemProbeDockerArgs({ image, binary: "dot" });
+  assert.ok(args.includes("--network"), "probe must be networkless");
+  assert.equal(args[args.indexOf("--network") + 1], "none");
+  assert.ok(args.includes("--read-only"));
+  assert.ok(args.includes("--cap-drop"));
+  // The binary is a positional arg to a fixed `command -v "$1"` script — it
+  // never enters the script string, so there is no interpolation to inject.
+  assert.ok(args.includes("sh"));
+  assert.ok(args.includes('command -v "$1" >/dev/null 2>&1 || exit 1'));
+  assert.ok(args.includes("dot"));
+  assert.ok(!args.some((arg) => arg.includes("command -v dot")));
+});
+
+test("buildSkillRunnerSystemProbeDockerArgs rejects non-digest images and unsafe binary names", () => {
+  assert.throws(
+    () => buildSkillRunnerSystemProbeDockerArgs({ image: "bash:latest", binary: "dot" }),
+    /immutable digest/,
+  );
+  assert.throws(
+    () => buildSkillRunnerSystemProbeDockerArgs({ image: `bash@sha256:${"a".repeat(64)}`, binary: "dot; rm -rf /" }),
+    /unsafe/,
   );
 });
 

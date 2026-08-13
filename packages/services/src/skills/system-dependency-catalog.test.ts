@@ -60,3 +60,14 @@ test("listSystemDependencyCatalogSync exposes the curated allow-list", () => {
   assert.ok(catalog.every((entry) => entry.allowInstall === true));
   assert.ok(catalog.every((entry) => entry.binaries.length > 0));
 });
+
+test("resolveSystemDependencySync returns the binary set to probe, not the package name", () => {
+  const graphviz = resolveSystemDependencySync("graphviz");
+  assert.deepEqual(graphviz?.binaries, ["dot", "neato"]);
+  assert.ok(!graphviz?.binaries.includes("graphviz"));
+
+  const poppler = resolveSystemDependencySync("poppler-utils");
+  assert.ok(poppler?.binaries.includes("pdftoppm"));
+  assert.ok(poppler?.binaries.includes("pdfinfo"));
+  assert.ok(!poppler?.binaries.includes("poppler-utils"));
+});

@@ -1148,7 +1148,7 @@ test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enable
   }
 });
 
-test("runProviderTask exposes the built-in curl CLI when it is available on the runtime", async () => {
+test("runProviderTask does not auto-expose curl to the agent even when curl is on PATH", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-curl-capability-"));
   const binDir = join(workDir, "bin");
   const binPath = join(binDir, "claude");
@@ -1161,7 +1161,7 @@ test("runProviderTask exposes the built-in curl CLI when it is available on the 
     [
       "#!/bin/sh",
       "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
-      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"curl available\",\"session_id\":\"session-curl\"}'",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"curl not exposed\",\"session_id\":\"session-curl\"}'",
       "",
     ].join("\n"),
     "utf8",
@@ -1187,10 +1187,10 @@ test("runProviderTask exposes the built-in curl CLI when it is available on the 
     }));
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
 
-    assert.equal(result.output, "curl available");
-    assert.equal(args.includes("Bash(curl *)"), true);
-    assert.equal(args.includes("Bash(curl --version)"), true);
-    assert.equal(args.includes("Bash(command -v curl)"), true);
+    assert.equal(result.output, "curl not exposed");
+    assert.equal(args.includes("Bash(curl *)"), false, "curl must not be auto-granted to every task");
+    assert.equal(args.includes("Bash(curl --version)"), false);
+    assert.equal(args.includes("Bash(command -v curl)"), false);
   } finally {
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });

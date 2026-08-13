@@ -110,9 +110,11 @@ export function buildDependencyInstallCommand(
         ],
       };
     case "system":
-      // System packages come from the immutable runner image; the daemon only
-      // verifies the cataloged binary is present (fail-closed if absent).
-      return { command: "sh", args: ["-c", `command -v ${dep.name} || exit 1`] };
+      // System packages are NOT installed by this installer: they come from the
+      // immutable Runner image and are verified inside it (see
+      // verifySystemDependenciesInRunner). Reaching this branch is a programming
+      // error — the operation worker splits system deps out before calling here.
+      throw new Error("System dependencies are verified inside the Skill Runner image, not installed by the dependency installer.");
   }
 }
 
@@ -139,8 +141,8 @@ export async function installSkillDependenciesSync(input: {
   const execEnv = buildInstallEnv(input.envsDir, input.env);
   for (const dep of input.dependencies) {
     const key = `${dep.manager}:${dep.name}@${dep.version}`;
-    const plan = buildDependencyInstallCommand(dep, input.envsDir, registries);
     try {
+      const plan = buildDependencyInstallCommand(dep, input.envsDir, registries);
       const execResult = await input.sandbox.exec({
         command: plan.command,
         args: plan.args,
@@ -153,10 +155,6 @@ export async function installSkillDependenciesSync(input: {
           ok: false,
           reason: `install exited with ${execResult.exitCode ?? (execResult.timedOut ? "timeout" : "signal")}`,
         });
-        continue;
-      }
-      if (dep.manager === "system") {
-        results.set(key, { ok: true });
         continue;
       }
       const verified = await verifyInstalledDependency(dep, input.envsDir, input.sandbox);
@@ -181,9 +179,6 @@ async function verifyInstalledDependency(
   envsDir: string,
   sandbox: SandboxLike,
 ): Promise<boolean> {
-  if (dep.manager === "system") {
-    return false;
-  }
   if (dep.manager === "npm") {
     try {
       const pkgJson = JSON.parse(await sandbox.readFile(join(envsDir, "node_modules", dep.name, "package.json"))) as {
