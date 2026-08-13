@@ -307,6 +307,22 @@ test("upgrade approval decision is recorded in the immutable audit log", () => {
   assert.match(rows[0]!.note, /approved/);
 });
 
+test("a repeated upgrade approval does not duplicate the audit and reports created=false", () => {
+  const first = buildArtifact("Audit Retry", true);
+  const second = buildArtifact("Audit Retry", true);
+  const diffHash = upgradeDiffHash(first, second);
+
+  const initial = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  assert.equal(initial.created, true, "the first call inserts the decision");
+
+  const retry = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  assert.equal(retry.created, false, "a repeat for the same lock tuple must report created=false (not !consumedAt)");
+  assert.equal(retry.approvalId, initial.approvalId, "first-write-wins returns the existing approval");
+
+  const rows = listAuditLogsSync("default", { code: "skill.upgrade_approval_decision" });
+  assert.equal(rows.length, 1, "the audit fires once on insert, not once per idempotent retry");
+});
+
 test("upgrade promotion is recorded in the immutable audit log", () => {
   const { skillId, candidate } = promotedUpgrade();
   assert.equal(readActiveArtifactDigestForSkillSync(skillId, "default"), candidate.artifactDigest);

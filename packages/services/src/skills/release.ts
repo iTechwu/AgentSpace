@@ -543,6 +543,20 @@ export function approveSkillUpgradeSync(input: {
   reason?: string;
   actorUserId?: string;
 }): { approvalId: string; created: boolean } {
+  const workspaceId = input.workspaceId ?? "default";
+  // First-write-wins: detect an existing decision for this exact lock tuple
+  // BEFORE creating, so `created` reflects a real insert (false for an existing
+  // unconsumed approval) and the audit fires only on the first decision — not
+  // once per idempotent retry. `createSkillUpgradeApprovalSync` performs the
+  // same lookup, so `!prior` is exactly the insert condition (single-threaded,
+  // no race).
+  const prior = readSkillUpgradeApprovalByLockSync({
+    workspaceId,
+    fromDigest: input.fromDigest,
+    toDigest: input.toDigest,
+    diffHash: input.diffHash,
+    policyVersion: SKILL_UPGRADE_POLICY_VERSION,
+  });
   const approval = createSkillUpgradeApprovalSync({
     workspaceId: input.workspaceId,
     skillId: input.skillId,
@@ -554,21 +568,24 @@ export function approveSkillUpgradeSync(input: {
     actorUserId: input.actorUserId,
     policyVersion: SKILL_UPGRADE_POLICY_VERSION,
   });
-  recordSkillLifecycleAuditSync({
-    workspaceId: input.workspaceId ?? "default",
-    code: "skill.upgrade_approval_decision",
-    title: "Skill upgrade approval decision",
-    note: `Upgrade approval ${approval.id} recorded as "${input.decision ?? "approved"}" for ${input.fromDigest} → ${input.toDigest}.`,
-    data: {
-      approvalId: approval.id,
-      fromDigest: input.fromDigest,
-      toDigest: input.toDigest,
-      diffHash: input.diffHash,
-      decision: input.decision ?? "approved",
-      actorUserId: input.actorUserId ?? null,
-    },
-  });
-  return { approvalId: approval.id, created: !approval.consumedAt };
+  const created = !prior;
+  if (created) {
+    recordSkillLifecycleAuditSync({
+      workspaceId,
+      code: "skill.upgrade_approval_decision",
+      title: "Skill upgrade approval decision",
+      note: `Upgrade approval ${approval.id} recorded as "${input.decision ?? "approved"}" for ${input.fromDigest} → ${input.toDigest}.`,
+      data: {
+        approvalId: approval.id,
+        fromDigest: input.fromDigest,
+        toDigest: input.toDigest,
+        diffHash: input.diffHash,
+        decision: input.decision ?? "approved",
+        actorUserId: input.actorUserId ?? null,
+      },
+    });
+  }
+  return { approvalId: approval.id, created };
 }
 
 /* ------------------------------------------------------------------ */
