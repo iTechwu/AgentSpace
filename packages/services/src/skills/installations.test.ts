@@ -56,8 +56,6 @@ before(() => {
 beforeEach(() => {
   resetWorkspaceStateSync();
   testTosStorage.clear();
-  getDatabase().exec("DELETE FROM skill_upgrade_approval");
-  getDatabase().exec("DELETE FROM skill_install_approval");
 });
 
 after(() => {

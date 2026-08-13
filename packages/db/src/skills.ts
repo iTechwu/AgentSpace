@@ -581,9 +581,38 @@ export function setEmployeeSkillRolloutPinSync(input: {
   return result.changes;
 }
 
+/**
+ * Clears every workspace-scoped skill row in FK-safe order (children before
+ * parents). Tests share one database, so a reset that leaves
+ * skill_artifact/skill_installation/approval rows behind pollutes the next
+ * file via the UNIQUE(workspace_id, digest/name/…) constraints and RESTRICT
+ * foreign keys.
+ */
 export function resetStoredWorkspaceSkillsSync(workspaceId = DEFAULT_WORKSPACE_ID): void {
   const db = getDatabase();
   withTransaction(db, () => {
+    // Managed services + catalog: managed_skill_service references
+    // skill_service_catalog ON DELETE RESTRICT, so services go first.
+    // skill_service_binding and workspace_service_secret cascade.
+    db.prepare("DELETE FROM managed_skill_service_operation WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM managed_skill_service WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM skill_service_catalog WHERE workspace_id = ?").run(workspaceId);
+    // Installations: skill_installation references skill_artifact ON DELETE
+    // RESTRICT, so installations go before artifacts. Components, operations
+    // and service bindings cascade from the installation delete; operations
+    // are deleted explicitly because managed_skill_service_operation holds a
+    // SET NULL reference that is cheaper to clear first (already done above).
+    db.prepare("DELETE FROM skill_installation_operation WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM skill_installation WHERE workspace_id = ?").run(workspaceId);
+    // Artifacts: skill_artifact_file cascades; bindings are workspace-scoped.
+    db.prepare("DELETE FROM skill_artifact_binding WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM skill_artifact WHERE workspace_id = ?").run(workspaceId);
+    // Approvals, invocations, drafts and import events have no children.
+    db.prepare("DELETE FROM skill_install_approval WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM skill_upgrade_approval WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM skill_runner_invocation WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM skill_draft WHERE workspace_id = ?").run(workspaceId);
+    db.prepare("DELETE FROM skill_import_event WHERE workspace_id = ?").run(workspaceId);
     db.prepare("DELETE FROM agent_skill_requirement_config WHERE workspace_id = ?").run(workspaceId);
     db.prepare(
       `DELETE FROM agent_skill
