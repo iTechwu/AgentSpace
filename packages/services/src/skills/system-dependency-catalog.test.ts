@@ -15,8 +15,8 @@ test("resolveSystemDependencySync resolves a cataloged system package", () => {
 
 test("resolveSystemDependencySync resolves aliases and fails closed on unknown packages", () => {
   assert.ok(resolveSystemDependencySync("pdftoppm")?.name === "poppler-utils");
+  assert.ok(resolveSystemDependencySync("curl")?.binaries.includes("curl"));
   assert.equal(resolveSystemDependencySync("sudo"), null, "unknown package is rejected");
-  assert.equal(resolveSystemDependencySync("curl"), null, "not-yet-cataloged package is rejected");
 });
 
 test("parseSkillDependencyDeclaration accepts cataloged system:<name> and rejects unknown", () => {
@@ -24,6 +24,12 @@ test("parseSkillDependencyDeclaration accepts cataloged system:<name> and reject
   assert.equal(parsed.manager, "system");
   assert.equal(parsed.name, "graphviz");
   assert.equal(parsed.version, "system");
+
+  assert.deepEqual(parseSkillDependencyDeclaration("system:curl"), {
+    manager: "system",
+    name: "curl",
+    version: "system",
+  });
 
   assert.throws(
     () => parseSkillDependencyDeclaration("system:htop"),
