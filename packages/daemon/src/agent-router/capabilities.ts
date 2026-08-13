@@ -53,6 +53,11 @@ export function buildCapabilityPathDirs(
     if (capability.status === "denied") {
       continue;
     }
+    // Fail-closed at the conversion boundary: a capability that still requires
+    // approval must never contribute PATH entries (same gate as allowedTools/env).
+    if (capability.requiresApproval === true) {
+      continue;
+    }
     if (capability.binPath) {
       dirs.push(dirname(capability.binPath));
     }
@@ -70,7 +75,7 @@ export function buildCapabilityEnv(
 ): Record<string, string> {
   const env = { ...baseEnv };
   for (const capability of normalizeRuntimeToolCapabilities(capabilities)) {
-    if (capability.status === "denied" || !capability.env) {
+    if (capability.status === "denied" || capability.requiresApproval === true || !capability.env) {
       continue;
     }
     for (const [key, value] of Object.entries(capability.env)) {
@@ -89,6 +94,13 @@ export function buildCapabilityAllowedTools(
   const tools: string[] = [];
   for (const capability of normalizeRuntimeToolCapabilities(capabilities)) {
     if (capability.status === "denied") {
+      continue;
+    }
+    // Fail-closed: a capability flagged requiresApproval has NOT been approved
+    // yet, so it must not be converted into an executable Bash(...) permission.
+    // This trusts no upstream bundle — even a mistakenly included unapproved
+    // capability yields zero tool grants here.
+    if (capability.requiresApproval === true) {
       continue;
     }
     for (const pattern of capability.allowedShellPatterns) {
