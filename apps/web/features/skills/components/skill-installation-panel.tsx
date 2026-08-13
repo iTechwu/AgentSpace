@@ -40,6 +40,167 @@ const COMPONENT_STATUS_LABELS: Record<string, [string, string]> = {
   degraded: ["已降级", "Degraded"],
 };
 
+interface SkillInstallErrorLabel {
+  readonly zh: string;
+  readonly en: string;
+  readonly remediationZh?: string;
+  readonly remediationEn?: string;
+}
+
+/**
+ * 本地化组件错误码 + 补救提示。阻断类（Runtime 侧缺口）指向「更新 Runtime 镜像 /
+ * 联系管理员」；失败类（Skill 包缺陷）指向「修复并重新发布 Skill」。未命中的码
+ * 回退到原始 errorMessage（保留于 title tooltip）。
+ */
+const SKILL_INSTALL_ERROR_LABELS: Record<string, SkillInstallErrorLabel> = {
+  // —— Runtime 侧缺口（blocked）：用户无法在 Skill 包内修复 ——
+  "skill_installation.system_dependency_unavailable": {
+    zh: "Runtime 镜像缺少该系统依赖。",
+    en: "The Runtime image is missing this system dependency.",
+    remediationZh: "请更新 Runtime 镜像或联系平台管理员。",
+    remediationEn: "Update the Runtime image or contact an admin.",
+  },
+  "skill_runner.image_not_configured": {
+    zh: "该运行时未配置 Skill Runner 镜像。",
+    en: "No Skill Runner image is configured for this runtime.",
+    remediationZh: "请联系平台管理员配置 Runtime 镜像。",
+    remediationEn: "Contact an admin to configure the Runtime image.",
+  },
+  "skill_runner.image_unavailable": {
+    zh: "Skill Runner 镜像在当前 Runtime 不可用。",
+    en: "The Skill Runner image is unavailable on this Runtime.",
+    remediationZh: "请更新 Runtime 镜像或联系平台管理员。",
+    remediationEn: "Update the Runtime image or contact an admin.",
+  },
+  "skill_installation.script_runtime_unsupported": {
+    zh: "该 entrypoint 声明的 runtime 不被支持。",
+    en: "The entrypoint runtime is not supported.",
+    remediationZh: "请更新 Runtime 镜像或联系平台管理员。",
+    remediationEn: "Update the Runtime image or contact an admin.",
+  },
+  "skill_installation.egress_not_approved": {
+    zh: "该 Skill 声明的出站网络（egress）尚未获批。",
+    en: "The egress declared by this skill is not approved.",
+    remediationZh: "请由管理员完成首次安装风险审批。",
+    remediationEn: "An admin must approve the first-install risk decision.",
+  },
+  // —— Skill 包缺陷（failed）：修复并重新发布 Skill ——
+  "skill_installation.script_not_in_manifest": {
+    zh: "入口脚本未在 manifest 文件清单中声明。",
+    en: "The entry script is not declared in the manifest file list.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.script_missing": {
+    zh: "入口脚本文件缺失。",
+    en: "The entry script file is missing.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.script_not_file": {
+    zh: "入口脚本路径不是普通文件。",
+    en: "The entry script path is not a regular file.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.script_not_executable": {
+    zh: "入口脚本不可执行。",
+    en: "The entry script is not executable.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.script_path_unsafe": {
+    zh: "入口脚本路径不安全（含越界或绝对路径）。",
+    en: "The entry script path is unsafe (traversal or absolute).",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.script_syntax_error": {
+    zh: "入口脚本语法检查失败。",
+    en: "The entry script failed syntax validation.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.dependency_not_declared": {
+    zh: "声明了未在 manifest 中登记的依赖。",
+    en: "A dependency was used but not declared in the manifest.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.dependency_version_missing": {
+    zh: "依赖缺少版本声明。",
+    en: "A dependency is missing its version.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.dependency_manager_unsupported": {
+    zh: "依赖管理器不被支持。",
+    en: "The dependency manager is not supported.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.capability_not_declared": {
+    zh: "使用了未在 manifest 中声明的能力。",
+    en: "A capability was used but not declared in the manifest.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.invalid_manifest_json": {
+    zh: "manifest 不是合法 JSON。",
+    en: "The manifest is not valid JSON.",
+    remediationZh: "请修正 Skill 包后重新发布。",
+    remediationEn: "Fix the skill package and re-publish.",
+  },
+  "skill_installation.root_digest_mismatch": {
+    zh: "制品根摘要不匹配。",
+    en: "The artifact root digest does not match.",
+    remediationZh: "请重新发布 Skill 制品。",
+    remediationEn: "Re-publish the skill artifact.",
+  },
+  // —— 安装过程失败（failed）：可重试或查看日志 ——
+  "skill_installation.dependency_install_failed": {
+    zh: "依赖安装失败。",
+    en: "Dependency installation failed.",
+    remediationZh: "请重试；如持续失败请查看诊断日志。",
+    remediationEn: "Retry; if it persists, check the diagnostics log.",
+  },
+  "skill_installation.dependency_not_installed": {
+    zh: "依赖未成功安装。",
+    en: "A dependency was not installed.",
+    remediationZh: "请重试；如持续失败请查看诊断日志。",
+    remediationEn: "Retry; if it persists, check the diagnostics log.",
+  },
+  // —— 控制面/未知（非用户可直接修复）——
+  "skill_installation.service_control_plane_decided": {
+    zh: "服务组件状态由控制面决定。",
+    en: "The service component status is control-plane-decided.",
+  },
+  "skill_installation.unknown_component_kind": {
+    zh: "未知组件类型。",
+    en: "Unknown component kind.",
+    remediationZh: "请联系平台管理员。",
+    remediationEn: "Contact an admin.",
+  },
+};
+
+function renderComponentError(
+  component: { errorCode?: string; errorMessage?: string },
+  tx: (zh: string, en: string) => string,
+) {
+  const label = component.errorCode ? SKILL_INSTALL_ERROR_LABELS[component.errorCode] : undefined;
+  if (!label) {
+    return <>{component.errorCode ?? component.errorMessage}</>;
+  }
+  return (
+    <>
+      {tx(label.zh, label.en)}
+      {label.remediationZh && label.remediationEn ? (
+        <span className="skill-installation-component__remediation"> {tx(label.remediationZh, label.remediationEn)}</span>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * Skill 安装详情（Phase 5）：按 skill 展示各 Runtime 上的安装行，含组件状态、
  * operation 历史与回滚入口。任务只会加载 `ready` 的安装（readiness gate）。
@@ -264,7 +425,11 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
                           <span className="skill-installation-component__kind">{component.kind}</span>
                           <span className="skill-installation-component__key">{component.key}</span>
                           <span className="skill-installation-component__status">{tx(zh, en)}</span>
-                          {component.errorMessage ? <span className="skill-installation-component__error" title={component.errorMessage}>{component.errorCode ?? component.errorMessage}</span> : null}
+                          {component.errorMessage || component.errorCode ? (
+                            <span className="skill-installation-component__error" title={component.errorMessage}>
+                              {renderComponentError(component, tx)}
+                            </span>
+                          ) : null}
                         </li>
                       );
                     })}
