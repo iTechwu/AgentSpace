@@ -126,8 +126,9 @@ test("resolveSkillRunnerEgressPlan returns firewall targets alongside the networ
   assert.deepEqual(plan.targets, [{
     hostname: "api.example.com",
     addresses: [{ family: "ipv4", address: "203.0.113.10" }],
+    port: 443,
   }]);
-  assert.equal(plan.targets[0]!.port, undefined, "hostname grants are port-less");
+  assert.equal(plan.targets[0]!.port, 443, "a bare-hostname grant is narrowed to the default port at the firewall");
   assert.ok(plan.networkArgs.includes("api.example.com=203.0.113.10"));
   assert.equal(await resolveSkillRunnerEgressPlan({ environment: {} }), undefined, "no grant → no plan");
 });
@@ -193,6 +194,7 @@ test("resolveSkillRunnerEgressPlan keeps only global-unicast addresses from a mi
       { family: "ipv4", address: "203.0.113.10" },
       { family: "ipv6", address: "2606:4700::1" },
     ],
+    port: 443,
   }]);
   assert.ok(plan.networkArgs.includes("api.example.com=203.0.113.10"));
   assert.ok(plan.networkArgs.includes("api.example.com=2606:4700::1"));
@@ -219,6 +221,7 @@ const FIREWALL_RUN_ARGS = buildSkillRunnerDockerArgs({
 const FIREWALL_TARGETS: ManagedServiceEgressTarget[] = [{
   hostname: "api.example.com",
   addresses: [{ family: "ipv4", address: "203.0.113.10" }],
+  port: 443,
 }];
 
 /** The executor's cleanup path spawns `docker rm -f` directly; point it at a

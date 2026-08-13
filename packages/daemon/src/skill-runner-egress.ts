@@ -175,11 +175,22 @@ export function isGlobalUnicastRunnerEgressAddress(address: ManagedNetworkAddres
 }
 
 /**
+ * Default TCP port a bare-hostname egress grant is narrowed to at the firewall.
+ * The shared strict origin parser normalizes `https://h`, `http://h` and a bare
+ * `h` to the same port-less hostname (scheme is not retained), so the firewall
+ * cannot recover the intended port — it MUST pick one explicitly. HTTPS (443) is
+ * the secure default; the L3/L4 layer then emits `--dport 443` and drops every
+ * other port instead of granting all of them. A skill that needs a different
+ * port must declare it explicitly (full port-precision is a separate change).
+ */
+export const DEFAULT_SKILL_RUNNER_EGRESS_PORT = 443;
+
+/**
  * The full egress plan for a granted run: docker network flags (DNS poison +
- * /etc/hosts pins) plus the L3/L4 firewall targets. `targets` are PORT-LESS —
- * the approved grant object is a hostname, so the firewall allows any TCP port
- * to the resolved addresses and drops everything else (raw-IP and DoH bypasses
- * included).
+ * /etc/hosts pins) plus the L3/L4 firewall targets. Each target carries the
+ * default port (443) so the firewall emits `--dport` and allows ONLY that port
+ * to the resolved addresses, dropping everything else (raw-IP and DoH bypasses
+ * included). The DNS-pin layer stays port-agnostic (hostname→IP only).
  */
 export interface SkillRunnerEgressPlan {
   networkArgs: string[];
@@ -210,9 +221,9 @@ export async function resolveSkillRunnerEgressPlan(input: {
       targets: [],
     };
   }
-  // The grant must survive the shared strict parser with ports rejected — the
-  // approved object is a hostname, so port-qualified entries can never be
-  // enforced exactly and fail closed.
+  // The grant must survive the shared strict origin parser. The frozen grant is
+  // a bare hostname (ports are rejected end-to-end), so port-qualified entries
+  // fail closed; the firewall then narrows each hostname to the default port.
   const { hostnames, invalid } = normalizeSkillEgressAllowlist(input.egressAllowlist);
   if (invalid.length > 0) {
     throw new SkillRunnerEgressOriginError(invalid[0]!.entry, invalid[0]!.reason);
@@ -237,7 +248,7 @@ export async function resolveSkillRunnerEgressPlan(input: {
     for (const addr of addresses) {
       hostEntries.push({ hostname, address: addr.address });
     }
-    targets.push({ hostname, addresses });
+    targets.push({ hostname, addresses, port: DEFAULT_SKILL_RUNNER_EGRESS_PORT });
   }
   return {
     networkArgs: buildSkillRunnerEgressNetworkArgs({ egressAllowlist: input.egressAllowlist, network, hostEntries }),

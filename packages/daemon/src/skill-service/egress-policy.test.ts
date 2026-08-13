@@ -71,7 +71,7 @@ test("iptables policy allows only exact IP and TCP port before a final drop", as
   }
 });
 
-test("port-less targets allow any TCP port to the resolved addresses (Skill Runner grants)", async () => {
+test("a Skill Runner hostname grant (default port 443) emits a precise --dport rule, not any-port", async () => {
   const stateRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-egress-policy-"));
   const calls: Array<{ family: "ipv4" | "ipv6"; args: string[] }> = [];
   const exec: ManagedFirewallExec = async (family, args) => {
@@ -85,15 +85,19 @@ test("port-less targets allow any TCP port to the resolved addresses (Skill Runn
       sourceAddresses: [{ family: "ipv4", address: "172.18.0.6" }],
       targets: [{
         hostname: "api.example.com",
+        port: 443,
         addresses: [{ family: "ipv4", address: "203.0.113.10" }],
       }],
     });
     const chain = buildManagedServiceEgressChainName("run-1");
     assert.ok(calls.some(({ family, args }) => family === "ipv4"
+      && args.join(" ") === `-w 5 -A ${chain} -d 203.0.113.10/32 -p tcp --dport 443 -j RETURN`),
+      "the default port is enforced: only 443 to the resolved address");
+    assert.ok(!calls.some(({ family, args }) => family === "ipv4"
       && args.join(" ") === `-w 5 -A ${chain} -d 203.0.113.10/32 -p tcp -j RETURN`),
-      "no --dport: the approved grant object is the hostname, any TCP port");
+      "no any-port RETURN rule: a bare-hostname grant must not open every TCP port");
     assert.ok(calls.some(({ args }) => args.join(" ") === `-w 5 -A ${chain} -j DROP`),
-      "everything else — raw IPs, DoH endpoints — is dropped");
+      "everything else — other ports, raw IPs, DoH endpoints — is dropped");
   } finally {
     await fs.rm(stateRootDir, { recursive: true, force: true });
   }
