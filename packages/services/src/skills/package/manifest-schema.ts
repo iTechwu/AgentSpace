@@ -104,6 +104,21 @@ export const dspManifestJsonSchema = {
         },
       },
     },
+    // Egress declaration. Omitting `network` entirely = no egress (Runner runs
+    // `--network none`). `network: {}` = unrestricted egress (highest risk, needs
+    // explicit approval). `network: { egressAllowlist: [host...] }` = egress
+    // limited to the allowlist (DNS-poison + /etc/hosts pinning at run time).
+    network: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        egressAllowlist: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", minLength: 1 },
+        },
+      },
+    },
   },
 } as const;
 

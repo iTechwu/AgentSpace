@@ -97,3 +97,30 @@ test("validateDspManifest accepts bounded config keys and rejects unsafe names",
   assert.equal(rejected.ok, false);
   assert.ok(rejected.errors.some((error) => error.includes("configKeys")));
 });
+
+test("validateDspManifest accepts a network egress allowlist, empty network, and rejects malformed shapes", () => {
+  // Limited allowlist — valid.
+  const allowlisted = validateDspManifest({
+    ...VALID_MANIFEST,
+    network: { egressAllowlist: ["api.example.com", "registry.npmjs.org"] },
+  });
+  assert.equal(allowlisted.ok, true);
+
+  // Empty network = unrestricted egress — valid (highest risk, gated by approval).
+  const unrestricted = validateDspManifest({ ...VALID_MANIFEST, network: {} });
+  assert.equal(unrestricted.ok, true);
+
+  // Empty allowlist array rejected (minItems: 1).
+  const emptyList = validateDspManifest({
+    ...VALID_MANIFEST,
+    network: { egressAllowlist: [] },
+  });
+  assert.equal(emptyList.ok, false);
+
+  // Unknown sub-property rejected (additionalProperties: false).
+  const unknownProp = validateDspManifest({
+    ...VALID_MANIFEST,
+    network: { egressAllowlist: ["api.example.com"], mode: "open" },
+  });
+  assert.equal(unknownProp.ok, false);
+});

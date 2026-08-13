@@ -26,6 +26,24 @@ export interface DspManifest {
   capabilities?: DspCapability[];
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
+  /**
+   * Egress declaration. Omit for no egress (Runner runs `--network none`). An
+   * empty `network: {}` means unrestricted egress (highest risk); a non-empty
+   * `egressAllowlist` limits egress to those hosts (DNS-poison + /etc/hosts
+   * pinning). Any egress requires first-install risk approval before the Runner
+   * is granted a network other than `none`.
+   */
+  network?: DspNetworkEgress;
+}
+
+/**
+ * Network egress declaration on a skill manifest. Presence of this field opts
+ * the skill into runtime egress; the actual grant is gated on first-install
+ * approval (see install-approval risk items) and re-verified at task time.
+ */
+export interface DspNetworkEgress {
+  /** Hostnames the skill may contact; empty/absent under a present `network` = unrestricted. */
+  egressAllowlist?: string[];
 }
 
 export interface DspArtifactMeta {
