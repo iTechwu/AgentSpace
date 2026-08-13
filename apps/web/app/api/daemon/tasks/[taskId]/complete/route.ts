@@ -58,7 +58,6 @@ import {
   resolveTaskCompletionSnapshotMetadata,
 } from "../../../_lib/commit-reconciliation";
 import {
-  resolveManagedTaskUsageGatewayRequestId,
   shouldPersistManagedTaskUsages,
 } from "../../../_lib/completion-replay";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";

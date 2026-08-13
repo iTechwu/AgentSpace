@@ -6,7 +6,6 @@ import {
   createMcpCatalogItemSync,
   disableMcpConnectionSync,
   enableMcpConnectionSync,
-  removeMcpConnectionSync,
   removeMcpConnectionAsync,
   type McpRemovalStrategy,
   replaceMcpConnectionConfigSync,

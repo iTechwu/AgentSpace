@@ -203,19 +203,3 @@ export function computeMarketCapabilityProjections(input: {
   }
   return { projections, byPackageKey };
 }
-
-function parseRequiredRuntimeApp(value: string | null | undefined): { source: string; name: string; version: string } | null {
-  try {
-    const parsed = JSON.parse(value ?? "null") as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const record = parsed as Record<string, unknown>;
-    if (
-      typeof record.source !== "string" || typeof record.name !== "string" || typeof record.version !== "string"
-    ) {
-      return null;
-    }
-    return { source: record.source, name: record.name, version: record.version };
-  } catch {
-    return null;
-  }
-}
