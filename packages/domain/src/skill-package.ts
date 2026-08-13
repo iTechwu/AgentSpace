@@ -169,7 +169,7 @@ export type SkillInstallationStatus =
   | "degraded"
   | "retired";
 
-export type SkillComponentKind = "dependency" | "script" | "cli" | "mcp" | "service";
+export type SkillComponentKind = "dependency" | "script" | "cli" | "mcp" | "service" | "egress";
 
 export type SkillComponentStatus =
   | "pending"

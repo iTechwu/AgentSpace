@@ -303,6 +303,7 @@ function buildInstallationComponents(
     entrypoints?: Array<{ path?: string }>;
     capabilities?: Array<{ kind?: string; catalogSlug?: string }>;
     services?: Array<{ catalogSlug?: string; required?: boolean }>;
+    network?: { egressAllowlist?: string[] };
   },
   fileRecords: Array<{ path: string; mode: string }>,
 ): SkillInstallationComponentInput[] {
@@ -340,6 +341,13 @@ function buildInstallationComponents(
     }
     const key = `service:${service.catalogSlug}`;
     components.set(key, { kind: "service", key });
+  }
+  // Declared runtime egress opts into a control-plane-gated `egress` component:
+  // ready only when an approved first-install risk decision (which covers the
+  // egress hostnames) is re-verified. Absent network → no component → Runner
+  // stays `--network none`.
+  if (manifest.network) {
+    components.set("egress:network", { kind: "egress", key: "egress:network" });
   }
 
   // Package integrity is always a required component so an artifact with no

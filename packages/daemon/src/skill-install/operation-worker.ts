@@ -165,14 +165,16 @@ export async function executeSkillInstallationOperation(
       dependencyInstallResults,
     );
 
-    // Services are control-plane-decided (the daemon reports `pending`), so they
-    // are excluded from the daemon-side allReady gate; the control plane overrides
-    // them from the service binding state during completion.
+    // Services and egress are control-plane-decided (the daemon reports
+    // `pending`), so they are excluded from the daemon-side allReady gate; the
+    // control plane overrides them from the service binding / first-install
+    // approval state during completion.
+    const controlPlaneDecided = (kind: string) => kind === "service" || kind === "egress";
     const allReady = componentStatuses.every((component) =>
-      component.kind === "service" || component.status === "ready");
+      controlPlaneDecided(component.kind) || component.status === "ready");
     if (!allReady) {
       const blocked = componentStatuses.find((component) =>
-        component.kind !== "service" && component.status !== "ready");
+        !controlPlaneDecided(component.kind) && component.status !== "ready");
       throw new SkillVerificationError(
         blocked?.errorMessage ?? "One or more components failed verification",
         blocked?.errorCode ?? "skill_installation.component_verification_failed",

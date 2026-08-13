@@ -15,6 +15,7 @@ import {
   resolveLegacyMcpReleasePins,
   type McpCatalogReleaseLock,
 } from "./mcp-release-lock.ts";
+import { readApprovedSkillInstallDecisionSync } from "./install-approval.ts";
 
 /**
  * Skill → capability resolution (Phase 3).
@@ -236,6 +237,31 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
           : "Service is not ready on this runtime (binding missing or not healthy).",
         verifiedAt: resolved.status === "ready" ? new Date().toISOString() : undefined,
       });
+    } else if (component.kind === "egress") {
+      // Declared runtime egress is control-plane-gated: ready only when an
+      // approved first-install risk decision (which covers the egress hostnames)
+      // is re-verified against this installation's release lock. Fail-closed when
+      // the lock or the approval is absent → the Runner stays `--network none`.
+      const releaseLockDigest = readReleaseLockDigestFromJson(installation?.resolvedLockJson);
+      const approval = releaseLockDigest
+        ? readApprovedSkillInstallDecisionSync({
+          workspaceId: input.workspaceId,
+          artifactDigest: input.artifactDigest,
+          releaseLockDigest,
+        })
+        : null;
+      const approved = approval !== null;
+      updateSkillInstallationComponentStatusSync({
+        installationId: input.installationId,
+        kind: "egress",
+        key: component.key,
+        status: approved ? "ready" : "blocked",
+        errorCode: approved ? undefined : "skill_installation.egress_not_approved",
+        errorMessage: approved
+          ? undefined
+          : "该 Skill 声明的出站网络（egress）尚未获批；请由管理员完成首次安装风险审批。",
+        verifiedAt: approved ? new Date().toISOString() : undefined,
+      });
     }
   }
 }
@@ -255,4 +281,18 @@ function readMcpReleaseLocks(
   } catch {
     return null;
   }
+}
+
+/** Extracts the bound `lockDigest` from an installation's resolved lock JSON. */
+function readReleaseLockDigestFromJson(resolvedLockJson: string | undefined): string | undefined {
+  if (!resolvedLockJson) return undefined;
+  try {
+    const parsed = JSON.parse(resolvedLockJson) as { lockDigest?: unknown };
+    if (typeof parsed.lockDigest === "string" && parsed.lockDigest.length > 0) {
+      return parsed.lockDigest;
+    }
+  } catch {
+    // Absent/malformed lock → no digest (egress fails closed).
+  }
+  return undefined;
 }

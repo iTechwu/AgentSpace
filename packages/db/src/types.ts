@@ -1518,7 +1518,7 @@ export interface SkillArtifactFileRecord {
 /* Skill installations (artifact × runtime preparation)                */
 /* ------------------------------------------------------------------ */
 
-export type SkillInstallationComponentKind = "dependency" | "script" | "cli" | "mcp" | "service";
+export type SkillInstallationComponentKind = "dependency" | "script" | "cli" | "mcp" | "service" | "egress";
 export type SkillInstallationComponentStatus =
   | "pending"
   | "preparing"

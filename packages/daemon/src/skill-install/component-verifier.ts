@@ -135,6 +135,17 @@ function verifyComponent(
         errorCode: "skill_installation.service_control_plane_decided",
         errorMessage: "Service readiness is decided by the control plane from the service binding state.",
       };
+    case "egress":
+      // Egress is control-plane-decided: the daemon cannot judge first-install
+      // risk approval, so it reports `pending` and the control plane resolves the
+      // component (ready only when an approved risk decision is re-verified).
+      return {
+        kind,
+        key,
+        status: "pending",
+        errorCode: "skill_installation.service_control_plane_decided",
+        errorMessage: "Egress readiness is decided by the control plane from the first-install approval state.",
+      };
     default:
       return {
         kind,

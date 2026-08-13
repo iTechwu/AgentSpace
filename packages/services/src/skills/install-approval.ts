@@ -3,6 +3,8 @@ import {
   createSkillInstallApprovalSync,
   readSkillArtifactByDigestSync,
   readSkillArtifactFilesSync,
+  readSkillInstallApprovalByLockSync,
+  type SkillInstallApprovalRecord,
   type SkillInstallApprovalRiskItem,
 } from "@dofe-agent/db";
 import { stableStringify } from "./package/package-digest.ts";
@@ -173,6 +175,38 @@ export function computeSkillInstallRiskDecisionDigestSync(input: {
       }),
     )
     .digest("hex");
+}
+
+/**
+ * Re-derives the risk decision digest for `(artifactDigest, releaseLockDigest)`
+ * and reads back the bound APPROVED record. The approval is consumed at plan
+ * creation but the immutable record persists, so this re-verification works at
+ * component-evaluation and task-snapshot time. Because the digest covers the
+ * FULL risk set (scripts, dependencies, MCP, services AND egress), a returned
+ * record proves the entire decision — including any declared egress — was
+ * authorized. Returns null when no approved decision is bound (fail-closed).
+ */
+export function readApprovedSkillInstallDecisionSync(input: {
+  workspaceId?: string;
+  artifactDigest: string;
+  releaseLockDigest: string;
+}): SkillInstallApprovalRecord | null {
+  const riskItems = buildSkillInstallRiskItemsSync({
+    workspaceId: input.workspaceId,
+    artifactDigest: input.artifactDigest,
+  });
+  const riskDecisionDigest = computeSkillInstallRiskDecisionDigestSync({
+    artifactDigest: input.artifactDigest,
+    releaseLockDigest: input.releaseLockDigest,
+    riskItems,
+  });
+  return readSkillInstallApprovalByLockSync({
+    workspaceId: input.workspaceId,
+    artifactDigest: input.artifactDigest,
+    releaseLockDigest: input.releaseLockDigest,
+    riskDecisionDigest,
+    decision: "approved",
+  });
 }
 
 /**

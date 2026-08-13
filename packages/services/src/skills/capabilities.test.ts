@@ -249,3 +249,64 @@ test("resolveSkillCliCapabilitySync requires an installed and enabled app", () =
   const missing = resolveSkillCliCapabilitySync({ workspaceId: "default", runtimeId, catalogSlug: "nonexistent" });
   assert.equal(missing.ready, false);
 });
+
+test("egress component is created for a network manifest and ready when the risk decision is approved", () => {
+  const runtimeId = createTestRuntime();
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `Egress component ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# egress\n") }],
+    network: { egressAllowlist: ["api.example.com"] },
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  assert.ok(
+    readSkillInstallationComponentsSync(installation.id).some((c) => c.kind === "egress"),
+    "a network manifest yields an egress component",
+  );
+
+  evaluateSkillInstallationCapabilitiesSync({
+    installationId: installation.id,
+    workspaceId: "default",
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+
+  const egress = readSkillInstallationComponentsSync(installation.id).find((c) => c.kind === "egress");
+  assert.equal(egress?.status, "ready");
+  assert.equal(egress?.errorCode, undefined);
+});
+
+test("egress component fails closed (blocked) when the bound approval is absent", () => {
+  const runtimeId = createTestRuntime();
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `Egress blocked ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# egress blocked\n") }],
+    network: { egressAllowlist: ["api.example.com"] },
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  // Simulate a revoked/absent approval record.
+  getDatabase().prepare("DELETE FROM skill_install_approval WHERE artifact_digest = ?").run(artifact.digest.toLowerCase());
+
+  evaluateSkillInstallationCapabilitiesSync({
+    installationId: installation.id,
+    workspaceId: "default",
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+
+  const egress = readSkillInstallationComponentsSync(installation.id).find((c) => c.kind === "egress");
+  assert.equal(egress?.status, "blocked");
+  assert.equal(egress?.errorCode, "skill_installation.egress_not_approved");
+});
+
+test("no egress component is created when the manifest declares no network", () => {
+  const runtimeId = createTestRuntime();
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `No egress ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# no egress\n") }],
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  assert.ok(
+    !readSkillInstallationComponentsSync(installation.id).some((c) => c.kind === "egress"),
+    "absent network → no egress component",
+  );
+});
