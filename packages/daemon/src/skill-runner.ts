@@ -39,6 +39,7 @@ import {
 import {
   executeSkillRunnerWithEgressPolicy,
   resolveSkillRunnerEgressPlan,
+  SkillRunnerEgressAddressBlockedError,
   SkillRunnerEgressOriginError,
   SkillRunnerEgressResolutionError,
   type SkillRunnerEgressLookup,
@@ -438,6 +439,13 @@ async function handleBrokerRequest(
               sendJson(response, 424, {
                 error: "skill_runner.egress_origin_invalid",
                 message: `Declared egress origin is invalid; the run was blocked: ${error.entry}`,
+              });
+              return;
+            }
+            if (error instanceof SkillRunnerEgressAddressBlockedError) {
+              sendJson(response, 424, {
+                error: "skill_runner.egress_address_blocked",
+                message: `Declared egress hostname resolved only to private/link-local addresses; the run was blocked: ${error.hostname}`,
               });
               return;
             }

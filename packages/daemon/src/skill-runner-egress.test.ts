@@ -6,9 +6,11 @@ import test from "node:test";
 import {
   buildSkillRunnerEgressNetworkArgs,
   executeSkillRunnerWithEgressPolicy,
+  isGlobalUnicastRunnerEgressAddress,
   resolveSkillRunnerEgressNetwork,
   resolveSkillRunnerEgressPlan,
   resolveSkillRunnerNetworkArgs,
+  SkillRunnerEgressAddressBlockedError,
   SkillRunnerEgressOriginError,
   SkillRunnerEgressResolutionError,
 } from "./skill-runner-egress.ts";
@@ -85,13 +87,13 @@ test("resolveSkillRunnerNetworkArgs resolves allowlisted hosts into add-host pin
     environment: { MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted" },
     lookupHost: async (hostname) =>
       hostname === "api.example.com"
-        ? [{ family: "ipv4", address: "10.0.0.1" }]
-        : [{ family: "ipv4", address: "10.0.0.2" }],
+        ? [{ family: "ipv4", address: "203.0.113.10" }]
+        : [{ family: "ipv4", address: "203.0.113.11" }],
   });
   assert.deepEqual(args, [
     "--network", "dofe-runtime-restricted", "--dns", "192.0.2.1",
-    "--add-host", "api.example.com=10.0.0.1",
-    "--add-host", "registry.example.com=10.0.0.2",
+    "--add-host", "api.example.com=203.0.113.10",
+    "--add-host", "registry.example.com=203.0.113.11",
   ]);
 });
 
@@ -128,6 +130,74 @@ test("resolveSkillRunnerEgressPlan returns firewall targets alongside the networ
   assert.equal(plan.targets[0]!.port, undefined, "hostname grants are port-less");
   assert.ok(plan.networkArgs.includes("api.example.com=203.0.113.10"));
   assert.equal(await resolveSkillRunnerEgressPlan({ environment: {} }), undefined, "no grant → no plan");
+});
+
+test("isGlobalUnicastRunnerEgressAddress rejects inward and non-routable space", () => {
+  const allowed = ["203.0.113.10", "198.51.100.1", "172.15.0.1", "172.32.0.1", "11.0.0.1", "2606:4700::1", "2001:4860:4860::8888"];
+  const blocked = [
+    "127.0.0.1", "10.0.0.5", "172.16.0.1", "192.168.1.1", "169.254.169.254", "0.0.0.0", "100.64.0.1",
+    "224.0.0.1", "255.255.255.255", "::1", "::", "fe80::1", "fc00::1", "fd00::1", "ff02::1", "::ffff:203.0.113.10",
+  ];
+  for (const address of allowed) {
+    const family = address.includes(":") ? "ipv6" as const : "ipv4" as const;
+    assert.equal(isGlobalUnicastRunnerEgressAddress({ family, address }), true, `should allow ${address}`);
+  }
+  for (const address of blocked) {
+    const family = address.includes(":") ? "ipv6" as const : "ipv4" as const;
+    assert.equal(isGlobalUnicastRunnerEgressAddress({ family, address }), false, `should block ${address}`);
+  }
+});
+
+test("resolveSkillRunnerEgressPlan fails closed when a hostname resolves only to inward addresses", async () => {
+  const blocked = [
+    { family: "ipv4" as const, address: "127.0.0.1" },
+    { family: "ipv4" as const, address: "10.0.0.5" },
+    { family: "ipv4" as const, address: "169.254.169.254" },
+    { family: "ipv4" as const, address: "192.168.1.1" },
+    { family: "ipv6" as const, address: "::1" },
+    { family: "ipv6" as const, address: "fe80::1" },
+    { family: "ipv6" as const, address: "fc00::1" },
+  ];
+  for (const candidate of blocked) {
+    await assert.rejects(
+      () => resolveSkillRunnerEgressPlan({
+        egressAllowlist: ["api.example.com"],
+        environment: { MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted" },
+        lookupHost: async () => [candidate],
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof SkillRunnerEgressAddressBlockedError, candidate.address);
+        assert.equal(error.hostname, "api.example.com");
+        return true;
+      },
+    );
+  }
+});
+
+test("resolveSkillRunnerEgressPlan keeps only global-unicast addresses from a mixed resolution", async () => {
+  const plan = await resolveSkillRunnerEgressPlan({
+    egressAllowlist: ["api.example.com"],
+    environment: { MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted" },
+    lookupHost: async () => [
+      { family: "ipv4", address: "203.0.113.10" },
+      { family: "ipv4", address: "10.0.0.5" },
+      { family: "ipv4", address: "169.254.169.254" },
+      { family: "ipv6", address: "2606:4700::1" },
+      { family: "ipv6", address: "fe80::1" },
+    ],
+  });
+  assert.ok(plan);
+  assert.deepEqual(plan.targets, [{
+    hostname: "api.example.com",
+    addresses: [
+      { family: "ipv4", address: "203.0.113.10" },
+      { family: "ipv6", address: "2606:4700::1" },
+    ],
+  }]);
+  assert.ok(plan.networkArgs.includes("api.example.com=203.0.113.10"));
+  assert.ok(plan.networkArgs.includes("api.example.com=2606:4700::1"));
+  assert.equal(plan.networkArgs.some((arg) => arg.includes("10.0.0.5")), false);
+  assert.equal(plan.networkArgs.some((arg) => arg.includes("169.254.169.254")), false);
 });
 
 /* ------------------------------------------------------------------ */

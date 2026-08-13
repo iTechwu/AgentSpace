@@ -120,6 +120,61 @@ export class SkillRunnerEgressOriginError extends Error {
 }
 
 /**
+ * Thrown when an allowlisted hostname resolves ONLY to non-global-unicast
+ * addresses (loopback, RFC1918, link-local, cloud metadata, ULA, multicast,
+ * unspecified). The broker fails the run closed rather than firewall-allowing a
+ * destination that could reach host-local services or the metadata endpoint.
+ */
+export class SkillRunnerEgressAddressBlockedError extends Error {
+  readonly hostname: string;
+  constructor(hostname: string, addresses: ManagedNetworkAddress[]) {
+    super(
+      `skill_runner.egress_address_blocked: ${hostname} resolved only to non-global-unicast addresses`
+      + ` (${addresses.map((addr) => addr.address).join(", ")}); the run was blocked.`,
+    );
+    this.name = "SkillRunnerEgressAddressBlockedError";
+    this.hostname = hostname;
+  }
+}
+
+/**
+ * Permits only global-unicast destinations. A public-looking allowlisted
+ * hostname can resolve — via split-horizon DNS, a poisoned resolver, or a
+ * record that simply points inward — to loopback, RFC1918, link-local (incl.
+ * the 169.254.169.254 cloud-metadata endpoint), IPv6 ULA/link-local, multicast
+ * or unspecified space. Firewall-allowing such an address would let a Runner
+ * reach host-local services or steal a metadata credential through an approved
+ * name, so any resolved address that is not global unicast is dropped.
+ */
+export function isGlobalUnicastRunnerEgressAddress(address: ManagedNetworkAddress): boolean {
+  if (address.family === "ipv4") {
+    const octets = address.address.split(".").map((octet) => Number(octet));
+    if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+      return false;
+    }
+    const [a, b] = octets;
+    if (a === 0) return false;                               // 0.0.0.0/8 unspecified / this-network
+    if (a === 10) return false;                              // 10.0.0.0/8 private (RFC1918)
+    if (a === 100 && b >= 64 && b <= 127) return false;      // 100.64.0.0/10 CGNAT (RFC6598)
+    if (a === 127) return false;                             // 127.0.0.0/8 loopback
+    if (a === 169 && b === 254) return false;                // 169.254.0.0/16 link-local + cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return false;       // 172.16.0.0/12 private (RFC1918)
+    if (a === 192 && b === 168) return false;                // 192.168.0.0/16 private (RFC1918)
+    if (a >= 224) return false;                              // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
+    return true;
+  }
+  // IPv6: allow only the current global-unicast allocation 2000::/3 (first
+  // 16-bit group in [0x2000, 0x3fff]). This conservative inverse rejects ::/0
+  // special-use space — ::1 loopback, :: unspecified, fe80::/10 link-local,
+  // fc00::/7 ULA, ff00::/8 multicast, IPv4-mapped ::ffff:0:0/96 — without
+  // enumerating each, and fails closed on any exotic first-group form. The
+  // first group is always lexically present (a leading "::" parses to "").
+  const firstGroup = address.address.split(":", 1)[0] ?? "";
+  const firstValue = Number.parseInt(firstGroup, 16);
+  return Number.isFinite(firstValue) && firstValue >= 0x2000 && firstValue <= 0x3fff;
+}
+
+/**
  * The full egress plan for a granted run: docker network flags (DNS poison +
  * /etc/hosts pins) plus the L3/L4 firewall targets. `targets` are PORT-LESS —
  * the approved grant object is a hostname, so the firewall allows any TCP port
@@ -166,9 +221,18 @@ export async function resolveSkillRunnerEgressPlan(input: {
   const hostEntries: Array<{ hostname: string; address: string }> = [];
   const targets: ManagedServiceEgressTarget[] = [];
   for (const hostname of hostnames) {
-    const addresses = await lookupHost(hostname);
-    if (addresses.length === 0) {
+    const resolved = await lookupHost(hostname);
+    if (resolved.length === 0) {
       throw new SkillRunnerEgressResolutionError(hostname);
+    }
+    // Drop any resolved address that is not global-unicast (loopback, RFC1918,
+    // link-local, metadata, ULA, multicast, unspecified). A hostname that
+    // resolves ONLY to such space fails the run closed; a mixed resolution
+    // keeps only the public addresses, so the firewall and /etc/hosts pin never
+    // open an inward path.
+    const addresses = resolved.filter(isGlobalUnicastRunnerEgressAddress);
+    if (addresses.length === 0) {
+      throw new SkillRunnerEgressAddressBlockedError(hostname, resolved);
     }
     for (const addr of addresses) {
       hostEntries.push({ hostname, address: addr.address });
