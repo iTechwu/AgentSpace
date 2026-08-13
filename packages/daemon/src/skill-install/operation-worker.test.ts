@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
 import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
-import { executeSkillInstallationOperation } from "./operation-worker.ts";
+import { executeSkillInstallationOperation, readManifestDependencies } from "./operation-worker.ts";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import type { RemoteDaemonConfig } from "../remote-daemon.ts";
 
@@ -60,6 +60,19 @@ beforeEach(() => {
 
 afterEach(() => {
   // Cleanup is best-effort; the shared tmpdir is fine.
+});
+
+test("reads cataloged system dependencies from the claimed manifest", () => {
+  assert.deepEqual(readManifestDependencies(JSON.stringify({
+    dependencies: [
+      { kind: "system", name: "curl", version: "system" },
+      { manager: "npm", name: "lodash", version: "4.17.21" },
+      { manager: "shell", name: "unsafe", version: "1" },
+    ],
+  })), [
+    { manager: "system", name: "curl", version: "system" },
+    { manager: "npm", name: "lodash", version: "4.17.21" },
+  ]);
 });
 
 test("reuses a pre-warmed digest-keyed cache and reports cacheHit + preparedPath", async () => {
