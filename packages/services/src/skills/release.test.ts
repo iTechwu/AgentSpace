@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes as cryptoRandomBytes } from "node:crypto";
-import { after, test } from "node:test";
+import { after, before, test } from "node:test";
 import {
   createSkillUpgradeApprovalSync,
   getDatabase,
@@ -25,6 +25,7 @@ import {
   createSkillInstallationPlanSync,
   createWorkspaceSkillSync,
   resetWorkspaceStateSync,
+  setAttachmentStorageClientForTests,
 } from "../index.ts";
 import {
   approveSkillUpgradeCandidateSync,
@@ -41,10 +42,23 @@ import {
   verifySkillInstallationLockReconstructableSync,
 } from "./release.ts";
 import { stableStringify } from "./package/package-digest.ts";
+import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 
 const sha = (fill: string) => fill.repeat(64);
 
+const testStorage = createTestTosAttachmentStorage();
+
+// Pin an in-memory storage client so artifact builds never touch real TOS. Real
+// storage I/O (curl/network) recycles pooled PG connections mid-test, producing
+// stale-snapshot FK violations ("Runtime does not exist", skill_artifact_skill_id_fkey)
+// when the shared pool is warm — same hardening as installations.test.ts.
+before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testStorage.client);
+});
+
 after(() => {
+  testStorage.clear();
   // Best-effort cleanup so the shared test DB does not leak catalog rows.
   const db = getDatabase();
   db.prepare("DELETE FROM skill_service_binding").run();
