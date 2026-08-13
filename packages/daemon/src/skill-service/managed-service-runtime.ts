@@ -13,6 +13,7 @@ import {
 import {
   createIptablesManagedServiceEgressPolicy,
   ManagedServiceEgressPolicyError,
+  parseContainerNetworkAddresses,
   parseManagedServiceEgressTargets,
   type ManagedNetworkAddress,
   type ManagedServiceEgressPolicyRuntime,
@@ -637,20 +638,7 @@ async function readManagedServiceContainerAddresses(
     "skill_service.container_network_inspect_failed",
   );
   try {
-    const networks = JSON.parse(inspected.stdout.trim()) as Record<string, {
-      IPAddress?: string;
-      GlobalIPv6Address?: string;
-    }>;
-    const addresses: ManagedNetworkAddress[] = [];
-    for (const network of Object.values(networks)) {
-      if (network.IPAddress && isIP(network.IPAddress) === 4) {
-        addresses.push({ family: "ipv4", address: network.IPAddress });
-      }
-      if (network.GlobalIPv6Address && isIP(network.GlobalIPv6Address) === 6) {
-        addresses.push({ family: "ipv6", address: network.GlobalIPv6Address });
-      }
-    }
-    return addresses;
+    return parseContainerNetworkAddresses(inspected.stdout.trim());
   } catch {
     throw new DockerContainerError(
       "skill_service.container_network_inspect_failed",

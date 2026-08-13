@@ -29,7 +29,13 @@ import { resolveManagedRuntimeDockerNetwork } from "./managed-provider-credentia
 import {
   EGRESS_BLOCK_DNS,
 } from "./skill-service/managed-service-runtime.ts";
-import type { ManagedNetworkAddress } from "./skill-service/egress-policy.ts";
+import type { ManagedNetworkAddress, ManagedServiceEgressPolicyRuntime, ManagedServiceEgressTarget } from "./skill-service/egress-policy.ts";
+import {
+  createIptablesManagedServiceEgressPolicy,
+  ManagedServiceEgressPolicyError,
+  parseContainerNetworkAddresses,
+  sweepPersistedEgressPolicies,
+} from "./skill-service/egress-policy.ts";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 10 * 60_000;
@@ -179,7 +185,10 @@ export interface SkillRunnerEgressNetworkInput {
  *   - sentinel `["*"]` → approved unrestricted grant → shared network, no DNS
  *     poisoning (full egress).
  *   - host list → shared network + unroutable `--dns` + `--add-host` pins for
- *     the allowlisted hosts only; raw-IP egress is a documented residual.
+ *     the allowlisted hosts only. DNS pinning alone cannot stop raw-IP or DoH
+ *     egress, so a granted run additionally executes behind the L3/L4 firewall
+ *     (see executeSkillRunnerWithEgressPolicy) — this layer stays as
+ *     defense-in-depth name pinning.
  */
 export function buildSkillRunnerEgressNetworkArgs(input: SkillRunnerEgressNetworkInput): string[] {
   if (!input.egressAllowlist || input.egressAllowlist.length === 0) {
@@ -221,27 +230,52 @@ export class SkillRunnerEgressOriginError extends Error {
   }
 }
 
-export async function resolveSkillRunnerNetworkArgs(input: {
+/**
+ * The full egress plan for a granted run: docker network flags (DNS poison +
+ * /etc/hosts pins) plus the L3/L4 firewall targets. `targets` are PORT-LESS —
+ * the approved grant object is a hostname, so the firewall allows any TCP port
+ * to the resolved addresses and drops everything else (raw-IP and DoH bypasses
+ * included).
+ */
+export interface SkillRunnerEgressPlan {
+  networkArgs: string[];
+  targets: ManagedServiceEgressTarget[];
+}
+
+/**
+ * Resolves the egress plan for a Runner entrypoint at run time. Returns
+ * `undefined` when the entrypoint has no egress grant (the docker plan then
+ * defaults to `--network none`). Throws {@link SkillRunnerEgressResolutionError}
+ * when an allowlisted hostname fails to resolve and
+ * {@link SkillRunnerEgressOriginError} when a frozen grant entry fails the
+ * shared strict origin parser — the broker fails the run closed rather than
+ * executing a skill whose grant it cannot enforce exactly.
+ */
+export async function resolveSkillRunnerEgressPlan(input: {
   egressAllowlist?: string[];
   environment: NodeJS.ProcessEnv;
   lookupHost?: SkillRunnerEgressLookup;
-}): Promise<string[]> {
+}): Promise<SkillRunnerEgressPlan | undefined> {
   if (!input.egressAllowlist || input.egressAllowlist.length === 0) {
-    return ["--network", "none"];
+    return undefined;
   }
   const network = resolveSkillRunnerEgressNetwork(input.environment);
   if (input.egressAllowlist.includes("*")) {
-    return buildSkillRunnerEgressNetworkArgs({ egressAllowlist: input.egressAllowlist, network });
+    return {
+      networkArgs: buildSkillRunnerEgressNetworkArgs({ egressAllowlist: input.egressAllowlist, network }),
+      targets: [],
+    };
   }
-  // Skill Runner egress is DNS-pin ONLY (no L3/L4 firewall), so the grant must
-  // survive the shared strict parser with ports rejected — fail closed rather
-  // than enforcing a looser object than the one approved.
+  // The grant must survive the shared strict parser with ports rejected — the
+  // approved object is a hostname, so port-qualified entries can never be
+  // enforced exactly and fail closed.
   const { hostnames, invalid } = normalizeSkillEgressAllowlist(input.egressAllowlist);
   if (invalid.length > 0) {
     throw new SkillRunnerEgressOriginError(invalid[0]!.entry, invalid[0]!.reason);
   }
   const lookupHost = input.lookupHost ?? defaultRunnerEgressLookup;
   const hostEntries: Array<{ hostname: string; address: string }> = [];
+  const targets: ManagedServiceEgressTarget[] = [];
   for (const hostname of hostnames) {
     const addresses = await lookupHost(hostname);
     if (addresses.length === 0) {
@@ -250,8 +284,21 @@ export async function resolveSkillRunnerNetworkArgs(input: {
     for (const addr of addresses) {
       hostEntries.push({ hostname, address: addr.address });
     }
+    targets.push({ hostname, addresses });
   }
-  return buildSkillRunnerEgressNetworkArgs({ egressAllowlist: input.egressAllowlist, network, hostEntries });
+  return {
+    networkArgs: buildSkillRunnerEgressNetworkArgs({ egressAllowlist: input.egressAllowlist, network, hostEntries }),
+    targets,
+  };
+}
+
+export async function resolveSkillRunnerNetworkArgs(input: {
+  egressAllowlist?: string[];
+  environment: NodeJS.ProcessEnv;
+  lookupHost?: SkillRunnerEgressLookup;
+}): Promise<string[]> {
+  const plan = await resolveSkillRunnerEgressPlan(input);
+  return plan?.networkArgs ?? ["--network", "none"];
 }
 
 export interface SkillRunnerExecutionResult {
@@ -298,6 +345,8 @@ export async function startSkillRunnerBroker(input: {
   reportInvocation?: (report: SkillRunnerBrokerInvocationReport) => void | Promise<void>;
   /** Injectable DNS resolver for egress allowlist pinning (tests avoid real DNS). */
   lookupHost?: SkillRunnerEgressLookup;
+  /** Injectable L3/L4 egress firewall (tests); production uses iptables. */
+  egressPolicy?: ManagedServiceEgressPolicyRuntime;
 }): Promise<SkillRunnerBroker> {
   if (input.entrypoints.length === 0) {
     return { capabilities: [], close: async () => {} };
@@ -335,6 +384,15 @@ export async function startSkillRunnerBroker(input: {
     if (inspectImage(image, environment)) runnerImages.set(runtime, image);
   }
   const execute = input.execute ?? executeDockerSkillRunner;
+  // A granted run only goes through the L3/L4 firewall on the real docker
+  // path; an injected execute (tests) receives the plain docker plan.
+  const executeIsDefault = !input.execute;
+  const egressPolicyStateDir = join(input.stateDir, "skill-runner-egress-policies");
+  const egressPolicy = input.egressPolicy
+    ?? createIptablesManagedServiceEgressPolicy({ stateRootDir: egressPolicyStateDir });
+  // A crashed daemon can leave per-run chains + DOCKER-USER jumps behind, and
+  // Docker may reassign those source IPs — sweep persisted state on startup.
+  void sweepPersistedEgressPolicies(egressPolicyStateDir, egressPolicy).catch(() => undefined);
   const activeContainers = new Set<string>();
   const activeRuns = new Set<string>();
   const brokerCleanup = new Map<string, Promise<void>>();
@@ -349,6 +407,8 @@ export async function startSkillRunnerBroker(input: {
       maxConcurrentRuns,
       environment,
       execute,
+      executeIsDefault,
+      egressPolicy,
       activeContainers,
       activeRuns,
       brokerCleanup,
@@ -433,6 +493,8 @@ async function handleBrokerRequest(
     runnerTimeoutMs: number;
     maxConcurrentRuns: number;
     execute: (args: string[], timeoutMs: number, containerName?: string, environment?: NodeJS.ProcessEnv) => Promise<SkillRunnerExecutionResult>;
+    executeIsDefault: boolean;
+    egressPolicy: ManagedServiceEgressPolicyRuntime;
     activeContainers: Set<string>;
     activeRuns: Set<string>;
     brokerCleanup: Map<string, Promise<void>>;
@@ -500,10 +562,10 @@ async function handleBrokerRequest(
           });
         }
         privateConfig = createPrivateRunnerConfig(context.stateDir, entrypoint, context.skillEnv ?? {});
-        let networkArgs: string[] | undefined;
+        let egressPlan: SkillRunnerEgressPlan | undefined;
         if (entrypoint.egressAllowlist && entrypoint.egressAllowlist.length > 0) {
           try {
-            networkArgs = await resolveSkillRunnerNetworkArgs({
+            egressPlan = await resolveSkillRunnerEgressPlan({
               egressAllowlist: entrypoint.egressAllowlist,
               environment: context.environment ?? {},
               lookupHost: context.lookupHost,
@@ -526,6 +588,7 @@ async function handleBrokerRequest(
             throw error;
           }
         }
+        const networkArgs = egressPlan?.networkArgs;
         const containerName = buildSkillRunnerContainerName(entrypoint.key);
         const args = buildSkillRunnerDockerArgs({
           image,
@@ -544,7 +607,32 @@ async function handleBrokerRequest(
         const startedAt = Date.now();
         let result: SkillRunnerExecutionResult;
         try {
-          result = await context.execute(args, context.runnerTimeoutMs, containerName, context.environment);
+          if (egressPlan && egressPlan.targets.length > 0 && context.executeIsDefault) {
+            // Granted egress runs behind the per-run L3/L4 firewall (create →
+            // inspect IP → chain → start). Policy failures fail closed (424).
+            try {
+              result = await executeSkillRunnerWithEgressPolicy({
+                runArgs: args,
+                containerName,
+                runId: runLease,
+                targets: egressPlan.targets,
+                policy: context.egressPolicy,
+                timeoutMs: context.runnerTimeoutMs,
+                environment: context.environment,
+              });
+            } catch (error) {
+              if (error instanceof ManagedServiceEgressPolicyError) {
+                sendJson(response, 424, {
+                  error: error.code.replace(/^skill_service\.egress_policy/, "skill_runner.egress_policy"),
+                  message: `Egress firewall could not be applied; the run was blocked: ${error.message}`,
+                });
+                return;
+              }
+              throw error;
+            }
+          } else {
+            result = await context.execute(args, context.runnerTimeoutMs, containerName, context.environment);
+          }
           const cleanup = context.brokerCleanup.get(containerName);
           if (cleanup) await cleanup;
         } catch (error) {
@@ -658,6 +746,89 @@ async function executeDockerSkillRunner(
       }
     });
   });
+}
+
+export interface SkillRunnerEgressPolicyExecutionInput {
+  /** Full `docker run --rm …` plan from buildSkillRunnerDockerArgs (with networkArgs). */
+  runArgs: string[];
+  containerName: string;
+  /** Unique per run — the firewall policy/chain id derives from it. */
+  runId: string;
+  /** Port-less L3/L4 targets from the resolved egress plan. */
+  targets: ManagedServiceEgressTarget[];
+  policy: ManagedServiceEgressPolicyRuntime;
+  timeoutMs: number;
+  environment?: NodeJS.ProcessEnv;
+  /** Injectable phase runner (tests); production uses the docker spawn path. */
+  execute?: (args: string[], timeoutMs: number, containerName?: string, environment?: NodeJS.ProcessEnv) => Promise<SkillRunnerExecutionResult>;
+}
+
+/**
+ * Executes a granted run behind the L3/L4 egress firewall. A plain
+ * `docker run` starts the container before any host rule can name its source
+ * IP, so the run is split into phases:
+ *   create → inspect assigned IPs → apply per-run chain (allow the resolved
+ *   target IPs, drop everything else) → start -a → remove chain + container.
+ * The firewall closes the raw-IP / DoH bypass that DNS pinning alone leaves
+ * open. Every failure before `start` fails closed: the container is removed
+ * and the policy chain's default verdict is DROP. A crashed daemon can leave
+ * a chain behind; the broker sweeps persisted policy state on startup.
+ */
+export async function executeSkillRunnerWithEgressPolicy(
+  input: SkillRunnerEgressPolicyExecutionInput,
+): Promise<SkillRunnerExecutionResult> {
+  const environment = input.environment ?? process.env;
+  const execute = input.execute ?? executeDockerSkillRunner;
+  if (input.runArgs[0] !== "run") {
+    throw new Error("skill_runner.egress_plan_invalid");
+  }
+  const createArgs = ["create", ...input.runArgs.slice(1).filter((arg) => arg !== "--rm")];
+  const createRunner = async (): Promise<SkillRunnerExecutionResult> => execute(createArgs, 30_000);
+  let created = await createRunner();
+  if (created.exitCode !== 0) {
+    // Deterministic name → a stale container from a crashed run may exist;
+    // clear and retry once (mirrors the managed-service provision flow).
+    if (!/already in use|already exists/i.test(`${created.stderr}\n${created.stdout}`)) {
+      throw new Error(`skill_runner.container_create_failed: ${(created.stderr || created.stdout).trim()}`);
+    }
+    await forceRemoveDockerSkillRunnerContainer(input.containerName, environment);
+    created = await createRunner();
+    if (created.exitCode !== 0) {
+      throw new Error(`skill_runner.container_create_failed: ${(created.stderr || created.stdout).trim()}`);
+    }
+  }
+  let policyApplied = false;
+  try {
+    const inspected = await execute(
+      ["inspect", "--format", "{{json .NetworkSettings.Networks}}", input.containerName],
+      15_000,
+    );
+    let sourceAddresses: ManagedNetworkAddress[] = [];
+    try {
+      if (inspected.exitCode === 0) {
+        sourceAddresses = parseContainerNetworkAddresses(inspected.stdout.trim());
+      }
+    } catch {
+      // Fall through to the missing-source failure below.
+    }
+    if (sourceAddresses.length === 0) {
+      throw new Error("skill_runner.egress_policy_source_missing: Docker assigned no container IP before start.");
+    }
+    await input.policy.apply({
+      serviceId: input.runId,
+      sourceAddresses,
+      targets: input.targets,
+    });
+    policyApplied = true;
+    return await execute(["start", "-a", input.containerName], input.timeoutMs, input.containerName, environment);
+  } finally {
+    if (policyApplied) {
+      // Best-effort: a failed removal leaves persisted state the broker sweeps
+      // on next start; the chain fails closed (default DROP) meanwhile.
+      await input.policy.remove({ serviceId: input.runId }).catch(() => undefined);
+    }
+    await forceRemoveDockerSkillRunnerContainer(input.containerName, environment).catch(() => undefined);
+  }
 }
 
 function forceRemoveDockerSkillRunnerContainer(containerName: string, environment: NodeJS.ProcessEnv): Promise<void> {

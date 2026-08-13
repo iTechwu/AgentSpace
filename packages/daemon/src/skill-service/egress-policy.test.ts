@@ -7,6 +7,7 @@ import {
   buildManagedServiceEgressChainName,
   createIptablesManagedServiceEgressPolicy,
   parseManagedServiceEgressTargets,
+  sweepPersistedEgressPolicies,
   type ManagedFirewallExec,
 } from "./egress-policy.ts";
 
@@ -65,6 +66,62 @@ test("iptables policy allows only exact IP and TCP port before a final drop", as
     await policy.remove({ serviceId: "svc-1" });
     assert.ok(calls.some(({ args }) => args.includes("-D") && args.includes("DOCKER-USER")));
     assert.ok(calls.some(({ args }) => args.includes("-X") && args.includes(chain)));
+  } finally {
+    await fs.rm(stateRootDir, { recursive: true, force: true });
+  }
+});
+
+test("port-less targets allow any TCP port to the resolved addresses (Skill Runner grants)", async () => {
+  const stateRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-egress-policy-"));
+  const calls: Array<{ family: "ipv4" | "ipv6"; args: string[] }> = [];
+  const exec: ManagedFirewallExec = async (family, args) => {
+    calls.push({ family, args });
+    return { stdout: "", stderr: "", exitCode: args[2] === "-C" ? 1 : 0 };
+  };
+  const policy = createIptablesManagedServiceEgressPolicy({ exec, stateRootDir, platform: "linux" });
+  try {
+    await policy.apply({
+      serviceId: "run-1",
+      sourceAddresses: [{ family: "ipv4", address: "172.18.0.6" }],
+      targets: [{
+        hostname: "api.example.com",
+        addresses: [{ family: "ipv4", address: "203.0.113.10" }],
+      }],
+    });
+    const chain = buildManagedServiceEgressChainName("run-1");
+    assert.ok(calls.some(({ family, args }) => family === "ipv4"
+      && args.join(" ") === `-w 5 -A ${chain} -d 203.0.113.10/32 -p tcp -j RETURN`),
+      "no --dport: the approved grant object is the hostname, any TCP port");
+    assert.ok(calls.some(({ args }) => args.join(" ") === `-w 5 -A ${chain} -j DROP`),
+      "everything else — raw IPs, DoH endpoints — is dropped");
+  } finally {
+    await fs.rm(stateRootDir, { recursive: true, force: true });
+  }
+});
+
+test("sweepPersistedEgressPolicies removes every persisted policy and ignores junk", async () => {
+  const stateRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-egress-sweep-"));
+  const calls: string[][] = [];
+  const exec: ManagedFirewallExec = async (_family, args) => {
+    calls.push(args);
+    return { stdout: "", stderr: "", exitCode: args[2] === "-C" ? 1 : 0 };
+  };
+  const policy = createIptablesManagedServiceEgressPolicy({ exec, stateRootDir, platform: "linux" });
+  try {
+    await policy.apply({
+      serviceId: "stale-run",
+      sourceAddresses: [{ family: "ipv4", address: "172.18.0.7" }],
+      targets: [],
+    });
+    await fs.writeFile(join(stateRootDir, "broken.json"), "not-json", "utf8");
+    await fs.writeFile(join(stateRootDir, "notes.txt"), "ignored", "utf8");
+
+    const removed = await sweepPersistedEgressPolicies(stateRootDir, policy);
+    assert.equal(removed, 1);
+    const chain = buildManagedServiceEgressChainName("stale-run");
+    assert.ok(calls.some((args) => args.includes("-D") && args.includes("DOCKER-USER") && args.includes(chain)));
+    assert.deepEqual(await fs.readdir(stateRootDir), ["broken.json", "notes.txt"],
+      "sweep removes only valid policy state files");
   } finally {
     await fs.rm(stateRootDir, { recursive: true, force: true });
   }

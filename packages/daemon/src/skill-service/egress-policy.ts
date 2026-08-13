@@ -13,7 +13,12 @@ export interface ManagedNetworkAddress {
 
 export interface ManagedServiceEgressTarget {
   hostname: string;
-  port: number;
+  /**
+   * TCP destination port. `undefined` = ANY port to the target addresses —
+   * used by the Skill Runner, whose approved grant object is a hostname (the
+   * DNS-pin layer cannot express ports, so the grant covers all of them).
+   */
+  port?: number;
   addresses: ManagedNetworkAddress[];
 }
 
@@ -188,10 +193,13 @@ async function applyFirewallRules(
       .filter((address) => address.family === family)
       .map((address) => ({ ...address, port: target.port })));
     for (const destination of dedupeDestinations(destinations)) {
+      // A port-less destination matches ANY TCP port (Skill Runner hostname
+      // grants); managed services always carry an explicit port.
       await runFirewallChecked(exec, family, [
         "-w", "5", "-A", chain,
         "-d", `${destination.address}/${family === "ipv4" ? "32" : "128"}`,
-        "-p", "tcp", "--dport", String(destination.port),
+        "-p", "tcp",
+        ...(destination.port === undefined ? [] : ["--dport", String(destination.port)]),
         "-j", "RETURN",
       ]);
     }
@@ -261,10 +269,10 @@ function dedupeAddresses(addresses: ManagedNetworkAddress[]): ManagedNetworkAddr
   return [...unique.values()];
 }
 
-function dedupeDestinations<T extends ManagedNetworkAddress & { port: number }>(destinations: T[]): T[] {
+function dedupeDestinations<T extends ManagedNetworkAddress & { port?: number }>(destinations: T[]): T[] {
   const unique = new Map<string, T>();
   for (const destination of destinations) {
-    unique.set(`${destination.family}:${destination.address}:${destination.port}`, destination);
+    unique.set(`${destination.family}:${destination.address}:${destination.port ?? "any"}`, destination);
   }
   return [...unique.values()];
 }
@@ -300,6 +308,63 @@ async function readPolicyState(rootDir: string, serviceId: string): Promise<Pers
 
 async function removePolicyState(rootDir: string, serviceId: string): Promise<void> {
   await fs.rm(policyStatePath(rootDir, serviceId), { force: true });
+}
+
+/**
+ * Parses `docker inspect --format '{{json .NetworkSettings.Networks}}'` output
+ * into the container's assigned addresses (both families). Shared by managed
+ * services and the Skill Runner firewall path.
+ */
+export function parseContainerNetworkAddresses(networksJson: string): ManagedNetworkAddress[] {
+  const networks = JSON.parse(networksJson) as Record<string, {
+    IPAddress?: string;
+    GlobalIPv6Address?: string;
+  }>;
+  const addresses: ManagedNetworkAddress[] = [];
+  for (const network of Object.values(networks)) {
+    if (network.IPAddress && isIP(network.IPAddress) === 4) {
+      addresses.push({ family: "ipv4", address: network.IPAddress });
+    }
+    if (network.GlobalIPv6Address && isIP(network.GlobalIPv6Address) === 6) {
+      addresses.push({ family: "ipv6", address: network.GlobalIPv6Address });
+    }
+  }
+  return addresses;
+}
+
+/**
+ * Best-effort removal of every persisted egress policy under `stateRootDir`.
+ * Used when a broker/daemon starts: a crash can leave a per-container chain
+ * and DOCKER-USER jump behind, and Docker may reassign that source IP to an
+ * unrelated container — stale state is always safe to drop (the chain's
+ * default verdict is DROP, so re-adding is the fail-open direction, removing
+ * is not). Individual failures are swallowed; the next apply for the same id
+ * retries cleanup.
+ */
+export async function sweepPersistedEgressPolicies(
+  stateRootDir: string,
+  runtime: ManagedServiceEgressPolicyRuntime,
+): Promise<number> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(stateRootDir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    try {
+      const value = JSON.parse(await fs.readFile(join(stateRootDir, entry), "utf8")) as { serviceId?: unknown };
+      if (typeof value.serviceId !== "string" || !value.serviceId) continue;
+      await runtime.remove({ serviceId: value.serviceId });
+      removed += 1;
+    } catch {
+      // Best-effort sweep; a broken state file or failing firewall must not
+      // block daemon startup.
+    }
+  }
+  return removed;
 }
 
 const defaultFirewallExec: ManagedFirewallExec = (family, args) => {

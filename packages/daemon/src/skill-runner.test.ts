@@ -11,12 +11,19 @@ import {
   buildSkillRunnerDockerArgs,
   buildSkillRunnerEgressNetworkArgs,
   buildSkillRunnerSystemProbeDockerArgs,
+  executeSkillRunnerWithEgressPolicy,
   resolveSkillRunnerEgressNetwork,
+  resolveSkillRunnerEgressPlan,
   resolveSkillRunnerNetworkArgs,
   SkillRunnerEgressResolutionError,
   SkillRunnerEgressOriginError,
   startSkillRunnerBroker,
 } from "./skill-runner.ts";
+import {
+  ManagedServiceEgressPolicyError,
+  type ManagedServiceEgressPolicyRuntime,
+  type ManagedServiceEgressTarget,
+} from "./skill-service/egress-policy.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -198,6 +205,228 @@ test("resolveSkillRunnerNetworkArgs rejects origins DNS pinning cannot enforce",
       },
     );
   }
+});
+
+test("resolveSkillRunnerEgressPlan returns firewall targets alongside the network args", async () => {
+  const plan = await resolveSkillRunnerEgressPlan({
+    egressAllowlist: ["api.example.com"],
+    environment: { MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted" },
+    lookupHost: async () => [{ family: "ipv4", address: "203.0.113.10" }],
+  });
+  assert.ok(plan);
+  assert.deepEqual(plan.targets, [{
+    hostname: "api.example.com",
+    addresses: [{ family: "ipv4", address: "203.0.113.10" }],
+  }]);
+  assert.equal(plan.targets[0]!.port, undefined, "hostname grants are port-less");
+  assert.ok(plan.networkArgs.includes("api.example.com=203.0.113.10"));
+  assert.equal(await resolveSkillRunnerEgressPlan({ environment: {} }), undefined, "no grant → no plan");
+});
+
+/* ------------------------------------------------------------------ */
+/* L3/L4 firewall execution (raw-IP / DoH bypass closed)               */
+/* ------------------------------------------------------------------ */
+
+const FIREWALL_RUN_ARGS = buildSkillRunnerDockerArgs({
+  image: "registry.example.com/dofe/skill-bash@sha256:" + "c".repeat(64),
+  containerName: "dofe-sr-test",
+  runtime: "bash",
+  artifactDir: "/daemon/cache/artifact",
+  workspaceDir: "/daemon/tasks/task-1",
+  outputDir: "/daemon/tasks/task-1/runtime-output/skill-runs/run",
+  entrypointPath: "run.sh",
+  argv: [],
+  networkArgs: ["--network", "dofe-runtime-restricted", "--dns", "192.0.2.1", "--add-host", "api.example.com=203.0.113.10"],
+});
+
+const FIREWALL_TARGETS: ManagedServiceEgressTarget[] = [{
+  hostname: "api.example.com",
+  addresses: [{ family: "ipv4", address: "203.0.113.10" }],
+}];
+
+/** The executor's cleanup path spawns `docker rm -f` directly; point it at a
+ * no-op binary so tests never depend on a host docker daemon. */
+const FAKE_DOCKER_BIN = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "dofe-sr-fake-docker-"));
+  const bin = join(dir, "docker");
+  writeFileSync(bin, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  return bin;
+})();
+const FAKE_DOCKER_ENV = { DOFE_SKILL_RUNNER_DOCKER_BIN: FAKE_DOCKER_BIN };
+
+function fakePolicy(behavior?: { applyError?: Error }): {
+  policy: ManagedServiceEgressPolicyRuntime;
+  calls: Array<{ action: string; serviceId: string; targets?: ManagedServiceEgressTarget[] }>;
+} {
+  const calls: Array<{ action: string; serviceId: string; targets?: ManagedServiceEgressTarget[] }> = [];
+  return {
+    calls,
+    policy: {
+      async apply(input) {
+        calls.push({ action: "apply", serviceId: input.serviceId, targets: input.targets });
+        if (behavior?.applyError) throw behavior.applyError;
+      },
+      async remove(input) {
+        calls.push({ action: "remove", serviceId: input.serviceId });
+      },
+    },
+  };
+}
+
+function fakePhases(overrides?: {
+  createExit?: number;
+  createStderr?: string;
+  inspectStdout?: string;
+  inspectExit?: number;
+  startResult?: { exitCode: number; stdout: string; stderr: string; timedOut: boolean };
+}): (args: string[], timeoutMs: number) => Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }> {
+  return async (args) => {
+    if (args[0] === "create") {
+      return {
+        exitCode: overrides?.createExit ?? 0,
+        stdout: "container-id\n",
+        stderr: overrides?.createStderr ?? "",
+        timedOut: false,
+      };
+    }
+    if (args[0] === "inspect") {
+      return {
+        exitCode: overrides?.inspectExit ?? 0,
+        stdout: overrides?.inspectStdout ?? JSON.stringify({ "dofe-runtime-restricted": { IPAddress: "172.18.0.9" } }),
+        stderr: "",
+        timedOut: false,
+      };
+    }
+    if (args[0] === "start") {
+      return overrides?.startResult ?? { exitCode: 0, stdout: "skill output", stderr: "", timedOut: false };
+    }
+    throw new Error(`unexpected docker phase: ${args[0]}`);
+  };
+}
+
+test("executeSkillRunnerWithEgressPolicy applies the chain between create and start, then removes it", async () => {
+  const { policy, calls } = fakePolicy();
+  const phases: string[][] = [];
+  const result = await executeSkillRunnerWithEgressPolicy({
+    runArgs: FIREWALL_RUN_ARGS,
+    containerName: "dofe-sr-test",
+    runId: "run-lease-1",
+    targets: FIREWALL_TARGETS,
+    policy,
+    timeoutMs: 5_000,
+    environment: FAKE_DOCKER_ENV,
+    execute: async (args, timeoutMs) => {
+      phases.push(args);
+      return fakePhases()(args, timeoutMs);
+    },
+  });
+
+  assert.equal(result.stdout, "skill output");
+  // create must NOT carry --rm (the firewall needs the container to outlive create)
+  // and keeps every other flag of the run plan.
+  const createArgs = phases[0]!;
+  assert.equal(createArgs[0], "create");
+  assert.ok(!createArgs.includes("--rm"));
+  assert.ok(createArgs.includes("--read-only"));
+  assert.ok(createArgs.includes("api.example.com=203.0.113.10"));
+  assert.deepEqual(phases[1]!.slice(0, 2), ["inspect", "--format"]);
+  assert.deepEqual(phases[2]!, ["start", "-a", "dofe-sr-test"]);
+  assert.deepEqual(calls.map((call) => call.action), ["apply", "remove"]);
+  assert.equal(calls[0]!.serviceId, "run-lease-1");
+  assert.deepEqual(calls[0]!.targets, FIREWALL_TARGETS);
+});
+
+test("executeSkillRunnerWithEgressPolicy fails closed when the firewall rejects the run", async () => {
+  const { policy, calls } = fakePolicy({
+    applyError: new ManagedServiceEgressPolicyError(
+      "skill_service.egress_policy_unsupported_platform",
+      "Managed service egress enforcement requires a Linux node; got darwin.",
+    ),
+  });
+  await assert.rejects(
+    () => executeSkillRunnerWithEgressPolicy({
+      runArgs: FIREWALL_RUN_ARGS,
+      containerName: "dofe-sr-test",
+      runId: "run-lease-2",
+      targets: FIREWALL_TARGETS,
+      policy,
+      timeoutMs: 5_000,
+      environment: FAKE_DOCKER_ENV,
+      execute: fakePhases(),
+    }),
+    (error: unknown) => error instanceof ManagedServiceEgressPolicyError,
+  );
+  assert.deepEqual(calls.map((call) => call.action), ["apply"],
+    "a rejected apply never starts the container and has nothing to remove");
+});
+
+test("executeSkillRunnerWithEgressPolicy fails closed when Docker assigns no IP", async () => {
+  const { policy, calls } = fakePolicy();
+  await assert.rejects(
+    () => executeSkillRunnerWithEgressPolicy({
+      runArgs: FIREWALL_RUN_ARGS,
+      containerName: "dofe-sr-test",
+      runId: "run-lease-3",
+      targets: FIREWALL_TARGETS,
+      policy,
+      timeoutMs: 5_000,
+      environment: FAKE_DOCKER_ENV,
+      execute: fakePhases({ inspectStdout: JSON.stringify({ "dofe-runtime-restricted": {} }) }),
+    }),
+    /skill_runner\.egress_policy_source_missing/,
+  );
+  assert.deepEqual(calls, [], "no source address → the firewall is never touched");
+});
+
+test("executeSkillRunnerWithEgressPolicy clears a stale container and retries create once", async () => {
+  const { policy } = fakePolicy();
+  let createAttempts = 0;
+  const result = await executeSkillRunnerWithEgressPolicy({
+    runArgs: FIREWALL_RUN_ARGS,
+    containerName: "dofe-sr-test",
+    runId: "run-lease-4",
+    targets: FIREWALL_TARGETS,
+    policy,
+    timeoutMs: 5_000,
+    environment: FAKE_DOCKER_ENV,
+    execute: async (args, timeoutMs) => {
+      if (args[0] === "create") {
+        createAttempts += 1;
+        if (createAttempts === 1) {
+          return { exitCode: 1, stdout: "", stderr: `Error response from daemon: Conflict. The container name "/dofe-sr-test" is already in use`, timedOut: false };
+        }
+      }
+      return fakePhases()(args, timeoutMs);
+    },
+  });
+  assert.equal(createAttempts, 2);
+  assert.equal(result.exitCode, 0);
+});
+
+test("executeSkillRunnerWithEgressPolicy propagates a hard create failure without retry", async () => {
+  const { policy, calls } = fakePolicy();
+  let createAttempts = 0;
+  await assert.rejects(
+    () => executeSkillRunnerWithEgressPolicy({
+      runArgs: FIREWALL_RUN_ARGS,
+      containerName: "dofe-sr-test",
+      runId: "run-lease-5",
+      targets: FIREWALL_TARGETS,
+      policy,
+      timeoutMs: 5_000,
+      environment: FAKE_DOCKER_ENV,
+      execute: async (args, timeoutMs) => {
+        if (args[0] === "create") {
+          createAttempts += 1;
+          return { exitCode: 1, stdout: "", stderr: "permission denied", timedOut: false };
+        }
+        return fakePhases()(args, timeoutMs);
+      },
+    }),
+    /skill_runner\.container_create_failed: permission denied/,
+  );
+  assert.equal(createAttempts, 1);
+  assert.deepEqual(calls, []);
 });
 
 test("buildSkillRunnerSystemProbeDockerArgs probes a catalog binary hermetically with a fixed argv", () => {
