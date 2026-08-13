@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { promises as dnsPromises } from "node:dns";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath } from "@dofe-agent/db";
 import {
@@ -23,6 +24,12 @@ import {
   type SkillEntrypointRuntime,
 } from "@dofe-agent/domain";
 import { buildSkillDependencyTaskEnvironment } from "./skill-install/task-environment.ts";
+import { resolveManagedRuntimeDockerNetwork } from "./managed-provider-credentials.ts";
+import {
+  EGRESS_BLOCK_DNS,
+  parseEgressAllowlistHostnames,
+} from "./skill-service/managed-service-runtime.ts";
+import type { ManagedNetworkAddress } from "./skill-service/egress-policy.ts";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 10 * 60_000;
@@ -48,6 +55,13 @@ export interface SkillRunnerDockerPlanInput {
   dependencyDir?: string;
   entrypointPath: string;
   argv: string[];
+  /**
+   * Docker network flags derived from the entrypoint's frozen egress grant.
+   * Absent → `--network none` (default, fully isolated). Otherwise the flags
+   * produced by {@link buildSkillRunnerEgressNetworkArgs} (shared egress network
+   * ± DNS poison + /etc/hosts pinning).
+   */
+  networkArgs?: string[];
 }
 
 export function buildSkillRunnerDockerArgs(input: SkillRunnerDockerPlanInput): string[] {
@@ -72,7 +86,7 @@ export function buildSkillRunnerDockerArgs(input: SkillRunnerDockerPlanInput): s
     "run", "--rm", "--init", "--pull", "never",
     ...(input.containerName ? ["--name", input.containerName] : []),
     "--read-only",
-    "--network", "none",
+    ...(input.networkArgs ?? ["--network", "none"]),
     "--cap-drop", "ALL",
     "--security-opt", "no-new-privileges",
     "--user", "65532:65532",
@@ -102,6 +116,125 @@ export function buildSkillRunnerDockerArgs(input: SkillRunnerDockerPlanInput): s
     `/skill/${entrypointPath}`,
     ...input.argv,
   ];
+}
+
+/* ------------------------------------------------------------------ */
+/* Egress enforcement (manifest network → first-install approval)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Resolves an allowlisted hostname to its IPv4/IPv6 addresses. Injectable so
+ * tests never touch real DNS. Mirrors the managed-service egress lookup shape.
+ */
+export type SkillRunnerEgressLookup = (hostname: string) => Promise<ManagedNetworkAddress[]>;
+
+/** Default runtime resolver: the OS resolver via `dns.lookup`. Best-effort — an
+ * unresolvable name yields `[]` and the broker fails the run closed. */
+async function defaultRunnerEgressLookup(hostname: string): Promise<ManagedNetworkAddress[]> {
+  try {
+    const addresses = await dnsPromises.lookup(hostname, { all: true, verbatim: true });
+    return addresses.map(({ address, family }) => ({
+      address,
+      family: family === 6 ? "ipv6" as const : "ipv4" as const,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The docker network a Skill Runner joins when it has been granted egress.
+ * Defaults to the same isolated runtime network managed services use; override
+ * with `DOFE_SKILL_RUNNER_EGRESS_NETWORK` (must be a user-defined bridge — the
+ * default `bridge`/`host`/`none` are rejected because they are not isolated).
+ */
+export function resolveSkillRunnerEgressNetwork(environment: NodeJS.ProcessEnv = process.env): string {
+  const network = environment.DOFE_SKILL_RUNNER_EGRESS_NETWORK?.trim();
+  if (network) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(network)) {
+      throw new Error("skill_runner.egress_network_invalid");
+    }
+    if (["bridge", "default", "host", "none"].includes(network.toLowerCase())) {
+      throw new Error("skill_runner.egress_network_not_isolated");
+    }
+    return network;
+  }
+  // Fall back to the shared runtime network managed services already join.
+  return resolveManagedRuntimeDockerNetwork(environment);
+}
+
+export interface SkillRunnerEgressNetworkInput {
+  /** Frozen grant forwarded from the task skill snapshot entry. */
+  egressAllowlist?: string[];
+  /** Egress docker network name (from resolveSkillRunnerEgressNetwork). */
+  network: string;
+  /** Pre-resolved hostname→IP pins for the allowlisted hosts. */
+  hostEntries?: Array<{ hostname: string; address: string }>;
+}
+
+/**
+ * Pure builder for the docker network flags of a Skill Runner from its frozen
+ * egress grant. Reuses the managed-service DNS-poison + /etc/hosts pattern:
+ *   - absent / empty → `--network none` (fully isolated, the default).
+ *   - sentinel `["*"]` → approved unrestricted grant → shared network, no DNS
+ *     poisoning (full egress).
+ *   - host list → shared network + unroutable `--dns` + `--add-host` pins for
+ *     the allowlisted hosts only; raw-IP egress is a documented residual.
+ */
+export function buildSkillRunnerEgressNetworkArgs(input: SkillRunnerEgressNetworkInput): string[] {
+  if (!input.egressAllowlist || input.egressAllowlist.length === 0) {
+    return ["--network", "none"];
+  }
+  if (input.egressAllowlist.includes("*")) {
+    return ["--network", input.network];
+  }
+  const args = ["--network", input.network, "--dns", EGRESS_BLOCK_DNS];
+  for (const entry of input.hostEntries ?? []) {
+    args.push("--add-host", `${entry.hostname}=${entry.address}`);
+  }
+  return args;
+}
+
+/**
+ * Resolves the docker network args for a Runner entrypoint at run time. Returns
+ * `undefined` when the entrypoint has no egress grant (the docker plan then
+ * defaults to `--network none`). Throws {@link SkillRunnerEgressResolutionError}
+ * when an allowlisted hostname fails to resolve — the broker fails the run
+ * closed rather than executing a skill that declared egress it cannot obtain.
+ */
+export class SkillRunnerEgressResolutionError extends Error {
+  readonly hostname: string;
+  constructor(hostname: string) {
+    super(`skill_runner.egress_host_unresolved: ${hostname}`);
+    this.name = "SkillRunnerEgressResolutionError";
+    this.hostname = hostname;
+  }
+}
+
+export async function resolveSkillRunnerNetworkArgs(input: {
+  egressAllowlist?: string[];
+  environment: NodeJS.ProcessEnv;
+  lookupHost?: SkillRunnerEgressLookup;
+}): Promise<string[]> {
+  if (!input.egressAllowlist || input.egressAllowlist.length === 0) {
+    return ["--network", "none"];
+  }
+  const network = resolveSkillRunnerEgressNetwork(input.environment);
+  if (input.egressAllowlist.includes("*")) {
+    return buildSkillRunnerEgressNetworkArgs({ egressAllowlist: input.egressAllowlist, network });
+  }
+  const lookupHost = input.lookupHost ?? defaultRunnerEgressLookup;
+  const hostEntries: Array<{ hostname: string; address: string }> = [];
+  for (const hostname of parseEgressAllowlistHostnames(input.egressAllowlist)) {
+    const addresses = await lookupHost(hostname);
+    if (addresses.length === 0) {
+      throw new SkillRunnerEgressResolutionError(hostname);
+    }
+    for (const addr of addresses) {
+      hostEntries.push({ hostname, address: addr.address });
+    }
+  }
+  return buildSkillRunnerEgressNetworkArgs({ egressAllowlist: input.egressAllowlist, network, hostEntries });
 }
 
 export interface SkillRunnerExecutionResult {
@@ -146,6 +279,8 @@ export async function startSkillRunnerBroker(input: {
   execute?: (args: string[], timeoutMs: number) => Promise<SkillRunnerExecutionResult>;
   /** Best-effort durable audit hook invoked after each entrypoint run completes. */
   reportInvocation?: (report: SkillRunnerBrokerInvocationReport) => void | Promise<void>;
+  /** Injectable DNS resolver for egress allowlist pinning (tests avoid real DNS). */
+  lookupHost?: SkillRunnerEgressLookup;
 }): Promise<SkillRunnerBroker> {
   if (input.entrypoints.length === 0) {
     return { capabilities: [], close: async () => {} };
@@ -286,6 +421,7 @@ async function handleBrokerRequest(
     brokerCleanup: Map<string, Promise<void>>;
     isClosing: () => boolean;
     reportInvocation?: (report: SkillRunnerBrokerInvocationReport) => void | Promise<void>;
+    lookupHost?: SkillRunnerEgressLookup;
   },
 ): Promise<void> {
   try {
@@ -347,6 +483,25 @@ async function handleBrokerRequest(
           });
         }
         privateConfig = createPrivateRunnerConfig(context.stateDir, entrypoint, context.skillEnv ?? {});
+        let networkArgs: string[] | undefined;
+        if (entrypoint.egressAllowlist && entrypoint.egressAllowlist.length > 0) {
+          try {
+            networkArgs = await resolveSkillRunnerNetworkArgs({
+              egressAllowlist: entrypoint.egressAllowlist,
+              environment: context.environment ?? {},
+              lookupHost: context.lookupHost,
+            });
+          } catch (error) {
+            if (error instanceof SkillRunnerEgressResolutionError) {
+              sendJson(response, 424, {
+                error: "skill_runner.egress_host_unresolved",
+                message: `Declared egress hostname did not resolve; the run was blocked: ${error.hostname}`,
+              });
+              return;
+            }
+            throw error;
+          }
+        }
         const containerName = buildSkillRunnerContainerName(entrypoint.key);
         const args = buildSkillRunnerDockerArgs({
           image,
@@ -359,6 +514,7 @@ async function handleBrokerRequest(
           dependencyDir,
           entrypointPath: entrypoint.path,
           argv,
+          ...(networkArgs ? { networkArgs } : {}),
         });
         context.activeContainers.add(containerName);
         const startedAt = Date.now();

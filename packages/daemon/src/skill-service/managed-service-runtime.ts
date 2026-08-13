@@ -19,8 +19,9 @@ import {
 } from "./egress-policy.ts";
 
 /** Unroutable TEST-NET-1 address used as the container's DNS so ANY hostname
- * that is not pinned in the mounted /etc/hosts fails to resolve. */
-const EGRESS_BLOCK_DNS = "192.0.2.1";
+ * that is not pinned in the mounted /etc/hosts fails to resolve. Shared with
+ * the Skill Runner egress enforcement (same DNS-poison + /etc/hosts pattern). */
+export const EGRESS_BLOCK_DNS = "192.0.2.1";
 /** Per-workspace internal network name prefix (no default route → no outbound). */
 export function buildManagedServiceInternalNetworkName(workspaceId: string): string {
   const sanitized = workspaceId.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 48);

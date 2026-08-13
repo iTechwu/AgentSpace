@@ -11,6 +11,7 @@ function buildCapability(overrides: Partial<RuntimeToolCapability> = {}): Runtim
   return {
     id: "cap-curl",
     command: "curl",
+    allowedShellPatterns: ["curl *"],
     source: "runtime",
     ...overrides,
   };

@@ -7,7 +7,15 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { getDaemonSkillInstallCachePath } from "@dofe-agent/db";
-import { buildSkillRunnerDockerArgs, buildSkillRunnerSystemProbeDockerArgs, startSkillRunnerBroker } from "./skill-runner.ts";
+import {
+  buildSkillRunnerDockerArgs,
+  buildSkillRunnerEgressNetworkArgs,
+  buildSkillRunnerSystemProbeDockerArgs,
+  resolveSkillRunnerEgressNetwork,
+  resolveSkillRunnerNetworkArgs,
+  SkillRunnerEgressResolutionError,
+  startSkillRunnerBroker,
+} from "./skill-runner.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -71,6 +79,105 @@ test("buildSkillRunnerDockerArgs requires an immutable image digest and safe ent
     () => buildSkillRunnerDockerArgs({ ...base, image: `node@sha256:${"a".repeat(64)}`, entrypointPath: "../escape.sh" }),
     /entrypoint path/,
   );
+});
+
+test("buildSkillRunnerDockerArgs defaults to --network none and honors an explicit egress networkArgs", () => {
+  const base = {
+    image: `node@sha256:${"a".repeat(64)}`,
+    runtime: "node" as const,
+    artifactDir: "/cache",
+    workspaceDir: "/workspace",
+    outputDir: "/output",
+    entrypointPath: "scripts/run.mjs",
+    argv: [] as string[],
+  };
+  const isolated = buildSkillRunnerDockerArgs(base);
+  const noneIndex = isolated.indexOf("--network");
+  assert.equal(noneIndex !== -1 && isolated[noneIndex + 1], "none");
+
+  const egress = buildSkillRunnerDockerArgs({
+    ...base,
+    networkArgs: ["--network", "dofe-runtime-restricted", "--dns", "192.0.2.1", "--add-host", "api.example.com=10.0.0.1"],
+  });
+  assert.equal(egress[egress.indexOf("--network") + 1], "dofe-runtime-restricted");
+  assert.equal(egress[egress.indexOf("--dns") + 1], "192.0.2.1");
+  assert.ok(egress.includes("api.example.com=10.0.0.1"));
+  assert.equal(egress.some((value) => value === "none"), false, "an egress grant must not also carry --network none");
+});
+
+test("buildSkillRunnerEgressNetworkArgs maps the frozen grant to docker network flags", () => {
+  const network = "dofe-runtime-restricted";
+  // Absent / empty grant → fully isolated.
+  assert.deepEqual(buildSkillRunnerEgressNetworkArgs({ network }), ["--network", "none"]);
+  assert.deepEqual(buildSkillRunnerEgressNetworkArgs({ network, egressAllowlist: [] }), ["--network", "none"]);
+  // Sentinel ["*"] → approved unrestricted egress on the shared network.
+  assert.deepEqual(
+    buildSkillRunnerEgressNetworkArgs({ network, egressAllowlist: ["*"] }),
+    ["--network", network],
+  );
+  // Host list → DNS poison + one --add-host pin per resolved address.
+  assert.deepEqual(
+    buildSkillRunnerEgressNetworkArgs({
+      network,
+      egressAllowlist: ["api.example.com"],
+      hostEntries: [
+        { hostname: "api.example.com", address: "10.0.0.1" },
+        { hostname: "api.example.com", address: "fc00::1" },
+      ],
+    }),
+    ["--network", network, "--dns", "192.0.2.1", "--add-host", "api.example.com=10.0.0.1", "--add-host", "api.example.com=fc00::1"],
+  );
+});
+
+test("resolveSkillRunnerEgressNetwork honors the override and rejects non-isolated defaults", () => {
+  assert.equal(
+    resolveSkillRunnerEgressNetwork({ DOFE_SKILL_RUNNER_EGRESS_NETWORK: "dofe-skill-egress" }),
+    "dofe-skill-egress",
+  );
+  assert.throws(
+    () => resolveSkillRunnerEgressNetwork({ DOFE_SKILL_RUNNER_EGRESS_NETWORK: "bridge" }),
+    /not_isolated/,
+  );
+  assert.throws(
+    () => resolveSkillRunnerEgressNetwork({ DOFE_SKILL_RUNNER_EGRESS_NETWORK: "bad network!" }),
+    /invalid/,
+  );
+  // Falls back to the managed runtime network when no override is set.
+  assert.equal(
+    resolveSkillRunnerEgressNetwork({ MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted" }),
+    "dofe-runtime-restricted",
+  );
+});
+
+test("resolveSkillRunnerNetworkArgs fails closed when an allowlisted host does not resolve", async () => {
+  await assert.rejects(
+    () => resolveSkillRunnerNetworkArgs({
+      egressAllowlist: ["api.example.com"],
+      environment: { MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted" },
+      lookupHost: async () => [],
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof SkillRunnerEgressResolutionError);
+      assert.equal(error.hostname, "api.example.com");
+      return true;
+    },
+  );
+});
+
+test("resolveSkillRunnerNetworkArgs resolves allowlisted hosts into add-host pins", async () => {
+  const args = await resolveSkillRunnerNetworkArgs({
+    egressAllowlist: ["https://api.example.com:443", "registry.example.com"],
+    environment: { MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted" },
+    lookupHost: async (hostname) =>
+      hostname === "api.example.com"
+        ? [{ family: "ipv4", address: "10.0.0.1" }]
+        : [{ family: "ipv4", address: "10.0.0.2" }],
+  });
+  assert.deepEqual(args, [
+    "--network", "dofe-runtime-restricted", "--dns", "192.0.2.1",
+    "--add-host", "api.example.com=10.0.0.1",
+    "--add-host", "registry.example.com=10.0.0.2",
+  ]);
 });
 
 test("buildSkillRunnerSystemProbeDockerArgs probes a catalog binary hermetically with a fixed argv", () => {
