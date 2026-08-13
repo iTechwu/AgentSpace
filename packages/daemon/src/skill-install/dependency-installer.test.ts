@@ -124,6 +124,29 @@ test("verify passes when the installed package/version is present in the envs di
   assert.equal(results.get("pip:requests@2.31.0")?.ok, true);
 });
 
+test("system dependencies are ready after the runtime binary probe succeeds", async () => {
+  const envsDir = tempEnvsDir();
+  const commands: Array<{ command: string; args?: string[] }> = [];
+  const sandbox = fakeSandbox({
+    async exec(input): Promise<ExecResult> {
+      commands.push({ command: input.command, args: input.args });
+      return { stdout: "/usr/bin/curl\n", stderr: "", exitCode: 0, durationMs: 1, timedOut: false };
+    },
+    async readDir(): Promise<Array<{ name: string; isDirectory: boolean }>> {
+      throw new Error("system dependency verification must not inspect the package env");
+    },
+  });
+
+  const results = await installSkillDependenciesSync({
+    dependencies: [{ manager: "system", name: "curl", version: "system" }],
+    envsDir,
+    sandbox,
+  });
+
+  assert.deepEqual(commands, [{ command: "sh", args: ["-c", "command -v curl || exit 1"] }]);
+  assert.deepEqual(results.get("system:curl@system"), { ok: true });
+});
+
 test("verify fails when the package is missing or the version mismatches", async () => {
   const envsDir = tempEnvsDir();
   mkdirSync(join(envsDir, "node_modules", "lodash"), { recursive: true });

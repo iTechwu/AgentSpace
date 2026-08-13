@@ -155,6 +155,10 @@ export async function installSkillDependenciesSync(input: {
         });
         continue;
       }
+      if (dep.manager === "system") {
+        results.set(key, { ok: true });
+        continue;
+      }
       const verified = await verifyInstalledDependency(dep, input.envsDir, input.sandbox);
       results.set(key, verified ? { ok: true } : { ok: false, reason: "verify failed: package/version not found in envs dir" });
     } catch (error) {
@@ -177,6 +181,9 @@ async function verifyInstalledDependency(
   envsDir: string,
   sandbox: SandboxLike,
 ): Promise<boolean> {
+  if (dep.manager === "system") {
+    return false;
+  }
   if (dep.manager === "npm") {
     try {
       const pkgJson = JSON.parse(await sandbox.readFile(join(envsDir, "node_modules", dep.name, "package.json"))) as {

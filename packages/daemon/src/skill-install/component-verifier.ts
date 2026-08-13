@@ -148,7 +148,7 @@ function verifyDependencyComponent(
     return { kind: "dependency", key, status: "ready" };
   }
   const source = key.split(":", 1)[0];
-  if (source !== "npm" && source !== "pip" && source !== "uv") {
+  if (source !== "npm" && source !== "pip" && source !== "uv" && source !== "system") {
     return {
       kind: "dependency",
       key,

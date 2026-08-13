@@ -162,18 +162,35 @@ test("marks dependency blocked when version is missing", () => {
   assert.equal(results[0]?.errorCode, "skill_installation.dependency_version_missing");
 });
 
-test("blocks system dependencies until a managed Runtime resolver verifies them", () => {
+test("marks a system dependency ready only after the runtime binary probe succeeds", () => {
   const manifest = buildManifest({
-    dependencies: [{ manager: "system", name: "ffmpeg", version: "7.1.0" }],
+    dependencies: [{ manager: "system", name: "curl", version: "system" }],
   });
-  const results = buildOperation(
-    manifest,
-    [{ kind: "dependency", key: "system:ffmpeg@7.1.0", status: "pending" }],
+  const operation: ClaimedSkillInstallationOperation = {
+    operationId: "op-system-dependency",
+    claimGeneration: 1,
+    workspaceId: "default",
+    runtimeId: "runtime-1",
+    installationId: "install-1",
+    operation: "prepare",
+    artifactDigest: "sha256:any",
+    artifactName: "test-skill",
+    manifestJson: JSON.stringify(manifest),
+    files: [],
+    components: [{ kind: "dependency", key: "system:curl@system", status: "pending" }],
+    createdAt: new Date().toISOString(),
+  };
+  const withoutProbe = verifySkillInstallationComponents(operation, "", true, new Map());
+  const withProbe = verifySkillInstallationComponents(
+    operation,
     "",
+    true,
+    new Map([["system:curl@system", { ok: true }]]),
   );
 
-  assert.equal(results[0]?.status, "blocked");
-  assert.equal(results[0]?.errorCode, "skill_installation.dependency_manager_unsupported");
+  assert.equal(withoutProbe[0]?.status, "blocked");
+  assert.equal(withoutProbe[0]?.errorCode, "skill_installation.dependency_not_installed");
+  assert.equal(withProbe[0]?.status, "ready");
 });
 
 test("marks script ready when file exists, is executable, and passes syntax check", () => {

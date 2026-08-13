@@ -1145,6 +1145,55 @@ test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enable
   }
 });
 
+test("runProviderTask exposes the built-in curl CLI when it is available on the runtime", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-curl-capability-"));
+  const binDir = join(workDir, "bin");
+  const binPath = join(binDir, "claude");
+  const curlPath = join(binDir, "curl");
+  const argsPath = join(workDir, "claude-args.txt");
+  const originalPath = process.env.PATH;
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"curl available\",\"session_id\":\"session-curl\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(curlPath, "#!/bin/sh\necho curl 8.0.0\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(curlPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-curl-capability-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    process.env.PATH = binDir;
+    const result = await withProcessGetuid(0, () => runProviderTask(runtime, "install the skill", workDir, {
+      contextEnv: { CLAUDE_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    }));
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "curl available");
+    assert.equal(args.includes("Bash(curl *)"), true);
+    assert.equal(args.includes("Bash(curl --version)"), true);
+    assert.equal(args.includes("Bash(command -v curl)"), true);
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-specific code", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-clihub-capability-"));
   const providerBinDir = join(workDir, "provider-bin");

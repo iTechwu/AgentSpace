@@ -109,10 +109,9 @@ export async function executeSkillInstallationOperation(
     }
 
     // Real dependency install + verify (02-架构设计.md §4.1): npm/pip/uv go into
-    // an isolated per-installation envs dir with an allow-listed registry; the
-    // verify step independently checks the installed artifact. Only an artifact
-    // with zero dependencies skips this (its dependency components stay manifest-
-    // based, including the package:integrity component).
+    // an isolated per-installation envs dir with an allow-listed registry;
+    // cataloged system dependencies are verified against the immutable Runtime
+    // image. Only an artifact with zero dependencies skips this.
     const dependencies = readManifestDependencies(operation.manifestJson);
     const installedDependencies: string[] = [];
     let dependencyInstallResults: Map<string, DependencyInstallOutcome> | undefined;
@@ -217,16 +216,16 @@ export async function executeSkillInstallationOperation(
   }
 }
 
-/** Parses the manifest's npm/pip/uv dependency declarations (manager or kind). */
-function readManifestDependencies(manifestJson: string): Array<{ manager: "npm" | "pip" | "uv"; name: string; version: string }> {
+/** Parses the manifest's supported dependency declarations (manager or kind). */
+export function readManifestDependencies(manifestJson: string): Array<{ manager: "npm" | "pip" | "uv" | "system"; name: string; version: string }> {
   try {
     const manifest = JSON.parse(manifestJson) as {
       dependencies?: Array<{ manager?: string; kind?: string; name?: string; version?: string }>;
     };
-    const dependencies: Array<{ manager: "npm" | "pip" | "uv"; name: string; version: string }> = [];
+    const dependencies: Array<{ manager: "npm" | "pip" | "uv" | "system"; name: string; version: string }> = [];
     for (const dep of manifest.dependencies ?? []) {
       const manager = dep.manager ?? dep.kind;
-      if ((manager === "npm" || manager === "pip" || manager === "uv") && dep.name && dep.version) {
+      if ((manager === "npm" || manager === "pip" || manager === "uv" || manager === "system") && dep.name && dep.version) {
         dependencies.push({ manager, name: dep.name, version: dep.version });
       }
     }

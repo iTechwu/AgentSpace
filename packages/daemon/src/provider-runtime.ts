@@ -472,6 +472,20 @@ function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>
     },
   ];
 
+  const curlPath = findExecutableOnPath("curl");
+  if (curlPath) {
+    capabilities.push({
+      id: "builtin:curl",
+      command: "curl",
+      displayName: "curl HTTP client",
+      binPath: curlPath,
+      binDir: dirname(curlPath),
+      allowedShellPatterns: ["curl *", "curl --version", "command -v curl"],
+      diagnosticCommands: ["command -v curl"],
+      source: "builtin",
+    });
+  }
+
   const feishuLarkCliCapability = buildFeishuLarkCliDiagnosticRuntimeToolCapability({
     environment: process.env,
     source: "builtin",
