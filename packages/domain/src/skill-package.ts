@@ -115,19 +115,27 @@ export function inferSkillEntrypointRuntimeForPath(path: string): SkillEntrypoin
  * exactly this set.
  */
 export function collectSkillManifestRuntimes(manifest: {
-  entrypoints?: Array<{ runtime?: string }>;
+  entrypoints?: Array<{ runtime?: string; path?: string }>;
   files?: Array<{ path?: string; mode?: string }>;
 }): SkillEntrypointRuntime[] {
   const seen = new Set<SkillEntrypointRuntime>();
+  // A file that is a DECLARED entrypoint carries its own explicit runtime, so
+  // its extension must NOT be re-inferred: run.py declared as bash must not
+  // additionally pull in the python Runner image + python deps. Record the
+  // declared entrypoint paths first and exclude them from implicit inference.
   const declaredPaths = new Set<string>();
   for (const entrypoint of manifest.entrypoints ?? []) {
     if (entrypoint.runtime === "node" || entrypoint.runtime === "python" || entrypoint.runtime === "bash") {
       seen.add(entrypoint.runtime);
     }
+    if (entrypoint.path) {
+      declaredPaths.add(entrypoint.path);
+    }
   }
+  const inferredPaths = new Set<string>();
   for (const file of manifest.files ?? []) {
-    if (file.mode !== "0755" || !file.path || declaredPaths.has(file.path)) continue;
-    declaredPaths.add(file.path);
+    if (file.mode !== "0755" || !file.path || declaredPaths.has(file.path) || inferredPaths.has(file.path)) continue;
+    inferredPaths.add(file.path);
     const runtime = inferSkillEntrypointRuntimeForPath(file.path);
     if (runtime) {
       seen.add(runtime);

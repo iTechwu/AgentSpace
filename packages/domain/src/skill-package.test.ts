@@ -41,3 +41,28 @@ test("collectSkillManifestRuntimes merges declared and implicit entrypoint runti
     ["node", "python", "bash"],
   );
 });
+
+test("collectSkillManifestRuntimes does not re-infer a declared entrypoint's extension", () => {
+  // run.py is explicitly declared as a bash entrypoint: its .py extension must
+  // NOT additionally imply python, which would needlessly require the python
+  // Runner image + python deps even though execution only uses bash.
+  assert.deepEqual(
+    collectSkillManifestRuntimes({
+      entrypoints: [{ path: "scripts/run.py", runtime: "bash" }],
+      files: [{ path: "scripts/run.py", mode: "0755" }],
+    }),
+    ["bash"],
+    "a declared entrypoint path is excluded from extension inference",
+  );
+  // A second implicit .py file is still inferred; only the declared path is exempt.
+  assert.deepEqual(
+    collectSkillManifestRuntimes({
+      entrypoints: [{ path: "scripts/run.py", runtime: "bash" }],
+      files: [
+        { path: "scripts/run.py", mode: "0755" },
+        { path: "scripts/helper.py", mode: "0755" },
+      ],
+    }),
+    ["bash", "python"],
+  );
+});

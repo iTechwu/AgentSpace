@@ -270,7 +270,7 @@ export function readManifestDependencies(manifestJson: string): Array<{ manager:
 export function readManifestRuntimes(manifestJson: string): SkillEntrypointRuntime[] {
   try {
     const manifest = JSON.parse(manifestJson) as {
-      entrypoints?: Array<{ runtime?: string }>;
+      entrypoints?: Array<{ runtime?: string; path?: string }>;
       files?: Array<{ path?: string; mode?: string }>;
     };
     return collectSkillManifestRuntimes(manifest);
