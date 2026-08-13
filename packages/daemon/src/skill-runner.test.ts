@@ -214,6 +214,63 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
   }
 });
 
+test("startSkillRunnerBroker sweeps persisted egress policy at most once per process", async () => {
+  // Regression: a second broker in the same process must NOT re-sweep the
+  // shared policy directory. The sweep removes every persisted chain with no
+  // owner/container-liveness check, so a repeat sweep would tear down a
+  // concurrently running sibling Runner's live DOCKER-USER chain and fail its
+  // network open.
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-sr-sweep-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-sr-sweep-task-"));
+  const policyDir = join(stateDir, "skill-runner-egress-policies");
+  mkdirSync(policyDir, { recursive: true });
+  // Stale chain from a crashed previous process. sweepPersistedEgressPolicies
+  // parses serviceId from each *.json file (filename is irrelevant).
+  writeFileSync(
+    join(policyDir, "stale.json"),
+    JSON.stringify({ serviceId: "crashed-run-1", sourceAddresses: [{ family: "ipv4", address: "172.18.0.9" }] }),
+    "utf8",
+  );
+  const removes: string[] = [];
+  const egressPolicy = {
+    async apply() { /* not exercised: no granted run is dispatched */ },
+    async remove(input: { serviceId: string }) { removes.push(input.serviceId); },
+  };
+  const entrypoints = [{
+    key: "skill-sweep:run",
+    skillId: "skill-sweep",
+    skillName: "Sweep",
+    installationId: "installation-sweep",
+    artifactDigest: "a".repeat(64),
+    sha256: "0".repeat(64),
+    id: "run",
+    path: "run.sh",
+    runtime: "bash" as const,
+  }];
+  try {
+    const brokerA = await startSkillRunnerBroker({
+      stateDir, workspaceId: "ws", workDir, entrypoints,
+      environment: { ...process.env },
+      inspectImage: () => false,
+      egressPolicy,
+    });
+    await brokerA.close();
+    const brokerB = await startSkillRunnerBroker({
+      stateDir, workspaceId: "ws", workDir, entrypoints,
+      environment: { ...process.env },
+      inspectImage: () => false,
+      egressPolicy,
+    });
+    await brokerB.close();
+    // Exactly one sweep: the first broker recovered the stale chain; the
+    // second reused the cached sweep and did not remove it again.
+    assert.deepEqual(removes, ["crashed-run-1"]);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("startSkillRunnerBroker keeps output publication inside the launcher namespace", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-state-"));
   const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-task-"));
