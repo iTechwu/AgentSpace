@@ -505,7 +505,8 @@ describe("WorkspaceFrame", () => {
 
     expect(routerPushMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText("Workspace content")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace content")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-page-skeleton")).toBeInTheDocument();
   });
 
   it("falls back to Next route navigation when a module workbench flag is disabled", async () => {
@@ -539,7 +540,8 @@ describe("WorkspaceFrame", () => {
 
     expect(routerPushMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText("Workspace content")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace content")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-page-skeleton")).toBeInTheDocument();
   });
 
   it("uses the workbench loader for the task-board signal link", async () => {
@@ -553,6 +555,7 @@ describe("WorkspaceFrame", () => {
             columns: [],
             agents: [],
             channels: [],
+            runnableWorkflows: [],
             totalCount: 0,
             todoCount: 0,
             inProgressCount: 0,
@@ -854,6 +857,10 @@ describe("WorkspaceFrame", () => {
 
     expect(await screen.findByPlaceholderText("发送到 general")).toBeInTheDocument();
 
+    // 初始渲染时频道页的 OpenMontage 任务组件会发起一次 jobs 拉取；
+    // 本用例关注切换作用域之后不再产生新的请求，因此先清零已记录的调用。
+    fetchMock.mockClear();
+
     view.rerender(
       <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
@@ -997,6 +1004,7 @@ describe("WorkspaceFrame", () => {
               columns: [],
               agents: [],
               channels: [],
+              runnableWorkflows: [],
               totalCount: 1,
               todoCount: 1,
               inProgressCount: 0,
@@ -1103,6 +1111,7 @@ describe("WorkspaceFrame", () => {
               columns: [],
               agents: [],
               channels: [],
+              runnableWorkflows: [],
               totalCount: 1,
               todoCount: 1,
               inProgressCount: 0,
