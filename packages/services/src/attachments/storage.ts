@@ -263,7 +263,7 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       throw new Error("Missing object storage key.");
     }
-    const response = await fetch(this.createPresignedUrl(key, "GET"));
+    const response = await fetch(this.createPresignedUrl(key, "GET", input.storageBucket));
     if (!response.ok) {
       throw new Error(`TOS read failed with status ${response.status}: ${await readErrorBody(response)}`);
     }
@@ -275,7 +275,7 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       throw new Error("Missing object storage key.");
     }
-    const result = spawnSync("curl", ["--fail", "-sS", this.createPresignedUrl(key, "GET")], {
+    const result = spawnSync("curl", ["--fail", "-sS", this.createPresignedUrl(key, "GET", input.storageBucket)], {
       maxBuffer: 64 * 1024 * 1024,
     });
     if (result.error) {
@@ -295,7 +295,7 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       return null;
     }
-    const response = await fetch(this.createPresignedUrl(key, "HEAD"), { method: "HEAD" });
+    const response = await fetch(this.createPresignedUrl(key, "HEAD", input.storageBucket), { method: "HEAD" });
     if (response.status === 404) {
       return null;
     }
@@ -321,7 +321,7 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       return;
     }
-    const response = await fetch(this.createPresignedUrl(key, "DELETE"), { method: "DELETE" });
+    const response = await fetch(this.createPresignedUrl(key, "DELETE", input.storageBucket), { method: "DELETE" });
     if (!response.ok && response.status !== 404) {
       throw new Error(`TOS delete failed with status ${response.status}: ${await readErrorBody(response)}`);
     }
@@ -332,7 +332,7 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       return;
     }
-    const signedUrl = this.createPresignedUrl(key, "DELETE");
+    const signedUrl = this.createPresignedUrl(key, "DELETE", input.storageBucket);
     const result = spawnSync("curl", [
       "-sS",
       "-o",
@@ -369,7 +369,7 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       return null;
     }
-    return this.createPresignedUrl(key, "GET");
+    return this.createPresignedUrl(key, "GET", input.storageBucket);
   }
 
   async putContentAddressedBlobStream(
@@ -495,15 +495,37 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     this.deleteObjectSync({ storageKey: key, storedPath: `tos://${this.config.bucket}/${key}` });
   }
 
-  private createPresignedUrl(key: string, method: "GET" | "PUT" | "DELETE" | "HEAD"): string {
+  private createPresignedUrl(
+    key: string,
+    method: "GET" | "PUT" | "DELETE" | "HEAD",
+    bucket?: string,
+  ): string {
     // The SDK runtime supports all HTTP methods; its current type declaration omits DELETE/HEAD.
+    const targetBucket = bucket ?? this.config.bucket;
+    // The configured bucket is served through a custom domain (bucketDomain / public
+    // endpoint CDN) whose mapping targets exactly that one bucket, so it is signed with
+    // isCustomDomain: true — the bucket appears only in the signature, not the URL host.
+    // A historical or migrated object persisted under a DIFFERENT bucket has no such
+    // domain mapping, so it must be addressed in standard virtual-hosted form
+    // (https://${bucket}.${endpoint}/key), which the SDK emits when isCustomDomain is
+    // false and no alternativeEndpoint is supplied. "Cross-bucket" here is same-region
+    // (shared client endpoint) — this matches the pre-refactor getObjectV2 / headObject /
+    // deleteObject behavior, which likewise overrode only the bucket, never the endpoint.
+    if (targetBucket === this.config.bucket) {
+      return this.client.getPreSignedUrl({
+        bucket: targetBucket,
+        key,
+        method: method as "GET" | "PUT",
+        expires: TOS_SIGNED_URL_TTL_SECONDS,
+        alternativeEndpoint: toEndpointHost(this.config.bucketDomain ?? `${this.config.bucket}.${toEndpointHost(this.config.publicEndpoint)}`),
+        isCustomDomain: true,
+      });
+    }
     return this.client.getPreSignedUrl({
-      bucket: this.config.bucket,
+      bucket: targetBucket,
       key,
       method: method as "GET" | "PUT",
       expires: TOS_SIGNED_URL_TTL_SECONDS,
-      alternativeEndpoint: toEndpointHost(this.config.bucketDomain ?? `${this.config.bucket}.${toEndpointHost(this.config.publicEndpoint)}`),
-      isCustomDomain: true,
     });
   }
 }

@@ -154,3 +154,74 @@ test("local content-addressed streaming upload verifies size and digest before p
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// createPresignedUrl is pure local HMAC (zero network), so a TOS client built with
+// fake credentials is enough to assert which bucket/endpoint a read URL targets —
+// the regression that motivated these tests: the presign refactor dropped the
+// per-object bucket override, silently addressing every object in the configured bucket.
+function buildTosClient(bucketDomain?: string) {
+  return createAttachmentStorageClient({
+    provider: "tos",
+    tos: {
+      bucket: "configured-bucket",
+      endpoint: "https://tos-cn-beijing.volces.com",
+      publicEndpoint: "https://tos-cn-beijing.volces.com",
+      ...(bucketDomain ? { bucketDomain } : {}),
+      region: "cn-beijing",
+      accessKeyId: "AKIAfake",
+      secretAccessKey: "fake-secret",
+    },
+  });
+}
+
+test("read URLs for the configured bucket use its custom domain, not the bucket host", async () => {
+  const storage = buildTosClient("cdn.example.com");
+  const url = await storage.createReadUrl({
+    storageBucket: "configured-bucket",
+    storageKey: "workspaces/ws/k",
+    storedPath: "tos://configured-bucket/workspaces/ws/k",
+  });
+  assert.ok(url, "createReadUrl should return a presigned URL");
+  const host = new URL(url!).host;
+  assert.equal(host, "cdn.example.com", "configured bucket is served via its custom domain");
+});
+
+test("read URLs target the object's persisted (cross) bucket via virtual-hosted form", async () => {
+  const storage = buildTosClient("cdn.example.com");
+  const url = await storage.createReadUrl({
+    storageBucket: "legacy-bucket",
+    storageKey: "workspaces/ws/k",
+    storedPath: "tos://legacy-bucket/workspaces/ws/k",
+  });
+  assert.ok(url);
+  const host = new URL(url!).host;
+  assert.equal(host, "legacy-bucket.tos-cn-beijing.volces.com", "cross-bucket object must be addressed in virtual-hosted form on its own bucket");
+  assert.notEqual(host, "cdn.example.com", "a non-configured bucket must not reuse the configured bucket's custom domain");
+});
+
+test("omitting storageBucket defaults to the configured bucket (custom domain)", async () => {
+  const storage = buildTosClient("cdn.example.com");
+  const url = await storage.createReadUrl({
+    storageKey: "workspaces/ws/k",
+    storedPath: "tos://configured-bucket/workspaces/ws/k",
+  });
+  assert.ok(url);
+  assert.equal(new URL(url!).host, "cdn.example.com");
+});
+
+test("read URLs target the cross bucket even without a configured custom domain", async () => {
+  // No bucketDomain configured → configured bucket itself falls back to virtual-hosted form.
+  const storage = buildTosClient();
+  const same = await storage.createReadUrl({
+    storageBucket: "configured-bucket",
+    storageKey: "workspaces/ws/k",
+    storedPath: "tos://configured-bucket/workspaces/ws/k",
+  });
+  assert.equal(new URL(same!).host, "configured-bucket.tos-cn-beijing.volces.com");
+  const cross = await storage.createReadUrl({
+    storageBucket: "other-bucket",
+    storageKey: "workspaces/ws/k",
+    storedPath: "tos://other-bucket/workspaces/ws/k",
+  });
+  assert.equal(new URL(cross!).host, "other-bucket.tos-cn-beijing.volces.com");
+});
