@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "test": "sh -c 'node --experimental-strip-types scripts/verify-test-coverage.mjs && for file in src/runtime-maintenance/*.test.ts src/skills/*.test.ts src/skills/package/*.test.ts src/mcp-center/*.test.ts src/skill-services/*.test.ts src/openmontage/*.test.ts src/workflows/*.test.ts src/attachments/storage.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
+    "test": "sh -c 'node --experimental-strip-types scripts/verify-test-coverage.mjs && for file in src/runtime-maintenance/*.test.ts src/skills/*.test.ts src/skills/package/*.test.ts src/mcp-center/*.test.ts src/skill-services/*.test.ts src/openmontage/*.test.ts src/workflows/*.test.ts src/attachments/storage.test.ts src/attachments/tos-signer.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
     "test:tos": "node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/attachments/storage-tos.integration.test.ts",
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false"
   },
@@ -14,7 +14,6 @@
     "@dofe-agent/domain": "workspace:*",
     "@dofe/models-sdk": "^0.5.7",
     "@larksuiteoapi/node-sdk": "^1.73.0",
-    "@volcengine/tos-sdk": "^2.9.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "cron-parser": "^5.8.1",

@@ -13,20 +13,13 @@ import {
 import { dirname, relative, resolve, sep } from "node:path";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-// 安全说明：@volcengine/tos-sdk@2.9.1（已是最新，官方 registry 2026-03 后无新版本）
-// 硬钉 axios ^0.21.1，传递引入 axios 0.21.4 / 0.27.2，npm audit 标记为高危
-//（SSRF/ReDoS/CSRF cookie/凭据泄漏/原型污染/DoS）。
-// 2026-08-13 迁移后：TosClient 仅用于在本地生成预签名 URL（纯 HMAC 计算，零网络调用），
-// 所有对象上传/下载/HEAD/删除（同步+异步、缓冲+流式）全部经 curl/fetch 走预签名 URL。
-// axios 在运行时不发起任何网络请求，上述公告的攻击面在本用法下不可达；
-// 剩余风险仅为供应链层面（SDK 及其 axios 依赖的代码本身）。
-// 不通过 pnpm.overrides 强制 axios 1.x：0.21→1.x 为大版本破坏，SDK 引用旧 axios 内部接口，
-// override 可能破坏签名计算。根治路径为以自实现 V4 预签名替换 SDK（约百行 HMAC-SHA256），
-// 回归基线为 packages/services/src/attachments/storage-tos.integration.test.ts（真实 TOS，
-// 覆盖全部传输路径，5 用例全绿）。
-// 风险接受记录：责任人 techwu@PardxAi；复核截止 2026-11-13（到期检查 tos-sdk 是否发布
-// 修复版本，或评估自实现签名替换）。决策出处：commit 425960b5。
-import { TosClient } from "@volcengine/tos-sdk";
+// 安全说明：2026-08-14 起，@volcengine/tos-sdk（及其传递引入的高危 axios 0.21.4/0.27.2）
+// 已彻底移除。TOS V4 预签名 URL 由自实现 tos-signer.ts 生成（纯 node:crypto HMAC-SHA256，
+// 零第三方网络依赖），所有对象上传/下载/HEAD/删除（同步+异步、缓冲+流式）全部经
+// curl/fetch 走预签名 URL。算法逐字节对齐 tos-sdk@2.9.1，由 tos-signer.test.ts 的 golden
+// vector 与 storage-tos.integration.test.ts 的真实 TOS 回归（5 用例）共同保证。
+// 历史风险接受记录见 commit 425960b5（techwu@PardxAi）；本自实现即该记录所指的根治路径。
+import { createTosPresignedUrl } from "./tos-signer.ts";
 import {
   type AttachmentRuntimeConfig,
   resolveAttachmentRuntimeConfig,
@@ -185,16 +178,9 @@ export function sha256Hex(contentBytes: Uint8Array): string {
 
 class TosAttachmentStorageClient implements AttachmentStorageClient {
   private readonly config: Extract<AttachmentRuntimeConfig, { provider: "tos" }>["tos"];
-  private readonly client: TosClient;
 
   constructor(config: Extract<AttachmentRuntimeConfig, { provider: "tos" }>) {
     this.config = config.tos;
-    this.client = new TosClient({
-      accessKeyId: this.config.accessKeyId,
-      accessKeySecret: this.config.secretAccessKey,
-      endpoint: toEndpointHost(this.config.endpoint),
-      region: this.config.region,
-    });
   }
 
   async putObject(input: AttachmentStoragePutInput): Promise<StoredAttachmentObject> {
@@ -500,31 +486,36 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     method: "GET" | "PUT" | "DELETE" | "HEAD",
     bucket?: string,
   ): string {
-    // The SDK runtime supports all HTTP methods; its current type declaration omits DELETE/HEAD.
     const targetBucket = bucket ?? this.config.bucket;
     // The configured bucket is served through a custom domain (bucketDomain / public
     // endpoint CDN) whose mapping targets exactly that one bucket, so it is signed with
     // isCustomDomain: true — the bucket appears only in the signature, not the URL host.
     // A historical or migrated object persisted under a DIFFERENT bucket has no such
     // domain mapping, so it must be addressed in standard virtual-hosted form
-    // (https://${bucket}.${endpoint}/key), which the SDK emits when isCustomDomain is
+    // (https://${bucket}.${endpoint}/key), which the signer emits when isCustomDomain is
     // false and no alternativeEndpoint is supplied. "Cross-bucket" here is same-region
     // (shared client endpoint) — this matches the pre-refactor getObjectV2 / headObject /
     // deleteObject behavior, which likewise overrode only the bucket, never the endpoint.
     if (targetBucket === this.config.bucket) {
-      return this.client.getPreSignedUrl({
+      return createTosPresignedUrl({
+        accessKeyId: this.config.accessKeyId,
+        secretAccessKey: this.config.secretAccessKey,
+        endpoint: toEndpointHost(this.config.endpoint),
         bucket: targetBucket,
         key,
-        method: method as "GET" | "PUT",
+        method,
         expires: TOS_SIGNED_URL_TTL_SECONDS,
         alternativeEndpoint: toEndpointHost(this.config.bucketDomain ?? `${this.config.bucket}.${toEndpointHost(this.config.publicEndpoint)}`),
         isCustomDomain: true,
       });
     }
-    return this.client.getPreSignedUrl({
+    return createTosPresignedUrl({
+      accessKeyId: this.config.accessKeyId,
+      secretAccessKey: this.config.secretAccessKey,
+      endpoint: toEndpointHost(this.config.endpoint),
       bucket: targetBucket,
       key,
-      method: method as "GET" | "PUT",
+      method,
       expires: TOS_SIGNED_URL_TTL_SECONDS,
     });
   }
