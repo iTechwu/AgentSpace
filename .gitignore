@@ -49,3 +49,4 @@ scripts/record
 temp/
 tmp/
 test/
+apps/web/next-env.d.ts
