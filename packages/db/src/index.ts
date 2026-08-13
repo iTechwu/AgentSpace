@@ -1308,5 +1308,5 @@ export {
   type CreateBackupRestoreDrillRunInput,
 } from "./backup-restore-drill-runs.ts";
 
-// Postgres connection resolution
-export { resolvePostgresDatabaseUrl } from "./postgres.ts";
+// resolvePostgresDatabaseUrl 不在 root barrel 导出：它经 node:sqlite 间接引入仅 Node 运行时，
+// 会把 Node-only 图泄进 web bundle。消费者请用子路径 @dofe-agent/db/postgres（postgres.ts 导出）。
