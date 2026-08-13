@@ -13,6 +13,13 @@ import {
 import { dirname, relative, resolve, sep } from "node:path";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+// 安全说明：@volcengine/tos-sdk@2.9.1（已是最新）硬钉 axios ^0.21.1，传递引入
+// axios 0.21.4 / 0.27.2，npm audit 标记为高危（SSRF/ReDoS/CSRF cookie）。
+// 此处 TosClient 仅用于生成本地预签名 URL，实际对象上传/下载/删除全部走 curl，
+// axios 只对「固定 TOS 端点」做元数据/签名调用——SSRF 需攻击者可控 URL、ReDoS 处理受控
+// 服务端响应、CSRF 属浏览器场景，故在本用法下均不可实际利用。
+// 不通过 pnpm.overrides 强制 axios 1.x：0.21→1.x 为大版本破坏，tos-sdk 零测试覆盖，
+// override 会危及签名/上传/重试且无法验证。如需根治，应先补 TOS 集成测试再评估 override。
 import { TosClient } from "@volcengine/tos-sdk";
 import {
   type AttachmentRuntimeConfig,
