@@ -21,7 +21,7 @@
     "mammoth": "^1.8.0",
     "pdf-parse": "^2.4.5",
     "pptx2json": "^0.0.10",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "yaml": "^2.7.0"
   },
   "exports": {

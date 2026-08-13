@@ -142,3 +142,29 @@ test("parseFileToMarkdown rejects bad XLSX or skips if xlsx missing", async (t) 
     t.skip();
   }
 });
+
+test("parseFileToMarkdown parses a real XLSX end-to-end and guards prototype pollution (xlsx >= 0.20.3)", async () => {
+  // xlsx@0.18.5 存在原型污染公告（<= 0.19.2 受影响），已迁移到 CDN 维护版 0.20.3。
+  // 这是唯一真正端到端解析一个真实工作簿的用例，覆盖 0.20.3 的 API 兼容性，
+  // 并以 Object.prototype 快照作为回归网——主要缓解仍来自版本 >= 0.19.3 本身。
+  const mod = await import("xlsx");
+  const XLSX = ((mod as { default?: typeof mod }).default ?? mod) as typeof import("xlsx");
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ["name", "value"],
+    ["alpha", "1"],
+    ["beta", "2"],
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+  const protoKeysBefore = Object.getOwnPropertyNames(Object.prototype);
+
+  const result = await parseFileToMarkdown(new Uint8Array(buffer), "table.xlsx");
+  assert.equal(result.detectedKind, "xlsx");
+  assert.match(result.markdown, /alpha/);
+  assert.match(result.markdown, /beta/);
+
+  const protoKeysAfter = Object.getOwnPropertyNames(Object.prototype);
+  assert.deepEqual(protoKeysAfter, protoKeysBefore, "Object.prototype 不应被污染");
+});
