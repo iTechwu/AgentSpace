@@ -40,7 +40,7 @@ test("HttpDaemonClient retries retryable requests after transient server failure
 
 test("HttpDaemonClient aborts a hung request within the configured timeout", async () => {
   const originalFetch = globalThis.fetch;
-  let receivedSignal: AbortSignal | undefined;
+  let receivedSignal: AbortSignal | null | undefined;
   globalThis.fetch = (async (_input, init) => {
     receivedSignal = init?.signal;
     return new Promise<Response>((_resolve, reject) => {

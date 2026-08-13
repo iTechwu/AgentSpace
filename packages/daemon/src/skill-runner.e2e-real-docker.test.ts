@@ -256,7 +256,7 @@ printf '{"runtime":"bash","isolated":true}\n' > "\${DOFE_SKILL_OUTPUT_DIR}/bash.
     });
 
     for (const capability of broker.capabilities) {
-      assert.equal(capability.status, "available", capability.denialReason);
+      assert.equal(capability.status, "available", capability.denialReason ?? "");
       assert.ok(capability.binPath);
       await execFileAsync(capability.binPath, [], { timeout: 120_000 });
     }
