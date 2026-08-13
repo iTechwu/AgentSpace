@@ -1088,31 +1088,73 @@ function inspectProviderCredentialRequest(
   return null;
 }
 
+/**
+ * Inline child script run with the daemon's own `process.execPath`: reads
+ * `{ url, headers }` from stdin and performs a single GET via the built-in
+ * fetch, writing `{ ok, status }` (or `{ ok:false, error }`) to stdout. The
+ * credential already lives in the header lines, so it travels through stdin and
+ * never appears in the child's argv. Using Node itself removes the probe's hard
+ * dependency on an external `curl` binary being installed on the host.
+ */
+const PROVIDER_API_PROBE_SCRIPT = `
+(async () => {
+  let input = "";
+  process.stdin.setEncoding("utf8");
+  for await (const chunk of process.stdin) input += chunk;
+  let request;
+  try {
+    request = JSON.parse(input);
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ ok: false, error: "invalid probe input" }));
+    return;
+  }
+  const headers = {};
+  for (const line of Array.isArray(request.headers) ? request.headers : []) {
+    const index = line.indexOf(":");
+    if (index > 0) headers[line.slice(0, index).trim().toLowerCase()] = line.slice(index + 1).trim();
+  }
+  try {
+    const response = await fetch(request.url, {
+      method: "GET",
+      headers,
+      redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
+    });
+    process.stdout.write(JSON.stringify({ ok: true, status: response.status }));
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ ok: false, error: error && error.message ? error.message : String(error) }));
+  }
+})();
+`;
+
 function executeProviderApiRequest(
   request: { url: string; headers: string[] },
   provider: DaemonProvider,
   environment: Record<string, string>,
   checkedAt: string,
 ): ProviderHealthSnapshot {
-  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
-  const config = request.headers.map((header) => `header = "${escapeCurlConfigValue(header)}"`).join("\n");
-  const result = spawnSync("curl", [
-    "--silent",
-    "--show-error",
-    "--max-time", "10",
-    "--output", nullDevice,
-    "--write-out", "%{http_code}",
-    "--config", "-",
-    request.url,
-  ], {
-    input: `${config}\n`,
+  const result = spawnSync(process.execPath, ["-e", PROVIDER_API_PROBE_SCRIPT], {
+    input: JSON.stringify({ url: request.url, headers: request.headers }),
     encoding: "utf8",
     timeout: 12_000,
     windowsHide: true,
     env: { ...process.env, ...environment },
   });
-  const statusCode = Number(result.stdout?.trim());
-  if (!result.error && result.status === 0 && statusCode >= 200 && statusCode < 300) {
+  let probeStatus: number | undefined;
+  let probeError: string | undefined;
+  if (!result.error && result.status === 0 && typeof result.stdout === "string") {
+    try {
+      const parsed = JSON.parse(result.stdout.trim()) as { ok?: boolean; status?: number; error?: string };
+      if (parsed?.ok) {
+        probeStatus = parsed.status;
+      } else {
+        probeError = parsed?.error;
+      }
+    } catch {
+      // Malformed child output falls through to the generic broken snapshot.
+    }
+  }
+  if (probeStatus !== undefined && probeStatus >= 200 && probeStatus < 300) {
     return {
       status: "healthy",
       checkedAt,
@@ -1121,17 +1163,18 @@ function executeProviderApiRequest(
     };
   }
   const message = result.error?.message
+    || probeError
     || result.stderr?.trim()
-    || `${formatDaemonProviderLabel(provider)} provider probe returned HTTP ${Number.isFinite(statusCode) ? statusCode : "unknown"}.`;
+    || `${formatDaemonProviderLabel(provider)} provider probe returned HTTP ${
+      probeStatus !== undefined && Number.isFinite(probeStatus) ? probeStatus : "unknown"
+    }.`;
   return {
     status: "broken",
     checkedAt,
     verificationKind: "provider_request",
     reason: message,
     error: {
-      code: result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT"
-        ? "provider.cli_missing"
-        : "provider.runtime_generic_failure",
+      code: "provider.runtime_generic_failure",
       category: result.error ? "runtime" : "provider",
       provider,
       message,
@@ -1387,10 +1430,6 @@ function assertSafeProviderCredential(value: string): void {
   if (/[\r\n\0]/.test(value)) {
     throw new Error("Provider credential contains invalid control characters.");
   }
-}
-
-function escapeCurlConfigValue(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function readRuntimeProviderHealthMetadata(runtime: ProviderRuntimeRecord): ReturnType<typeof buildOpenClawProviderHealthSnapshot> | undefined {

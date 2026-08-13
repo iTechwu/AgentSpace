@@ -182,19 +182,22 @@ test("buildProviderRuntimeMetadata passes the managed provider environment to a 
 test("buildProviderRuntimeMetadata performs an authenticated provider request without exposing the key", () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-probe-bin-"));
   const executablePath = join(binDir, "claude");
-  const curlPath = join(binDir, "curl");
-  const previousPath = process.env.PATH;
+  // The probe spawns `process.execPath`; faking it stands in for the gateway:
+  // it reads the {url,headers} JSON from stdin and returns 204 only when the
+  // credential is present. stdin (not argv) carries the key, so it never leaks.
+  const fakeProbePath = join(binDir, "node");
+  const originalExecPath = process.execPath;
 
   try {
     writeFileSync(executablePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
     writeFileSync(
-      curlPath,
-      "#!/bin/sh\nconfig=$(cat)\ncase \"$config\" in *\"managed-provider-key\"*) printf 204;; *) printf 401;; esac\n",
+      fakeProbePath,
+      '#!/bin/sh\ninput=$(cat)\ncase "$input" in *"managed-provider-key"*) printf \'%s\' \'{"ok":true,"status":204}\';; *) printf \'%s\' \'{"ok":false,"error":"unauthorized"}\';; esac\n',
       "utf8",
     );
     chmodSync(executablePath, 0o755);
-    chmodSync(curlPath, 0o755);
-    process.env.PATH = `${binDir}${delimiter}${previousPath ?? ""}`;
+    chmodSync(fakeProbePath, 0o755);
+    process.execPath = fakeProbePath;
 
     const metadata = buildProviderRuntimeMetadata({
       provider: "claude",
@@ -216,7 +219,7 @@ test("buildProviderRuntimeMetadata performs an authenticated provider request wi
     assert.equal(health?.verificationKind, "provider_request");
     assert.equal(JSON.stringify(metadata).includes("managed-provider-key"), false);
   } finally {
-    process.env.PATH = previousPath;
+    process.execPath = originalExecPath;
     rmSync(binDir, { recursive: true, force: true });
   }
 });
