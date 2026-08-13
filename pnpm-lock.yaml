@@ -208,8 +208,8 @@ importers:
         specifier: workspace:*
         version: link:../domain
       '@dofe/models-sdk':
-        specifier: ^0.5.6
-        version: 0.5.6
+        specifier: ^0.5.7
+        version: 0.5.7
       '@larksuiteoapi/node-sdk':
         specifier: ^1.73.0
         version: 1.73.0
@@ -311,8 +311,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dofe/models-sdk@0.5.6':
-    resolution: {integrity: sha512-uYGr60zWTKqzsBCUH0ZBNtyXNAM5kzMVlZkM+VRPNkX+DMZPZALEIiXxJkbhiISlLqh8KCEAv71sW94iy+zsFA==}
+  '@dofe/models-sdk@0.5.7':
+    resolution: {integrity: sha512-pVX2Nw7fkSJboTcuZWysB24C4hyb0bTYLegq7RUQjwNnSHeDle29f92YQoJIcr8Qcj07KjZChnH32MAgawsFlQ==}
     engines: {node: '>=18.0.0'}
 
   '@dofe/sso-node@0.1.75':
@@ -3074,7 +3074,7 @@ packages:
         optional: true
 
   xlsx@https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz:
-    resolution: {integrity: sha512-oLDq3jw7AcLqKWH2AhCpVTZl8mf6X2YReP+Neh0SJUzV/BdZYjth94tG5toiMB1PPrYtxOCfaoUCkvtuH+3AJA==, tarball: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz}
+    resolution: {tarball: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz}
     version: 0.20.3
     engines: {node: '>=0.8'}
     hasBin: true
@@ -3194,7 +3194,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dofe/models-sdk@0.5.6': {}
+  '@dofe/models-sdk@0.5.7': {}
 
   '@dofe/sso-node@0.1.75': {}
 
