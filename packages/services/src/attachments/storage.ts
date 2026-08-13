@@ -459,7 +459,9 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
 
   contentAddressedBlobExistsSync(input: ContentAddressedBlobReadInput): boolean {
     const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
-    const signedUrl = this.createPresignedUrl(key, "GET");
+    // TOS 预签名绑定 HTTP 方法：HEAD 请求必须使用 HEAD 签名的 URL，
+    // 用 GET 签名的 URL 发 HEAD 会返回 403（实测确认）。
+    const signedUrl = this.createPresignedUrl(key, "HEAD");
     // HEAD via curl; 2xx = exists, 404 = missing, anything else = treat as missing.
     const result = spawnSync("curl", ["-sS", "-o", "/dev/null", "-w", "%{http_code}", "-I", signedUrl], {
       maxBuffer: 1024 * 1024,
@@ -476,8 +478,8 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     this.deleteObjectSync({ storageKey: key, storedPath: `tos://${this.config.bucket}/${key}` });
   }
 
-  private createPresignedUrl(key: string, method: "GET" | "PUT" | "DELETE"): string {
-    // The SDK runtime supports all HTTP methods; its current type declaration omits DELETE.
+  private createPresignedUrl(key: string, method: "GET" | "PUT" | "DELETE" | "HEAD"): string {
+    // The SDK runtime supports all HTTP methods; its current type declaration omits DELETE/HEAD.
     return this.client.getPreSignedUrl({
       bucket: this.config.bucket,
       key,
