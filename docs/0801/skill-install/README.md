@@ -74,6 +74,6 @@
 1. 在与生产一致的 Linux managed node 上执行真实 egress、IPv6、DNS/DoH、secret inspect、轮换和 daemon restart 负面 E2E。
 2. 在真实 Remote Runtime 通过 Runner 执行 npm `require` 与 Python `import` smoke，并证明镜像缺失、cache/env 删除或篡改后任务在 Provider 启动前或脚本调用时 fail-closed。
 
-继续优化项为：建设外部连接引用与 shared-service inventory、managed MCP 私网 bridge；把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；将 base64 task bundle 改为 content-addressed 分块/缓存传输；提供 system dependency catalog resolver；把现有 GitHub/GitLab 按需更新检查扩展为 registry 定时扫描与通知；完成 legacy backfill、orphan GC、指标告警、独立升级审批和 service 运维体验。rollback 控制面已重验 artifact/blob、prepared digest 和当前组件健康；节点本地 dependency env/cache 仍由 daemon 在任务执行前复验。
+继续优化项为：建设外部连接引用与 shared-service inventory、managed MCP 私网 bridge；把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；将 base64 task bundle 改为 content-addressed 分块/缓存传输；把现有 GitHub/GitLab 按需更新检查扩展为 registry 定时扫描与通知；完成 legacy backfill、orphan GC、指标告警、独立升级审批和 service 运维体验。系统依赖 catalog resolver 已落地：`system:<name>` 经 fail-closed catalog 解析为 `binaries[]`，在不可变 Runner 镜像内按 entrypoint runtime 逐镜像探测（`probeMode` all/any 语义），缺失即 `blocked`；受审批的出站 egress 由 egress capability 承载（manifest `network.egressAllowlist` → first-install 风险审批 → 快照透传 → Runner DNS 投毒 + `/etc/hosts` 白名单）。rollback 控制面已重验 artifact/blob、prepared digest 和当前组件健康；节点本地 dependency env/cache 仍由 daemon 在任务执行前复验。
 
 详见 [实施差距第六次复审](./07-实施差距审查.md)。
