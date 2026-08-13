@@ -676,7 +676,7 @@ export function resolveSkillRunnerImage(runtime: SkillEntrypointRuntime, env: No
 }
 
 export function isSkillRunnerImageAvailableLocally(image: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const result = spawnSync(env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", ["image", "inspect", image], {
+  const result = spawnSync(/*turbopackIgnore: true*/ env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", ["image", "inspect", image], {
     env: minimalRunnerHostEnvironment(env),
     encoding: "utf8",
     timeout: 10_000,
@@ -736,7 +736,7 @@ export function runSkillRunnerSystemProbe(
   } catch {
     return false;
   }
-  const result = spawnSync(env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
+  const result = spawnSync(/*turbopackIgnore: true*/ env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
     env: minimalRunnerHostEnvironment(env),
     encoding: "utf8",
     timeout: SYSTEM_PROBE_TIMEOUT_MS,

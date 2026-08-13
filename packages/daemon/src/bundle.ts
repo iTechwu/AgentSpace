@@ -170,7 +170,7 @@ export async function materializeRemoteInputBundle(input: {
   for (const file of workspace.files) {
     const targetPath = resolveBundleTargetPath(input.workDir, file.path);
     assertNoSymlinkPath(input.workDir, targetPath);
-    if (existsSync(targetPath)) {
+    if (existsSync(/*turbopackIgnore: true*/ targetPath)) {
       const stat = lstatSync(targetPath);
       if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
         throw new InputBundleValidationError(

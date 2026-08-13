@@ -1259,7 +1259,7 @@ function resolveUniqueArtifactPath(artifactsDir: string, fileName: string): stri
   const parsed = parse(safeFileName);
   let candidate = join(artifactsDir, safeFileName);
   let index = 2;
-  while (existsSync(candidate)) {
+  while (existsSync(/*turbopackIgnore: true*/ candidate)) {
     candidate = join(artifactsDir, `${parsed.name}-${index}${parsed.ext}`);
     index += 1;
   }

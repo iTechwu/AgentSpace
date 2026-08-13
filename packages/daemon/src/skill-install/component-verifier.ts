@@ -430,7 +430,7 @@ export function runSkillRunnerSyntaxCheck(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
-  const result = spawnSync(process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
+  const result = spawnSync(/*turbopackIgnore: true*/ process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,

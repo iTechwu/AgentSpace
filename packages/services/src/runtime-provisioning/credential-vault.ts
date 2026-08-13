@@ -183,17 +183,17 @@ export function resolveRuntimeCredentialVaultDirectory(
   const currentDirectory = process.cwd();
   const candidates = [
     currentDirectory,
-    join(currentDirectory, ".."),
-    join(currentDirectory, "..", ".."),
+    join(/*turbopackIgnore: true*/ currentDirectory, ".."),
+    join(/*turbopackIgnore: true*/ currentDirectory, "..", ".."),
   ];
   for (const candidate of candidates) {
-    const resolved = resolve(candidate);
-    if (existsSync(join(resolved, "Target.md"))) {
-      return resolve(resolved, directory);
+    const resolved = resolve(/*turbopackIgnore: true*/ candidate);
+    if (existsSync(/*turbopackIgnore: true*/ join(resolved, "Target.md"))) {
+      return resolve(/*turbopackIgnore: true*/ resolved, directory);
     }
   }
 
-  return resolve(currentDirectory, directory);
+  return resolve(/*turbopackIgnore: true*/ currentDirectory, directory);
 }
 
 export function buildRuntimeCredentialSecretRef(credentialId: string, scope?: RuntimeCredentialScope): string {

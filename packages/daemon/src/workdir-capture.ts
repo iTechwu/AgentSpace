@@ -147,7 +147,7 @@ export function collectWorkDirChanges(
       truncated = true;
       break;
     }
-    const baseDir = join(workDir, includeDir);
+    const baseDir = join(/*turbopackIgnore: true*/ workDir, includeDir);
     // The include ROOT itself must be a real directory, never a symlink: a
     // provider could point `repository/` at an external directory and every
     // inner-entry check would be bypassed. lstat (no follow) + realpath
@@ -254,7 +254,7 @@ export function collectWorkDirBlobChanges(
   }
 
   for (const includeDir of WORKDIR_CAPTURE_INCLUDE_DIRS) {
-    const baseDir = join(workDir, includeDir);
+    const baseDir = join(/*turbopackIgnore: true*/ workDir, includeDir);
     try {
       const rootStat = lstatSync(baseDir);
       if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
@@ -368,7 +368,7 @@ export function materializeHeadRevisionToWorkDir(
       missingBlobs += 1;
       continue;
     }
-    if (existsSync(targetPath)) {
+    if (existsSync(/*turbopackIgnore: true*/ targetPath)) {
       try {
         const stat = lstatSync(targetPath);
         // A regular divergent file can be an intentional, not-yet-committed
@@ -444,7 +444,7 @@ export function materializeHeadRevisionToWorkDirStrict(
       mkdirParentsNoFollow(dirname(targetPath), workDir);
       const parentDirectory = dirname(targetPath);
       const parentIdentity = readDirectoryIdentity(parentDirectory);
-      if (existsSync(targetPath)) {
+      if (existsSync(/*turbopackIgnore: true*/ targetPath)) {
         const stat = lstatSync(targetPath);
         if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
           throw new Error("existing target is not a regular file");

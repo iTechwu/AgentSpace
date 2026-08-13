@@ -765,14 +765,14 @@ function resolveRuntimeAppExecutionEnvironment(
       }
     : undefined;
   for (const candidate of ["python3", "python"]) {
-    const version = spawnSync(candidate, ["--version"], {
+    const version = spawnSync(/*turbopackIgnore: true*/ candidate, ["--version"], {
       env: environment,
       encoding: "utf8",
       timeout: 5_000,
     });
     if (version.error || version.status !== 0) continue;
 
-    const userBase = spawnSync(candidate, ["-c", "import site; print(site.USER_BASE)"], {
+    const userBase = spawnSync(/*turbopackIgnore: true*/ candidate, ["-c", "import site; print(site.USER_BASE)"], {
       env: environment,
       encoding: "utf8",
       timeout: 5_000,

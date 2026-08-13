@@ -76,7 +76,7 @@ export function inspectOpenClawDaemonAuthHealth(input: {
   const openclawConfigPath = explicitConfigPath ?? join(homeDir, profile ? `.openclaw-${profile}` : ".openclaw", "openclaw.json");
   const authProfilesPath = input.workDir ? join(input.workDir, "agent", "auth-profiles.json") : undefined;
   const modelsPath = input.workDir ? join(input.workDir, "agent", "models.json") : undefined;
-  const hasOpenClawConfig = existsSync(openclawConfigPath);
+  const hasOpenClawConfig = existsSync(/*turbopackIgnore: true*/ openclawConfigPath);
   const authProfiles = authProfilesPath ? readJsonObject(authProfilesPath) : undefined;
   const models = modelsPath ? readJsonObject(modelsPath) : undefined;
   const authProfileCount = authProfiles ? countProfiles(authProfiles) : undefined;

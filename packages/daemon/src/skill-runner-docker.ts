@@ -52,7 +52,7 @@ export async function executeDockerSkillRunner(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<SkillRunnerExecutionResult> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
+    const child = spawn(/*turbopackIgnore: true*/ environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: minimalRunnerHostEnvironment(environment),
     });
@@ -111,7 +111,7 @@ export async function executeDockerSkillRunner(
 
 export function forceRemoveDockerSkillRunnerContainer(containerName: string, environment: NodeJS.ProcessEnv): Promise<void> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", ["rm", "-f", containerName], {
+    const child = spawn(/*turbopackIgnore: true*/ environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", ["rm", "-f", containerName], {
       stdio: ["ignore", "pipe", "pipe"],
       env: minimalRunnerHostEnvironment(environment),
     });
@@ -164,7 +164,7 @@ export async function listLiveSkillRunnerEgressPolicyServiceIds(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Set<string>> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", [
+    const child = spawn(/*turbopackIgnore: true*/ environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", [
       "ps",
       "--filter", `label=${SKILL_RUNNER_EGRESS_POLICY_LABEL}`,
       "--format", "{{json .Labels}}",

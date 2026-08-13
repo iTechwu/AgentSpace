@@ -342,7 +342,7 @@ export async function migrateSqliteToPostgres(
   const dryRun = input?.dryRun === true;
   const reset = input?.reset === true;
 
-  if (!existsSync(sqlitePath)) {
+  if (!existsSync(/*turbopackIgnore: true*/ sqlitePath)) {
     throw new Error(`SQLite source database does not exist: ${sqlitePath}`);
   }
 
