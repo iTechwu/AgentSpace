@@ -144,14 +144,26 @@ export async function parseFileToMarkdown(
 }
 
 async function parsePdf(bytes: Uint8Array, fileName: string): Promise<ParseResult> {
-  const { default: pdfParse } = await loadOptionalDependency<{
-    default: (buffer: Buffer | Uint8Array) => Promise<{ text: string; numpages: number }>;
+  // pdf-parse v2 改为命名导出 `PDFParse` 类：`new PDFParse({ data }).getText()`，
+  // 不再是 v1 的默认导出函数 `pdfParse(buffer)`。
+  const { PDFParse } = await loadOptionalDependency<{
+    PDFParse: new (options: { data: Buffer | Uint8Array }) => {
+      getText: () => Promise<{ text?: string }>;
+      destroy: () => Promise<void>;
+    };
   }>("pdf-parse", "PDF 解析");
-  const buffer = Buffer.from(bytes);
-  const parsed = await pdfParse(buffer).catch((error: unknown) => {
+  const parser = new PDFParse({ data: Buffer.from(bytes) });
+  let markdown = "";
+  try {
+    const parsed = await parser.getText();
+    markdown = (parsed.text ?? "").replace(/\r\n/g, "\n").trim();
+  } catch (error) {
     throw wrapParserError("pdf-parse", fileName, error);
-  });
-  const markdown = (parsed.text ?? "").replace(/\r\n/g, "\n").trim();
+  } finally {
+    await parser.destroy().catch(() => {
+      /* 销毁失败不阻塞已完成的解析结果 */
+    });
+  }
   return {
     markdown,
     warnings:

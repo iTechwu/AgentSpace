@@ -29,11 +29,11 @@
   },
   "dependencies": {
     "@dofe-agent/domain": "workspace:*",
-    "pg": "^8.20.0"
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
-    "@types/pg": "^8.20.0",
+    "@types/pg": "^8.21.0",
     "typescript": "^5.9.3"
   }
 }
