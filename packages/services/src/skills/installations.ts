@@ -41,6 +41,7 @@ import type {
   DaemonSkillRunnerEntrypoint,
   SkillEntrypointRuntime,
 } from "@dofe-agent/domain";
+import { normalizeSkillEgressAllowlist } from "@dofe-agent/domain";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { createSkillInstallationOperationSync } from "@dofe-agent/db";
 import { createAttachmentStorageClient, type AttachmentStorageReadInput } from "../attachments/storage.ts";
@@ -514,10 +515,17 @@ function resolveSnapshotEgressAllowlist(input: {
     releaseLockDigest: input.releaseLockDigest,
   });
   if (!approval) return undefined;
-  const hosts = (network.egressAllowlist ?? [])
-    .map((host) => host.trim().toLocaleLowerCase("en-US"))
-    .filter((host) => host.length > 0);
-  const uniqueHosts = Array.from(new Set(hosts)).sort((a, b) => a.localeCompare(b, "en-US"));
+  // Freeze the grant in the same canonical form the approval summarized and
+  // the runtime enforces (shared strict origin parser). Entries that fail the
+  // parser can only come from legacy artifacts predating strict validation;
+  // keep them raw so the runtime's fail-closed error names the original entry.
+  const { formatted, invalid } = normalizeSkillEgressAllowlist(network.egressAllowlist ?? []);
+  const uniqueHosts = Array.from(new Set([
+    ...formatted,
+    ...invalid
+      .map((entry) => entry.entry.trim().toLocaleLowerCase("en-US"))
+      .filter((raw) => raw.length > 0),
+  ])).sort((a, b) => a.localeCompare(b, "en-US"));
   return uniqueHosts.length > 0 ? uniqueHosts : ["*"];
 }
 

@@ -29,6 +29,38 @@ test("validateDspManifest accepts a complete manifest", () => {
   assert.deepEqual(result.errors, []);
 });
 
+test("validateDspManifest rejects egress allowlist entries DNS pinning cannot enforce", () => {
+  for (const entry of [
+    "203.0.113.10",
+    "[2001:db8::1]",
+    "localhost",
+    "db.internal",
+    "intranet",
+    "*.example.com",
+    "https://api.example.com/v1",
+    "api.example.com:8443",
+  ]) {
+    const result = validateDspManifest({
+      ...VALID_MANIFEST,
+      network: { egressAllowlist: [entry] },
+    });
+    assert.equal(result.ok, false, entry);
+    assert.ok(
+      result.errors.some((error) => error.includes("/network/egressAllowlist")),
+      entry,
+    );
+  }
+});
+
+test("validateDspManifest accepts enforceable egress allowlist origins", () => {
+  const result = validateDspManifest({
+    ...VALID_MANIFEST,
+    network: { egressAllowlist: ["api.example.com", "https://registry.example.com", "api.example.com:443"] },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
+});
+
 test("validateDspManifest rejects an unknown schemaVersion", () => {
   const result = validateDspManifest({ ...VALID_MANIFEST, schemaVersion: 2 });
   assert.equal(result.ok, false);

@@ -14,6 +14,7 @@ import {
   resolveSkillRunnerEgressNetwork,
   resolveSkillRunnerNetworkArgs,
   SkillRunnerEgressResolutionError,
+  SkillRunnerEgressOriginError,
   startSkillRunnerBroker,
 } from "./skill-runner.ts";
 
@@ -178,6 +179,25 @@ test("resolveSkillRunnerNetworkArgs resolves allowlisted hosts into add-host pin
     "--add-host", "api.example.com=10.0.0.1",
     "--add-host", "registry.example.com=10.0.0.2",
   ]);
+});
+
+test("resolveSkillRunnerNetworkArgs rejects origins DNS pinning cannot enforce", async () => {
+  // Runner egress is DNS-pin only: raw IPs, localhost, private-suffix names
+  // and explicit ports must fail closed, never degrade to a looser grant.
+  for (const entry of ["203.0.113.10", "localhost", "db.internal", "api.example.com:8443", "https://api.example.com/v1"]) {
+    await assert.rejects(
+      () => resolveSkillRunnerNetworkArgs({
+        egressAllowlist: [entry],
+        environment: { MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted" },
+        lookupHost: async () => [{ family: "ipv4", address: "10.0.0.1" }],
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof SkillRunnerEgressOriginError, entry);
+        assert.equal(error.entry, entry);
+        return true;
+      },
+    );
+  }
 });
 
 test("buildSkillRunnerSystemProbeDockerArgs probes a catalog binary hermetically with a fixed argv", () => {

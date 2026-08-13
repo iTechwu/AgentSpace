@@ -307,6 +307,11 @@ test("catalog admission accepts only enforceable HTTP(S) egress origins", () => 
     "https://user:pass@example.com",
     "https://example.com?q=1",
     "example.com:0",
+    "203.0.113.10",
+    "[2001:db8::1]:443",
+    "localhost",
+    "db.internal",
+    "*.example.com",
   ]) {
     const result = assertSkillServiceCatalogAdmissionSync({
       ...validInput(),

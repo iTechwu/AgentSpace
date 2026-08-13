@@ -18,6 +18,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath } from "@dofe-agent/db";
 import {
   buildSkillRunnerCommandName,
+  normalizeSkillEgressAllowlist,
   type DaemonSkillDependencyEnvironment,
   type DaemonSkillRunnerEntrypoint,
   type RuntimeToolCapability,
@@ -27,7 +28,6 @@ import { buildSkillDependencyTaskEnvironment } from "./skill-install/task-enviro
 import { resolveManagedRuntimeDockerNetwork } from "./managed-provider-credentials.ts";
 import {
   EGRESS_BLOCK_DNS,
-  parseEgressAllowlistHostnames,
 } from "./skill-service/managed-service-runtime.ts";
 import type { ManagedNetworkAddress } from "./skill-service/egress-policy.ts";
 
@@ -211,6 +211,16 @@ export class SkillRunnerEgressResolutionError extends Error {
   }
 }
 
+/** Thrown when a frozen egress grant fails the shared strict origin parser. */
+export class SkillRunnerEgressOriginError extends Error {
+  readonly entry: string;
+  constructor(entry: string, reason: string) {
+    super(`skill_runner.egress_origin_invalid: ${entry} (${reason})`);
+    this.name = "SkillRunnerEgressOriginError";
+    this.entry = entry;
+  }
+}
+
 export async function resolveSkillRunnerNetworkArgs(input: {
   egressAllowlist?: string[];
   environment: NodeJS.ProcessEnv;
@@ -223,9 +233,16 @@ export async function resolveSkillRunnerNetworkArgs(input: {
   if (input.egressAllowlist.includes("*")) {
     return buildSkillRunnerEgressNetworkArgs({ egressAllowlist: input.egressAllowlist, network });
   }
+  // Skill Runner egress is DNS-pin ONLY (no L3/L4 firewall), so the grant must
+  // survive the shared strict parser with ports rejected — fail closed rather
+  // than enforcing a looser object than the one approved.
+  const { hostnames, invalid } = normalizeSkillEgressAllowlist(input.egressAllowlist);
+  if (invalid.length > 0) {
+    throw new SkillRunnerEgressOriginError(invalid[0]!.entry, invalid[0]!.reason);
+  }
   const lookupHost = input.lookupHost ?? defaultRunnerEgressLookup;
   const hostEntries: Array<{ hostname: string; address: string }> = [];
-  for (const hostname of parseEgressAllowlistHostnames(input.egressAllowlist)) {
+  for (const hostname of hostnames) {
     const addresses = await lookupHost(hostname);
     if (addresses.length === 0) {
       throw new SkillRunnerEgressResolutionError(hostname);
@@ -496,6 +513,13 @@ async function handleBrokerRequest(
               sendJson(response, 424, {
                 error: "skill_runner.egress_host_unresolved",
                 message: `Declared egress hostname did not resolve; the run was blocked: ${error.hostname}`,
+              });
+              return;
+            }
+            if (error instanceof SkillRunnerEgressOriginError) {
+              sendJson(response, 424, {
+                error: "skill_runner.egress_origin_invalid",
+                message: `Declared egress origin is invalid; the run was blocked: ${error.entry}`,
               });
               return;
             }

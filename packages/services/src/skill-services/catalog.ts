@@ -1,5 +1,6 @@
 import { upsertSkillServiceCatalogSync } from "@dofe-agent/db";
 import type { StoredSkillServiceCatalogRecord } from "@dofe-agent/db";
+import { parseSkillEgressOrigin } from "@dofe-agent/domain";
 
 /**
  * Service catalog admission (05-运维服务与版本治理.md §准入检查 + CLAUDE.md):
@@ -281,29 +282,11 @@ export function assertSkillServiceCatalogAdmissionSync(
 }
 
 function validateEgressOrigin(entry: string): string | undefined {
-  if (!entry.trim() || /\s/.test(entry) || entry.length > 253) {
-    return "expected a non-empty origin without whitespace";
-  }
-  let url: URL;
-  try {
-    url = new URL(entry.includes("://") ? entry : `https://${entry}`);
-  } catch {
-    return "expected host, host:port or an HTTP(S) origin";
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return "only http and https protocols are supported";
-  }
-  if (!url.hostname || url.username || url.password) {
-    return "host is required and credentials are forbidden";
-  }
-  if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
-    return "only an origin is allowed; path, query and fragment cannot be enforced";
-  }
-  const port = url.port ? Number(url.port) : url.protocol === "http:" ? 80 : 443;
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    return "port must be between 1 and 65535";
-  }
-  return undefined;
+  // Shared strict origin parser. Managed-service egress is enforced by the
+  // host iptables policy (IP + TCP port), so explicit ports ARE enforceable
+  // here — unlike skill manifests, which go through DNS pinning only.
+  const parsed = parseSkillEgressOrigin(entry, { allowExplicitPort: true });
+  return parsed.ok ? undefined : parsed.reason;
 }
 
 function configuredAllowedImageRegistries(): string[] {

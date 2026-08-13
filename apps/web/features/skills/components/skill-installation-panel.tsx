@@ -84,6 +84,12 @@ const SKILL_INSTALL_ERROR_LABELS: Record<string, SkillInstallErrorLabel> = {
     remediationZh: "请由管理员完成首次安装风险审批。",
     remediationEn: "An admin must approve the first-install risk decision.",
   },
+  "skill_runner.egress_origin_invalid": {
+    zh: "该 Skill 声明的出站目标不是合法主机名（如 raw IP、localhost 或端口）。",
+    en: "An egress origin declared by this skill is not a valid hostname (e.g. raw IP, localhost or port).",
+    remediationZh: "请修正 Skill 包的 egressAllowlist 后重新发布。",
+    remediationEn: "Fix the skill package's egressAllowlist and re-publish.",
+  },
   // —— Skill 包缺陷（failed）：修复并重新发布 Skill ——
   "skill_installation.script_not_in_manifest": {
     zh: "入口脚本未在 manifest 文件清单中声明。",

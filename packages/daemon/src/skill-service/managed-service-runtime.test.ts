@@ -257,12 +257,30 @@ test("secret writer rejects traversal and shell-style field names", async () => 
 /* Egress enforcement (pure builders + provision)                      */
 /* ------------------------------------------------------------------ */
 
-test("parseEgressAllowlistHostnames strips schemes, paths and ports", () => {
+test("parseEgressAllowlistHostnames normalizes origins and rejects unenforceable targets", () => {
+  // Scheme + default port normalize to the bare hostname; the L3/L4 iptables
+  // layer enforces explicit non-default ports, this layer pins the hostname.
   assert.deepEqual(
-    parseEgressAllowlistHostnames(["https://fonts.example.com/a.css", "api.example.com:443", "raw.example.com"]),
-    ["fonts.example.com", "api.example.com", "raw.example.com"],
+    parseEgressAllowlistHostnames(["https://fonts.example.com", "api.example.com:443", "raw.example.com"]),
+    ["api.example.com", "fonts.example.com", "raw.example.com"],
   );
   assert.deepEqual(parseEgressAllowlistHostnames([]), []);
+  // Fail closed: a path, raw IP, localhost or private-suffix entry must never
+  // silently become a different security object than the one admitted.
+  for (const invalid of [
+    ["https://fonts.example.com/a.css"],
+    ["203.0.113.10"],
+    ["[2001:db8::10]"],
+    ["localhost"],
+    ["db.internal"],
+    ["*.example.com"],
+  ]) {
+    assert.throws(
+      () => parseEgressAllowlistHostnames(invalid),
+      (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.egress_policy_invalid",
+      invalid[0],
+    );
+  }
 });
 
 test("buildEgressHostsFile pins resolved IPs and localhost", () => {

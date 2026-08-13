@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { buildSkillRunnerCommandName, type DaemonProvider, type SkillEntrypointRuntime } from "@dofe-agent/domain";
+import { buildSkillRunnerCommandName, inferSkillEntrypointRuntimeForPath, type DaemonProvider, type SkillEntrypointRuntime } from "@dofe-agent/domain";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
   readActiveArtifactDigestForSkillSync,
@@ -187,11 +187,9 @@ function isEntrypointRuntime(value: string | undefined): value is SkillEntrypoin
 }
 
 function runtimeForScriptPath(path: string): SkillEntrypointRuntime | undefined {
-  const lower = path.toLowerCase();
-  if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".ts") || lower.endsWith(".mts")) return "node";
-  if (lower.endsWith(".py")) return "python";
-  if (lower.endsWith(".sh") || lower.endsWith(".bash")) return "bash";
-  return undefined;
+  // Shared with install-time system-dependency probing: an implicit entrypoint
+  // must be probed in the same Runner image this projection executes it in.
+  return inferSkillEntrypointRuntimeForPath(path);
 }
 
 function implicitEntrypointId(path: string): string {

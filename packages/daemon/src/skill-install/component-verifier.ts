@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync } from "node:fs";
-import { extname, isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
+import { inferSkillEntrypointRuntimeForPath } from "@dofe-agent/domain";
 import type {
   ClaimedSkillInstallationOperation,
   SkillComponentKind,
@@ -308,8 +309,10 @@ function verifyScriptComponent(
     };
   }
 
-  const interpreter = chooseInterpreter(key);
-  if (!interpreter) {
+  // Shared extension→runtime inference: the syntax check must run in the same
+  // Runner image the provider projection will execute this script in.
+  const runtime = inferSkillEntrypointRuntimeForPath(key);
+  if (!runtime) {
     return {
       kind: "script",
       key,
@@ -318,7 +321,6 @@ function verifyScriptComponent(
       errorMessage: `Script "${key}" does not use a supported Node.js, Python, or Bash runtime.`,
     };
   }
-  const runtime = interpreter === "python" ? "python" : interpreter === "node" ? "node" : "bash";
   const runnerImage = resolveRunnerImage(runtime);
   if (!runnerImage) {
     return {
@@ -376,16 +378,6 @@ function verifyCapabilityComponent(
     };
   }
   return { kind, key, status: "ready" };
-}
-
-function chooseInterpreter(filePath: string): string | null {
-  const lower = filePath.toLowerCase();
-  const ext = extname(lower);
-  if (ext === ".sh") return "sh";
-  if (ext === ".js" || ext === ".mjs") return "node";
-  if (ext === ".ts" || ext === ".mts") return "node";
-  if (ext === ".py") return "python";
-  return null;
 }
 
 export function buildSkillRunnerSyntaxCheckDockerArgs(input: SkillRunnerSyntaxCheckInput): string[] {

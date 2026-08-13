@@ -1,6 +1,6 @@
 import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
-import { normalizeSkillRunnerCommandSegment } from "@dofe-agent/domain";
+import { normalizeSkillEgressAllowlist, normalizeSkillRunnerCommandSegment } from "@dofe-agent/domain";
 
 /**
  * JSON Schema (strict) for `.dofe/manifest.json` (DSP v1).
@@ -143,6 +143,14 @@ export function validateDspManifest(value: unknown): ManifestValidation {
         errors.push(`/entrypoints duplicate normalized id "${normalizedId}"`);
       }
       normalizedIds.add(normalizedId);
+    }
+    // Egress entries must pass the shared strict origin parser so the approved
+    // object and the runtime-enforced object are identical. Skill manifests go
+    // through DNS-pin enforcement only, which cannot restrict ports — explicit
+    // non-default ports are rejected here (allowExplicitPort stays off).
+    const egressAllowlist = (value as { network?: { egressAllowlist?: string[] } }).network?.egressAllowlist ?? [];
+    for (const invalid of normalizeSkillEgressAllowlist(egressAllowlist).invalid) {
+      errors.push(`/network/egressAllowlist entry "${invalid.entry}": ${invalid.reason}`);
     }
     return { ok: errors.length === 0, errors };
   }

@@ -92,6 +92,50 @@ export interface DspServiceRef {
 
 export type SkillEntrypointRuntime = "node" | "python" | "bash";
 
+/**
+ * Infers the entrypoint runtime from a script file extension. This is the
+ * single source of truth for IMPLICIT entrypoints (executable files without a
+ * declared entrypoint): the provider projection, install verification and
+ * system-dependency probing must all agree on it, otherwise a skill would be
+ * probed in one Runner image and executed in another.
+ */
+export function inferSkillEntrypointRuntimeForPath(path: string): SkillEntrypointRuntime | undefined {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".ts") || lower.endsWith(".mts")) return "node";
+  if (lower.endsWith(".py")) return "python";
+  if (lower.endsWith(".sh") || lower.endsWith(".bash")) return "bash";
+  return undefined;
+}
+
+/**
+ * The distinct set of runtimes a skill executes in: declared entrypoint
+ * runtimes plus runtimes inferred from executable ("0755") files without a
+ * declared entrypoint — mirroring the provider projection, which turns such
+ * files into implicit Runner entrypoints. System-dependency probing must cover
+ * exactly this set.
+ */
+export function collectSkillManifestRuntimes(manifest: {
+  entrypoints?: Array<{ runtime?: string }>;
+  files?: Array<{ path?: string; mode?: string }>;
+}): SkillEntrypointRuntime[] {
+  const seen = new Set<SkillEntrypointRuntime>();
+  const declaredPaths = new Set<string>();
+  for (const entrypoint of manifest.entrypoints ?? []) {
+    if (entrypoint.runtime === "node" || entrypoint.runtime === "python" || entrypoint.runtime === "bash") {
+      seen.add(entrypoint.runtime);
+    }
+  }
+  for (const file of manifest.files ?? []) {
+    if (file.mode !== "0755" || !file.path || declaredPaths.has(file.path)) continue;
+    declaredPaths.add(file.path);
+    const runtime = inferSkillEntrypointRuntimeForPath(file.path);
+    if (runtime) {
+      seen.add(runtime);
+    }
+  }
+  return Array.from(seen);
+}
+
 export interface DspEntrypoint {
   id: string;
   kind: "script";

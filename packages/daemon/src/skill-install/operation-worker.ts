@@ -5,6 +5,7 @@ import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath, getDa
 import { connectSandbox } from "@dofe-agent/sandbox";
 import { computeArtifactDigest, resolveSystemDependencySync, type SkillArtifactManifest } from "@dofe-agent/services";
 import type { ClaimedSkillInstallationOperation, SkillEntrypointRuntime } from "@dofe-agent/domain";
+import { collectSkillManifestRuntimes } from "@dofe-agent/domain";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import type { RemoteDaemonConfig } from "../remote-daemon.ts";
 import {
@@ -258,16 +259,21 @@ export function readManifestDependencies(manifestJson: string): Array<{ manager:
   }
 }
 
+/**
+ * The runtimes this skill executes in: declared entrypoint runtimes plus
+ * runtimes inferred from executable (0755) files without a declared
+ * entrypoint. The inference is shared with the provider projection
+ * (inferSkillEntrypointRuntimeForPath) so system dependencies are probed in
+ * the same Runner images the skill actually runs in — a 0755 `foo.py` with no
+ * declared entrypoint executes in the Python Runner and must be probed there.
+ */
 export function readManifestRuntimes(manifestJson: string): SkillEntrypointRuntime[] {
   try {
-    const manifest = JSON.parse(manifestJson) as { entrypoints?: Array<{ runtime?: string }> };
-    const seen = new Set<SkillEntrypointRuntime>();
-    for (const entry of manifest.entrypoints ?? []) {
-      if (entry.runtime === "node" || entry.runtime === "python" || entry.runtime === "bash") {
-        seen.add(entry.runtime);
-      }
-    }
-    return Array.from(seen);
+    const manifest = JSON.parse(manifestJson) as {
+      entrypoints?: Array<{ runtime?: string }>;
+      files?: Array<{ path?: string; mode?: string }>;
+    };
+    return collectSkillManifestRuntimes(manifest);
   } catch {
     return [];
   }

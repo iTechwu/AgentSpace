@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { normalizeSkillEgressAllowlist } from "@dofe-agent/domain";
 import {
   createSkillInstallApprovalSync,
   readSkillArtifactByDigestSync,
@@ -135,10 +136,17 @@ export function buildSkillInstallRiskItemsSync(input: {
   // these items is re-verified at task time. Keys are deterministic (sorted,
   // deduped hostnames) so the digest matches across inspection and plan creation.
   if (manifest.network) {
-    const allowlist = (manifest.network.egressAllowlist ?? [])
-      .map((host) => host.trim().toLocaleLowerCase("en-US"))
-      .filter((host) => host.length > 0);
-    const uniqueHosts = Array.from(new Set(allowlist)).sort((a, b) => a.localeCompare(b, "en-US"));
+    // Shared strict origin parser: the approved risk key is the canonical
+    // origin the runtime enforces, never the raw submitted string.
+    const { formatted, invalid } = normalizeSkillEgressAllowlist(manifest.network.egressAllowlist ?? []);
+    const uniqueHosts = Array.from(new Set(
+      invalid
+        // Legacy artifacts predate strict validation; keep the raw entry
+        // visible rather than silently dropping it from the approval summary.
+        .map((entry) => entry.entry.trim().toLocaleLowerCase("en-US"))
+        .filter((raw) => raw.length > 0)
+        .concat(formatted),
+    )).sort((a, b) => a.localeCompare(b, "en-US"));
     if (uniqueHosts.length > 0) {
       for (const host of uniqueHosts) {
         items.push({

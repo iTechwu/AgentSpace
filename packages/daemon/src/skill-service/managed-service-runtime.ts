@@ -5,6 +5,7 @@ import { promises as fs } from "node:fs";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { normalizeSkillEgressAllowlist } from "@dofe-agent/domain";
 import {
   buildManagedRuntimeDockerConnectivityArgs,
   resolveManagedRuntimeDockerNetwork,
@@ -277,21 +278,24 @@ export function computeManagedServiceHealthRevision(healthJson?: string, state?:
 /* Egress allow-list enforcement                                       */
 /* ------------------------------------------------------------------ */
 
-/** Strips URL schemes / paths / ports from egressAllowlist entries → hostnames. */
+/**
+ * Normalizes egressAllowlist entries to the hostnames the DNS-pin layer
+ * enforces, via the shared strict origin parser. Managed services ALSO get
+ * L3/L4 iptables enforcement (IP + TCP port), so explicit ports are accepted
+ * here and enforced by the firewall layer; this layer pins the hostname.
+ * Any invalid entry fails closed — a malformed allowlist never silently
+ * becomes a different (broader) security object than the one admitted.
+ */
 export function parseEgressAllowlistHostnames(egressAllowlist: string[]): string[] {
-  const hostnames: string[] = [];
-  for (const entry of egressAllowlist) {
-    let host = entry.trim();
-    const schemeIndex = host.indexOf("://");
-    if (schemeIndex >= 0) {
-      host = host.slice(schemeIndex + 3);
-    }
-    host = host.split("/")[0]!.split(":")[0]!.trim();
-    if (host) {
-      hostnames.push(host);
-    }
+  const { hostnames, invalid } = normalizeSkillEgressAllowlist(egressAllowlist, { allowExplicitPort: true });
+  if (invalid.length > 0) {
+    const detail = invalid.map((entry) => `"${entry.entry}": ${entry.reason}`).join("; ");
+    throw new DockerContainerError(
+      "skill_service.egress_policy_invalid",
+      `Managed service egressAllowlist contains invalid entries: ${detail}`,
+    );
   }
-  return [...new Set(hostnames)];
+  return hostnames;
 }
 
 /** Builds the read-only /etc/hosts for the container: localhost + each

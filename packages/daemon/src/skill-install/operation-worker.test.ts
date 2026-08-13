@@ -399,6 +399,36 @@ test("readManifestRuntimes returns the distinct entrypoint runtime set", () => {
   assert.deepEqual(readManifestRuntimes("not-json"), [], "malformed manifest → empty set");
 });
 
+test("readManifestRuntimes infers implicit entrypoints from executable files", () => {
+  // A 0755 `.py` without a declared entrypoint executes in the Python Runner
+  // (provider projection), so system deps must be probed in that image too —
+  // not silently probed in the bash fallback image.
+  assert.deepEqual(
+    readManifestRuntimes(JSON.stringify({
+      files: [
+        { path: "scripts/fetch.py", mode: "0755" },
+        { path: "scripts/build.sh", mode: "0755" },
+        { path: "README.md", mode: "0644" },
+        { path: "data.bin", mode: "0755" },
+      ],
+    })),
+    ["python", "bash"],
+  );
+  // Declared entrypoints and implicit executables merge into one set.
+  assert.deepEqual(
+    readManifestRuntimes(JSON.stringify({
+      entrypoints: [{ id: "a", kind: "script", path: "a.ts", runtime: "node" }],
+      files: [{ path: "tools/probe.py", mode: "0755" }],
+    })),
+    ["node", "python"],
+  );
+  assert.deepEqual(
+    readManifestRuntimes(JSON.stringify({ files: [{ path: "notes.py", mode: "0644" }] })),
+    [],
+    "non-executable scripts are not entrypoints",
+  );
+});
+
 test("verifySystemDependenciesInRunner fails closed on unknown system packages (skill defect)", () => {
   const results = verifySystemDependenciesInRunner(
     [{ name: "htop", version: "system" }],
