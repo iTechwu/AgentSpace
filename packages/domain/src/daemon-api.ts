@@ -398,6 +398,12 @@ export interface DaemonSkillRunnerEntrypoint {
   path: string;
   runtime: SkillEntrypointRuntime;
   configKeys?: string[];
+  /**
+   * Frozen egress grant for this entrypoint, forwarded from the task skill
+   * snapshot. Absent = no egress (`--network none`). Host list = DNS-poison +
+   * `/etc/hosts` pinning; the sentinel `["*"]` = approved unrestricted egress.
+   */
+  egressAllowlist?: string[];
 }
 
 export interface RuntimeToolCapability {

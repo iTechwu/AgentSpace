@@ -180,6 +180,49 @@ test("buildSkillRunnerEntrypointsForSnapshotSync derives executable scripts from
   }]);
 });
 
+test("buildSkillRunnerEntrypointsForSnapshotSync forwards the frozen egress allowlist to every Runner entrypoint", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  const installation = approvedPlan(runtimeId, digest);
+  const entrypoints = buildSkillRunnerEntrypointsForSnapshotSync({
+    workspaceId: "default",
+    runtimeId,
+    resolvedAt: new Date().toISOString(),
+    entries: [{
+      skillId: "egress-skill",
+      skillName: "Install Test",
+      artifactDigest: digest,
+      installationId: installation.id,
+      revision: installation.revision,
+      status: "ready",
+      egressAllowlist: ["api.example.com", "registry.example.com"],
+    }],
+  });
+  assert.equal(entrypoints.length, 1);
+  assert.deepEqual(entrypoints[0]!.egressAllowlist, ["api.example.com", "registry.example.com"]);
+});
+
+test("buildSkillRunnerEntrypointsForSnapshotSync omits egressAllowlist when the entry has no grant", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  const installation = approvedPlan(runtimeId, digest);
+  const entrypoints = buildSkillRunnerEntrypointsForSnapshotSync({
+    workspaceId: "default",
+    runtimeId,
+    resolvedAt: new Date().toISOString(),
+    entries: [{
+      skillId: "no-egress-skill",
+      skillName: "Install Test",
+      artifactDigest: digest,
+      installationId: installation.id,
+      revision: installation.revision,
+      status: "ready",
+    }],
+  });
+  assert.equal(entrypoints.length, 1);
+  assert.equal("egressAllowlist" in entrypoints[0]!, false);
+});
+
 test("claim → resolve → complete drives the installation to ready", async () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();

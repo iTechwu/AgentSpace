@@ -48,6 +48,7 @@ import { evaluateSkillInstallationCapabilitiesSync, resolveSkillServiceComponent
 import {
   buildSkillInstallRiskItemsSync,
   computeSkillInstallRiskDecisionDigestSync,
+  readApprovedSkillInstallDecisionSync,
   SKILL_INSTALL_POLICY_VERSION,
 } from "./install-approval.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
@@ -481,6 +482,45 @@ function readReleaseLockDigest(resolvedLockJson: string): { releaseLockDigest: s
   return {};
 }
 
+/**
+ * Resolves the frozen egress allowlist for a snapshot entry from the artifact's
+ * manifest `network` declaration, re-verifying the first-install approval
+ * against the installation's release lock. Returns:
+ *   - `undefined` → no grant (manifest has no network, OR no lock digest, OR the
+ *     bound approval is absent/revoked); the Runner then runs `--network none`.
+ *   - `["*"]` → an approved unrestricted grant (manifest `network:{}` approved).
+ *   - `[host, ...]` → the pinned, deduped/sorted hostnames (DNS-poison + hosts).
+ */
+function resolveSnapshotEgressAllowlist(input: {
+  workspaceId: string;
+  artifactDigest: string;
+  releaseLockDigest: string | undefined;
+}): string[] | undefined {
+  if (!input.releaseLockDigest) return undefined;
+  const artifact = readSkillArtifactByDigestSync(input.artifactDigest, input.workspaceId);
+  if (!artifact) return undefined;
+  let network: { egressAllowlist?: string[] } | undefined;
+  try {
+    const parsed = JSON.parse(artifact.manifestJson) as { network?: { egressAllowlist?: string[] } };
+    network = parsed.network;
+  } catch {
+    return undefined;
+  }
+  if (!network) return undefined;
+  // Any egress requires a re-verified approved risk decision bound to this lock.
+  const approval = readApprovedSkillInstallDecisionSync({
+    workspaceId: input.workspaceId,
+    artifactDigest: input.artifactDigest,
+    releaseLockDigest: input.releaseLockDigest,
+  });
+  if (!approval) return undefined;
+  const hosts = (network.egressAllowlist ?? [])
+    .map((host) => host.trim().toLocaleLowerCase("en-US"))
+    .filter((host) => host.length > 0);
+  const uniqueHosts = Array.from(new Set(hosts)).sort((a, b) => a.localeCompare(b, "en-US"));
+  return uniqueHosts.length > 0 ? uniqueHosts : ["*"];
+}
+
 function buildBlobStoredPath(blob: ContentBlobRecord): string {
   if (blob.storageProvider === "local") {
     return `local:///${blob.storageKey}`;
@@ -890,6 +930,7 @@ export function buildSkillRunnerEntrypointsForSnapshotSync(
         installationId: entry.installationId,
         artifactDigest: entry.artifactDigest,
         ...candidate,
+        ...(entry.egressAllowlist ? { egressAllowlist: entry.egressAllowlist } : {}),
       });
     }
   }
@@ -1053,6 +1094,12 @@ export function resolveTaskSkillExecutionSnapshotSync(input: {
     if (installation.status !== "ready") {
       continue;
     }
+    const releaseLockDigest = readReleaseLockDigest(installation.resolvedLockJson).releaseLockDigest;
+    const egressAllowlist = resolveSnapshotEgressAllowlist({
+      workspaceId,
+      artifactDigest: installation.artifactDigest,
+      releaseLockDigest,
+    });
     entries.push({
       skillId: skill.id,
       skillName: skill.name,
@@ -1062,7 +1109,8 @@ export function resolveTaskSkillExecutionSnapshotSync(input: {
       status: installation.status,
       dependencyEnvironmentRequired: readSkillInstallationComponentsSync(installation.id)
         .some((component) => component.kind === "dependency" && component.key !== "package:integrity"),
-      ...readReleaseLockDigest(installation.resolvedLockJson),
+      ...(releaseLockDigest ? { releaseLockDigest } : {}),
+      ...(egressAllowlist ? { egressAllowlist } : {}),
     });
   }
 

@@ -642,3 +642,78 @@ test("a degraded rollout pin fails closed instead of falling back to another rea
   });
   assert.deepEqual(snapshot.entries, []);
 });
+
+/**
+ * Builds a network-declaring artifact, approves its egress risk items, installs
+ * it ready, and assigns it to `agentName`. Returns the digest for assertions.
+ */
+function buildReadyEgressInstallation(
+  skill: { id: string; name: string },
+  runtimeId: string,
+  agentName: string,
+  network: { egressAllowlist?: string[] },
+): string {
+  const artifact = buildAndPersistSkillArtifactSync({
+    workspaceId: WORKSPACE_ID,
+    skillId: skill.id,
+    name: skill.name,
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`# egress\n${randomBytes(4).toString("hex")}\n`) }],
+    network,
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  markInstallationReady(installation.id);
+  setStoredEmployeeSkillAssignmentsSync(agentName, [skill.id], WORKSPACE_ID);
+  return artifact.digest;
+}
+
+test("resolveTaskSkillExecutionSnapshotSync stamps the approved egress allowlist onto the entry", () => {
+  createEmployeeSync({ name: "Egress Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "egress-allowlist", description: "Egress" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  buildReadyEgressInstallation(skill, runtimeId, "Egress Researcher", { egressAllowlist: ["api.example.com", "Repo.Example.com"] });
+
+  const snapshot = resolveTaskSkillExecutionSnapshotSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    agentName: "Egress Researcher",
+    agentSkills: [skill],
+  });
+  assert.equal(snapshot.entries.length, 1);
+  // Hostnames are normalized (lowercased, deduped, sorted) at stamp time.
+  assert.deepEqual(snapshot.entries[0]!.egressAllowlist, ["api.example.com", "repo.example.com"]);
+});
+
+test("resolveTaskSkillExecutionSnapshotSync collapses to no egress when the bound approval is revoked", () => {
+  createEmployeeSync({ name: "Revoked Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "egress-revoked", description: "Egress" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  const digest = buildReadyEgressInstallation(skill, runtimeId, "Revoked Researcher", { egressAllowlist: ["api.example.com"] });
+
+  // Revoke the approval — the snapshot must fail closed (no egress grant).
+  getDatabase().prepare("DELETE FROM skill_install_approval WHERE artifact_digest = ?").run(digest.toLowerCase());
+
+  const snapshot = resolveTaskSkillExecutionSnapshotSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    agentName: "Revoked Researcher",
+    agentSkills: [skill],
+  });
+  assert.equal(snapshot.entries.length, 1);
+  assert.equal("egressAllowlist" in snapshot.entries[0]!, false, "revoked approval → no egress grant stamped");
+});
+
+test("resolveTaskSkillExecutionSnapshotSync stamps the unrestricted sentinel for an approved network:{} grant", () => {
+  createEmployeeSync({ name: "Unrestricted Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "egress-unrestricted", description: "Egress" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  buildReadyEgressInstallation(skill, runtimeId, "Unrestricted Researcher", {});
+
+  const snapshot = resolveTaskSkillExecutionSnapshotSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    agentName: "Unrestricted Researcher",
+    agentSkills: [skill],
+  });
+  assert.equal(snapshot.entries.length, 1);
+  assert.deepEqual(snapshot.entries[0]!.egressAllowlist, ["*"]);
+});

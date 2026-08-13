@@ -314,6 +314,16 @@ export interface TaskSkillExecutionSnapshotEntry {
   releaseLockDigest?: string;
   /** True when the pinned installation owns a daemon-local dependency env. */
   dependencyEnvironmentRequired?: boolean;
+  /**
+   * Frozen runtime egress grant for this skill, resolved once at snapshot time.
+   * Absent = no egress (Runner runs `--network none`). A non-empty list limits
+   * egress to those hostnames (DNS poison + /etc/hosts pinning). The sentinel
+   * `["*"]` means an approved unrestricted grant (Runner gets full network
+   * egress). Only stamped when an approved first-install risk decision covering
+   * the manifest's `network` declaration is re-verified against this entry's
+   * release lock — so a revoked approval collapses back to no egress.
+   */
+  egressAllowlist?: string[];
 }
 
 /**
