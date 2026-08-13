@@ -9,6 +9,7 @@ import {
   type SkillInstallApprovalRiskItem,
 } from "@dofe-agent/db";
 import { stableStringify } from "./package/package-digest.ts";
+import { recordSkillLifecycleAuditSync } from "./audit.ts";
 
 export const SKILL_INSTALL_POLICY_VERSION = "v1";
 
@@ -249,6 +250,20 @@ export function approveSkillInstallSync(input: {
     riskItems: input.riskItems,
     reason: input.reason,
     actorUserId: input.actorUserId,
+  });
+  recordSkillLifecycleAuditSync({
+    workspaceId: input.workspaceId ?? "default",
+    code: "skill.install_approval_decision",
+    title: "Skill install approval decision",
+    note: `Install approval ${approval.id} recorded as "${input.decision ?? "approved"}" for artifact ${input.artifactDigest}.`,
+    data: {
+      approvalId: approval.id,
+      artifactDigest: input.artifactDigest,
+      releaseLockDigest: input.releaseLockDigest,
+      decision: input.decision ?? "approved",
+      riskItemCount: input.riskItems.length,
+      actorUserId: input.actorUserId ?? null,
+    },
   });
   return { approvalId: approval.id, created: !approval.consumedAt };
 }

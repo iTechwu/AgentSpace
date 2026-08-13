@@ -53,6 +53,7 @@ import {
   SKILL_INSTALL_POLICY_VERSION,
 } from "./install-approval.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
+import { recordSkillLifecycleAuditSync } from "./audit.ts";
 import { computeSkillReleaseLockSync } from "./release.ts";
 import { queueManagedSkillServiceForInstallationSync } from "../skill-services/bindings.ts";
 
@@ -204,6 +205,22 @@ export function createSkillInstallationPlanSync(input: {
         artifactDigest: artifact.digest,
         expectedComponents: components.map((c) => ({ kind: c.kind, key: c.key })),
       }),
+    });
+    recordSkillLifecycleAuditSync({
+      workspaceId: input.workspaceId ?? "default",
+      code: "skill.installation_plan_created",
+      title: "Skill installation plan created",
+      note: `Installation ${installation.id} planned on runtime ${input.runtimeId} for artifact ${artifact.digest} (revision ${installation.revision}, status ${installation.status}).`,
+      data: {
+        installationId: installation.id,
+        runtimeId: input.runtimeId,
+        artifactDigest: artifact.digest,
+        revision: installation.revision,
+        status: installation.status,
+        componentCount: components.length,
+        approvalId: input.approvalId ?? null,
+        requestedByUserId: input.requestedByUserId ?? null,
+      },
     });
 
     // Missing required catalogs are already captured by unresolvedRequired and
@@ -675,6 +692,19 @@ export function completeSkillInstallationOperationSync(input: {
         setSkillInstallationPreparedDigestSync({ installationId: operation.installationId, workspaceId, preparedDigest: evidence.computedDigest });
       }
       evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
+      recordSkillLifecycleAuditSync({
+        workspaceId,
+        code: "skill.installation_operation_completed",
+        title: "Skill installation operation completed",
+        note: `Operation ${operation.id} (${operation.operation}) completed for installation ${operation.installationId}.`,
+        data: {
+          operationId: operation.id,
+          operation: operation.operation,
+          installationId: operation.installationId,
+          runtimeId: operation.runtimeId,
+          artifactDigest,
+        },
+      });
     });
   } catch (error) {
     if (error instanceof SkillOperationConflictError) {
@@ -767,6 +797,19 @@ export function failSkillInstallationOperationSync(input: {
         }
       }
       evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
+      recordSkillLifecycleAuditSync({
+        workspaceId,
+        code: "skill.installation_operation_failed",
+        title: "Skill installation operation failed",
+        note: `Operation ${operation.id} (${operation.operation}) failed for installation ${operation.installationId}: ${input.errorCode ?? "unknown"}.`,
+        data: {
+          operationId: operation.id,
+          operation: operation.operation,
+          installationId: operation.installationId,
+          runtimeId: operation.runtimeId,
+          errorCode: input.errorCode ?? null,
+        },
+      });
     });
   } catch (error) {
     if (error instanceof SkillOperationConflictError) {

@@ -40,6 +40,7 @@ import {
 import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
 import { readSkillArtifactTextProjectionSync, verifySkillArtifactIntegritySync } from "./skill-artifacts.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
+import { recordSkillLifecycleAuditSync } from "./audit.ts";
 import { stableStringify } from "./package/package-digest.ts";
 import {
   deleteWorkspaceSkillFileSync,
@@ -553,6 +554,20 @@ export function approveSkillUpgradeSync(input: {
     actorUserId: input.actorUserId,
     policyVersion: SKILL_UPGRADE_POLICY_VERSION,
   });
+  recordSkillLifecycleAuditSync({
+    workspaceId: input.workspaceId ?? "default",
+    code: "skill.upgrade_approval_decision",
+    title: "Skill upgrade approval decision",
+    note: `Upgrade approval ${approval.id} recorded as "${input.decision ?? "approved"}" for ${input.fromDigest} → ${input.toDigest}.`,
+    data: {
+      approvalId: approval.id,
+      fromDigest: input.fromDigest,
+      toDigest: input.toDigest,
+      diffHash: input.diffHash,
+      decision: input.decision ?? "approved",
+      actorUserId: input.actorUserId ?? null,
+    },
+  });
   return { approvalId: approval.id, created: !approval.consumedAt };
 }
 
@@ -1062,6 +1077,19 @@ export function promoteSkillUpgradeSync(input: {
        WHERE workspace_id = ? AND skill_id = ?`,
     ).run(candidate.artifactDigest, candidate.revision, workspaceId, input.skillId);
     upsertSkillArtifactBindingSync({ workspaceId, skillId: input.skillId, digest: candidate.artifactDigest });
+    recordSkillLifecycleAuditSync({
+      workspaceId,
+      code: "skill.upgrade_promoted",
+      title: "Skill upgrade promoted",
+      note: `Skill ${input.skillId} promoted to artifact ${candidate.artifactDigest} (revision ${candidate.revision}).`,
+      data: {
+        installationId: candidate.id,
+        skillId: input.skillId,
+        artifactDigest: candidate.artifactDigest,
+        revision: candidate.revision,
+        assignmentCount: assignments.changes,
+      },
+    });
     synchronizePromotedSkillProjection({
       workspaceId,
       skillId: input.skillId,
@@ -1222,6 +1250,19 @@ export function rollbackSkillInstallationSync(input: {
          WHERE workspace_id = ? AND skill_id = ?`,
       ).run(previous.artifactDigest, previous.revision, workspaceId, skillId);
       upsertSkillArtifactBindingSync({ workspaceId, skillId, digest: previous.artifactDigest });
+      recordSkillLifecycleAuditSync({
+        workspaceId,
+        code: "skill.installation_rollback",
+        title: "Skill installation rolled back",
+        note: `Installation ${current.id} rolled back to artifact ${previous.artifactDigest} (revision ${previous.revision}).`,
+        data: {
+          installationId: current.id,
+          skillId,
+          fromDigest: current.artifactDigest,
+          toDigest: previous.artifactDigest,
+          revision: previous.revision,
+        },
+      });
     });
   } catch (error) {
     if (error instanceof SkillReleaseConflictError) {

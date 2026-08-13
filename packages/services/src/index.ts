@@ -603,6 +603,7 @@ export {
   type LegacySkillMigrationFailure,
   type LegacySkillMigrationResult,
 } from "./skills/legacy-migration.ts";
+export { recordSkillLifecycleAuditSync } from "./skills/audit.ts";
 export {
   buildSkillInstallationComponentsSync,
   createSkillInstallationPlanSync,
