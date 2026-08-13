@@ -18,7 +18,11 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // PG→PG migrate dry-run forward-guard + CLI skip exit code. Same deferred class
 // as postgres-background-backfill / postgres-schema-version-guard (not in the db
 // default-run glob). Reviewed and kept deferred.
-const EXPECTED_DEFERRED_DIGEST = "32198a51c2711586c1e523199c28117a910ff4c7c93de3130eb077f910a4b2c9";
+// Re-frozen 2026-08-13 (round 3, 176-file set): added
+// packages/services/src/attachments/storage-tos.integration.test.ts — real-TOS integration
+// regression baseline for the tos-sdk(axios)/curl dual transport (needs TOS_* env; skips
+// cleanly without it). Same deferred class as real-PG integration tests.
+const EXPECTED_DEFERRED_DIGEST = "ee268d78e995a7d362cc62db8014a71c6c1c51cfe72487c27972eb3511f38bff";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
