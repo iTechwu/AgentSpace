@@ -114,6 +114,47 @@ test("risk classifier surfaces script, network, high-risk MCP, and write risk it
   assert.ok(items.some((item) => item.key === "service:postgres"));
 });
 
+test("risk classifier emits per-host egress items for a limited allowlist (deterministic + deduped)", () => {
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: "Egress Skill",
+    files: [
+      { path: "SKILL.md", bytes: encoder.encode("---\nname: Egress\ndescription: net\n---\n# Body\n") },
+    ],
+    sourceType: "local",
+    network: { egressAllowlist: ["Registry.NPMJS.org", "api.example.com", "api.example.com"] },
+  });
+  const items = buildSkillInstallRiskItemsSync({ artifactDigest: artifact.digest });
+  const egress = items.filter((item) => item.key.startsWith("egress:"));
+  // Deduped (api.example.com once) + lowercased + sorted.
+  assert.deepEqual(
+    egress.map((item) => item.key),
+    ["egress:api.example.com", "egress:registry.npmjs.org"],
+  );
+  assert.ok(egress.every((item) => item.category === "network"));
+});
+
+test("risk classifier emits an unrestricted egress item for network:{} ", () => {
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: "Open Egress Skill",
+    files: [
+      { path: "SKILL.md", bytes: encoder.encode("---\nname: Open\ndescription: net\n---\n# Body\n") },
+    ],
+    sourceType: "local",
+    network: {},
+  });
+  const items = buildSkillInstallRiskItemsSync({ artifactDigest: artifact.digest });
+  assert.ok(
+    items.some((item) => item.key === "egress:unrestricted" && item.category === "network"),
+    "empty network = unrestricted egress must be flagged",
+  );
+});
+
+test("risk classifier omits egress when network is absent", () => {
+  const artifact = buildBenignArtifact();
+  const items = buildSkillInstallRiskItemsSync({ artifactDigest: artifact.digest });
+  assert.ok(!items.some((item) => item.key.startsWith("egress:")));
+});
+
 test("benign artifact produces no risk items and needs no approval", () => {
   const artifact = buildBenignArtifact();
   assert.deepEqual(buildSkillInstallRiskItemsSync({ artifactDigest: artifact.digest }), []);

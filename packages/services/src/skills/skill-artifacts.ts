@@ -21,6 +21,7 @@ import { normalizeSkillFilePath } from "../shared/helpers.ts";
 import type {
   DspCapability,
   DspEntrypoint,
+  DspNetworkEgress,
   DspServiceRef,
 } from "@dofe-agent/domain";
 import { inferSkillMediaType } from "./package/skill-file-policy.ts";
@@ -45,6 +46,7 @@ export interface SkillArtifactManifest {
   capabilities?: DspCapability[];
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
+  network?: DspNetworkEgress;
   source?: { type?: string; url?: string };
 }
 
@@ -179,6 +181,7 @@ export interface BuildAndPersistSkillArtifactInput {
   capabilities?: DspCapability[];
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
+  network?: DspNetworkEgress;
   manifestSchemaVersion?: number;
   /** Bind to the Skill lineage without moving its active digest (upgrade candidate). */
   activate?: boolean;
@@ -233,6 +236,7 @@ export function buildAndPersistSkillArtifactSync(
     ...(input.capabilities ? { capabilities: input.capabilities } : {}),
     ...(input.services ? { services: input.services } : {}),
     ...(input.entrypoints ? { entrypoints: input.entrypoints } : {}),
+    ...(input.network ? { network: input.network } : {}),
     source: { type: input.sourceType, url: input.sourceUrl },
   };
   const digest = computeArtifactDigest(manifest, manifestFiles.map((file) => file.sha256));

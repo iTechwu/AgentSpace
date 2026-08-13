@@ -37,6 +37,7 @@ export function buildSkillInstallRiskItemsSync(input: {
     capabilities?: Array<{ kind?: string; catalogSlug?: string; requiredTools?: string[] }>;
     services?: Array<{ catalogSlug?: string; templateVersion?: string }>;
     entrypoints?: Array<{ path?: string; runtime?: string }>;
+    network?: { egressAllowlist?: string[] };
   };
   try {
     manifest = JSON.parse(artifact.manifestJson) as typeof manifest;
@@ -123,6 +124,33 @@ export function buildSkillInstallRiskItemsSync(input: {
         category: "network",
         key: `service:${service.catalogSlug}`,
         description: `部署受管服务 ${service.catalogSlug}@${service.templateVersion ?? "1"}`,
+      });
+    }
+  }
+
+  // Runtime egress (manifest.network). Any egress is a network risk the admin
+  // must authorize; the Runner runs `--network none` unless an approval bound to
+  // these items is re-verified at task time. Keys are deterministic (sorted,
+  // deduped hostnames) so the digest matches across inspection and plan creation.
+  if (manifest.network) {
+    const allowlist = (manifest.network.egressAllowlist ?? [])
+      .map((host) => host.trim().toLocaleLowerCase("en-US"))
+      .filter((host) => host.length > 0);
+    const uniqueHosts = Array.from(new Set(allowlist)).sort((a, b) => a.localeCompare(b, "en-US"));
+    if (uniqueHosts.length > 0) {
+      for (const host of uniqueHosts) {
+        items.push({
+          category: "network",
+          key: `egress:${host}`,
+          description: `运行时出站网络访问 ${host}（DNS 投毒 + /etc/hosts 白名单限制）`,
+        });
+      }
+    } else {
+      // network present but no allowlist = unrestricted egress (highest risk).
+      items.push({
+        category: "network",
+        key: "egress:unrestricted",
+        description: "运行时不受限出站网络访问（最高风险，Runner 将获得完整网络出口）",
       });
     }
   }
