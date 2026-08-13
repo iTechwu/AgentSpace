@@ -10,11 +10,13 @@ import {
   sha256Hex,
 } from "./storage.ts";
 
-// 真实 TOS 集成测试：同时覆盖 curl 预签名传输路径与 tos-sdk(axios) SDK 路径。
-// 这些用例是「保留/替换 tos-sdk」决策的回归基线——评估 override axios 1.x 或
-// 自实现 V4 预签名前，必须先保证本文件全绿。
-// 运行方式：node --env-file-if-exists=.env --experimental-strip-types --test <this file>
-// 缺少 TOS 配置时全部用例跳过，不影响无网络/无凭据环境的测试运行。
+// 真实 TOS 集成测试：全部对象传输走预签名 URL（curl 同步 + fetch 异步 + curl 管道流式），
+// TosClient 仅在本地做 HMAC 预签名（零网络调用），不存在 tos-sdk/axios 的网络路径。
+// 这些用例是「以自实现 V4 预签名替换 tos-sdk」决策的回归基线——替换前必须先保证本文件全绿。
+// 运行方式：pnpm --filter @dofe-agent/services test:tos（或直接
+//   node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 <this file>）
+// 缺少 TOS 配置时全部用例跳过，不影响无网络/无凭据环境的测试运行；因此本文件不纳入
+// 默认 test 门禁，仅在具备 TOS 凭据的独立 CI 门禁中执行。
 
 function resolveTosClient(): AttachmentStorageClient | null {
   let config: ReturnType<typeof resolveAttachmentRuntimeConfig>;
@@ -53,7 +55,7 @@ test.after(() => {
   }
 });
 
-test("TOS sync 路径：curl 预签名上传→SDK head→curl 下载→预签名 URL→删除", async (t) => {
+test("TOS sync 路径：curl 预签名上传→预签名 HEAD→curl 下载→预签名 URL→删除", async (t) => {
   if (!storage) {
     t.skip("缺少 TOS 环境配置（TOS_BUCKET/TOS_REGION/TOS_ACCESS_KEY/TOS_SECRET_KEY/TOS_ENDPOINT）");
     return;
@@ -112,7 +114,7 @@ test("TOS async 路径：预签名 fetch 上传→下载→删除→404", async 
   await storage.deleteObject({ storageKey: stored.key, storedPath: stored.storedPath });
   await assert.rejects(
     () => storage.getObject({ storageKey: stored.key, storedPath: stored.storedPath }),
-    "删除后 SDK getObject 应抛错（404）",
+    "删除后预签名 fetch getObject 应抛错（404）",
   );
 });
 
@@ -203,7 +205,7 @@ test("TOS 错误路径：读取缺失对象抛错，删除缺失对象按幂等�
   assert.equal(
     await storage.headObject({ storageKey: missingKey, storedPath: `tos://x/${missingKey}` }),
     null,
-    "SDK head 缺失对象应返回 null 而非抛错",
+    "预签名 HEAD 缺失对象应返回 null 而非抛错",
   );
   assert.doesNotThrow(
     () => storage.deleteObjectSync({ storageKey: missingKey, storedPath: `tos://x/${missingKey}` }),

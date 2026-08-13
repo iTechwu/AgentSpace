@@ -23,7 +23,7 @@ import { pipeline } from "node:stream/promises";
 // 不通过 pnpm.overrides 强制 axios 1.x：0.21→1.x 为大版本破坏，SDK 引用旧 axios 内部接口，
 // override 可能破坏签名计算。根治路径为以自实现 V4 预签名替换 SDK（约百行 HMAC-SHA256），
 // 回归基线为 packages/services/src/attachments/storage-tos.integration.test.ts（真实 TOS，
-// 覆盖全部传输路径，4 用例全绿）。
+// 覆盖全部传输路径，5 用例全绿）。
 // 风险接受记录：责任人 techwu@PardxAi；复核截止 2026-11-13（到期检查 tos-sdk 是否发布
 // 修复版本，或评估自实现签名替换）。决策出处：commit 425960b5。
 import { TosClient } from "@volcengine/tos-sdk";
