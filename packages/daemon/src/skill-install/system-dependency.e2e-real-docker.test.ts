@@ -16,6 +16,10 @@ import test from "node:test";
 import { getDaemonSkillInstallCachePath } from "@dofe-agent/db";
 import type { DaemonSkillRunnerEntrypoint } from "@dofe-agent/domain";
 import { runSkillRunnerSystemProbe, startSkillRunnerBroker } from "../skill-runner.ts";
+import {
+  buildManagedServiceEgressChainName,
+  createIptablesManagedServiceEgressPolicy,
+} from "../skill-service/egress-policy.ts";
 
 const execFileAsync = promisify(execFile);
 const RUN_E2E = process.env.DOFE_AGENT_RUN_SKILL_RUNNER_E2E === "1";
@@ -188,5 +192,94 @@ printf '{"pinnedInHosts":%s,"poisonedOk":%s}\\n' "\${pinned}" "\${poisoned_ok}" 
     }
     rmSync(stateDir, { recursive: true, force: true });
     rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Proves the REAL L3/L4 firewall on the managed node. The test above proves
+ * Layer 1 (hostname pinning via /etc/hosts + DNS poison); this drives a REAL
+ * `iptables` through the production policy and inspects the kernel rules it
+ * lands. That is what closes the three bypass vectors a pinned /etc/hosts alone
+ * cannot stop:
+ *   - raw-IP egress   → no RETURN rule matches the destination → final DROP,
+ *   - DoH endpoints   → a DoH server is just another non-allowlisted IP → DROP,
+ *   - non-approved ports → the only RETURN to the approved IP carries --dport
+ *     443, so any other port to that IP falls through → DROP.
+ */
+test("REAL IPTABLES: managed egress policy installs a port-443-only allow + final drop", async (t) => {
+  if (!RUN_E2E) {
+    t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
+    return;
+  }
+  assert.equal(process.platform, "linux", "real iptables gate must run on a Linux managed node");
+
+  const stateRootDir = mkdtempSync(join(tmpdir(), "dofe-real-egress-policy-"));
+  // Default exec shells out to the real iptables/ip6tables on PATH.
+  const policy = createIptablesManagedServiceEgressPolicy({ stateRootDir, platform: "linux" });
+  const serviceId = "release-gate-egress-probe";
+  const chain = buildManagedServiceEgressChainName(serviceId);
+  // A source address matching no real container: the DOCKER-USER jump is inert
+  // to live traffic but is still a real kernel rule available for inspection.
+  const sourceIp = "172.18.0.99";
+  const approvedIp = "203.0.113.10";
+
+  const listRules = (chainName?: string) =>
+    execFileSync("iptables", chainName ? ["-S", chainName] : ["-S"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+
+  try {
+    await policy.apply({
+      serviceId,
+      sourceAddresses: [{ family: "ipv4", address: sourceIp }],
+      targets: [{
+        hostname: "approved.example",
+        addresses: [{ family: "ipv4", address: approvedIp }],
+        port: 443,
+      }],
+    });
+
+    // DOCKER-USER carries the per-source-IP jump into the run's chain.
+    const dockerUser = listRules("DOCKER-USER");
+    assert.ok(
+      dockerUser.split("\n").some((line) => line.includes(`-s ${sourceIp}/32`) && line.includes(`-j ${chain}`)),
+      "DOCKER-USER must jump per source IP into the managed chain",
+    );
+
+    const chainRules = listRules(chain).split("\n").filter((line) => line.trim().length > 0);
+    // Approved host narrowed to port 443 only.
+    assert.ok(
+      chainRules.some((line) =>
+        line.includes(`-d ${approvedIp}/32`)
+        && line.includes("-p tcp")
+        && line.includes("--dport 443")
+        && line.includes("-j RETURN")),
+      "the approved host is allowed only on its declared port (443)",
+    );
+    // No any-port RETURN: a connection to the approved IP on any other port
+    // matches no RETURN rule and hits the DROP below (non-approved-port guarantee).
+    assert.equal(
+      chainRules.some((line) =>
+        line.includes(`-d ${approvedIp}/32`)
+        && line.includes("-j RETURN")
+        && !line.includes("--dport")),
+      false,
+      "no any-port RETURN: non-approved ports to the approved IP stay blocked",
+    );
+    // Final DROP: raw IPs, DoH endpoints and every other destination match no
+    // RETURN rule and are dropped (raw-IP / DoH guarantee).
+    assert.ok(
+      chainRules.some((line) => line.trim() === `-A ${chain} -j DROP`),
+      "the chain ends in a default DROP that closes raw-IP / DoH / other-port bypasses",
+    );
+  } finally {
+    await policy.remove({ serviceId }).catch(() => {});
+    // Retire must leave no trace of the run on the host firewall.
+    assert.ok(
+      !listRules().includes(chain),
+      "the managed chain must be removed from the host after retire",
+    );
+    rmSync(stateRootDir, { recursive: true, force: true });
   }
 });

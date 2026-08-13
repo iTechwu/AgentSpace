@@ -21,5 +21,16 @@ done
 "$DOCKER_BIN" version >/dev/null
 export DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1
 NODE_BIN="${DOFE_AGENT_NODE:-$(command -v node)}"
-exec "$NODE_BIN" --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \
+
+# Every REAL Docker release-gate file. Both must pass; a failure in one still
+# runs the other so the gate reports the full picture instead of stopping early.
+FILES=(
   src/skill-runner.e2e-real-docker.test.ts
+  src/skill-install/system-dependency.e2e-real-docker.test.ts
+)
+rc=0
+for file in "${FILES[@]}"; do
+  echo "→ Skill Runner real-Docker release gate: $file" >&2
+  "$NODE_BIN" --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 "$file" || rc=$?
+done
+exit "$rc"
