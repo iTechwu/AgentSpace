@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   createWriteStream,
   existsSync,
@@ -16,12 +16,14 @@ import { pipeline } from "node:stream/promises";
 // 安全说明：@volcengine/tos-sdk@2.9.1（已是最新，官方 registry 2026-03 后无新版本）
 // 硬钉 axios ^0.21.1，传递引入 axios 0.21.4 / 0.27.2，npm audit 标记为高危
 //（SSRF/ReDoS/CSRF cookie/凭据泄漏/原型污染/DoS）。
-// 此处 TosClient 仅用于生成本地预签名 URL，实际对象上传/下载/删除全部走 curl，
-// axios 只对「固定 TOS 端点」做元数据/签名调用——SSRF 需攻击者可控 URL、ReDoS 处理受控
-// 服务端响应、CSRF 属浏览器场景，故在本用法下均不可实际利用。
-// 不通过 pnpm.overrides 强制 axios 1.x：0.21→1.x 为大版本破坏，tos-sdk 零测试覆盖，
-// override 会危及签名/上传/重试且无法验证。如需根治，应先补 TOS 集成测试再评估 override，
-// 或以自实现 V4 预签名替换 SDK（约百行 HMAC-SHA256，但需真实 TOS 回归验证）。
+// 2026-08-13 迁移后：TosClient 仅用于在本地生成预签名 URL（纯 HMAC 计算，零网络调用），
+// 所有对象上传/下载/HEAD/删除（同步+异步、缓冲+流式）全部经 curl/fetch 走预签名 URL。
+// axios 在运行时不发起任何网络请求，上述公告的攻击面在本用法下不可达；
+// 剩余风险仅为供应链层面（SDK 及其 axios 依赖的代码本身）。
+// 不通过 pnpm.overrides 强制 axios 1.x：0.21→1.x 为大版本破坏，SDK 引用旧 axios 内部接口，
+// override 可能破坏签名计算。根治路径为以自实现 V4 预签名替换 SDK（约百行 HMAC-SHA256），
+// 回归基线为 packages/services/src/attachments/storage-tos.integration.test.ts（真实 TOS，
+// 覆盖全部传输路径，4 用例全绿）。
 // 风险接受记录：责任人 techwu@PardxAi；复核截止 2026-11-13（到期检查 tos-sdk 是否发布
 // 修复版本，或评估自实现签名替换）。决策出处：commit 425960b5。
 import { TosClient } from "@volcengine/tos-sdk";
@@ -197,12 +199,14 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
 
   async putObject(input: AttachmentStoragePutInput): Promise<StoredAttachmentObject> {
     const object = this.buildStoredObject(input);
-    await this.client.putObject({
-      bucket: this.config.bucket,
-      key: object.key,
+    const response = await fetch(this.createPresignedUrl(object.key, "PUT"), {
+      method: "PUT",
       body: Buffer.from(input.contentBytes),
-      contentType: input.mediaType,
+      headers: input.mediaType ? { "content-type": input.mediaType } : undefined,
     });
+    if (!response.ok) {
+      throw new Error(`TOS upload failed with status ${response.status}: ${await readErrorBody(response)}`);
+    }
     return object;
   }
 
@@ -259,15 +263,11 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       throw new Error("Missing object storage key.");
     }
-    const response = await this.client.getObjectV2({
-      bucket: input.storageBucket ?? this.config.bucket,
-      key,
-      dataType: "buffer",
-    });
-    if (!Buffer.isBuffer(response.data.content)) {
-      throw new Error("TOS returned an unexpected object response.");
+    const response = await fetch(this.createPresignedUrl(key, "GET"));
+    if (!response.ok) {
+      throw new Error(`TOS read failed with status ${response.status}: ${await readErrorBody(response)}`);
     }
-    return new Uint8Array(response.data.content);
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   getObjectSync(input: AttachmentStorageReadInput): Uint8Array {
@@ -295,30 +295,25 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       return null;
     }
-    try {
-      const response = await this.client.headObject({
-        bucket: input.storageBucket ?? this.config.bucket,
-        key,
-      });
-      const metadata = response.data;
-      return {
-        provider: "tos",
-        bucket: input.storageBucket ?? this.config.bucket,
-        region: input.storageRegion ?? this.config.region,
-        endpoint: input.storageEndpoint ?? this.config.endpoint,
-        key,
-        storedPath: input.storedPath,
-        sizeBytes: parseContentLength(metadata["content-length"]),
-        contentType: optionalString(metadata["content-type"]),
-        etag: metadata.etag,
-        lastModified: metadata["last-modified"],
-      };
-    } catch (error) {
-      if (isTosNotFoundError(error)) {
-        return null;
-      }
-      throw error;
+    const response = await fetch(this.createPresignedUrl(key, "HEAD"), { method: "HEAD" });
+    if (response.status === 404) {
+      return null;
     }
+    if (!response.ok) {
+      throw new Error(`TOS head failed with status ${response.status}: ${await readErrorBody(response)}`);
+    }
+    return {
+      provider: "tos",
+      bucket: input.storageBucket ?? this.config.bucket,
+      region: input.storageRegion ?? this.config.region,
+      endpoint: input.storageEndpoint ?? this.config.endpoint,
+      key,
+      storedPath: input.storedPath,
+      sizeBytes: parseContentLength(response.headers.get("content-length")),
+      contentType: optionalString(response.headers.get("content-type")),
+      etag: optionalString(response.headers.get("etag")),
+      lastModified: optionalString(response.headers.get("last-modified")),
+    };
   }
 
   async deleteObject(input: AttachmentStorageReadInput): Promise<void> {
@@ -326,7 +321,10 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     if (!key) {
       return;
     }
-    await this.client.deleteObject({ bucket: input.storageBucket ?? this.config.bucket, key });
+    const response = await fetch(this.createPresignedUrl(key, "DELETE"), { method: "DELETE" });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`TOS delete failed with status ${response.status}: ${await readErrorBody(response)}`);
+    }
   }
 
   deleteObjectSync(input: AttachmentStorageReadInput): void {
@@ -379,24 +377,43 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
   ): Promise<ContentAddressedBlobRef> {
     const sha256 = normalizeExpectedDigest(input.sha256);
     const key = buildContentAddressedBlobKey(input.workspaceId, sha256);
-    const body = createIntegrityValidator(input.sizeBytes, sha256);
-    const validation = pipeline(input.content, body);
+    const signedUrl = this.createPresignedUrl(key, "PUT");
+    const args = ["--fail", "-sS", "-X", "PUT", signedUrl, "--data-binary", "@-"];
+    if (input.mediaType) {
+      args.splice(args.length - 2, 0, "-H", `Content-Type: ${input.mediaType}`);
+    }
+    const child = spawn("curl", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const stderrChunks: Buffer[] = [];
+    child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+    const exitPromise = new Promise<void>((resolvePromise, rejectPromise) => {
+      child.on("error", rejectPromise);
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolvePromise();
+          return;
+        }
+        const output = Buffer.concat(stderrChunks).toString("utf8");
+        rejectPromise(new Error(`TOS content blob upload failed: ${output.trim() || `curl exited with status ${code}`}`));
+      });
+    });
+    const validator = createIntegrityValidator(input.sizeBytes, sha256);
     try {
-      await Promise.all([
-        this.client.putObject({
-          bucket: this.config.bucket,
-          key,
-          body,
-          contentType: input.mediaType,
-        }),
-        validation,
-      ]);
+      await pipeline(input.content, validator, child.stdin);
     } catch (error) {
+      // 完整性校验失败：立即终止 curl（连接中断，服务端不会落盘截断对象），
+      // 并按幂等删除清理极小概率已落盘的坏对象。
+      child.kill("SIGKILL");
       input.content.destroy();
-      body.destroy();
-      await Promise.allSettled([validation]);
+      validator.destroy();
+      await Promise.allSettled([exitPromise]);
+      try {
+        this.deleteObjectSync({ storageKey: key, storedPath: `tos://${this.config.bucket}/${key}` });
+      } catch {
+        // 清理失败不掩盖完整性错误。
+      }
       throw error;
     }
+    await exitPromise;
     return {
       workspaceId: input.workspaceId,
       sha256,
@@ -719,11 +736,12 @@ function parseCurlStatusCode(output: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function isTosNotFoundError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "statusCode" in error
-    && Number((error as { statusCode?: unknown }).statusCode) === 404;
+async function readErrorBody(response: Response): Promise<string> {
+  try {
+    return (await response.text()).trim();
+  } catch {
+    return "";
+  }
 }
 
 function isLocalStorageNotFoundError(error: unknown): boolean {

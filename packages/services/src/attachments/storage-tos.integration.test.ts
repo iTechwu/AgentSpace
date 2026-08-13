@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { Readable } from "node:stream";
 import test from "node:test";
 import { resolveAttachmentRuntimeConfig } from "../config/deployment.ts";
 import {
   type AttachmentStorageClient,
+  ContentAddressedBlobIntegrityError,
   createAttachmentStorageClient,
   sha256Hex,
 } from "./storage.ts";
@@ -89,7 +91,7 @@ test("TOS sync 路径：curl 预签名上传→SDK head→curl 下载→预签�
   assert.equal(afterDelete, null, "删除后 headObject 应返回 null");
 });
 
-test("TOS async SDK 路径：tos-sdk(axios) 上传→下载→删除→404", async (t) => {
+test("TOS async 路径：预签名 fetch 上传→下载→删除→404", async (t) => {
   if (!storage) {
     t.skip("缺少 TOS 环境配置");
     return;
@@ -141,6 +143,49 @@ test("TOS 内容寻址 blob：上传→存在性→读取→删除→不存在",
 
   storage.deleteContentAddressedBlobSync(blobRead);
   assert.equal(storage.contentAddressedBlobExistsSync(blobRead), false, "删除后 blob 不应存在");
+});
+
+test("TOS 流式上传：curl 管道上传→读取一致→完整性失败清理孤儿对象", async (t) => {
+  if (!storage) {
+    t.skip("缺少 TOS 环境配置");
+    return;
+  }
+  const contentBytes = randomBytes(256 * 1024);
+  const sha256 = sha256Hex(contentBytes);
+  const blobRead = { workspaceId, sha256 };
+
+  storage.deleteContentAddressedBlobSync(blobRead);
+  const ref = await storage.putContentAddressedBlobStream!({
+    workspaceId,
+    sha256,
+    content: Readable.from(contentBytes),
+    sizeBytes: contentBytes.byteLength,
+    mediaType: "application/octet-stream",
+  });
+  trackKey(ref.storageKey);
+  assert.deepEqual(storage.getContentAddressedBlobSync(blobRead), new Uint8Array(contentBytes));
+
+  // 完整性失败：声明错误的 sha256，应抛 ContentAddressedBlobIntegrityError，
+  // 且服务端不得残留按错误 sha 寻址的截断/损坏对象。
+  const wrongSha = "0".repeat(64);
+  const wrongRead = { workspaceId, sha256: wrongSha };
+  storage.deleteContentAddressedBlobSync(wrongRead);
+  await assert.rejects(
+    () => storage.putContentAddressedBlobStream!({
+      workspaceId,
+      sha256: wrongSha,
+      content: Readable.from(contentBytes),
+      sizeBytes: contentBytes.byteLength,
+    }),
+    (error: unknown) => error instanceof ContentAddressedBlobIntegrityError,
+  );
+  assert.equal(
+    storage.contentAddressedBlobExistsSync(wrongRead),
+    false,
+    "完整性失败后服务端不得残留坏对象",
+  );
+
+  storage.deleteContentAddressedBlobSync(blobRead);
 });
 
 test("TOS 错误路径：读取缺失对象抛错，删除缺失对象按幂等成功处理", async (t) => {
