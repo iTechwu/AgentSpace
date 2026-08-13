@@ -333,38 +333,72 @@ export function parseContainerNetworkAddresses(networksJson: string): ManagedNet
 }
 
 /**
- * Best-effort removal of every persisted egress policy under `stateRootDir`.
- * Used when a broker/daemon starts: a crash can leave a per-container chain
- * and DOCKER-USER jump behind, and Docker may reassign that source IP to an
- * unrelated container — stale state is always safe to drop (the chain's
- * default verdict is DROP, so re-adding is the fail-open direction, removing
- * is not). Individual failures are swallowed; the next apply for the same id
+ * Crash-recovery removal of persisted egress policies under `stateRootDir`.
+ * Used when a broker/daemon starts: a crash can leave a per-container chain and
+ * DOCKER-USER jump behind.
+ *
+ * A policy is revoked ONLY when its owning container is confirmed gone. The
+ * caller may pass `enumerateLivePolicyOwners`, which returns the serviceIds of
+ * still-running Runner containers; a policy in that set is KEPT — removing its
+ * chain would re-open a live container's network (the chain's default verdict is
+ * DROP, so keeping it is fail-closed). Policies whose owner is absent (or every
+ * policy when no enumerator is supplied) are removed as stale. If the enumerator
+ * itself fails, nothing is removed and `enumerationFailed` is `true` so the
+ * caller retries on its next start instead of caching the sweep as done.
+ *
+ * Individual remove failures are swallowed; the next apply for the same id
  * retries cleanup.
  */
 export async function sweepPersistedEgressPolicies(
   stateRootDir: string,
   runtime: ManagedServiceEgressPolicyRuntime,
-): Promise<number> {
+  options?: { enumerateLivePolicyOwners?: () => Promise<Set<string>> },
+): Promise<{ removed: number; kept: number; enumerationFailed: boolean }> {
   let entries: string[];
   try {
     entries = await fs.readdir(stateRootDir);
   } catch {
-    return 0;
+    return { removed: 0, kept: 0, enumerationFailed: false };
   }
-  let removed = 0;
+  // Collect candidate policies first so the (possibly docker-shelling) live-owner
+  // enumeration only runs when there is actually something to evaluate.
+  const candidates: Array<{ entry: string; serviceId: string }> = [];
+  let kept = 0;
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     try {
       const value = JSON.parse(await fs.readFile(join(stateRootDir, entry), "utf8")) as { serviceId?: unknown };
       if (typeof value.serviceId !== "string" || !value.serviceId) continue;
-      await runtime.remove({ serviceId: value.serviceId });
-      removed += 1;
+      candidates.push({ entry, serviceId: value.serviceId });
     } catch {
-      // Best-effort sweep; a broken state file or failing firewall must not
-      // block daemon startup.
+      // A broken state file is ignored, not removed here (its filename is opaque).
     }
   }
-  return removed;
+  let liveOwners: Set<string> | undefined;
+  if (options?.enumerateLivePolicyOwners && candidates.length > 0) {
+    try {
+      liveOwners = await options.enumerateLivePolicyOwners();
+    } catch {
+      // Could not prove any owner dead. Keep everything (fail-closed: a stale
+      // chain DROPs, an opened live container does not) and signal the caller to
+      // retry rather than cache this sweep as complete.
+      return { removed: 0, kept: candidates.length, enumerationFailed: true };
+    }
+  }
+  let removed = 0;
+  for (const { serviceId } of candidates) {
+    if (liveOwners?.has(serviceId)) {
+      kept += 1;
+      continue;
+    }
+    try {
+      await runtime.remove({ serviceId });
+      removed += 1;
+    } catch {
+      // Best-effort sweep; a failing firewall must not block daemon startup.
+    }
+  }
+  return { removed, kept, enumerationFailed: false };
 }
 
 const defaultFirewallExec: ManagedFirewallExec = (family, args) => {

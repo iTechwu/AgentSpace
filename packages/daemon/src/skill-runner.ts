@@ -32,6 +32,7 @@ import {
 import {
   executeDockerSkillRunner,
   forceRemoveDockerSkillRunnerContainer,
+  listLiveSkillRunnerEgressPolicyServiceIds,
   minimalRunnerHostEnvironment,
   SkillRunnerContainerCleanupError,
   type SkillRunnerExecutionResult,
@@ -53,28 +54,41 @@ export * from "./skill-runner-egress.ts";
 
 /**
  * Process-wide crash-recovery sweep for persisted Skill Runner egress policy
- * state. Runs AT MOST ONCE per daemon process per state directory: the first
- * broker that brings up an egress policy runtime awaits it before serving any
- * granted run. Subsequent brokers in the same process share the already-swept
- * state and MUST NOT sweep again — the sweep removes every persisted policy
- * under the shared directory with no owner/container-liveness check, so a
- * repeated sweep would tear down the live DOCKER-USER chain of a concurrently
- * running sibling Runner and fail its network open. Stale state left by a
- * previous (crashed) process is gone before the first granted run executes.
+ * state. The first broker to bring up an egress policy runtime awaits it before
+ * serving any granted run; subsequent brokers in the same process share the
+ * already-completed sweep.
+ *
+ * The sweep is container-aware — it keeps the firewall of any still-running
+ * Runner (matched by the egress-policy label) and only revokes policies whose
+ * owner is gone — so a completed sweep is cached and shared. A sweep that
+ * ABORTS (live-owner enumeration failed → it kept everything, the safe DROP
+ * direction) or REJECTS is NOT cached: the cache entry is dropped so the next
+ * broker start retries once Docker is reachable again, instead of permanently
+ * marking cleanup done and leaking stale chains for the process lifetime.
  */
 const daemonEgressStartupSweeps = new Map<string, Promise<void>>();
 function ensureDaemonEgressStartupSweep(
   egressPolicyStateDir: string,
   policy: ManagedServiceEgressPolicyRuntime,
+  enumerateLivePolicyOwners: (() => Promise<Set<string>>) | undefined,
 ): Promise<void> {
-  let sweep = daemonEgressStartupSweeps.get(egressPolicyStateDir);
-  if (!sweep) {
-    sweep = sweepPersistedEgressPolicies(egressPolicyStateDir, policy)
-      .catch(() => undefined)
-      .then(() => undefined);
-    daemonEgressStartupSweeps.set(egressPolicyStateDir, sweep);
+  const existing = daemonEgressStartupSweeps.get(egressPolicyStateDir);
+  if (existing) {
+    return existing;
   }
-  return sweep;
+  const cached = sweepPersistedEgressPolicies(egressPolicyStateDir, policy, { enumerateLivePolicyOwners })
+    .then((result) => {
+      if (result.enumerationFailed) {
+        // Kept everything (safe). Drop the cache so the next broker retries.
+        daemonEgressStartupSweeps.delete(egressPolicyStateDir);
+      }
+    })
+    .catch((error) => {
+      daemonEgressStartupSweeps.delete(egressPolicyStateDir);
+      throw error;
+    });
+  daemonEgressStartupSweeps.set(egressPolicyStateDir, cached);
+  return cached;
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -202,6 +216,8 @@ export async function startSkillRunnerBroker(input: {
   lookupHost?: SkillRunnerEgressLookup;
   /** Injectable L3/L4 egress firewall (tests); production uses iptables. */
   egressPolicy?: ManagedServiceEgressPolicyRuntime;
+  /** Injectable live-owner enumerator for the startup sweep (tests); production shells out to docker. */
+  enumerateLiveEgressPolicyOwners?: () => Promise<Set<string>>;
 }): Promise<SkillRunnerBroker> {
   if (input.entrypoints.length === 0) {
     return { capabilities: [], close: async () => {} };
@@ -245,11 +261,14 @@ export async function startSkillRunnerBroker(input: {
   const egressPolicyStateDir = join(input.stateDir, "skill-runner-egress-policies");
   const egressPolicy = input.egressPolicy
     ?? createIptablesManagedServiceEgressPolicy({ stateRootDir: egressPolicyStateDir });
-  // A crashed daemon can leave per-run chains + DOCKER-USER jumps behind, and
-  // Docker may reassign those source IPs — sweep persisted state exactly once
-  // per process before serving any granted run, so a concurrent broker never
-  // tears down a sibling Runner's live chain. Awaits completion pre-listen.
-  await ensureDaemonEgressStartupSweep(egressPolicyStateDir, egressPolicy);
+  const enumerateLiveEgressPolicyOwners = input.enumerateLiveEgressPolicyOwners
+    ?? (() => listLiveSkillRunnerEgressPolicyServiceIds(environment));
+  // A crashed daemon can leave per-run chains + DOCKER-USER jumps behind. Sweep
+  // persisted state before serving any granted run, but keep the firewall of any
+  // Runner whose container is still running (matched by the egress-policy label)
+  // so a restart never re-opens a live container's network. Awaits completion
+  // pre-listen.
+  await ensureDaemonEgressStartupSweep(egressPolicyStateDir, egressPolicy, enumerateLiveEgressPolicyOwners);
   const activeContainers = new Set<string>();
   const activeRuns = new Set<string>();
   const brokerCleanup = new Map<string, Promise<void>>();

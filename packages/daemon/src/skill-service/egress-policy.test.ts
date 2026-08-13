@@ -120,12 +120,78 @@ test("sweepPersistedEgressPolicies removes every persisted policy and ignores ju
     await fs.writeFile(join(stateRootDir, "broken.json"), "not-json", "utf8");
     await fs.writeFile(join(stateRootDir, "notes.txt"), "ignored", "utf8");
 
-    const removed = await sweepPersistedEgressPolicies(stateRootDir, policy);
-    assert.equal(removed, 1);
+    const result = await sweepPersistedEgressPolicies(stateRootDir, policy);
+    assert.equal(result.removed, 1);
+    assert.equal(result.kept, 0);
+    assert.equal(result.enumerationFailed, false);
     const chain = buildManagedServiceEgressChainName("stale-run");
     assert.ok(calls.some((args) => args.includes("-D") && args.includes("DOCKER-USER") && args.includes(chain)));
     assert.deepEqual(await fs.readdir(stateRootDir), ["broken.json", "notes.txt"],
       "sweep removes only valid policy state files");
+  } finally {
+    await fs.rm(stateRootDir, { recursive: true, force: true });
+  }
+});
+
+test("sweepPersistedEgressPolicies keeps the firewall of a still-running owner and reclaims only stale ones", async () => {
+  const stateRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-egress-sweep-live-"));
+  const removed: string[] = [];
+  const policy = {
+    async apply() { /* not exercised */ },
+    async remove(input: { serviceId: string }) { removed.push(input.serviceId); },
+  };
+  try {
+    await fs.writeFile(
+      join(stateRootDir, "live.json"),
+      JSON.stringify({ serviceId: "live-run", sourceAddresses: [{ family: "ipv4", address: "172.18.0.10" }] }),
+      "utf8",
+    );
+    await fs.writeFile(
+      join(stateRootDir, "dead.json"),
+      JSON.stringify({ serviceId: "dead-run", sourceAddresses: [{ family: "ipv4", address: "172.18.0.11" }] }),
+      "utf8",
+    );
+    // Only "live-run" still has a running container.
+    const result = await sweepPersistedEgressPolicies(stateRootDir, policy, {
+      enumerateLivePolicyOwners: async () => new Set(["live-run"]),
+    });
+    assert.deepEqual(removed, ["dead-run"], "only the dead owner's policy is revoked");
+    assert.equal(result.removed, 1);
+    assert.equal(result.kept, 1);
+    assert.equal(result.enumerationFailed, false);
+  } finally {
+    await fs.rm(stateRootDir, { recursive: true, force: true });
+  }
+});
+
+test("sweepPersistedEgressPolicies keeps everything and reports enumerationFailed when the live-owner probe errors", async () => {
+  const stateRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-egress-sweep-fail-"));
+  const removed: string[] = [];
+  const policy = {
+    async apply() { /* not exercised */ },
+    async remove(input: { serviceId: string }) { removed.push(input.serviceId); },
+  };
+  try {
+    await fs.writeFile(
+      join(stateRootDir, "a.json"),
+      JSON.stringify({ serviceId: "run-a", sourceAddresses: [{ family: "ipv4", address: "172.18.0.20" }] }),
+      "utf8",
+    );
+    await fs.writeFile(
+      join(stateRootDir, "b.json"),
+      JSON.stringify({ serviceId: "run-b", sourceAddresses: [{ family: "ipv4", address: "172.18.0.21" }] }),
+      "utf8",
+    );
+    // Enumeration fails (e.g. docker unreachable): must NOT revoke anything —
+    // the safe direction keeps every chain (default DROP), and the caller is
+    // told to retry rather than cache the sweep as complete.
+    const result = await sweepPersistedEgressPolicies(stateRootDir, policy, {
+      enumerateLivePolicyOwners: async () => { throw new Error("docker ps failed"); },
+    });
+    assert.deepEqual(removed, [], "nothing is revoked when liveness cannot be established");
+    assert.equal(result.removed, 0);
+    assert.equal(result.kept, 2);
+    assert.equal(result.enumerationFailed, true);
   } finally {
     await fs.rm(stateRootDir, { recursive: true, force: true });
   }

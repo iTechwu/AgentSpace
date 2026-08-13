@@ -13,6 +13,15 @@ import { spawn } from "node:child_process";
 /** Stdout+stderr cap for a single run; exceeding it force-stops the container. */
 export const SKILL_RUNNER_MAX_OUTPUT_BYTES = 64 * 1024;
 
+/**
+ * Docker label carried by every Skill Runner container that runs behind an L3/L4
+ * egress policy. The value is the policy `serviceId` (the per-run lease), so a
+ * persisted policy can be matched back to its owning container. The crash-recovery
+ * sweep uses this label to keep the firewall of a still-running Runner in place
+ * across a daemon restart instead of blindly revoking every persisted chain.
+ */
+export const SKILL_RUNNER_EGRESS_POLICY_LABEL = "dofe.skill-runner.egress.policy";
+
 export interface SkillRunnerExecutionResult {
   exitCode: number | null;
   stdout: string;
@@ -136,6 +145,58 @@ export function forceRemoveDockerSkillRunnerContainer(containerName: string, env
           (stderr || stdout).trim() || `docker rm exited with code ${String(exitCode)}`,
         ));
       }
+    });
+  });
+}
+
+/**
+ * Returns the set of egress-policy serviceIds whose Runner container is STILL
+ * RUNNING. Used by the crash-recovery sweep: a policy whose owner is live must
+ * be kept (removing its DOCKER-USER chain would re-open the container's network),
+ * so only policies whose serviceId is absent here are safe to revoke.
+ *
+ * Queries RUNNING containers only (`docker ps`): a stopped leftover has no live
+ * egress to protect and is force-removed by the next run's create-retry, so its
+ * stale chain can be swept. Rejects on any docker failure so the caller can fall
+ * back to the safe "keep everything" direction.
+ */
+export async function listLiveSkillRunnerEgressPolicyServiceIds(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<Set<string>> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", [
+      "ps",
+      "--filter", `label=${SKILL_RUNNER_EGRESS_POLICY_LABEL}`,
+      "--format", "{{json .Labels}}",
+    ], { stdio: ["ignore", "pipe", "pipe"], env: minimalRunnerHostEnvironment(environment) });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      rejectPromise(error);
+    });
+    child.once("close", (exitCode) => {
+      clearTimeout(timer);
+      if (exitCode !== 0) {
+        rejectPromise(new Error(`docker ps exited with code ${String(exitCode)}: ${(stderr || stdout).trim()}`));
+        return;
+      }
+      const live = new Set<string>();
+      for (const line of stdout.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const labels = JSON.parse(trimmed) as Record<string, string>;
+          const serviceId = labels[SKILL_RUNNER_EGRESS_POLICY_LABEL];
+          if (serviceId) live.add(serviceId);
+        } catch {
+          // Skip an unparseable label line rather than failing enumeration.
+        }
+      }
+      resolvePromise(live);
     });
   });
 }

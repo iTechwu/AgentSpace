@@ -7,6 +7,7 @@ import { parseContainerNetworkAddresses } from "./skill-service/egress-policy.ts
 import {
   executeDockerSkillRunner,
   forceRemoveDockerSkillRunnerContainer,
+  SKILL_RUNNER_EGRESS_POLICY_LABEL,
   type SkillRunnerExecutionResult,
 } from "./skill-runner-docker.ts";
 
@@ -299,7 +300,14 @@ export async function executeSkillRunnerWithEgressPolicy(
   if (input.runArgs[0] !== "run") {
     throw new Error("skill_runner.egress_plan_invalid");
   }
-  const createArgs = ["create", ...input.runArgs.slice(1).filter((arg) => arg !== "--rm")];
+  // Label the container with its policy serviceId so the crash-recovery sweep
+  // can match this run's persisted policy back to the container and KEEP its
+  // firewall while it is still running (instead of revoking it on daemon restart).
+  const createArgs = [
+    "create",
+    "--label", `${SKILL_RUNNER_EGRESS_POLICY_LABEL}=${input.runId}`,
+    ...input.runArgs.slice(1).filter((arg) => arg !== "--rm"),
+  ];
   const createRunner = async (): Promise<SkillRunnerExecutionResult> => execute(createArgs, 30_000);
   let created = await createRunner();
   if (created.exitCode !== 0) {

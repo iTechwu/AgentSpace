@@ -216,10 +216,9 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
 
 test("startSkillRunnerBroker sweeps persisted egress policy at most once per process", async () => {
   // Regression: a second broker in the same process must NOT re-sweep the
-  // shared policy directory. The sweep removes every persisted chain with no
-  // owner/container-liveness check, so a repeat sweep would tear down a
-  // concurrently running sibling Runner's live DOCKER-USER chain and fail its
-  // network open.
+  // shared policy directory. The sweep revokes only chains whose owner is gone,
+  // but a repeat sweep is still wasted work — so a completed sweep is cached and
+  // shared, and a second broker never removes the recovered chain again.
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-sr-sweep-state-"));
   const workDir = mkdtempSync(join(tmpdir(), "dofe-sr-sweep-task-"));
   const policyDir = join(stateDir, "skill-runner-egress-policies");
@@ -236,6 +235,9 @@ test("startSkillRunnerBroker sweeps persisted egress policy at most once per pro
     async apply() { /* not exercised: no granted run is dispatched */ },
     async remove(input: { serviceId: string }) { removes.push(input.serviceId); },
   };
+  // No live owner for the stale chain → it is reclaimed. Injected so the test
+  // never shells out to a real docker daemon.
+  const enumerateLiveEgressPolicyOwners = async () => new Set<string>();
   const entrypoints = [{
     key: "skill-sweep:run",
     skillId: "skill-sweep",
@@ -253,6 +255,7 @@ test("startSkillRunnerBroker sweeps persisted egress policy at most once per pro
       environment: { ...process.env },
       inspectImage: () => false,
       egressPolicy,
+      enumerateLiveEgressPolicyOwners,
     });
     await brokerA.close();
     const brokerB = await startSkillRunnerBroker({
@@ -260,11 +263,61 @@ test("startSkillRunnerBroker sweeps persisted egress policy at most once per pro
       environment: { ...process.env },
       inspectImage: () => false,
       egressPolicy,
+      enumerateLiveEgressPolicyOwners,
     });
     await brokerB.close();
     // Exactly one sweep: the first broker recovered the stale chain; the
     // second reused the cached sweep and did not remove it again.
     assert.deepEqual(removes, ["crashed-run-1"]);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("startSkillRunnerBroker keeps a still-running Runner's egress policy across the startup sweep", async () => {
+  // Regression for the daemon-restart hole: a crashed daemon can leave a Runner
+  // container still running. The restart sweep must NOT revoke that container's
+  // DOCKER-USER chain (doing so re-opens its network), even though the in-process
+  // sweep cache is empty after the restart.
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-sr-sweep-live-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-sr-sweep-live-task-"));
+  const policyDir = join(stateDir, "skill-runner-egress-policies");
+  mkdirSync(policyDir, { recursive: true });
+  writeFileSync(
+    join(policyDir, "live.json"),
+    JSON.stringify({ serviceId: "live-run-1", sourceAddresses: [{ family: "ipv4", address: "172.18.0.30" }] }),
+    "utf8",
+  );
+  const removes: string[] = [];
+  const egressPolicy = {
+    async apply() { /* not exercised */ },
+    async remove(input: { serviceId: string }) { removes.push(input.serviceId); },
+  };
+  // The crashed run's container is still alive → its policy must be kept.
+  const enumerateLiveEgressPolicyOwners = async () => new Set<string>(["live-run-1"]);
+  const entrypoints = [{
+    key: "skill-sweep-live:run",
+    skillId: "skill-sweep-live",
+    skillName: "SweepLive",
+    installationId: "installation-sweep-live",
+    artifactDigest: "b".repeat(64),
+    sha256: "0".repeat(64),
+    id: "run",
+    path: "run.sh",
+    runtime: "bash" as const,
+  }];
+  try {
+    const broker = await startSkillRunnerBroker({
+      stateDir, workspaceId: "ws", workDir, entrypoints,
+      environment: { ...process.env },
+      inspectImage: () => false,
+      egressPolicy,
+      enumerateLiveEgressPolicyOwners,
+    });
+    await broker.close();
+    assert.deepEqual(removes, [], "the live Runner's firewall is not revoked on restart");
+    assert.ok(existsSync(join(policyDir, "live.json")), "the live policy state is preserved");
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
     rmSync(workDir, { recursive: true, force: true });
