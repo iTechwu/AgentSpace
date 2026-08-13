@@ -264,11 +264,17 @@ export async function executeSkillRunnerWithEgressPolicy(
     policyApplied = true;
     return await execute(["start", "-a", input.containerName], input.timeoutMs, input.containerName, environment);
   } finally {
+    // Fail-closed teardown: confirm the container is gone BEFORE revoking the
+    // firewall. Removing the policy first would leave a still-running container
+    // with no DOCKER-USER restriction (network fail-open). If container removal
+    // fails (Docker hung / rm timeout), the SkillRunnerContainerCleanupError
+    // propagates and the policy stays applied — the chain's default verdict is
+    // DROP, so the live container remains locked down until a retry succeeds.
+    await forceRemoveDockerSkillRunnerContainer(input.containerName, environment);
     if (policyApplied) {
-      // Best-effort: a failed removal leaves persisted state the broker sweeps
-      // on next start; the chain fails closed (default DROP) meanwhile.
+      // Container confirmed gone — a failed policy removal now only leaks a
+      // stale chain (swept on the next daemon start), never an open container.
       await input.policy.remove({ serviceId: input.runId }).catch(() => undefined);
     }
-    await forceRemoveDockerSkillRunnerContainer(input.containerName, environment).catch(() => undefined);
   }
 }

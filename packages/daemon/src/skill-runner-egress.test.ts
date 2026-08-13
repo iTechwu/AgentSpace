@@ -13,6 +13,7 @@ import {
   SkillRunnerEgressResolutionError,
 } from "./skill-runner-egress.ts";
 import { buildSkillRunnerDockerArgs } from "./skill-runner.ts";
+import { SkillRunnerContainerCleanupError } from "./skill-runner-docker.ts";
 import {
   ManagedServiceEgressPolicyError,
   type ManagedServiceEgressPolicyRuntime,
@@ -333,4 +334,36 @@ test("executeSkillRunnerWithEgressPolicy propagates a hard create failure withou
   );
   assert.equal(createAttempts, 1);
   assert.deepEqual(calls, []);
+});
+
+test("executeSkillRunnerWithEgressPolicy keeps the firewall applied when container removal fails (fail-closed)", async () => {
+  // Regression: cleanup must remove the container BEFORE revoking the firewall.
+  // If `docker rm -f` fails, the policy stays applied so a still-running
+  // container never escapes to an unrestricted DOCKER-USER chain.
+  const { policy, calls } = fakePolicy();
+  const failingDockerBin = (() => {
+    const dir = mkdtempSync(join(tmpdir(), "dofe-sr-fail-docker-"));
+    const bin = join(dir, "docker");
+    // `rm -f` exits non-zero without the "no such container" sentinel → reject.
+    writeFileSync(bin, "#!/bin/sh\nif [ \"$1\" = \"rm\" ]; then echo 'device or resource busy' >&2; exit 1; fi\nexit 0\n", { mode: 0o755 });
+    return bin;
+  })();
+  await assert.rejects(
+    () => executeSkillRunnerWithEgressPolicy({
+      runArgs: FIREWALL_RUN_ARGS,
+      containerName: "dofe-sr-fail",
+      runId: "run-lease-fail",
+      targets: FIREWALL_TARGETS,
+      policy,
+      timeoutMs: 5_000,
+      environment: { DOFE_SKILL_RUNNER_DOCKER_BIN: failingDockerBin },
+      execute: fakePhases(),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof SkillRunnerContainerCleanupError, "container cleanup error must propagate");
+      return true;
+    },
+  );
+  assert.deepEqual(calls.map((call) => call.action), ["apply"],
+    "policy.remove must NOT run while the container may still be alive — the firewall stays applied");
 });
