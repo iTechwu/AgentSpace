@@ -109,6 +109,14 @@ export function createSkillInstallationPlanSync(input: {
   if (!artifact) {
     throw new Error(`Skill artifact "${input.artifactDigest}" does not exist in this workspace.`);
   }
+  // Fail closed: a legacy artifact reconstructed from the text store may have
+  // lost binary/unreadable files; it must be re-imported before it can be
+  // installed anywhere (06-实施计划 §9.1: 不擅自赋可执行权).
+  if (artifact.legacyIncomplete) {
+    throw new Error(
+      `旧版 Skill 迁移的 artifact "${artifact.digest}" 不完整（二进制/不可读文件无法保留），请重新导入后再安装。`,
+    );
+  }
 
   const components = buildSkillInstallationComponentsSync({ workspaceId: input.workspaceId, artifactDigest: input.artifactDigest });
   const lock = computeSkillReleaseLockSync(artifact, input.workspaceId ?? "default");

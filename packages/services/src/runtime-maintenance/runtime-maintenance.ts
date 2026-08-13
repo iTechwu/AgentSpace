@@ -14,6 +14,7 @@ import { advanceRecoverableOperationsSync } from "../employees/recovery-worker.t
 import { runEmployeeLifecycleMaintenanceSync } from "../employees/lifecycle-maintenance.ts";
 import { sendExternalPagerAlert } from "../observability/external-pager.ts";
 import { retireUnreferencedManagedSkillServicesSync } from "../skill-services/bindings.ts";
+import { migrateAllWorkspaceLegacySkillsSync } from "../skills/legacy-migration.ts";
 import {
   requeueExpiredManagedSkillServiceOperationLeasesSync,
   requeueExpiredSkillInstallationOperationLeasesSync,
@@ -41,6 +42,7 @@ export interface RuntimeMaintenanceResult {
     lifecycle: RuntimeMaintenanceStageResult;
     skillServiceRetire?: RuntimeMaintenanceStageResult;
     commitReconciliation?: RuntimeMaintenanceStageResult;
+    legacySkillMigration?: RuntimeMaintenanceStageResult;
   };
 }
 
@@ -65,6 +67,8 @@ export interface RuntimeMaintenanceDependencies {
   commitReconciliation?: () => unknown;
   /** Optional stage: retires managed skill services the last installation left. */
   retireSkillServices?: () => unknown;
+  /** Optional stage: backfills legacy skills into DSP artifacts (Phase 6.1). */
+  migrateLegacySkills?: () => unknown;
 }
 
 export const defaultDependencies: RuntimeMaintenanceDependencies = {
@@ -83,6 +87,7 @@ export const defaultDependencies: RuntimeMaintenanceDependencies = {
   },
   lifecycle: () => runEmployeeLifecycleMaintenanceSync(),
   retireSkillServices: () => retireUnreferencedManagedSkillServicesSync(),
+  migrateLegacySkills: () => migrateAllWorkspaceLegacySkillsSync(),
 };
 
 export async function runRuntimeMaintenanceAsync(
@@ -119,6 +124,7 @@ export async function runRuntimeMaintenanceAsync(
     ["lifecycle", dependencies.lifecycle],
     ...(dependencies.retireSkillServices ? [["skillServiceRetire", dependencies.retireSkillServices] as const] : []),
     ...(dependencies.commitReconciliation ? [["commitReconciliation", dependencies.commitReconciliation] as const] : []),
+    ...(dependencies.migrateLegacySkills ? [["legacySkillMigration", dependencies.migrateLegacySkills] as const] : []),
   ];
   for (const [name, operation] of operations) {
     stages[name] = leaseHealthy

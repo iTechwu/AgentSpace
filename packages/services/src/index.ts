@@ -598,6 +598,12 @@ export {
   type ArtifactIntegrityResult,
 } from "./skills/skill-artifacts.ts";
 export {
+  migrateLegacySkillArtifactsSync,
+  migrateAllWorkspaceLegacySkillsSync,
+  type LegacySkillMigrationFailure,
+  type LegacySkillMigrationResult,
+} from "./skills/legacy-migration.ts";
+export {
   buildSkillInstallationComponentsSync,
   createSkillInstallationPlanSync,
   resolveClaimedSkillInstallationOperation,

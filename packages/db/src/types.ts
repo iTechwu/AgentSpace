@@ -538,7 +538,8 @@ export type AuditLogSource =
   | "runtime_credential"
   | "runtime_lifecycle"
   | "runtime_model"
-  | "platform_admin";
+  | "platform_admin"
+  | "skill_lifecycle";
 
 export interface AuditLogRecord {
   id: string;

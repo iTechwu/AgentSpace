@@ -183,6 +183,12 @@ export interface BuildAndPersistSkillArtifactInput {
   entrypoints?: DspEntrypoint[];
   network?: DspNetworkEgress;
   manifestSchemaVersion?: number;
+  /**
+   * Marks the artifact as a best-effort legacy reconstruction (binary/unreadable
+   * files could not round-trip through the text store). Incomplete artifacts
+   * must not be silently treated as fully verified.
+   */
+  legacyIncomplete?: boolean;
   /** Bind to the Skill lineage without moving its active digest (upgrade candidate). */
   activate?: boolean;
 }
@@ -334,6 +340,7 @@ export function buildAndPersistSkillArtifactSync(
     provenanceJson: JSON.stringify(input.provenance ?? {}),
     fileCount: manifestFiles.length,
     totalSizeBytes,
+    legacyIncomplete: input.legacyIncomplete,
     files: fileInputs,
   });
 
@@ -486,9 +493,10 @@ export function materializeSkillArtifactFilesSync(
 
 /**
  * Builds an artifact from an existing text-only skill (skill_file rows). Files
- * that cannot be read are recorded as missing and the artifact is marked
- * legacy_incomplete so it cannot be silently treated as fully verified. Per the
- * design, incomplete legacy skills forbid new bindings until re-imported.
+ * whose path implies a non-text media type cannot round-trip through the TEXT
+ * content column losslessly, so the artifact is marked legacy_incomplete and
+ * must not be silently treated as fully verified; per the design, incomplete
+ * legacy skills forbid new bindings until re-imported.
  */
 export function buildLegacyArtifactFromSkillSync(input: {
   workspaceId?: string;
@@ -497,6 +505,7 @@ export function buildLegacyArtifactFromSkillSync(input: {
   files: Array<{ path: string; content: string }>;
   sourceType?: string;
   sourceUrl?: string;
+  legacyIncomplete?: boolean;
 }): BuildArtifactResult {
   const encoder = new TextEncoder();
   const fileInputs: ArtifactFileInput[] = input.files
@@ -507,6 +516,9 @@ export function buildLegacyArtifactFromSkillSync(input: {
     throw new Error(`Legacy skill "${input.name}" is missing SKILL.md; cannot build artifact.`);
   }
 
+  const legacyIncomplete = input.legacyIncomplete
+    ?? fileInputs.some((file) => !isTextMediaType(mediaTypeForPath(file.path)));
+
   return buildAndPersistSkillArtifactSync({
     workspaceId: input.workspaceId,
     skillId: input.skillId,
@@ -514,6 +526,7 @@ export function buildLegacyArtifactFromSkillSync(input: {
     files: fileInputs,
     sourceType: input.sourceType ?? "legacy",
     sourceUrl: input.sourceUrl,
+    legacyIncomplete,
     provenance: { legacy: true, migratedAt: new Date().toISOString() },
   });
 }

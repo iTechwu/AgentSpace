@@ -131,3 +131,28 @@ test("runtime maintenance runs the optional skill service retire stage when prov
   assert.ok(calls.includes("skillServiceRetire"));
   assert.equal(result.stages.skillServiceRetire?.status, "succeeded");
 });
+
+test("runtime maintenance runs the optional legacy skill migration stage when provided", async () => {
+  const calls: string[] = [];
+  const result = await runRuntimeMaintenanceAsync({
+    createRun: () => ({ id: "maintenance-legacy-migration" }),
+    completeRun: () => undefined,
+    resumeProvisioning: async () => calls.push("provisioning"),
+    resumeCleanup: async () => calls.push("cleanup"),
+    drainUsageRetries: () => calls.push("usageRetries"),
+    reconcileUsage: async () => calls.push("usageReconciliation"),
+    migrateLegacySkills: () => {
+      calls.push("legacySkillMigration");
+      return { workspaces: 1, migrated: 2, alreadyMigrated: 3, failed: 0 };
+    },
+  });
+
+  assert.ok(calls.includes("legacySkillMigration"));
+  assert.equal(result.stages.legacySkillMigration?.status, "succeeded");
+  assert.deepEqual(result.stages.legacySkillMigration?.value, {
+    workspaces: 1,
+    migrated: 2,
+    alreadyMigrated: 3,
+    failed: 0,
+  });
+});
