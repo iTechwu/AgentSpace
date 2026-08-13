@@ -472,6 +472,9 @@ function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>
     },
   ];
 
+  // Exposing curl grants the agent general HTTP egress (the "curl *" pattern
+  // matches any invocation), so it is only attached when curl is on PATH and is
+  // meant to be bounded by the runtime egress policy.
   const curlPath = findExecutableOnPath("curl");
   if (curlPath) {
     capabilities.push({

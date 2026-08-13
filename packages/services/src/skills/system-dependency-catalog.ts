@@ -32,8 +32,10 @@ export interface SystemDependencyResolution {
 }
 
 const CATALOG: SystemDependencyCatalogEntry[] = [
-  // Runtime images include curl as a base capability. Allowing this declaration
-  // only verifies the immutable image binary; it never executes a download script.
+  // The managed container runtime images (claude-code-cli, codex-cli) bake in
+  // curl; a local-sandbox runtime instead probes the daemon host PATH. This
+  // declaration only verifies the binary is present — it installs nothing and
+  // never executes a download script.
   { name: "curl", description: "HTTP client for approved runtime integrations", binaries: ["curl"], apt: "curl", apk: "curl", risk: "medium", allowInstall: true },
   { name: "ffmpeg", description: "Audio/video transcoding and capture", binaries: ["ffmpeg", "ffprobe"], apt: "ffmpeg", apk: "ffmpeg", risk: "low", allowInstall: true },
   { name: "graphviz", description: "Graph visualization and layout", binaries: ["dot", "neato"], apt: "graphviz", apk: "graphviz", risk: "low", allowInstall: true },
