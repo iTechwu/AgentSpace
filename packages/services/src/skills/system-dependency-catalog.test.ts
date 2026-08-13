@@ -71,3 +71,30 @@ test("resolveSystemDependencySync returns the binary set to probe, not the packa
   assert.ok(poppler?.binaries.includes("pdfinfo"));
   assert.ok(!poppler?.binaries.includes("poppler-utils"));
 });
+
+test("resolveSystemDependencySync exposes probeMode (all = suite, any = alternative names)", () => {
+  // Multi-tool suites: every binary required.
+  assert.equal(resolveSystemDependencySync("ffmpeg")?.probeMode, "all");
+  assert.equal(resolveSystemDependencySync("graphviz")?.probeMode, "all");
+  assert.equal(resolveSystemDependencySync("poppler-utils")?.probeMode, "all");
+  // Alternative names: any one binary suffices.
+  assert.equal(resolveSystemDependencySync("imagemagick")?.probeMode, "any");
+  assert.equal(resolveSystemDependencySync("libreoffice")?.probeMode, "any");
+  assert.equal(resolveSystemDependencySync("chromium")?.probeMode, "any");
+  // Single-binary entries default to "all" (trivially satisfied).
+  assert.equal(resolveSystemDependencySync("curl")?.probeMode, "all");
+  assert.equal(resolveSystemDependencySync("jq")?.probeMode, "all");
+});
+
+test("listSystemDependencyCatalogSync surfaces probeMode for every entry", () => {
+  const catalog = listSystemDependencyCatalogSync();
+  assert.ok(catalog.every((entry) => entry.probeMode === "all" || entry.probeMode === "any"));
+  assert.ok(
+    catalog.find((entry) => entry.name === "ffmpeg")?.probeMode === "all",
+    "ffmpeg is an all-binary suite",
+  );
+  assert.ok(
+    catalog.find((entry) => entry.name === "imagemagick")?.probeMode === "any",
+    "imagemagick accepts alternative names",
+  );
+});

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
 import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
-import { executeSkillInstallationOperation, readManifestDependencies, verifySystemDependenciesInRunner } from "./operation-worker.ts";
+import { executeSkillInstallationOperation, readManifestDependencies, readManifestRuntimes, verifySystemDependenciesInRunner } from "./operation-worker.ts";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import type { RemoteDaemonConfig } from "../remote-daemon.ts";
 
@@ -382,10 +382,27 @@ test("a verification failure reports component statuses via FAIL (no complete-af
 });
 
 const RUNNER_IMAGE = `bash@sha256:${"a".repeat(64)}`;
+const PYTHON_IMAGE = `python@sha256:${"b".repeat(64)}`;
+
+test("readManifestRuntimes returns the distinct entrypoint runtime set", () => {
+  assert.deepEqual(
+    readManifestRuntimes(JSON.stringify({
+      entrypoints: [
+        { id: "a", kind: "script", path: "a.py", runtime: "python" },
+        { id: "b", kind: "script", path: "b.sh", runtime: "bash" },
+        { id: "c", kind: "script", path: "c.py", runtime: "python" },
+      ],
+    })),
+    ["python", "bash"],
+  );
+  assert.deepEqual(readManifestRuntimes("{}"), [], "no entrypoints → empty set");
+  assert.deepEqual(readManifestRuntimes("not-json"), [], "malformed manifest → empty set");
+});
 
 test("verifySystemDependenciesInRunner fails closed on unknown system packages (skill defect)", () => {
   const results = verifySystemDependenciesInRunner(
     [{ name: "htop", version: "system" }],
+    ["bash"],
     { resolveRunnerImage: () => RUNNER_IMAGE, inspectRunnerImage: () => true, probeBinary: () => true },
   );
   const outcome = results.get("system:htop@system");
@@ -398,21 +415,69 @@ test("verifySystemDependenciesInRunner probes catalog binaries (not package name
   const probed: string[] = [];
   const results = verifySystemDependenciesInRunner(
     [{ name: "graphviz", version: "system" }],
+    ["bash"],
     {
       resolveRunnerImage: () => RUNNER_IMAGE,
       inspectRunnerImage: () => true,
-      probeBinary: (_image, binary) => { probed.push(binary); return binary === "dot"; },
+      // graphviz is probeMode "all" ([dot, neato]); return true for both → ready.
+      probeBinary: (_image, binary) => { probed.push(binary); return true; },
     },
   );
   // graphviz catalog binaries are [dot, neato]; package name "graphviz" is never probed.
   assert.ok(probed.includes("dot"));
+  assert.ok(probed.includes("neato"));
   assert.ok(!probed.includes("graphviz"));
   assert.equal(results.get("system:graphviz@system")?.ok, true);
+});
+
+test("verifySystemDependenciesInRunner probeMode all requires every binary (ffmpeg missing ffprobe → blocked)", () => {
+  const results = verifySystemDependenciesInRunner(
+    [{ name: "ffmpeg", version: "system" }],
+    ["bash"],
+    {
+      resolveRunnerImage: () => RUNNER_IMAGE,
+      inspectRunnerImage: () => true,
+      // Only ffmpeg present, ffprobe missing → "all" fails.
+      probeBinary: (_image, binary) => binary === "ffmpeg",
+    },
+  );
+  const outcome = results.get("system:ffmpeg@system");
+  assert.equal(outcome?.ok, false);
+  assert.equal(outcome?.blocked, true);
+  assert.match(outcome?.reason ?? "", /all required/);
+});
+
+test("verifySystemDependenciesInRunner probeMode any accepts one of alternative names (imagemagick)", () => {
+  // Only `magick` present (ImageMagick v7); `convert` absent → "any" still ready.
+  const ready = verifySystemDependenciesInRunner(
+    [{ name: "imagemagick", version: "system" }],
+    ["bash"],
+    {
+      resolveRunnerImage: () => RUNNER_IMAGE,
+      inspectRunnerImage: () => true,
+      probeBinary: (_image, binary) => binary === "magick",
+    },
+  ).get("system:imagemagick@system");
+  assert.equal(ready?.ok, true);
+
+  // Neither present → blocked.
+  const blocked = verifySystemDependenciesInRunner(
+    [{ name: "imagemagick", version: "system" }],
+    ["bash"],
+    {
+      resolveRunnerImage: () => RUNNER_IMAGE,
+      inspectRunnerImage: () => true,
+      probeBinary: () => false,
+    },
+  ).get("system:imagemagick@system");
+  assert.equal(blocked?.ok, false);
+  assert.equal(blocked?.blocked, true);
 });
 
 test("verifySystemDependenciesInRunner marks a missing binary blocked (Runtime gap)", () => {
   const results = verifySystemDependenciesInRunner(
     [{ name: "poppler-utils", version: "system" }],
+    ["bash"],
     {
       resolveRunnerImage: () => RUNNER_IMAGE,
       inspectRunnerImage: () => true,
@@ -425,10 +490,48 @@ test("verifySystemDependenciesInRunner marks a missing binary blocked (Runtime g
   assert.match(outcome?.reason ?? "", /update the Runtime image|contact an admin/);
 });
 
+test("verifySystemDependenciesInRunner probes every declared runtime image (bash ok, python missing → blocked)", () => {
+  const probedImages: string[] = [];
+  const results = verifySystemDependenciesInRunner(
+    [{ name: "curl", version: "system" }],
+    ["bash", "python"],
+    {
+      resolveRunnerImage: (runtime) => (runtime === "bash" ? RUNNER_IMAGE : PYTHON_IMAGE),
+      inspectRunnerImage: () => true,
+      probeBinary: (image) => {
+        probedImages.push(image);
+        // curl present in bash image, absent from python image.
+        return image === RUNNER_IMAGE;
+      },
+    },
+  );
+  const outcome = results.get("system:curl@system");
+  assert.equal(outcome?.ok, false);
+  assert.equal(outcome?.blocked, true);
+  assert.match(outcome?.reason ?? "", /runtime "python"/);
+  assert.ok(probedImages.includes(PYTHON_IMAGE), "python image was probed");
+});
+
+test("verifySystemDependenciesInRunner falls back to bash when runtimes is empty", () => {
+  const probed: string[] = [];
+  const results = verifySystemDependenciesInRunner(
+    [{ name: "curl", version: "system" }],
+    [],
+    {
+      resolveRunnerImage: (runtime) => { probed.push(runtime); return RUNNER_IMAGE; },
+      inspectRunnerImage: () => true,
+      probeBinary: () => true,
+    },
+  );
+  assert.deepEqual(probed, ["bash"], "empty runtimes falls back to bash");
+  assert.equal(results.get("system:curl@system")?.ok, true);
+});
+
 test("verifySystemDependenciesInRunner is blocked when no Runner image is configured or available", () => {
   assert.equal(
     verifySystemDependenciesInRunner(
       [{ name: "curl", version: "system" }],
+      ["bash"],
       { resolveRunnerImage: () => undefined },
     ).get("system:curl@system")?.blocked,
     true,
@@ -436,6 +539,7 @@ test("verifySystemDependenciesInRunner is blocked when no Runner image is config
   assert.equal(
     verifySystemDependenciesInRunner(
       [{ name: "curl", version: "system" }],
+      ["bash"],
       { resolveRunnerImage: () => RUNNER_IMAGE, inspectRunnerImage: () => false },
     ).get("system:curl@system")?.blocked,
     true,

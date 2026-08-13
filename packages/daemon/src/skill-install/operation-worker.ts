@@ -4,7 +4,7 @@ import { dirname, join, relative } from "node:path";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
 import { connectSandbox } from "@dofe-agent/sandbox";
 import { computeArtifactDigest, resolveSystemDependencySync, type SkillArtifactManifest } from "@dofe-agent/services";
-import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
+import type { ClaimedSkillInstallationOperation, SkillEntrypointRuntime } from "@dofe-agent/domain";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import type { RemoteDaemonConfig } from "../remote-daemon.ts";
 import {
@@ -151,7 +151,8 @@ export async function executeSkillInstallationOperation(
     }
 
     if (systemDeps.length > 0) {
-      const systemResults = verifySystemDependenciesInRunner(systemDeps);
+      const runtimes = readManifestRuntimes(operation.manifestJson);
+      const systemResults = verifySystemDependenciesInRunner(systemDeps, runtimes);
       for (const [key, result] of systemResults) {
         dependencyInstallResults!.set(key, result);
       }
@@ -255,12 +256,27 @@ export function readManifestDependencies(manifestJson: string): Array<{ manager:
   }
 }
 
-export type SystemDependencyRunnerImageResolver = () => string | undefined;
+export function readManifestRuntimes(manifestJson: string): SkillEntrypointRuntime[] {
+  try {
+    const manifest = JSON.parse(manifestJson) as { entrypoints?: Array<{ runtime?: string }> };
+    const seen = new Set<SkillEntrypointRuntime>();
+    for (const entry of manifest.entrypoints ?? []) {
+      if (entry.runtime === "node" || entry.runtime === "python" || entry.runtime === "bash") {
+        seen.add(entry.runtime);
+      }
+    }
+    return Array.from(seen);
+  } catch {
+    return [];
+  }
+}
+
+export type SystemDependencyRunnerImageResolver = (runtime: SkillEntrypointRuntime) => string | undefined;
 export type SystemDependencyRunnerImageInspector = (image: string) => boolean;
 export type SystemDependencyRunnerBinaryProbe = (image: string, binary: string) => boolean;
 
 export interface VerifySystemDependenciesDeps {
-  /** Resolves the Runner image used as the canonical system-binary environment (bash). */
+  /** Resolves the Runner image for a given execution runtime (node/python/bash). */
   resolveRunnerImage?: SystemDependencyRunnerImageResolver;
   inspectRunnerImage?: SystemDependencyRunnerImageInspector;
   probeBinary?: SystemDependencyRunnerBinaryProbe;
@@ -276,13 +292,26 @@ export interface VerifySystemDependenciesDeps {
  * Runtime gap (blocked: update the image / contact admin), not a skill defect
  * (failed). The probe runs in the Runner image — the same environment skill
  * scripts execute in — not the daemon host PATH.
+ *
+ * The binary is probed in EVERY declared entrypoint runtime image, because each
+ * runtime executes in its own digest-pinned image. A dep satisfied in the bash
+ * image but absent from the python image still blocks: the python entrypoint
+ * would fail at run time. `runtimes` is the distinct set parsed from the
+ * manifest entrypoints; an empty set falls back to `["bash"]`. `probeMode`
+ * governs multi-binary entries: `"any"` (alternative names like convert/magick)
+ * needs at least one present; `"all"` (a suite like ffmpeg/ffprobe) needs every
+ * binary present. Defaults to `"all"` so a new multi-binary entry fails closed.
  */
 export function verifySystemDependenciesInRunner(
   systemDeps: Array<{ name: string; version: string }>,
+  runtimes: SkillEntrypointRuntime[],
   deps?: VerifySystemDependenciesDeps,
 ): Map<string, DependencyInstallOutcome> {
   const env = deps?.env ?? process.env;
-  const resolveRunnerImage = deps?.resolveRunnerImage ?? (() => resolveSkillRunnerImage("bash", env));
+  const distinctRuntimes: SkillEntrypointRuntime[] = Array.from(
+    new Set(runtimes.length > 0 ? runtimes : (["bash"] as SkillEntrypointRuntime[])),
+  );
+  const resolveRunnerImage = deps?.resolveRunnerImage ?? ((runtime) => resolveSkillRunnerImage(runtime, env));
   const inspectRunnerImage = deps?.inspectRunnerImage ?? ((image) => isSkillRunnerImageAvailableLocally(image, env));
   const probeBinary = deps?.probeBinary ?? ((image, binary) => runSkillRunnerSystemProbe({ image, binary }, env));
 
@@ -304,33 +333,36 @@ export function verifySystemDependenciesInRunner(
       });
       continue;
     }
-    const image = resolveRunnerImage();
-    if (!image) {
-      results.set(key, {
-        ok: false,
-        blocked: true,
-        reason: `No immutable Skill Runner image is configured to verify system dependency "${resolved.name}".`,
-      });
-      continue;
+    // Probe each declared runtime image; the first runtime whose image is
+    // missing/misconfigured/short of the required binaries blocks the install.
+    let blocked: { reason: string } | null = null;
+    for (const runtime of distinctRuntimes) {
+      const image = resolveRunnerImage(runtime);
+      if (!image) {
+        blocked = {
+          reason: `No immutable Skill Runner image configured for runtime "${runtime}" to verify system dependency "${resolved.name}".`,
+        };
+        break;
+      }
+      if (!inspectRunnerImage(image)) {
+        blocked = {
+          reason: `Immutable Skill Runner image for runtime "${runtime}" (${image}) is not available locally to verify system dependency "${resolved.name}".`,
+        };
+        break;
+      }
+      const present =
+        resolved.probeMode === "any"
+          ? resolved.binaries.some((binary) => probeBinary(image, binary))
+          : resolved.binaries.every((binary) => probeBinary(image, binary));
+      if (!present) {
+        blocked = {
+          reason: `System package "${resolved.name}" (binaries [${resolved.binaries.join(", ")}], ${resolved.probeMode} required) not satisfied in Runner image for runtime "${runtime}" (${image}); update the Runtime image or contact an admin.`,
+        };
+        break;
+      }
     }
-    if (!inspectRunnerImage(image)) {
-      results.set(key, {
-        ok: false,
-        blocked: true,
-        reason: `Immutable Skill Runner image is not available locally to verify system dependency "${resolved.name}".`,
-      });
-      continue;
-    }
-    // At least one cataloged binary present means the package is installed; we
-    // avoid requiring ALL binaries (e.g. imagemagick ships `convert` or `magick`
-    // depending on the major version) to prevent false negatives.
-    const present = resolved.binaries.some((binary) => probeBinary(image, binary));
-    if (!present) {
-      results.set(key, {
-        ok: false,
-        blocked: true,
-        reason: `None of [${resolved.binaries.join(", ")}] for system package "${resolved.name}" found in Runner image ${image}; update the Runtime image or contact an admin.`,
-      });
+    if (blocked) {
+      results.set(key, { ok: false, blocked: true, reason: blocked.reason });
       continue;
     }
     results.set(key, { ok: true });
