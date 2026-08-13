@@ -363,6 +363,33 @@ export function setAssignmentArtifactDigestsForSkillSync(input: {
   return result.changes;
 }
 
+/**
+ * Backfills the artifact digest ONLY onto assignment rows that have none yet
+ * (`skill_artifact_digest IS NULL`). Unlike {@link setAssignmentArtifactDigestsForSkillSync}
+ * this never overwrites an already-mapped assignment, so legacy-migration
+ * reconciliation can self-heal a run that died after the binding was created
+ * but before assignments were mapped — without clobbering assignments later
+ * repointed by a re-import. Idempotent. Returns 0 (no-op) when the
+ * `agent_skill` table lacks the digest column or no unmapped rows remain.
+ */
+export function backfillMissingAssignmentDigestsForSkillSync(input: {
+  skillId: string;
+  digest: string;
+  workspaceId?: string;
+}): number {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  if (!agentSkillTableHasDigestColumn(db)) {
+    return 0;
+  }
+  const result = db.prepare(
+    `UPDATE agent_skill
+       SET skill_artifact_digest = ?
+     WHERE workspace_id = ? AND skill_id = ? AND skill_artifact_digest IS NULL`,
+  ).run(input.digest.trim().toLowerCase(), workspaceId, input.skillId);
+  return result.changes;
+}
+
 /** Pins the artifact digest on a single employee↔skill assignment. */
 export function setAssignmentArtifactDigestSync(input: {
   employeeName: string;

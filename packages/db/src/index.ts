@@ -335,6 +335,7 @@ export {
   listAuditLogsSync,
   readAuditLogSync,
   recordAuditLogSync,
+  auditLogExistsForCodeSync,
   type RecordAuditLogInput,
 } from "./audit-log.ts";
 
@@ -1076,6 +1077,7 @@ export {
   resolveSkillIdForArtifactDigestSync,
   setAssignmentArtifactDigestSync,
   setAssignmentArtifactDigestsForSkillSync,
+  backfillMissingAssignmentDigestsForSkillSync,
   readAssignmentArtifactDigestSync,
   type CreateSkillArtifactInput,
   type SkillArtifactFileInput,

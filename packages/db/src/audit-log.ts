@@ -51,6 +51,31 @@ export function readAuditLogSync(
   return row ? mapAuditLog(row) : null;
 }
 
+/**
+ * Existence check for audit-log dedup: returns true when at least one audit row
+ * matches `code` and every `jsonData` entry against the row's `data_json`
+ * (`data_json->>key = value`). Used by legacy-migration reconciliation to avoid
+ * re-recording a migration audit on every maintenance run. All lookups are
+ * parameterized; never interpolates values into SQL.
+ */
+export function auditLogExistsForCodeSync(input: {
+  workspaceId?: string;
+  code: string;
+  jsonData?: Record<string, string>;
+}): boolean {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const pairs = Object.entries(input.jsonData ?? {});
+  let sql = "SELECT 1 FROM audit_log WHERE workspace_id = ? AND code = ?";
+  const params: unknown[] = [workspaceId, input.code];
+  for (const [key, value] of pairs) {
+    sql += " AND data_json->>? = ?";
+    params.push(key, value);
+  }
+  sql += " LIMIT 1";
+  const row = getDatabase().prepare(sql).get(...params);
+  return row !== undefined;
+}
+
 export function listAuditLogsSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
   options?: {

@@ -1,9 +1,13 @@
 import {
+  auditLogExistsForCodeSync,
+  backfillMissingAssignmentDigestsForSkillSync,
+  getDatabase,
   listAllWorkspacesSync,
   listSkillArtifactBindingsForSkillSync,
   listStoredWorkspaceSkillsSync,
+  readSkillArtifactByDigestSync,
   recordAuditLogSync,
-  setAssignmentArtifactDigestsForSkillSync,
+  withTransaction,
 } from "@dofe-agent/db";
 import { buildLegacyArtifactFromSkillSync } from "./skill-artifacts.ts";
 
@@ -17,12 +21,21 @@ export interface LegacySkillMigrationResult {
   scanned: number;
   /** Skills that received a new artifact + binding + assignment mapping. */
   migrated: number;
-  /** Skills that already had an artifact binding (idempotent re-runs). */
+  /**
+   * Skills whose binding already existed from a prior (partial) run but whose
+   * assignment mapping and/or migration audit were completed THIS run. This is
+   * the self-heal path: a run that crashed after creating the binding but before
+   * the downstream phases converges here instead of being silently skipped.
+   */
+  reconciled: number;
+  /** Skills that were already fully migrated (idempotent re-runs). */
   alreadyMigrated: number;
   /** Skills that cannot be migrated automatically (e.g. missing SKILL.md). */
   failed: number;
   failures: LegacySkillMigrationFailure[];
 }
+
+const LEGACY_MIGRATION_AUDIT_CODE = "skill.legacy_migrated";
 
 /**
  * Phase 6.1 legacy migration (06-实施计划 §9.1): builds a `legacy` provenance
@@ -33,8 +46,18 @@ export interface LegacySkillMigrationResult {
  * - 不擅自赋可执行权 — no installation is created; a migrated skill still
  *   needs the normal prepare/verify flow before any task can run it, and
  *   artifacts flagged legacy_incomplete are rejected at plan creation.
- * - Idempotent and bounded — skills with an existing binding are skipped, so
- *   the maintenance loop can re-drive this stage safely; `limit` caps one run.
+ * - 原子且可自愈 — the gating predicate is NOT "a binding exists" (which Phase A
+ *   satisfies first, masking a later failure). Assignment mapping (Phase B) and
+ *   the migration audit (Phase C) run together inside one DB transaction, and a
+ *   re-run reconciles any phase left incomplete by a crash: the binding's digest
+ *   is reused, still-unmapped assignments are backfilled, and the audit is
+ *   recorded exactly once per (skill, digest). A skill is reported `migrated`
+ *   only when freshly built, `reconciled` when self-healed, `alreadyMigrated`
+ *   only when nothing remained to do.
+ * - Idempotent and bounded — `limit` caps the expensive Phase A (artifact build
+ *   + blob upload) per run; reconciliation of already-bound skills is cheap and
+ *   uncapped so a backlog of partial migrations clears quickly. The maintenance
+ *   loop re-drives this stage safely.
  * - 老 Skill 不丢失 — a skill that cannot be migrated (missing SKILL.md) is
  *   reported in `failures` and left untouched, never deleted.
  */
@@ -42,55 +65,105 @@ export function migrateLegacySkillArtifactsSync(input: {
   workspaceId: string;
   limit?: number;
 }): LegacySkillMigrationResult {
+  const workspaceId = input.workspaceId;
   const limit = Math.max(1, Math.floor(input.limit ?? 100));
-  const skills = [...listStoredWorkspaceSkillsSync(input.workspaceId)]
+  const skills = [...listStoredWorkspaceSkillsSync(workspaceId)]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
 
   const result: LegacySkillMigrationResult = {
     scanned: 0,
     migrated: 0,
+    reconciled: 0,
     alreadyMigrated: 0,
     failed: 0,
     failures: [],
   };
 
   for (const skill of skills) {
+    // `limit` caps Phase A (artifact build + content-addressed blob upload).
     if (result.migrated >= limit) {
       break;
     }
     result.scanned += 1;
-    if (listSkillArtifactBindingsForSkillSync(skill.id, input.workspaceId).length > 0) {
-      result.alreadyMigrated += 1;
-      continue;
-    }
+
     try {
-      const built = buildLegacyArtifactFromSkillSync({
-        workspaceId: input.workspaceId,
-        skillId: skill.id,
-        name: skill.name,
-        files: skill.files.map((file) => ({ path: file.path, content: file.content })),
-        sourceUrl: skill.sourceUrl,
-      });
-      // 现有 assignment 映射到 artifact（不创建 installation）。
-      setAssignmentArtifactDigestsForSkillSync({
-        workspaceId: input.workspaceId,
-        skillId: skill.id,
-        digest: built.digest,
-      });
-      recordAuditLogSync({
-        workspaceId: input.workspaceId,
-        title: "Legacy skill migrated to artifact",
-        note: `Legacy skill "${skill.name}" was reconstructed as artifact ${built.digest}${built.artifact.legacyIncomplete ? " (incomplete: re-import required before install)" : ""}.`,
-        code: "skill.legacy_migrated",
-        source: "skill_lifecycle",
-        data: {
+      // Phase A — artifact + binding + active digest. Idempotent: an identical
+      // re-import short-circuits inside buildAndPersistSkillArtifactSync. When a
+      // binding already exists from a prior (possibly partial) run we DO NOT
+      // skip — we reuse its digest and reconcile the downstream phases below.
+      const bindings = listSkillArtifactBindingsForSkillSync(skill.id, workspaceId);
+      let digest: string;
+      let builtThisRun: boolean;
+      let legacyIncomplete: boolean;
+      if (bindings.length > 0) {
+        digest = bindings[0]!;
+        builtThisRun = false;
+        const existing = readSkillArtifactByDigestSync(digest, workspaceId);
+        legacyIncomplete = existing?.legacyIncomplete ?? false;
+      } else {
+        const built = buildLegacyArtifactFromSkillSync({
+          workspaceId,
           skillId: skill.id,
-          digest: built.digest,
-          legacyIncomplete: built.artifact.legacyIncomplete,
-          fileCount: skill.files.length,
-        },
+          name: skill.name,
+          files: skill.files.map((file) => ({ path: file.path, content: file.content })),
+          sourceUrl: skill.sourceUrl,
+        });
+        digest = built.digest;
+        builtThisRun = true;
+        legacyIncomplete = built.artifact.legacyIncomplete;
+      }
+
+      // Phases B + C run inside one transaction so a single maintenance tick can
+      // never leave assignments mapped without an audit (or vice versa). Phase A
+      // is excluded: it also writes content-addressed blobs to object storage,
+      // which cannot enlist in the DB transaction. Both B and C are individually
+      // idempotent, so a crash between A's commit and this commit self-heals on
+      // the next run (the digest is reused from the surviving binding).
+      let reconciledThisRun = false;
+      withTransaction(getDatabase(), () => {
+        // Phase B — map existing assignments onto the artifact digest. Backfills
+        // ONLY unmapped (NULL) rows, never clobbering an assignment later
+        // repointed by a re-import. Idempotent: a complete skill matches none.
+        const mapped = backfillMissingAssignmentDigestsForSkillSync({
+          workspaceId,
+          skillId: skill.id,
+          digest,
+        });
+        // Phase C — migration audit, recorded at most once per (skill, digest).
+        // A repeat or self-healing run finds the prior row and skips, so the
+        // audit trail shows a single migration event, not one per tick.
+        const audited = auditLogExistsForCodeSync({
+          workspaceId,
+          code: LEGACY_MIGRATION_AUDIT_CODE,
+          jsonData: { skillId: skill.id, digest },
+        });
+        if (!audited) {
+          recordAuditLogSync({
+            workspaceId,
+            title: "Legacy skill migrated to artifact",
+            note: `Legacy skill "${skill.name}" was reconstructed as artifact ${digest}${legacyIncomplete ? " (incomplete: re-import required before install)" : ""}.`,
+            code: LEGACY_MIGRATION_AUDIT_CODE,
+            source: "skill_lifecycle",
+            data: {
+              skillId: skill.id,
+              digest,
+              legacyIncomplete,
+              fileCount: skill.files.length,
+            },
+          });
+        }
+        if (!builtThisRun && (mapped > 0 || !audited)) {
+          reconciledThisRun = true;
+        }
       });
-      result.migrated += 1;
+
+      if (builtThisRun) {
+        result.migrated += 1;
+      } else if (reconciledThisRun) {
+        result.reconciled += 1;
+      } else {
+        result.alreadyMigrated += 1;
+      }
     } catch (error) {
       result.failed += 1;
       result.failures.push({
@@ -111,10 +184,11 @@ export function migrateLegacySkillArtifactsSync(input: {
 export function migrateAllWorkspaceLegacySkillsSync(input: { limitPerWorkspace?: number } = {}): {
   workspaces: number;
   migrated: number;
+  reconciled: number;
   alreadyMigrated: number;
   failed: number;
 } {
-  const aggregate = { workspaces: 0, migrated: 0, alreadyMigrated: 0, failed: 0 };
+  const aggregate = { workspaces: 0, migrated: 0, reconciled: 0, alreadyMigrated: 0, failed: 0 };
   for (const workspace of listAllWorkspacesSync()) {
     aggregate.workspaces += 1;
     try {
@@ -123,6 +197,7 @@ export function migrateAllWorkspaceLegacySkillsSync(input: { limitPerWorkspace?:
         limit: input.limitPerWorkspace,
       });
       aggregate.migrated += result.migrated;
+      aggregate.reconciled += result.reconciled;
       aggregate.alreadyMigrated += result.alreadyMigrated;
       aggregate.failed += result.failed;
     } catch {

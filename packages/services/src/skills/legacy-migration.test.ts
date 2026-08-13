@@ -136,3 +136,52 @@ test("honours the per-run limit", () => {
 
   assert.equal(result.migrated, 1);
 });
+
+test("self-heals a partial migration: re-maps assignments and re-records the audit without rebuilding", () => {
+  // Regression for the atomicity bug: Phase A (binding) used to gate the whole
+  // migration, so a run that crashed after creating the binding but before
+  // mapping assignments / writing the audit was judged complete and never
+  // backfilled. Re-running must now reconcile the missing phases off the
+  // surviving binding's digest.
+  const skill = createLegacySkill("Legacy Selfheal", [
+    { path: "scripts/run.sh", content: "echo hi\n" },
+  ]);
+  createEmployeeSync({ name: "Nova", role: "Researcher", origin: "manual" }, WORKSPACE_ID);
+  setStoredEmployeeSkillAssignmentsSync("Nova", [skill.id], WORKSPACE_ID);
+
+  // First run: full migration.
+  const first = migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID });
+  assert.equal(first.migrated, 1);
+  const digest = listSkillArtifactBindingsForSkillSync(skill.id, WORKSPACE_ID)[0]!;
+  assert.equal(readAssignmentArtifactDigestSync({ employeeName: "Nova", skillId: skill.id, workspaceId: WORKSPACE_ID }), digest);
+
+  // Simulate a crash AFTER the binding landed but BEFORE B/C completed: wipe
+  // this skill's assignment mapping and migration audit, keep the binding.
+  getDatabase().prepare("UPDATE agent_skill SET skill_artifact_digest = NULL WHERE workspace_id = ? AND skill_id = ?").run(WORKSPACE_ID, skill.id);
+  getDatabase().prepare("DELETE FROM audit_log WHERE workspace_id = ? AND code = ? AND data_json->>'skillId' = ?").run(WORKSPACE_ID, "skill.legacy_migrated", skill.id);
+  assert.equal(readAssignmentArtifactDigestSync({ employeeName: "Nova", skillId: skill.id, workspaceId: WORKSPACE_ID }), undefined);
+
+  // Second run: no fresh build (binding exists), but the missing phases reconcile.
+  const second = migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID });
+  assert.equal(second.migrated, 0, "the surviving binding must not trigger a rebuild");
+  assert.equal(second.reconciled, 1, "the partial migration is self-healed, not silently skipped");
+  // Assignment re-mapped onto the SAME digest (no new artifact)…
+  assert.equal(readAssignmentArtifactDigestSync({ employeeName: "Nova", skillId: skill.id, workspaceId: WORKSPACE_ID }), digest);
+  assert.equal(listSkillArtifactBindingsForSkillSync(skill.id, WORKSPACE_ID).length, 1, "no duplicate binding");
+  // …and the audit re-recorded exactly once.
+  const audit = listAuditLogsSync(WORKSPACE_ID, { code: "skill.legacy_migrated" })
+    .filter((row) => row.note.includes(`"${skill.name}"`));
+  assert.equal(audit.length, 1);
+});
+
+test("does not duplicate the migration audit across repeat runs", () => {
+  const skill = createLegacySkill("Legacy Once");
+
+  migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID });
+  migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID });
+  migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID });
+
+  const count = listAuditLogsSync(WORKSPACE_ID, { code: "skill.legacy_migrated" })
+    .filter((row) => row.note.includes(`"${skill.name}"`)).length;
+  assert.equal(count, 1, "exactly one migration audit per skill, regardless of how often maintenance re-runs");
+});
