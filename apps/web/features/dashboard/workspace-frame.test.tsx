@@ -188,7 +188,9 @@ function installIntersectionObserverMock(): {
     unobserve: ReturnType<typeof vi.fn>;
   }> = [];
 
-  vi.stubGlobal("IntersectionObserver", vi.fn((callback: IntersectionObserverCallback) => {
+  // 注意：工厂必须是可构造的 function（不能用箭头函数），因为被测代码以
+  // `new IntersectionObserver(cb)` 方式调用；vitest 4 起箭头函数不可 new。
+  vi.stubGlobal("IntersectionObserver", vi.fn(function mockIntersectionObserver(callback: IntersectionObserverCallback) {
     const instance = {
       callback,
       disconnect: vi.fn(),
