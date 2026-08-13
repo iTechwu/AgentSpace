@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import test, { beforeEach } from "node:test";
+import test, { after, before, beforeEach } from "node:test";
 import {
   claimNextSkillInstallationOperationForRuntimeSync,
   getDatabase,
   listAuditLogsSync,
   randomLikeId,
+  readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
+  readSkillInstallationComponentsSync,
+  setActiveArtifactDigestForSkillSync,
+  setSkillInstallationStatusSync,
+  updateSkillInstallationComponentStatusSync,
 } from "@dofe-agent/db";
 import {
   approveSkillInstallSync,
@@ -17,15 +22,36 @@ import {
   computeSkillReleaseLockSync,
   computeSkillUpgradeDiffHashSync,
   createSkillInstallationPlanSync,
+  createSkillUpgradePlanSync,
+  createWorkspaceSkillSync,
   failSkillInstallationOperationSync,
+  promoteSkillUpgradeSync,
   resetWorkspaceStateSync,
+  rollbackSkillInstallationSync,
+  setAttachmentStorageClientForTests,
 } from "../index.ts";
+import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 
 const encoder = new TextEncoder();
+const testStorage = createTestTosAttachmentStorage();
+
+// Pin an in-memory storage client so artifact builds never touch real TOS. Real
+// storage I/O (curl/network) recycles pooled PG connections mid-test, producing
+// stale-snapshot errors ("Runtime does not exist", skill_artifact FK violations)
+// on back-to-back runs — the same reason installations.test.ts pins a test client.
+before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testStorage.client);
+});
 
 beforeEach(() => {
   resetWorkspaceStateSync();
+  testStorage.clear();
   getDatabase().exec("DELETE FROM audit_log WHERE code LIKE 'skill.%'");
+});
+
+after(() => {
+  testStorage.clear();
 });
 
 function createTestRuntime(): string {
@@ -76,6 +102,109 @@ function approvedPlan(runtimeId: string, artifactDigest: string) {
     reason: "audit test",
   });
   return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
+}
+
+/**
+ * Drive an installation through the real claim→complete flow so it reaches ready
+ * WITH preparation evidence (preparedDigest). Rollback's preflight rejects a
+ * target whose preparedDigest is missing, so the ready-status shortcut is not
+ * enough for the previous revision.
+ */
+function completeInstall(runtimeId: string, artifactDigest: string) {
+  const installation = approvedPlan(runtimeId, artifactDigest);
+  const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  if (!claimed) throw new Error("no operation queued for completion");
+  const done = completeSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
+    safeResultJson: JSON.stringify({ computedDigest: artifactDigest }),
+    componentStatuses: [{ kind: "script", key: "scripts/run.sh", status: "ready" }],
+  });
+  if (!done.ok) throw new Error(`complete failed for installation ${installation.id}`);
+  return installation;
+}
+
+/** Two distinct artifacts bound to the same skill lineage (v1 + v2 upgrade pair). */
+function buildUpgradeArtifacts(skillId: string) {
+  const salt = randomBytes(4).toString("hex");
+  const first = buildAndPersistSkillArtifactSync({
+    skillId,
+    name: `Upgrade Audit ${salt}`,
+    files: [
+      { path: "SKILL.md", bytes: encoder.encode(`---\nname: Upgrade Audit ${salt}\ndescription: audit\n---\n# Body v1 ${salt}\n`) },
+      { path: "scripts/run.sh", bytes: encoder.encode(`#!/bin/sh\necho v1 ${salt}\n`), mode: "0755" as const },
+    ],
+    sourceType: "local",
+    entrypoints: [{ id: "scripts-run", kind: "script" as const, path: "scripts/run.sh", runtime: "bash" as const }],
+  });
+  const second = buildAndPersistSkillArtifactSync({
+    skillId,
+    activate: false,
+    name: `Upgrade Audit ${salt}`,
+    files: [
+      { path: "SKILL.md", bytes: encoder.encode(`---\nname: Upgrade Audit ${salt}\ndescription: audit\n---\n# Body v2 ${salt}\n`) },
+      { path: "scripts/run.sh", bytes: encoder.encode(`#!/bin/sh\necho v2 ${salt}\n`), mode: "0755" as const },
+    ],
+    sourceType: "local",
+    entrypoints: [{ id: "scripts-run", kind: "script" as const, path: "scripts/run.sh", runtime: "bash" as const }],
+  });
+  return { first, second };
+}
+
+function upgradeDiffHash(first: { artifact: { manifestJson: string } }, second: { artifact: { manifestJson: string } }): string {
+  return computeSkillUpgradeDiffHashSync({
+    fromManifestJson: first.artifact.manifestJson,
+    toManifestJson: second.artifact.manifestJson,
+  });
+}
+
+/**
+ * Drives a full upgrade to completion: v1 ready → v2 upgrade plan (approved) →
+ * v2 ready → promote. Returns the promoted v2 candidate so callers can assert
+ * the upgrade_promoted audit row or drive a subsequent rollback.
+ */
+function promotedUpgrade(): { skillId: string; candidate: { id: string; artifactDigest: string }; firstDigest: string } {
+  const runtimeId = createTestRuntime();
+  const skill = createWorkspaceSkillSync({ name: `Promote ${randomBytes(3).toString("hex")}` });
+  const { first, second } = buildUpgradeArtifacts(skill.id);
+  setActiveArtifactDigestForSkillSync({ skillId: skill.id, digest: first.digest, workspaceId: "default" });
+  const previous = completeInstall(runtimeId, first.digest);
+  const diffHash = upgradeDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({
+    skillId: skill.id,
+    fromDigest: first.digest,
+    toDigest: second.digest,
+    diffHash,
+  });
+  const candidate = createSkillUpgradePlanSync({
+    runtimeId,
+    artifactDigest: second.digest,
+    previousReadyInstallationId: previous.id,
+    approvalId,
+  });
+  for (const component of readSkillInstallationComponentsSync(candidate.id)) {
+    updateSkillInstallationComponentStatusSync({
+      installationId: candidate.id,
+      kind: component.kind,
+      key: component.key,
+      status: "ready",
+      verifiedAt: new Date().toISOString(),
+    });
+  }
+  setSkillInstallationStatusSync({
+    installationId: candidate.id,
+    workspaceId: "default",
+    status: "ready",
+    health: "healthy",
+  });
+  const promoted = promoteSkillUpgradeSync({
+    installationId: candidate.id,
+    skillId: skill.id,
+    expectedPreviousDigest: first.digest,
+  });
+  if (!promoted.ok) throw new Error(`promote failed: ${promoted.reason}`);
+  return { skillId: skill.id, candidate: { id: candidate.id, artifactDigest: candidate.artifactDigest }, firstDigest: first.digest };
 }
 
 test("install approval decision is recorded in the immutable audit log", () => {
@@ -163,10 +292,7 @@ test("upgrade approval decision is recorded in the immutable audit log", () => {
   const first = buildArtifact("Audit Upgrade", true);
   const second = buildArtifact("Audit Upgrade", true);
   assert.notEqual(first.digest, second.digest, "salted artifacts must produce distinct digests");
-  const diffHash = computeSkillUpgradeDiffHashSync({
-    fromManifestJson: first.artifact.manifestJson,
-    toManifestJson: second.artifact.manifestJson,
-  });
+  const diffHash = upgradeDiffHash(first, second);
 
   const { approvalId } = approveSkillUpgradeSync({
     fromDigest: first.digest,
@@ -179,4 +305,28 @@ test("upgrade approval decision is recorded in the immutable audit log", () => {
   assert.equal(rows[0]!.source, "skill_lifecycle");
   assert.match(rows[0]!.note, new RegExp(approvalId));
   assert.match(rows[0]!.note, /approved/);
+});
+
+test("upgrade promotion is recorded in the immutable audit log", () => {
+  const { skillId, candidate } = promotedUpgrade();
+  assert.equal(readActiveArtifactDigestForSkillSync(skillId, "default"), candidate.artifactDigest);
+
+  const rows = listAuditLogsSync("default", { code: "skill.upgrade_promoted" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.source, "skill_lifecycle");
+  assert.match(rows[0]!.note, new RegExp(skillId));
+  assert.match(rows[0]!.note, new RegExp(candidate.artifactDigest));
+});
+
+test("installation rollback is recorded in the immutable audit log", () => {
+  const { skillId, candidate, firstDigest } = promotedUpgrade();
+
+  const rollback = rollbackSkillInstallationSync({ installationId: candidate.id, skillId });
+  assert.equal(rollback.ok, true, `rollback should succeed: ${rollback.reason ?? ""}`);
+  assert.equal(readActiveArtifactDigestForSkillSync(skillId, "default"), firstDigest, "rollback restores the previous digest");
+
+  const rows = listAuditLogsSync("default", { code: "skill.installation_rollback" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.source, "skill_lifecycle");
+  assert.match(rows[0]!.note, new RegExp(candidate.id));
 });
