@@ -487,6 +487,7 @@ async function runRemoteDaemonForeground(config: DaemonConfig): Promise<number> 
     serverUrl: config.serverUrl,
     daemonToken: config.daemonToken,
     managedNode: false,
+    codexMcpExperimentalEnabled: process.env.MCP_CODEX_EXPERIMENTAL_ENABLED === "1",
   });
 }
 
