@@ -910,10 +910,12 @@ for ((i = 0; i <= 1000; i++)); do : > "\${DOFE_SKILL_OUTPUT_DIR}/f\${i}"; done
     const floodFailure = await runAndCaptureFailure("floodcount");
     assert.match(String(floodFailure.stderr), /skill_runner\.output_budget_exceeded/);
 
-    // An ORDINARY non-zero exit: the launcher forwards the container's own
-    // exit code (3) — not a timeout/overrun/artifact marker in sight.
+    // An ORDINARY non-zero exit: the run carries the structured nonzero_exit
+    // marker AND the launcher forwards the container's own exit code (3) —
+    // never flattened to a generic 1, and never misattributed to timeout/overrun.
     const exitFailure = await runAndCaptureFailure("exitthree");
     assert.equal(exitFailure.code, 3, "the launcher must exit with the runner's own exit code");
+    assert.match(String(exitFailure.stderr), /skill_runner\.nonzero_exit/);
     assert.doesNotMatch(String(exitFailure.stderr), /skill_runner\.(timeout_exceeded|output_limit_exceeded)/);
 
     const leftovers = execFileSync(dockerBin, ["ps", "-a", "--format", "{{.Names}}"], {
