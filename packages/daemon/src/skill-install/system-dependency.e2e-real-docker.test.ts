@@ -100,14 +100,22 @@ test("REAL DOCKER: Skill Runner system binary probe detects presence and absence
 });
 
 /**
- * Exercises the REAL egress enforcement end-to-end: a Runner entrypoint carrying a
- * frozen approved allowlist joins the egress docker network with the pinned host
- * written into /etc/hosts (via `--add-host`) and DNS poisoned to 192.0.2.1. The
- * script proves the pin took effect. DNS poisoning of non-pinned hosts is verified
- * when `getent` is available; otherwise the `--dns`/`--add-host` flags themselves
- * are asserted by the F5 unit tests.
+ * Exercises the REAL two-layer egress enforcement end-to-end on one container.
+ * A Runner entrypoint carrying a frozen approved allowlist joins the egress
+ * docker network; while it runs the broker installs a real DOCKER-USER chain
+ * for the container's source IP that allows ONLY the pinned host on :443.
+ *
+ * Layer 1 (hostname pinning + DNS poison): the pinned host is written into
+ * /etc/hosts via `--add-host` and DNS is poisoned to 192.0.2.1; the script
+ * proves the pin took effect and a non-allowlisted host does not resolve
+ * (verified via `getent` when available, else by the F5 unit tests).
+ *
+ * Layer 2 (L3/L4 firewall, real traffic): the script opens TCP sockets that the
+ * chain must DROP — the approved IP on a non-approved port (80) and a
+ * non-allowlisted IP on 443 — and records whether each was blocked. This is the
+ * live-traffic proof the rule-inspection test below deliberately cannot give.
  */
-test("REAL DOCKER: Runner egress allowlist pins the approved host into /etc/hosts", async (t) => {
+test("REAL DOCKER: Runner egress enforces Layer 1 (host pin/DNS poison) and Layer 2 (port-443-only firewall)", async (t) => {
   if (!RUN_E2E) {
     t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
     return;
@@ -134,7 +142,24 @@ if [ "\${has_getent}" = "1" ]; then
 else
   poisoned_ok=1
 fi
-printf '{"pinnedInHosts":%s,"poisonedOk":%s}\\n' "\${pinned}" "\${poisoned_ok}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
+# Layer-2 (L3/L4 firewall) negative probes. While this script runs the broker
+# has installed a real DOCKER-USER chain for THIS container's source IP that
+# allows ONLY ${PINNED_HOST} on :443 and DROPs everything else. "blocked" = the
+# TCP open did not complete within 3s (DROP -> no SYN-ACK -> timeout; refused or
+# unroutable also reads as blocked from the app's view). This is the SAFE
+# direction for a deploy gate: a permissive regression shows up as a connection
+# that SUCCEEDS, so the test only fails when egress genuinely stopped blocking,
+# never merely because the CI node lacks internet.
+probe_port() {
+  if timeout 3 bash -c "exec 3<>/dev/tcp/\$1/\$2" >/dev/null 2>&1; then echo 0; else echo 1; fi
+}
+# Approved IP on a NON-approved port (80): only :443 RETURNs, so :80 must DROP.
+# example.com serves :80, so a permissive egress regression would connect here.
+port80_blocked=$(probe_port ${PINNED_IP} 80)
+# A non-allowlisted destination IP (TEST-NET-2, RFC 5737) on 443: must DROP.
+non_allowlisted_blocked=$(probe_port 198.51.100.7 443)
+printf '{"pinnedInHosts":%s,"poisonedOk":%s,"port80Blocked":%s,"nonAllowlistedBlocked":%s}\\n' \\
+  "\${pinned}" "\${poisoned_ok}" "\${port80_blocked}" "\${non_allowlisted_blocked}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
 `;
 
   try {
@@ -178,12 +203,31 @@ printf '{"pinnedInHosts":%s,"poisonedOk":%s}\\n' "\${pinned}" "\${poisoned_ok}" 
 
     const result = JSON.parse(
       readFileSync(join(workDir, "runtime-output", "skill-runs", entrypoint.key, "egress.json"), "utf8"),
-    ) as { pinnedInHosts: number; poisonedOk: number };
+    ) as {
+      pinnedInHosts: number;
+      poisonedOk: number;
+      port80Blocked: number;
+      nonAllowlistedBlocked: number;
+    };
     assert.ok(
       result.pinnedInHosts >= 1,
       "the approved host must be pinned into /etc/hosts via --add-host",
     );
     assert.equal(result.poisonedOk, 1, "a non-allowlisted host must not resolve (DNS poisoned)");
+    // Layer-2 real-traffic proof: the DOCKER-USER chain installed for this
+    // container must DROP a connection to the approved IP on a non-approved port
+    // and to any non-allowlisted IP. A blocked connection that nonetheless
+    // SUCCEEDS is the regression this guards (egress became permissive).
+    assert.equal(
+      result.port80Blocked,
+      1,
+      "the approved IP on a non-approved port (80) must be firewalled — only :443 returns",
+    );
+    assert.equal(
+      result.nonAllowlistedBlocked,
+      1,
+      "a non-allowlisted destination IP must be firewalled (chain default DROP)",
+    );
   } finally {
     await broker?.close().catch(() => {});
     if (artifactDir) {
@@ -207,12 +251,14 @@ printf '{"pinnedInHosts":%s,"poisonedOk":%s}\\n' "\${pinned}" "\${poisoned_ok}" 
  *   - non-approved ports → the only RETURN to the approved IP carries --dport
  *     443, so any other port to that IP falls through to DROP.
  *
- * Caveat (why this is labeled "rule inspection"): it uses a source address
- * (172.18.0.99) that matches no live container, so the DOCKER-USER jump is
- * inert to real packets. It proves the rules LAND correctly, not that a running
- * Runner's traffic is actually dropped. Closing that gap needs a counter-based
- * probe (`iptables -L <chain> -v -n`) through a real Runner on the egress
- * network — a follow-up to implement and verify on the Linux gate node.
+ * Caveat (why this is labeled "rule inspection"): it uses a source address in
+ * 203.0.113.0/24 (RFC 5737 TEST-NET-3, reserved for documentation) that a Docker
+ * bridge can NEVER assign to a container, so the DOCKER-USER jump is provably
+ * inert to live packets — there is no production container whose traffic this
+ * test rule could accidentally intercept. (The earlier hardcoded 172.18.0.99 sat
+ * inside Docker's default pool and was only "probably" free.) It proves the
+ * rules LAND correctly, not that a running Runner's traffic is actually dropped;
+ * the live Layer-2 negative probe lives in the companion Runner test below.
  */
 test("REAL IPTABLES (rule inspection only): managed egress policy lands a port-443-only allow + final DROP rule shape", async (t) => {
   if (!RUN_E2E) {
@@ -226,9 +272,11 @@ test("REAL IPTABLES (rule inspection only): managed egress policy lands a port-4
   const policy = createIptablesManagedServiceEgressPolicy({ stateRootDir, platform: "linux" });
   const serviceId = "release-gate-egress-probe";
   const chain = buildManagedServiceEgressChainName(serviceId);
-  // A source address matching no real container: the DOCKER-USER jump is inert
-  // to live traffic but is still a real kernel rule available for inspection.
-  const sourceIp = "172.18.0.99";
+  // A source address in TEST-NET-3 (203.0.113.0/24, RFC 5737): Docker never
+  // assigns documentation-reserved ranges to containers, so this DOCKER-USER
+  // jump is provably inert to live traffic while still being a real kernel rule
+  // available for inspection — no risk of colliding with a production container.
+  const sourceIp = "203.0.113.99";
   const approvedIp = "203.0.113.10";
 
   const listRules = (chainName?: string) =>
