@@ -60,11 +60,11 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏳ 待办（大工程，需按域渐进） |
 | P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 data.ts 已拆（683f2d9e，5,737→3,533+973+1,410）、permissions.ts 已拆（374b1bc1，2,439→209 门面+9 子模块）、runtime-provisioning.ts 已拆（7f9ee7d4，2,258→74 门面+7 子模块）；postgres-schema 等待办 |
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 WorkspaceModuleHost 17 模块已改 next/dynamic 懒加载（32a1bb8a，全量 1153 用例通过）；channels-page-client 等文件内拆分待办 |
-| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | 🟡 文件级环 4→2（c8c7c37b，skills 三文件环与 feishu data-plane↔operation-plan 已解）；12 文件大 SCC 五处切断已实施 4 处（cut 1/2/4 8eb08332、cut 5 c8f32035）；最大 SCC 12→6；剩余 cut 3（channels→attachments GC 语义上移）跨域编排层非机械可切；runtime-provisioning 域内环归零（cc4047bd） |
+| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | 🟡 文件级环 4→2（c8c7c37b，skills 三文件环与 feishu data-plane↔operation-plan 已解）；12 文件大 SCC 五处切断已实施 4 处（cut 1/2/4 8eb08332、cut 5 c8f32035、cut 6 836c30c7）；cut 5 仅缩小未消除（notifications → shared/messaging → runtime-access → notifications 5 节点环仍在，需进一步切分 messaging 发送内核与 runtime 通知能力），最大 SCC 12→5；剩余 cut 3（channels→attachments GC 语义上移）跨域编排层非机械可切；runtime-provisioning 域内环归零（cc4047bd）；进展详见 [progress-log §3.3-3](progress-log.md) |
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ⏳ 待办（属测试门禁类，与 CI 专项同批处理为宜） |
 | P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ 待办 |
 | P2 | i18n 无 key | `tx(zh, en)` 内联双语无字典校验 | 中 | ⏳ 待办 |
-| P2 | 构建/版本漂移 | esbuild `target:node20` vs engines `^25.9.0`、版本号硬编码 | 低 | 🟡 版本单一来源已做（0945c0cb，cli.ts 改读 package.json）；esbuild target/镜像 digest 锁定待办 |
+| P2 | 构建/版本漂移 | esbuild `target:node20` vs engines `^25.9.0`、版本号硬编码 | 低 | 🟡 版本单一来源已做（0945c0cb，cli.ts 改读 package.json）；esbuild target 已对齐 `node25`（0a8e2acc）；镜像 digest 锁定、默认模型名硬编码待办 |
 | P2 | sandbox 抽象虚置 | Cube `exec()` 未实现，`connectSandbox()` 无调用方 | 中 | ⏳ 待办 |
 
 ---
@@ -112,9 +112,10 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
    2. ✅ **`documents/access → channels`**（`resolveChannelHumanMemberNames` ×3 + count）：纯函数下沉 `shared/channel-members.ts`，双方及 `messages` / `permissions` / `document-permissions` / `documents/files` / `attachments` / `channel-access` 共 6 处改引 shared（**8eb08332**）。
    3. ⏸ `channels → attachments`（`deleteUnreferencedWorkspaceAttachmentsSync`）：GC 语义上移至 channels 的调用方或回调注入；需梳理调用方语义，留待后续。
    4. ✅ **`attachments → channel-access`**（`isWorkspaceAdminOrOwnerRole` 部分）：纯角色判断下沉 `shared/channel-members.ts`（与 cut 2 同文件），`canReadChannelForActorSync` 嵌入 channel-access 域逻辑未下沉（**8eb08332**）。
-   5. ✅ **`notifications → messages`**（`postMessageSync`）：发送核心下沉 `shared/messaging.ts`（追加 import state-io/realtime-events + 末尾追加函数体），`messages.ts` 改 `export const postMessageSync = postMessageSyncShared` 保留 facade（**c8f32035**）；notifications 直接引 shared，12 个外部调用方零改动。
+   5. 🟡 **`notifications → messages`**（`postMessageSync`）：发送核心下沉 `shared/messaging.ts`（追加 import state-io/realtime-events + 末尾追加函数体），`messages.ts` 改 `export const postMessageSync = postMessageSyncShared` 保留 facade（**c8f32035**）；notifications 直接引 shared，12 个外部调用方零改动。**仅缩小未消除**：`notifications → shared/messaging → runtime-access → notifications` 5 节点环仍在，需进一步切分 messaging 发送内核与 runtime 通知能力（**2a63cf67** 收尾拆 `messaging → runtime-access` 一边后，最大 SCC 由 6 缩为 5）。
+   6. ✅ **`attachments → channel-access`**（`canReadChannelForActorSync` 访问判定）：访问判定下沉 `shared/access-decisions.ts`，channel-access 改 facade（**836c30c7**）。
 
-   实施顺序建议：1/2/4 纯机械下沉低风险先行；3 需梳理调用方语义；5 触及消息发送路径（行为敏感），最后做并配 messages 域回归。**当前进度**：1/2/4/5 已落地（8eb08332 / c8f32035），最大 SCC 由 12 缩为 6；剩余 cut 3（GC 语义）跨域编排层非机械可切，**建议接受现状或留待 P2 重构周期**。
+   实施顺序建议：1/2/4/6 纯机械下沉低风险先行；3 需梳理调用方语义；5 触及消息发送路径（行为敏感），需配 messages 域回归。**当前进度**：1/2/4/6 已落地，5 仅缩小未消除，最大 SCC 由 12 缩为 5；剩余 cut 3（GC 语义）跨域编排层非机械可切，**建议接受现状或留待 P2 重构周期**。
 4. **【P1】飞书 24 个测试文件游离于测试门之外**：`src/integrations/...`（含全包最大测试 `inbound.test.ts` 2,406 行、`data-plane.test.ts` 2,239 行）不在 `package.json` 的 test glob 内，`verify-test-coverage.mjs` 注释为 "intentional"。**8,000+ 行测试形同虚设**——要么纳入门禁（纯单测无需外部环境），要么给独立 CI 任务。
 5. **【P2】手写 `.d.ts` 孪生去重**：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
 6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串**：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
