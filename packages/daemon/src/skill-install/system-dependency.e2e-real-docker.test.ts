@@ -53,6 +53,34 @@ function digest(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+/**
+ * Snapshot of the per-chain DROP-rule packet counters on the REAL host
+ * firewall (`iptables-save -c`). Maps managed chain → packets matched by that
+ * chain's final DROP rule. A TCP timeout alone cannot distinguish "our
+ * DOCKER-USER chain dropped the flow" from "an upstream firewall did" — the
+ * kernel packet counter on OUR chain is the only attribution-proof evidence
+ * that real Runner traffic was dropped by the rules this gate landed.
+ */
+function snapshotEgressDropCounters(): Map<string, number> {
+  const dump = execFileSync("iptables-save", ["-c"], { encoding: "utf8", timeout: 30_000 });
+  // Chains DOCKER-USER jumps into (the per-run managed chains).
+  const jumpChains = new Set<string>();
+  for (const line of dump.split("\n")) {
+    const m = line.match(/^\[\d+:\d+\] -A DOCKER-USER .+-j (\S+)$/);
+    if (m && m[1] !== "RETURN") jumpChains.add(m[1]!);
+  }
+  const drops = new Map<string, number>();
+  for (const line of dump.split("\n")) {
+    const m = line.match(/^\[(\d+):\d+\] -A (\S+) (.+)$/);
+    if (!m) continue;
+    const [, pkts, chain, rest] = m;
+    if (jumpChains.has(chain!) && /^-j DROP$/.test(rest!.trim())) {
+      drops.set(chain!, Number(pkts));
+    }
+  }
+  return drops;
+}
+
 function materializeArtifact(input: {
   stateDir: string;
   artifactDigest: string;
@@ -126,6 +154,11 @@ test("REAL DOCKER: Skill Runner system binary probe detects presence and absence
  *   - outcome codes distinguish connected / timed-out (DROP semantics — what
  *     the managed chain does) / failed-fast (REJECT·refused·no-route, which is
  *     NOT our chain and therefore not creditable evidence of enforcement).
+ *   - COUNTER ATTRIBUTION: a timed-out deny probe is only circumstantial (an
+ *     upstream firewall times out identically). While the Runner executes the
+ *     gate polls `iptables-save -c` and requires the per-run managed chain's
+ *     final DROP rule to accrue ≥3 packets from the real probe traffic — the
+ *     kernel counter is the only evidence attributing the DROPs to OUR chain.
  *   - IPv6 bypass: availability (a global IPv6 address) is reported separately
  *     from the probe outcome. When a v6 path exists the outcome must be a DROP
  *     (timed out) — a fast-fail is NOT creditable (REJECT/no-route, or the
@@ -269,7 +302,29 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
     assert.ok(capability.binPath);
     // Running the launcher drives the entrypoint through the broker, which derives
     // the egress network args from the entrypoint's frozen allowlist.
-    await execFileAsync(capability.binPath, [], { timeout: 120_000 });
+    //
+    // While the Runner executes, poll the REAL kernel counters so the DROP-rule
+    // packet counts of this run's managed chain are captured BEFORE the broker
+    // tears the chain down at run end (the per-run chain is created on policy
+    // apply and removed in the run's finally block — reading after the run
+    // would always see nothing).
+    const baselineDrops = snapshotEgressDropCounters();
+    const maxDropPkts = new Map<string, number>();
+    let pollingCounters = true;
+    const pollDropCounters = (async () => {
+      while (pollingCounters) {
+        for (const [chain, pkts] of snapshotEgressDropCounters()) {
+          if (pkts > (maxDropPkts.get(chain) ?? 0)) maxDropPkts.set(chain, pkts);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    })();
+    try {
+      await execFileAsync(capability.binPath, [], { timeout: 120_000 });
+    } finally {
+      pollingCounters = false;
+      await pollDropCounters;
+    }
 
     const result = JSON.parse(
       readFileSync(join(workDir, "runtime-output", "skill-runs", entrypoint.key, "egress.json"), "utf8"),
@@ -341,6 +396,22 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
       1,
       "a non-allowlisted third-party 443 listener (8.8.8.8) must be DROPped — raw-IP bypass closed",
     );
+    // COUNTER ATTRIBUTION: the three v4 deny probes above each timed out, but a
+    // timeout alone cannot tell OUR chain's DROP from an upstream firewall's
+    // silence. The per-run managed chain (named after this run's id, absent
+    // from the baseline snapshot) must have accumulated ≥3 packets on its DROP
+    // rule DURING the real Runner traffic — one SYN per deny probe at minimum.
+    // This is the evidence that ties the timeouts to the rules this gate
+    // landed, closing the "timeout could be upstream" false-positive.
+    const freshChains = [...maxDropPkts.entries()].filter(([chain]) => !baselineDrops.has(chain));
+    assert.ok(
+      freshChains.some(([, pkts]) => pkts >= 3),
+      "this run's DOCKER-USER managed chain must show ≥3 DROP-rule packets accrued from the "
+        + "real Runner deny probes (port80/doh443/other443) — without kernel-counter growth the "
+        + "probe timeouts cannot be attributed to OUR chain (an upstream firewall would time out "
+        + "identically); observed fresh-chain DROP counters: "
+        + JSON.stringify(freshChains),
+    );
     // IPv6 bypass — availability is split from the outcome so a non-creditable
     // fast-fail is never conflated with an honest "no v6 path" skip (the old
     // single `ipv6` field used code 2 for both, silently passing either). There
@@ -396,7 +467,8 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
  * test rule could accidentally intercept. (The earlier hardcoded 172.18.0.99 sat
  * inside Docker's default pool and was only "probably" free.) It proves the
  * rules LAND correctly, not that a running Runner's traffic is actually dropped;
- * the live Layer-2 negative probe lives in the companion Runner test below.
+ * the live Layer-2 negative probe (real Runner traffic + kernel-counter
+ * attribution) lives in the companion Runner test above.
  */
 test("REAL IPTABLES (rule inspection only): managed egress policy lands a port-443-only allow + final DROP rule shape", async (t) => {
   if (!RUN_E2E) {
