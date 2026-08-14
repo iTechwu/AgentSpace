@@ -1,6 +1,6 @@
 # 发布前人工预检清单
 
-> 建立日期：2026-08-14。最近修订：2026-08-14（澄清门禁性质）。
+> 建立日期：2026-08-14。最近修订：2026-08-14（补记 Skill Runner egress 两段式门禁与环境要求）。
 > 适用范围：`agentspace.dofe.ai`。
 
 ## 门禁性质（必读）
@@ -8,11 +8,20 @@
 本清单是**发布工程约定 / 人工纪律**，**不是**自动化门禁。当前部署链路的真实情况：
 
 - `deploy-production.yml` 在 `push` 到 `main`（以及 `workflow_dispatch`）时自动部署到生产节点。
-- 该工作流**只自动校验**两件事：构建成功（`pnpm run build`）、Skill Runner egress 发布门禁（`dofe-skill-runner-e2e-run.sh`）。两者失败都会回滚并阻断上线。
+- 该工作流**自动校验**三件事，任一失败都会阻断上线（前两项失败直接退出，服务仍在运行旧版本；第三项失败触发回滚）：
+  1. **停服前预检**：`dofe-skill-runner-e2e-run.sh --preflight`——校验 Linux 节点、三个 digest 钉死的 Runner 镜像变量、镜像已在本地、docker 可用、iptables 可读写（需 CAP_NET_ADMIN）。预检在独立的**候选提交 worktree**（`git worktree add --detach <tmp> "$after"`）中执行，保证预检对象与将要上线的代码严格一致；worktree 注册了 EXIT trap，任何退出路径（job 超时 / 取消 / `set -e` 中断）都会注销临时目录与 worktree 元数据。
+  2. 构建成功（`pnpm run build`）。
+  3. **Skill Runner egress 发布门禁**：`dofe-skill-runner-e2e-run.sh` 在构建后、`start_service` 前跑真实 Docker + 真实 iptables 验收（两个文件：`skill-runner.e2e-real-docker.test.ts` 覆盖 Runner 容器隔离 / digest / config-socket 清理 / 缓存与依赖元数据篡改 fail-closed / 超时结构化错误码；`system-dependency.e2e-real-docker.test.ts` 覆盖 egress 双层强制——DNS 毒化下真实域名不得解析（含正向 pin 基线）、DOCKER-USER 链放行 IP 仅 :443、非放行 IP / DoH / IPv6 全部 DROP）。失败即回滚到正在运行的版本。
 - 该工作流**不运行**任何单元/集成测试，包括本清单第 1 项的 `test:tos`。仓库也没有独立的测试 CI。
 - 因此：除非发布者**在 push 到 `main` 之前**自行执行并通过本清单，否则下列校验会被跳过、部署照常进行。
 
 换句话说，“失败禁止发布”目前只靠发布者自觉，没有任何机器强制。要把它变成真正的自动门禁，见文末「升级为自动门禁」。
+
+### Skill Runner egress 门禁的环境要求（部署节点必须满足，否则预检 fail-closed）
+
+- 三个 Runner 镜像变量 `DOFE_SKILL_RUNNER_{NODE,PYTHON,BASH}_IMAGE` 必须是 `repo@sha256:<64-hex>` 且镜像已预拉取到本地（`--pull never`，不在部署窗口拉取）。来源由工作流 env `DOFE_SKILL_RUNNER_ENV_FILE=/home/AgentSpace/.env` 显式指定——与 daemon 运行时 `--env-file` 同一份 `.env`；runner 环境显式导出的值优先。注意 `ensure-ci-managed-nodes.sh` 只把变量写进各受管节点容器的 `node.env`，**不会**导出到部署 runner shell，不能假设 shell 自带。
+- 部署 runner 用户需有 docker 权限；节点 `iptables` 在 PATH 上且可读写（host 上落地 DOCKER-USER 链需要 CAP_NET_ADMIN/root）。
+- 非 Linux 节点直接失败，不转 skip。详见 `docs/0801/skill-install/05-运维服务与版本治理.md` §2.3。
 
 ## 1. TOS 预签名回归（约定必跑）
 

@@ -42,7 +42,8 @@ Runner 容器固定策略：
 | entrypoint 规范化唯一、broker key/命令冲突拒绝 | `manifest-schema.test.ts`、`skill-runner.test.ts` |
 | configKeys snapshot、Provider/Runner 环境分区、按键筛选、只读短时挂载与清理 | `installations.test.ts`、`skill-runner.test.ts` |
 | 任务级并发拒绝、超时容器强制删除 | `skill-runner.test.ts` |
-| Linux 真实 Node/Python/Bash、冻结依赖、网络/写入/secret/socket 负面验证 | `skill-runner.e2e-real-docker.test.ts`、`scripts/dofe-skill-runner-e2e-run.sh` |
+| Linux 真实 Node/Python/Bash、冻结依赖、网络/写入/secret/socket 负面验证、缺镜像安装阻断、缓存/元数据篡改、超时结构化错误码 | `skill-runner.e2e-real-docker.test.ts`、`scripts/dofe-skill-runner-e2e-run.sh` |
+| egress 双层强制真实流量：DNS 毒化 + pin 正向基线、DOCKER-USER 放行 IP 仅 :443、非放行 IP/端口/DoH/IPv6 DROP | `src/skill-install/system-dependency.e2e-real-docker.test.ts`、`scripts/dofe-skill-runner-e2e-run.sh` |
 | 未配置/本地缺镜像阻断安装、镜像内 runtime/语法检查、路径逃逸与符号链接拒绝 | `packages/daemon/src/skill-install/component-verifier.test.ts` |
 | snapshot 到 Runner manifest 与 executable hash | `packages/services/src/skills/installations.test.ts` |
 | 原始脚本不进入 Provider、stub/mode 正确 | `packages/services/src/skills/injection.test.ts` |
@@ -66,6 +67,9 @@ Runner 容器固定策略：
 [ ] timeout、输出超限、非零退出产生结构化失败且不泄漏环境变量
 [ ] timeout、输出超限或 broker 关闭后 `docker ps -a` 不存在对应随机容器，短时配置只在容器删除确认后清理
 [ ] daemon/task 重试清理 socket/launcher/output，继续使用同一 snapshot
+[ ] egress 双层强制：DNS 毒化下真实非放行域名不解析且 --add-host pin 可解析；放行 IP 仅 :443 可达，非放行 IP/端口/DoH/IPv6 全部 DROP（有正向连通基线，deny 只认可 5s 超时语义）
 ```
+
+发布流水线（`deploy-production.yml`）在停服前于独立候选提交 worktree 执行 `dofe-skill-runner-e2e-run.sh --preflight`（镜像变量/本地镜像/docker/iptables 就绪性），构建后在 `start_service` 前执行完整真实 e2e 门禁；任一失败阻断上线或回滚。环境要求见 `docs/0814/release-preflight-checklist.md`「Skill Runner egress 门禁的环境要求」。
 
 本工作站不执行 Jenkins 或测试环境部署。上述结果必须由指定 Linux 测试环境的非 Jenkins 禁令冲突流程或经授权的发布流水线保存；在证据完成前，脚本能力不得视为生产放行。
