@@ -162,6 +162,7 @@ const result = {
   runtime: "node",
   dependency,
   workspaceReadOnly,
+  uid: process.getuid?.() ?? null,
   interfaces: fs.readdirSync("/sys/class/net").sort(),
   dockerSocketVisible: fs.existsSync("/var/run/docker.sock"),
   hostSecretVisible: Boolean(process.env.DOFE_E2E_HOST_SECRET),
@@ -186,6 +187,7 @@ result = {
     "runtime": "python",
     "dependency": dofe_runner_fixture.VALUE,
     "workspaceReadOnly": workspace_read_only,
+    "uid": os.getuid(),
     "interfaces": sorted(os.listdir("/sys/class/net")),
     "dockerSocketVisible": os.path.exists("/var/run/docker.sock"),
     "hostSecretVisible": bool(os.environ.get("DOFE_E2E_HOST_SECRET")),
@@ -206,7 +208,7 @@ interfaces=(/sys/class/net/*)
 [[ ! -S /var/run/docker.sock ]]
 [[ -z "\${DOFE_E2E_HOST_SECRET:-}" ]]
 if printf blocked > /workspace/runner-must-not-write-bash 2>/dev/null; then exit 41; fi
-printf '{"runtime":"bash","isolated":true}\n' > "\${DOFE_SKILL_OUTPUT_DIR}/bash.json"
+printf '{"runtime":"bash","isolated":true,"uid":%s}\n' "\$(id -u)" > "\${DOFE_SKILL_OUTPUT_DIR}/bash.json"
 `,
     });
     artifacts.push(bashArtifact.artifactDir);
@@ -276,6 +278,7 @@ printf '{"runtime":"bash","isolated":true}\n' > "\${DOFE_SKILL_OUTPUT_DIR}/bash.
       runtime: "node",
       dependency: "node-dependency-ready",
       workspaceReadOnly: true,
+      uid: 65532,
       interfaces: ["lo"],
       dockerSocketVisible: false,
       hostSecretVisible: false,
@@ -285,11 +288,15 @@ printf '{"runtime":"bash","isolated":true}\n' > "\${DOFE_SKILL_OUTPUT_DIR}/bash.
       runtime: "python",
       dependency: "python-dependency-ready",
       workspaceReadOnly: true,
+      uid: 65532,
       interfaces: ["lo"],
       dockerSocketVisible: false,
       hostSecretVisible: false,
     });
-    assert.deepEqual(bashResult, { runtime: "bash", isolated: true });
+    // 65532 = the distroless nonroot UID the runner is hard-pinned to via
+    // `--user 65532:65532`; a drift to root (0) here means the container
+    // isolation contract broke.
+    assert.deepEqual(bashResult, { runtime: "bash", isolated: true, uid: 65532 });
     assert.equal(readdirSync(workDir).some((name) => name.startsWith("runner-must-not-write")), false);
     // Private config lifecycle: the node runner consumed a configKeys mount
     // (REAL_RUNNER_TOKEN); after every run the per-run private config dir must be
@@ -755,6 +762,256 @@ test("REAL DOCKER: a dependency environment/reference mismatch fails closed and 
   } finally {
     await broker?.close().catch(() => {});
     for (const envDir of dependencyDirs) resetSkillDependencyEnvironment(envDir);
+    if (artifactDir) {
+      chmodSync(artifactDir, 0o755);
+      chmodSync(join(artifactDir, "scripts"), 0o755);
+    }
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * §13 production gate: 采集侧 fail-closed 的真实容器证据。collectRunnerOutput
+ * rejects three hostile output-directory shapes AFTER a real container produced
+ * them: a symlink (escape vector), a non-regular special file (fifo — command
+ * injection / hang vector), and a file-count overrun past MAX_OUTPUT_FILES. An
+ * ORDINARY non-zero exit (exit 3, not timeout/overrun) must surface the run's
+ * own exit code with NO structured failure marker. All four must leave no
+ * container behind.
+ */
+test("REAL DOCKER: hostile output shapes fail closed and an ordinary non-zero exit keeps its exit code", async (t) => {
+  if (!RUN_E2E) {
+    t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
+    return;
+  }
+  assertReleaseGateEnvironment();
+  const dockerBin = process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker";
+
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-output-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-output-work-"));
+  const symlinkDigest = `9${ARTIFACT_DIGEST.slice(1)}`;
+  const fifoDigest = `a${ARTIFACT_DIGEST.slice(1)}`;
+  const floodCountDigest = `b${ARTIFACT_DIGEST.slice(1)}`;
+  const exitDigest = `c${ARTIFACT_DIGEST.slice(1)}`;
+  const artifacts: string[] = [];
+  let broker: Awaited<ReturnType<typeof startSkillRunnerBroker>> | undefined;
+
+  try {
+    // Symlink in the output dir — collection must refuse the whole run rather
+    // than read through it (a link to /etc/passwd would leak host material).
+    const symlink = createArtifact({
+      stateDir,
+      artifactDigest: symlinkDigest,
+      scriptName: "symlink.sh",
+      script: `#!/usr/bin/env bash
+set -euo pipefail
+ln -s /etc/passwd "\${DOFE_SKILL_OUTPUT_DIR}/host-passwd-link"
+`,
+    });
+    artifacts.push(symlink.artifactDir);
+    // Non-regular special file (fifo). mkfifo is the honest fixture; if the
+    // image lacks it, fall back to a symlink so the special-file class is
+    // still exercised — either must trip the forbidden-type check.
+    const fifo = createArtifact({
+      stateDir,
+      artifactDigest: fifoDigest,
+      scriptName: "fifo.sh",
+      script: `#!/usr/bin/env bash
+set -euo pipefail
+if command -v mkfifo >/dev/null 2>&1; then
+  mkfifo "\${DOFE_SKILL_OUTPUT_DIR}/pipe"
+else
+  ln -s /etc/passwd "\${DOFE_SKILL_OUTPUT_DIR}/host-passwd-link"
+fi
+`,
+    });
+    artifacts.push(fifo.artifactDir);
+    // 1001 files — one past MAX_OUTPUT_FILES (1_000); the collection budget
+    // must abort instead of silently truncating.
+    const floodCount = createArtifact({
+      stateDir,
+      artifactDigest: floodCountDigest,
+      scriptName: "flood-count.sh",
+      script: `#!/usr/bin/env bash
+set -euo pipefail
+for ((i = 0; i <= 1000; i++)); do : > "\${DOFE_SKILL_OUTPUT_DIR}/f\${i}"; done
+`,
+    });
+    artifacts.push(floodCount.artifactDir);
+    const exitThree = createArtifact({
+      stateDir,
+      artifactDigest: exitDigest,
+      scriptName: "exit-three.sh",
+      script: "#!/usr/bin/env bash\nexit 3\n",
+    });
+    artifacts.push(exitThree.artifactDir);
+
+    broker = await startSkillRunnerBroker({
+      stateDir,
+      workspaceId: WORKSPACE_ID,
+      workDir,
+      entrypoints: [
+        entrypoint({
+          id: "symlink",
+          installationId: "real-output-symlink",
+          artifactDigest: symlinkDigest,
+          scriptName: "symlink.sh",
+          scriptBytes: symlink.scriptBytes,
+          runtime: "bash",
+        }),
+        entrypoint({
+          id: "fifo",
+          installationId: "real-output-fifo",
+          artifactDigest: fifoDigest,
+          scriptName: "fifo.sh",
+          scriptBytes: fifo.scriptBytes,
+          runtime: "bash",
+        }),
+        entrypoint({
+          id: "floodcount",
+          installationId: "real-output-floodcount",
+          artifactDigest: floodCountDigest,
+          scriptName: "flood-count.sh",
+          scriptBytes: floodCount.scriptBytes,
+          runtime: "bash",
+        }),
+        entrypoint({
+          id: "exitthree",
+          installationId: "real-exit-three",
+          artifactDigest: exitDigest,
+          scriptName: "exit-three.sh",
+          scriptBytes: exitThree.scriptBytes,
+          runtime: "bash",
+        }),
+      ],
+    });
+    const byId = new Map(broker.capabilities.map((capability) => [capability.id.split(":").pop(), capability]));
+    for (const id of ["symlink", "fifo", "floodcount", "exitthree"]) {
+      assert.equal(byId.get(id)!.status, "available", byId.get(id)!.denialReason ?? "");
+    }
+
+    const runAndCaptureFailure = async (id: string) => {
+      const failure = await execFileAsync(byId.get(id)!.binPath!, [], { timeout: 120_000 })
+        .then(() => null, (error) => error as Error & { stderr?: string; code?: number });
+      assert.ok(failure, `${id} must not report success`);
+      return failure;
+    };
+
+    // The collection failures surface through the 500 handler as
+    // skill_runner.execution_failed whose message carries the specific code.
+    const symlinkFailure = await runAndCaptureFailure("symlink");
+    assert.match(String(symlinkFailure.stderr), /skill_runner\.output_symlink_forbidden/);
+    const fifoFailure = await runAndCaptureFailure("fifo");
+    assert.match(
+      String(fifoFailure.stderr),
+      /skill_runner\.output_(file_type_forbidden|symlink_forbidden)/,
+    );
+    const floodFailure = await runAndCaptureFailure("floodcount");
+    assert.match(String(floodFailure.stderr), /skill_runner\.output_budget_exceeded/);
+
+    // An ORDINARY non-zero exit: the launcher forwards the container's own
+    // exit code (3) — not a timeout/overrun/artifact marker in sight.
+    const exitFailure = await runAndCaptureFailure("exitthree");
+    assert.equal(exitFailure.code, 3, "the launcher must exit with the runner's own exit code");
+    assert.doesNotMatch(String(exitFailure.stderr), /skill_runner\.(timeout_exceeded|output_limit_exceeded)/);
+
+    const leftovers = execFileSync(dockerBin, ["ps", "-a", "--format", "{{.Names}}"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    }).split("\n")
+      .filter((name) => name.startsWith(`dofe-skill-run-${process.pid}-`));
+    assert.deepEqual(leftovers, [], "refused output shapes and failed exits must leave no container behind");
+  } finally {
+    await broker?.close().catch(() => {});
+    for (const artifactDir of artifacts) {
+      chmodSync(artifactDir, 0o755);
+      chmodSync(join(artifactDir, "scripts"), 0o755);
+    }
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * §13 production gate: broker 关闭对在飞容器的清理（此前只有单元测试证据）。
+ * While a real runner container is LIVE, closing the broker must force-remove
+ * it (close() iterates activeContainers and issues docker rm -f) — a daemon
+ * shutdown may never leave a running, resource-consuming container behind
+ * merely because its run was in flight.
+ */
+test("REAL DOCKER: closing the broker force-removes a live in-flight runner container", async (t) => {
+  if (!RUN_E2E) {
+    t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
+    return;
+  }
+  assertReleaseGateEnvironment();
+  const dockerBin = process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker";
+
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-close-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-close-work-"));
+  const artifactDigest = `d${ARTIFACT_DIGEST.slice(1)}`;
+  let broker: Awaited<ReturnType<typeof startSkillRunnerBroker>> | undefined;
+  let artifactDir: string | undefined;
+
+  const listOwnContainers = async (): Promise<string[]> => {
+    const names = await execFileAsync(dockerBin, ["ps", "-a", "--format", "{{.Names}}"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    }).then((output) => String(output));
+    return names.split("\n").filter((name) => name.startsWith(`dofe-skill-run-${process.pid}-`));
+  };
+
+  try {
+    const sleeper = createArtifact({
+      stateDir,
+      artifactDigest,
+      scriptName: "sleeper.sh",
+      script: "#!/usr/bin/env bash\nsleep 300\n",
+    });
+    artifactDir = sleeper.artifactDir;
+    broker = await startSkillRunnerBroker({
+      stateDir,
+      workspaceId: WORKSPACE_ID,
+      workDir,
+      entrypoints: [entrypoint({
+        id: "sleeper",
+        installationId: "real-close-sleeper",
+        artifactDigest,
+        scriptName: "sleeper.sh",
+        scriptBytes: sleeper.scriptBytes,
+        runtime: "bash",
+      })],
+      environment: { ...process.env, DOFE_SKILL_RUNNER_TIMEOUT_MS: "600000" },
+    });
+    const capability = broker.capabilities[0]!;
+    assert.equal(capability.status, "available", capability.denialReason ?? "");
+
+    // Fire the run WITHOUT awaiting it, then poll docker until THIS process's
+    // runner container is visibly live (the container name embeds process.pid).
+    const inFlight = execFileAsync(capability.binPath!, [], { timeout: 120_000 })
+      .then(() => null, (error) => error as Error);
+    const containerPrefix = `dofe-skill-run-${process.pid}-`;
+    let liveContainers: string[] = [];
+    for (let attempt = 0; attempt < 150 && liveContainers.length === 0; attempt += 1) {
+      liveContainers = (await listOwnContainers())
+        .filter((name) => name.startsWith(containerPrefix));
+      if (liveContainers.length === 0) await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert.ok(liveContainers.length > 0, "the sleeper's container must appear live before the broker closes");
+
+    await broker.close();
+    broker = undefined;
+
+    const afterClose = await listOwnContainers();
+    assert.deepEqual(
+      afterClose,
+      [],
+      "broker close must force-remove the in-flight container (docker ps -a shows nothing)",
+    );
+    assert.ok(await inFlight, "the in-flight run must fail once its container is force-removed");
+  } finally {
+    await broker?.close().catch(() => {});
     if (artifactDir) {
       chmodSync(artifactDir, 0o755);
       chmodSync(join(artifactDir, "scripts"), 0o755);
