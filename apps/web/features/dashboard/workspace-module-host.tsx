@@ -1,13 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { AgentsPageClient } from "@/features/agents/agents-page-client";
-import { ApprovalsPageClient } from "@/features/approvals/approvals-page-client";
-import { WorkflowListClient } from "@/features/workflows/workflow-list-client";
-import { CalendarPageClient } from "@/features/calendar/calendar-page-client";
-import { ChannelsPageClient } from "@/features/channels/channels-page-client";
-import { CostsPageClient } from "@/features/costs/costs-page-client";
-import { HumanContactsPageClient } from "@/features/contacts/human-contacts-page-client";
+import dynamic from "next/dynamic";
 import type { HumanContactsPageData } from "@/features/contacts/human-contacts-data";
 import type {
   AgentsPageData,
@@ -46,22 +40,36 @@ import {
 } from "@/features/dashboard/workspace-navigation-performance";
 import { canUseWorkspaceClientModule } from "@/features/dashboard/workspace-workbench-flags";
 import { useLanguage } from "@/features/i18n/language-provider";
-import { OrgChartPageClient } from "@/features/org-chart/org-chart-page-client";
-import { PerformancePageClient } from "@/features/performance/performance-page-client";
-import { InboxPageClient } from "@/features/inbox/inbox-page-client";
-import { KnowledgePageClient } from "@/features/knowledge/knowledge-page-client";
-import { MarketPageClient, type MarketPageData } from "@/features/market/market-page-client";
+import type { MarketPageData } from "@/features/market/market-page-client";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { FeedbackBanner } from "@/shared/ui/feedback-banner";
 import { WorkspacePageLoading, WorkspacePageLoadingProgress } from "@/shared/ui/workspace-page-loading";
-import { SettingsPageClient } from "@/features/settings/settings-page-client";
 import type { SettingsPageData } from "@/features/settings/settings-page-loader";
 import { isSettingsDetailSectionId } from "@/features/settings/settings-sections";
-import { SkillsPageClient } from "@/features/skills/skills-page-client";
-import { TablesPageClient } from "@/features/tables/tables-page-client";
-import { TaskBoardPageClient } from "@/features/task-board/task-board-page-client";
-import { TemplatesPageClient } from "@/features/templates/templates-page-client";
 import type { PerformanceDashboardData } from "@dofe-agent/services";
+
+// Module page clients are lazy-loaded per module: the workspace frame bundle
+// must not carry all 17 page clients (the IM client alone is ~4k lines). Each
+// route's page.tsx still statically imports its own client for the SSR pass,
+// so a server-rendered navigation resolves these chunks instantly.
+const moduleLoadingFallback = () => <WorkspacePageLoading />;
+const AgentsPageClient = dynamic(() => import("@/features/agents/agents-page-client").then((m) => m.AgentsPageClient), { loading: moduleLoadingFallback });
+const ApprovalsPageClient = dynamic(() => import("@/features/approvals/approvals-page-client").then((m) => m.ApprovalsPageClient), { loading: moduleLoadingFallback });
+const WorkflowListClient = dynamic(() => import("@/features/workflows/workflow-list-client").then((m) => m.WorkflowListClient), { loading: moduleLoadingFallback });
+const CalendarPageClient = dynamic(() => import("@/features/calendar/calendar-page-client").then((m) => m.CalendarPageClient), { loading: moduleLoadingFallback });
+const ChannelsPageClient = dynamic(() => import("@/features/channels/channels-page-client").then((m) => m.ChannelsPageClient), { loading: moduleLoadingFallback });
+const CostsPageClient = dynamic(() => import("@/features/costs/costs-page-client").then((m) => m.CostsPageClient), { loading: moduleLoadingFallback });
+const HumanContactsPageClient = dynamic(() => import("@/features/contacts/human-contacts-page-client").then((m) => m.HumanContactsPageClient), { loading: moduleLoadingFallback });
+const OrgChartPageClient = dynamic(() => import("@/features/org-chart/org-chart-page-client").then((m) => m.OrgChartPageClient), { loading: moduleLoadingFallback });
+const PerformancePageClient = dynamic(() => import("@/features/performance/performance-page-client").then((m) => m.PerformancePageClient), { loading: moduleLoadingFallback });
+const InboxPageClient = dynamic(() => import("@/features/inbox/inbox-page-client").then((m) => m.InboxPageClient), { loading: moduleLoadingFallback });
+const KnowledgePageClient = dynamic(() => import("@/features/knowledge/knowledge-page-client").then((m) => m.KnowledgePageClient), { loading: moduleLoadingFallback });
+const MarketPageClient = dynamic(() => import("@/features/market/market-page-client").then((m) => m.MarketPageClient), { loading: moduleLoadingFallback });
+const SettingsPageClient = dynamic(() => import("@/features/settings/settings-page-client").then((m) => m.SettingsPageClient), { loading: moduleLoadingFallback });
+const SkillsPageClient = dynamic(() => import("@/features/skills/skills-page-client").then((m) => m.SkillsPageClient), { loading: moduleLoadingFallback });
+const TablesPageClient = dynamic(() => import("@/features/tables/tables-page-client").then((m) => m.TablesPageClient), { loading: moduleLoadingFallback });
+const TaskBoardPageClient = dynamic(() => import("@/features/task-board/task-board-page-client").then((m) => m.TaskBoardPageClient), { loading: moduleLoadingFallback });
+const TemplatesPageClient = dynamic(() => import("@/features/templates/templates-page-client").then((m) => m.TemplatesPageClient), { loading: moduleLoadingFallback });
 
 export function WorkspaceModuleHost({
   children,
