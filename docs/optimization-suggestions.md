@@ -58,7 +58,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ 0945c0cb（三处 blob 传输加 300s AbortController 超时） |
 | P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ 本轮明确排除，未动 |
 | P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏳ 待办（大工程，需按域渐进） |
-| P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 data.ts 已拆（683f2d9e，5,737→3,533+973+1,410）、permissions.ts 已拆（374b1bc1，2,439→209 门面+9 子模块）；runtime-provisioning/postgres-schema 等待办 |
+| P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 data.ts 已拆（683f2d9e，5,737→3,533+973+1,410）、permissions.ts 已拆（374b1bc1，2,439→209 门面+9 子模块）、runtime-provisioning.ts 已拆（7f9ee7d4，2,258→74 门面+7 子模块）；postgres-schema 等待办 |
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 WorkspaceModuleHost 17 模块已改 next/dynamic 懒加载（32a1bb8a，全量 1153 用例通过）；channels-page-client 等文件内拆分待办 |
 | P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | 🟡 文件级环 4→2（c8c7c37b，skills 三文件环与 feishu data-plane↔operation-plan 已解）；剩余 12 文件大 SCC 需设计级 channel/notification 分层 |
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ⏳ 待办（属测试门禁类，与 CI 专项同批处理为宜） |
@@ -101,7 +101,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 ### 3.3 业务服务层（services，363 文件 / 56 域模块）
 
 1. **【P1】拆分 `permissions.ts`（2,439 行，全包最大）**：把 17+ 种数据源聚合为权限树/中心视图。`capabilities` 域已示范正确做法（facade + 4 个单职责子模块），照此拆分「数据源聚合 / 树构建 / 诊断」。✅ **已落地（374b1bc1）**：拆为 9 个单职责子模块（`permission-context` / `permission-diagnostics` / `permission-nodes-{agents,channels,documents,feishu-guests,runtime}` / `permission-types` / `permission-utils`），原文件收敛为 209 行门面。
-2. **【P1】拆分 `runtime-provisioning.ts`（2,258 行）**：7 阶段供给状态机，按「阶段机 / 命令构建 / 凭证恢复」分文件。
+2. **【P1】拆分 `runtime-provisioning.ts`（2,258 行）**：7 阶段供给状态机，按「阶段机 / 命令构建 / 凭证恢复」分文件。✅ **已落地（7f9ee7d4）**：原文件收敛为 74 行门面（显式 re-export 原 45 个公开符号，导入路径不变），拆出 capacity / tasks / models / credential-recovery / lifecycle / pipeline / models-client 7 个子模块；测试 53/54（1 例为共享测试库 schema 118 不可降级的环境性失败）。
 3. **【P1】打破模块循环依赖**（已核实）：
    - `messages → automations → workflows → messages`
    - `documents → notifications → messages → documents`
