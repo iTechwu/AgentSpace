@@ -4,6 +4,7 @@ import {
   getDatabase,
   listAuditLogsSync,
   listSkillArtifactBindingsForSkillSync,
+  randomLikeId,
   readAssignmentArtifactDigestSync,
   readSkillArtifactByDigestSync,
   readStoredSkillActiveArtifactDigestSync,
@@ -22,7 +23,13 @@ import {
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 
 const testTosStorage = createTestTosAttachmentStorage();
-const WORKSPACE_ID = "legacy-migration-test";
+// Per-TEST workspace: beforeEach mints a unique throwaway workspace for each
+// test, so this suite is safe across multiple processes (CI shards / parallel
+// workers) — no two processes or tests share or reset one another's workspace.
+// A fresh workspace starts empty (no skills, no audit rows), which removes the
+// need for the append-only audit_log clearing a shared fixed workspace required.
+// Declared `let` because beforeEach reassigns it per test.
+let WORKSPACE_ID = "";
 
 before(() => {
   process.env.NODE_ENV = "test";
@@ -30,12 +37,11 @@ before(() => {
 });
 
 beforeEach(() => {
+  // Mint a unique workspace for THIS test (and this process). resetWorkspaceStateSync
+  // creates + seeds it, so it starts empty — no prior skills and no audit rows to
+  // clear, which is why the append-only audit_log needs no DELETE here.
+  WORKSPACE_ID = `legacy-migration-${randomLikeId()}`;
   resetWorkspaceStateSync(WORKSPACE_ID);
-  // resetWorkspaceStateSync deliberately never clears audit_log (it is a
-  // tamper-evident, append-only log), so without this the note/name-based audit
-  // queries below would match rows left by prior invocations and flake. Clear
-  // only this dedicated test workspace's audit rows for a deterministic slate.
-  getDatabase().prepare("DELETE FROM audit_log WHERE workspace_id = ?").run(WORKSPACE_ID);
   testTosStorage.clear();
   // Baseline: a fresh workspace auto-seeds builtin legacy skills; migrate them
   // first so each test only measures its own skills.

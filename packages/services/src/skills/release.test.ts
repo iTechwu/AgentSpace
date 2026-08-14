@@ -62,7 +62,13 @@ after(() => {
   testStorage.clear();
   // Best-effort cleanup so the shared test DB does not leak catalog rows.
   const db = getDatabase();
-  db.prepare("DELETE FROM skill_service_binding").run();
+  // skill_service_binding carries no workspace_id column, so an unfiltered
+  // DELETE would wipe EVERY suite's bindings (service_id == catalog.id). Scope
+  // to this suite's "default"-workspace catalog rows only, so a parallel shard
+  // running another suite never loses its bindings.
+  db.prepare(
+    "DELETE FROM skill_service_binding WHERE service_id IN (SELECT id FROM skill_service_catalog WHERE workspace_id = ?)",
+  ).run("default");
   db.prepare("DELETE FROM managed_skill_service_operation WHERE workspace_id = ?").run("default");
   db.prepare("DELETE FROM managed_skill_service WHERE workspace_id = ?").run("default");
   db.prepare("DELETE FROM skill_service_catalog WHERE workspace_id = ?").run("default");
