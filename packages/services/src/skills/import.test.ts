@@ -165,6 +165,59 @@ test("importWorkspaceSkillFromUrl downloads discovered GitHub files with bounded
   assert.ok(maxActiveRawRequests <= 4, `expected at most 4 raw downloads, got ${maxActiveRawRequests}`);
 });
 
+test("importWorkspaceSkillFromUrl stops scheduling discovered downloads after the first failure", async () => {
+  const previousFetch = globalThis.fetch;
+  const sha = "abc123def456789012345678901234567890abcd";
+  const paths = [
+    "skill/SKILL.md",
+    ...Array.from({ length: 11 }, (_, index) => `skill/references/file-${index + 1}.md`),
+  ];
+  const skillCountBefore = listWorkspaceSkillsSync(WORKSPACE_ID).length;
+  let startedRawRequests = 0;
+
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/failing-skill-repo") {
+      return jsonResponse({ default_branch: "main" });
+    }
+    if (url === "https://api.github.com/repos/octo-org/failing-skill-repo/commits/main") {
+      return jsonResponse({ sha });
+    }
+    if (url === `https://api.github.com/repos/octo-org/failing-skill-repo/git/trees/${sha}?recursive=1`) {
+      return jsonResponse({
+        truncated: false,
+        tree: paths.map((path) => ({ path, type: "blob", mode: "100644" })),
+      });
+    }
+    if (url.startsWith(`https://raw.githubusercontent.com/octo-org/failing-skill-repo/${sha}/`)) {
+      startedRawRequests += 1;
+      if (url.endsWith("/SKILL.md")) {
+        return new Response("Not found", { status: 404 });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return new Response("# Reference\n");
+    }
+    if (url.includes("/repos/octo-org/failing-skill-repo/contents/skill/SKILL.md")) {
+      return new Response("Upstream unavailable", { status: 503 });
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+
+  await assert.rejects(
+    importWorkspaceSkillFromUrl({
+      workspaceId: WORKSPACE_ID,
+      url: "https://github.com/octo-org/failing-skill-repo",
+    }),
+    /Failed to fetch GitHub skill file "skill\/SKILL\.md": 503/,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  assert.ok(startedRawRequests <= 4, `expected failed import to stop at 4 requests, got ${startedRawRequests}`);
+  const skills = listWorkspaceSkillsSync(WORKSPACE_ID);
+  assert.equal(skills.length, skillCountBefore);
+  assert.equal(skills.some((skill) => skill.name === "failing-skill"), false);
+});
+
 test("importWorkspaceSkillFromUrl falls back to immutable Contents API when raw downloads fail", async () => {
   const previousFetch = globalThis.fetch;
   const sha = "abc123def456789012345678901234567890abcd";
@@ -173,6 +226,7 @@ test("importWorkspaceSkillFromUrl falls back to immutable Contents API when raw 
     "skill/references/checklist.md": "- verify fallback\n",
   };
   let rawHadTimeoutSignal = true;
+  let contentsHadTimeoutSignal = true;
   let contentsFallbackRequests = 0;
 
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -195,6 +249,7 @@ test("importWorkspaceSkillFromUrl falls back to immutable Contents API when raw 
     }
     if (url.startsWith("https://api.github.com/repos/octo-org/fallback-skill-repo/contents/")) {
       contentsFallbackRequests += 1;
+      contentsHadTimeoutSignal &&= init?.signal instanceof AbortSignal;
       const parsed = new URL(url);
       assert.equal(parsed.searchParams.get("ref"), sha);
       const path = decodeURIComponent(parsed.pathname.split("/contents/")[1] ?? "");
@@ -219,6 +274,7 @@ test("importWorkspaceSkillFromUrl falls back to immutable Contents API when raw 
   assert.ok(skill);
   assert.deepEqual(skill.files.map((file) => file.path), ["SKILL.md", "references/checklist.md"]);
   assert.equal(rawHadTimeoutSignal, true);
+  assert.equal(contentsHadTimeoutSignal, true);
   assert.equal(contentsFallbackRequests, 2);
 });
 
@@ -324,6 +380,41 @@ test("importWorkspaceSkillFromUrl keeps blob and raw SKILL.md links compatible",
     assert.ok(skill);
     assert.deepEqual(skill.files.map((file) => file.path), ["SKILL.md"]);
   }
+});
+
+test("importWorkspaceSkillFromUrl rejects unsafe GitHub URL forms", async () => {
+  const urls = [
+    "http://github.com/octo-org/skill-repo",
+    "ftp://github.com/octo-org/skill-repo",
+    "https://user:password@github.com/octo-org/skill-repo",
+    "http://raw.githubusercontent.com/octo-org/skill-repo/main/skills/research-pack/SKILL.md",
+  ];
+
+  for (const url of urls) {
+    await assert.rejects(
+      importWorkspaceSkillFromUrl({ workspaceId: WORKSPACE_ID, url }),
+      /Only GitHub repository, tree, blob, or raw skill URLs are supported/,
+    );
+  }
+});
+
+test("importWorkspaceSkillFromUrl rejects a non-hex GitHub commit SHA", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/invalid-sha-repo") {
+      return jsonResponse({ default_branch: "main" });
+    }
+    if (url === "https://api.github.com/repos/octo-org/invalid-sha-repo/commits/main") {
+      return jsonResponse({ sha: "z".repeat(40) });
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+
+  await assert.rejects(
+    importWorkspaceSkillFromUrl({ workspaceId: WORKSPACE_ID, url: "https://github.com/octo-org/invalid-sha-repo" }),
+    /did not contain a valid SHA/,
+  );
 });
 
 test("importWorkspaceSkillFromUrl rejects truncated GitHub repository discovery", async () => {

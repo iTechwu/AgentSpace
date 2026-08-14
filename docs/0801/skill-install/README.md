@@ -23,6 +23,7 @@
 | [11-版本治理后端核心计划.md](./11-版本治理后端核心计划.md) | 升级审批、lineage invariant、并发控制与回滚 |
 | [12-依赖安装验证计划.md](./12-依赖安装验证计划.md) | npm/pip 隔离安装、registry 固定与真实产物验证 |
 | [13-Skill-Runner实施与验收.md](./13-Skill-Runner实施与验收.md) | 脚本隔离执行、managed Provider bridge、镜像运维与验收门禁 |
+| [14-GitHub仓库Skill自动发现与导入优化.md](./14-GitHub仓库Skill自动发现与导入优化.md) | GitHub 仓库根链接自动发现、SHA 锁定、包校验、限流处理与验收标准 |
 
 ## 决策摘要
 

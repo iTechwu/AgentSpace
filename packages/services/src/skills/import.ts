@@ -110,6 +110,8 @@ interface SkillSourceBudget {
 }
 
 const MAX_SKILL_SOURCE_REQUESTS = 256;
+const GITHUB_RAW_DOWNLOAD_CONCURRENCY = 4;
+const GITHUB_RAW_DOWNLOAD_TIMEOUT_MS = 5_000;
 const MAX_SKILL_SOURCE_METADATA_BYTES = 2 * 1024 * 1024;
 
 interface ImportedSkillDefinition {
@@ -134,6 +136,10 @@ interface GitHubDirectoryPointer {
   path: string;
   /** Immutable commit SHA resolved from `ref` before any content fetch. */
   resolvedSha?: string;
+  /** Immutable tree entries captured while discovering a repository-root URL. */
+  discoveredFiles?: Array<{ path: string; mode?: string }>;
+  /** API requests already spent resolving a repository-root URL. */
+  discoveryRequestCount?: number;
 }
 
 interface GitLabDirectoryPointer {
@@ -879,7 +885,9 @@ async function importGitHubSkillDefinitionFromPointer(
   }
 
   const warnings: string[] = [];
-  const files = await fetchGitHubDirectoryFiles(pointer, warnings, workspaceId);
+  const files = pointer.discoveredFiles
+    ? await fetchDiscoveredGitHubFiles(pointer, warnings, workspaceId)
+    : await fetchGitHubDirectoryFiles(pointer, warnings, { workspaceId });
   const skillMd = readSkillMarkdown(files);
   const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(pointer.path));
 
@@ -1001,7 +1009,7 @@ async function importClawHubSkillDefinition(sourceUrl: string): Promise<Imported
 
 function parseGitHubDirectoryUrl(sourceUrl: string): GitHubDirectoryPointer | null {
   const parsed = parseUrl(sourceUrl);
-  if (!parsed) {
+  if (!parsed || parsed.protocol !== "https:" || parsed.username || parsed.password) {
     return null;
   }
 
@@ -1036,7 +1044,13 @@ function parseGitHubDirectoryUrl(sourceUrl: string): GitHubDirectoryPointer | nu
 
 function parseGitHubRepositoryUrl(sourceUrl: string): { owner: string; repo: string } | null {
   const parsed = parseUrl(sourceUrl);
-  if (!parsed || parsed.hostname !== "github.com") {
+  if (
+    !parsed ||
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== "github.com" ||
+    parsed.username ||
+    parsed.password
+  ) {
     return null;
   }
 
@@ -1368,7 +1382,7 @@ async function resolveGitHubRefToSha(owner: string, repo: string, ref: string, w
     "GitHub commit metadata",
   ) as { sha?: string };
   const sha = payload.sha?.trim().toLowerCase();
-  if (!sha || sha.length !== 40) {
+  if (!sha || !/^[a-f0-9]{40}$/.test(sha)) {
     throw new Error(`GitHub commit response did not contain a valid SHA for ref "${ref}".`);
   }
   return sha;
@@ -1493,14 +1507,15 @@ async function resolveGitHubSkillPointer(
     "GitHub repository tree",
   ) as {
     truncated?: boolean;
-    tree?: Array<{ path?: string; type?: string }>;
+    tree?: Array<{ path?: string; type?: string; mode?: string }>;
   };
   if (payload.truncated) {
     throw new Error(
       `GitHub repository tree is too large to discover a unique skill safely in ${repository.owner}/${repository.repo}; use a tree URL for one skill directory.`,
     );
   }
-  const skillPaths = (payload.tree ?? [])
+  const treeEntries = payload.tree ?? [];
+  const skillPaths = treeEntries
     .filter((entry) => entry.type === "blob" && typeof entry.path === "string")
     .map((entry) => entry.path!)
     .filter((path) => sameValue(basename(path), "SKILL.md"))
@@ -1520,6 +1535,19 @@ async function resolveGitHubSkillPointer(
     ref,
     path: skillPaths[0]!,
     resolvedSha,
+    discoveryRequestCount: 3,
+    discoveredFiles: treeEntries
+      .filter((entry): entry is { path: string; type?: string; mode?: string } => (
+        entry.type === "blob" && typeof entry.path === "string"
+      ))
+      .filter((entry) => {
+        const prefix = skillPaths[0] ? `${skillPaths[0]}/` : "";
+        return !prefix || entry.path.startsWith(prefix);
+      })
+      .map((entry) => ({
+        path: entry.path,
+        ...(entry.mode ? { mode: entry.mode } : {}),
+      })),
   };
 }
 
@@ -1555,11 +1583,19 @@ function normalizeSkillSlug(value: string): string {
 async function fetchGitHubDirectoryFiles(
   pointer: GitHubDirectoryPointer,
   warnings: string[],
-  relativePrefix = "",
-  requireSkillFile = true,
-  budget: SkillSourceBudget = { fileCount: 0, totalBytes: 0, requestCount: 0 },
-  workspaceId?: string,
+  options: {
+    relativePrefix?: string;
+    requireSkillFile?: boolean;
+    budget?: SkillSourceBudget;
+    workspaceId?: string;
+  } = {},
 ): Promise<ImportedSkillFile[]> {
+  const {
+    relativePrefix = "",
+    requireSkillFile = true,
+    budget = { fileCount: 0, totalBytes: 0, requestCount: 0 },
+    workspaceId,
+  } = options;
   assertSkillSourceRequestBudget(budget, "GitHub skill");
   const ref = pointer.resolvedSha ?? pointer.ref;
   const contentsUrl = buildGitHubContentsApiUrl(pointer.owner, pointer.repo, pointer.path, ref);
@@ -1606,7 +1642,12 @@ async function fetchGitHubDirectoryFiles(
         ...pointer,
         path: entry.path,
       };
-      files.push(...await fetchGitHubDirectoryFiles(nestedPointer, warnings, relativePath, false, budget, workspaceId));
+      files.push(...await fetchGitHubDirectoryFiles(nestedPointer, warnings, {
+        relativePrefix: relativePath,
+        requireSkillFile: false,
+        budget,
+        workspaceId,
+      }));
       continue;
     }
 
@@ -1616,30 +1657,10 @@ async function fetchGitHubDirectoryFiles(
     }
 
     assertSkillSourceRequestBudget(budget, "GitHub skill");
-    const fileResponse = await fetch(buildGitHubContentsApiUrl(pointer.owner, pointer.repo, entry.path, ref), {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "DofeAgent/0.1.0",
-        ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
-      },
-    });
-    if (!fileResponse.ok) {
-      throw new Error(`Failed to fetch GitHub skill file: ${entry.path}`);
-    }
-    const filePayload = await readResponseJsonWithLimit(
-      fileResponse,
-      Math.ceil(MAX_SKILL_SINGLE_FILE_BYTES * 1.5) + MAX_SKILL_SOURCE_METADATA_BYTES,
-      `GitHub skill file "${entry.path}"`,
-    ) as {
-      type?: string;
-      encoding?: string;
-      content?: string;
-    };
-    if (filePayload.type !== "file" || filePayload.encoding !== "base64" || typeof filePayload.content !== "string") {
-      throw new Error(`GitHub skill file "${entry.path}" is not a supported file.`);
-    }
-
-    const bytes = new Uint8Array(Buffer.from(filePayload.content.replace(/\n/g, ""), "base64"));
+    const bytes = await fetchGitHubRawFileBytes(
+      { ...pointer, path: entry.path },
+      { workspaceId, fallbackBudget: budget },
+    );
     assertSkillSourceFileBudget(budget, relativePath, bytes, "GitHub skill");
     files.push({
       path: relativePath,
@@ -1652,6 +1673,100 @@ async function fetchGitHubDirectoryFiles(
   }
 
   return sortImportedSkillFiles(files);
+}
+
+async function fetchDiscoveredGitHubFiles(
+  pointer: GitHubDirectoryPointer,
+  warnings: string[],
+  workspaceId?: string,
+): Promise<ImportedSkillFile[]> {
+  const budget: SkillSourceBudget = {
+    fileCount: 0,
+    totalBytes: 0,
+    requestCount: pointer.discoveryRequestCount ?? 0,
+  };
+  const prefix = pointer.path ? `${pointer.path.replace(/\/+$/, "")}/` : "";
+  const downloadEntries: Array<{
+    entry: { path: string; mode?: string };
+    relativePath: string;
+  }> = [];
+
+  for (const entry of pointer.discoveredFiles ?? []) {
+    if (entry.mode && entry.mode !== "100644" && entry.mode !== "100755") {
+      warnings.push(`Skipped unsupported GitHub entry: ${entry.path}`);
+      continue;
+    }
+    if (prefix && !entry.path.startsWith(prefix)) {
+      throw new Error(`GitHub repository tree returned an entry outside the selected skill path: ${entry.path}`);
+    }
+    const rawRelativePath = prefix ? entry.path.slice(prefix.length) : entry.path;
+    const pathResult = classifySkillFilePath(rawRelativePath);
+    if (!pathResult.ok) {
+      throw new Error(`GitHub skill contains unsafe path "${rawRelativePath}": ${pathResult.message}`);
+    }
+
+    assertSkillSourceRequestBudget(budget, "GitHub skill");
+    downloadEntries.push({
+      entry,
+      relativePath: pathResult.normalized,
+    });
+  }
+
+  const files = await mapWithConcurrency(
+    downloadEntries,
+    GITHUB_RAW_DOWNLOAD_CONCURRENCY,
+    async ({ entry, relativePath }) => {
+      const bytes = await fetchGitHubRawFileBytes(
+        { ...pointer, path: entry.path },
+        { workspaceId, fallbackBudget: budget },
+      );
+      assertSkillSourceFileBudget(budget, relativePath, bytes, "GitHub skill");
+      return {
+        path: relativePath,
+        bytes,
+        ...(entry.mode === "100755" ? { mode: "0755" } : entry.mode === "100644" ? { mode: "0644" } : {}),
+      };
+    },
+  );
+
+  if (!files.some((file) => sameValue(file.path, "SKILL.md"))) {
+    throw new Error("Imported GitHub skill must contain SKILL.md.");
+  }
+  return sortImportedSkillFiles(files);
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  let failed = false;
+  let firstError: unknown;
+
+  async function worker(): Promise<void> {
+    while (!failed && nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = await mapper(items[index]!);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+  if (failed) {
+    throw firstError;
+  }
+  return results;
 }
 
 async function fetchGitLabDirectoryFiles(
@@ -1794,20 +1909,74 @@ function assertSkillSourceFileBudget(
 }
 
 async function fetchGitHubRawFile(pointer: GitHubDirectoryPointer, workspaceId?: string): Promise<string> {
-  const ref = pointer.resolvedSha ?? pointer.ref;
-  const response = await fetch(
-    `https://raw.githubusercontent.com/${pointer.owner}/${pointer.repo}/${ref}/${pointer.path}`,
-    {
-      headers: {
-        "User-Agent": "DofeAgent/0.1.0",
-        ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
-      },
-    },
+  return new TextDecoder("utf-8", { fatal: true }).decode(
+    await fetchGitHubRawFileBytes(pointer, { workspaceId }),
   );
-  if (!response.ok) {
-    throw new Error(`Failed to fetch GitHub skill file: ${response.status}`);
+}
+
+async function fetchGitHubRawFileBytes(
+  pointer: GitHubDirectoryPointer,
+  options: {
+    workspaceId?: string;
+    fallbackBudget?: SkillSourceBudget;
+  } = {},
+): Promise<Uint8Array> {
+  const { workspaceId, fallbackBudget } = options;
+  const ref = pointer.resolvedSha ?? pointer.ref;
+  let response: Response | undefined;
+  try {
+    response = await fetch(
+      `https://raw.githubusercontent.com/${pointer.owner}/${pointer.repo}/${ref}/${pointer.path}`,
+      {
+        headers: {
+          "User-Agent": "DofeAgent/0.1.0",
+          ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
+        },
+        signal: AbortSignal.timeout(GITHUB_RAW_DOWNLOAD_TIMEOUT_MS),
+      },
+    );
+  } catch {
+    response = undefined;
   }
-  return readResponseTextWithLimit(response, MAX_SKILL_SINGLE_FILE_BYTES, "GitHub skill file");
+  if (response?.ok) {
+    return readResponseBytesWithLimit(response, MAX_SKILL_SINGLE_FILE_BYTES, "GitHub skill file");
+  }
+
+  if (fallbackBudget) {
+    assertSkillSourceRequestBudget(fallbackBudget, "GitHub skill");
+  }
+  return fetchGitHubContentsFileBytes(pointer, workspaceId);
+}
+
+async function fetchGitHubContentsFileBytes(
+  pointer: GitHubDirectoryPointer,
+  workspaceId?: string,
+): Promise<Uint8Array> {
+  const ref = pointer.resolvedSha ?? pointer.ref;
+  const response = await fetch(buildGitHubContentsApiUrl(pointer.owner, pointer.repo, pointer.path, ref), {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "DofeAgent/0.1.0",
+      ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
+    },
+    signal: AbortSignal.timeout(GITHUB_RAW_DOWNLOAD_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch GitHub skill file "${pointer.path}": ${response.status}`);
+  }
+  const payload = await readResponseJsonWithLimit(
+    response,
+    Math.ceil(MAX_SKILL_SINGLE_FILE_BYTES * 1.5) + MAX_SKILL_SOURCE_METADATA_BYTES,
+    `GitHub skill file "${pointer.path}"`,
+  ) as {
+    type?: string;
+    encoding?: string;
+    content?: string;
+  };
+  if (payload.type !== "file" || payload.encoding !== "base64" || typeof payload.content !== "string") {
+    throw new Error(`GitHub skill file "${pointer.path}" is not a supported file.`);
+  }
+  return new Uint8Array(Buffer.from(payload.content.replace(/\n/g, ""), "base64"));
 }
 
 async function readResponseJsonWithLimit(response: Response, maxBytes: number, label: string): Promise<unknown> {
