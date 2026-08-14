@@ -62,8 +62,10 @@ export * from "./skill-runner-egress.ts";
  * Runner (matched by the egress-policy label) and only revokes policies whose
  * owner is gone — so a completed sweep is cached and shared. A sweep that
  * ABORTS (live-owner enumeration failed → it kept everything, the safe DROP
- * direction) or REJECTS is NOT cached: the cache entry is dropped so the next
- * broker start retries once Docker is reachable again, instead of permanently
+ * direction), that LEFT stale chains behind (a `remove` failed for some
+ * candidate → `removalFailed > 0`, its state file survives to be retried), or
+ * REJECTS is NOT cached: the cache entry is dropped so the next broker start
+ * retries once the firewall/Docker is reachable again, instead of permanently
  * marking cleanup done and leaking stale chains for the process lifetime.
  */
 const daemonEgressStartupSweeps = new Map<string, Promise<void>>();
@@ -78,8 +80,10 @@ function ensureDaemonEgressStartupSweep(
   }
   const cached = sweepPersistedEgressPolicies(egressPolicyStateDir, policy, { enumerateLivePolicyOwners })
     .then((result) => {
-      if (result.enumerationFailed) {
-        // Kept everything (safe). Drop the cache so the next broker retries.
+      if (result.enumerationFailed || result.removalFailed > 0) {
+        // Either enumeration failed (kept everything, safe) or a candidate's
+        // remove failed (its state file survives to be retried). Drop the cache
+        // so the next broker start re-runs the sweep instead of marking it done.
         daemonEgressStartupSweeps.delete(egressPolicyStateDir);
       }
     })

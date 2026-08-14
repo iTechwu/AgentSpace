@@ -346,19 +346,24 @@ export function parseContainerNetworkAddresses(networksJson: string): ManagedNet
  * itself fails, nothing is removed and `enumerationFailed` is `true` so the
  * caller retries on its next start instead of caching the sweep as done.
  *
- * Individual remove failures are swallowed; the next apply for the same id
- * retries cleanup.
+ * Individual remove failures are counted in `removalFailed` but do NOT abort the
+ * sweep — a misbehaving firewall must not block daemon startup. The candidate's
+ * state file survives a failed `remove` (the firewall rules are torn down BEFORE
+ * the state file is deleted, see the `remove` runtime), so it stays on disk and
+ * the NEXT sweep retries it. A `serviceId` is a per-run lease that is never
+ * re-applied, so the retry has to come from a future sweep — callers must drop
+ * any "sweep done" cache when `removalFailed > 0` so that next sweep runs.
  */
 export async function sweepPersistedEgressPolicies(
   stateRootDir: string,
   runtime: ManagedServiceEgressPolicyRuntime,
   options?: { enumerateLivePolicyOwners?: () => Promise<Set<string>> },
-): Promise<{ removed: number; kept: number; enumerationFailed: boolean }> {
+): Promise<{ removed: number; kept: number; enumerationFailed: boolean; removalFailed: number }> {
   let entries: string[];
   try {
     entries = await fs.readdir(stateRootDir);
   } catch {
-    return { removed: 0, kept: 0, enumerationFailed: false };
+    return { removed: 0, kept: 0, enumerationFailed: false, removalFailed: 0 };
   }
   // Collect candidate policies first so the (possibly docker-shelling) live-owner
   // enumeration only runs when there is actually something to evaluate.
@@ -382,10 +387,11 @@ export async function sweepPersistedEgressPolicies(
       // Could not prove any owner dead. Keep everything (fail-closed: a stale
       // chain DROPs, an opened live container does not) and signal the caller to
       // retry rather than cache this sweep as complete.
-      return { removed: 0, kept: candidates.length, enumerationFailed: true };
+      return { removed: 0, kept: candidates.length, enumerationFailed: true, removalFailed: 0 };
     }
   }
   let removed = 0;
+  let removalFailed = 0;
   for (const { serviceId } of candidates) {
     if (liveOwners?.has(serviceId)) {
       kept += 1;
@@ -395,10 +401,14 @@ export async function sweepPersistedEgressPolicies(
       await runtime.remove({ serviceId });
       removed += 1;
     } catch {
-      // Best-effort sweep; a failing firewall must not block daemon startup.
+      // Best-effort sweep: a failing firewall must not block daemon startup. The
+      // candidate's state file survives this failure (remove() deletes it only
+      // AFTER the firewall rules are gone), so it stays on disk and the next
+      // sweep retries. Count it so the caller can drop its "sweep done" cache.
+      removalFailed += 1;
     }
   }
-  return { removed, kept, enumerationFailed: false };
+  return { removed, kept, enumerationFailed: false, removalFailed };
 }
 
 const defaultFirewallExec: ManagedFirewallExec = (family, args) => {

@@ -197,6 +197,52 @@ test("sweepPersistedEgressPolicies keeps everything and reports enumerationFaile
   }
 });
 
+test("sweepPersistedEgressPolicies surfaces removalFailed (not success) when a remove throws and leaves the candidate retryable", async () => {
+  // Regression: a single-item remove failure used to be swallowed and the sweep
+  // returned success (enumerationFailed:false, no removalFailed signal). The
+  // caller then cached the sweep as done, so the stale chain was never retried.
+  // The fix counts the failure so the caller drops its cache. Faithful to the
+  // real remove() contract, the mock deletes the state file ONLY on success —
+  // a failed teardown leaves it on disk so the next sweep retries the candidate.
+  const stateRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-egress-sweep-flaky-"));
+  const removed: string[] = [];
+  const policy = {
+    async apply() { /* not exercised */ },
+    async remove(input: { serviceId: string }) {
+      if (input.serviceId === "flaky-run") {
+        throw new Error("firewall teardown failed");
+      }
+      removed.push(input.serviceId);
+      await fs.unlink(join(stateRootDir, `${input.serviceId}.json`)).catch(() => undefined);
+    },
+  };
+  try {
+    await fs.writeFile(
+      join(stateRootDir, "dead-run.json"),
+      JSON.stringify({ serviceId: "dead-run", sourceAddresses: [{ family: "ipv4", address: "172.18.0.30" }] }),
+      "utf8",
+    );
+    await fs.writeFile(
+      join(stateRootDir, "flaky-run.json"),
+      JSON.stringify({ serviceId: "flaky-run", sourceAddresses: [{ family: "ipv4", address: "172.18.0.31" }] }),
+      "utf8",
+    );
+
+    const result = await sweepPersistedEgressPolicies(stateRootDir, policy, {
+      enumerateLivePolicyOwners: async () => new Set(),
+    });
+    assert.deepEqual(removed, ["dead-run"], "the healthy candidate is revoked");
+    assert.equal(result.removed, 1);
+    assert.equal(result.removalFailed, 1, "the flaky candidate's remove failure is surfaced, not swallowed");
+    assert.equal(result.enumerationFailed, false, "a remove failure is not an enumeration failure");
+    const remaining = await fs.readdir(stateRootDir);
+    assert.ok(remaining.includes("flaky-run.json"), "the flaky candidate's state survives so the next sweep retries it");
+    assert.ok(!remaining.includes("dead-run.json"), "the revoked candidate's state is gone");
+  } finally {
+    await fs.rm(stateRootDir, { recursive: true, force: true });
+  }
+});
+
 test("empty allow-list installs a drop-only chain", async () => {
   const stateRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-egress-policy-"));
   const calls: string[][] = [];
