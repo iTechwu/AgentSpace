@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile, execFileSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -16,6 +17,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath } from "@dofe-agent/db";
 import type { DaemonSkillRunnerEntrypoint, SkillEntrypointRuntime } from "@dofe-agent/domain";
+import { verifySystemDependenciesInRunner } from "./skill-install/operation-worker.ts";
 import {
   publishSkillDependencyEnvironment,
   resetSkillDependencyEnvironment,
@@ -80,6 +82,7 @@ function createDependencyEnvironment(input: {
   stateDir: string;
   installationId: string;
   artifactDigest: string;
+  releaseLockDigest?: string;
 }): string {
   const envsDir = getDaemonSkillInstallEnvsDirPath(input.stateDir, {
     workspaceId: WORKSPACE_ID,
@@ -99,7 +102,7 @@ function createDependencyEnvironment(input: {
     envsDir,
     installationId: input.installationId,
     artifactDigest: input.artifactDigest,
-    releaseLockDigest: RELEASE_LOCK_DIGEST,
+    releaseLockDigest: input.releaseLockDigest ?? RELEASE_LOCK_DIGEST,
   });
   return envsDir;
 }
@@ -288,6 +291,16 @@ printf '{"runtime":"bash","isolated":true}\n' > "\${DOFE_SKILL_OUTPUT_DIR}/bash.
     });
     assert.deepEqual(bashResult, { runtime: "bash", isolated: true });
     assert.equal(readdirSync(workDir).some((name) => name.startsWith("runner-must-not-write")), false);
+    // Private config lifecycle: the node runner consumed a configKeys mount
+    // (REAL_RUNNER_TOKEN); after every run the per-run private config dir must be
+    // deleted, leaving the skill-runner-config root empty — no secret material
+    // (config.json files are mode 0o400) may outlive its run.
+    const configRoot = join(stateDir, "skill-runner-config");
+    assert.deepEqual(
+      readdirSync(configRoot),
+      [],
+      "per-run private config dirs must be removed after the run completes",
+    );
   } finally {
     await broker?.close().catch(() => {});
     for (const envDir of dependencyDirs) resetSkillDependencyEnvironment(envDir);
@@ -416,6 +429,26 @@ test("REAL DOCKER: a locally missing Runner image blocks the capability and neve
       false,
       "the missing image must still be missing after a run attempt (--pull never)",
     );
+
+    // INSTALL FLOW, not just the broker capability: the system-dependency
+    // verification that gates installation must BLOCK on a locally missing
+    // image (image-availability check fails before any probe container is
+    // attempted) — an install must never silently proceed, nor pull, when the
+    // runtime's immutable image is absent.
+    const systemResults = verifySystemDependenciesInRunner(
+      [{ name: "jq", version: "1" }],
+      ["bash"],
+      { env: { ...process.env, DOFE_SKILL_RUNNER_BASH_IMAGE: missingImage } },
+    );
+    const outcome = systemResults.get("system:jq@1")!;
+    assert.equal(outcome.ok, false, "a system dependency must not verify against a missing image");
+    assert.equal(outcome.blocked, true, "the failure must be a Runtime gap (blocked), not a skill defect");
+    assert.match(outcome.reason ?? "", /not available locally/);
+    assert.equal(
+      dockerImageIsPresent(missingImage),
+      false,
+      "dependency verification must not pull the missing image either",
+    );
   } finally {
     await broker?.close().catch(() => {});
     if (artifactDir) {
@@ -503,13 +536,25 @@ for ((i = 0; i < 3000; i++)); do printf '%s\\n' "\$line"; done
     assert.equal(flooderCapability.status, "available", flooderCapability.denialReason ?? "");
 
     // Timeout: the 120s sleeper must be killed by the 2s runner timeout — well
-    // before the execFileAsync 60s ceiling.
+    // before the execFileAsync 60s ceiling — surfacing the STRUCTURED marker
+    // (not just a generic non-zero exit) so callers and audits can attribute it.
     const startedAt = Date.now();
-    await assert.rejects(execFileAsync(sleeperCapability.binPath!, [], { timeout: 60_000 }));
+    const timeoutFailure = await execFileAsync(sleeperCapability.binPath!, [], { timeout: 60_000 })
+      .then(() => null, (error) => error as Error & { stderr?: string });
+    assert.ok(timeoutFailure, "the 120s sleeper must be stopped by the 2s runner timeout");
+    assert.match(String(timeoutFailure.stderr), /skill_runner\.timeout_exceeded/);
     assert.ok(
       Date.now() - startedAt < 30_000,
       "the 120s sleeper must be stopped by the 2s runner timeout, not run to completion",
     );
+
+    // Retry after fail-closed cleanup: re-invoking the SAME capability (what a
+    // task retry does) must fail closed AGAIN and still leave nothing behind —
+    // the previous force-stop's cleanup must not poison the retry.
+    const retryFailure = await execFileAsync(sleeperCapability.binPath!, [], { timeout: 60_000 })
+      .then(() => null, (error) => error as Error & { stderr?: string });
+    assert.ok(retryFailure, "a retried timed-out run must fail closed again");
+    assert.match(String(retryFailure.stderr), /skill_runner\.timeout_exceeded/);
 
     // Output overrun: failing the 64KiB cap must surface the structured marker.
     const overrunFailure = await execFileAsync(flooderCapability.binPath!, [], { timeout: 60_000 })
@@ -540,10 +585,12 @@ for ((i = 0; i < 3000; i++)); do printf '%s\\n' "\$line"; done
 });
 
 /**
- * §13 production gate: entrypoint hash 篡改 fail-closed。The broker re-verifies the
- * cached entrypoint's sha256 on EVERY run (assertSkillRunnerCacheEntry), so a
- * script modified after materialization — even with the read-only mode restored —
- * must be rejected with the structured digest-mismatch failure, never executed.
+ * §13 production gate: 缓存篡改 fail-closed（entrypoint 哈希 + 完成哨兵）。The
+ * broker re-verifies the cached entrypoint's sha256 AND the .cache-complete
+ * sentinel on EVERY run (assertSkillRunnerCacheEntry), so a script modified
+ * after materialization — even with the read-only mode restored — must be
+ * rejected with the structured digest-mismatch failure; a deleted completion
+ * sentinel (original script restored) must equally fail closed, never execute.
  */
 test("REAL DOCKER: a tampered artifact cache entry is rejected by the per-run entrypoint hash check", async (t) => {
   if (!RUN_E2E) {
@@ -593,8 +640,121 @@ test("REAL DOCKER: a tampered artifact cache entry is rejected by the per-run en
       .then(() => null, (error) => error as Error & { stderr?: string });
     assert.ok(failure, "a tampered entrypoint must not execute");
     assert.match(String(failure.stderr), /skill_runner\.entrypoint_digest_mismatch/);
+
+    // SENTINEL tampering: restore the ORIGINAL script (so the digest check
+    // passes) and delete the .cache-complete sentinel instead. The per-run
+    // cache verification must still fail closed — a cache entry is only
+    // trusted when its completion marker survives.
+    chmodSync(artifactDir, 0o755);
+    chmodSync(scriptPath, 0o755);
+    writeFileSync(scriptPath, "#!/usr/bin/env bash\nprintf 'original\\n'\n");
+    chmodSync(scriptPath, 0o555);
+    rmSync(join(artifactDir, ".cache-complete"), { force: true });
+    chmodSync(artifactDir, 0o555);
+    const sentinelFailure = await execFileAsync(capability.binPath!, [], { timeout: 60_000 })
+      .then(() => null, (error) => error as Error & { stderr?: string });
+    assert.ok(sentinelFailure, "an entrypoint whose cache-completion sentinel is gone must not execute");
+    assert.match(String(sentinelFailure.stderr), /skill_runner\.artifact_cache_incomplete/);
   } finally {
     await broker?.close().catch(() => {});
+    if (artifactDir) {
+      chmodSync(artifactDir, 0o755);
+      chmodSync(join(artifactDir, "scripts"), 0o755);
+    }
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * §13 production gate: 依赖环境元数据与冻结引用不一致 fail-closed + broker
+ * Unix socket 清理。The dependency environment is materialized with one
+ * releaseLockDigest, but the broker's frozen reference carries another (the
+ * state a drifted re-install or a tampered metadata file leaves behind). The
+ * per-run evidence check (assertEnvironmentEvidence) must refuse the run — a
+ * mismatched environment can never ride along with a task — and no container
+ * may be created for the attempt. Afterwards, closing the broker must remove
+ * its Unix control socket (.dofe-sr.sock) from the workspace, leaving no stale
+ * endpoint a later process could confuse for a live broker.
+ */
+test("REAL DOCKER: a dependency environment/reference mismatch fails closed and the broker socket is cleaned up on close", async (t) => {
+  if (!RUN_E2E) {
+    t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
+    return;
+  }
+  assertReleaseGateEnvironment();
+  const dockerBin = process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker";
+
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-depmismatch-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-depmismatch-work-"));
+  const artifactDigest = `8${ARTIFACT_DIGEST.slice(1)}`;
+  const installationId = "real-dep-mismatch";
+  const driftedLockDigest = "c".repeat(64);
+  const dependencyDirs: string[] = [];
+  let broker: Awaited<ReturnType<typeof startSkillRunnerBroker>> | undefined;
+  let artifactDir: string | undefined;
+
+  try {
+    const materialized = createArtifact({
+      stateDir,
+      artifactDigest,
+      scriptName: "needs-dep.sh",
+      script: "#!/usr/bin/env bash\nexit 0\n",
+    });
+    artifactDir = materialized.artifactDir;
+    // On-disk environment is sealed under the CORRECT lock digest…
+    dependencyDirs.push(createDependencyEnvironment({
+      stateDir,
+      installationId,
+      artifactDigest,
+    }));
+    // …but the broker's frozen reference has DRIFTED to another digest.
+    broker = await startSkillRunnerBroker({
+      stateDir,
+      workspaceId: WORKSPACE_ID,
+      workDir,
+      entrypoints: [entrypoint({
+        id: "needsdep",
+        installationId,
+        artifactDigest,
+        scriptName: "needs-dep.sh",
+        scriptBytes: materialized.scriptBytes,
+        runtime: "bash",
+      })],
+      dependencyEnvironments: [{
+        installationId,
+        artifactDigest,
+        releaseLockDigest: driftedLockDigest,
+      }],
+    });
+    const capability = broker.capabilities[0]!;
+    assert.equal(capability.status, "available", capability.denialReason ?? "");
+
+    const failure = await execFileAsync(capability.binPath!, [], { timeout: 60_000 })
+      .then(() => null, (error) => error as Error & { stderr?: string });
+    assert.ok(failure, "a run whose dependency environment does not match its frozen reference must fail");
+    assert.match(String(failure.stderr), /skill_dependency_environment_mismatch/);
+    // The evidence check runs BEFORE container creation — a refused run must
+    // not have created (and abandoned) one.
+    const leftovers = execFileSync(dockerBin, ["ps", "-a", "--format", "{{.Names}}"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    }).split("\n")
+      .filter((name) => name.startsWith(`dofe-skill-run-${process.pid}-`));
+    assert.deepEqual(leftovers, [], "a dependency-mismatch refusal must not leave a container behind");
+
+    // Socket cleanup: an explicit close must remove the broker's Unix control
+    // socket from the workspace — no stale .dofe-sr.sock may outlive the broker.
+    await broker.close();
+    broker = undefined;
+    assert.equal(
+      existsSync(join(workDir, ".dofe-sr.sock")),
+      false,
+      "closing the broker must remove its .dofe-sr.sock Unix socket",
+    );
+  } finally {
+    await broker?.close().catch(() => {});
+    for (const envDir of dependencyDirs) resetSkillDependencyEnvironment(envDir);
     if (artifactDir) {
       chmodSync(artifactDir, 0o755);
       chmodSync(join(artifactDir, "scripts"), 0o755);
