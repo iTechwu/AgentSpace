@@ -491,6 +491,7 @@ Node 版本策略与运行时矩阵见 [docs/0814/node-runtime-matrix.md](docs/0
 - [发布前人工预检清单](docs/0814/release-preflight-checklist.md)
 - [Prisma 迁移评估与实施方案](docs/0808/db_migration_to_prisma/README.md)
 - [深度分析与优化建议](docs/optimization-suggestions.md)
+- [优化落地进度日志](docs/progress-log.md)
 - [Web systemd unit](deploy/systemd/dofe-agent.service)
 - [Web 环境变量模板](deploy/systemd/dofe-agent.env.example)
 - [Daemon systemd unit](deploy/systemd/dofe-agent-daemon.service)
