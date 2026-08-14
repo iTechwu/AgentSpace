@@ -75,13 +75,13 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 > ✅ **已落地**：AI 规则 5 份重复文件改为指向 `CLAUDE.md` 的符号链接、`findings.md`/`progress.md`/`task_plan.md` 纳入 `.gitignore`（66de23fc）；误提交的 `-` plist 与 `dofe-agent-daemon-0.1.3.tgz` 真正从索引移除，并清理 `.gitignore` 过时的 `agent-space-daemon-*.tgz` 规则（5a39362f）。复核结论：`.DS_Store` 当前 0 个跟踪；`.github/workflows/migration-ci.yml` 已不存在；`packages/db/dist-types/generated/prisma/` 与 `data/*.sqlite` 均为 `.gitignore` 内的本地产物，不属跟踪残留。
 
-1. **删除误提交的 `-` 文件**：仓库根有一个名为 `-` 的 macOS plist（`mkcert` trustList，2019 字节，已 `git ls-files` 确认被跟踪），是 `curl -o -` 类操作误产物，含本机证书指纹，应删除并加入 `.gitignore`。
+1. **删除误提交的 `-` 文件**：仓库根有一个名为 `-` 的 macOS plist（`mkcert` trustList，2019 字节，已 `git ls-files` 确认被跟踪），是 `curl -o -` 类操作误产物，含本机证书指纹，应删除并加入 `.gitignore`。✅ 已移除（5a39362f，产物与 `.gitignore` 规则一并清理）。
 2. **构建产物移出 git**：`dofe-agent-daemon-0.1.3.tgz`（1.8MB 二进制）自首个提交起就被跟踪，应改为通过 CI artifact 或 release 附件发布。✅ 已移除（5a39362f，`.gitignore` 规则改为 `dofe-agent-daemon-*.tgz` 并清理旧规则）。
 3. **`.DS_Store` 入库**：`apps/.DS_Store`、`docs/.DS_Store` 等 macOS 垃圾文件应从 git 移除。✅ 复核：当前 0 个 `.DS_Store` 被 git 跟踪（原始结论有误——它们仅存在于磁盘，且已被 `.gitignore` 覆盖，从未入库）。
-4. **AI 规则文件重复**：`CLAUDE.md`(92 行) 与 `CODEBUDDY.md`/`GEMINI.md`/`QODER.md`/`.cursorrules`/`.windsurfrules`(各 38 行，MD5 完全一致) 内容重复。建议保留一份权威版本，其余改为 `@` 引用或符号链接，避免多编辑器规则漂移。
-5. **失效的 Prisma CI 残留**：`.github/workflows/migration-ci.yml`（watch 已不存在的 `prisma/**` 路径）是历史 Prisma 尝试的残留，应删除或停用。当前 `dev` 分支源码无任何 Prisma 引用；`packages/db/dist-types/generated/prisma/` 是 `.gitignore` 内 `dist-types` 的本地构建产物，非跟踪残留。
-6. **根目录 AI 工作笔记**：`findings.md`/`progress.md`/`task_plan.md` 是 Prisma 迁移的工作笔记，靠 `.git/info/exclude` 本地排除（未提交但未加入 `.gitignore`），易被 `git add -A` 误提交。建议移到 `docs/0808/db_migration_to_prisma/` 或明确 `.gitignore`。
-7. **`data/*.sqlite` 旧文件**：SQLite→PG 迁移后 `data/` 下遗留空 sqlite/db 文件，建议清理并在文档中说明产物归属。
+4. **AI 规则文件重复**：`CLAUDE.md`(92 行) 与 `CODEBUDDY.md`/`GEMINI.md`/`QODER.md`/`.cursorrules`/`.windsurfrules`(各 38 行，MD5 完全一致) 内容重复。建议保留一份权威版本，其余改为 `@` 引用或符号链接，避免多编辑器规则漂移。✅ 已落地：5 份重复文件改为指向 `CLAUDE.md` 的符号链接（66de23fc）。
+5. **失效的 Prisma CI 残留**：`.github/workflows/migration-ci.yml`（watch 已不存在的 `prisma/**` 路径）是历史 Prisma 尝试的残留，应删除或停用。✅ 复核：该 workflow 已不存在于当前分支，无需处理。当前 `dev` 分支源码无任何 Prisma 引用；`packages/db/dist-types/generated/prisma/` 是 `.gitignore` 内 `dist-types` 的本地构建产物，非跟踪残留。
+6. **根目录 AI 工作笔记**：`findings.md`/`progress.md`/`task_plan.md` 是 Prisma 迁移的工作笔记，靠 `.git/info/exclude` 本地排除（未提交但未加入 `.gitignore`），易被 `git add -A` 误提交。建议移到 `docs/0808/db_migration_to_prisma/` 或明确 `.gitignore`。✅ 已纳入 `.gitignore`（66de23fc）。
+7. **`data/*.sqlite` 旧文件**：SQLite→PG 迁移后 `data/` 下遗留空 sqlite/db 文件，建议清理并在文档中说明产物归属。✅ 复核：未被 git 跟踪（`.gitignore` 覆盖），属本地磁盘产物，可按需手动清理，非仓库卫生问题。
 
 ### 3.2 数据库层（db/domain）
 
