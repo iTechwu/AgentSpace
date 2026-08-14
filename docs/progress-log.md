@@ -114,7 +114,8 @@
 ### 3.5-6 构建/版本漂移 —— 🟡 部分完成
 
 - 版本号单一来源已做（见 3.5-3，`0945c0cb`）。
-- 剩余：esbuild `target: node20` vs engines `^25.9.0` 对齐、`remote-daemon.ts` 硬编码 `:latest` 镜像 tag 锁 digest、`provider-runtime.ts` 硬编码 4 个默认模型名。
+- `0a8e2acc`：esbuild `target: node20` 改为 `node25`，与 `engines.node ^25.9.0` 对齐，避免为 Node 25 原生支持的特性做下兼容编译。
+- 剩余：`remote-daemon.ts` 硬编码 `:latest` 镜像 tag 锁 digest、`provider-runtime.ts` 硬编码 4 个默认模型名。
 
 ### 其余 P2 待办（未启动）
 
