@@ -33,6 +33,13 @@ export interface LegacySkillMigrationResult {
   /** Skills that cannot be migrated automatically (e.g. missing SKILL.md). */
   failed: number;
   failures: LegacySkillMigrationFailure[];
+  /**
+   * Un-bound skills skipped THIS run because the Phase-A build budget (`limit`)
+   * was spent. Already-bound skills are NEVER deferred — their reconciliation is
+   * cheap and uncapped — so a non-zero count means fresh builds were postponed to
+   * the next maintenance tick, not that partial migrations went unreconciled.
+   */
+  deferred: number;
 }
 
 const LEGACY_MIGRATION_AUDIT_CODE = "skill.legacy_migrated";
@@ -77,13 +84,10 @@ export function migrateLegacySkillArtifactsSync(input: {
     alreadyMigrated: 0,
     failed: 0,
     failures: [],
+    deferred: 0,
   };
 
   for (const skill of skills) {
-    // `limit` caps Phase A (artifact build + content-addressed blob upload).
-    if (result.migrated >= limit) {
-      break;
-    }
     result.scanned += 1;
 
     try {
@@ -96,11 +100,22 @@ export function migrateLegacySkillArtifactsSync(input: {
       let builtThisRun: boolean;
       let legacyIncomplete: boolean;
       if (bindings.length > 0) {
+        // Reconciliation path — cheap, and NEVER gated by `limit`. A backlog of
+        // partial migrations (binding present, downstream phases incomplete) must
+        // clear every tick even after the Phase-A build budget is spent.
         digest = bindings[0]!;
         builtThisRun = false;
         const existing = readSkillArtifactByDigestSync(digest, workspaceId);
         legacyIncomplete = existing?.legacyIncomplete ?? false;
       } else {
+        // `limit` caps ONLY this expensive branch (artifact build + blob upload).
+        // Once spent, defer the remaining un-bound skills to the next maintenance
+        // tick rather than building past the budget. Reconciliation above is the
+        // uncapped path, so a backlog of PARTIAL migrations is never starved.
+        if (result.migrated >= limit) {
+          result.deferred += 1;
+          continue;
+        }
         const built = buildLegacyArtifactFromSkillSync({
           workspaceId,
           skillId: skill.id,
@@ -187,8 +202,9 @@ export function migrateAllWorkspaceLegacySkillsSync(input: { limitPerWorkspace?:
   reconciled: number;
   alreadyMigrated: number;
   failed: number;
+  deferred: number;
 } {
-  const aggregate = { workspaces: 0, migrated: 0, reconciled: 0, alreadyMigrated: 0, failed: 0 };
+  const aggregate = { workspaces: 0, migrated: 0, reconciled: 0, alreadyMigrated: 0, failed: 0, deferred: 0 };
   for (const workspace of listAllWorkspacesSync()) {
     aggregate.workspaces += 1;
     try {
@@ -200,6 +216,7 @@ export function migrateAllWorkspaceLegacySkillsSync(input: { limitPerWorkspace?:
       aggregate.reconciled += result.reconciled;
       aggregate.alreadyMigrated += result.alreadyMigrated;
       aggregate.failed += result.failed;
+      aggregate.deferred += result.deferred;
     } catch {
       aggregate.failed += 1;
     }
