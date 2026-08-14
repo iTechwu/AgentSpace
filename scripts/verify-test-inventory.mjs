@@ -62,6 +62,10 @@ function isDefaultOwned(file) {
     "packages/daemon/src/runtime-apps.test.ts",
     "packages/daemon/src/skill-environment.test.ts",
     "packages/daemon/src/task-context-skill-env.test.ts",
+    // tos-signer.test.ts（golden vector 单测，无外部凭据）在 services 包默认
+    // 测试脚本中显式执行，属 default-owned；2026-08-14 归类修复——此前它使
+    // deferred 摘要漂移（唯一新增延迟文件），按 184 文件冻结集恢复一致。
+    "packages/services/src/attachments/tos-signer.test.ts",
   ]).has(file)) return true;
 
   if (new Set([
