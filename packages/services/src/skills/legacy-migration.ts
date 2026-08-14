@@ -71,11 +71,18 @@ const LEGACY_MIGRATION_AUDIT_CODE = "skill.legacy_migrated";
  */
 export function migrateLegacySkillArtifactsSync(input: {
   workspaceId: string;
+  /** Restricts an on-demand migration to one Skill; omitted for maintenance sweeps. */
+  skillId?: string;
   limit?: number;
 }): LegacySkillMigrationResult {
   const workspaceId = input.workspaceId;
+  const targetSkillId = input.skillId?.trim();
+  if (input.skillId !== undefined && !targetSkillId) {
+    throw new Error("Skill id is required for a targeted legacy migration.");
+  }
   const limit = Math.max(1, Math.floor(input.limit ?? 100));
-  const skills = [...listStoredWorkspaceSkillsSync(workspaceId)]
+  const skills = listStoredWorkspaceSkillsSync(workspaceId)
+    .filter((skill) => !targetSkillId || skill.id === targetSkillId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
 
   const result: LegacySkillMigrationResult = {

@@ -149,6 +149,32 @@ test("honours the per-run limit", () => {
   assert.equal(result.migrated, 1);
 });
 
+test("migrates only the requested legacy skill for an installation preflight", () => {
+  const selected = createLegacySkill("Legacy Selected");
+  const unrelated = createLegacySkill("Legacy Unrelated");
+
+  const result = migrateLegacySkillArtifactsSync({
+    workspaceId: WORKSPACE_ID,
+    skillId: selected.id,
+    limit: 1,
+  });
+
+  assert.equal(result.scanned, 1);
+  assert.equal(result.migrated, 1);
+  assert.equal(listSkillArtifactBindingsForSkillSync(selected.id, WORKSPACE_ID).length, 1);
+  assert.equal(listSkillArtifactBindingsForSkillSync(unrelated.id, WORKSPACE_ID).length, 0);
+});
+
+test("rejects a blank targeted skill id instead of migrating the workspace", () => {
+  const unrelated = createLegacySkill("Legacy Blank Target");
+
+  assert.throws(
+    () => migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID, skillId: "   ", limit: 1 }),
+    /Skill id is required/,
+  );
+  assert.equal(listSkillArtifactBindingsForSkillSync(unrelated.id, WORKSPACE_ID).length, 0);
+});
+
 test("self-heals a partial migration: re-maps assignments and re-records the audit without rebuilding", () => {
   // Regression for the atomicity bug: Phase A (binding) used to gate the whole
   // migration, so a run that crashed after creating the binding but before

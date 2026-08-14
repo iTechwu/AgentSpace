@@ -30,6 +30,7 @@ import {
   createSkillUpgradePlanSync,
   diffSkillArtifactsSync,
   listSkillUpgradeReviewCandidatesSync,
+  migrateLegacySkillArtifactsSync,
   promoteSkillUpgradeSync,
   rollbackSkillInstallationSync,
   tryRecordWorkspaceAuditEventSync,
@@ -92,7 +93,10 @@ export async function inspectSkillInstallationAction(input: {
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   assertRequired(input.skillId, "skill id");
 
-  const digest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
+  const digest = resolveActiveArtifactDigestForInstallationSync(
+    input.skillId.trim(),
+    workspaceContext.currentWorkspace.id,
+  );
   if (!digest) {
     throw new Error("此 Skill 尚无不可变 artifact，请先重新导入以生成 artifact。");
   }
@@ -231,7 +235,10 @@ export async function createSkillInstallationAction(input: {
   assertRequired(input.skillId, "skill id");
   assertRequired(input.runtimeId, "runtime id");
 
-  const digest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
+  const digest = resolveActiveArtifactDigestForInstallationSync(
+    input.skillId.trim(),
+    workspaceContext.currentWorkspace.id,
+  );
   if (!digest) {
     throw new Error("此 Skill 尚无不可变 artifact，请先重新导入以生成 artifact。");
   }
@@ -276,7 +283,10 @@ export async function approveSkillInstallAction(input: {
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   assertRequired(input.skillId, "skill id");
 
-  const digest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
+  const digest = resolveActiveArtifactDigestForInstallationSync(
+    input.skillId.trim(),
+    workspaceContext.currentWorkspace.id,
+  );
   if (!digest) {
     throw new Error("此 Skill 尚无不可变 artifact，请先重新导入以生成 artifact。");
   }
@@ -1003,6 +1013,17 @@ function parseInspectionManifest(manifestJson: string): {
   } catch {
     throw new Error("Skill artifact manifest 无法解析。");
   }
+}
+
+function resolveActiveArtifactDigestForInstallationSync(
+  skillId: string,
+  workspaceId: string,
+): string | undefined {
+  const activeDigest = readActiveArtifactDigestForSkillSync(skillId, workspaceId);
+  if (activeDigest) return activeDigest;
+
+  migrateLegacySkillArtifactsSync({ workspaceId, skillId, limit: 1 });
+  return readActiveArtifactDigestForSkillSync(skillId, workspaceId);
 }
 
 function assertRequired(value: string | undefined, label: string): void {
