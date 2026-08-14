@@ -68,11 +68,11 @@ jobs:
           }
 
           install_dependencies() {
-            npm --prefix apps/web ci --no-audit --no-fund
-            npm --prefix apps/cli ci --no-audit --no-fund
-            npm --prefix packages/db ci --no-audit --no-fund
-            npm --prefix packages/services ci --no-audit --no-fund
-            npm --prefix packages/daemon ci --no-audit --no-fund
+            # 仓库为 pnpm workspace（仅 pnpm-lock.yaml，无 package-lock.json），
+            # npm ci 必然 EUSAGE 失败。corepack 读取根 package.json 的 packageManager
+            # 字段固定 pnpm@10.26.2，在仓库根目录一次性安装整个 workspace。
+            corepack enable || sudo corepack enable
+            pnpm install --frozen-lockfile
           }
 
           rollback() {
@@ -81,7 +81,7 @@ jobs:
             echo "Rolling back to $target_commit"
             git reset --hard "$target_commit"
             install_dependencies
-            npm run build
+            pnpm run build
             start_service
             healthcheck
           }
@@ -121,7 +121,7 @@ jobs:
           git reset --hard "$after"
           install_dependencies
 
-          if ! npm run build; then
+          if ! pnpm run build; then
             rollback "$before"
             exit 1
           fi
