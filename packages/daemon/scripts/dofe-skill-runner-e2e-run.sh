@@ -27,9 +27,10 @@ load_runner_images_from_env() {
 }
 
 # --preflight：只跑前置校验（Linux 节点、三个 digest 钉死的 Runner 镜像变量、镜像
-# 本地存在、docker 可用、iptables 可读写），通过即退出 0，不执行真实 e2e。供部署
-# 工作流在「停服前」fail-fast：变量未提供（.env 与 runner 环境都没有）、镜像未就绪、
-# 或 runner 无 iptables 权限时，在服务还在运行时就退出 1，而不是停服、构建之后才回滚。
+# 本地存在、docker 可用、iptables 族可读写；启用 IPv6 v4-only 豁免时还会校验审批
+# 人/到期日/有效期），通过即退出 0，不执行真实 e2e。供部署工作流在「停服前」
+# fail-fast：变量未提供（.env 与 runner 环境都没有）、镜像未就绪、runner 无
+# iptables 权限、或豁免配置非法时，在服务还在运行时就退出 1，而不是停服、构建之后才回滚。
 PREFLIGHT=0
 if [[ "${1:-}" == "--preflight" ]]; then
   PREFLIGHT=1
@@ -89,6 +90,40 @@ preflight_checks() {
   if ! iptables-save >/dev/null 2>&1 || ! ip6tables-save >/dev/null 2>&1; then
     echo "iptables-save / ip6tables-save 不可读（需要 CAP_NET_ADMIN/root）；DROP 包计数归因会失败。" >&2
     return 1
+  fi
+
+  # IPv6 v4-only 豁免（system-dependency.e2e-real-docker.test.ts）要求三个变量
+  # 同时成立：开关 + 可审计审批人 + ≤30 天的绝对到期日。豁免只在真实 e2e 里
+  # 校验/消费，但配置错误若拖到停服后的完整门禁阶段才暴露就太晚了——这里用
+  # 与门禁完全相同的规则提前校验，停服前即 fail-fast。豁免未启用时跳过（不
+  # 强制要求节点必须持有豁免）。
+  if [[ "${DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6:-}" == "1" ]]; then
+    local approved_by="${DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY:-}"
+    local until="${DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL:-}"
+    if [[ -z "$(echo "$approved_by" | tr -d '[:space:]')" ]]; then
+      echo "IPv6 v4-only 豁免缺少 DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY（可审计审批人）。" >&2
+      return 1
+    fi
+    if [[ ! "$until" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      echo "IPv6 v4-only 豁免缺少 DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL=YYYY-MM-DD（绝对到期日）。" >&2
+      return 1
+    fi
+    # 到期规则与门禁一致：当日 23:59:59 UTC 仍有效，距今 ≤30 天。
+    local until_epoch now_epoch
+    if ! until_epoch=$(date -u -d "${until}T23:59:59Z" +%s 2>/dev/null); then
+      echo "无法解析 DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL=$until（应为 YYYY-MM-DD）。" >&2
+      return 1
+    fi
+    now_epoch=$(date -u +%s)
+    if (( until_epoch < now_epoch )); then
+      echo "IPv6 v4-only 豁免已于 $until 过期；续期审批或恢复节点 IPv6 出口。" >&2
+      return 1
+    fi
+    if (( until_epoch - now_epoch > 30 * 24 * 60 * 60 )); then
+      echo "IPv6 v4-only 豁免距今不可超过 30 天（until=$until）；开放式豁免不被接受。" >&2
+      return 1
+    fi
+    echo "[preflight] IPv6 v4-only 豁免配置有效：approvedBy=${approved_by} until=${until}。" >&2
   fi
 }
 
