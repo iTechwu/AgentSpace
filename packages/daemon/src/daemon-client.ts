@@ -577,7 +577,8 @@ export class HttpDaemonClient {
    * requestJson (short requestTimeoutMs, JSON body), blob transfers stream
    * payloads under the longer blobTransferTimeoutMs budget; how a response is
    * interpreted stays with each caller so only the transport policy
-   * (AbortController lifecycle, 5xx retry, backoff) lives here once.
+   * (AbortController lifecycle, network/timeout/5xx retry, backoff) lives here
+   * once — definitive interpret() failures (4xx semantics) do NOT retry.
    */
   private async requestBlobWithRetry<T>(
     path: string,
@@ -589,16 +590,22 @@ export class HttpDaemonClient {
     for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
+      // Only TRANSPORT failures (network errors, timeouts, 5xx) retry. A
+      // definitive response-level failure from interpret() — 416 range,
+      // 401/403/404 semantics, malformed payload — cannot change outcome on
+      // re-send, so it propagates immediately instead of burning retries.
+      let failedInInterpret = false;
       try {
         const response = await fetch(this.resolveUrl(path), init(controller.signal));
         if (response.status >= 500 && attempt < this.maxRetryAttempts) {
           await sleep(this.retryDelayMs);
           continue;
         }
+        failedInInterpret = true;
         return await interpret(response);
       } catch (error) {
         lastError = error;
-        if (attempt >= this.maxRetryAttempts) throw error;
+        if (failedInInterpret || attempt >= this.maxRetryAttempts) throw error;
         await sleep(this.retryDelayMs);
       } finally {
         clearTimeout(timeout);

@@ -389,10 +389,12 @@ test("HttpDaemonClient retries a blob download on 5xx and returns the raw bytes"
   }
 });
 
-test("HttpDaemonClient surfaces an unsatisfiable blob range as an explicit error", async () => {
+test("HttpDaemonClient surfaces an unsatisfiable blob range as an explicit error without retrying", async () => {
   const originalFetch = globalThis.fetch;
   let requestedRange = "";
+  let attempts = 0;
   globalThis.fetch = (async (_input, init) => {
+    attempts += 1;
     requestedRange = String((init?.headers as Record<string, string>).range);
     return new Response(null, { status: 416 });
   }) as typeof fetch;
@@ -400,13 +402,16 @@ test("HttpDaemonClient surfaces an unsatisfiable blob range as an explicit error
   try {
     const client = new HttpDaemonClient("http://localhost:1455", "adt_test", {
       retryDelayMs: 0,
-      maxRetryAttempts: 1,
+      // Default-scale retries: a definitive 416 must still send exactly ONE
+      // request — interpret()-level 4xx failures never enter the retry loop.
+      maxRetryAttempts: 3,
     });
     await assert.rejects(
       () => client.getWorkspaceBlobRange("task-1", "rev-1", "c".repeat(64), 100, 199),
       /range 100-199 is unsatisfiable/,
     );
     assert.equal(requestedRange, "bytes=100-199");
+    assert.equal(attempts, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
