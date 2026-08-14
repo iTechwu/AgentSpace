@@ -65,8 +65,14 @@ before(() => {
 // `let` because beforeEach reassigns it per test.
 let WORKSPACE_ID = "";
 
+// 本进程创建的全部 workspace：after 只按这些精确 ID 清理。绝不能用
+// LIKE 'release-%' 前缀删除——并行分片同时跑本套件时，一个分片结束会
+// 删掉另一个仍在运行的分片的数据。
+const mintedWorkspaceIds = new Set<string>();
+
 beforeEach(() => {
   WORKSPACE_ID = `release-${randomLikeId()}`;
+  mintedWorkspaceIds.add(WORKSPACE_ID);
   resetWorkspaceStateSync(WORKSPACE_ID);
   testStorage.clear();
 });
@@ -74,18 +80,20 @@ beforeEach(() => {
 after(() => {
   testStorage.clear();
   // Best-effort cleanup so the shared test DB does not leak this suite's rows.
-  // Every test minted a unique `release-*` workspace, so the prefix can never
-  // match another suite's (or the "default") workspace. skill_service_binding
-  // carries no workspace_id column, so it is scoped via this suite's catalog
-  // rows only (service_id == catalog.id).
+  // Scope strictly to the workspace IDs THIS process minted (never a prefix
+  // match — a parallel shard of this same suite may still be running).
+  // skill_service_binding carries no workspace_id column, so it is scoped via
+  // this process's catalog rows only (service_id == catalog.id).
+  if (mintedWorkspaceIds.size === 0) return;
+  const placeholders = Array.from(mintedWorkspaceIds, () => "?").join(", ");
   const db = getDatabase();
   db.prepare(
-    "DELETE FROM skill_service_binding WHERE service_id IN (SELECT id FROM skill_service_catalog WHERE workspace_id LIKE 'release-%')",
-  ).run();
-  db.prepare("DELETE FROM managed_skill_service_operation WHERE workspace_id LIKE 'release-%'").run();
-  db.prepare("DELETE FROM managed_skill_service WHERE workspace_id LIKE 'release-%'").run();
-  db.prepare("DELETE FROM skill_service_catalog WHERE workspace_id LIKE 'release-%'").run();
-  db.prepare("DELETE FROM mcp_catalog_item WHERE workspace_id LIKE 'release-%'").run();
+    `DELETE FROM skill_service_binding WHERE service_id IN (SELECT id FROM skill_service_catalog WHERE workspace_id IN (${placeholders}))`,
+  ).run(...mintedWorkspaceIds);
+  db.prepare(`DELETE FROM managed_skill_service_operation WHERE workspace_id IN (${placeholders})`).run(...mintedWorkspaceIds);
+  db.prepare(`DELETE FROM managed_skill_service WHERE workspace_id IN (${placeholders})`).run(...mintedWorkspaceIds);
+  db.prepare(`DELETE FROM skill_service_catalog WHERE workspace_id IN (${placeholders})`).run(...mintedWorkspaceIds);
+  db.prepare(`DELETE FROM mcp_catalog_item WHERE workspace_id IN (${placeholders})`).run(...mintedWorkspaceIds);
 });
 
 function manifest(overrides: Record<string, unknown> = {}): string {
