@@ -196,17 +196,25 @@ printf '{"pinnedInHosts":%s,"poisonedOk":%s}\\n' "\${pinned}" "\${poisoned_ok}" 
 });
 
 /**
- * Proves the REAL L3/L4 firewall on the managed node. The test above proves
- * Layer 1 (hostname pinning via /etc/hosts + DNS poison); this drives a REAL
- * `iptables` through the production policy and inspects the kernel rules it
- * lands. That is what closes the three bypass vectors a pinned /etc/hosts alone
- * cannot stop:
- *   - raw-IP egress   → no RETURN rule matches the destination → final DROP,
- *   - DoH endpoints   → a DoH server is just another non-allowlisted IP → DROP,
+ * RULE-LEVEL inspection of the REAL iptables the production policy lands on the
+ * managed node — NOT a live-traffic proof. The companion Runner test above
+ * proves Layer 1 (hostname pinning + DNS poison) on a real container; this
+ * drives a real `iptables` through the production policy and asserts the landed
+ * kernel RULES are shaped to close the three bypass vectors a pinned /etc/hosts
+ * alone cannot stop:
+ *   - raw-IP egress   → no RETURN rule matches → the chain ends in DROP,
+ *   - DoH endpoints   → a DoH server is a non-allowlisted IP → DROP,
  *   - non-approved ports → the only RETURN to the approved IP carries --dport
- *     443, so any other port to that IP falls through → DROP.
+ *     443, so any other port to that IP falls through to DROP.
+ *
+ * Caveat (why this is labeled "rule inspection"): it uses a source address
+ * (172.18.0.99) that matches no live container, so the DOCKER-USER jump is
+ * inert to real packets. It proves the rules LAND correctly, not that a running
+ * Runner's traffic is actually dropped. Closing that gap needs a counter-based
+ * probe (`iptables -L <chain> -v -n`) through a real Runner on the egress
+ * network — a follow-up to implement and verify on the Linux gate node.
  */
-test("REAL IPTABLES: managed egress policy installs a port-443-only allow + final drop", async (t) => {
+test("REAL IPTABLES (rule inspection only): managed egress policy lands a port-443-only allow + final DROP rule shape", async (t) => {
   if (!RUN_E2E) {
     t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
     return;
