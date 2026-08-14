@@ -21,6 +21,10 @@ import {
   resetSkillDependencyEnvironment,
 } from "./skill-install/task-environment.ts";
 import { startSkillRunnerBroker } from "./skill-runner.ts";
+import {
+  listLiveSkillRunnerEgressPolicyServiceIds,
+  SKILL_RUNNER_EGRESS_POLICY_LABEL,
+} from "./skill-runner-docker.ts";
 
 const execFileAsync = promisify(execFile);
 const RUN_E2E = process.env.DOFE_AGENT_RUN_SKILL_RUNNER_E2E === "1";
@@ -294,5 +298,45 @@ printf '{"runtime":"bash","isolated":true}\n' > "\${DOFE_SKILL_OUTPUT_DIR}/bash.
     }
     rmSync(stateDir, { recursive: true, force: true });
     rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * REAL-DOCKER regression guard for live-owner enumeration. The broker unit suite
+ * injects a pre-built `Set` at the `enumerateLiveEgressPolicyOwners` seam, so it
+ * never drives the real `docker ps` parse. This starts a real container carrying
+ * the egress-policy label and asserts the production enumerator returns its
+ * serviceId — the test that would have caught the P0 where `{{json .Labels}}`
+ * serialized labels as a JSON STRING ("k=v,k=v"), `JSON.parse` yielded a String,
+ * every label lookup was `undefined`, the live set was ALWAYS empty, and the
+ * crash-recovery sweep revoked the firewall of every still-running Runner.
+ */
+test("REAL DOCKER: listLiveSkillRunnerEgressPolicyServiceIds enumerates a labeled running container", async (t) => {
+  if (!RUN_E2E) {
+    t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
+    return;
+  }
+  assertReleaseGateEnvironment();
+  const dockerBin = process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker";
+  const bashImage = process.env.DOFE_SKILL_RUNNER_BASH_IMAGE!;
+  const serviceId = `e2e-live-owner-${createHash("sha256").update("live-owner-probe").digest("hex").slice(0, 12)}`;
+  const containerName = `dofe-e2e-live-owner-${serviceId}`;
+
+  try {
+    // A long-lived container carrying the egress-policy label, like a live Runner
+    // whose firewall the sweep must NOT revoke on the next daemon start.
+    execFileSync(dockerBin, [
+      "run", "-d", "--rm", "--init", "--name", containerName,
+      "--label", `${SKILL_RUNNER_EGRESS_POLICY_LABEL}=${serviceId}`,
+      "--entrypoint", "/bin/sh", bashImage, "-c", "sleep 120",
+    ], { stdio: "ignore", timeout: 30_000 });
+
+    const live = await listLiveSkillRunnerEgressPolicyServiceIds(process.env);
+    assert.ok(
+      live.has(serviceId),
+      `the running container's serviceId ${serviceId} must be enumerated live (got ${JSON.stringify([...live])})`,
+    );
+  } finally {
+    execFileSync(dockerBin, ["rm", "-f", containerName], { stdio: "ignore", timeout: 30_000 });
   }
 });

@@ -150,6 +150,28 @@ export function forceRemoveDockerSkillRunnerContainer(containerName: string, env
 }
 
 /**
+ * Parses the stdout of `docker ps --format '{{.Label "..."}}'` into the set of
+ * live egress-policy serviceIds. Each matching container prints its label VALUE
+ * on its own line, so parsing is a plain line split — no JSON involved.
+ *
+ * Factored out (and exported) so the parse can be unit-tested against captured
+ * real-Docker output without spawning docker. The previous implementation used
+ * `--format '{{json .Labels}}'` and `JSON.parse`d each line as a label OBJECT;
+ * on real Docker `{{json .Labels}}` serializes `.Labels` as a JSON STRING
+ * (`"k=v,k=v"`), so `JSON.parse` yielded a String and every label lookup was
+ * `undefined` — the live set was ALWAYS empty and the crash-recovery sweep
+ * revoked the firewall of every still-running Runner.
+ */
+export function parseLiveEgressPolicyServiceIds(stdout: string): Set<string> {
+  const live = new Set<string>();
+  for (const line of stdout.split("\n")) {
+    const serviceId = line.trim();
+    if (serviceId) live.add(serviceId);
+  }
+  return live;
+}
+
+/**
  * Returns the set of egress-policy serviceIds whose Runner container is STILL
  * RUNNING. Used by the crash-recovery sweep: a policy whose owner is live must
  * be kept (removing its DOCKER-USER chain would re-open the container's network),
@@ -159,6 +181,11 @@ export function forceRemoveDockerSkillRunnerContainer(containerName: string, env
  * egress to protect and is force-removed by the next run's create-retry, so its
  * stale chain can be swept. Rejects on any docker failure so the caller can fall
  * back to the safe "keep everything" direction.
+ *
+ * Uses the explicit `{{.Label "<name>"}}` template (one clean value per line)
+ * rather than `{{json .Labels}}`: on real Docker the latter emits the labels as
+ * a JSON-encoded `"k=v,k=v"` STRING, not a label object, which silently broke
+ * live-owner detection (see {@link parseLiveEgressPolicyServiceIds}).
  */
 export async function listLiveSkillRunnerEgressPolicyServiceIds(
   environment: NodeJS.ProcessEnv = process.env,
@@ -167,7 +194,7 @@ export async function listLiveSkillRunnerEgressPolicyServiceIds(
     const child = spawn(/*turbopackIgnore: true*/ environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", [
       "ps",
       "--filter", `label=${SKILL_RUNNER_EGRESS_POLICY_LABEL}`,
-      "--format", "{{json .Labels}}",
+      "--format", `{{.Label "${SKILL_RUNNER_EGRESS_POLICY_LABEL}"}}`,
     ], { stdio: ["ignore", "pipe", "pipe"], env: minimalRunnerHostEnvironment(environment) });
     let stdout = "";
     let stderr = "";
@@ -184,19 +211,7 @@ export async function listLiveSkillRunnerEgressPolicyServiceIds(
         rejectPromise(new Error(`docker ps exited with code ${String(exitCode)}: ${(stderr || stdout).trim()}`));
         return;
       }
-      const live = new Set<string>();
-      for (const line of stdout.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const labels = JSON.parse(trimmed) as Record<string, string>;
-          const serviceId = labels[SKILL_RUNNER_EGRESS_POLICY_LABEL];
-          if (serviceId) live.add(serviceId);
-        } catch {
-          // Skip an unparseable label line rather than failing enumeration.
-        }
-      }
-      resolvePromise(live);
+      resolvePromise(parseLiveEgressPolicyServiceIds(stdout));
     });
   });
 }
