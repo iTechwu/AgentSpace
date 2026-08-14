@@ -54,8 +54,8 @@ import {
 } from "./install-approval.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { recordSkillLifecycleAuditSync } from "./audit.ts";
-import { computeSkillReleaseLockSync } from "./release.ts";
-import { queueManagedSkillServiceForInstallationSync } from "../skill-services/bindings.ts";
+import { computeSkillReleaseLockSync } from "./release-lock.ts";
+import { queueManagedSkillServiceForInstallationSync } from "../skill-services/install-queue.ts";
 
 /* ------------------------------------------------------------------ */
 /* Control plane: installation plans                                   */

@@ -11,7 +11,7 @@ import {
   type AgentActionPolicyInput,
 } from "../../../policies/agent-actions.ts";
 import type { FeishuApiRequest } from "./client.ts";
-import { FEISHU_DATA_OPERATION_DESCRIPTORS } from "./data-plane.ts";
+import { FEISHU_DATA_OPERATION_DESCRIPTORS } from "./data-operation-descriptors.ts";
 import { summarizeFeishuResourceMetadataSnapshot } from "./dofe-agent-sync.ts";
 
 export type FeishuDataOperationPolicyDecision = Exclude<ExternalDataOperationPolicyDecision, "approved">;
