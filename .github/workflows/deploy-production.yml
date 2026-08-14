@@ -69,9 +69,11 @@ jobs:
 
           install_dependencies() {
             # 仓库为 pnpm workspace（仅 pnpm-lock.yaml，无 package-lock.json），
-            # npm ci 必然 EUSAGE 失败。corepack 读取根 package.json 的 packageManager
-            # 字段固定 pnpm@10.26.2，在仓库根目录一次性安装整个 workspace。
-            corepack enable || sudo corepack enable
+            # npm ci 必然 EUSAGE 失败。Node 25 发行包已移除 Corepack，不能假设
+            # corepack 可用；沿用 deploy/*/Dockerfile 的方式，用 npm 显式安装固定
+            # 版本 pnpm（与根 package.json 的 packageManager 字段一致），再在仓库
+            # 根目录一次性安装整个 workspace。
+            npm install --global pnpm@10.26.2 || sudo npm install --global pnpm@10.26.2
             pnpm install --frozen-lockfile
           }
 
