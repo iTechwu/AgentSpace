@@ -94,15 +94,42 @@ function mapRow(row: RawRow): AsyncAuditLogRecord {
 }
 
 export function asyncToAuditLogRecord(record: AsyncAuditLogRecord): AuditLogRecord {
+  // The pg driver auto-parses two columns to native types; the legacy sqlite
+  // path stores them as raw strings. Normalize both so downstream callers and
+  // the cutover compare see the same shape:
+  // - data_json: JSONB → object; re-serialize to a stable JSON string.
+  //   Whitespace between tokens differs from sqlite's `JSON.stringify`, so we
+  //   re-parse + re-serialize via `JSON.stringify(JSON.parse(...))` to drop
+  //   formatting differences.
+  // - created_at: timestamp → Date object; convert back to ISO string.
+  let dataJson: string;
+  if (typeof record.dataJson === "string") {
+    try {
+      dataJson = JSON.stringify(JSON.parse(record.dataJson));
+    } catch {
+      dataJson = record.dataJson;
+    }
+  } else if (record.dataJson === null || record.dataJson === undefined) {
+    dataJson = "{}";
+  } else {
+    try {
+      dataJson = JSON.stringify(record.dataJson);
+    } catch {
+      dataJson = "{}";
+    }
+  }
+  const createdAt = record.createdAt instanceof Date
+    ? record.createdAt.toISOString()
+    : record.createdAt;
   return {
     id: record.id,
     workspaceId: record.workspaceId,
     title: record.title,
     note: record.note,
     code: record.code ?? undefined,
-    dataJson: record.dataJson,
+    dataJson,
     source: record.source,
     sourceIndex: record.sourceIndex,
-    createdAt: record.createdAt,
+    createdAt,
   };
 }
