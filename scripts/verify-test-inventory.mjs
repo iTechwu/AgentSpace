@@ -26,7 +26,12 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // 回归测试（--root 夹具仓库 + 真实仓库回归锚点）。scripts/ 根目录不属于任何
 // workspace 包的默认测试运行，与 deploy/ 脚本测试同属 deferred 类；以
 // `node --test scripts/audit-node-engines.test.mjs` 单独执行。
-const EXPECTED_DEFERRED_DIGEST = "1b612bb1b25b0dde4a93712f81cb9a73609ce88f50d93b44be86c5610e383c05";
+// Re-frozen 2026-08-14 (round 4, 182-file set): promoted
+// packages/services/src/{messages/messages,notifications/notifications,channel-access/channel-access}.test.ts
+// to default-owned — services package test script now runs them
+// (channel-access/notifications 4/4+2/2 pass unconditionally; messages 27/27 pass
+// + 14 runtime-dependent cases gated by MANAGED_RUNTIME_AVAILABLE=1, default skip).
+const EXPECTED_DEFERRED_DIGEST = "90a5a68e3456ff58b5ff45206b449ada179da707b836dfa3e1ec44d18b5be125";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -84,6 +89,19 @@ function isDefaultOwned(file) {
   // run via the db package default test script (glob src/prisma/*.test.ts);
   // matches the packages/domain/src/ top-level rule pattern.
   if (file.startsWith("packages/db/src/prisma/") && !file.slice("packages/db/src/prisma/".length).includes("/") && file.endsWith(".test.ts")) return true;
+
+  // packages/services/src/{messages,notifications,channel-access}/*.test.ts —
+  // run via the services package default test script (explicit file list);
+  // matches the packages/domain/src/ top-level rule pattern.
+  for (const prefix of [
+    "packages/services/src/messages/",
+    "packages/services/src/notifications/",
+    "packages/services/src/channel-access/",
+  ]) {
+    if (file.startsWith(prefix) && !file.slice(prefix.length).includes("/") && file.endsWith(".test.ts")) {
+      return true;
+    }
+  }
 
   if (new Set([
     "apps/cli/src/commands/output.test.ts",

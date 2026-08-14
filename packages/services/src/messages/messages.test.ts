@@ -3,6 +3,12 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
+
+// 部分用例依赖 managed runtime 夹具（bindRuntimeForAgent / bindAtlasRuntime）；
+// 本仓库默认环境无该夹具，需 MANAGED_RUNTIME_AVAILABLE=1 才跑，否则以
+// { skip: !runtime } 选项降级为 skip，避免 pnpm test 在普通工作站必败。
+const RUNTIME_AVAILABLE = process.env.MANAGED_RUNTIME_AVAILABLE === "1";
+const runtimeSkip = { skip: !RUNTIME_AVAILABLE } as const;
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   createUserSync,
@@ -441,7 +447,7 @@ test("completeAgentChannelReplySync stores human mentions from agent output with
   assert.equal(listQueuedTasksSync().length, 0);
 });
 
-test("completeAgentChannelReplySync dispatches mentioned agents and records source metadata", () => {
+test("completeAgentChannelReplySync dispatches mentioned agents and records source metadata", runtimeSkip, () => {
   seedWorkspace();
   addHumanToTourVisit("Mina");
   addAgentToTourVisit("Nova");
@@ -484,7 +490,7 @@ test("completeAgentChannelReplySync dispatches mentioned agents and records sour
   assert.equal(readWorkspaceStateSync().messages.some((message) => message.speaker === "Nova" && message.status === "pending"), true);
 });
 
-test("completeAgentChannelReplySync is idempotent for the same task output", () => {
+test("completeAgentChannelReplySync is idempotent for the same task output", runtimeSkip, () => {
   seedWorkspace();
   addAgentToTourVisit("Nova");
   bindRuntimeForAgent("Nova");
@@ -537,7 +543,7 @@ test("completeAgentChannelReplySync keeps bad mentions non-fatal and writes warn
   assert.equal(state.ledger.some((item) => item.code === "agent_output_mentions.warning"), true);
 });
 
-test("completeAgentChannelReplySync does not dispatch self mentions or duplicate target mentions", () => {
+test("completeAgentChannelReplySync does not dispatch self mentions or duplicate target mentions", runtimeSkip, () => {
   seedWorkspace();
   addAgentToTourVisit("Nova");
   bindRuntimeForAgent("Nova");
@@ -555,7 +561,7 @@ test("completeAgentChannelReplySync does not dispatch self mentions or duplicate
   assert.equal(listQueuedTasksSync().filter((task) => task.agentId === "Nova").length, 1);
 });
 
-test("completeAgentChannelReplySync blocks cascade depth over the limit", () => {
+test("completeAgentChannelReplySync blocks cascade depth over the limit", runtimeSkip, () => {
   seedWorkspace();
   addAgentToTourVisit("Nova");
   bindRuntimeForAgent("Nova");
@@ -574,7 +580,7 @@ test("completeAgentChannelReplySync blocks cascade depth over the limit", () => 
   assert.equal(listQueuedTasksSync().length, 0);
 });
 
-test("completeAgentChannelReplySync dispatches at most three agents from one reply", () => {
+test("completeAgentChannelReplySync dispatches at most three agents from one reply", runtimeSkip, () => {
   seedWorkspace();
   for (const agentName of ["Nova", "Vega", "Orion", "Lyra"]) {
     addAgentToTourVisit(agentName);
@@ -593,7 +599,7 @@ test("completeAgentChannelReplySync dispatches at most three agents from one rep
   assert.equal(result.warnings.some((warning) => warning.includes("at most 3")), true);
 });
 
-test("sendChannelHumanMessageSync starts auto continuation for continuous work directives", () => {
+test("sendChannelHumanMessageSync starts auto continuation for continuous work directives", runtimeSkip, () => {
   seedWorkspace();
   bindAtlasRuntime();
 
@@ -629,7 +635,7 @@ test("sendChannelHumanMessageSync starts auto continuation for continuous work d
   );
 });
 
-test("sendChannelHumanMessageSync lets channel members mention enabled workspace agents in that channel", () => {
+test("sendChannelHumanMessageSync lets channel members mention enabled workspace agents in that channel", runtimeSkip, () => {
   seedWorkspace();
   bindAtlasRuntime();
   const suffix = Math.random().toString(36).slice(2, 8);
@@ -677,7 +683,7 @@ test("sendChannelHumanMessageSync lets channel members mention enabled workspace
   assert.equal(humanMessage?.mentions?.[0]?.token, "Atlas");
 });
 
-test("sendChannelHumanMessageSync lets channel members mention enabled personal agents in that channel", () => {
+test("sendChannelHumanMessageSync lets channel members mention enabled personal agents in that channel", runtimeSkip, () => {
   seedWorkspace();
   const suffix = Math.random().toString(36).slice(2, 8);
   const agentOwner = createUserSync({
@@ -756,7 +762,7 @@ test("sendChannelHumanMessageSync lets channel members mention enabled personal 
   assert.equal(queued.length, 1);
 });
 
-test("sendChannelHumanMessageSync rejects channel members when agent channel access is disabled", () => {
+test("sendChannelHumanMessageSync rejects channel members when agent channel access is disabled", runtimeSkip, () => {
   seedWorkspace();
   bindAtlasRuntime();
   setEmployeeChannelMemberAccessSync("Atlas", "disabled");
@@ -803,7 +809,7 @@ test("sendChannelHumanMessageSync rejects channel members when agent channel acc
   );
 });
 
-test("createTaskSync lets channel members dispatch enabled workspace agents in joined channels", () => {
+test("createTaskSync lets channel members dispatch enabled workspace agents in joined channels", runtimeSkip, () => {
   seedWorkspace();
   bindAtlasRuntime();
   const suffix = Math.random().toString(36).slice(2, 8);
@@ -853,7 +859,7 @@ test("createTaskSync lets channel members dispatch enabled workspace agents in j
   );
 });
 
-test("createTaskSync lets channel members dispatch enabled personal agents in joined channels", () => {
+test("createTaskSync lets channel members dispatch enabled personal agents in joined channels", runtimeSkip, () => {
   seedWorkspace();
   const suffix = Math.random().toString(36).slice(2, 8);
   const agentOwner = createUserSync({
@@ -923,7 +929,7 @@ test("createTaskSync lets channel members dispatch enabled personal agents in jo
   assert.equal(nextState.tasks[0]?.assignee, "Nova");
 });
 
-test("createTaskSync rejects channel members when agent channel access is disabled", () => {
+test("createTaskSync rejects channel members when agent channel access is disabled", runtimeSkip, () => {
   seedWorkspace();
   bindAtlasRuntime();
   setEmployeeChannelMemberAccessSync("Atlas", "disabled");
@@ -969,7 +975,7 @@ test("createTaskSync rejects channel members when agent channel access is disabl
   );
 });
 
-test("continueAutoContinuationAfterTaskSync replies and queues the next takeover task", () => {
+test("continueAutoContinuationAfterTaskSync replies and queues the next takeover task", runtimeSkip, () => {
   seedWorkspace();
   bindAtlasRuntime();
   sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas，从现在起连续工作12h");
@@ -1003,7 +1009,7 @@ test("continueAutoContinuationAfterTaskSync replies and queues the next takeover
   assert.equal(state.conversationExecutionWorkspaces?.[0]?.lastTaskQueueId, nextTask!.id);
 });
 
-test("stopAutoContinuationSync stops active continuation and cancels queued follow-up", () => {
+test("stopAutoContinuationSync stops active continuation and cancels queued follow-up", runtimeSkip, () => {
   seedWorkspace();
   bindAtlasRuntime();
   sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas，从现在起连续工作12h");
