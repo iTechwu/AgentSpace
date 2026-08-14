@@ -2,10 +2,12 @@
 # with a local daemon that has DOFE_AGENT_MANAGE_FEISHU_WORKER=true.
 services:
   feishu-worker:
-    image: uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     working_dir: /srv/DofeAgent
-    command: ["sh", "-c", "corepack enable && corepack prepare pnpm@10.26.2 --activate && pnpm run cli -- integrations feishu worker"]
+    command: ["pnpm", "run", "cli", "--", "integrations", "feishu", "worker"]
     env_file:
       - ./feishu-worker.env
     volumes:
