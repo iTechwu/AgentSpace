@@ -102,7 +102,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 1. **【P1】拆分 `permissions.ts`（2,439 行，全包最大）** ✅：把 17+ 种数据源聚合为权限树/中心视图。`capabilities` 域已示范正确做法（facade + 4 个单职责子模块），照此拆分「数据源聚合 / 树构建 / 诊断」。已拆为 9 个单职责子模块 + 209 行门面，见 [progress-log.md §3.3-1](progress-log.md)。
 2. **【P1】拆分 `runtime-provisioning.ts`（2,258 行）** ✅：7 阶段供给状态机，按「阶段机 / 命令构建 / 凭证恢复」分文件。已拆为 7 个子模块 + 门面，见 [progress-log.md §3.3-2](progress-log.md)。
-3. **【P1】打破模块循环依赖** 🟡：已核实的两个环 `messages → automations → workflows → messages` 与 `documents → notifications → messages → documents`。建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。文件级环已 4→2，12 文件大 SCC 五处切断已落地 4 处（最大 SCC 12→6），剩余 cut 3 跨域编排层非机械可切，见 [progress-log.md §3.3-3](progress-log.md)。
+3. **【P1】打破模块循环依赖** 🟡：已核实的两个环 `messages → automations → workflows → messages` 与 `documents → notifications → messages → documents`。建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。文件级环已 4→2，12 文件大 SCC 五处切断已落地 4 处（最大 SCC 12→6，含 cut 5 仅缩小未消除的 5 节点 messaging 残余环），剩余 cut 3 跨域编排层非机械可切，见 [progress-log.md §3.3-3](progress-log.md)。
 4. **【P1】飞书 24 个测试文件游离于测试门之外** ⏳：`src/integrations/...`（含全包最大测试 `inbound.test.ts` 2,406 行、`data-plane.test.ts` 2,239 行）不在 `package.json` 的 test glob 内，`verify-test-coverage.mjs` 注释为 "intentional"。**8,000+ 行测试形同虚设**——要么纳入门禁（纯单测无需外部环境），要么给独立 CI 任务。
 5. **【P2】手写 `.d.ts` 孪生去重** ⏳：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
 6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串** ⏳：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。

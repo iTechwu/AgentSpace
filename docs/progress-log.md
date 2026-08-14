@@ -84,15 +84,17 @@
 | 2 | `documents/access → channels`（`resolveChannelHumanMemberNames` 下沉 `shared/channel-members.ts`，6 处改引 shared） | ✅ | `8eb08332` |
 | 3 | `channels → attachments`（`deleteUnreferencedWorkspaceAttachmentsSync` GC 语义上移） | ⏸ 跨域编排层，非机械可切 | — |
 | 4 | `attachments → channel-access`（角色判断下沉 `shared/channel-members.ts`） | ✅ | `8eb08332` |
-| 5 | `notifications → messages`（`postMessageSync` 下沉 `shared/messaging.ts`，messages 保留 facade） | ✅ | `c8f32035` |
+| 5 | `notifications → messages`（`postMessageSync` 下沉 `shared/messaging.ts`，messages 保留 facade） | 🟡 部分完成：拆除了直接循环，但 `notifications → shared/messaging → runtime-access → notifications` 5 节点环仍在，cut 5 仅缩小未消除，需进一步切分 messaging 发送内核与 runtime 通知能力 | `c8f32035` |
+| 6 | `attachments → channel-access`（访问判定下沉 `shared/access-decisions.ts`，channel-access 改 facade） | ✅ | `87bc2e43` |
 
-**当前进度**：cut 1/2/4/5 已落地，最大 SCC 由 12 缩为 6；剩余 cut 3（GC 语义）与一个 type-only 运行时无害环（feishu `agent-bot-bindings↔external-guests`），建议接受现状或留待 P2 重构周期。
+**当前进度**：cut 1/2/4/6 已落地，cut 5 部分完成（缩小未消除），最大 SCC 由 12 缩为 5；剩余 cut 3（GC 语义）与一个 type-only 运行时无害环（feishu `agent-bot-bindings↔external-guests`），建议接受现状或留待 P2 重构周期。
 
 ### 3.3-8 / 测试门覆盖 —— 🟡 部分完成
 
 - `707e80a5`：`permissions`、`document-permissions` 纳入 services 默认测试脚本与 `verify-test-coverage.mjs` 的 COVERED_PREFIXES；daemon 默认测试纳入 `daemon-client.test.ts`。
-- `a74f362c`：`packages/db/src/prisma/*.test.ts` 纳入 db 默认测试脚本与 `verify-test-inventory.mjs` 门禁。
-- 剩余：`employees`、`documents`、`messages`、`knowledge` 等待办；飞书 24 个测试文件仍游离（3.3-4）。
+- `a74f362c`：`packages/db/src/prisma/*.test.ts` 纳入 db 默认测试脚本与 `verify-test-inventory.mjs` 门禁。（注：本提交号现合并为 `f8e0f6d4`，squash 后 read-cutover.ts + .test.ts 与默认门禁同提交落地。）
+- `a7c252eb`：`messages` / `notifications` / `channel-access` 三个测试包纳入 services 默认测试脚本与 inventory default-owned；messages 14 项受 managed_runtime 夹具约束的用例以 `MANAGED_RUNTIME_AVAILABLE=1` env 门控跳过。
+- 剩余：`employees`、`documents`、`knowledge` 等待办；飞书 24 个测试文件仍游离（3.3-4）。
 
 ### 3.6-3 / 3.6-4 CLI 巨型文件与测试脚本 —— ⏳ 待办
 
