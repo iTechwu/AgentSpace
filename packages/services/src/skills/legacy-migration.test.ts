@@ -30,6 +30,11 @@ before(() => {
 
 beforeEach(() => {
   resetWorkspaceStateSync(WORKSPACE_ID);
+  // resetWorkspaceStateSync deliberately never clears audit_log (it is a
+  // tamper-evident, append-only log), so without this the note/name-based audit
+  // queries below would match rows left by prior invocations and flake. Clear
+  // only this dedicated test workspace's audit rows for a deterministic slate.
+  getDatabase().prepare("DELETE FROM audit_log WHERE workspace_id = ?").run(WORKSPACE_ID);
   testTosStorage.clear();
   // Baseline: a fresh workspace auto-seeds builtin legacy skills; migrate them
   // first so each test only measures its own skills.
@@ -172,6 +177,42 @@ test("self-heals a partial migration: re-maps assignments and re-records the aud
   const audit = listAuditLogsSync(WORKSPACE_ID, { code: "skill.legacy_migrated" })
     .filter((row) => row.note.includes(`"${skill.name}"`));
   assert.equal(audit.length, 1);
+});
+
+test("reconciles partial migrations even after the Phase-A build budget is exhausted", () => {
+  // Regression: `limit` used to `break` the whole loop the moment the build
+  // budget was spent, so an already-bound skill queued AFTER the budget ran out
+  // never reached its cheap reconciliation — violating the doc's promise that
+  // reconciliation is uncapped. `limit` must cap ONLY the expensive Phase-A
+  // build, never the reconciliation of an already-bound skill.
+  const skillA = createLegacySkill("Legacy Budget Fresh");
+  const skillB = createLegacySkill("Legacy Budget Partial");
+  createEmployeeSync({ name: "Orion", role: "Researcher", origin: "manual" }, WORKSPACE_ID);
+  setStoredEmployeeSkillAssignmentsSync("Orion", [skillB.id], WORKSPACE_ID);
+
+  // Fully migrate both first (skillA built fresh, skillB built fresh + mapped).
+  migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID, limit: 1000 });
+  const digestB = listSkillArtifactBindingsForSkillSync(skillB.id, WORKSPACE_ID)[0]!;
+  assert.equal(readAssignmentArtifactDigestSync({ employeeName: "Orion", skillId: skillB.id, workspaceId: WORKSPACE_ID }), digestB);
+
+  // Simulate a crash on skillB AFTER its binding landed but BEFORE B/C: wipe the
+  // assignment mapping + migration audit, keep the binding. skillB now needs ONLY
+  // cheap reconciliation. skillA is left fully migrated (alreadyMigrated).
+  getDatabase().prepare("UPDATE agent_skill SET skill_artifact_digest = NULL WHERE workspace_id = ? AND skill_id = ?").run(WORKSPACE_ID, skillB.id);
+  getDatabase().prepare("DELETE FROM audit_log WHERE workspace_id = ? AND code = ? AND data_json->>'skillId' = ?").run(WORKSPACE_ID, "skill.legacy_migrated", skillB.id);
+  assert.equal(readAssignmentArtifactDigestSync({ employeeName: "Orion", skillId: skillB.id, workspaceId: WORKSPACE_ID }), undefined);
+
+  // Re-run with limit:0 coerced to 1 — no Phase-A build budget at all. skillB is
+  // bound so it must STILL reconcile, proving reconciliation is never starved by
+  // the build cap. (skillA is fully migrated, so nothing wants a build anyway.)
+  const result = migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID, limit: 0 });
+  assert.equal(result.migrated, 0, "nothing builds — no fresh artifacts needed");
+  assert.equal(result.reconciled, 1, "skillB reconciles despite zero build budget");
+  assert.equal(
+    readAssignmentArtifactDigestSync({ employeeName: "Orion", skillId: skillB.id, workspaceId: WORKSPACE_ID }),
+    digestB,
+    "skillB's assignment is re-mapped onto its surviving digest",
+  );
 });
 
 test("does not duplicate the migration audit across repeat runs", () => {
