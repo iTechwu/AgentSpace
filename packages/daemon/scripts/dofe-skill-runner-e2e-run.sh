@@ -68,12 +68,26 @@ preflight_checks() {
   # system-dependency.e2e-real-docker.test.ts 在受管节点 HOST 上落地并读取真实
   # iptables 规则（DOCKER-USER 链），需要 CAP_NET_ADMIN/root。生产策略用默认
   # iptables 二进制（DOFE_AGENT_IPTABLES_BIN 仅供测试注入），故按默认校验即可。
-  if ! command -v iptables >/dev/null 2>&1; then
-    echo "iptables 不在 PATH 上；egress 门禁需在 host 上落地 iptables 规则。" >&2
-    return 1
-  fi
+  # 门禁不只依赖 iptables 本体：DROP 包计数归因轮询 iptables-save -c /
+  # ip6tables-save -c，IPv6 层落地走 ip6tables——预检必须覆盖同一组二进制，
+  # 否则停服前预检通过、停服后门禁才失败。
+  local bin
+  for bin in iptables ip6tables iptables-save ip6tables-save; do
+    if ! command -v "$bin" >/dev/null 2>&1; then
+      echo "$bin 不在 PATH 上；egress 门禁需要它（规则落地 / DROP 计数归因 / IPv6 层）。" >&2
+      return 1
+    fi
+  done
   if ! iptables -S >/dev/null 2>&1; then
     echo "iptables 不可读写（需要 CAP_NET_ADMIN/root）；egress 门禁在 host 上落地规则会被拒。" >&2
+    return 1
+  fi
+  if ! ip6tables -S >/dev/null 2>&1; then
+    echo "ip6tables 不可读写（需要 CAP_NET_ADMIN/root）；IPv6 egress 层无法落地。" >&2
+    return 1
+  fi
+  if ! iptables-save >/dev/null 2>&1 || ! ip6tables-save >/dev/null 2>&1; then
+    echo "iptables-save / ip6tables-save 不可读（需要 CAP_NET_ADMIN/root）；DROP 包计数归因会失败。" >&2
     return 1
   fi
 }
