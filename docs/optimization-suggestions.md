@@ -53,19 +53,19 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 | 优先级 | 主题 | 一句话 | 预估成本 | 状态 |
 | --- | --- | --- | --- | --- |
-| P0 | 仓库卫生 | 删除误提交的 `-`(plist) 文件、1.8MB tgz 产物、`.DS_Store`、失效 Prisma CI | 极低 | ✅ |
-| P0 | daemon 死代码 | 删除 `provider-runtime.ts` 约 550 行未被调用的 legacy Codex/Claude 路径 | 低 | ✅ |
-| P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ |
-| P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ |
-| P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏳ |
-| P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 |
-| P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 |
-| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | 🟡 |
-| P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ⏳ |
-| P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ |
-| P2 | i18n 无 key | `tx(zh, en)` 内联双语无字典校验 | 中 | ⏳ |
-| P2 | 构建/版本漂移 | esbuild `target:node20` vs engines `^25.9.0`、版本号硬编码 | 低 | 🟡 |
-| P2 | sandbox 抽象虚置 | Cube `exec()` 未实现，`connectSandbox()` 无调用方 | 中 | ⏳ |
+| P0 | 仓库卫生 | 删除误提交的 `-`(plist) 文件、1.8MB tgz 构建产物入库、`.DS_Store`、失效 Prisma CI | 极低 | ✅ 66de23fc + 5a39362f（`-`/tgz 真正 git rm；AI 规则符号链接；`.DS_Store`/Prisma CI 核实已不存在） |
+| P0 | daemon 死代码 | 删除 `provider-runtime.ts` 约 550 行未被调用的 legacy Codex/Claude 路径 | 低 | ✅ 3b81dd12（实际删除 859 行，2,679→1,820） |
+| P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ 0945c0cb（三处 blob 传输加 300s AbortController 超时） |
+| P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ 本轮明确排除，未动 |
+| P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏳ 待办（大工程，需按域渐进） |
+| P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 data.ts 已拆（683f2d9e，5,737→3,533+973+1,410）、permissions.ts 已拆（374b1bc1，2,439→209 门面+9 子模块）、runtime-provisioning.ts 已拆（7f9ee7d4，2,258→74 门面+7 子模块）；postgres-schema 等待办 |
+| P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 WorkspaceModuleHost 17 模块已改 next/dynamic 懒加载（32a1bb8a，全量 1153 用例通过）；channels-page-client 等文件内拆分待办 |
+| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | 🟡 文件级环 4→2（c8c7c37b，skills 三文件环与 feishu data-plane↔operation-plan 已解）；12 文件大 SCC 五处切断已实施 4 处（cut 1/2/4 8eb08332、cut 5 c8f32035）；最大 SCC 12→6；剩余 cut 3（channels→attachments GC 语义上移）跨域编排层非机械可切；runtime-provisioning 域内环归零（cc4047bd） |
+| P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ⏳ 待办（属测试门禁类，与 CI 专项同批处理为宜） |
+| P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ 待办 |
+| P2 | i18n 无 key | `tx(zh, en)` 内联双语无字典校验 | 中 | ⏳ 待办 |
+| P2 | 构建/版本漂移 | esbuild `target:node20` vs engines `^25.9.0`、版本号硬编码 | 低 | 🟡 版本单一来源已做（0945c0cb，cli.ts 改读 package.json）；esbuild target/镜像 digest 锁定待办 |
+| P2 | sandbox 抽象虚置 | Cube `exec()` 未实现，`connectSandbox()` 无调用方 | 中 | ⏳ 待办 |
 
 ---
 
@@ -100,26 +100,38 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 ### 3.3 业务服务层（services，363 文件 / 56 域模块）
 
-1. **【P1】拆分 `permissions.ts`（2,439 行，全包最大）** ✅：把 17+ 种数据源聚合为权限树/中心视图。`capabilities` 域已示范正确做法（facade + 4 个单职责子模块），照此拆分「数据源聚合 / 树构建 / 诊断」。已拆为 9 个单职责子模块 + 209 行门面，见 [progress-log.md §3.3-1](progress-log.md)。
-2. **【P1】拆分 `runtime-provisioning.ts`（2,258 行）** ✅：7 阶段供给状态机，按「阶段机 / 命令构建 / 凭证恢复」分文件。已拆为 7 个子模块 + 门面，见 [progress-log.md §3.3-2](progress-log.md)。
-3. **【P1】打破模块循环依赖** 🟡：已核实的两个环 `messages → automations → workflows → messages` 与 `documents → notifications → messages → documents`。建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。文件级环已 4→2，12 文件大 SCC 五处切断已落地 4 处（最大 SCC 12→6，含 cut 5 仅缩小未消除的 5 节点 messaging 残余环），剩余 cut 3 跨域编排层非机械可切，见 [progress-log.md §3.3-3](progress-log.md)。
-4. **【P1】飞书 24 个测试文件游离于测试门之外** ⏳：`src/integrations/...`（含全包最大测试 `inbound.test.ts` 2,406 行、`data-plane.test.ts` 2,239 行）不在 `package.json` 的 test glob 内，`verify-test-coverage.mjs` 注释为 "intentional"。**8,000+ 行测试形同虚设**——要么纳入门禁（纯单测无需外部环境），要么给独立 CI 任务。
-5. **【P2】手写 `.d.ts` 孪生去重** ⏳：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
-6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串** ⏳：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
-7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）** ⏳：继续按域拆子路径（`/workflows`、`/skills`…），收窄 web/daemon 的 200+ 处 import。
-8. **【P2】测试门覆盖不均** 🟡：门内只含 runtime-maintenance/skills/mcp-center/skill-services/openmontage/workflows/attachments；`permissions`、`employees`、`documents`、`messages`、`knowledge` 等核心域无自动测试门。`permissions`/`document-permissions` 已纳入，剩余待办，见 [progress-log.md §3.3-8](progress-log.md)。
-9. **【P3】供应链** ⏳：`xlsx` 依赖是 CDN tarball URL（`cdn.sheetjs.com`）非 registry 包，建议评估锁定与镜像策略。
+1. **【P1】拆分 `permissions.ts`（2,439 行，全包最大）**：把 17+ 种数据源聚合为权限树/中心视图。`capabilities` 域已示范正确做法（facade + 4 个单职责子模块），照此拆分「数据源聚合 / 树构建 / 诊断」。✅ **已落地（374b1bc1）**：拆为 9 个单职责子模块（`permission-context` / `permission-diagnostics` / `permission-nodes-{agents,channels,documents,feishu-guests,runtime}` / `permission-types` / `permission-utils`），原文件收敛为 209 行门面。
+2. **【P1】拆分 `runtime-provisioning.ts`（2,258 行）**：7 阶段供给状态机，按「阶段机 / 命令构建 / 凭证恢复」分文件。✅ **已落地（7f9ee7d4）**：原文件收敛为 74 行门面（显式 re-export 原 45 个公开符号，导入路径不变），拆出 capacity / tasks / models / credential-recovery / lifecycle / pipeline / models-client 7 个子模块；测试 53/54（1 例为共享测试库 schema 118 不可降级的环境性失败）。
+3. **【P1】打破模块循环依赖**（已核实）：
+   - `messages → automations → workflows → messages`
+   - `documents → notifications → messages → documents`
+   建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。🟡 **文件级环 4→2 已落地（c8c7c37b）**：skills `release↔installations↔import` 三文件环解体（锁计算下沉 `release-lock.ts`、安装排队下沉 `skill-services/install-queue.ts`）；飞书 `data-plane↔operation-plan` 解体（描述符常量下沉 `data-operation-descriptors.ts`）。runtime-provisioning 拆分引入的域内环也已归零（cc4047bd：`ModelsCreateResult` 独立 types 文件 + 两个编排入口迁至 pipeline，pipeline→capacity 单向）。剩余为 12 文件大 SCC（channel/notification 域）与一个 type-only 运行时无害环（feishu agent-bot-bindings↔external-guests）。
+
+   **12 文件 SCC 分层方案（已评估，2026-08-14）**：SCC 成员与全部反向边已核实——违反分层的只有 5 条边，其余边均可自然落入以下六层（底→顶）：L0 `shared/state-io`（快照持久化）→ L1 `documents/access`、`shared/audit`、`shared/conversation-execution-workspaces`（纯规则）→ L2 `attachments`、`channels`（存储域）→ L3 `channel-access`、`notifications`（访问/通知域）→ L4 `shared/messaging`、`runtime-access`（运行时消息）→ L5 `messages`、`automations/auto-continuation`（顶层编排）。5 处切断：
+   1. ✅ **`state-io → documents/access`**（`ensureChannelDocumentAccessSeeds`，仅读写两条路径调用）：种子补全改由 `shared/channel-document-access-seeds.ts` 提供，state-io 仅依赖 shared，回归纯持久化（**8eb08332**）。
+   2. ✅ **`documents/access → channels`**（`resolveChannelHumanMemberNames` ×3 + count）：纯函数下沉 `shared/channel-members.ts`，双方及 `messages` / `permissions` / `document-permissions` / `documents/files` / `attachments` / `channel-access` 共 6 处改引 shared（**8eb08332**）。
+   3. ⏸ `channels → attachments`（`deleteUnreferencedWorkspaceAttachmentsSync`）：GC 语义上移至 channels 的调用方或回调注入；需梳理调用方语义，留待后续。
+   4. ✅ **`attachments → channel-access`**（`isWorkspaceAdminOrOwnerRole` 部分）：纯角色判断下沉 `shared/channel-members.ts`（与 cut 2 同文件），`canReadChannelForActorSync` 嵌入 channel-access 域逻辑未下沉（**8eb08332**）。
+   5. ✅ **`notifications → messages`**（`postMessageSync`）：发送核心下沉 `shared/messaging.ts`（追加 import state-io/realtime-events + 末尾追加函数体），`messages.ts` 改 `export const postMessageSync = postMessageSyncShared` 保留 facade（**c8f32035**）；notifications 直接引 shared，12 个外部调用方零改动。
+
+   实施顺序建议：1/2/4 纯机械下沉低风险先行；3 需梳理调用方语义；5 触及消息发送路径（行为敏感），最后做并配 messages 域回归。**当前进度**：1/2/4/5 已落地（8eb08332 / c8f32035），最大 SCC 由 12 缩为 6；剩余 cut 3（GC 语义）跨域编排层非机械可切，**建议接受现状或留待 P2 重构周期**。
+4. **【P1】飞书 24 个测试文件游离于测试门之外**：`src/integrations/...`（含全包最大测试 `inbound.test.ts` 2,406 行、`data-plane.test.ts` 2,239 行）不在 `package.json` 的 test glob 内，`verify-test-coverage.mjs` 注释为 "intentional"。**8,000+ 行测试形同虚设**——要么纳入门禁（纯单测无需外部环境），要么给独立 CI 任务。
+5. **【P2】手写 `.d.ts` 孪生去重**：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
+6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串**：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
+7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）**：继续按域拆子路径（`/workflows`、`/skills`…），收窄 web/daemon 的 200+ 处 import。
+8. **【P2】测试门覆盖不均**：门内只含 runtime-maintenance/skills/mcp-center/skill-services/openmontage/workflows/attachments；`permissions`、`employees`、`documents`、`messages`、`knowledge` 等核心域无自动测试门，建议把 verify 脚本的 COVERED_PREFIXES 扩到这些域。
+9. **【P3】供应链**：`xlsx` 依赖是 CDN tarball URL（`cdn.sheetjs.com`）非 registry 包，建议评估锁定与镜像策略。
 
 ### 3.4 Web 前端（apps/web，Next.js 16）
 
-1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）** ✅：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。已两阶段完成（类型/视图构建/装配分层 + `builders/` 九子模块），见 [progress-log.md §3.4-1](progress-log.md)。
-2. **【P1】代码分割** 🟡：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施）。`WorkspaceModuleHost` 与 knowledge-page-client 已落地，`agent-detail.tsx`/`conversation-shell.tsx`/`channels-page-client.tsx` 文件内拆分待办，见 [progress-log.md §3.4-2](progress-log.md)。
-3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）** ⏳：轮询/性能埋点/执行时间线/pin 逻辑已「文件内堆叠」，先抽 hooks 再抽子组件。
-4. **【P2】`next.config.mjs` 的 `typescript.ignoreBuildErrors: true`** ⏳：构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 目前不跑 typecheck）。建议移除该开关，让 `next build` 前强制 `tsc --noEmit`。
-5. **【P2】评估部分静态渲染** ⏳：全站 `force-dynamic`，但 `/platform`、设置只读 section、模板库等低个性化数据可评估 `revalidate` 或客户端缓存降载。
-6. **【P2】i18n 无 key 体系** ⏳：`tx(zh, en)` 内联双语 + `presentation.ts` 集中翻译，无字典/key 校验，翻译散落 90+ 调用点。>2 种语言或翻译平台协作时需迁移。
-7. **【P2】清理 "loadtest" 命名** ⏳：`readLoadtest*Cache` 三处是通用 TTL 缓存（`LOADTEST_MODE` 开关），命名与实际功能脱节，重命名为 `readTtlCache` 语义。
-8. **【P2】统一 34 个 page.tsx 样板** ⏳：重复 `getWorkspacePageContext → loadWorkspaceModuleDataWithMeta → WorkspaceInitialModuleData → *PageClient` 四步，可收敛为 `renderWorkspaceModule()` 辅助或生成器。
+1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）**：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。✅ **第一阶段已落地（683f2d9e）**：先按「类型层 / 视图构建层 / 装配层」切开——`data.ts` 3,533 行（各域 loader，`export *` 对外导入路径不变，43 个引用方零改动）、`data-types.ts` 973 行、`dashboard-view-builders.ts` 1,410 行，依赖单向 `data.ts → view-builders → data-types`。后续按域再拆 `features/*/server-data.ts` 有了干净落点。
+2. **【P1】代码分割**：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施，接入成本低）。同批处理 `agent-detail.tsx`(1,657)、`conversation-shell.tsx`(1,590)、`knowledge-page-client.tsx`(1,580)。✅ **WorkspaceModuleHost 部分已落地（32a1bb8a）**：17 个页面客户端全部改 `next/dynamic` 按模块懒加载，路由 page.tsx 仍静态导入保证 SSR 直出；全量 vitest 144 文件 / 1,153 用例通过。✅ **knowledge-page-client 已完成四件套拆分（2a86a772 + 95349d52 + a9ada12a + cce1b274）**：1,580→1,114 行，子组件全部移出独立文件——`parse-task-panel.tsx`（ParseTaskPanel）、`assignment-panel.tsx`（KnowledgeAssignmentPanel/DraftControls + toggleEmployeeSelection）、`document-page-viewer.tsx`（DocumentPageViewer + formatKnowledgeTime/DocumentSize 私有）、`knowledge-tree-node.tsx`（KnowledgeTreeNode 递归）。文件内拆分（agent-detail / conversation-shell / channels-page-client）⏳ 待办。
+3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）**：轮询/性能埋点/执行时间线/pin 逻辑已「文件内堆叠」，先抽 hooks 再抽子组件。
+4. **【P2】`next.config.mjs` 的 `typescript.ignoreBuildErrors: true`**：构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 目前不跑 typecheck）。建议移除该开关，让 `next build` 前强制 `tsc --noEmit`。
+5. **【P2】评估部分静态渲染**：全站 `force-dynamic`，但 `/platform`、设置只读 section、模板库等低个性化数据可评估 `revalidate` 或客户端缓存降载。
+6. **【P2】i18n 无 key 体系**：`tx(zh, en)` 内联双语 + `presentation.ts` 集中翻译，无字典/key 校验，翻译散落 90+ 调用点。>2 种语言或翻译平台协作时需迁移。
+7. **【P2】清理 "loadtest" 命名**：`readLoadtest*Cache` 三处是通用 TTL 缓存（`LOADTEST_MODE` 开关），命名与实际功能脱节，重命名为 `readTtlCache` 语义。
+8. **【P2】统一 34 个 page.tsx 样板**：重复 `getWorkspacePageContext → loadWorkspaceModuleDataWithMeta → WorkspaceInitialModuleData → *PageClient` 四步，可收敛为 `renderWorkspaceModule()` 辅助或生成器。
 
 > 亮点（值得保留）：服务端薄页 + 客户端胖壳 + 自研 `WorkspaceModuleCache`/失效事件体系，SSR 数据 seed 进客户端缓存实现「首屏零额外请求」；`any`/TODO/console.log 全零。
 
