@@ -1,83 +1,99 @@
-import { basename } from "node:path";
-import { cache } from "react";
+// Workspace dashboard 各页面/模块的 server 侧数据装配入口（对外稳定导入点）。
+// 类型定义见 ./data-types.ts，共享视图构建 helper 见 ./dashboard-view-builders.ts，
+// 两者均为本模块的单向下游；本文件保留各域 loader 与私有 helper。
+import {
+  basename,
+} from "node:path";
+import {
+  cache,
+} from "react";
 import {
   buildLegacyAgentIdForEmployeeName,
-  isSystemSkillName,
+  canReadChannelForActorSync,
+  getChannelAccessSummaryForActorSync,
+  getCostDashboardDataAsync,
+  getCostDashboardDataSync,
+  getPerformanceDashboardDataSync,
   inferAttachmentKind,
-  listKnowledgeAssignmentPoliciesSync,
-  listKnowledgeAssignmentsSync,
+  isSystemSkillName,
+  listAgentAccessRequestsForActorSync,
+  listAgentForkInvitationsForActorSync,
+  listAgentForkInvitationsForSourceAgentSync,
+  listBudgetsWithSpentSync,
   listDocumentAgentAccessSync,
   listDocumentPermissionRequestsSync,
   listEmployeeSkillIdsByAgentIdMapSync,
-  listWorkspaceSkillsSync,
-  readWorkspaceStateSnapshotSync,
-  resolveChannelHumanMemberNames,
-  resolveAttachmentMediaType,
-  getCostDashboardDataSync,
-  getCostDashboardDataAsync,
-  getChannelAccessSummaryForActorSync,
-  canReadChannelForActorSync,
-  listBudgetsWithSpentSync,
-  getPerformanceDashboardDataSync,
-  normalizeRuntimeProviderHealth,
-  normalizeCliHubReadiness,
-  readAgentSkillRequirementSummarySync,
-  listNotificationsForRecipientSync,
-  listAgentForkInvitationsForActorSync,
-  listAgentForkInvitationsForSourceAgentSync,
-  listAgentAccessRequestsForActorSync,
+  listKnowledgeAssignmentPoliciesSync,
+  listKnowledgeAssignmentsSync,
   listManagedRuntimesForWorkspaceSync,
-  resolveAgentRuntimeMode,
-  readWorkspaceAttachmentBytesSync,
+  listNotificationsForRecipientSync,
+  listWorkspaceSkillsSync,
+  normalizeCliHubReadiness,
+  normalizeRuntimeProviderHealth,
   projectLegacySchedulesForCutover,
+  readAgentSkillRequirementSummarySync,
   readWorkflowCutoverModeSync,
+  readWorkspaceAttachmentBytesSync,
+  readWorkspaceStateSnapshotSync,
   reapStuckParseTasksSync,
+  resolveAgentRuntimeMode,
+  resolveAttachmentMediaType,
+  resolveChannelHumanMemberNames,
 } from "@dofe-agent/services";
 import type {
   AgentAccessRequestRecord,
   AgentForkInvitationRecord,
+  AgentSkillRequirementSummary,
+  CostDashboardData,
   FeishuChatMemberSnapshot,
   PerformanceDashboardData,
   WorkspaceNotificationRecord,
-  CostDashboardData,
-  AgentSkillRequirementSummary,
 } from "@dofe-agent/services";
 import {
   DEFAULT_WORKSPACE_ID,
   countUsersSync,
-  listDaemonApiTokensSync,
-  listProviderAccountsSync,
-  listRuntimeProvisionRequestsSync,
-  listDaemonSnapshotsSync,
-  listEmployeeRuntimeBindingsSync,
-  listQueuedTasksSync,
-  listRuntimeAppOperationsSync,
-  listRuntimeInstalledAppsSync,
-  listMcpConnectionsSync,
-  listMcpCatalogItemsSync,
-  listRuntimeGrantsSync,
-  listStoredSkillImportEventsSync,
   listAgentRouterProviderSessionsSync,
   listAgentTaskAttemptsSync,
-  readAgentRouterSessionSync,
+  listCapabilityRequestsSync,
+  listDaemonApiTokensSync,
+  listDaemonSnapshotsSync,
+  listEmployeeRuntimeBindingsSync,
+  listMcpCatalogItemsSync,
+  listMcpConnectionsSync,
+  listProviderAccountsSync,
+  listQueuedTasksSync,
+  listRuntimeAppOperationsSync,
+  listRuntimeGrantsSync,
+  listRuntimeInstalledAppsSync,
+  listRuntimeProvisionRequestsSync,
+  listStoredSkillImportEventsSync,
+  listTaskExecutionEventsSync,
   listTaskMessagesForTaskSync,
   listTaskMessagesForTasksSync,
-  listTaskExecutionEventsSync,
-  listWorkspaceRuntimeDisplayNamesSync,
-  listWorkspaceMemberUsersSync,
   listWorkflowDefinitionsSync,
+  listWorkspaceMemberUsersSync,
+  listWorkspaceRuntimeDisplayNamesSync,
+  readAgentRouterSessionSync,
   readWorkflowTriggerForWorkflowSync,
-  listCapabilityRequestsSync,
 } from "@dofe-agent/db";
-import type { BudgetAction, BudgetPeriod, BudgetScope, TaskExecutionEventRecord, TaskExecutionEventType, TaskMessageRecord, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
+import type {
+  BudgetAction,
+  BudgetPeriod,
+  BudgetScope,
+  TaskExecutionEventRecord,
+  TaskExecutionEventType,
+  TaskMessageRecord,
+  WorkspaceMemberUserRecord,
+  WorkspaceRole,
+} from "@dofe-agent/db";
 import type {
   ActiveEmployee,
-  DofeAgentState,
   AutomationRule,
-  ChannelRecord,
   ChannelDocument,
   ChannelDocumentVersion,
+  ChannelRecord,
   DataTable,
+  DofeAgentState,
   KnowledgeAssignmentMode,
   KnowledgePage,
   LedgerItem,
@@ -86,21 +102,26 @@ import type {
   TaskRecord,
   TaskStatus,
   Template,
-  WorkspaceSkill,
   WorkspaceMessage,
+  WorkspaceSkill,
 } from "@dofe-agent/domain/workspace";
+import {
+  formatDaemonProviderLabel,
+  isDaemonProvider,
+} from "@dofe-agent/domain";
 import type {
-  ChannelDocumentBlock,
   ChannelDocumentAccessRole,
+  ChannelDocumentBlock,
   ChannelDocumentChangeSet,
   ChannelDocumentConflict,
   ChannelDocumentPresence,
   ChannelDocumentRun,
   ChannelDocumentRunStep,
+  RuntimeProviderHealth,
 } from "@dofe-agent/domain";
-import { formatDaemonProviderLabel, isDaemonProvider } from "@dofe-agent/domain";
-import type { RuntimeProviderHealth } from "@dofe-agent/domain";
-import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import {
+  formatCompactTimestamp,
+} from "@/shared/lib/time-format";
 import {
   buildFeishuAgentBotSetupReference,
   listFeishuIntegrationSettingsItems,
@@ -109,6 +130,13 @@ import type {
   FeishuAgentBotSetupReference,
   FeishuIntegrationSettingsItem,
 } from "@/features/integrations/feishu/feishu-types";
+import {
+  listRunnableWorkflowsSync,
+} from "@/features/workflows/workflow-data";
+import type {
+  RunnableWorkflowSummary,
+} from "@/features/workflows/workflow-data";
+
 export {
   getApprovalsPageData,
   getPendingApprovalCount,
@@ -118,10 +146,74 @@ export {
   type ApprovalQueueActor,
   type ApprovalsPageData,
 } from "@/features/approvals/approval-queue-data";
+
 import {
-  listRunnableWorkflowsSync,
-  type RunnableWorkflowSummary,
-} from "@/features/workflows/workflow-data";
+  CHANNEL_DOCUMENT_SYNC_EVENT_TTL_MS,
+  TASK_QUEUE_DELAY_THRESHOLD_MS,
+  buildChannelListItem,
+  buildChannelWorkspaceArtifacts,
+  buildFeishuChannelSummaryByChannelName,
+  buildKnowledgeDocumentPageRecords,
+  buildMentionUnreadViewer,
+  buildSuggestedConflictDraftBlocks,
+  formatWorkspaceRoleLabel,
+  getVisibleWorkspaceChannelNames,
+  hasUnreadMentionForViewer,
+  isDirectChannelRecord,
+  isRetryableChangeSetOperations,
+  isWorkspaceManagerRole,
+  listWorkspaceMemberUsersCached,
+  normalizeChannelScope,
+  parseChannelDocumentChangeSetOperations,
+  resolveDirectChannelForContact,
+  safeReadTaskTitle,
+  sameText,
+  serializeConflictDraftBlocks,
+  summarizeChangeSetOperations,
+} from "./dashboard-view-builders";
+import type {
+  AgentKnowledgePageRecord,
+  AgentWorkAreaRecord,
+  AgentsPageData,
+  ChannelDetailPageData,
+  ChannelDocumentChangeSetRecord,
+  ChannelDocumentConflictRecord,
+  ChannelDocumentRunRecord,
+  ChannelDocumentSyncEventRecord,
+  ChannelListItem,
+  ChannelThreadData,
+  ChannelsPageData,
+  ContainerRecord,
+  DaemonSnapshotView,
+  DaemonTokenView,
+  DashboardCurrentUser,
+  DigitalEmployeeShowcaseAgentRecord,
+  InboxItem,
+  InboxPageData,
+  KnowledgeAgentOption,
+  KnowledgeAssignedAgentRecord,
+  KnowledgeAssignmentStats,
+  KnowledgeDocumentPageRecord,
+  KnowledgePageRecord,
+  ManagementRecordBase,
+  ProviderAccountView,
+  RouterExecutionView,
+  RuntimeGrantMember,
+  RuntimeMcpConnectionView,
+  RuntimeProvisionRequestView,
+  SkillsPageData,
+  TaskExecutionTimelineAction,
+  TaskExecutionTimelineCategory,
+  TaskExecutionTimelineEntry,
+  WorkspaceAgentAccessRequestView,
+  WorkspaceAgentDocumentAccessRecord,
+  WorkspaceAgentDocumentAccessSummaryRecord,
+  WorkspaceAgentForkInvitationView,
+  WorkspaceAgentKnowledgeRecord,
+  WorkspaceAgentRecord,
+  WorkspaceAgentStatus,
+} from "./data-types";
+export * from "./data-types";
 
 const readWorkspaceStateCached = cache((workspaceId: string) => readWorkspaceStateSnapshotSync(workspaceId));
 const listWorkspaceSkillsCached = cache((workspaceId: string) => listWorkspaceSkillsSync(workspaceId));
@@ -148,7 +240,6 @@ const listRuntimeGrantsCached = cache((workspaceId: string) => listRuntimeGrants
 const listWorkspaceRuntimeDisplayNamesCached = cache((workspaceId: string) =>
   listWorkspaceRuntimeDisplayNamesSync(workspaceId)
 );
-const listWorkspaceMemberUsersCached = cache((workspaceId: string) => listWorkspaceMemberUsersSync(workspaceId));
 const listDaemonApiTokensCached = cache((workspaceId: string) => listDaemonApiTokensSync(workspaceId));
 const listProviderAccountsCached = cache((workspaceId: string) => listProviderAccountsSync(workspaceId));
 const listRuntimeProvisionRequestsCached = cache((workspaceId: string) => listRuntimeProvisionRequestsSync(workspaceId));
@@ -163,1855 +254,6 @@ const AGENT_TASK_PREVIEW_LIMIT = 12;
 const AGENT_KNOWLEDGE_PREVIEW_LIMIT = 20;
 const AGENT_ASSIGNABLE_KNOWLEDGE_LIMIT = 120;
 const KNOWLEDGE_PAGE_PREVIEW_LIMIT = 120;
-
-export type InboxItemKind = "notification" | "task" | "channel" | "activity";
-
-export interface InboxTimelineEntry {
-  id: string;
-  role: "human" | "agent" | "assistant" | "user" | "system";
-  actor: string;
-  timestamp: string;
-  body: string;
-  attachments?: MessageAttachment[];
-  status?: "completed" | "error";
-}
-
-export type TaskExecutionTimelineCategory = "status" | "tool" | "artifact" | "approval" | "error" | "handoff";
-export type TaskExecutionTimelineAction = "retry" | "grant_permission" | "handoff" | "mark_blocked" | "rollback";
-
-export interface TaskExecutionTimelineEntry {
-  id: string;
-  type: TaskExecutionEventType;
-  category: TaskExecutionTimelineCategory;
-  title: string;
-  summary?: string;
-  severity: "info" | "warning" | "error";
-  status?: "pending" | "running" | "succeeded" | "failed";
-  createdAt: string;
-  targetHref?: string;
-  nextActions?: TaskExecutionTimelineAction[];
-}
-
-export interface RouterExecutionAttemptView {
-  id: string;
-  runtimeId: string;
-  provider: string;
-  providerSessionId?: string;
-  status: string;
-  startedAt?: string;
-  finishedAt?: string;
-  errorText?: string;
-  handoffSnapshotId?: string;
-  routingMode?: string;
-  fallbackReason?: string;
-}
-
-export interface RouterProviderSessionView {
-  id: string;
-  runtimeId: string;
-  provider: string;
-  providerSessionId: string;
-  status: string;
-  lastUsedAt?: string;
-  lastError?: string;
-}
-
-export interface RouterExecutionView {
-  routerSessionId: string;
-  conversationKey?: string;
-  sourceType?: string;
-  continuationMode: "same_provider_resume" | "cold_rebuild" | "fallback";
-  attempts: RouterExecutionAttemptView[];
-  providerSessions: RouterProviderSessionView[];
-}
-
-export interface InboxItem {
-  id: string;
-  kind: InboxItemKind;
-  title: string;
-  subtitle: string;
-  meta: string;
-  channelKind?: "group" | "direct";
-  timestamp: string;
-  unread: boolean;
-  statusLabel: string;
-  statusTone: "neutral" | "positive" | "warning" | "danger";
-  body: string;
-  actionHref?: string;
-  attachments?: MessageAttachment[];
-  history: InboxTimelineEntry[];
-  notification?: WorkspaceNotificationRecord;
-  task?: TaskRecord;
-  channelName?: string;
-  activity?: LedgerItem;
-  execution?: {
-    queueId: string;
-    queueStatus: string;
-    runtimeId: string;
-    runtimeName?: string;
-    provider?: string;
-    daemonMode?: "local" | "remote";
-    serverUrl?: string;
-    sessionId?: string;
-    router?: RouterExecutionView;
-    workDir?: string;
-    workDirAccess?: "local" | "remote";
-    workDirHostLabel?: string;
-    errorText?: string;
-    messageCount: number;
-    /** Lossless provider/runtime stream. The lifecycle timeline below is a normalized summary. */
-    runtimeTrace: TaskMessageRecord[];
-    currentEvent?: TaskExecutionTimelineEntry;
-    timeline: TaskExecutionTimelineEntry[];
-  };
-}
-
-export interface InboxPageData {
-  items: InboxItem[];
-  totalCount: number;
-  unreadCount: number;
-  notificationCount: number;
-  taskCount: number;
-  channelCount: number;
-  activityCount: number;
-}
-
-interface DashboardCurrentUser {
-  id: string;
-  displayName?: string;
-  role?: WorkspaceRole;
-}
-
-export interface ContactListItem {
-  id: string;
-  name: string;
-  subtitle: string;
-  summary: string;
-  lastMessage?: string;
-  updatedAt?: string;
-  channelName?: string;
-}
-
-export interface ChannelListItem {
-  id: string;
-  name: string;
-  channelName?: string;
-  contactId?: string;
-  humanContactUserId?: string;
-  memberLabel: string;
-  humanMemberNames?: string[];
-  employeeNames?: string[];
-  lastMessage?: string;
-  updatedAt?: string;
-  kind?: "group" | "direct";
-  directParticipantKind?: "agent" | "human";
-  displayName?: string;
-  displaySubtitle?: string;
-  avatarLabel?: string;
-  memberCount?: number;
-  unread?: boolean;
-  canManage?: boolean;
-  accessState?: "accessible" | "pending" | "requestable";
-  accessRequestId?: string;
-  feishu?: ChannelFeishuSummaryRecord;
-}
-
-export interface ChannelFeishuSummaryRecord {
-  bindingCount: number;
-  externalChatReference?: string;
-  externalChatName?: string;
-  externalChatType?: string;
-  provisionSource?: string;
-  reviewStatus?: string;
-  liveMembers?: FeishuChatMemberSnapshot;
-  connectedAgentBots: Array<{
-    integrationId: string;
-    displayName: string;
-    agentId: string;
-    status: string;
-    unboundUserMode?: string;
-    guestPermissionProfile?: string;
-  }>;
-  resourceBindings: Array<{
-    id: string;
-    integrationId: string;
-    integrationDisplayName: string;
-    providerResourceType: string;
-    displayName?: string;
-    canWrite: boolean;
-    guestReadable: boolean;
-    status: string;
-  }>;
-}
-
-export interface ChannelThreadData {
-  channelName: string;
-  messages: WorkspaceMessage[];
-  /** Structured execution stream (task_message rows) keyed by source task id, for the execution timeline view. */
-  taskExecutions?: Record<string, TaskMessageRecord[]>;
-}
-
-export interface ChannelsPageData {
-  workspaceId: string;
-  channels: ChannelListItem[];
-  threads: ChannelThreadData[];
-  documents: ChannelDocumentRecord[];
-  documentRuns: ChannelDocumentRunRecord[];
-  documentConflicts: ChannelDocumentConflictRecord[];
-  channelFiles: ChannelFileRecord[];
-  mentionCandidates: Array<{
-    id: string;
-    label: string;
-    subtitle: string;
-    channels: string[];
-    kind?: "agent" | "human";
-  }>;
-  channelMemberCandidates?: Array<{
-    id: string;
-    label: string;
-    kind: "human" | "agent";
-    meta: string;
-    email?: string;
-  }>;
-  composerAgents?: Array<{
-    id: string;
-    label: string;
-    provider?: string;
-    executionPolicy?: import("@dofe-agent/domain/workspace").EmployeeExecutionPolicy;
-    skills: Array<{
-      id: string;
-      name: string;
-      description: string;
-    }>;
-  }>;
-  composerSkills?: Array<{
-    id: string;
-    name: string;
-    description: string;
-  }>;
-  totalChannels: number;
-  detailScope?: string[];
-}
-
-export type ChannelDetailPageData = Pick<
-  ChannelsPageData,
-  "channelFiles" | "detailScope" | "documentConflicts" | "documentRuns" | "documents" | "threads"
->;
-
-export interface ChannelDocumentVersionRecord {
-  id: string;
-  contentMarkdown: string;
-  summary: string;
-  createdAt: string;
-  createdBy: string;
-  createdByType: ChannelDocumentVersion["createdByType"];
-  triggerType: ChannelDocumentVersion["triggerType"];
-  sourceMessageId?: string;
-  sourceAttachmentId?: string;
-  sourceAttachmentStoredPath?: string;
-}
-
-export interface ChannelDocumentChangeSetRecord {
-  id: string;
-  documentId: string;
-  actorId: string;
-  actorType: ChannelDocumentChangeSet["actorType"];
-  baseVersionId: string;
-  documentVersionId?: string;
-  status: ChannelDocumentChangeSet["status"];
-  sourceMessageId?: string;
-  sourceTaskQueueId?: string;
-  createdAt: string;
-  operationSummary: string;
-  retryable: boolean;
-  sourceMessage?: {
-    id: string;
-    speaker: string;
-    summary: string;
-    time: string;
-  };
-  sourceTask?: {
-    id: string;
-    title: string;
-    status: string;
-  };
-  sourceStep?: {
-    id: string;
-    runId: string;
-    agentLabel: string;
-    instruction: string;
-    status: ChannelDocumentRunStep["status"];
-  };
-}
-
-export interface ChannelDocumentPresenceRecord {
-  actorId: string;
-  actorType: ChannelDocumentPresence["actorType"];
-  status: ChannelDocumentPresence["status"];
-  updatedAt: string;
-  isCurrentUser: boolean;
-}
-
-export interface ChannelDocumentAccessRecord {
-  actorId: string;
-  actorType: "human" | "agent";
-  role: ChannelDocumentAccessRole;
-  isCurrentUser: boolean;
-}
-
-export interface ChannelDocumentCollaboratorCandidateRecord {
-  actorId: string;
-  actorType: "human" | "agent";
-  label: string;
-  subtitle: string;
-}
-
-export interface ChannelDocumentSyncEventRecord {
-  actorId: string;
-  actorType: ChannelDocumentVersion["createdByType"];
-  triggerType: ChannelDocumentVersion["triggerType"];
-  versionId: string;
-  createdAt: string;
-  isRecent: boolean;
-  sourceMessage?: {
-    id: string;
-    speaker: string;
-    summary: string;
-    time: string;
-  };
-  sourceTask?: {
-    id: string;
-    title: string;
-    status: string;
-  };
-  sourceStep?: {
-    id: string;
-    runId: string;
-    agentLabel: string;
-    instruction: string;
-    status: ChannelDocumentRunStep["status"];
-  };
-}
-
-export interface ChannelDocumentRecord {
-  id: string;
-  channelName: string;
-  title: string;
-  slug: string;
-  kind: ChannelDocument["kind"];
-  storageMode: NonNullable<ChannelDocument["storageMode"]>;
-  currentVersionId: string;
-  summary: string;
-  status: ChannelDocument["status"];
-  updatedAt: string;
-  updatedBy: string;
-  lastEditorType: ChannelDocument["lastEditorType"];
-  contentMarkdown: string;
-  versionCount: number;
-  conflictCount: number;
-  versions: ChannelDocumentVersionRecord[];
-  changeSets: ChannelDocumentChangeSetRecord[];
-  activePresences: ChannelDocumentPresenceRecord[];
-  currentUserRole: ChannelDocumentAccessRole;
-  collaborators: ChannelDocumentAccessRecord[];
-  availableCollaborators: ChannelDocumentCollaboratorCandidateRecord[];
-  lastBackgroundSync?: ChannelDocumentSyncEventRecord;
-}
-
-export interface ChannelDocumentRunRecord {
-  id: string;
-  channelName: string;
-  sourceMessageId: string;
-  sourceSummary: string;
-  mode: ChannelDocumentRun["mode"];
-  status: ChannelDocumentRun["status"];
-  createdAt: string;
-  updatedAt: string;
-  steps: Array<{
-    id: string;
-    agentId: string;
-    agentLabel: string;
-    instruction: string;
-    status: ChannelDocumentRunStep["status"];
-    handoffKind: ChannelDocumentRunStep["handoffKind"];
-    documentId?: string;
-    documentVersionId?: string;
-    lastError?: string;
-    lastWarning?: string;
-  }>;
-}
-
-export interface ChannelDocumentConflictRecord {
-  id: string;
-  documentId: string;
-  documentTitle: string;
-  blockId: string;
-  status: ChannelDocumentConflict["status"];
-  createdAt: string;
-  leftChangeSet?: ChannelDocumentChangeSetRecord;
-  rightChangeSet?: ChannelDocumentChangeSetRecord;
-  mergePreview?: {
-    mode: "document" | "block";
-    currentLabel: string;
-    currentContentMarkdown: string;
-    incomingLabel: string;
-    incomingContentMarkdown: string;
-    suggestedDraftContentMarkdown: string;
-    suggestedDraftTitle?: string;
-    suggestedDraftSummary?: string;
-  };
-}
-
-export interface ChannelFileRecord {
-  id: string;
-  channelName: string;
-  fileName: string;
-  sourceMessageId?: string;
-  sourceSpeaker?: string;
-  sourceTime?: string;
-  uploaderUserId?: string;
-  uploaderDisplayName?: string;
-  previewText?: string;
-  mediaType: string;
-  sizeBytes: number;
-  kind: MessageAttachment["kind"];
-  isMarkdown: boolean;
-  canDelete: boolean;
-  deleteBlockedReason?: string;
-  retainedBecauseReferenced: boolean;
-}
-
-export type WorkspaceAgentStatus = "online" | "busy" | "blocked" | "linked" | "error";
-
-interface ManagementRecordBase {
-  id: string;
-  name: string;
-  subtitle: string;
-  description: string;
-  status: WorkspaceAgentStatus;
-  statusLabel: string;
-  tags: string[];
-}
-
-export interface AgentWorkAreaRecord {
-  id: string;
-  queueId: string;
-  title: string;
-  channel?: string;
-  queueStatus: string;
-  taskStatus?: string;
-  updatedAt: string;
-  startedAt?: string;
-  finishedAt?: string;
-  sessionId?: string;
-  router?: RouterExecutionView;
-  workDir?: string;
-  workDirAccess?: "local" | "remote";
-  workDirHostLabel?: string;
-  errorText?: string;
-}
-
-export interface WorkspaceAgentDocumentAccessRecord {
-  id: string;
-  documentId: string;
-  documentTitle: string;
-  channelName: string;
-  role: "viewer" | "editor" | "forwarder";
-  source: "explicit_grant";
-  storageMode: "native" | "external";
-  externalProvider?: string;
-  externalFileId?: string;
-  externalUrl?: string;
-  updatedAt: string;
-}
-
-export interface WorkspaceAgentDocumentPermissionRequestRecord {
-  id: string;
-  status: "pending" | "approved" | "rejected" | "cancelled";
-  requestedRole: "viewer" | "editor" | "forwarder";
-  targetLabel: string;
-  documentId?: string;
-  documentTitle?: string;
-  externalProvider?: string;
-  externalFileId?: string;
-  externalUrl?: string;
-  requestedForChannelName?: string;
-  reason: string;
-  decisionNote?: string;
-  createdAt: string;
-  decidedAt?: string;
-}
-
-export interface WorkspaceAgentDocumentAccessSummaryRecord {
-  readableCount: number;
-  editableCount: number;
-  forwardableCount: number;
-  externalCount: number;
-  pendingRequestCount: number;
-  rejectedRequestCount: number;
-  grants: WorkspaceAgentDocumentAccessRecord[];
-  requests: WorkspaceAgentDocumentPermissionRequestRecord[];
-}
-
-export interface WorkspaceAgentForkInvitationView {
-  id: string;
-  sourceAgentName: string;
-  sourceAgentDisplayName: string;
-  targetUserId: string;
-  targetDisplayName?: string;
-  createdByUserId: string;
-  createdByDisplayName?: string;
-  status: "pending" | "accepted" | "revoked" | "expired";
-  createdAt: string;
-  updatedAt: string;
-  acceptedAgentName?: string;
-  acceptedRuntimeId?: string;
-  contextNote?: string;
-  copyProfile: boolean;
-  copyInstructions: boolean;
-  copySkills: boolean;
-  copyKnowledgeAssignments: boolean;
-  copiedSkillCount: number;
-  copiedKnowledgePageCount: number;
-  suggestedAgentName: string;
-}
-
-export interface WorkspaceAgentAccessRequestView {
-  id: string;
-  sourceAgentName: string;
-  requesterUserId: string;
-  requesterDisplayName?: string;
-  requestType: "fork_copy" | "channel_use";
-  targetChannelName?: string;
-  status: "pending" | "approved" | "rejected" | "cancelled";
-  reason: string;
-  resolverUserId?: string;
-  resolverDisplayName?: string;
-  resolvedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  forkInvitationId?: string;
-  canDecide: boolean;
-}
-
-export interface DigitalEmployeeShowcaseAgentRecord extends ManagementRecordBase {
-  kind: "digital_employee_showcase_agent";
-  internalName: string;
-  role: string;
-  summary: string;
-  fit: string;
-  traits: string[];
-  ownerUserId?: string;
-  ownerDisplayName?: string;
-  managedByLabel: string;
-  canManage: boolean;
-  isOwnedByCurrentUser: boolean;
-  channelMemberAccess: "enabled" | "disabled";
-  channels: string[];
-  commonChannels: string[];
-  skillCount: number;
-  knowledgeCount: number;
-  skillHighlights: Array<{
-    name: string;
-    summary?: string;
-  }>;
-  knowledgeHighlights: Array<{
-    title: string;
-    source: "direct" | "inherited";
-  }>;
-  readiness: {
-    status: "ready" | "needs_runtime" | "runtime_offline" | "provider_unusable" | "unknown";
-    label: string;
-    reason?: string;
-  };
-  usageHints: string[];
-  lastActivityAt?: string;
-  requestableActions: Array<"fork_copy" | "channel_use">;
-  forkedFrom?: {
-    sourceAgentName: string;
-    invitationId: string;
-  };
-  pendingRequest?: WorkspaceAgentAccessRequestView;
-  latestRequest?: WorkspaceAgentAccessRequestView;
-  pendingForkInvitation?: WorkspaceAgentForkInvitationView;
-  reviewableRequests: WorkspaceAgentAccessRequestView[];
-}
-
-export interface WorkspaceAgentRecord extends ManagementRecordBase {
-  kind: "agent";
-  employeeId: string;
-  internalName: string;
-  ownerUserId?: string;
-  ownerDisplayName?: string;
-  canManage: boolean;
-  canManageChannelMemberAccess: boolean;
-  channelMemberAccess: "enabled" | "disabled";
-  origin: string;
-  fit: string;
-  summary: string;
-  skills: WorkspaceSkill[];
-  skillRequirements: Record<string, AgentSkillRequirementSummary>;
-  channels: string[];
-  tasks: TaskRecord[];
-  recentMessages: WorkspaceMessage[];
-  boundContainerId?: string;
-  boundContainerName?: string;
-  boundContainerStatus?: "online" | "offline";
-  boundProvider?: string;
-  boundProviderHealth?: RuntimeProviderHealth;
-  boundAt?: string;
-  runtimeCapabilities?: {
-    cliApps: RuntimeInstalledAppView[];
-    mcpServices: RuntimeMcpConnectionView[];
-  };
-  defaultModel?: string;
-  executionPolicy?: import("@dofe-agent/domain/workspace").EmployeeExecutionPolicy;
-  workAreas: AgentWorkAreaRecord[];
-  instructions?: string;
-  knowledge?: WorkspaceAgentKnowledgeRecord;
-  feishuAgentBot?: FeishuIntegrationSettingsItem;
-  feishuAgentBotSetupReference?: FeishuAgentBotSetupReference;
-  canManageFeishuAgentBot?: boolean;
-  documentAccess?: WorkspaceAgentDocumentAccessSummaryRecord;
-  forkedFrom?: {
-    sourceAgentName: string;
-    invitationId: string;
-  };
-  forkInvitations?: WorkspaceAgentForkInvitationView[];
-}
-
-export interface KnowledgeAgentOption {
-  id: string;
-  employeeName: string;
-  name: string;
-  subtitle: string;
-  status: WorkspaceAgentStatus;
-}
-
-export interface KnowledgeAssignedAgentRecord extends KnowledgeAgentOption {
-  assignedAt?: string;
-  assignedBy?: string;
-}
-
-export interface KnowledgePageRecord extends KnowledgePage {
-  assignmentMode: KnowledgeAssignmentMode;
-  assignmentUpdatedAt?: string;
-  assignmentUpdatedBy?: string;
-  assignedAgents: KnowledgeAssignedAgentRecord[];
-  assignedAgentIds: string[];
-  assignedEmployeeNames: string[];
-  assignedAgentCount: number;
-  effectiveAgentCount: number;
-  assignmentSummary: string;
-}
-
-export interface KnowledgeAssignmentStats {
-  allAgentsPageCount: number;
-  selectedAgentsPageCount: number;
-  unconfiguredPageCount: number;
-}
-
-export interface AgentKnowledgePageRecord {
-  id: string;
-  title: string;
-  tags: string[];
-  updatedAt: string;
-  assignmentMode: KnowledgeAssignmentMode;
-  sourceLabel?: string;
-}
-
-export interface WorkspaceAgentKnowledgeRecord {
-  directPageIds: string[];
-  inheritedPages: AgentKnowledgePageRecord[];
-  directPages: AgentKnowledgePageRecord[];
-  assignablePages: AgentKnowledgePageRecord[];
-  totalAvailableCount: number;
-  directCount: number;
-  inheritedCount: number;
-}
-
-export interface ContainerRecord extends ManagementRecordBase {
-  kind: "container";
-  runtimeId: string;
-  provider: string;
-  displayName?: string;
-  daemonKey: string;
-  deviceName: string;
-  runtimeStatus: "online" | "offline";
-  providerHealth: RuntimeProviderHealth;
-  daemonMode?: "local" | "remote";
-  serverUrl?: string;
-  version?: string;
-  lastHeartbeatAt?: string;
-  executablePath?: string;
-  daemonPid?: string;
-  cliHubReadiness?: CliHubReadinessRecord;
-  installedApps: RuntimeInstalledAppView[];
-  mcpConnections?: RuntimeMcpConnectionView[];
-  recentAppOperations: RuntimeAppOperationView[];
-  grantedMembers: RuntimeGrantMember[];
-  canManageGrants: boolean;
-  boundEmployees: string[];
-  agentCount: number;
-  queueCounts: {
-    queued: number;
-    running: number;
-    failed: number;
-    completed: number;
-  };
-  recentExecutions: Array<{
-    queueId: string;
-    taskId?: string;
-    title: string;
-    assignee: string;
-    channel?: string;
-    queueStatus: string;
-    taskStatus?: string;
-    messageCount: number;
-    startedAt?: string;
-    finishedAt?: string;
-    sessionId?: string;
-    router?: RouterExecutionView;
-    workDir?: string;
-    workDirAccess?: "local" | "remote";
-    workDirHostLabel?: string;
-    errorText?: string;
-    taskMessages: Array<{
-      id: string;
-      type: string;
-      content: string;
-      createdAt: string;
-      status: "completed" | "error";
-    }>;
-    timeline: TaskExecutionTimelineEntry[];
-  }>;
-}
-
-export interface CliHubReadinessRecord {
-  checkedAt?: string;
-  python: ReadinessItemView;
-  pip: ReadinessItemView;
-  cliHub: ReadinessItemView;
-  npm: ReadinessItemView;
-  uv: ReadinessItemView;
-}
-
-export interface RuntimeInstalledAppView {
-  source: string;
-  name: string;
-  displayName: string;
-  version: string;
-  entryPoint: string;
-  status: string;
-  enabled: boolean;
-  lastError?: string;
-  updatedAt: string;
-}
-
-export interface RuntimeAppOperationView {
-  id: string;
-  appSource: string;
-  appName: string;
-  operation: string;
-  status: string;
-  createdAt: string;
-  errorMessage?: string;
-}
-
-export interface RuntimeMcpConnectionView {
-  id: string;
-  catalogItemId: string;
-  catalogDisplayName: string;
-  transport: string;
-  status: string;
-  approvedToolCount: number;
-  lastVerifiedAt?: string;
-  updatedAt: string;
-}
-
-export interface RuntimeGrantMember {
-  userId: string;
-  displayName: string;
-  primaryEmail?: string;
-  role: WorkspaceRole;
-}
-
-export interface AgentsPageData {
-  containers: ContainerRecord[];
-  agents: WorkspaceAgentRecord[];
-  showcaseAgents: DigitalEmployeeShowcaseAgentRecord[];
-  daemonSnapshots: DaemonSnapshotView[];
-  daemonTokens: DaemonTokenView[];
-  providerAccounts: ProviderAccountView[];
-  runtimeProvisionRequests: RuntimeProvisionRequestView[];
-  workspaceSkills: WorkspaceSkill[];
-  channels: Array<{
-    name: string;
-    memberLabel: string;
-  }>;
-  workspaceMembers: RuntimeGrantMember[];
-  pendingForkInvitations: WorkspaceAgentForkInvitationView[];
-  containerOptions: Array<{
-    id: string;
-    label: string;
-    provider: string;
-    status: "online" | "offline";
-    providerHealth: RuntimeProviderHealth;
-    serverName: string;
-    daemonKey: string;
-    mode?: "local" | "remote";
-    /** Present only for managed runtimes surfaced as reusable execution engines. */
-    managed?: boolean;
-    /** Managed-runtime lifecycle state used to explain whether it can be bound. */
-    provisioningState?: "managed" | "draining" | "credential_recovering" | "needs_attention" | "legacy";
-    /** False when a managed runtime must not receive new or updated bindings. */
-    bindable?: boolean;
-    defaultModel?: string;
-    protocols?: string[];
-    assignedEmployeeCount?: number;
-    /** When false, this runtime refuses new employee binds. */
-    allowNewEmployeeSharing?: boolean;
-  }>;
-  currentUserId?: string;
-  currentMembershipRole?: WorkspaceRole;
-  canConnectRuntimes: boolean;
-  canManageRuntimes: boolean;
-  canManageAllAgents: boolean;
-  canCreateAgent: boolean;
-  totalAgents: number;
-  containerCount: number;
-  boundAgentCount: number;
-  unboundAgentCount: number;
-  activeTaskCount: number;
-  activeWorkAreaCount: number;
-}
-
-export interface DaemonSnapshotView {
-  daemonKey: string;
-  deviceName: string;
-  status: "online" | "offline";
-  lastHeartbeatAt?: string;
-  mode: "local" | "remote";
-  serverUrl?: string;
-  runtimeName?: string;
-  runtimes: Array<{
-    id: string;
-    provider: string;
-    providerAccountId?: string;
-    providerAccountName?: string;
-    name: string;
-    displayName?: string;
-    status: "online" | "offline";
-    providerHealth: RuntimeProviderHealth;
-    lastHeartbeatAt?: string;
-    version: string;
-  }>;
-}
-
-export interface ProviderAccountView {
-  id: string;
-  provider: string;
-  name: string;
-  billingAccountId?: string;
-  allowedModels: string[];
-  status: "active" | "inactive" | "legacy";
-}
-
-export interface RuntimeProvisionRequestView {
-  id: string;
-  provider: string;
-  providerAccountId: string;
-  providerAccountName: string;
-  runtimeName: string;
-  targetServer: string;
-  status: "requested" | "approved" | "cancelled" | "fulfilled";
-  createdAt: string;
-}
-
-export interface ReadinessItemView {
-  available: boolean;
-  version?: string;
-  error?: string;
-}
-
-export interface DaemonTokenView {
-  id: string;
-  label: string;
-  status: "active" | "revoked";
-  createdBy: string;
-  lastUsedAt?: string;
-  createdAt: string;
-  revokedAt?: string;
-}
-
-export interface SkillsPageData {
-  skills: Array<WorkspaceSkill & {
-    isBuiltin: boolean;
-  }>;
-  totalSkills: number;
-  assignedSkillCount: number;
-  currentMembershipRole?: WorkspaceRole;
-  recentImports: Array<{
-    id: string;
-    skillId?: string;
-    skillName: string;
-    sourceType: string;
-    sourceUrl?: string;
-    importMode: "created" | "renamed" | "replaced";
-    importedAt: string;
-    warnings: string[];
-  }>;
-  agents: Array<{
-    id: string;
-    name: string;
-    internalName: string;
-    skillIds: string[];
-  }>;
-}
-
-function isDirectChannelRecord(channel: Pick<ChannelRecord, "kind">): boolean {
-  return channel.kind === "direct";
-}
-
-function normalizeChannelScope(channelNames?: string[]): Set<string> | null {
-  if (!channelNames) {
-    return null;
-  }
-  const normalized = channelNames.map((name) => name.trim()).filter(Boolean);
-  return new Set(normalized);
-}
-
-function resolveDirectChannelForContact(
-  state: DofeAgentState,
-  currentUserDisplayName: string | undefined,
-  employeeName: string,
-  workspaceId?: string,
-  currentUserId?: string,
-  currentMembershipRole?: WorkspaceRole,
-): ChannelRecord | null {
-  const candidates = state.channels.filter(
-    (channel) =>
-      isDirectChannelRecord(channel) &&
-      channel.employeeNames.some((name) => sameText(name, employeeName)),
-  );
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  if (workspaceId && currentUserId) {
-    return (
-      candidates.find((channel) =>
-        canReadChannelForActorSync({
-          workspaceId,
-          channelName: channel.name,
-          actor: {
-            userId: currentUserId,
-            displayName: currentUserDisplayName,
-            role: currentMembershipRole,
-          },
-        }),
-      ) ?? null
-    );
-  }
-
-  if (currentUserDisplayName?.trim()) {
-    return (
-      candidates.find((channel) =>
-        (channel.humanMemberNames ?? []).some((name) => sameText(name, currentUserDisplayName)),
-      ) ?? null
-    );
-  }
-
-  return candidates[0] ?? null;
-}
-
-function resolveChannelMemberCount(channel: Pick<ChannelRecord, "humanMembers" | "employeeNames">): number {
-  const humanCount = Array.isArray((channel as { humanMemberNames?: string[] }).humanMemberNames)
-    ? ((channel as { humanMemberNames?: string[] }).humanMemberNames?.length ?? channel.humanMembers)
-    : channel.humanMembers;
-  return Math.max(0, humanCount) + channel.employeeNames.length;
-}
-
-function buildChannelListItem(
-  channel: ChannelRecord,
-  state: DofeAgentState,
-): ChannelListItem {
-  if (isDirectChannelRecord(channel)) {
-    const directEmployee = state.activeEmployees.find((employee) =>
-      channel.employeeNames.some((name) => sameText(name, employee.name)),
-    );
-    const humanDirectNames = directEmployee ? [] : resolveChannelHumanMemberNames(state, channel);
-    const humanDirectDisplayName = humanDirectNames.length > 0 ? humanDirectNames.join(" / ") : channel.name;
-    return {
-      id: channel.name,
-      name: channel.name,
-      memberLabel: `${resolveChannelMemberCount(channel)} humans / ${channel.employeeNames.length} agents`,
-      humanMemberNames: resolveChannelHumanMemberNames(state, channel),
-      employeeNames: [...channel.employeeNames],
-      kind: "direct",
-      directParticipantKind: directEmployee ? "agent" : "human",
-      displayName: directEmployee?.remarkName?.trim() || directEmployee?.name || humanDirectDisplayName,
-      displaySubtitle: directEmployee?.name || "Human direct",
-      avatarLabel: directEmployee ? "✦" : humanDirectDisplayName.slice(0, 1).toUpperCase(),
-      memberCount: resolveChannelMemberCount(channel),
-      canManage: false,
-    };
-  }
-
-  return {
-    id: channel.name,
-    name: channel.name,
-    memberLabel: `${resolveChannelMemberCount(channel)} humans / ${channel.employeeNames.length} agents`,
-    humanMemberNames: resolveChannelHumanMemberNames(state, channel),
-    employeeNames: [...channel.employeeNames],
-    kind: "group",
-    displayName: channel.name,
-    avatarLabel: "#",
-    memberCount: resolveChannelMemberCount(channel),
-    canManage: true,
-  };
-}
-
-interface MentionUnreadViewer {
-  userId?: string;
-  displayName?: string;
-  ownedAgentNames: Set<string>;
-}
-
-function buildMentionUnreadViewer(
-  state: DofeAgentState,
-  currentUserDisplayName: string | undefined,
-  currentUserId: string | undefined,
-): MentionUnreadViewer {
-  return {
-    userId: currentUserId,
-    displayName: currentUserDisplayName?.trim() || undefined,
-    ownedAgentNames: new Set(
-      currentUserId
-        ? (state.activeEmployees ?? [])
-            .filter((employee) => employee.ownerUserId === currentUserId)
-            .map((employee) => employee.name)
-        : [],
-    ),
-  };
-}
-
-function hasUnreadMentionForViewer(messagesNewestFirst: WorkspaceMessage[], viewer: MentionUnreadViewer): boolean {
-  if (!viewer.displayName && viewer.ownedAgentNames.size === 0) {
-    return false;
-  }
-
-  for (const message of messagesNewestFirst) {
-    if (viewer.displayName && sameText(message.speaker, viewer.displayName)) {
-      return false;
-    }
-
-    const mentionsViewer = message.mentions?.some((mention) => isMentionForViewer(mention, viewer)) ?? false;
-    if (mentionsViewer && !isMessageAcknowledgedByViewer(message, viewer)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function isMentionForViewer(
-  mention: NonNullable<WorkspaceMessage["mentions"]>[number],
-  viewer: MentionUnreadViewer,
-): boolean {
-  if (mention.mentionType === "human") {
-    return Boolean(
-      viewer.displayName
-        && (
-          sameText(mention.humanId, viewer.displayName)
-          || sameText(mention.label, viewer.displayName)
-          || sameText(mention.token, viewer.displayName)
-        ),
-    );
-  }
-
-  return Array.from(viewer.ownedAgentNames).some((agentName) =>
-    sameText(mention.agentId, agentName) || sameText(mention.label, agentName),
-  );
-}
-
-function isMessageAcknowledgedByViewer(message: WorkspaceMessage, viewer: MentionUnreadViewer): boolean {
-  return message.acknowledgements?.some((acknowledgement) => {
-    if (viewer.userId && acknowledgement.userId === viewer.userId) {
-      return true;
-    }
-    if (viewer.displayName && sameText(acknowledgement.label, viewer.displayName)) {
-      return true;
-    }
-    return Array.from(viewer.ownedAgentNames).some((agentName) => sameText(acknowledgement.label, agentName));
-  }) ?? false;
-}
-
-
-function buildChannelWorkspaceArtifacts(
-  state: DofeAgentState,
-  queuedTasks: ReturnType<typeof listQueuedTasksSync>,
-  currentUserDisplayName: string | undefined,
-  visibleChannelNames: Set<string>,
-  workspaceId: string,
-  currentUserId?: string,
-  currentMembershipRole?: WorkspaceRole,
-): {
-  documents: ChannelDocumentRecord[];
-  documentRuns: ChannelDocumentRunRecord[];
-  documentConflicts: ChannelDocumentConflictRecord[];
-  channelFiles: ChannelFileRecord[];
-} {
-  if (visibleChannelNames.size === 0) {
-    return {
-      documents: [],
-      documentRuns: [],
-      documentConflicts: [],
-      channelFiles: [],
-    };
-  }
-
-  const workspaceMemberUsers = listWorkspaceMemberUsersCached(workspaceId);
-  const documentById = new Map((state.channelDocuments ?? []).map((document) => [document.id, document]));
-  const documentVersionsById = new Map((state.channelDocumentVersions ?? []).map((version) => [version.id, version]));
-  const documentVersionsByDocumentId = new Map<string, ChannelDocumentVersion[]>();
-  for (const version of state.channelDocumentVersions ?? []) {
-    const versions = documentVersionsByDocumentId.get(version.documentId) ?? [];
-    versions.push(version);
-    documentVersionsByDocumentId.set(version.documentId, versions);
-  }
-  for (const [documentId, versions] of documentVersionsByDocumentId) {
-    documentVersionsByDocumentId.set(
-      documentId,
-      versions.sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
-    );
-  }
-  const documentAccessesByDocumentId = new Map<string, NonNullable<DofeAgentState["channelDocumentAccesses"]>>();
-  for (const access of state.channelDocumentAccesses ?? []) {
-    const accesses = documentAccessesByDocumentId.get(access.documentId) ?? [];
-    accesses.push(access);
-    documentAccessesByDocumentId.set(access.documentId, accesses);
-  }
-  const documentBlocksByDocumentId = new Map<string, ChannelDocumentBlock[]>();
-  for (const block of state.channelDocumentBlocks ?? []) {
-    const blocks = documentBlocksByDocumentId.get(block.documentId) ?? [];
-    blocks.push(block);
-    documentBlocksByDocumentId.set(block.documentId, blocks);
-  }
-  for (const [documentId, blocks] of documentBlocksByDocumentId) {
-    documentBlocksByDocumentId.set(documentId, blocks.sort((left, right) => left.order - right.order));
-  }
-  const messageIndex = new Map((state.messages ?? []).map((message) => [message.id, message]));
-  const queuedTaskIndex = new Map(queuedTasks.map((task) => [task.id, task]));
-  const rawChangeSetIndex = new Map((state.channelDocumentChangeSets ?? []).map((changeSet) => [changeSet.id, changeSet]));
-  const runStepByQueuedTaskId = new Map(
-    (state.channelDocumentRunSteps ?? [])
-      .filter((step) => typeof step.queuedTaskId === "string" && step.queuedTaskId.length > 0)
-      .map((step) => [step.queuedTaskId!, step]),
-  );
-  const runStepByDocumentVersionId = new Map(
-    (state.channelDocumentRunSteps ?? [])
-      .filter((step) => typeof step.documentVersionId === "string" && step.documentVersionId.length > 0)
-      .map((step) => [step.documentVersionId!, step]),
-  );
-  const channelDocumentChangeSets = (state.channelDocumentChangeSets ?? []).map((changeSet) =>
-    buildChannelDocumentChangeSetRecord(changeSet, {
-      messageIndex,
-      queuedTaskIndex,
-      runStepByQueuedTaskId,
-      runStepByDocumentVersionId,
-    }),
-  );
-  const changeSetIndex = new Map(channelDocumentChangeSets.map((changeSet) => [changeSet.id, changeSet]));
-  const changeSetsByDocumentId = new Map<string, ChannelDocumentChangeSetRecord[]>();
-  for (const changeSet of channelDocumentChangeSets) {
-    const changeSets = changeSetsByDocumentId.get(changeSet.documentId) ?? [];
-    changeSets.push(changeSet);
-    changeSetsByDocumentId.set(changeSet.documentId, changeSets);
-  }
-  const runStepsByRunId = new Map<string, ChannelDocumentRunStep[]>();
-  for (const step of state.channelDocumentRunSteps ?? []) {
-    const steps = runStepsByRunId.get(step.runId) ?? [];
-    steps.push(step);
-    runStepsByRunId.set(step.runId, steps);
-  }
-  for (const [runId, steps] of runStepsByRunId) {
-    runStepsByRunId.set(
-      runId,
-      steps.sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),
-    );
-  }
-  const activePresencesByDocumentId = new Map<string, ChannelDocumentPresenceRecord[]>();
-  const now = Date.now();
-  for (const presence of state.channelDocumentPresences ?? []) {
-    const updatedAt = new Date(presence.updatedAt).getTime();
-    if (!Number.isFinite(updatedAt) || now - updatedAt > CHANNEL_DOCUMENT_PRESENCE_TTL_MS) {
-      continue;
-    }
-    const record: ChannelDocumentPresenceRecord = {
-      actorId: presence.actorId,
-      actorType: presence.actorType,
-      status: presence.status,
-      updatedAt: presence.updatedAt,
-      isCurrentUser:
-        typeof currentUserDisplayName === "string" && currentUserDisplayName.length > 0
-          ? currentUserDisplayName.localeCompare(presence.actorId, "zh-CN", { sensitivity: "base" }) === 0
-          : false,
-    };
-    const list = activePresencesByDocumentId.get(presence.documentId) ?? [];
-    list.push(record);
-    activePresencesByDocumentId.set(presence.documentId, list);
-  }
-  for (const [documentId, presences] of activePresencesByDocumentId) {
-    activePresencesByDocumentId.set(
-      documentId,
-      presences.sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()),
-    );
-  }
-  const openConflictsByDocumentId = new Map<string, ChannelDocumentConflict[]>();
-  for (const conflict of state.channelDocumentConflicts ?? []) {
-    if (conflict.status !== "open") {
-      continue;
-    }
-    const conflicts = openConflictsByDocumentId.get(conflict.documentId) ?? [];
-    conflicts.push(conflict);
-    openConflictsByDocumentId.set(conflict.documentId, conflicts);
-  }
-  const collaboratorCandidatePool = [
-    ...workspaceMemberUsers.map((member) => ({
-      actorId: member.displayName,
-      actorType: "human" as const,
-      label: member.displayName,
-      subtitle: member.primaryEmail ?? formatWorkspaceRoleLabel(member.role),
-    })),
-    ...state.activeEmployees.map((employee) => ({
-      actorId: employee.name,
-      actorType: "agent" as const,
-      label: employee.remarkName?.trim() || employee.name,
-      subtitle: employee.role,
-    })),
-  ].sort((left, right) => left.label.localeCompare(right.label, "zh-CN", { sensitivity: "base" }));
-  const attachmentReferenceIndex = buildAttachmentReferenceIndex(state);
-
-  const documents = (state.channelDocuments ?? [])
-    .filter((document) => visibleChannelNames.has(document.channelName))
-    .flatMap((document) => {
-      const versions = documentVersionsByDocumentId.get(document.id) ?? [];
-      const currentVersion = documentVersionsById.get(document.currentVersionId) ?? versions[0];
-      const lastBackgroundSync = currentVersion
-        ? buildChannelDocumentSyncEventRecord(currentVersion, {
-            messageIndex,
-            queuedTaskIndex,
-            runStepByDocumentVersionId,
-          })
-        : undefined;
-      const collaborators = (documentAccessesByDocumentId.get(document.id) ?? [])
-        .map((access) => ({
-          actorId: access.actorId,
-          actorType: access.actorType,
-          role: access.role,
-          isCurrentUser:
-            typeof currentUserDisplayName === "string" && currentUserDisplayName.length > 0
-              ? currentUserDisplayName.localeCompare(access.actorId, "zh-CN", { sensitivity: "base" }) === 0
-              : false,
-        }))
-        .sort((left, right) => {
-          const rank = (role: ChannelDocumentAccessRole) =>
-            role === "owner" ? 0 : role === "forwarder" ? 1 : role === "editor" ? 2 : 3;
-          const diff = rank(left.role) - rank(right.role);
-          if (diff !== 0) {
-            return diff;
-          }
-          return left.actorId.localeCompare(right.actorId, "zh-CN", { sensitivity: "base" });
-        });
-      const currentUserAccess = collaborators.find((access) => access.isCurrentUser);
-      if (typeof currentUserDisplayName === "string" && currentUserDisplayName.length > 0 && !currentUserAccess) {
-        return [];
-      }
-      const currentUserRole = currentUserAccess?.role ?? "viewer";
-      const collaboratorKeys = new Set(
-        collaborators.map((access) => `${access.actorType}:${access.actorId.toLocaleLowerCase("zh-CN")}`),
-      );
-      const availableCollaborators = collaboratorCandidatePool.filter(
-        (candidate) => !collaboratorKeys.has(`${candidate.actorType}:${candidate.actorId.toLocaleLowerCase("zh-CN")}`),
-      );
-
-      return [{
-        id: document.id,
-        channelName: document.channelName,
-        title: document.title,
-        slug: document.slug,
-        kind: document.kind,
-        storageMode: document.storageMode ?? "native",
-        currentVersionId: document.currentVersionId,
-        summary: document.summary,
-        status: document.status,
-        updatedAt: document.updatedAt,
-        updatedBy: document.updatedBy,
-        lastEditorType: document.lastEditorType,
-        contentMarkdown: currentVersion?.contentMarkdown ?? "",
-        versionCount: versions.length,
-        conflictCount: openConflictsByDocumentId.get(document.id)?.length ?? 0,
-        versions: versions.map((version) => ({
-          id: version.id,
-          contentMarkdown: version.contentMarkdown,
-          summary: version.summary,
-          createdAt: version.createdAt,
-          createdBy: version.createdBy,
-          createdByType: version.createdByType,
-          triggerType: version.triggerType,
-          sourceMessageId: version.sourceMessageId,
-          sourceAttachmentId: version.sourceAttachmentId,
-          sourceAttachmentStoredPath: version.sourceAttachmentStoredPath,
-        })),
-        changeSets: changeSetsByDocumentId.get(document.id) ?? [],
-        activePresences: activePresencesByDocumentId.get(document.id) ?? [],
-        currentUserRole,
-        collaborators,
-        availableCollaborators,
-        lastBackgroundSync,
-      } satisfies ChannelDocumentRecord];
-    });
-  const accessibleDocumentIds = new Set(documents.map((document) => document.id));
-
-  const documentRuns = (state.channelDocumentRuns ?? [])
-    .filter((run) => visibleChannelNames.has(run.channelName))
-    .map((run) => ({
-      id: run.id,
-      channelName: run.channelName,
-      sourceMessageId: run.sourceMessageId,
-      sourceSummary: run.sourceSummary,
-      mode: run.mode,
-      status: run.status,
-      createdAt: run.createdAt,
-      updatedAt: run.updatedAt,
-      steps: (runStepsByRunId.get(run.id) ?? [])
-        .filter((step) => !step.documentId || accessibleDocumentIds.has(step.documentId))
-        .map((step) => ({
-          id: step.id,
-          agentId: step.agentId,
-          agentLabel: step.agentLabel,
-          instruction: step.instruction,
-          status: step.status,
-          handoffKind: step.handoffKind,
-          documentId: step.documentId,
-          documentVersionId: step.documentVersionId,
-          lastError: step.lastError,
-          lastWarning: step.lastWarning,
-        })),
-    }) satisfies ChannelDocumentRunRecord);
-
-  const documentConflicts = (state.channelDocumentConflicts ?? [])
-    .filter((conflict) => {
-      const document = documentById.get(conflict.documentId);
-      return Boolean(document && visibleChannelNames.has(document.channelName) && accessibleDocumentIds.has(document.id));
-    })
-    .map((conflict) => {
-      const document = documentById.get(conflict.documentId);
-      const currentVersion =
-        document ? documentVersionsById.get(document.currentVersionId) : undefined;
-      const currentBlocks = documentBlocksByDocumentId.get(conflict.documentId) ?? [];
-      return {
-        id: conflict.id,
-        documentId: conflict.documentId,
-        documentTitle: document?.title ?? conflict.documentId,
-        blockId: conflict.blockId,
-        status: conflict.status,
-        createdAt: conflict.createdAt,
-        leftChangeSet: changeSetIndex.get(conflict.leftChangeSetId),
-        rightChangeSet: changeSetIndex.get(conflict.rightChangeSetId),
-        mergePreview: buildChannelDocumentConflictMergePreview({
-          conflict,
-          document,
-          currentVersion,
-          currentBlocks,
-          rightChangeSet: rawChangeSetIndex.get(conflict.rightChangeSetId),
-        }),
-      } satisfies ChannelDocumentConflictRecord;
-    });
-
-  const channelFiles: ChannelFileRecord[] = [];
-  const seenChannelFileIds = new Set<string>();
-  for (const message of state.messages ?? []) {
-    for (const attachment of message.attachments ?? []) {
-      if (attachment.deletedAt) {
-        continue;
-      }
-      const channelName = message.channel ?? "";
-      if (
-        channelName.trim().length === 0 ||
-        !visibleChannelNames.has(channelName) ||
-        seenChannelFileIds.has(attachment.id)
-      ) {
-        continue;
-      }
-      seenChannelFileIds.add(attachment.id);
-      const mediaType = resolveAttachmentMediaType(attachment.fileName, attachment.mediaType);
-      const deleteMetadata = buildChannelFileDeleteMetadata({
-        state,
-        message,
-        attachment,
-        attachmentReferenceIndex,
-        currentUserDisplayName,
-        currentUserId,
-        currentMembershipRole,
-      });
-      channelFiles.push({
-        id: attachment.id,
-        channelName,
-        fileName: attachment.fileName,
-        sourceMessageId: message.id,
-        sourceSpeaker: message.speaker,
-        sourceTime: message.time,
-        uploaderUserId: message.role === "human" ? message.speakerUserId : undefined,
-        uploaderDisplayName: message.role === "human" ? message.speaker : undefined,
-        previewText: mediaType === "text/markdown" ? readMarkdownAttachmentPreviewText(attachment) : mediaType,
-        mediaType,
-        sizeBytes: attachment.sizeBytes,
-        kind: inferAttachmentKind(mediaType),
-        isMarkdown: mediaType === "text/markdown",
-        canDelete: deleteMetadata.canDelete,
-        deleteBlockedReason: deleteMetadata.deleteBlockedReason,
-        retainedBecauseReferenced: deleteMetadata.retainedBecauseReferenced,
-      });
-    }
-  }
-
-  return {
-    documents,
-    documentRuns,
-    documentConflicts,
-    channelFiles,
-  };
-}
-
-function buildChannelFileDeleteMetadata(input: {
-  state: DofeAgentState;
-  message: WorkspaceMessage;
-  attachment: MessageAttachment;
-  attachmentReferenceIndex?: AttachmentReferenceIndex;
-  currentUserDisplayName?: string;
-  currentUserId?: string;
-  currentMembershipRole?: WorkspaceRole;
-}): Pick<ChannelFileRecord, "canDelete" | "deleteBlockedReason" | "retainedBecauseReferenced"> {
-  const retainedBecauseReferenced = isAttachmentReferencedByKnowledgeOrDocument(
-    input.state,
-    input.attachment,
-    input.attachmentReferenceIndex,
-  );
-  if (!input.currentUserId) {
-    return {
-      canDelete: false,
-      deleteBlockedReason: "Sign in to delete this file.",
-      retainedBecauseReferenced,
-    };
-  }
-  if (isWorkspaceManagerRole(input.currentMembershipRole)) {
-    return { canDelete: true, retainedBecauseReferenced };
-  }
-  if (input.message.role !== "human") {
-    return {
-      canDelete: false,
-      deleteBlockedReason: "Only workspace admins can delete agent output files.",
-      retainedBecauseReferenced,
-    };
-  }
-  if (input.message.speakerUserId) {
-    if (input.message.speakerUserId === input.currentUserId) {
-      return { canDelete: true, retainedBecauseReferenced };
-    }
-    return {
-      canDelete: false,
-      deleteBlockedReason: "Only the uploader or a workspace admin can delete this file.",
-      retainedBecauseReferenced,
-    };
-  }
-  if (input.currentUserDisplayName?.trim() && sameText(input.message.speaker, input.currentUserDisplayName)) {
-    return { canDelete: true, retainedBecauseReferenced };
-  }
-  return {
-    canDelete: false,
-    deleteBlockedReason: "Only the uploader or a workspace admin can delete this file.",
-    retainedBecauseReferenced,
-  };
-}
-
-interface AttachmentReferenceIndex {
-  ids: Set<string>;
-  storedPaths: Set<string>;
-}
-
-function buildAttachmentReferenceIndex(state: DofeAgentState): AttachmentReferenceIndex {
-  const ids = new Set<string>();
-  const storedPaths = new Set<string>();
-
-  for (const page of state.knowledgePages ?? []) {
-    if (page.sourceAttachmentId) {
-      ids.add(page.sourceAttachmentId);
-    }
-    if (page.sourceAttachmentStoredPath) {
-      storedPaths.add(page.sourceAttachmentStoredPath);
-    }
-  }
-
-  for (const version of state.channelDocumentVersions ?? []) {
-    if (version.sourceAttachmentId) {
-      ids.add(version.sourceAttachmentId);
-    }
-    if (version.sourceAttachmentStoredPath) {
-      storedPaths.add(version.sourceAttachmentStoredPath);
-    }
-  }
-
-  return { ids, storedPaths };
-}
-
-function isAttachmentReferencedByKnowledgeOrDocument(
-  state: DofeAgentState,
-  attachment: MessageAttachment,
-  referenceIndex = buildAttachmentReferenceIndex(state),
-): boolean {
-  return referenceIndex.ids.has(attachment.id) || referenceIndex.storedPaths.has(attachment.storedPath);
-}
-
-function getVisibleWorkspaceChannelNames(
-  state: DofeAgentState,
-  currentUserDisplayName?: string,
-): Set<string> {
-  if (!currentUserDisplayName?.trim()) {
-    return new Set();
-  }
-
-  return new Set(
-    state.channels
-      .filter((channel) =>
-        resolveChannelHumanMemberNames(state, channel).some((memberName) => sameText(memberName, currentUserDisplayName)),
-      )
-    .map((channel) => channel.name),
-  );
-}
-
-function buildKnowledgeDocumentPageRecords(
-  documents: ChannelDocumentRecord[],
-  channelFiles: ChannelFileRecord[],
-  knowledgePages: KnowledgePage[],
-): KnowledgeDocumentPageRecord[] {
-  const linkIndex = new Map<string, KnowledgeDocumentPageRecord["linkedKnowledgePages"]>();
-  const linkedChannelDocumentIndex = new Map<string, KnowledgeDocumentPageRecord["linkedChannelDocuments"]>();
-
-  for (const page of knowledgePages) {
-    const link = { id: page.id, title: page.title };
-    if (page.sourceAttachmentId) {
-      const key = `attachment:${page.sourceAttachmentId}`;
-      const existing = linkIndex.get(key) ?? [];
-      existing.push(link);
-      linkIndex.set(key, existing);
-    }
-    if (page.sourceChannelDocumentId) {
-      const key = `channelDocument:${page.sourceChannelDocumentId}`;
-      const existing = linkIndex.get(key) ?? [];
-      existing.push(link);
-      linkIndex.set(key, existing);
-    }
-  }
-
-  for (const document of documents) {
-    const attachmentIds = new Set(
-      document.versions
-        .map((version) => version.sourceAttachmentId)
-        .filter((attachmentId): attachmentId is string => typeof attachmentId === "string" && attachmentId.length > 0),
-    );
-
-    for (const attachmentId of attachmentIds) {
-      const key = `attachment:${attachmentId}`;
-      const existing = linkedChannelDocumentIndex.get(key) ?? [];
-      existing.push({
-        id: document.id,
-        title: document.title,
-        channelName: document.channelName,
-      });
-      linkedChannelDocumentIndex.set(key, existing);
-    }
-  }
-
-  const documentPageMap = new Map<string, KnowledgeDocumentPageRecord>();
-
-  for (const document of documents) {
-    const fileName = `${document.slug || document.title}.md`;
-    const previewText = document.contentMarkdown.trim() || document.summary.trim();
-    const sourceAttachmentId = document.versions.find((version) => version.sourceAttachmentId)?.sourceAttachmentId;
-    documentPageMap.set(`channelDocument:${document.id}`, {
-      id: `channelDocument:${document.id}`,
-      sourceType: "channelDocument",
-      sourceId: document.id,
-      title: document.title,
-      summary: document.summary || "Shared Markdown document",
-      previewText,
-      fileName,
-      mediaType: "text/markdown",
-      sizeBytes: Buffer.byteLength(document.contentMarkdown, "utf8"),
-      kind: "file",
-      isMarkdown: true,
-      channelName: document.channelName,
-      sourceMessageId: document.versions[0]?.sourceMessageId,
-      sourceSpeaker: document.updatedBy,
-      sourceTime: document.updatedAt,
-      updatedAt: document.updatedAt,
-      updatedBy: document.updatedBy,
-      status: document.status,
-      sourceAttachmentId,
-      linkedChannelDocuments: [],
-      linkedKnowledgePages: linkIndex.get(`channelDocument:${document.id}`) ?? [],
-    });
-  }
-
-  for (const file of channelFiles) {
-    documentPageMap.set(`attachment:${file.id}`, {
-      id: `attachment:${file.id}`,
-      sourceType: "attachment",
-      sourceId: file.id,
-      title: file.fileName,
-      summary: [file.channelName, file.sourceSpeaker, file.mediaType].filter(Boolean).join(" · ") || file.fileName,
-      previewText: file.previewText ?? file.mediaType,
-      fileName: file.fileName,
-      mediaType: file.mediaType,
-      sizeBytes: file.sizeBytes,
-      kind: file.kind,
-      isMarkdown: file.isMarkdown,
-      channelName: file.channelName,
-      sourceMessageId: file.sourceMessageId,
-      sourceSpeaker: file.sourceSpeaker,
-      sourceTime: file.sourceTime,
-      updatedAt: file.sourceTime ?? "",
-      updatedBy: file.sourceSpeaker ?? "",
-      status: "shared",
-      linkedChannelDocuments: linkedChannelDocumentIndex.get(`attachment:${file.id}`) ?? [],
-      linkedKnowledgePages: linkIndex.get(`attachment:${file.id}`) ?? [],
-    });
-  }
-
-  for (const page of knowledgePages) {
-    if (!page.sourceAttachmentId || !page.sourceAttachmentStoredPath) {
-      continue;
-    }
-
-    const key = `attachment:${page.sourceAttachmentId}`;
-    if (documentPageMap.has(key)) {
-      continue;
-    }
-
-    documentPageMap.set(key, buildSyntheticAttachmentRecord({
-      attachmentId: page.sourceAttachmentId,
-      storedPath: page.sourceAttachmentStoredPath,
-      contentMarkdown: page.contentMarkdown,
-      updatedAt: page.updatedAt,
-      updatedBy: page.createdBy,
-      linkedKnowledgePages: linkIndex.get(key) ?? [],
-      linkedChannelDocuments: linkedChannelDocumentIndex.get(key) ?? [],
-    }));
-  }
-
-  for (const document of documents) {
-    for (const version of document.versions) {
-      if (!version.sourceAttachmentId || !version.sourceAttachmentStoredPath) {
-        continue;
-      }
-
-      const key = `attachment:${version.sourceAttachmentId}`;
-      const existing = documentPageMap.get(key);
-      if (existing) {
-        if (!existing.channelName) {
-          existing.channelName = document.channelName;
-        }
-        if (!existing.sourceTime) {
-          existing.sourceTime = version.createdAt;
-        }
-        if (!existing.updatedAt) {
-          existing.updatedAt = version.createdAt;
-        }
-        if (!existing.updatedBy) {
-          existing.updatedBy = version.createdBy;
-        }
-        existing.linkedChannelDocuments = dedupeLinkedChannelDocuments([
-          ...existing.linkedChannelDocuments,
-          ...(linkedChannelDocumentIndex.get(key) ?? []),
-        ]);
-        continue;
-      }
-
-      documentPageMap.set(key, buildSyntheticAttachmentRecord({
-        attachmentId: version.sourceAttachmentId,
-        storedPath: version.sourceAttachmentStoredPath,
-        contentMarkdown: version.contentMarkdown,
-        channelName: document.channelName,
-        updatedAt: version.createdAt,
-        updatedBy: version.createdBy,
-        linkedKnowledgePages: linkIndex.get(key) ?? [],
-        linkedChannelDocuments: linkedChannelDocumentIndex.get(key) ?? [],
-      }));
-    }
-  }
-
-  return [...documentPageMap.values()].sort((left, right) => {
-    const timeDiff = new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-    if (Number.isFinite(timeDiff) && timeDiff !== 0) {
-      return timeDiff;
-    }
-    return left.title.localeCompare(right.title, "zh-CN", { sensitivity: "base" });
-  });
-}
-
-function buildSyntheticAttachmentRecord(input: {
-  attachmentId: string;
-  storedPath: string;
-  contentMarkdown: string;
-  channelName?: string;
-  updatedAt: string;
-  updatedBy: string;
-  linkedKnowledgePages: KnowledgeDocumentPageRecord["linkedKnowledgePages"];
-  linkedChannelDocuments: KnowledgeDocumentPageRecord["linkedChannelDocuments"];
-}): KnowledgeDocumentPageRecord {
-  const fileName = deriveAttachmentFileName(input.attachmentId, input.storedPath);
-  const mediaType = resolveAttachmentMediaType(fileName);
-  const sizeBytes = Buffer.byteLength(input.contentMarkdown, "utf8");
-
-  return {
-    id: `attachment:${input.attachmentId}`,
-    sourceType: "attachment",
-    sourceId: input.attachmentId,
-    title: fileName,
-    summary: input.channelName ? `Preserved attachment · #${input.channelName}` : "Preserved attachment",
-    previewText: mediaType === "text/markdown" ? input.contentMarkdown.trim() : mediaType,
-    fileName,
-    mediaType,
-    sizeBytes,
-    kind: inferAttachmentKind(mediaType),
-    isMarkdown: mediaType === "text/markdown",
-    channelName: input.channelName,
-    updatedAt: input.updatedAt,
-    updatedBy: input.updatedBy,
-    status: "shared",
-    linkedChannelDocuments: dedupeLinkedChannelDocuments(input.linkedChannelDocuments),
-    linkedKnowledgePages: input.linkedKnowledgePages,
-  };
-}
-
-function deriveAttachmentFileName(attachmentId: string, storedPath: string): string {
-  const storedName = basename(storedPath.replace(/\\/g, "/"));
-  const prefix = `${attachmentId}-`;
-  return storedName.startsWith(prefix) ? storedName.slice(prefix.length) : storedName;
-}
-
-function readMarkdownAttachmentPreviewText(attachment: MessageAttachment): string {
-  try {
-    return Buffer.from(readWorkspaceAttachmentBytesSync(attachment)).toString("utf8").trim();
-  } catch {
-    return "";
-  }
-}
-
-function dedupeLinkedChannelDocuments(
-  documents: KnowledgeDocumentPageRecord["linkedChannelDocuments"],
-): KnowledgeDocumentPageRecord["linkedChannelDocuments"] {
-  return documents.filter(
-    (document, index, all) =>
-      all.findIndex((candidate) => candidate.id === document.id) === index,
-  );
-}
-
-function buildFeishuChannelSummaryByChannelName(input: {
-  workspaceId: string;
-  canView: boolean;
-  viewer?: {
-    role: WorkspaceRole;
-    userId: string;
-  };
-}): Map<string, ChannelFeishuSummaryRecord> {
-  if (!input.canView) {
-    return new Map();
-  }
-
-  const summaries = new Map<string, ChannelFeishuSummaryRecord>();
-  const connectedBotKeys = new Set<string>();
-  const resourceKeys = new Set<string>();
-  const integrations = listFeishuIntegrationSettingsItems({
-    workspaceId: input.workspaceId,
-    viewer: input.viewer,
-  });
-
-  const ensureSummary = (channelName: string): ChannelFeishuSummaryRecord => {
-    const current = summaries.get(channelName);
-    if (current) {
-      return current;
-    }
-    const next: ChannelFeishuSummaryRecord = {
-      bindingCount: 0,
-      connectedAgentBots: [],
-      resourceBindings: [],
-    };
-    summaries.set(channelName, next);
-    return next;
-  };
-
-  for (const integration of integrations) {
-    for (const binding of integration.channelBindings) {
-      if (binding.status === "archived") {
-        continue;
-      }
-      const summary = ensureSummary(binding.channelName);
-      summary.bindingCount += 1;
-      if (!summary.externalChatReference || binding.status === "active") {
-        summary.externalChatReference = binding.externalChatReference;
-        summary.externalChatName = binding.externalChatName;
-        summary.externalChatType = binding.externalChatType;
-        summary.provisionSource = binding.provisionSource;
-        summary.reviewStatus = binding.reviewStatus;
-      }
-      if (integration.agentId && binding.status === "active") {
-        const key = `${binding.channelName}:${integration.id}:${integration.agentId}`;
-        if (!connectedBotKeys.has(key)) {
-          connectedBotKeys.add(key);
-          summary.connectedAgentBots.push({
-            integrationId: integration.id,
-            displayName: integration.displayName,
-            agentId: integration.agentId,
-            status: integration.status,
-            unboundUserMode: integration.externalGuestPolicy?.unboundUserMode,
-            guestPermissionProfile: integration.externalGuestPolicy?.guestPermissionProfile,
-          });
-        }
-      }
-    }
-
-    for (const resourceBinding of integration.resourceBindings) {
-      if (!resourceBinding.channelName || resourceBinding.status === "archived") {
-        continue;
-      }
-      const key = `${resourceBinding.channelName}:${integration.id}:${resourceBinding.id}`;
-      if (resourceKeys.has(key)) {
-        continue;
-      }
-      resourceKeys.add(key);
-      const summary = ensureSummary(resourceBinding.channelName);
-      summary.resourceBindings.push({
-        id: resourceBinding.id,
-        integrationId: integration.id,
-        integrationDisplayName: integration.displayName,
-        providerResourceType: resourceBinding.providerResourceType,
-        displayName: resourceBinding.displayName,
-        canWrite: resourceBinding.canWrite,
-        guestReadable: resourceBinding.guestReadable,
-        status: resourceBinding.status,
-      });
-    }
-  }
-
-  return summaries;
-}
-
-const CHANNEL_DOCUMENT_PRESENCE_TTL_MS = 90_000;
-const CHANNEL_DOCUMENT_SYNC_EVENT_TTL_MS = 10 * 60_000;
-const TASK_QUEUE_DELAY_THRESHOLD_MS = 10_000;
 
 export function getChannelsPageData(
   currentUserDisplayName?: string,
@@ -2949,20 +1191,6 @@ function shouldUseLoadtestDashboardPayloadLimits(): boolean {
     return configured !== "0" && configured !== "false";
   }
   return process.env.LOADTEST_MODE === "local";
-}
-
-function isWorkspaceManagerRole(role: WorkspaceRole | undefined): boolean {
-  return role === "owner" || role === "admin";
-}
-
-function formatWorkspaceRoleLabel(role: WorkspaceRole): string {
-  if (role === "owner") {
-    return "Owner";
-  }
-  if (role === "admin") {
-    return "Admin";
-  }
-  return "Member";
 }
 
 function canSeeWorkspaceDiagnostics(currentUser?: DashboardCurrentUser): boolean {
@@ -4556,15 +2784,6 @@ function formatNativeQueueStatus(status: string): string {
   return status;
 }
 
-function safeReadTaskTitle(inputJson: string): string | undefined {
-  try {
-    const parsed = JSON.parse(inputJson) as Record<string, unknown>;
-    return typeof parsed.title === "string" ? parsed.title : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function safeParseQueuePayloadWithMetadata(inputJson: string): {
   contactId?: string;
   channelName?: string;
@@ -4581,394 +2800,6 @@ function safeParseQueuePayloadWithMetadata(inputJson: string): {
     };
   } catch {
     return {};
-  }
-}
-
-function buildChannelDocumentChangeSetRecord(
-  changeSet: ChannelDocumentChangeSet,
-  context: {
-    messageIndex: Map<string, WorkspaceMessage>;
-    queuedTaskIndex: Map<string, ReturnType<typeof listQueuedTasksSync>[number]>;
-    runStepByQueuedTaskId: Map<string, ChannelDocumentRunStep>;
-    runStepByDocumentVersionId: Map<string, ChannelDocumentRunStep>;
-  },
-): ChannelDocumentChangeSetRecord {
-  const sourceMessage = changeSet.sourceMessageId ? context.messageIndex.get(changeSet.sourceMessageId) : undefined;
-  const sourceTask = changeSet.sourceTaskQueueId ? context.queuedTaskIndex.get(changeSet.sourceTaskQueueId) : undefined;
-  const sourceStep =
-    (changeSet.sourceTaskQueueId ? context.runStepByQueuedTaskId.get(changeSet.sourceTaskQueueId) : undefined) ??
-    (changeSet.documentVersionId ? context.runStepByDocumentVersionId.get(changeSet.documentVersionId) : undefined);
-
-  return {
-    id: changeSet.id,
-    documentId: changeSet.documentId,
-    actorId: changeSet.actorId,
-    actorType: changeSet.actorType,
-    baseVersionId: changeSet.baseVersionId,
-    documentVersionId: changeSet.documentVersionId,
-    status: changeSet.status,
-    sourceMessageId: changeSet.sourceMessageId,
-    sourceTaskQueueId: changeSet.sourceTaskQueueId,
-    createdAt: changeSet.createdAt,
-    operationSummary: summarizeChangeSetOperations(changeSet.operationsJson),
-    sourceMessage: sourceMessage
-      ? {
-          id: sourceMessage.id,
-          speaker: sourceMessage.speaker,
-          summary: sourceMessage.summary,
-          time: sourceMessage.time,
-        }
-      : undefined,
-    sourceTask: sourceTask
-      ? {
-          id: sourceTask.id,
-          title: safeReadTaskTitle(sourceTask.inputJson) ?? sourceTask.id,
-          status: sourceTask.status,
-        }
-      : undefined,
-    sourceStep: sourceStep
-      ? {
-          id: sourceStep.id,
-          runId: sourceStep.runId,
-          agentLabel: sourceStep.agentLabel,
-          instruction: sourceStep.instruction,
-          status: sourceStep.status,
-        }
-      : undefined,
-    retryable: isRetryableChangeSetOperations(changeSet.operationsJson),
-  };
-}
-
-function buildChannelDocumentSyncEventRecord(
-  version: ChannelDocumentVersion,
-  context: {
-    messageIndex: Map<string, WorkspaceMessage>;
-    queuedTaskIndex: Map<string, ReturnType<typeof listQueuedTasksSync>[number]>;
-    runStepByDocumentVersionId: Map<string, ChannelDocumentRunStep>;
-  },
-): ChannelDocumentSyncEventRecord | undefined {
-  if (version.triggerType === "manual" && version.createdByType === "human") {
-    return undefined;
-  }
-
-  const sourceMessage = version.sourceMessageId ? context.messageIndex.get(version.sourceMessageId) : undefined;
-  const sourceTask = version.sourceTaskQueueId ? context.queuedTaskIndex.get(version.sourceTaskQueueId) : undefined;
-  const sourceStep = context.runStepByDocumentVersionId.get(version.id);
-  const createdAt = new Date(version.createdAt).getTime();
-
-  return {
-    actorId: version.createdBy,
-    actorType: version.createdByType,
-    triggerType: version.triggerType,
-    versionId: version.id,
-    createdAt: version.createdAt,
-    isRecent: Number.isFinite(createdAt) ? Date.now() - createdAt <= CHANNEL_DOCUMENT_SYNC_EVENT_TTL_MS : false,
-    sourceMessage: sourceMessage
-      ? {
-          id: sourceMessage.id,
-          speaker: sourceMessage.speaker,
-          summary: sourceMessage.summary,
-          time: sourceMessage.time,
-        }
-      : undefined,
-    sourceTask: sourceTask
-      ? {
-          id: sourceTask.id,
-          title: safeReadTaskTitle(sourceTask.inputJson) ?? sourceTask.id,
-          status: sourceTask.status,
-        }
-      : undefined,
-    sourceStep: sourceStep
-      ? {
-          id: sourceStep.id,
-          runId: sourceStep.runId,
-          agentLabel: sourceStep.agentLabel,
-          instruction: sourceStep.instruction,
-          status: sourceStep.status,
-        }
-      : undefined,
-  };
-}
-
-function buildChannelDocumentConflictMergePreview(input: {
-  conflict: ChannelDocumentConflict;
-  document?: ChannelDocument;
-  currentVersion?: ChannelDocumentVersion;
-  currentBlocks: ChannelDocumentBlock[];
-  rightChangeSet?: ChannelDocumentChangeSet;
-}): ChannelDocumentConflictRecord["mergePreview"] {
-  const parsedOperations = parseChannelDocumentChangeSetOperations(input.rightChangeSet?.operationsJson);
-  if (parsedOperations.length === 0) {
-    return undefined;
-  }
-
-  const replaceDocumentOperation = parsedOperations.find((operation) => operation.op === "replace_document");
-  if (replaceDocumentOperation && typeof replaceDocumentOperation.contentMarkdown === "string") {
-    return {
-      mode: "document",
-      currentLabel: "当前版本",
-      currentContentMarkdown: input.currentVersion?.contentMarkdown ?? "",
-      incomingLabel: "冲突改动",
-      incomingContentMarkdown: replaceDocumentOperation.contentMarkdown,
-      suggestedDraftContentMarkdown: replaceDocumentOperation.contentMarkdown,
-      suggestedDraftTitle:
-        typeof replaceDocumentOperation.title === "string" && replaceDocumentOperation.title.trim().length > 0
-          ? replaceDocumentOperation.title
-          : input.document?.title,
-      suggestedDraftSummary:
-        typeof replaceDocumentOperation.summary === "string" && replaceDocumentOperation.summary.trim().length > 0
-          ? replaceDocumentOperation.summary
-          : input.document?.summary,
-    };
-  }
-
-  const focusedOperation =
-    parsedOperations.find(
-      (operation) =>
-        "blockId" in operation &&
-        typeof operation.blockId === "string" &&
-        operation.blockId === input.conflict.blockId,
-    ) ?? parsedOperations[0];
-  if (!focusedOperation) {
-    return undefined;
-  }
-  const currentBlock = input.currentBlocks.find((block) => block.id === input.conflict.blockId);
-  const suggestedBlocks = buildSuggestedConflictDraftBlocks(input.currentBlocks, parsedOperations);
-  if (!suggestedBlocks) {
-    return undefined;
-  }
-
-  let incomingLabel = "冲突改动";
-  let incomingContentMarkdown = "";
-  if (focusedOperation.op === "replace_block") {
-    incomingLabel = "冲突块内容";
-    incomingContentMarkdown = focusedOperation.contentMarkdown;
-  } else if (focusedOperation.op === "delete_block") {
-    incomingLabel = "冲突删除动作";
-    incomingContentMarkdown = "(该块会被删除)";
-  } else if (focusedOperation.op === "insert_after") {
-    incomingLabel = "冲突插入内容";
-    incomingContentMarkdown = focusedOperation.contentMarkdown;
-  }
-
-  return {
-    mode: "block",
-    currentLabel: currentBlock?.heading ? `当前块 · ${currentBlock.heading}` : "当前块",
-    currentContentMarkdown: currentBlock?.contentMarkdown ?? input.currentVersion?.contentMarkdown ?? "",
-    incomingLabel,
-    incomingContentMarkdown,
-    suggestedDraftContentMarkdown: serializeConflictDraftBlocks(suggestedBlocks),
-    suggestedDraftTitle: input.document?.title,
-    suggestedDraftSummary: input.document?.summary,
-  };
-}
-
-function parseChannelDocumentChangeSetOperations(
-  operationsJson: string | undefined,
-): Array<
-  | { op: "replace_document"; title?: string; contentMarkdown?: string; summary?: string }
-  | { op: "replace_block"; blockId: string; contentMarkdown: string; heading?: string }
-  | { op: "insert_after"; afterBlockId?: string; contentMarkdown: string; heading?: string }
-  | { op: "delete_block"; blockId: string }
-> {
-  if (!operationsJson) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(operationsJson) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const result: Array<
-      | { op: "replace_document"; title?: string; contentMarkdown?: string; summary?: string }
-      | { op: "replace_block"; blockId: string; contentMarkdown: string; heading?: string }
-      | { op: "insert_after"; afterBlockId?: string; contentMarkdown: string; heading?: string }
-      | { op: "delete_block"; blockId: string }
-    > = [];
-
-    for (const operation of parsed) {
-      if (!operation || typeof operation !== "object") {
-        continue;
-      }
-      const candidate = operation as {
-        op?: unknown;
-        title?: unknown;
-        contentMarkdown?: unknown;
-        summary?: unknown;
-        blockId?: unknown;
-        afterBlockId?: unknown;
-        heading?: unknown;
-      };
-      if (candidate.op === "replace_document") {
-        result.push({
-          op: "replace_document",
-          title: typeof candidate.title === "string" ? candidate.title : undefined,
-          contentMarkdown: typeof candidate.contentMarkdown === "string" ? candidate.contentMarkdown : undefined,
-          summary: typeof candidate.summary === "string" ? candidate.summary : undefined,
-        });
-        continue;
-      }
-      if (candidate.op === "replace_block" && typeof candidate.blockId === "string" && typeof candidate.contentMarkdown === "string") {
-        result.push({
-          op: "replace_block",
-          blockId: candidate.blockId,
-          contentMarkdown: candidate.contentMarkdown,
-          heading: typeof candidate.heading === "string" ? candidate.heading : undefined,
-        });
-        continue;
-      }
-      if (candidate.op === "insert_after" && typeof candidate.contentMarkdown === "string") {
-        result.push({
-          op: "insert_after",
-          afterBlockId: typeof candidate.afterBlockId === "string" ? candidate.afterBlockId : undefined,
-          contentMarkdown: candidate.contentMarkdown,
-          heading: typeof candidate.heading === "string" ? candidate.heading : undefined,
-        });
-        continue;
-      }
-      if (candidate.op === "delete_block" && typeof candidate.blockId === "string") {
-        result.push({ op: "delete_block", blockId: candidate.blockId });
-      }
-    }
-
-    return result;
-  } catch {
-    return [];
-  }
-}
-
-function buildSuggestedConflictDraftBlocks(
-  blocks: ChannelDocumentBlock[],
-  operations: ReturnType<typeof parseChannelDocumentChangeSetOperations>,
-): ChannelDocumentBlock[] | null {
-  const nextBlocks = blocks.map((block) => ({ ...block }));
-
-  for (const operation of operations) {
-    if (operation.op === "replace_block") {
-      const index = nextBlocks.findIndex((block) => block.id === operation.blockId);
-      if (index < 0) {
-        return null;
-      }
-      nextBlocks[index] = {
-        ...nextBlocks[index]!,
-        heading: operation.heading ?? nextBlocks[index]!.heading,
-        contentMarkdown: operation.contentMarkdown,
-      };
-      continue;
-    }
-
-    if (operation.op === "delete_block") {
-      const index = nextBlocks.findIndex((block) => block.id === operation.blockId);
-      if (index < 0) {
-        return null;
-      }
-      nextBlocks.splice(index, 1);
-      continue;
-    }
-
-    if (operation.op === "insert_after") {
-      const insertIndex = operation.afterBlockId
-        ? nextBlocks.findIndex((block) => block.id === operation.afterBlockId) + 1
-        : 0;
-      if (operation.afterBlockId && insertIndex <= 0) {
-        return null;
-      }
-      const nextIndex = insertIndex < 0 ? nextBlocks.length : insertIndex;
-      nextBlocks.splice(nextIndex, 0, {
-        id: `preview-block-${nextIndex}`,
-        documentId: nextBlocks[0]?.documentId ?? "",
-        parentId: undefined,
-        type: "section",
-        order: nextIndex,
-        heading: operation.heading,
-        contentMarkdown: operation.contentMarkdown,
-        revision: 0,
-        updatedBy: "preview",
-        updatedAt: new Date(0).toISOString(),
-      });
-      continue;
-    }
-  }
-
-  return nextBlocks.map((block, index) => ({ ...block, order: index }));
-}
-
-function serializeConflictDraftBlocks(blocks: ChannelDocumentBlock[]): string {
-  return blocks
-    .map((block) => block.contentMarkdown.trim())
-    .filter((value) => value.length > 0)
-    .join("\n\n");
-}
-
-function summarizeChangeSetOperations(operationsJson: string): string {
-  try {
-    const parsed = JSON.parse(operationsJson) as unknown;
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return "未知改动";
-    }
-
-    const counts = new Map<string, number>();
-    for (const operation of parsed) {
-      if (!operation || typeof operation !== "object") {
-        continue;
-      }
-      const op = typeof (operation as { op?: unknown }).op === "string" ? (operation as { op: string }).op : "unknown";
-      counts.set(op, (counts.get(op) ?? 0) + 1);
-    }
-
-    if (counts.size === 0) {
-      return "未知改动";
-    }
-
-    const labels: string[] = [];
-    if (counts.has("replace_document")) {
-      labels.push("整篇覆盖");
-    }
-    if (counts.has("replace_block")) {
-      labels.push(`替换 ${counts.get("replace_block")} 个块`);
-    }
-    if (counts.has("insert_after")) {
-      labels.push(`插入 ${counts.get("insert_after")} 个块`);
-    }
-    if (counts.has("delete_block")) {
-      labels.push(`删除 ${counts.get("delete_block")} 个块`);
-    }
-    if (counts.has("unknown")) {
-      labels.push(`其他变更 ${counts.get("unknown")}`);
-    }
-
-    return labels.join(" / ");
-  } catch {
-    return "未知改动";
-  }
-}
-
-function isRetryableChangeSetOperations(operationsJson: string): boolean {
-  try {
-    const parsed = JSON.parse(operationsJson) as unknown;
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return false;
-    }
-    return parsed.every((operation) => {
-      if (!operation || typeof operation !== "object") {
-        return false;
-      }
-      const candidate = operation as {
-        op?: unknown;
-        contentMarkdown?: unknown;
-      };
-      if (candidate.op === "replace_document") {
-        return typeof candidate.contentMarkdown === "string";
-      }
-      if (candidate.op === "replace_block" || candidate.op === "insert_after") {
-        return typeof candidate.contentMarkdown === "string";
-      }
-      return candidate.op === "delete_block";
-    });
-  } catch {
-    return false;
   }
 }
 
@@ -4990,10 +2821,6 @@ function isMessageRelevantToAgent(message: WorkspaceMessage, agentName: string, 
   }
 
   return false;
-}
-
-function sameText(left: string, right: string): boolean {
-  return left.localeCompare(right, "zh-CN", { sensitivity: "base" }) === 0;
 }
 
 export type TaskBoardGroupBy = "status" | "assignee" | "priority" | "channel";
@@ -5273,37 +3100,6 @@ export interface KnowledgeParseTask {
   warnings: string[];
   createdAt: string;
   updatedAt: string;
-}
-
-export interface KnowledgeDocumentPageRecord {
-  id: string;
-  sourceType: "attachment" | "channelDocument";
-  sourceId: string;
-  title: string;
-  summary: string;
-  previewText: string;
-  fileName: string;
-  mediaType: string;
-  sizeBytes: number;
-  kind: MessageAttachment["kind"];
-  isMarkdown: boolean;
-  channelName?: string;
-  sourceMessageId?: string;
-  sourceSpeaker?: string;
-  sourceTime?: string;
-  updatedAt: string;
-  updatedBy: string;
-  status: "active" | "archived" | "shared";
-  sourceAttachmentId?: string;
-  linkedChannelDocuments: Array<{
-    id: string;
-    title: string;
-    channelName: string;
-  }>;
-  linkedKnowledgePages: Array<{
-    id: string;
-    title: string;
-  }>;
 }
 
 export function getKnowledgePageData(
