@@ -110,17 +110,39 @@ test("REAL DOCKER: Skill Runner system binary probe detects presence and absence
  * proves the pin took effect and a non-allowlisted host does not resolve
  * (verified via `getent` when available, else by the F5 unit tests).
  *
- * Layer 2 (L3/L4 firewall, real traffic): the script opens TCP sockets that the
- * chain must DROP — the approved IP on a non-approved port (80) and a
- * non-allowlisted IP on 443 — and records whether each was blocked. This is the
- * live-traffic proof the rule-inspection test below deliberately cannot give.
+ * Layer 2 (L3/L4 firewall, real traffic): the script opens TCP sockets and
+ * classifies each outcome so the gate only credits what it can actually
+ * observe:
+ *   - POSITIVE BASELINE FIRST: the one allowed flow (pinned host :443) must
+ *     CONNECT. Without this, deny-all, a firewall-free node, or a node with no
+ *     internet would "pass" every negative probe and the gate would prove
+ *     nothing (05-运维服务与版本治理.md §7.1: allow-list 目标 + 精确端口成功).
+ *   - deny probes target REAL routable internet IPs serving :443 (1.1.1.1 is
+ *     the canonical DoH endpoint, 8.8.8.8 a generic third party) — never
+ *     naturally-unroutable TEST-NET ranges that would pass trivially.
+ *   - outcome codes distinguish connected / timed-out (DROP semantics — what
+ *     the managed chain does) / failed-fast (REJECT·refused·no-route, which is
+ *     NOT our chain and therefore not creditable evidence of enforcement).
+ *   - IPv6 bypass is probed when (and only when) the container has a global
+ *     IPv6 address; without one there is no v6 egress path to bypass with.
  */
-test("REAL DOCKER: Runner egress enforces Layer 1 (host pin/DNS poison) and Layer 2 (port-443-only firewall)", async (t) => {
+test("REAL DOCKER: Runner egress allows ONLY the pinned host on :443 (positive baseline + DROP-verified deny probes)", async (t) => {
   if (!RUN_E2E) {
     t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
     return;
   }
   const bashImage = assertBashImageGate();
+  const env = { ...process.env };
+  // The probe mechanism itself must exist in the Runner image: a missing
+  // `timeout`/`date` must fail the gate outright instead of every probe quietly
+  // "failing" (and thus counting as blocked).
+  for (const binary of ["timeout", "date"]) {
+    assert.equal(
+      runSkillRunnerSystemProbe({ image: bashImage, binary }, env),
+      true,
+      `Runner image must ship '${binary}' — the egress probe mechanism depends on it`,
+    );
+  }
   const egressNetwork = process.env.DOFE_SKILL_RUNNER_EGRESS_NETWORK ?? "dofe-skill-runner-egress-e2e";
   ensureEgressNetwork(egressNetwork);
 
@@ -142,24 +164,43 @@ if [ "\${has_getent}" = "1" ]; then
 else
   poisoned_ok=1
 fi
-# Layer-2 (L3/L4 firewall) negative probes. While this script runs the broker
-# has installed a real DOCKER-USER chain for THIS container's source IP that
-# allows ONLY ${PINNED_HOST} on :443 and DROPs everything else. "blocked" = the
-# TCP open did not complete within 3s (DROP -> no SYN-ACK -> timeout; refused or
-# unroutable also reads as blocked from the app's view). This is the SAFE
-# direction for a deploy gate: a permissive regression shows up as a connection
-# that SUCCEEDS, so the test only fails when egress genuinely stopped blocking,
-# never merely because the CI node lacks internet.
+# Layer-2 (L3/L4 firewall) real-traffic probes. While this script runs the
+# broker has installed a real DOCKER-USER chain for THIS container's source IP
+# that allows ONLY ${PINNED_HOST} on :443 and DROPs everything else.
+# Outcome codes:
+#   0 = TCP open SUCCEEDED (for a deny target: the permissive regression)
+#   1 = timed out after 5s  (DROP semantics — the only creditable "blocked")
+#   2 = failed fast <1.5s   (REJECT / refused / no-route — NOT our chain's DROP,
+#                           cannot be credited as enforcement evidence)
 probe_port() {
-  if timeout 3 bash -c "exec 3<>/dev/tcp/\$1/\$2" >/dev/null 2>&1; then echo 0; else echo 1; fi
+  local host="\$1" port="\$2" start end delta
+  start=$(date +%s%N)
+  if timeout 5 bash -c "exec 3<>/dev/tcp/\$host/\$port" >/dev/null 2>&1; then echo 0; return; fi
+  end=$(date +%s%N)
+  delta=$(( (end - start) / 1000000 ))
+  if [ "\$delta" -lt 1500 ]; then echo 2; else echo 1; fi
 }
+# Positive baseline FIRST: the one allowed flow must genuinely connect, else
+# nothing below can be trusted (deny-all and no-internet both look "blocked").
+allowed443=$(probe_port ${PINNED_IP} 443)
 # Approved IP on a NON-approved port (80): only :443 RETURNs, so :80 must DROP.
 # example.com serves :80, so a permissive egress regression would connect here.
-port80_blocked=$(probe_port ${PINNED_IP} 80)
-# A non-allowlisted destination IP (TEST-NET-2, RFC 5737) on 443: must DROP.
-non_allowlisted_blocked=$(probe_port 198.51.100.7 443)
-printf '{"pinnedInHosts":%s,"poisonedOk":%s,"port80Blocked":%s,"nonAllowlistedBlocked":%s}\\n' \\
-  "\${pinned}" "\${poisoned_ok}" "\${port80_blocked}" "\${non_allowlisted_blocked}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
+port80=$(probe_port ${PINNED_IP} 80)
+# Real routable non-allowlisted destinations on :443 — never TEST-NET ranges,
+# which fail even with no firewall at all. 1.1.1.1 doubles as the canonical DoH
+# endpoint (DoH bypass probe); 8.8.8.8 is a generic third-party 443 listener.
+doh443=$(probe_port 1.1.1.1 443)
+other443=$(probe_port 8.8.8.8 443)
+# IPv6 bypass probe — only meaningful when the container actually has a global
+# IPv6 address (scope 00 in /proc/net/if_inet6, excluding lo). Without one there
+# is no v6 egress path to bypass with and the probe is honestly reported as 2
+# (skipped). 2606:4700:4700::1111 is Cloudflare DNS over IPv6, serving :443.
+ipv6=2
+if awk '\$4=="00" && \$6!="lo"' /proc/net/if_inet6 2>/dev/null | grep -q .; then
+  ipv6=$(probe_port 2606:4700:4700::1111 443)
+fi
+printf '{"pinnedInHosts":%s,"poisonedOk":%s,"allowed443":%s,"port80":%s,"doh443":%s,"other443":%s,"ipv6":%s}\\n' \\
+  "\${pinned}" "\${poisoned_ok}" "\${allowed443}" "\${port80}" "\${doh443}" "\${other443}" "\${ipv6}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
 `;
 
   try {
@@ -206,27 +247,54 @@ printf '{"pinnedInHosts":%s,"poisonedOk":%s,"port80Blocked":%s,"nonAllowlistedBl
     ) as {
       pinnedInHosts: number;
       poisonedOk: number;
-      port80Blocked: number;
-      nonAllowlistedBlocked: number;
+      allowed443: number;
+      port80: number;
+      doh443: number;
+      other443: number;
+      ipv6: number;
     };
     assert.ok(
       result.pinnedInHosts >= 1,
       "the approved host must be pinned into /etc/hosts via --add-host",
     );
     assert.equal(result.poisonedOk, 1, "a non-allowlisted host must not resolve (DNS poisoned)");
-    // Layer-2 real-traffic proof: the DOCKER-USER chain installed for this
-    // container must DROP a connection to the approved IP on a non-approved port
-    // and to any non-allowlisted IP. A blocked connection that nonetheless
-    // SUCCEEDS is the regression this guards (egress became permissive).
+    // POSITIVE BASELINE (checked first on purpose): the one allowed flow must
+    // genuinely connect. If it cannot, deny-all and "node without internet" are
+    // indistinguishable from correct enforcement — the gate proves NOTHING and
+    // must fail rather than credit its own blindness.
     assert.equal(
-      result.port80Blocked,
+      result.allowed443,
+      0,
+      "positive baseline failed: the allow-listed host on :443 must CONNECT — " +
+        "if the pinned IP is stale or the gate node lacks internet, fix that before " +
+        "trusting any deny result (deny-all would otherwise pass every probe)",
+    );
+    // Deny probes must show DROP semantics (code 1 = timed out), not merely
+    // "did not connect": code 0 means egress became permissive (regression),
+    // code 2 means something ELSE rejected the flow (REJECT/refused/no-route),
+    // which is not evidence that OUR chain enforced anything.
+    assert.equal(
+      result.port80,
       1,
-      "the approved IP on a non-approved port (80) must be firewalled — only :443 returns",
+      "the approved IP on a non-approved port (80) must be DROPped — only :443 returns",
     );
     assert.equal(
-      result.nonAllowlistedBlocked,
+      result.doh443,
       1,
-      "a non-allowlisted destination IP must be firewalled (chain default DROP)",
+      "the canonical DoH endpoint (1.1.1.1:443, a real routable listener) must be DROPped — DoH bypass closed",
+    );
+    assert.equal(
+      result.other443,
+      1,
+      "a non-allowlisted third-party 443 listener (8.8.8.8) must be DROPped — raw-IP bypass closed",
+    );
+    // IPv6 bypass: 1 = a real global-v6 path exists and was DROPped;
+    // 2 = the container has no global IPv6 address (no v6 path to bypass with).
+    // 0 = an IPv6 destination CONNECTED — the regression this guards.
+    assert.notEqual(
+      result.ipv6,
+      0,
+      "an IPv6 destination must never connect when the allowlist has no IPv6 entry",
     );
   } finally {
     await broker?.close().catch(() => {});
