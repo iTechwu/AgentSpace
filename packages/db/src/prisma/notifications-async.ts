@@ -6,7 +6,8 @@
 
 import { Client } from "pg";
 import { resolvePostgresDatabaseUrl } from "../postgres-config.ts";
-import type { ListWorkspaceNotificationsOptions, WorkspaceNotificationRecord } from "../notifications.ts";
+import type { ListWorkspaceNotificationsOptions } from "../notifications.ts";
+import type { WorkspaceNotificationRecord } from "../types.ts";
 
 interface AsyncNotificationRow {
   id: string;
@@ -145,31 +146,35 @@ function mapNotificationRow(row: AsyncNotificationRow): WorkspaceNotificationRec
     severity: row.severity as WorkspaceNotificationRecord["severity"],
     status: row.status as WorkspaceNotificationRecord["status"],
     dedupeKey: row.dedupe_key ?? undefined,
-    metadataJson: normalizeMetadataJson(row.metadata_json),
-    createdAt: row.created_at instanceof Date
-      ? row.created_at.toISOString()
-      : row.created_at,
-    readAt: row.read_at instanceof Date
-      ? row.read_at.toISOString()
-      : row.read_at ?? undefined,
-    archivedAt: row.archived_at instanceof Date
-      ? row.archived_at.toISOString()
-      : row.archived_at ?? undefined,
+    metadataJson: serializeJson(row.metadata_json),
+    createdAt: toIsoString(row.created_at),
+    readAt: row.read_at == null ? undefined : toIsoString(row.read_at),
+    archivedAt: row.archived_at == null ? undefined : toIsoString(row.archived_at),
   };
 }
 
-function normalizeMetadataJson(value: unknown): Record<string, unknown> {
-  if (value === null || value === undefined) return {};
-  if (typeof value === "object") return value as Record<string, unknown>;
+function toIsoString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function serializeJson(value: unknown): string {
+  if (value === null || value === undefined) return "{}";
   if (typeof value === "string") {
     try {
-      const parsed = JSON.parse(value);
-      return typeof parsed === "object" && parsed !== null
-        ? (parsed as Record<string, unknown>)
-        : {};
+      return JSON.stringify(JSON.parse(value));
     } catch {
-      return {};
+      return value;
     }
   }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "{}";
+  }
+}
+
+function normalizeMetadataJson(value: unknown): Record<string, unknown> {
+  // deprecated: kept only to satisfy any stale import. Use serializeJson in
+  // mapNotificationRow to produce the sync-compatible raw JSON string.
   return {};
 }

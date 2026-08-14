@@ -20,10 +20,10 @@ export interface AsyncAuditLogRecord {
   title: string;
   note: string;
   code: string | null;
-  dataJson: string;
+  dataJson: unknown;
   source: AuditLogSource;
   sourceIndex: number;
-  createdAt: string;
+  createdAt: Date | string;
 }
 
 export async function readAuditLogAsync(input: {
