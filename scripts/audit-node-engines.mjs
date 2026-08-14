@@ -1,16 +1,24 @@
 #!/usr/bin/env node
 /**
- * Node engines 审计：检验 node_modules/.pnpm 内全部依赖的 engines.node
- * 是否覆盖目标 Node 版本（默认当前运行时 Node）。
+ * Node engines 审计：
+ * 1. 仓库 manifest（根 + pnpm-workspace.yaml 全部 workspace 包）的 engines.node
+ *    必须覆盖目标 Node 版本——任何一处不匹配直接 exit 1（fail-closed）。
+ * 2. node_modules/.pnpm 内全部依赖的 engines.node 是否覆盖目标版本
+ *    （默认当前运行时 Node）。
  *
  * 背景：仓库未启用 engine-strict——它会被 jsdom@30 的 engines 声明单点阻断
  * （jsdom 只支持 LTS 线 22/24/26+，显式排除 Node 25，见
  * docs/0814/node-runtime-matrix.md 的限时例外）。本脚本提供等价覆盖：
  * 声明了 engines.node 且不覆盖目标版本的依赖都会被列出；超出
- * KNOWN_EXCEPTIONS 之外的违规令进程 exit 1，可作依赖变更后的门禁。
+ * KNOWN_EXCEPTIONS 之外的违规令进程 exit 1。已接入根 package.json 的
+ * `pretest`，随 `pnpm test` 自动执行。
+ *
+ * 已知局限：扫描基于当前平台实际安装的 node_modules/.pnpm，其他平台的
+ * optionalDependencies 未安装时不会被检验；跨平台结论需在目标平台各跑一次。
  *
  * 用法：
  *   pnpm audit:engines
+ *   pnpm test（pretest 自动执行）
  *   node scripts/audit-node-engines.mjs --node 25.9.0
  */
 import fs from "node:fs";
@@ -79,13 +87,80 @@ function collectPackageJsons(pnpmDir) {
   return files;
 }
 
+/** 极简解析 pnpm-workspace.yaml 的 packages 列表（带引号的 glob 数组）。 */
+function readWorkspaceGlobs() {
+  const yamlPath = path.join(repoRoot, "pnpm-workspace.yaml");
+  if (!fs.existsSync(yamlPath)) return [];
+  const lines = fs.readFileSync(yamlPath, "utf8").split("\n");
+  const globs = [];
+  let inPackages = false;
+  for (const line of lines) {
+    if (/^packages:\s*$/.test(line)) { inPackages = true; continue; }
+    if (inPackages) {
+      const m = line.match(/^\s+-\s+"([^"]+)"\s*$/) || line.match(/^\s+-\s+(\S+)\s*$/);
+      if (m) globs.push(m[1]);
+      else if (/\S/.test(line)) inPackages = false; // 列表结束（如 catalog: 段）
+    }
+  }
+  return globs;
+}
+
+/** 单层 glob（`*` 匹配一段内任意字符，不含 `/`）匹配目录名。 */
+function globToRegex(glob) {
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]+");
+  return new RegExp(`^${escaped}$`);
+}
+
+/** 根 + 全部 workspace 包的 manifest 路径（相对仓库根）。 */
+function collectWorkspaceManifests() {
+  const manifests = ["package.json"];
+  for (const glob of readWorkspaceGlobs()) {
+    const segs = glob.split("/");
+    const pattern = globToRegex(segs[segs.length - 1] || "*");
+    const base = path.join(repoRoot, ...segs.slice(0, -1));
+    if (!fs.existsSync(base)) continue;
+    for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (!pattern.test(entry.name)) continue;
+      const manifest = path.join(base, entry.name, "package.json");
+      if (fs.existsSync(manifest)) manifests.push(path.relative(repoRoot, manifest));
+    }
+  }
+  return manifests;
+}
+
 const target = targetNodeVersion();
 const semver = loadSemver();
 
-const rootPkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
-const rootRange = rootPkg.engines && rootPkg.engines.node;
-if (rootRange && !semver.satisfies(target, rootRange)) {
-  console.error(`警告：目标版本 ${target} 不在根 engines.node ${rootRange} 内，结果仅作参考。`);
+// 第一层：仓库自身 manifest（根 + 全部 workspace 包）。运行时/目标版本不在
+// 声明范围内属于仓库级配置错误，直接 exit 1，不做“仅供参考”降级。
+const manifestViolations = [];
+const workspaceManifests = collectWorkspaceManifests();
+for (const manifest of workspaceManifests) {
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, manifest), "utf8"));
+  } catch {
+    continue;
+  }
+  const range = pkg.engines && pkg.engines.node;
+  if (!range) continue;
+  let ok;
+  try {
+    ok = semver.satisfies(target, range);
+  } catch {
+    ok = null;
+  }
+  if (ok !== true) manifestViolations.push([manifest, range, ok === null]);
+}
+if (manifestViolations.length > 0) {
+  console.error(`目标 Node 版本：${target}`);
+  console.error(`\n仓库 manifest 违规（${manifestViolations.length}）——engines.node 不覆盖目标版本，fail-closed：`);
+  for (const [m, r, unparseable] of manifestViolations) {
+    console.error(`  ${m}  engines.node=${JSON.stringify(r)}${unparseable ? "（无法解析）" : ""}`);
+  }
+  console.error("\nengines 审计未通过：仓库 manifest 与目标 Node 版本不匹配。");
+  process.exit(1);
 }
 
 const pnpmDir = path.join(repoRoot, "node_modules", ".pnpm");
@@ -125,6 +200,7 @@ const known = violations.filter(([k]) => KNOWN_EXCEPTIONS.has(k));
 const stale = Array.from(KNOWN_EXCEPTIONS).filter((k) => !known.some(([vk]) => vk === k));
 
 console.log(`目标 Node 版本：${target}`);
+console.log(`仓库 manifest：${workspaceManifests.length}（根 + workspace 包，engines.node 全部覆盖目标版本）`);
 console.log(`扫描唯一包：${seen.size}（其中声明 engines.node：${declared}）`);
 console.log(`违规（engines.node 不覆盖 ${target}）：${violations.length}`);
 
