@@ -119,11 +119,13 @@ jobs:
           fi
 
           # Skill Runner egress 门禁前置预检：在停服前确认 runner 环境契约满足——
-          # 三个 digest 钉死的 Runner 镜像变量已导出、镜像已在本地、docker 与 iptables
-          # 可用。变量必须导出在 runner 的 shell 环境（由 ensure-ci-managed-nodes.sh
-          # 写入受管节点 env 文件），仅放在仓库 .env 不生效——脚本的 shell 不会加载 .env。
-          # 预检失败直接退出，服务仍在运行旧版本，避免停服、构建之后才因环境契约不满足
-          # 触发回滚、拉长停服窗口。真实 e2e 仍在下方构建后执行。
+          # 三个 digest 钉死的 Runner 镜像变量、镜像已在本地、docker 与 iptables 可用。
+          # 变量来源是仓库 .env（与运行时同一份）：脚本启动时自动从中补齐未设置的变量，
+          # preflight 与下方真实 e2e 共用同一来源；runner 环境显式导出的值可覆盖。
+          # 注意 ensure-ci-managed-nodes.sh 只把变量写进各受管节点容器的 node.env，并不
+          # 导出到部署 runner 的 shell，故不能假设 runner shell 已自带这些变量。
+          # 预检失败直接退出，服务仍在运行旧版本，避免停服、构建后才因契约不满足触发
+          # 回滚、拉长停服窗口。
           if ! bash packages/daemon/scripts/dofe-skill-runner-e2e-run.sh --preflight; then
             echo "Skill Runner egress preflight failed; aborting before stop_service."
             exit 1
