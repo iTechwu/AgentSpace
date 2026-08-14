@@ -468,19 +468,48 @@ printf '{"pinnedInHosts":%s,"pinnedV6InHosts":%s,"pinnedResolves":%s,"dnsProbe":
     // IPv6 layer. Availability is split from the outcome so a non-creditable
     // fast-fail is never conflated with a skip; and a v6-bypassed Runner is a
     // real production risk, so the ACCEPTANCE ENVIRONMENT MUST HAVE a global
-    // v6 path — "no v6 on this node" is NOT a passing state. Skipping is only
-    // permitted behind an explicit operator opt-out env that puts the decision
-    // on record; by default the gate fails closed.
+    // v6 path — "no v6 on this node" is NOT a passing state. The v4-only
+    // exemption is deliberately hard to hold: it needs an explicit, TIME-LIMITED
+    // approval (an approver on record + an absolute expiry no more than 30 days
+    // out) in addition to the flag itself, and the exemption actually taken is
+    // logged into the gate output so the CI record carries the audit trail.
     const allowNoIpv6 = process.env.DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6 === "1";
-    if (result.ipv6Available !== 1) {
+    if (allowNoIpv6 && result.ipv6Available !== 1) {
+      const approvedBy = process.env.DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY?.trim() ?? "";
+      const until = process.env.DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL?.trim() ?? "";
+      assert.match(approvedBy, /\S+/, "the v4-only exemption requires DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY (the accountable operator) to be set");
+      assert.match(
+        until,
+        /^\d{4}-\d{2}-\d{2}$/,
+        "the v4-only exemption requires DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL=YYYY-MM-DD (an absolute expiry)",
+      );
+      const untilDate = new Date(`${until}T23:59:59Z`).getTime();
+      const now = Date.now();
       assert.ok(
-        allowNoIpv6,
+        Number.isFinite(untilDate) && untilDate >= now,
+        `the v4-only exemption expired on ${until}; renew the approval or restore the node's IPv6 egress`,
+      );
+      assert.ok(
+        untilDate - now <= 30 * 24 * 60 * 60 * 1000,
+        `the v4-only exemption must be re-approved at most 30 days ahead (until=${until}); an open-ended exemption is not a gate`,
+      );
+      console.error(
+        `[egress-gate] IPv6 layer EXEMPTED under a time-limited operator approval: ` +
+          `approvedBy=${approvedBy} until=${until}. This run did NOT credit IPv6 enforcement.`,
+      );
+    } else if (result.ipv6Available !== 1) {
+      assert.fail(
         "the acceptance environment must provide a global IPv6 egress path "
           + "(ipv6Available=0 inside the Runner) — a v6-bypassed Runner is a real "
-          + "production risk, so the gate fails closed instead of silently skipping; "
-          + "set DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1 only as a documented, "
-          + "deliberate operator opt-out for a v4-only acceptance network",
+          + "production risk, so the gate fails closed instead of silently skipping. "
+          + "A v4-only exemption exists but is deliberately expensive: it requires "
+          + "DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1 PLUS a time-limited approval "
+          + "(DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY and "
+          + "DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL=YYYY-MM-DD, ≤30 days ahead) "
+          + "so every exemption is attributable and expires",
       );
+    }
+    if (result.ipv6Available !== 1) {
       assert.equal(
         result.ipv6,
         3,
