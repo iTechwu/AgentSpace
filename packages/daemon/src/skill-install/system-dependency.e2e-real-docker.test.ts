@@ -29,6 +29,16 @@ const DOCKER_BIN = () => process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "do
 // so the pinned host is resolvable inside the container without real outbound.
 const PINNED_HOST = "example.com";
 const PINNED_IP = "93.184.216.34";
+// Second allowlisted host pinned to a REAL routable IPv6 :443 listener
+// (Cloudflare DNS over HTTPS v6) — the IPv6 POSITIVE baseline. Without an
+// allowed v6 target, a host-level v6 block or docker's default v6 isolation
+// would make every v6 probe time out and the gate would credit its own
+// blindness as "enforcement".
+const PINNED_V6_HOST = "v6-approved.example";
+const PINNED_V6_IP = "2606:4700:4700::1111";
+// v6 DENY target: a different real routable IPv6 :443 listener (Google DNS over
+// HTTPS v6). Never an allowlisted address, never TEST-NET space.
+const DENIED_V6_IP = "2001:4860:4860::8888";
 
 function assertBashImageGate(): string {
   assert.equal(process.platform, "linux", "real Skill Runner e2e must run on a Linux managed node");
@@ -39,14 +49,29 @@ function assertBashImageGate(): string {
   return image;
 }
 
-/** Creates the isolated egress docker network if it does not already exist. */
+/** Creates the isolated egress docker network if it does not already exist.
+ *
+ * The network MUST be IPv6-enabled: the acceptance gate requires a real v6
+ * egress path (a v6-bypassed Runner is a production risk, so "no v6 here" is
+ * not a passing state). An IPv4-only network would leave the container without
+ * a global-scope v6 address and the v6 layer would be unmeasurable. */
 function ensureEgressNetwork(name: string): void {
   try {
-    execFileSync(DOCKER_BIN(), ["network", "create", name], { stdio: "ignore", timeout: 30_000 });
+    execFileSync(DOCKER_BIN(), ["network", "create", "--ipv6", name], { stdio: "ignore", timeout: 30_000 });
   } catch {
     // Already exists (or creation is raced) — presence is what matters.
   }
-  execFileSync(DOCKER_BIN(), ["network", "inspect", name], { stdio: "ignore", timeout: 30_000 });
+  const enableIpv6 = execFileSync(
+    DOCKER_BIN(),
+    ["network", "inspect", "--format", "{{.EnableIPv6}}", name],
+    { encoding: "utf8", timeout: 30_000 },
+  ).trim();
+  assert.equal(
+    enableIpv6,
+    "true",
+    `egress network '${name}' must be IPv6-enabled (docker network rm '${name}' then recreate with `
+      + `--ipv6) — the acceptance gate requires a real v6 egress path to measure the v6 bypass`,
+  );
 }
 
 function digest(bytes: Buffer): string {
@@ -55,14 +80,15 @@ function digest(bytes: Buffer): string {
 
 /**
  * Snapshot of the per-chain DROP-rule packet counters on the REAL host
- * firewall (`iptables-save -c`). Maps managed chain → packets matched by that
- * chain's final DROP rule. A TCP timeout alone cannot distinguish "our
- * DOCKER-USER chain dropped the flow" from "an upstream firewall did" — the
- * kernel packet counter on OUR chain is the only attribution-proof evidence
- * that real Runner traffic was dropped by the rules this gate landed.
+ * firewall (`iptables-save -c` / `ip6tables-save -c`). Maps managed chain →
+ * packets matched by that chain's final DROP rule. A TCP timeout alone cannot
+ * distinguish "our DOCKER-USER chain dropped the flow" from "an upstream
+ * firewall did" — the kernel packet counter on OUR chain is the only
+ * attribution-proof evidence that real Runner traffic was dropped by the rules
+ * this gate landed.
  */
-function snapshotEgressDropCounters(): Map<string, number> {
-  const dump = execFileSync("iptables-save", ["-c"], { encoding: "utf8", timeout: 30_000 });
+function snapshotEgressDropCounters(saveBinary: "iptables-save" | "ip6tables-save"): Map<string, number> {
+  const dump = execFileSync(saveBinary, ["-c"], { encoding: "utf8", timeout: 30_000 });
   // Chains DOCKER-USER jumps into (the per-run managed chains).
   const jumpChains = new Set<string>();
   for (const line of dump.split("\n")) {
@@ -159,11 +185,15 @@ test("REAL DOCKER: Skill Runner system binary probe detects presence and absence
  *     gate polls `iptables-save -c` and requires the per-run managed chain's
  *     final DROP rule to accrue ≥3 packets from the real probe traffic — the
  *     kernel counter is the only evidence attributing the DROPs to OUR chain.
- *   - IPv6 bypass: availability (a global IPv6 address) is reported separately
- *     from the probe outcome. When a v6 path exists the outcome must be a DROP
- *     (timed out) — a fast-fail is NOT creditable (REJECT/no-route, or the
- *     probe cannot form a v6 socket) and fails the gate instead of silently
- *     passing. Without a global v6 address the probe is honestly skipped.
+ *   - IPv6 bypass: the acceptance environment MUST provide a global v6 path
+ *     (ipv6Available=0 fails the gate unless the operator sets the explicit
+ *     DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1 opt-out). With a v6 path: the
+ *     ALLOWLISTED v6 host (a real routable :443 listener pinned via --add-host)
+ *     must CONNECT (positive baseline — without it a host-level v6 block would
+ *     masquerade as enforcement), a non-allowlisted v6 listener must DROP, and
+ *     the ip6tables managed chain must accrue DROP-rule packets (counter
+ *     attribution, same as v4). A fast-fail is NOT creditable (REJECT/no-route
+ *     or no v6 socket) and fails the gate instead of silently passing.
  */
 test("REAL DOCKER: Runner egress allows ONLY the pinned host on :443 (positive baseline + DROP-verified deny probes)", async (t) => {
   if (!RUN_E2E) {
@@ -195,6 +225,7 @@ test("REAL DOCKER: Runner egress allows ONLY the pinned host on :443 (positive b
   const script = `#!/usr/bin/env bash
 set -uo pipefail
 pinned=$(grep -c '${PINNED_HOST}' /etc/hosts || true)
+pinnedV6=$(grep -c '${PINNED_V6_HOST}' /etc/hosts || true)
 has_getent=0
 if command -v getent >/dev/null 2>&1; then has_getent=1; fi
 # POSITIVE RESOLUTION BASELINE: the pinned host must resolve (via the --add-host
@@ -235,6 +266,11 @@ probe_port() {
 # Positive baseline FIRST: the one allowed flow must genuinely connect, else
 # nothing below can be trusted (deny-all and no-internet both look "blocked").
 allowed443=$(probe_port ${PINNED_IP} 443)
+# IPv6 POSITIVE BASELINE: the second allowlisted host is pinned to a real
+# routable v6 :443 listener; when a v6 path exists it must CONNECT. Without
+# this, a host-level v6 block would make every v6 probe time out and the deny
+# probe below would credit the gate's own blindness as enforcement.
+allowedV6443=$(probe_port ${PINNED_V6_IP} 443)
 # Approved IP on a NON-approved port (80): only :443 RETURNs, so :80 must DROP.
 # example.com serves :80, so a permissive egress regression would connect here.
 port80=$(probe_port ${PINNED_IP} 80)
@@ -255,14 +291,16 @@ fi
 #   1 = timed out 5s  — DROP: creditable evidence the firewall engaged v6 traffic
 #   2 = failed fast   — REJECT/refused/no-route (or the probe cannot form a v6
 #                       socket): NOT creditable, never silently passed
-#   3 = skipped       — no global IPv6 path, nothing to test
-# 2606:4700:4700::1111 is Cloudflare DNS over IPv6, a real routable :443 listener.
+#   3 = skipped       — no global IPv6 path, nothing to test (the gate only
+#                       accepts this with an explicit operator opt-out env)
+# ${DENIED_V6_IP} is Google DNS over IPv6, a real routable :443 listener that
+# is NOT allowlisted (the allowlisted v6 address is a different host).
 ipv6=3
 if [ "\${ipv6Available}" = "1" ]; then
-  ipv6=$(probe_port 2606:4700:4700::1111 443)
+  ipv6=$(probe_port ${DENIED_V6_IP} 443)
 fi
-printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"port80":%s,"doh443":%s,"other443":%s,"ipv6Available":%s,"ipv6":%s}\\n' \\
-  "\${pinned}" "\${pinnedResolves}" "\${dnsProbe}" "\${allowed443}" "\${port80}" "\${doh443}" "\${other443}" "\${ipv6Available}" "\${ipv6}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
+printf '{"pinnedInHosts":%s,"pinnedV6InHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"allowedV6443":%s,"port80":%s,"doh443":%s,"other443":%s,"ipv6Available":%s,"ipv6":%s}\\n' \\
+  "\${pinned}" "\${pinnedV6}" "\${pinnedResolves}" "\${dnsProbe}" "\${allowed443}" "\${allowedV6443}" "\${port80}" "\${doh443}" "\${other443}" "\${ipv6Available}" "\${ipv6}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
 `;
 
   try {
@@ -283,7 +321,7 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
       id: "egress",
       path: "scripts/egress.sh",
       runtime: "bash",
-      egressAllowlist: [PINNED_HOST],
+      egressAllowlist: [PINNED_HOST, PINNED_V6_HOST],
     };
 
     broker = await startSkillRunnerBroker({
@@ -292,8 +330,12 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
       workDir,
       entrypoints: [entrypoint],
       environment: { ...process.env, DOFE_SKILL_RUNNER_EGRESS_NETWORK: egressNetwork },
-      // Inject the pinned IP so the host resolves without real outbound DNS in CI.
-      lookupHost: async () => [{ family: "ipv4", address: PINNED_IP }],
+      // Inject the pinned IPs so both allowlisted hosts resolve without real
+      // outbound DNS in CI: one v4 pin and one v6 pin (the v6 positive baseline).
+      lookupHost: async (hostname) =>
+        hostname === PINNED_V6_HOST
+          ? [{ family: "ipv6", address: PINNED_V6_IP }]
+          : [{ family: "ipv4", address: PINNED_IP }],
     });
 
     assert.equal(broker.capabilities.length, 1);
@@ -308,13 +350,18 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
     // tears the chain down at run end (the per-run chain is created on policy
     // apply and removed in the run's finally block — reading after the run
     // would always see nothing).
-    const baselineDrops = snapshotEgressDropCounters();
-    const maxDropPkts = new Map<string, number>();
+    const baselineDropsV4 = snapshotEgressDropCounters("iptables-save");
+    const baselineDropsV6 = snapshotEgressDropCounters("ip6tables-save");
+    const maxDropPktsV4 = new Map<string, number>();
+    const maxDropPktsV6 = new Map<string, number>();
     let pollingCounters = true;
     const pollDropCounters = (async () => {
       while (pollingCounters) {
-        for (const [chain, pkts] of snapshotEgressDropCounters()) {
-          if (pkts > (maxDropPkts.get(chain) ?? 0)) maxDropPkts.set(chain, pkts);
+        for (const [chain, pkts] of snapshotEgressDropCounters("iptables-save")) {
+          if (pkts > (maxDropPktsV4.get(chain) ?? 0)) maxDropPktsV4.set(chain, pkts);
+        }
+        for (const [chain, pkts] of snapshotEgressDropCounters("ip6tables-save")) {
+          if (pkts > (maxDropPktsV6.get(chain) ?? 0)) maxDropPktsV6.set(chain, pkts);
         }
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
@@ -330,9 +377,11 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
       readFileSync(join(workDir, "runtime-output", "skill-runs", entrypoint.key, "egress.json"), "utf8"),
     ) as {
       pinnedInHosts: number;
+      pinnedV6InHosts: number;
       pinnedResolves: number;
       dnsProbe: number;
       allowed443: number;
+      allowedV6443: number;
       port80: number;
       doh443: number;
       other443: number;
@@ -342,6 +391,10 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
     assert.ok(
       result.pinnedInHosts >= 1,
       "the approved host must be pinned into /etc/hosts via --add-host",
+    );
+    assert.ok(
+      result.pinnedV6InHosts >= 1,
+      "the second (IPv6) approved host must be pinned into /etc/hosts via --add-host",
     );
     // Positive resolution baseline: getent must resolve the pinned host to the
     // pinned IP via the /etc/hosts pin. This proves the resolution mechanism
@@ -403,7 +456,7 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
     // rule DURING the real Runner traffic — one SYN per deny probe at minimum.
     // This is the evidence that ties the timeouts to the rules this gate
     // landed, closing the "timeout could be upstream" false-positive.
-    const freshChains = [...maxDropPkts.entries()].filter(([chain]) => !baselineDrops.has(chain));
+    const freshChains = [...maxDropPktsV4.entries()].filter(([chain]) => !baselineDropsV4.has(chain));
     assert.ok(
       freshChains.some(([, pkts]) => pkts >= 3),
       "this run's DOCKER-USER managed chain must show ≥3 DROP-rule packets accrued from the "
@@ -412,29 +465,60 @@ printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"p
         + "identically); observed fresh-chain DROP counters: "
         + JSON.stringify(freshChains),
     );
-    // IPv6 bypass — availability is split from the outcome so a non-creditable
-    // fast-fail is never conflated with an honest "no v6 path" skip (the old
-    // single `ipv6` field used code 2 for both, silently passing either). There
-    // is no allowlisted IPv6 destination, so a connect-baseline is impossible;
-    // the creditable evidence is instead a DROP (code 1) on a real routable v6
-    // :443 listener when a v6 path exists — proving the firewall engaged v6
-    // traffic rather than the probe being structurally unable to form a v6 socket.
-    if (result.ipv6Available === 1) {
-      assert.equal(
-        result.ipv6,
-        1,
-        "a global IPv6 path exists, so the v6 deny probe must DROP (time out) — " +
-          "code 0 means v6 egress is open (the bypass); code 2 (fast-fail) is NOT " +
-          "creditable (REJECT/no-route, or bash /dev/tcp cannot form an IPv6 socket); " +
-          "either way v6 isolation cannot be credited, so the gate fails closed instead " +
-          "of passing",
+    // IPv6 layer. Availability is split from the outcome so a non-creditable
+    // fast-fail is never conflated with a skip; and a v6-bypassed Runner is a
+    // real production risk, so the ACCEPTANCE ENVIRONMENT MUST HAVE a global
+    // v6 path — "no v6 on this node" is NOT a passing state. Skipping is only
+    // permitted behind an explicit operator opt-out env that puts the decision
+    // on record; by default the gate fails closed.
+    const allowNoIpv6 = process.env.DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6 === "1";
+    if (result.ipv6Available !== 1) {
+      assert.ok(
+        allowNoIpv6,
+        "the acceptance environment must provide a global IPv6 egress path "
+          + "(ipv6Available=0 inside the Runner) — a v6-bypassed Runner is a real "
+          + "production risk, so the gate fails closed instead of silently skipping; "
+          + "set DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1 only as a documented, "
+          + "deliberate operator opt-out for a v4-only acceptance network",
       );
-    } else {
       assert.equal(
         result.ipv6,
         3,
-        "with no global IPv6 address there is no v6 egress path to bypass with — " +
-          "the probe must be honestly skipped (3), not silently credited as enforcement",
+        "with the operator v4-only opt-out the v6 probe must be honestly skipped (3)",
+      );
+    } else {
+      // IPv6 POSITIVE BASELINE: the allowlisted v6 host (a real routable :443
+      // listener pinned via --add-host) must CONNECT. Without it, a host-level
+      // v6 block or docker's default v6 isolation would time out every v6
+      // probe — deny-all and correct enforcement would be indistinguishable.
+      assert.equal(
+        result.allowedV6443,
+        0,
+        "IPv6 positive baseline failed: the allowlisted v6 host on :443 must CONNECT — "
+          + "if the acceptance node/network lacks real v6 egress, fix the network "
+          + "(docker network --ipv6 + host v6 connectivity) before trusting any v6 "
+          + "deny result",
+      );
+      // v6 deny probe on a different, non-allowlisted real v6 :443 listener.
+      assert.equal(
+        result.ipv6,
+        1,
+        "a non-allowlisted routable v6 :443 listener must be DROPped (time out) — "
+          + "code 0 means v6 egress is open (the bypass); code 2 (fast-fail) is NOT "
+          + "creditable (REJECT/no-route, or bash /dev/tcp cannot form an IPv6 socket); "
+          + "either way v6 isolation cannot be credited, so the gate fails closed "
+          + "instead of passing",
+      );
+      // Counter attribution for v6, same reasoning as the v4 block below: the
+      // timeout must be attributable to OUR ip6tables chain, not an upstream
+      // firewall or a dead v6 route. (The positive baseline above already rules
+      // out "no v6 route at all".)
+      const freshV6Chains = [...maxDropPktsV6.entries()].filter(([chain]) => !baselineDropsV6.has(chain));
+      assert.ok(
+        freshV6Chains.some(([, pkts]) => pkts >= 1),
+        "this run's ip6tables managed chain must show ≥1 DROP-rule packet from the "
+          + "real v6 deny probe; observed fresh v6 chain DROP counters: "
+          + JSON.stringify(freshV6Chains),
       );
     }
   } finally {

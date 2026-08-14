@@ -22,7 +22,11 @@ test-results
 .github/
 /demo/
 agent-space-daemon-*.tgz
-!agent-space-daemon-0.1.3.tgz
+dofe-agent-daemon-*.tgz
+# Prisma 迁移工作笔记（本地维护，勿入库；重建产物请用 pnpm run daemon:pack）
+findings.md
+progress.md
+task_plan.md
 data/
 runtime-output/
 agent-output.json
