@@ -543,38 +543,45 @@ export function approveSkillUpgradeSync(input: {
   actorUserId?: string;
 }): { approvalId: string; created: boolean } {
   const workspaceId = input.workspaceId ?? "default";
-  // Atomic first-write-wins: `created` comes straight from the upsert
-  // (INSERT ... ON CONFLICT DO NOTHING), not from a racy pre-read. Under
-  // concurrent retries exactly one caller inserts and audits the decision; the
-  // rest observe `created: false` and return the surviving approval — instead
-  // of both reading empty and the second tripping the unique index.
-  const { record: approval, created } = createSkillUpgradeApprovalSync({
-    workspaceId: input.workspaceId,
-    skillId: input.skillId,
-    fromDigest: input.fromDigest,
-    toDigest: input.toDigest,
-    diffHash: input.diffHash,
-    decision: input.decision ?? "approved",
-    reason: input.reason,
-    actorUserId: input.actorUserId,
-    policyVersion: SKILL_UPGRADE_POLICY_VERSION,
-  });
-  if (created) {
-    recordSkillLifecycleAuditSync({
-      workspaceId,
-      code: "skill.upgrade_approval_decision",
-      title: "Skill upgrade approval decision",
-      note: `Upgrade approval ${approval.id} recorded as "${input.decision ?? "approved"}" for ${input.fromDigest} → ${input.toDigest}.`,
-      data: {
-        approvalId: approval.id,
-        fromDigest: input.fromDigest,
-        toDigest: input.toDigest,
-        diffHash: input.diffHash,
-        decision: input.decision ?? "approved",
-        actorUserId: input.actorUserId ?? null,
-      },
+  // Atomic first-write-wins AND atomic approval+audit. The approval upsert
+  // (INSERT ... ON CONFLICT DO NOTHING) and its lifecycle audit run inside ONE
+  // transaction, so an audit failure rolls the approval INSERT back too. A retry
+  // then re-inserts (created:true) and re-audits — instead of the prior split
+  // where a committed approval + failed audit left a PERMANENT audit gap (the
+  // retry saw created:false and could never backfill the missing audit). `created`
+  // still comes straight from the upsert, not a racy pre-read: under concurrent
+  // retries exactly one caller's row lands and audits; the rest observe
+  // created:false and return the surviving approval.
+  const { approval, created } = withTransaction(getDatabase(), () => {
+    const result = createSkillUpgradeApprovalSync({
+      workspaceId: input.workspaceId,
+      skillId: input.skillId,
+      fromDigest: input.fromDigest,
+      toDigest: input.toDigest,
+      diffHash: input.diffHash,
+      decision: input.decision ?? "approved",
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+      policyVersion: SKILL_UPGRADE_POLICY_VERSION,
     });
-  }
+    if (result.created) {
+      recordSkillLifecycleAuditSync({
+        workspaceId,
+        code: "skill.upgrade_approval_decision",
+        title: "Skill upgrade approval decision",
+        note: `Upgrade approval ${result.record.id} recorded as "${input.decision ?? "approved"}" for ${input.fromDigest} → ${input.toDigest}.`,
+        data: {
+          approvalId: result.record.id,
+          fromDigest: input.fromDigest,
+          toDigest: input.toDigest,
+          diffHash: input.diffHash,
+          decision: input.decision ?? "approved",
+          actorUserId: input.actorUserId ?? null,
+        },
+      });
+    }
+    return { approval: result.record, created: result.created };
+  });
   return { approvalId: approval.id, created };
 }
 

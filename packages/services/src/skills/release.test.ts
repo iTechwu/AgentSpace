@@ -4,6 +4,7 @@ import { after, before, test } from "node:test";
 import {
   createSkillUpgradeApprovalSync,
   getDatabase,
+  listAuditLogsSync,
   listManagedSkillServiceOperationsSync,
   listSkillUpgradeApprovalsSync,
   randomLikeId,
@@ -379,6 +380,41 @@ test("approveSkillUpgradeSync is atomic first-write-wins: a repeat returns creat
   assert.equal(initial.created, true, "the first decision inserts");
   assert.equal(repeat.created, false, "a repeat does not insert");
   assert.equal(repeat.approvalId, initial.approvalId, "the repeat returns the surviving approval, not a duplicate");
+});
+
+test("approveSkillUpgradeSync commits the approval and its audit atomically (both land together, audit gated on created)", () => {
+  // Regression for the split write: the approval INSERT and its lifecycle audit
+  // used to be separate statements, so an audit failure AFTER a committed approval
+  // left a permanent audit gap — the retry then saw created:false and could never
+  // backfill the missing audit. They now run inside ONE withTransaction, so the
+  // approval and its audit land together and a failure of either rolls both back
+  // (a retry re-inserts created:true and re-audits). This asserts the positive
+  // contract: both exist after a fresh insert, the audit fires exactly once, and a
+  // repeat neither re-creates the approval nor duplicates the audit. The rollback
+  // direction is enforced by the same withTransaction primitive the install/rollback
+  // paths exercise.
+  resetWorkspaceStateSync("default");
+  const { first, second } = buildUpgradeArtifacts();
+  const diffHash = breakingDiffHash(first, second);
+
+  const initial = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  assert.equal(initial.created, true, "the first decision inserts");
+
+  // The approval row AND its audit landed together in one transaction.
+  const approvals = listSkillUpgradeApprovalsSync("default").filter((row) => row.id === initial.approvalId);
+  assert.equal(approvals.length, 1, "the approval row committed");
+  const audits = listAuditLogsSync("default", { code: "skill.upgrade_approval_decision" })
+    .filter((row) => row.note.includes(initial.approvalId));
+  assert.equal(audits.length, 1, "the approval-decision audit committed alongside the approval");
+
+  // A repeat observes the surviving approval and must NOT duplicate the audit —
+  // the audit is atomic with and gated by the single authoritative insert.
+  const repeat = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  assert.equal(repeat.created, false);
+  assert.equal(repeat.approvalId, initial.approvalId);
+  const auditsAfterRepeat = listAuditLogsSync("default", { code: "skill.upgrade_approval_decision" })
+    .filter((row) => row.note.includes(initial.approvalId));
+  assert.equal(auditsAfterRepeat.length, 1, "the audit is recorded exactly once, never duplicated by a retry");
 });
 
 test("createSkillUpgradePlanSync rejects a breaking upgrade without an approval", () => {
