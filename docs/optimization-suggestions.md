@@ -2,6 +2,9 @@
 
 > 建立日期：2026-08-14。分析基线：`dev` 分支（领先 `origin/dev` 11 个提交）。
 > 范围：`apps/*` + `packages/*` + `deploy/` + `scripts/` + `docs/`，约 38 万行 TS/TSX、1,200+ 源文件、415 个测试文件。
+>
+> **落地进展（2026-08-14 更新）**：除「测试 CI 缺失」专项（本轮明确排除）外，P0 全部完成、P1 完成大半。
+> 各条目状态详见第二节总览表「状态」列与第三节行内标注（✅ 已完成含提交号 / 🟡 部分完成 / ⏳ 待办）。
 
 ---
 
@@ -46,27 +49,29 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 ## 二、优化建议总览（按优先级）
 
-| 优先级 | 主题 | 一句话 | 预估成本 |
-| --- | --- | --- | --- |
-| P0 | 仓库卫生 | 删除误提交的 `-`(plist) 文件、1.8MB tgz 构建产物入库、`.DS_Store`、失效 Prisma CI | 极低 |
-| P0 | daemon 死代码 | 删除 `provider-runtime.ts` 约 550 行未被调用的 legacy Codex/Claude 路径 | 低 |
-| P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 |
-| P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 |
-| P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 |
-| P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 |
-| P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 |
-| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 |
-| P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 |
-| P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 |
-| P2 | i18n 无 key | `tx(zh, en)` 内联双语无字典校验 | 中 |
-| P2 | 构建/版本漂移 | esbuild `target:node20` vs engines `^25.9.0`、版本号硬编码 | 低 |
-| P2 | sandbox 抽象虚置 | Cube `exec()` 未实现，`connectSandbox()` 无调用方 | 中 |
+| 优先级 | 主题 | 一句话 | 预估成本 | 状态 |
+| --- | --- | --- | --- | --- |
+| P0 | 仓库卫生 | 删除误提交的 `-`(plist) 文件、1.8MB tgz 构建产物入库、`.DS_Store`、失效 Prisma CI | 极低 | ✅ 66de23fc（部分条目核实为已过期，见 3.1 行内标注） |
+| P0 | daemon 死代码 | 删除 `provider-runtime.ts` 约 550 行未被调用的 legacy Codex/Claude 路径 | 低 | ✅ 3b81dd12（实际删除 859 行，2,679→1,820） |
+| P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ 0945c0cb（三处 blob 传输加 300s AbortController 超时） |
+| P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ 本轮明确排除，未动 |
+| P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏳ 待办（大工程，需按域渐进） |
+| P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 data.ts 已拆（683f2d9e，5,737→3,533+973+1,410）；permissions/runtime-provisioning/postgres-schema 等待办 |
+| P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 WorkspaceModuleHost 17 模块已改 next/dynamic 懒加载（32a1bb8a，全量 1153 用例通过）；channels-page-client 等文件内拆分待办 |
+| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | 🟡 文件级环 4→2（c8c7c37b，skills 三文件环与 feishu data-plane↔operation-plan 已解）；剩余 12 文件大 SCC 需设计级 channel/notification 分层 |
+| P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ⏳ 待办（属测试门禁类，与 CI 专项同批处理为宜） |
+| P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ 待办 |
+| P2 | i18n 无 key | `tx(zh, en)` 内联双语无字典校验 | 中 | ⏳ 待办 |
+| P2 | 构建/版本漂移 | esbuild `target:node20` vs engines `^25.9.0`、版本号硬编码 | 低 | 🟡 版本单一来源已做（0945c0cb，cli.ts 改读 package.json）；esbuild target/镜像 digest 锁定待办 |
+| P2 | sandbox 抽象虚置 | Cube `exec()` 未实现，`connectSandbox()` 无调用方 | 中 | ⏳ 待办 |
 
 ---
 
 ## 三、分领域优化建议
 
 ### 3.1 仓库卫生与工程化（P0，成本极低，立即做）
+
+> ✅ **已落地（66de23fc）**：`.gitignore` tgz 规则改为 `dofe-agent-daemon-*.tgz`；AI 规则 5 份重复文件改为指向 CLAUDE.md 的符号链接；`findings.md`/`progress.md`/`task_plan.md` 纳入 `.gitignore`。其余条目（`-` plist、`.DS_Store`、失效 Prisma CI、`data/*.sqlite`）复核时已不处于文档描述的状态，属过期结论，未重复处理。
 
 1. **删除误提交的 `-` 文件**：仓库根有一个名为 `-` 的 macOS plist（`mkcert` trustList，2019 字节，已 `git ls-files` 确认被跟踪），是 `curl -o -` 类操作误产物，含本机证书指纹，应删除并加入 `.gitignore`。
 2. **构建产物移出 git**：`dofe-agent-daemon-0.1.3.tgz`（1.8MB 二进制）自首个提交起就被跟踪。`.gitignore` 已有 `agent-space-daemon-*.tgz` 规则但文件名不匹配（应为 `dofe-agent-daemon-*.tgz`）。改为通过 CI artifact 或 release 附件发布。
@@ -98,7 +103,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 3. **【P1】打破模块循环依赖**（已核实）：
    - `messages → automations → workflows → messages`
    - `documents → notifications → messages → documents`
-   建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。
+   建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。🟡 **文件级环 4→2 已落地（c8c7c37b）**：skills `release↔installations↔import` 三文件环解体（锁计算下沉 `release-lock.ts`、安装排队下沉 `skill-services/install-queue.ts`）；飞书 `data-plane↔operation-plan` 解体（描述符常量下沉 `data-operation-descriptors.ts`）。剩余为 12 文件大 SCC（channel/notification 域，需设计级分层）与一个 type-only 运行时无害环（feishu agent-bot-bindings↔external-guests）。
 4. **【P1】飞书 24 个测试文件游离于测试门之外**：`src/integrations/...`（含全包最大测试 `inbound.test.ts` 2,406 行、`data-plane.test.ts` 2,239 行）不在 `package.json` 的 test glob 内，`verify-test-coverage.mjs` 注释为 "intentional"。**8,000+ 行测试形同虚设**——要么纳入门禁（纯单测无需外部环境），要么给独立 CI 任务。
 5. **【P2】手写 `.d.ts` 孪生去重**：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
 6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串**：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
@@ -108,8 +113,8 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 ### 3.4 Web 前端（apps/web，Next.js 16）
 
-1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）**：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。
-2. **【P1】代码分割**：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施，接入成本低）。同批处理 `agent-detail.tsx`(1,657)、`conversation-shell.tsx`(1,590)、`knowledge-page-client.tsx`(1,580)。
+1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）**：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。✅ **第一阶段已落地（683f2d9e）**：先按「类型层 / 视图构建层 / 装配层」切开——`data.ts` 3,533 行（各域 loader，`export *` 对外导入路径不变，43 个引用方零改动）、`data-types.ts` 973 行、`dashboard-view-builders.ts` 1,410 行，依赖单向 `data.ts → view-builders → data-types`。后续按域再拆 `features/*/server-data.ts` 有了干净落点。
+2. **【P1】代码分割**：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施，接入成本低）。同批处理 `agent-detail.tsx`(1,657)、`conversation-shell.tsx`(1,590)、`knowledge-page-client.tsx`(1,580)。✅ **WorkspaceModuleHost 部分已落地（32a1bb8a）**：17 个页面客户端全部改 `next/dynamic` 按模块懒加载，路由 page.tsx 仍静态导入保证 SSR 直出；全量 vitest 144 文件 / 1,153 用例通过。文件内拆分（agent-detail 等）⏳ 待办。
 3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）**：轮询/性能埋点/执行时间线/pin 逻辑已「文件内堆叠」，先抽 hooks 再抽子组件。
 4. **【P2】`next.config.mjs` 的 `typescript.ignoreBuildErrors: true`**：构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 目前不跑 typecheck）。建议移除该开关，让 `next build` 前强制 `tsc --noEmit`。
 5. **【P2】评估部分静态渲染**：全站 `force-dynamic`，但 `/platform`、设置只读 section、模板库等低个性化数据可评估 `revalidate` 或客户端缓存降载。
@@ -121,9 +126,9 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 ### 3.5 执行引擎（daemon/sandbox）
 
-1. **【P0】删除 legacy 死代码**：`provider-runtime.ts` 的 `runCodexProviderTaskAttempt`（830-916）与 `runClaudeProviderTask`（1589-~2050）从未被调用（Codex/Claude 已全走 AgentRouter），`mapCodexExecEvent`/`mapClaudeEvent` 仅被死路径使用——合计约 550 行，且与 `agent-router/events.ts` 存在平行事件映射重复。
-2. **【P0】daemon-client blob 传输加超时**：`getWorkspaceBlob`/`getWorkspaceBlobRange`/`uploadWorkspaceBlob` 的 fetch **没有 AbortSignal 超时**（`requestJson` 有 10s），大文件传输断网会无限挂起。
-3. **【P1】版本号单一来源**：`cli.ts:14` 硬编码 `"0.1.3"`（与 package.json 重复），建议构建注入或加测试断言。
+1. **【P0】删除 legacy 死代码**：`provider-runtime.ts` 的 `runCodexProviderTaskAttempt`（830-916）与 `runClaudeProviderTask`（1589-~2050）从未被调用（Codex/Claude 已全走 AgentRouter），`mapCodexExecEvent`/`mapClaudeEvent` 仅被死路径使用——合计约 550 行，且与 `agent-router/events.ts` 存在平行事件映射重复。✅ **已落地（3b81dd12）**：实际删除 859 行（含完整 Claude 诊断链与全部平行事件映射），文件 2,679→1,820 行，daemon 49/49 用例通过。
+2. **【P0】daemon-client blob 传输加超时**：`getWorkspaceBlob`/`getWorkspaceBlobRange`/`uploadWorkspaceBlob` 的 fetch **没有 AbortSignal 超时**（`requestJson` 有 10s），大文件传输断网会无限挂起。✅ **已落地（0945c0cb）**：三处 blob 传输加 300s（可配 `blobTransferTimeoutMs`）AbortController 超时，对齐 requestJson 模式。
+3. **【P1】版本号单一来源**：`cli.ts:14` 硬编码 `"0.1.3"`（与 package.json 重复），建议构建注入或加测试断言。✅ **已落地（0945c0cb）**：改为 `import package.json with { type: "json" }` 读取单一来源。
 4. **【P1】拆分三大文件**：`provider-runtime.ts`(2,679，清死代码后 ~2,100)、`remote-daemon.ts`(2,138，heartbeat/poll/execute 拆独立模块)、`task-context.ts`(1,544)。
 5. **【P1】sandbox 抽象决策收口**：Cube `exec()` 未实现（`CUBE_EXEC_NOT_READY`，"TODO 46"）；`connectSandbox()` 当前无调用方，`Sandbox` 接口未被执行路径真正接线。要么完成 Cube envd/E2B 数据面，要么移除实验开关与 README 承诺，避免「看似可选实则不可用」的抽象。
 6. **【P2】构建/版本漂移**：esbuild `target: node20` vs engines `^25.9.0`；`remote-daemon.ts` 硬编码 `dofe/agent-runtime-${provider}:latest`（生产应锁 digest）；4 个默认模型名硬编码在 `provider-runtime.ts`。
@@ -152,6 +157,8 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 ---
 
 ## 四、测试与 CI/CD 现状与建议（专项）
+
+> ⏸ **本轮未处理**：按决策，本轮优化明确排除测试 CI 专项，本节全部建议（含 3.6-1/2、3.3-4）保持待办状态。
 
 | 现状 | 问题 | 建议 |
 | --- | --- | --- |
