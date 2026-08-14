@@ -6,11 +6,9 @@ import {
   createChannelParticipantSync,
   listChannelAccessRequestsSync,
   listChannelInvitationsSync,
-  listChannelParticipantsSync,
   listWorkspaceMembershipsSync,
   readChannelAccessRequestSync,
   readChannelInvitationSync,
-  readChannelParticipantSync,
   removeChannelParticipantSync,
   readUserByEmailSync,
   readUserSync,
@@ -21,9 +19,8 @@ import {
   type StoredChannelAccessRequestRecord,
   type StoredChannelInvitationRecord,
   type StoredChannelParticipantRecord,
-  type WorkspaceRole,
 } from "@dofe-agent/db";
-import type { DofeAgentState, ChannelRecord } from "@dofe-agent/domain/workspace";
+import type { DofeAgentState } from "@dofe-agent/domain/workspace";
 import { updateChannelHumanMemberNamesSync } from "../channels/channels.ts";
 import { resolveChannelHumanMemberNames } from "../shared/channel-members.ts";
 import {
@@ -34,12 +31,24 @@ import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/sta
 import { sameValue } from "../shared/helpers.ts";
 import { isWorkspaceAdminOrOwnerRole } from "../shared/channel-members.ts";
 import { createNotificationSync, postNotificationChannelMessageSync } from "../notifications/notifications.ts";
+import {
+  canReadChannelForActorSync,
+  canReadDirectChannelForActorSync,
+  canWriteChannelForActorSync,
+  resolveActorRole,
+  type ChannelAccessActor,
+} from "../shared/access-decisions.ts";
 
-export interface ChannelAccessActor {
-  userId: string;
-  displayName?: string;
-  role?: WorkspaceRole;
-}
+// Re-export the access-decision surface so existing consumers
+// (messages / runtime-access / agent-access-requests / integrations/feishu /
+// index.ts) keep their imports unchanged.
+export {
+  canReadChannelForActorSync,
+  canReadDirectChannelForActorSync,
+  canWriteChannelForActorSync,
+  resolveActorRole,
+  type ChannelAccessActor,
+};
 
 export type ChannelAccessState = "accessible" | "pending" | "requestable";
 
@@ -47,69 +56,6 @@ export interface ChannelAccessSummary {
   channelName: string;
   state: ChannelAccessState;
   requestId?: string;
-}
-
-export function canReadChannelForActorSync(input: {
-  workspaceId: string;
-  channelName?: string | null;
-  actor: ChannelAccessActor;
-}): boolean {
-  const channelName = input.channelName?.trim();
-  if (!channelName) {
-    return true;
-  }
-  const state = ensureWorkspaceStateSync(input.workspaceId);
-  const channel = state.channels.find((item) => sameValue(item.name, channelName));
-  if (channel?.kind === "direct") {
-    return canReadDirectChannelForActorSync({
-      workspaceId: input.workspaceId,
-      channel,
-      actor: input.actor,
-      state,
-    });
-  }
-  if (isWorkspaceAdminOrOwnerRole(resolveActorRole(input.workspaceId, input.actor))) {
-    return true;
-  }
-  if (!input.actor.userId.trim()) {
-    return false;
-  }
-  const participant = readChannelParticipantSync(input.workspaceId, channelName, input.actor.userId);
-  if (participant?.status === "active") {
-    return true;
-  }
-
-  return canReadChannelByLegacyMembership(input.workspaceId, channelName, input.actor);
-}
-
-export function canReadDirectChannelForActorSync(input: {
-  workspaceId: string;
-  channel: ChannelRecord;
-  actor: ChannelAccessActor;
-  state?: DofeAgentState;
-}): boolean {
-  const actorUserId = input.actor.userId.trim();
-  if (!actorUserId) {
-    return false;
-  }
-  const participant = readChannelParticipantSync(input.workspaceId, input.channel.name, actorUserId);
-  if (participant?.status === "active") {
-    return true;
-  }
-
-  const state = input.state ?? ensureWorkspaceStateSync(input.workspaceId);
-  const actorDisplayName = input.actor.displayName?.trim() || readUserSync(actorUserId)?.displayName;
-  if (
-    actorDisplayName &&
-    resolveChannelHumanMemberNames(state, input.channel).some((name) => sameValue(name, actorDisplayName))
-  ) {
-    return true;
-  }
-
-  return input.channel.employeeNames.some((employeeName) => {
-    const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
-    return employee?.ownerUserId === actorUserId;
-  });
 }
 
 export function assertCanReadChannelForActorSync(input: {
@@ -120,14 +66,6 @@ export function assertCanReadChannelForActorSync(input: {
   if (!canReadChannelForActorSync(input)) {
     throw new Error("Forbidden.");
   }
-}
-
-export function canWriteChannelForActorSync(input: {
-  workspaceId: string;
-  channelName?: string | null;
-  actor: ChannelAccessActor;
-}): boolean {
-  return canReadChannelForActorSync(input);
 }
 
 export function assertCanWriteChannelForActorSync(input: {
@@ -575,13 +513,6 @@ export function revokeChannelInvitationForActorSync(input: {
   return revoked;
 }
 
-function resolveActorRole(workspaceId: string, actor: ChannelAccessActor): WorkspaceRole | undefined {
-  if (actor.role) {
-    return actor.role;
-  }
-  return readWorkspaceMembershipSync(workspaceId, actor.userId)?.role;
-}
-
 function assertWorkspaceManager(workspaceId: string, actor: ChannelAccessActor): void {
   if (!isWorkspaceAdminOrOwnerRole(resolveActorRole(workspaceId, actor))) {
     throw new Error("Forbidden.");
@@ -610,38 +541,6 @@ function assertChannelExists(workspaceId: string, channelName: string): void {
   if (!state.channels.some((channel) => sameValue(channel.name, channelName))) {
     throw new Error("channel.not_found");
   }
-}
-
-function canReadChannelByLegacyMembership(
-  workspaceId: string,
-  channelName: string,
-  actor: ChannelAccessActor,
-): boolean {
-  const state = ensureWorkspaceStateSync(workspaceId);
-  const channel = state.channels.find((item) => sameValue(item.name, channelName));
-  if (!channel) {
-    return false;
-  }
-  const hasStructuredAccessRows = listChannelParticipantsSync(workspaceId, channel.name, {
-    statuses: ["active", "removed"],
-  }).length > 0;
-  if (hasStructuredAccessRows) {
-    return false;
-  }
-
-  const displayName = actor.displayName?.trim() || readUserSync(actor.userId)?.displayName;
-  if (!displayName) {
-    return false;
-  }
-  const visibleHumanNames = resolveChannelHumanMemberNames(state, channel);
-  if (visibleHumanNames.length === 0) {
-    // A channel that resolves to no human members must default to private
-    // (deny). Returning true here would make memberless channels — e.g. ones
-    // created via `createChannelSync({ name })` with no participants, such as
-    // the CLI `channel create` path — readable by every workspace member.
-    return false;
-  }
-  return visibleHumanNames.some((candidate) => sameValue(candidate, displayName));
 }
 
 function syncLegacyHumanMemberForUser(workspaceId: string, channelName: string, userId: string): void {
