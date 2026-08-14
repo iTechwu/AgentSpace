@@ -4,7 +4,7 @@ import { basename } from "node:path";
 import { type DofeAgentState, type MessageAttachment, type WorkspaceMessage } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, readUserSync, readWorkspaceMembershipSync } from "@dofe-agent/db";
 import type { WorkspaceRole } from "@dofe-agent/db";
-import { canReadChannelForActorSync } from "../channel-access/channel-access.ts";
+import { canReadChannelForActorSync } from "../shared/access-decisions.ts";
 import { isWorkspaceAdminOrOwnerRole } from "../shared/channel-members.ts";
 import { readWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId, sanitizeAttachmentFileName, resolveAttachmentMediaType, inferAttachmentKind, sameValue } from "../shared/helpers.ts";
