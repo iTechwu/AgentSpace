@@ -17,7 +17,7 @@
     "@dofe-agent/services": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^25.9.5",
     "esbuild": "^0.28.2"
   },
   "engines": {

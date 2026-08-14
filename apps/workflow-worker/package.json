@@ -14,7 +14,7 @@
     "@dofe-agent/services": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^25.9.5",
     "typescript": "^5.9.3"
   }
 }
