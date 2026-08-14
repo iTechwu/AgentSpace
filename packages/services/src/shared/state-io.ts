@@ -30,7 +30,10 @@ import {
   createDefaultWorkspaceState,
   type DofeAgentState,
 } from "@dofe-agent/domain/workspace";
-import { ensureChannelDocumentAccessSeeds } from "./channel-document-access-seeds.ts";
+// Side-effect: 模块加载时一次性注册所有 state-io 后置钩子（含文档访问
+// 种子补全）。state-io 本体不再 import 任何域函数，只调用通用钩子。
+import "./state-hooks-registration.ts";
+import { runPostReadHooks, runPostWriteHooks } from "./state-hooks.ts";
 import { createAttachmentStorageClient } from "../attachments/storage.ts";
 import { normalizeWorkspaceState } from "./normalizers.ts";
 
@@ -51,7 +54,7 @@ export function readWorkspaceStateSnapshotSync(workspaceId = DEFAULT_WORKSPACE_I
   const stored = ensureWorkspaceStateRecordSync(createDefaultWorkspaceState(), workspaceId);
   const storedVersion = readWorkspaceStateVersion(stored);
   const snapshot = normalizeWorkspaceState(stored);
-  ensureChannelDocumentAccessSeeds(snapshot);
+  runPostReadHooks(snapshot);
 
   if (storedVersion !== undefined) {
     Object.defineProperty(snapshot, WORKSPACE_STATE_VERSION, {
@@ -76,7 +79,7 @@ export function writeWorkspaceStateSync(
 ): DofeAgentState {
   ensureWorkspaceRecordForStateSync(workspaceId);
   const normalized = normalizeWorkspaceState(state);
-  ensureChannelDocumentAccessSeeds(normalized);
+  runPostWriteHooks(normalized);
   persistCoreWorkspaceStorage(normalized, workspaceId);
   const written = writeWorkspaceStateRecordSync(normalized, workspaceId, {
     expectedVersion: readWorkspaceStateVersion(state),
