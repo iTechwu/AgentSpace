@@ -22,7 +22,11 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // packages/services/src/attachments/storage-tos.integration.test.ts — real-TOS integration
 // regression baseline for the tos-sdk(axios)/curl dual transport (needs TOS_* env; skips
 // cleanly without it). Same deferred class as real-PG integration tests.
-const EXPECTED_DEFERRED_DIGEST = "ee268d78e995a7d362cc62db8014a71c6c1c51cfe72487c27972eb3511f38bff";
+// Re-frozen 2026-08-14: added scripts/audit-node-engines.test.mjs — engines 审计
+// 回归测试（--root 夹具仓库 + 真实仓库回归锚点）。scripts/ 根目录不属于任何
+// workspace 包的默认测试运行，与 deploy/ 脚本测试同属 deferred 类；以
+// `node --test scripts/audit-node-engines.test.mjs` 单独执行。
+const EXPECTED_DEFERRED_DIGEST = "1b612bb1b25b0dde4a93712f81cb9a73609ce88f50d93b44be86c5610e383c05";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];

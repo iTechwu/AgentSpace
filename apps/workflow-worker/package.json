@@ -16,5 +16,8 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": "^25.9.0"
   }
 }

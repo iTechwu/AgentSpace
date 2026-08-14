@@ -12,5 +12,8 @@
       "types": "./dist-types/index.d.ts",
       "default": "./src/index.ts"
     }
+  },
+  "engines": {
+    "node": "^25.9.0"
   }
 }

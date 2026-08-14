@@ -37,9 +37,9 @@
 
 1. 不为规避 jsdom 的 engines 声明而升级 Node 26 或改 Docker。
 2. 不启用 `engine-strict`（会被 jsdom 单点阻断 25.9 安装）；作为等价替代，`pnpm audit:engines`（scripts/audit-node-engines.mjs）做两层检验并 fail-closed：
-   - **仓库 manifest 层**：根与全部 workspace 包（`pnpm-workspace.yaml` 内）的 engines.node 必须覆盖目标 Node 版本，任何一处不匹配直接 exit 1——用受支持的运行时跑仓库属于配置错误，不做“仅供参考”降级。
-   - **依赖层**：全部安装依赖的 engines.node 检验，出现 KNOWN_EXCEPTIONS（精确钉 `jsdom@30.0.1`）之外的违规即 exit 1。
-   执行路径：已接入根 package.json 的 `pretest`，`pnpm test` 自动执行；也可手动 `pnpm audit:engines`（或 `--node <版本>` 假设性检查）。CI/部署工作流当前不自动运行本审计（生产部署只跑构建 + Skill Runner egress 门禁）。
+   - **仓库 manifest 层**：根与全部 workspace 包（`pnpm-workspace.yaml` 内，共 11 个 manifest，均已显式声明 `^25.9.0`）的 engines.node **必须显式声明且覆盖目标 Node 版本**——缺失声明、范围不覆盖、范围无法解析、workspace glob 未命中任何 manifest 均直接 exit 1。
+   - **依赖层**：全部安装依赖的 engines.node 检验，出现 KNOWN_EXCEPTIONS（精确钉 `jsdom@30.0.1`）之外的违规即 exit 1；未声明 engines.node 的第三方包不作检验（advisory，无法要求上游补声明）。
+   执行路径：已接入根 package.json 的 `pretest`，`pnpm test` 自动执行；也可手动 `pnpm audit:engines`（或 `--node <版本>` 假设性检查）。回归测试 `node --test scripts/audit-node-engines.test.mjs`（--root 夹具仓库覆盖缺声明/不覆盖/无效范围/glob 未命中/依赖违规，并以真实仓库作为必须通过的回归锚点）。CI/部署工作流当前不自动运行本审计（生产部署只跑构建 + Skill Runner egress 门禁）。
    已知局限：依赖层扫描基于当前平台实际安装的 `node_modules/.pnpm`，其他平台的 optionalDependencies 未安装时不会被检验；跨平台结论需在目标平台各跑一次。
 3. **复核触发**：jsdom 升级后若仍排除 Node 25，`pnpm audit:engines` 会因例外钉的版本失配而转红，需同步更新脚本内 KNOWN_EXCEPTIONS 与本文档；当仓库升级到 Node 26 时该例外自动失效（jsdom 声明已匹配，脚本会提示例外可移除）。
 

@@ -27,7 +27,11 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "..");
+// --root 允许测试在夹具仓库上运行审计；默认为脚本所在仓库根。
+const rootIdx = process.argv.indexOf("--root");
+const repoRoot = rootIdx !== -1 && process.argv[rootIdx + 1]
+  ? path.resolve(process.argv[rootIdx + 1])
+  : path.resolve(__dirname, "..");
 
 // 已记录在 docs/0814/node-runtime-matrix.md 的限时例外。精确钉版本：
 // jsdom 升级后若仍排除 Node 25，会重新 exit 1，强制重新核对该例外；
@@ -111,54 +115,75 @@ function globToRegex(glob) {
   return new RegExp(`^${escaped}$`);
 }
 
-/** 根 + 全部 workspace 包的 manifest 路径（相对仓库根）。 */
+/** 根 + 全部 workspace 包的 manifest 路径（相对仓库根）。任何 glob 未命中
+ *  至少一个 manifest 视为配置错误（目录被改名/移走后静默缩小审计范围）。 */
 function collectWorkspaceManifests() {
   const manifests = ["package.json"];
+  const unmatchedGlobs = [];
   for (const glob of readWorkspaceGlobs()) {
     const segs = glob.split("/");
     const pattern = globToRegex(segs[segs.length - 1] || "*");
     const base = path.join(repoRoot, ...segs.slice(0, -1));
-    if (!fs.existsSync(base)) continue;
+    if (!fs.existsSync(base)) {
+      unmatchedGlobs.push(glob);
+      continue;
+    }
+    let matched = false;
     for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       if (!pattern.test(entry.name)) continue;
       const manifest = path.join(base, entry.name, "package.json");
-      if (fs.existsSync(manifest)) manifests.push(path.relative(repoRoot, manifest));
+      if (fs.existsSync(manifest)) {
+        manifests.push(path.relative(repoRoot, manifest));
+        matched = true;
+      }
     }
+    if (!matched) unmatchedGlobs.push(glob);
   }
-  return manifests;
+  return { manifests, unmatchedGlobs };
 }
 
 const target = targetNodeVersion();
 const semver = loadSemver();
 
-// 第一层：仓库自身 manifest（根 + 全部 workspace 包）。运行时/目标版本不在
-// 声明范围内属于仓库级配置错误，直接 exit 1，不做“仅供参考”降级。
+// 第一层：仓库自身 manifest（根 + 全部 workspace 包）。缺失 engines.node
+// 声明、范围不覆盖目标版本、范围无法解析、glob 未命中，全部视为违规并
+// exit 1（fail-closed）——运行时契约必须显式声明，缺声明不是“通过”。
 const manifestViolations = [];
-const workspaceManifests = collectWorkspaceManifests();
+const { manifests: workspaceManifests, unmatchedGlobs } = collectWorkspaceManifests();
+if (unmatchedGlobs.length > 0) {
+  console.error(`目标 Node 版本：${target}`);
+  console.error(`\npnpm-workspace.yaml 的以下 glob 未命中任何 manifest（fail-closed）：`);
+  for (const g of unmatchedGlobs) console.error(`  ${g}`);
+  console.error("\nengines 审计未通过：workspace 范围解析异常，审计范围无法确认。");
+  process.exit(1);
+}
 for (const manifest of workspaceManifests) {
   let pkg;
   try {
     pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, manifest), "utf8"));
   } catch {
+    manifestViolations.push([manifest, "manifest JSON 无法解析"]);
     continue;
   }
   const range = pkg.engines && pkg.engines.node;
-  if (!range) continue;
+  if (!range) {
+    manifestViolations.push([manifest, "缺失 engines.node 声明"]);
+    continue;
+  }
   let ok;
   try {
     ok = semver.satisfies(target, range);
   } catch {
     ok = null;
   }
-  if (ok !== true) manifestViolations.push([manifest, range, ok === null]);
+  if (ok === false) manifestViolations.push([manifest, `engines.node=${JSON.stringify(range)} 不覆盖 ${target}`]);
+  else if (ok === null) manifestViolations.push([manifest, `engines.node=${JSON.stringify(range)} 无法解析`]);
 }
 if (manifestViolations.length > 0) {
   console.error(`目标 Node 版本：${target}`);
-  console.error(`\n仓库 manifest 违规（${manifestViolations.length}）——engines.node 不覆盖目标版本，fail-closed：`);
-  for (const [m, r, unparseable] of manifestViolations) {
-    console.error(`  ${m}  engines.node=${JSON.stringify(r)}${unparseable ? "（无法解析）" : ""}`);
-  }
+  console.error(`\n仓库 manifest 违规（${manifestViolations.length}）——必须显式声明且覆盖目标版本，fail-closed：`);
+  for (const [m, reason] of manifestViolations) console.error(`  ${m}  ${reason}`);
   console.error("\nengines 审计未通过：仓库 manifest 与目标 Node 版本不匹配。");
   process.exit(1);
 }
@@ -200,8 +225,8 @@ const known = violations.filter(([k]) => KNOWN_EXCEPTIONS.has(k));
 const stale = Array.from(KNOWN_EXCEPTIONS).filter((k) => !known.some(([vk]) => vk === k));
 
 console.log(`目标 Node 版本：${target}`);
-console.log(`仓库 manifest：${workspaceManifests.length}（根 + workspace 包，engines.node 全部覆盖目标版本）`);
-console.log(`扫描唯一包：${seen.size}（其中声明 engines.node：${declared}）`);
+console.log(`仓库 manifest：${workspaceManifests.length}（根 + workspace 包，engines.node 全部显式声明且覆盖目标版本）`);
+console.log(`依赖扫描唯一包：${seen.size}（声明 engines.node：${declared}；未声明的第三方包不作检验——engines 是 advisory，无法要求上游补声明）`);
 console.log(`违规（engines.node 不覆盖 ${target}）：${violations.length}`);
 
 if (known.length > 0) {
