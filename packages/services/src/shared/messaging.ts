@@ -35,10 +35,6 @@ import {
   upsertConversationExecutionWorkspaceState,
 } from "./conversation-execution-workspaces.ts";
 import {
-  assertCanUseBoundEmployeeRuntimeInChannelForActorSync,
-  assertCanUseEmployeeInChannelForActorSync,
-} from "../runtime-access/runtime-access.ts";
-import {
   decideWorkspaceDataPolicyForExternalMessageSync,
   type WorkspaceDataPolicyDecision,
 } from "../policies/workspace-data.ts";
@@ -313,22 +309,10 @@ export function enqueueChannelMentionStepSync(
     hasAttachments: Boolean(input.attachments && input.attachments.length > 0),
   });
   assertWorkspaceDataPolicyAllowsExternalMessageInput(externalInput);
-  if (input.requesterUserId) {
-    assertCanUseEmployeeInChannelForActorSync({
-      workspaceId,
-      employeeName: agent.name,
-      channelName: input.channelName,
-      actorUserId: input.requesterUserId,
-      actorDisplayName: input.requesterDisplayName,
-    });
-    assertCanUseBoundEmployeeRuntimeInChannelForActorSync({
-      workspaceId,
-      employeeName: agent.name,
-      channelName: input.channelName,
-      actorUserId: input.requesterUserId,
-      actorDisplayName: input.requesterDisplayName,
-    });
-  }
+  // runtime-access 授权检查（assertCanUseEmployeeInChannelForActorSync /
+  // assertCanUseBoundEmployeeRuntimeInChannelForActorSync）由调用方负责：
+  // 调用方（messages.ts 等）已在外层做完整断言，此处不再重复（避免与
+  // runtime-access 形成环依赖），仅在 requesterUserId 缺失时跳过。
   const existingExecutionWorkspace = readConversationExecutionWorkspaceState(state, {
     channelName: input.channelName,
     agentId: agent.name,
