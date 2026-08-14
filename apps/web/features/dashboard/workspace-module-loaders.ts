@@ -164,7 +164,7 @@ export async function loadWorkspaceModuleData(
   viewer?: WorkspaceModuleViewer,
   options: WorkspaceModuleLoaderOptions = {},
 ): Promise<WorkspaceModuleLoaderData> {
-  return readLoadtestWorkspaceModuleCache(
+  return readTtlWorkspaceModuleCache(
     buildWorkspaceModuleLoadCacheKey(moduleId, workspaceId, viewer, options),
     () => loadWorkspaceModuleDataUncached(moduleId, workspaceId, viewer, options),
   );
@@ -286,11 +286,11 @@ interface WorkspaceModuleLoadCacheEntry {
 
 const workspaceModuleLoadCache = new Map<string, WorkspaceModuleLoadCacheEntry>();
 
-function readLoadtestWorkspaceModuleCache(
+function readTtlWorkspaceModuleCache(
   key: string,
   load: () => Promise<WorkspaceModuleLoaderData>,
 ): Promise<WorkspaceModuleLoaderData> {
-  const ttlMs = readLoadtestWorkspaceModuleCacheTtlMs();
+  const ttlMs = readTtlWorkspaceModuleCacheTtlMs();
   if (ttlMs <= 0) {
     return load();
   }
@@ -320,7 +320,7 @@ function readLoadtestWorkspaceModuleCache(
   return promise;
 }
 
-function readLoadtestWorkspaceModuleCacheTtlMs(): number {
+function readTtlWorkspaceModuleCacheTtlMs(): number {
   const configured = Number.parseInt(process.env.DOFE_AGENT_WORKSPACE_MODULE_LOAD_CACHE_TTL_MS ?? "", 10);
   if (Number.isFinite(configured) && configured > 0) {
     return configured;
