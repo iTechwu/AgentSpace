@@ -36,6 +36,7 @@ import {
   MAX_SKILL_PACKAGE_FILES,
 } from "./package/archive-limits.ts";
 
+let WORKSPACE_ID = "";
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-skill-import-"));
 const originalFetch = globalThis.fetch;
@@ -50,7 +51,9 @@ before(() => {
 });
 
 beforeEach(() => {
-  resetWorkspaceStateSync();
+  // 每个用例铸造独立 workspace，避免共享 default workspace（并行分片/顺序污染）。
+  WORKSPACE_ID = `skill-import-${randomLikeId()}`;
+  resetWorkspaceStateSync(WORKSPACE_ID);
   globalThis.fetch = createGitHubFetchMock();
 });
 
@@ -61,10 +64,11 @@ after(() => {
 
 test("importWorkspaceSkillFromUrl imports a GitHub skill directory with source metadata", async () => {
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
   });
 
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill?.name, "research-pack");
   assert.equal(skill?.description, "Research helper");
@@ -73,15 +77,16 @@ test("importWorkspaceSkillFromUrl imports a GitHub skill directory with source m
   assert.equal(skill?.files.some((file) => file.path === "templates/checklist.md"), true);
   assert.equal(result.created, true);
   assert.equal(result.renamed, false);
-  assert.equal(listStoredSkillImportEventsSync(undefined, 5)[0]?.skillId, result.skillId);
+  assert.equal(listStoredSkillImportEventsSync(WORKSPACE_ID, 5)[0]?.skillId, result.skillId);
 });
 
 test("importWorkspaceSkillFromUrl discovers the only skill in a GitHub repository URL", async () => {
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo",
   });
 
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill.name, "research-pack");
   assert.equal(skill.sourceUrl, "https://github.com/octo-org/skill-repo");
@@ -90,6 +95,235 @@ test("importWorkspaceSkillFromUrl discovers the only skill in a GitHub repositor
   assert.equal(config.ref, "stable");
   assert.equal(config.path, "skills/research-pack");
   assert.equal(config.resolvedRef, "abc123def456789012345678901234567890abcd");
+});
+
+test("importWorkspaceSkillFromUrl downloads discovered files from immutable raw URLs", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("/contents/")) {
+      return new Response("API rate limit exceeded", { status: 403 });
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+
+  const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
+    url: "https://github.com/octo-org/skill-repo",
+  });
+
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill.files.some((file) => file.path === "templates/checklist.md"), true);
+});
+
+test("importWorkspaceSkillFromUrl downloads discovered GitHub files with bounded concurrency", async () => {
+  const previousFetch = globalThis.fetch;
+  const sha = "abc123def456789012345678901234567890abcd";
+  const paths = [
+    "skill/SKILL.md",
+    ...Array.from({ length: 7 }, (_, index) => `skill/references/file-${index + 1}.md`),
+  ];
+  let activeRawRequests = 0;
+  let maxActiveRawRequests = 0;
+
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/parallel-skill-repo") {
+      return jsonResponse({ default_branch: "main" });
+    }
+    if (url === "https://api.github.com/repos/octo-org/parallel-skill-repo/commits/main") {
+      return jsonResponse({ sha });
+    }
+    if (url === `https://api.github.com/repos/octo-org/parallel-skill-repo/git/trees/${sha}?recursive=1`) {
+      return jsonResponse({
+        truncated: false,
+        tree: paths.map((path) => ({ path, type: "blob", mode: "100644" })),
+      });
+    }
+    if (url.startsWith(`https://raw.githubusercontent.com/octo-org/parallel-skill-repo/${sha}/`)) {
+      activeRawRequests += 1;
+      maxActiveRawRequests = Math.max(maxActiveRawRequests, activeRawRequests);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      activeRawRequests -= 1;
+      return new Response(url.endsWith("/SKILL.md")
+        ? "---\nname: parallel-skill\ndescription: Parallel download test\n---\n# Parallel Skill\n"
+        : "# Reference\n");
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+
+  const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
+    url: "https://github.com/octo-org/parallel-skill-repo",
+  });
+
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill.files.length, paths.length);
+  assert.ok(maxActiveRawRequests > 1, `expected concurrent raw downloads, got ${maxActiveRawRequests}`);
+  assert.ok(maxActiveRawRequests <= 4, `expected at most 4 raw downloads, got ${maxActiveRawRequests}`);
+});
+
+test("importWorkspaceSkillFromUrl falls back to immutable Contents API when raw downloads fail", async () => {
+  const previousFetch = globalThis.fetch;
+  const sha = "abc123def456789012345678901234567890abcd";
+  const contents: Record<string, string> = {
+    "skill/SKILL.md": "---\nname: fallback-skill\ndescription: Raw fallback test\n---\n# Fallback Skill\n",
+    "skill/references/checklist.md": "- verify fallback\n",
+  };
+  let rawHadTimeoutSignal = true;
+  let contentsFallbackRequests = 0;
+
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/fallback-skill-repo") {
+      return jsonResponse({ default_branch: "main" });
+    }
+    if (url === "https://api.github.com/repos/octo-org/fallback-skill-repo/commits/main") {
+      return jsonResponse({ sha });
+    }
+    if (url === `https://api.github.com/repos/octo-org/fallback-skill-repo/git/trees/${sha}?recursive=1`) {
+      return jsonResponse({
+        truncated: false,
+        tree: Object.keys(contents).map((path) => ({ path, type: "blob", mode: "100644" })),
+      });
+    }
+    if (url.startsWith(`https://raw.githubusercontent.com/octo-org/fallback-skill-repo/${sha}/`)) {
+      rawHadTimeoutSignal &&= init?.signal instanceof AbortSignal;
+      throw new TypeError("fetch failed");
+    }
+    if (url.startsWith("https://api.github.com/repos/octo-org/fallback-skill-repo/contents/")) {
+      contentsFallbackRequests += 1;
+      const parsed = new URL(url);
+      assert.equal(parsed.searchParams.get("ref"), sha);
+      const path = decodeURIComponent(parsed.pathname.split("/contents/")[1] ?? "");
+      const content = contents[path];
+      return content === undefined
+        ? new Response("Not found", { status: 404 })
+        : jsonResponse({
+            type: "file",
+            encoding: "base64",
+            content: Buffer.from(content).toString("base64"),
+          });
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+
+  const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
+    url: "https://github.com/octo-org/fallback-skill-repo",
+  });
+
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.deepEqual(skill.files.map((file) => file.path), ["SKILL.md", "references/checklist.md"]);
+  assert.equal(rawHadTimeoutSignal, true);
+  assert.equal(contentsFallbackRequests, 2);
+});
+
+test("importWorkspaceSkillFromUrl imports a repository-root SKILL.md", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/root-skill-repo") {
+      return jsonResponse({ default_branch: "stable" });
+    }
+    if (url === "https://api.github.com/repos/octo-org/root-skill-repo/commits/stable") {
+      return jsonResponse({ sha: "abc123def456789012345678901234567890abcd" });
+    }
+    if (url.includes("/octo-org/root-skill-repo/git/trees/")) {
+      return jsonResponse({
+        truncated: false,
+        tree: [
+          { path: "SKILL.md", type: "blob", mode: "100644" },
+          { path: "references/checklist.md", type: "blob", mode: "100644" },
+        ],
+      });
+    }
+    if (url.endsWith("/root-skill-repo/abc123def456789012345678901234567890abcd/SKILL.md")) {
+      return new Response("---\nname: root-skill\ndescription: Root skill\n---\n# Root Skill\n");
+    }
+    if (url.endsWith("/root-skill-repo/abc123def456789012345678901234567890abcd/references/checklist.md")) {
+      return new Response("- verify root package\n");
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+
+  const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
+    url: "https://github.com/octo-org/root-skill-repo",
+  });
+
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill.name, "root-skill");
+  assert.deepEqual(skill.files.map((file) => file.path), ["SKILL.md", "references/checklist.md"]);
+});
+
+test("importWorkspaceSkillFromUrl rejects repository URLs without exactly one skill", async (context) => {
+  const cases = [
+    {
+      name: "no SKILL.md",
+      repo: "empty-skill-repo",
+      tree: [{ path: "README.md", type: "blob" }],
+      error: /does not contain SKILL\.md/,
+    },
+    {
+      name: "multiple SKILL.md files",
+      repo: "multi-skill-repo",
+      tree: [
+        { path: "skills/one/SKILL.md", type: "blob" },
+        { path: "skills/two/SKILL.md", type: "blob" },
+      ],
+      error: /contains multiple skills/,
+    },
+  ];
+
+  for (const scenario of cases) {
+    await context.test(scenario.name, async () => {
+      const previousFetch = createGitHubFetchMock();
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url === `https://api.github.com/repos/octo-org/${scenario.repo}`) {
+          return jsonResponse({ default_branch: "main" });
+        }
+        if (url === `https://api.github.com/repos/octo-org/${scenario.repo}/commits/main`) {
+          return jsonResponse({ sha: "abc123def456789012345678901234567890abcd" });
+        }
+        if (url.includes(`/octo-org/${scenario.repo}/git/trees/`)) {
+          return jsonResponse({ truncated: false, tree: scenario.tree });
+        }
+        return previousFetch(input, init);
+      }) as typeof fetch;
+
+      await assert.rejects(
+        importWorkspaceSkillFromUrl({
+          workspaceId: WORKSPACE_ID,
+          url: `https://github.com/octo-org/${scenario.repo}`,
+        }),
+        scenario.error,
+      );
+    });
+  }
+});
+
+test("importWorkspaceSkillFromUrl keeps blob and raw SKILL.md links compatible", async () => {
+  const urls = [
+    "https://github.com/octo-org/skill-repo/blob/main/skills/research-pack/SKILL.md",
+    "https://raw.githubusercontent.com/octo-org/skill-repo/main/skills/research-pack/SKILL.md",
+  ];
+
+  for (const url of urls) {
+    const result = await importWorkspaceSkillFromUrl({
+      workspaceId: WORKSPACE_ID,
+      url,
+      conflict: "rename",
+    });
+    const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
+    assert.ok(skill);
+    assert.deepEqual(skill.files.map((file) => file.path), ["SKILL.md"]);
+  }
 });
 
 test("importWorkspaceSkillFromUrl rejects truncated GitHub repository discovery", async () => {
@@ -112,13 +346,14 @@ test("importWorkspaceSkillFromUrl rejects truncated GitHub repository discovery"
   }) as typeof fetch;
 
   await assert.rejects(
-    importWorkspaceSkillFromUrl({ url: "https://github.com/octo-org/large-skill-repo" }),
+    importWorkspaceSkillFromUrl({ workspaceId: WORKSPACE_ID, url: "https://github.com/octo-org/large-skill-repo" }),
     /repository tree is too large to discover a unique skill safely/,
   );
 });
 
 test("inspectWorkspaceSkillSourceUpdate does not rediscover a repository URL skill", async () => {
   const imported = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo",
   });
   const previousFetch = globalThis.fetch;
@@ -130,7 +365,7 @@ test("inspectWorkspaceSkillSourceUpdate does not rediscover a repository URL ski
     return previousFetch(input, init);
   }) as typeof fetch;
 
-  const inspection = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+  const inspection = await inspectWorkspaceSkillSourceUpdate({ workspaceId: WORKSPACE_ID, skillId: imported.skillId });
 
   assert.equal(inspection.status, "up_to_date");
   assert.equal(inspection.latestResolvedRef, "abc123def456789012345678901234567890abcd");
@@ -138,14 +373,15 @@ test("inspectWorkspaceSkillSourceUpdate does not rediscover a repository URL ski
 
 test("importWorkspaceSkillFromUrl locks GitHub imports to an immutable commit SHA", async () => {
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
   });
 
   assert.ok(result.artifactDigest);
-  const artifact = readSkillArtifactByDigestSync(result.artifactDigest, "default");
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest, WORKSPACE_ID);
   assert.ok(artifact);
   const provenance = JSON.parse(artifact.provenanceJson) as { resolvedRef?: string; originalUrl?: string };
-  const skillConfig = JSON.parse(readStoredWorkspaceSkillSync(result.skillId)?.configJson ?? "{}") as {
+  const skillConfig = JSON.parse(readStoredWorkspaceSkillSync(result.skillId, WORKSPACE_ID)?.configJson ?? "{}") as {
     resolvedRef?: string;
     originalUrl?: string;
   };
@@ -154,18 +390,19 @@ test("importWorkspaceSkillFromUrl locks GitHub imports to an immutable commit SH
     provenance.originalUrl ?? skillConfig.originalUrl,
     "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
   );
-  assert.deepEqual(listSkillArtifactBindingsForSkillSync(result.skillId), [result.artifactDigest]);
-  assert.deepEqual(listSkillArtifactsForSkillSync(result.skillId).map((item) => item.digest), [result.artifactDigest]);
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(result.skillId, WORKSPACE_ID), [result.artifactDigest]);
+  assert.deepEqual(listSkillArtifactsForSkillSync(result.skillId, WORKSPACE_ID).map((item) => item.digest), [result.artifactDigest]);
 });
 
 test("inspectWorkspaceSkillSourceUpdate detects a newer ref without creating a candidate", async () => {
   const imported = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
   });
-  const artifactCountBefore = listSkillArtifactsForSkillSync(imported.skillId).length;
-  const bindingsBefore = listSkillArtifactBindingsForSkillSync(imported.skillId);
+  const artifactCountBefore = listSkillArtifactsForSkillSync(imported.skillId, WORKSPACE_ID).length;
+  const bindingsBefore = listSkillArtifactBindingsForSkillSync(imported.skillId, WORKSPACE_ID);
 
-  const unchanged = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+  const unchanged = await inspectWorkspaceSkillSourceUpdate({ workspaceId: WORKSPACE_ID, skillId: imported.skillId });
   assert.equal(unchanged.status, "up_to_date");
   assert.equal(unchanged.currentResolvedRef, "abc123def456789012345678901234567890abcd");
   assert.equal(unchanged.latestResolvedRef, unchanged.currentResolvedRef);
@@ -179,7 +416,7 @@ test("inspectWorkspaceSkillSourceUpdate detects a newer ref without creating a c
     return previousFetch(input, init);
   }) as typeof fetch;
   try {
-    const update = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+    const update = await inspectWorkspaceSkillSourceUpdate({ workspaceId: WORKSPACE_ID, skillId: imported.skillId });
     assert.equal(update.status, "update_available");
     assert.equal(update.currentResolvedRef, "abc123def456789012345678901234567890abcd");
     assert.equal(update.latestResolvedRef, "fedcba987654321001234567890123456789abcd");
@@ -187,13 +424,14 @@ test("inspectWorkspaceSkillSourceUpdate detects a newer ref without creating a c
     globalThis.fetch = previousFetch;
   }
 
-  assert.equal(listSkillArtifactsForSkillSync(imported.skillId).length, artifactCountBefore);
-  assert.deepEqual(listSkillArtifactBindingsForSkillSync(imported.skillId), bindingsBefore);
-  assert.equal(readStoredSkillActiveArtifactDigestSync(imported.skillId), imported.artifactDigest);
+  assert.equal(listSkillArtifactsForSkillSync(imported.skillId, WORKSPACE_ID).length, artifactCountBefore);
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(imported.skillId, WORKSPACE_ID), bindingsBefore);
+  assert.equal(readStoredSkillActiveArtifactDigestSync(imported.skillId, WORKSPACE_ID), imported.artifactDigest);
 });
 
 test("inspectWorkspaceSkillSourceUpdate honors the operations freeze before network access", async () => {
   const imported = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
   });
   const previousFlag = process.env.DOFE_SKILL_SOURCE_UPDATE_CHECKS_ENABLED;
@@ -203,7 +441,7 @@ test("inspectWorkspaceSkillSourceUpdate honors the operations freeze before netw
     throw new Error("network access must remain frozen");
   }) as typeof fetch;
   try {
-    const inspection = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+    const inspection = await inspectWorkspaceSkillSourceUpdate({ workspaceId: WORKSPACE_ID, skillId: imported.skillId });
     assert.equal(inspection.status, "disabled");
     assert.equal(inspection.reason, "skill_source_updates_disabled");
   } finally {
@@ -214,6 +452,7 @@ test("inspectWorkspaceSkillSourceUpdate honors the operations freeze before netw
 
 test("inspectWorkspaceSkillSourceUpdate handles a deduplicated artifact with different provenance", async () => {
   const seeded = buildAndPersistSkillArtifactSync({
+    workspaceId: WORKSPACE_ID,
     name: "research-pack",
     files: [
       {
@@ -228,34 +467,36 @@ test("inspectWorkspaceSkillSourceUpdate handles a deduplicated artifact with dif
   });
   getDatabase().prepare(
     "UPDATE skill_artifact SET provenance_json = ? WHERE workspace_id = ? AND digest = ?",
-  ).run(JSON.stringify({ provider: "local" }), "default", seeded.digest);
+  ).run(JSON.stringify({ provider: "local" }), WORKSPACE_ID, seeded.digest);
 
   const imported = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
   });
-  const artifact = readSkillArtifactByDigestSync(imported.artifactDigest!, "default");
+  const artifact = readSkillArtifactByDigestSync(imported.artifactDigest!, WORKSPACE_ID);
   assert.ok(artifact);
   assert.equal((JSON.parse(artifact.provenanceJson) as { provider?: string }).provider, "local");
-  assert.deepEqual(listSkillArtifactBindingsForSkillSync(imported.skillId), [imported.artifactDigest]);
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(imported.skillId, WORKSPACE_ID), [imported.artifactDigest]);
 
-  const inspection = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+  const inspection = await inspectWorkspaceSkillSourceUpdate({ workspaceId: WORKSPACE_ID, skillId: imported.skillId });
   assert.equal(inspection.status, "up_to_date");
   assert.equal(inspection.currentResolvedRef, "abc123def456789012345678901234567890abcd");
 });
 
 test("importWorkspaceSkillFromUrl imports a paginated GitLab directory at an immutable commit", async () => {
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://gitlab.com/octo-group/skill-repo/-/tree/main/skills/research-pack",
   });
 
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill.sourceType, "gitlab");
   assert.equal(skill.name, "gitlab-research-pack");
   assert.equal(skill.files.some((file) => file.path === "references/checklist.md"), true);
   assert.equal(skill.files.some((file) => file.path === "scripts/run.sh"), true);
 
-  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, "default");
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, WORKSPACE_ID);
   assert.ok(artifact);
   const provenance = JSON.parse(artifact.provenanceJson) as { resolvedRef?: string; originalUrl?: string };
   assert.equal(provenance.resolvedRef, "def456abc789012345678901234567890abcdef1");
@@ -266,10 +507,11 @@ test("importWorkspaceSkillFromUrl imports a paginated GitLab directory at an imm
 
 test("importWorkspaceSkillFromUrl imports a skills.sh page by resolving its GitHub source", async () => {
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://skills.sh/apollographql/skills/skill-creator",
   });
 
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill?.sourceType, "skills.sh");
   assert.equal(skill?.name, "skill-creator");
@@ -277,11 +519,12 @@ test("importWorkspaceSkillFromUrl imports a skills.sh page by resolving its GitH
 
 test("importWorkspaceSkillFromUrl resolves quoted skills.sh skill names", async () => {
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://skills.sh/aj-geddes/claude-code-bmad-skills/product-manager",
     conflict: "rename",
   });
 
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill?.sourceType, "skills.sh");
   assert.equal(skill?.name.startsWith("product-manager"), true);
@@ -292,27 +535,29 @@ test("importWorkspaceSkillFromUrl can rename on conflict", async () => {
   createWorkspaceSkillSync({
     name: "research-pack",
     description: "Manual version",
-  });
+  }, WORKSPACE_ID);
 
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
     conflict: "rename",
   });
 
   assert.equal(result.created, true);
   assert.equal(result.renamed, true);
-  assert.ok(listWorkspaceSkillsSync().some((skill) => skill.id === result.skillId && skill.name !== "research-pack"));
+  assert.ok(listWorkspaceSkillsSync(WORKSPACE_ID).some((skill) => skill.id === result.skillId && skill.name !== "research-pack"));
 });
 
 test("importWorkspaceSkillFromUrl can replace existing skills without dropping assignments", async () => {
-  createEmployeeSync({ name: "Planner" });
+  createEmployeeSync({ name: "Planner" }, WORKSPACE_ID);
   const original = createWorkspaceSkillSync({
     name: "research-pack",
     description: "Manual version",
-  });
-  setEmployeeSkillIdsSync("Planner", [original.id]);
+  }, WORKSPACE_ID);
+  setEmployeeSkillIdsSync("Planner", [original.id], WORKSPACE_ID);
 
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
     conflict: "replace",
   });
@@ -320,11 +565,11 @@ test("importWorkspaceSkillFromUrl can replace existing skills without dropping a
   assert.equal(result.created, false);
   assert.equal(result.replaced, true);
   assert.equal(result.skillId, original.id);
-  const replaced = listWorkspaceSkillsSync().find((skill) => skill.id === original.id);
+  const replaced = listWorkspaceSkillsSync(WORKSPACE_ID).find((skill) => skill.id === original.id);
   assert.ok(replaced);
   assert.equal(replaced?.description, "Research helper");
   assert.equal(
-    listStoredAgentSkillAssignmentsSync().some((assignment) => assignment.employeeName === "Planner" && assignment.skillId === original.id),
+    listStoredAgentSkillAssignmentsSync(WORKSPACE_ID).some((assignment) => assignment.employeeName === "Planner" && assignment.skillId === original.id),
     true,
   );
 });
@@ -352,6 +597,7 @@ test("importWorkspaceSkillFromUrl rejects a ClawHub archive exceeding the downlo
     await assert.rejects(
       async () =>
         importWorkspaceSkillFromUrl({
+          workspaceId: WORKSPACE_ID,
           url: "https://clawhub.ai/oversized/skill",
         }),
       /exceeds.*byte (download|upload) limit/,
@@ -363,10 +609,11 @@ test("importWorkspaceSkillFromUrl rejects a ClawHub archive exceeding the downlo
 
 test("importWorkspaceSkillFromUrl imports a ClawHub zip package", async () => {
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://clawhub.ai/fangkelvin/find-skills-skill",
   });
 
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill?.name, "find-skills");
   assert.equal(skill?.sourceType, "clawhub");
@@ -391,17 +638,18 @@ description: Local skill
   writeFileSync(join(localSkillDir, "assets", "template.html"), "<main>template</main>\n");
 
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: localSkillDir,
     allowedFilesystemRoots: [tempRoot],
   });
 
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill?.sourceType, "local");
   assert.equal(skill?.files.some((file) => file.path === "references/notes.md"), true);
   assert.equal(skill?.files.some((file) => file.path === "bin/render.mjs"), true);
   assert.equal(skill?.files.some((file) => file.path === "assets/template.html"), true);
-  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, "default");
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, WORKSPACE_ID);
   assert.ok(artifact);
   const manifest = JSON.parse(artifact.manifestJson) as { files: Array<{ path: string; mode?: string }> };
   assert.equal(manifest.files.find((file) => file.path === "bin/render.mjs")?.mode, "0755");
@@ -416,7 +664,7 @@ test("local directory import rejects a symlink that escapes configured server ro
     const escapingLink = join(allowedRoot, "outside-link");
     symlinkSync(outsideRoot, escapingLink, "dir");
     await assert.rejects(
-      () => importWorkspaceSkillFromUrl({ url: escapingLink, allowedFilesystemRoots: [allowedRoot] }),
+      () => importWorkspaceSkillFromUrl({ workspaceId: WORKSPACE_ID, url: escapingLink, allowedFilesystemRoots: [allowedRoot] }),
       /outside the configured server roots/,
     );
   } finally {
@@ -432,7 +680,7 @@ test("local directory import rejects packages that exceed the file-count budget"
   }
 
   await assert.rejects(
-    () => importWorkspaceSkillFromUrl({ url: localSkillDir, allowFilesystemSource: true }),
+    () => importWorkspaceSkillFromUrl({ workspaceId: WORKSPACE_ID, url: localSkillDir, allowFilesystemSource: true }),
     new RegExp(`more than ${MAX_SKILL_PACKAGE_FILES} files`),
   );
 });
@@ -444,7 +692,7 @@ test("zip import rejects traversal entries before path normalization", async () 
   });
 
   await assert.rejects(
-    () => importWorkspaceSkillFromZipUpload({ fileName: "unsafe.zip", contentBytes: archive }),
+    () => importWorkspaceSkillFromZipUpload({ workspaceId: WORKSPACE_ID, fileName: "unsafe.zip", contentBytes: archive }),
     /unsafe entry.*Parent-directory/,
   );
 });
@@ -466,7 +714,7 @@ test("zip import rejects oversized declared output before decompression", async 
   view.setUint32(centralOffset + 24, MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES + 1, true);
 
   await assert.rejects(
-    () => importWorkspaceSkillFromZipUpload({ fileName: "bomb.zip", contentBytes: patched }),
+    () => importWorkspaceSkillFromZipUpload({ workspaceId: WORKSPACE_ID, fileName: "bomb.zip", contentBytes: patched }),
     /declares more than .* uncompressed bytes/i,
   );
 });
@@ -484,11 +732,12 @@ description: Local product manager clone
   writeFileSync(join(localSkillDir, "templates", "prd.template.md"), "# PRD\n");
 
   await assert.rejects(
-    () => importWorkspaceSkillFromUrl({ url: localSkillDir }),
+    () => importWorkspaceSkillFromUrl({ workspaceId: WORKSPACE_ID, url: localSkillDir }),
     /filesystem skill sources are not allowed/i,
   );
 
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: localSkillDir,
     conflict: "rename",
     allowFilesystemSource: true,
@@ -496,7 +745,7 @@ description: Local product manager clone
 
   assert.equal(result.created, true);
   assert.equal(result.renamed, true);
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill?.name.startsWith("product-manager"), true);
   assert.notEqual(skill?.name, "product-manager");
@@ -516,11 +765,12 @@ description: TOS upload
   });
 
   const result = await importWorkspaceSkillFromZipUpload({
+    workspaceId: WORKSPACE_ID,
     fileName: "research-pack.zip",
     contentBytes: archive,
   });
 
-  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
   assert.ok(skill);
   assert.equal(skill?.sourceType, "tos");
   assert.match(skill?.sourceUrl ?? "", /^tos:\/\/test-bucket\/workspaces\//);
@@ -528,6 +778,7 @@ description: TOS upload
   assert.match(result.sourceUrl, /^tos:\/\/test-bucket\/workspaces\//);
 
   const reimported = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: result.sourceUrl,
     conflict: "replace",
   });
@@ -553,8 +804,8 @@ test("zip manifest version and executable mode survive validation into the store
     ".dofe/manifest.json": strToU8(JSON.stringify(manifest)),
   });
 
-  const result = await importWorkspaceSkillFromZipUpload({ fileName: "manifest-skill.zip", contentBytes: archive });
-  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, "default");
+  const result = await importWorkspaceSkillFromZipUpload({ workspaceId: WORKSPACE_ID, fileName: "manifest-skill.zip", contentBytes: archive });
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, WORKSPACE_ID);
   assert.ok(artifact);
   const storedManifest = JSON.parse(artifact.manifestJson) as typeof manifest;
   assert.equal(storedManifest.artifact.version, "2.3.4");
@@ -576,6 +827,7 @@ test("imports and reimports an uploaded zip from explicit local attachment stora
       "SKILL.md": strToU8("---\nname: local-upload-research\ndescription: Local upload\n---\n\n# Local Upload Research\n"),
     });
     const result = await importWorkspaceSkillFromZipUpload({
+      workspaceId: WORKSPACE_ID,
       fileName: "local-research.zip",
       contentBytes: archive,
     });
@@ -583,6 +835,7 @@ test("imports and reimports an uploaded zip from explicit local attachment stora
     assert.match(result.sourceUrl, /^local:\/\/\/workspaces\//);
 
     const reimported = await importWorkspaceSkillFromUrl({
+      workspaceId: WORKSPACE_ID,
       url: result.sourceUrl,
       conflict: "replace",
     });
@@ -601,9 +854,10 @@ test("importWorkspaceSkillFromUrl can skip an existing conflict", async () => {
   const existing = createWorkspaceSkillSync({
     name: "research-pack",
     description: "Existing manual version",
-  });
+  }, WORKSPACE_ID);
 
   const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
     conflict: "skip",
   });
@@ -613,8 +867,8 @@ test("importWorkspaceSkillFromUrl can skip an existing conflict", async () => {
 });
 
 test("a failed zip import leaves no new skill, files, active digest or import event", async () => {
-  const beforeSkillIds = new Set(listWorkspaceSkillsSync().map((skill) => skill.id));
-  const beforeEventCount = listStoredSkillImportEventsSync(undefined, 100).length;
+  const beforeSkillIds = new Set(listWorkspaceSkillsSync(WORKSPACE_ID).map((skill) => skill.id));
+  const beforeEventCount = listStoredSkillImportEventsSync(WORKSPACE_ID, 100).length;
 
   const badArchive = zipSync({
     "README.md": strToU8("# missing SKILL.md"),
@@ -623,15 +877,16 @@ test("a failed zip import leaves no new skill, files, active digest or import ev
   await assert.rejects(
     () =>
       importWorkspaceSkillFromZipUpload({
+        workspaceId: WORKSPACE_ID,
         fileName: "bad.zip",
         contentBytes: badArchive,
       }),
     /must contain SKILL\.md/,
   );
 
-  const newSkills = listWorkspaceSkillsSync().filter((skill) => !beforeSkillIds.has(skill.id));
+  const newSkills = listWorkspaceSkillsSync(WORKSPACE_ID).filter((skill) => !beforeSkillIds.has(skill.id));
   assert.deepEqual(newSkills, []);
-  assert.equal(listStoredSkillImportEventsSync(undefined, 100).length, beforeEventCount);
+  assert.equal(listStoredSkillImportEventsSync(WORKSPACE_ID, 100).length, beforeEventCount);
 });
 
 test("a failed zip replace leaves the existing skill and assignment pin unchanged", async () => {
@@ -647,18 +902,19 @@ description: Original
   });
 
   const original = await importWorkspaceSkillFromZipUpload({
+    workspaceId: WORKSPACE_ID,
     fileName: "original.zip",
     contentBytes: archive,
   });
 
-  createEmployeeSync({ name: "Tester" });
-  setEmployeeSkillIdsSync("Tester", [original.skillId]);
+  createEmployeeSync({ name: "Tester" }, WORKSPACE_ID);
+  setEmployeeSkillIdsSync("Tester", [original.skillId], WORKSPACE_ID);
 
-  const originalSkill = readStoredWorkspaceSkillSync(original.skillId);
+  const originalSkill = readStoredWorkspaceSkillSync(original.skillId, WORKSPACE_ID);
   assert.ok(originalSkill);
-  const originalDigest = readStoredSkillActiveArtifactDigestSync(original.skillId);
+  const originalDigest = readStoredSkillActiveArtifactDigestSync(original.skillId, WORKSPACE_ID);
   const originalFileIds = originalSkill.files.map((file) => file.id).sort();
-  const beforeEventCount = listStoredSkillImportEventsSync(undefined, 100).length;
+  const beforeEventCount = listStoredSkillImportEventsSync(WORKSPACE_ID, 100).length;
 
   const badArchive = zipSync({
     "SKILL.md": strToU8(`---
@@ -674,6 +930,7 @@ description: Bad replace
   await assert.rejects(
     () =>
       importWorkspaceSkillFromZipUpload({
+        workspaceId: WORKSPACE_ID,
         fileName: "bad.zip",
         contentBytes: badArchive,
         conflict: "replace",
@@ -681,31 +938,33 @@ description: Bad replace
     /manifest/i,
   );
 
-  const afterSkill = readStoredWorkspaceSkillSync(original.skillId);
+  const afterSkill = readStoredWorkspaceSkillSync(original.skillId, WORKSPACE_ID);
   assert.ok(afterSkill);
   assert.equal(afterSkill.name, originalSkill.name);
   assert.equal(afterSkill.description, originalSkill.description);
   assert.deepEqual(afterSkill.files.map((file) => file.id).sort(), originalFileIds);
-  assert.equal(readStoredSkillActiveArtifactDigestSync(original.skillId), originalDigest);
+  assert.equal(readStoredSkillActiveArtifactDigestSync(original.skillId, WORKSPACE_ID), originalDigest);
   assert.ok(
-    listStoredAgentSkillAssignmentsSync().some(
+    listStoredAgentSkillAssignmentsSync(WORKSPACE_ID).some(
       (assignment) => assignment.employeeName === "Tester" && assignment.skillId === original.skillId,
     ),
   );
-  assert.equal(listStoredSkillImportEventsSync(undefined, 100).length, beforeEventCount);
+  assert.equal(listStoredSkillImportEventsSync(WORKSPACE_ID, 100).length, beforeEventCount);
 });
 
 test("a successful replace records a candidate artifact without activating it", async () => {
   const first = await importWorkspaceSkillFromZipUpload({
+    workspaceId: WORKSPACE_ID,
     fileName: "candidate-v1.zip",
     contentBytes: zipSync({
       "SKILL.md": strToU8("---\nname: candidate-import\ndescription: Version one\n---\n# v1\n"),
     }),
   });
-  const activeBefore = readStoredSkillActiveArtifactDigestSync(first.skillId);
+  const activeBefore = readStoredSkillActiveArtifactDigestSync(first.skillId, WORKSPACE_ID);
   assert.equal(activeBefore, first.artifactDigest);
 
   const second = await importWorkspaceSkillFromZipUpload({
+    workspaceId: WORKSPACE_ID,
     fileName: "candidate-v2.zip",
     contentBytes: zipSync({
       "SKILL.md": strToU8("---\nname: candidate-import\ndescription: Version two\n---\n# v2\n"),
@@ -714,12 +973,12 @@ test("a successful replace records a candidate artifact without activating it", 
   });
 
   assert.notEqual(second.artifactDigest, activeBefore);
-  assert.equal(readStoredSkillActiveArtifactDigestSync(first.skillId), activeBefore);
-  const unchanged = readStoredWorkspaceSkillSync(first.skillId);
+  assert.equal(readStoredSkillActiveArtifactDigestSync(first.skillId, WORKSPACE_ID), activeBefore);
+  const unchanged = readStoredWorkspaceSkillSync(first.skillId, WORKSPACE_ID);
   assert.equal(unchanged?.description, "Version one");
   assert.match(unchanged?.files.find((file) => file.path === "SKILL.md")?.content ?? "", /# v1/);
   assert.deepEqual(
-    new Set(listSkillArtifactBindingsForSkillSync(first.skillId)),
+    new Set(listSkillArtifactBindingsForSkillSync(first.skillId, WORKSPACE_ID)),
     new Set([activeBefore!, second.artifactDigest!]),
   );
 });
@@ -733,11 +992,12 @@ test("checkSkillSourceUpdatesForWorkspaceSync notifies admins when a Git source 
   ).run("admin-user-1", "Admin", now, now);
   db.prepare(
     `INSERT INTO workspace_membership (id, workspace_id, user_id, role, status, joined_at)
-     VALUES (?, 'default', 'admin-user-1', 'owner', 'active', ?) ON CONFLICT (workspace_id, user_id) DO NOTHING`,
-  ).run(`wm-${randomLikeId()}`, now);
+     VALUES (?, ?, 'admin-user-1', 'owner', 'active', ?) ON CONFLICT (workspace_id, user_id) DO NOTHING`,
+  ).run(`wm-${randomLikeId()}`, WORKSPACE_ID, now);
 
   // Import the skill pinned at the mock's resolved ref (abc123…).
   await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
   });
 
@@ -751,14 +1011,14 @@ test("checkSkillSourceUpdatesForWorkspaceSync notifies admins when a Git source 
     return advancedMock(input);
   }) as typeof fetch;
 
-  const summary = await checkSkillSourceUpdatesForWorkspaceSync({ workspaceId: "default" });
+  const summary = await checkSkillSourceUpdatesForWorkspaceSync({ workspaceId: WORKSPACE_ID });
   assert.equal(summary.checked, 1);
   assert.equal(summary.updateAvailable, 1);
   assert.ok(summary.notificationsCreated >= 1, "admins should be notified of the available update");
   assert.deepEqual(summary.errors, []);
 
   // Re-running with the same ref is deduped → no duplicate notification count growth.
-  const second = await checkSkillSourceUpdatesForWorkspaceSync({ workspaceId: "default" });
+  const second = await checkSkillSourceUpdatesForWorkspaceSync({ workspaceId: WORKSPACE_ID });
   assert.equal(second.updateAvailable, 1);
 });
 
@@ -815,6 +1075,20 @@ function createGitHubFetchMock(): typeof fetch {
       return jsonResponse({
         sha: "abc123def456789012345678901234567890abcd",
       });
+    }
+    if (url.startsWith("https://raw.githubusercontent.com/")) {
+      const path = new URL(url).pathname.split("/").slice(4).join("/");
+      const contents: Record<string, string> = {
+        "bmad-skills/product-manager/SKILL.md": "---\nname: product-manager\ndescription: Product requirements and planning specialist\n---\n# Product Manager\n",
+        "bmad-skills/product-manager/templates/prd.template.md": "# PRD template\n",
+        "packages/skill-creator/SKILL.md": "---\nname: skill-creator\ndescription: Create high-quality skills\n---\n# Skill Creator\n",
+        "packages/skill-creator/references/checklist.md": "- write good frontmatter\n",
+        "skills/research-pack/SKILL.md": "---\nname: research-pack\ndescription: Research helper\n---\n\n# Research Pack\n\nUse for structured research.\n",
+        "skills/research-pack/templates/checklist.md": "- confirm sources\n",
+      };
+      return contents[path] === undefined
+        ? new Response("Not found", { status: 404 })
+        : new Response(contents[path], { status: 200 });
     }
     if (url.includes("/git/trees/") && url.includes("?recursive=1")) {
       if (url.includes("/octo-org/skill-repo/")) {
