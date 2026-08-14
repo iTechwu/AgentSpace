@@ -38,8 +38,8 @@ export function ImportSkillModal({
       {
         value: "github" as const,
         label: "GitHub",
-        hint: tx("粘贴 GitHub tree/blob/raw skill 链接。", "Paste a GitHub tree/blob/raw skill URL."),
-        placeholder: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+        hint: tx("粘贴 GitHub 仓库或 tree/blob/raw Skill 链接。", "Paste a GitHub repository or tree/blob/raw Skill URL."),
+        placeholder: "https://github.com/octo-org/skill-repo",
       },
       {
         value: "gitlab" as const,

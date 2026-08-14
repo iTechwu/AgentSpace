@@ -267,11 +267,11 @@ export async function inspectWorkspaceSkillSourceUpdate(input: {
 
   let latestResolvedRef: string;
   if (skill.sourceType === "github") {
-    const pointer = parseGitHubDirectoryUrl(skill.sourceUrl);
-    if (!pointer) {
+    const resolvedSha = await resolveGitHubSourceSha(skill.sourceUrl, workspaceId);
+    if (!resolvedSha) {
       return { ...base, status: "not_checkable", currentResolvedRef, reason: "skill_source_url_invalid" };
     }
-    latestResolvedRef = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref, workspaceId);
+    latestResolvedRef = resolvedSha;
   } else {
     const pointer = parseGitLabDirectoryUrl(skill.sourceUrl);
     if (!pointer) {
@@ -776,11 +776,10 @@ async function importLocalSkillDefinition(sourcePath: string): Promise<ImportedS
 }
 
 async function importGitHubSkillDefinition(sourceUrl: string, workspaceId?: string): Promise<ImportedSkillDefinition> {
-  const pointer = parseGitHubDirectoryUrl(sourceUrl);
+  const pointer = await resolveGitHubSkillPointer(sourceUrl, workspaceId);
   if (!pointer) {
-    throw new Error("Only GitHub tree/blob/raw skill URLs are supported for now.");
+    throw new Error("Only GitHub repository, tree, blob, or raw skill URLs are supported.");
   }
-  pointer.resolvedSha = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref, workspaceId);
   return importGitHubSkillDefinitionFromPointer(pointer, sourceUrl, "github", workspaceId);
 }
 
@@ -1033,6 +1032,24 @@ function parseGitHubDirectoryUrl(sourceUrl: string): GitHubDirectoryPointer | nu
   }
 
   return null;
+}
+
+function parseGitHubRepositoryUrl(sourceUrl: string): { owner: string; repo: string } | null {
+  const parsed = parseUrl(sourceUrl);
+  if (!parsed || parsed.hostname !== "github.com") {
+    return null;
+  }
+
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  if (parts.length !== 2) {
+    return null;
+  }
+  const owner = parts[0]!;
+  const repo = parts[1]!.replace(/\.git$/i, "");
+  if (!owner || !repo || owner === "." || owner === ".." || repo === "." || repo === "..") {
+    return null;
+  }
+  return { owner, repo };
 }
 
 function parseGitLabDirectoryUrl(sourceUrl: string): GitLabDirectoryPointer | null {
@@ -1436,6 +1453,90 @@ async function resolveGitHubSkillPointerBySlug(input: {
   };
 }
 
+async function resolveGitHubSkillPointer(
+  sourceUrl: string,
+  workspaceId?: string,
+): Promise<GitHubDirectoryPointer | null> {
+  const directPointer = parseGitHubDirectoryUrl(sourceUrl);
+  if (directPointer) {
+    directPointer.resolvedSha = await resolveGitHubRefToSha(
+      directPointer.owner,
+      directPointer.repo,
+      directPointer.ref,
+      workspaceId,
+    );
+    return directPointer;
+  }
+
+  const repository = parseGitHubRepositoryUrl(sourceUrl);
+  if (!repository) {
+    return null;
+  }
+  const ref = await fetchGitHubDefaultBranch(repository.owner, repository.repo, workspaceId);
+  const resolvedSha = await resolveGitHubRefToSha(repository.owner, repository.repo, ref, workspaceId);
+  const response = await fetch(
+    `https://api.github.com/repos/${repository.owner}/${repository.repo}/git/trees/${resolvedSha}?recursive=1`,
+    {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "DofeAgent/0.1.0",
+        ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
+      },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to inspect GitHub repository tree: ${response.status}`);
+  }
+  const payload = await readResponseJsonWithLimit(
+    response,
+    MAX_SKILL_SINGLE_FILE_BYTES,
+    "GitHub repository tree",
+  ) as {
+    truncated?: boolean;
+    tree?: Array<{ path?: string; type?: string }>;
+  };
+  if (payload.truncated) {
+    throw new Error(
+      `GitHub repository tree is too large to discover a unique skill safely in ${repository.owner}/${repository.repo}; use a tree URL for one skill directory.`,
+    );
+  }
+  const skillPaths = (payload.tree ?? [])
+    .filter((entry) => entry.type === "blob" && typeof entry.path === "string")
+    .map((entry) => entry.path!)
+    .filter((path) => sameValue(basename(path), "SKILL.md"))
+    .map((path) => sameValue(path, "SKILL.md") ? "" : path.slice(0, -"/SKILL.md".length))
+    .sort((left, right) => left.localeCompare(right));
+
+  if (skillPaths.length === 0) {
+    throw new Error(`GitHub repository ${repository.owner}/${repository.repo} does not contain SKILL.md.`);
+  }
+  if (skillPaths.length > 1) {
+    throw new Error(
+      `GitHub repository ${repository.owner}/${repository.repo} contains multiple skills; use a tree URL for one skill directory.`,
+    );
+  }
+  return {
+    ...repository,
+    ref,
+    path: skillPaths[0]!,
+    resolvedSha,
+  };
+}
+
+async function resolveGitHubSourceSha(sourceUrl: string, workspaceId?: string): Promise<string | null> {
+  const directPointer = parseGitHubDirectoryUrl(sourceUrl);
+  if (directPointer) {
+    return resolveGitHubRefToSha(directPointer.owner, directPointer.repo, directPointer.ref, workspaceId);
+  }
+
+  const repository = parseGitHubRepositoryUrl(sourceUrl);
+  if (!repository) {
+    return null;
+  }
+  const ref = await fetchGitHubDefaultBranch(repository.owner, repository.repo, workspaceId);
+  return resolveGitHubRefToSha(repository.owner, repository.repo, ref, workspaceId);
+}
+
 function sameSkillSlug(left: string, right: string): boolean {
   return normalizeSkillSlug(left) === normalizeSkillSlug(right);
 }
@@ -1773,7 +1874,8 @@ async function readResponseBytesWithLimit(response: Response, maxBytes: number, 
 
 function buildGitHubContentsApiUrl(owner: string, repo: string, path: string, ref: string): string {
   const normalizedPath = path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  return `https://api.github.com/repos/${owner}/${repo}/contents/${normalizedPath}?ref=${encodeURIComponent(ref)}`;
+  const pathSuffix = normalizedPath ? `/${normalizedPath}` : "";
+  return `https://api.github.com/repos/${owner}/${repo}/contents${pathSuffix}?ref=${encodeURIComponent(ref)}`;
 }
 
 function extractClawHubDownloadUrl(html: string): string | null {

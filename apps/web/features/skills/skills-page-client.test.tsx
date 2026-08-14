@@ -291,6 +291,7 @@ describe("SkillsPageClient", () => {
     await user.click(screen.getByRole("button", { name: "导入 Skill" }));
 
     expect(await screen.findByRole("heading", { name: "导入 Skill" })).toBeInTheDocument();
+    expect(screen.getByText("粘贴 GitHub 仓库或 tree/blob/raw Skill 链接。")).toBeInTheDocument();
     await user.type(
       screen.getByRole("textbox", { name: "来源 URL" }),
       "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",

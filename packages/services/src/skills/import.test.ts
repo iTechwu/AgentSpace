@@ -76,6 +76,66 @@ test("importWorkspaceSkillFromUrl imports a GitHub skill directory with source m
   assert.equal(listStoredSkillImportEventsSync(undefined, 5)[0]?.skillId, result.skillId);
 });
 
+test("importWorkspaceSkillFromUrl discovers the only skill in a GitHub repository URL", async () => {
+  const result = await importWorkspaceSkillFromUrl({
+    url: "https://github.com/octo-org/skill-repo",
+  });
+
+  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill.name, "research-pack");
+  assert.equal(skill.sourceUrl, "https://github.com/octo-org/skill-repo");
+  assert.equal(skill.files.some((file) => file.path === "templates/checklist.md"), true);
+  const config = JSON.parse(skill.configJson) as { ref?: string; path?: string; resolvedRef?: string };
+  assert.equal(config.ref, "stable");
+  assert.equal(config.path, "skills/research-pack");
+  assert.equal(config.resolvedRef, "abc123def456789012345678901234567890abcd");
+});
+
+test("importWorkspaceSkillFromUrl rejects truncated GitHub repository discovery", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/large-skill-repo") {
+      return jsonResponse({ default_branch: "release" });
+    }
+    if (url === "https://api.github.com/repos/octo-org/large-skill-repo/commits/release") {
+      return jsonResponse({ sha: "abc123def456789012345678901234567890abcd" });
+    }
+    if (url.includes("/octo-org/large-skill-repo/git/trees/")) {
+      return jsonResponse({
+        truncated: true,
+        tree: [{ path: "visible-skill/SKILL.md", type: "blob" }],
+      });
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+
+  await assert.rejects(
+    importWorkspaceSkillFromUrl({ url: "https://github.com/octo-org/large-skill-repo" }),
+    /repository tree is too large to discover a unique skill safely/,
+  );
+});
+
+test("inspectWorkspaceSkillSourceUpdate does not rediscover a repository URL skill", async () => {
+  const imported = await importWorkspaceSkillFromUrl({
+    url: "https://github.com/octo-org/skill-repo",
+  });
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("/git/trees/")) {
+      throw new Error("update checks must not rediscover the selected skill directory");
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+
+  const inspection = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+
+  assert.equal(inspection.status, "up_to_date");
+  assert.equal(inspection.latestResolvedRef, "abc123def456789012345678901234567890abcd");
+});
+
 test("importWorkspaceSkillFromUrl locks GitHub imports to an immutable commit SHA", async () => {
   const result = await importWorkspaceSkillFromUrl({
     url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
@@ -738,12 +798,18 @@ function createGitHubFetchMock(): typeof fetch {
         ? new Response("Not found", { status: 404 })
         : new Response(contents[filePath], { status: 200 });
     }
+    if (url === "https://api.github.com/repos/octo-org/skill-repo") {
+      return jsonResponse({
+        default_branch: "stable",
+      });
+    }
     if (url === "https://api.github.com/repos/apollographql/skills") {
       return jsonResponse({
         default_branch: "main",
       });
     }
     if (url === "https://api.github.com/repos/octo-org/skill-repo/commits/main" ||
+        url === "https://api.github.com/repos/octo-org/skill-repo/commits/stable" ||
         url === "https://api.github.com/repos/apollographql/skills/commits/main" ||
         url === "https://api.github.com/repos/aj-geddes/claude-code-bmad-skills/commits/main") {
       return jsonResponse({
@@ -751,6 +817,20 @@ function createGitHubFetchMock(): typeof fetch {
       });
     }
     if (url.includes("/git/trees/") && url.includes("?recursive=1")) {
+      if (url.includes("/octo-org/skill-repo/")) {
+        return jsonResponse({
+          tree: [
+            {
+              path: "skills/research-pack/SKILL.md",
+              type: "blob",
+            },
+            {
+              path: "skills/research-pack/templates/checklist.md",
+              type: "blob",
+            },
+          ],
+        });
+      }
       if (url.includes("/apollographql/skills/")) {
         return jsonResponse({
           tree: [
