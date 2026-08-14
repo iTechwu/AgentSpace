@@ -1,6 +1,6 @@
 # Node 运行时矩阵与版本策略
 
-> 建立日期：2026-08-14。决策人：techwu@PardxAi。复核触发：下次 jsdom minor 发布、或决定升级 Node 主版本时。
+> 建立日期：2026-08-14。决策人：techwu@PardxAi。复核触发：jsdom 版本升级后 `pnpm audit:engines` 转红时、或决定升级 Node 主版本时。
 
 ## 结论
 
@@ -30,12 +30,14 @@
 - jsdom 的 `engines` 字段是**advisory（建议性）**，pnpm 默认不强制（未触发 `ERR_PNPM_UNSUPPORTED_ENGINE`），仅在有 `engine-strict` 配置时才阻断。
 - web 测试在 Node 25.9.0 上**实测通过**。jsdom 在 25.x 上的行为与在 26 上无实质差异（其引擎声明更接近“未正式测试 25”而非“已知不兼容”）。
 - 我们无法把 25 加入 jsdom 的 `engines`——它是第三方包。
+- jsdom 的 engines 只跟随 LTS 线（22/24/26+）；Node 25 是奇数非 LTS 线，**上游不会纳入**——「等 jsdom 支持 25」不是现实路径，例外真正的到期是升级到 Node 26（按下方前置条件评估，Node 26 GA 预计 2026-10）。
+- **2026-08-14 全量审计**（`pnpm audit:engines`，scripts/audit-node-engines.mjs）：754 个唯一包中 399 个声明 engines.node，**唯一不覆盖 25.9.0 的就是 jsdom@30.0.1**——本例外的爆炸半径被精确圈定为单包，其余全部依赖的 engines 均覆盖 25.9.0。
 
 因此本仓库将此不一致**接受为限时例外**：
 
 1. 不为规避 jsdom 的 engines 声明而升级 Node 26 或改 Docker。
-2. 不启用 `engine-strict`（会因此阻断 25.9 安装）。
-3. **复核触发**：每次 jsdom minor/major 升级时核对 engines 是否纳入 25，或当仓库决定升级到 Node 26 时该例外自动失效（届时 jsdom 声明已匹配）。
+2. 不启用 `engine-strict`（会被 jsdom 单点阻断 25.9 安装）；作为等价替代，`pnpm audit:engines`（scripts/audit-node-engines.mjs）对全部依赖做同样的 engines 检验，出现 KNOWN_EXCEPTIONS（精确钉 `jsdom@30.0.1`）之外的违规即 exit 1。依赖变更后建议跑一次。
+3. **复核触发**：jsdom 升级后若仍排除 Node 25，`pnpm audit:engines` 会因例外钉的版本失配而转红，需同步更新脚本内 KNOWN_EXCEPTIONS 与本文档；当仓库升级到 Node 26 时该例外自动失效（jsdom 声明已匹配，脚本会提示例外可移除）。
 
 ## 升级 Node 的前置条件（未来参考）
 
@@ -52,3 +54,4 @@
 - `e5b4d483`：首次将 `engines.node` 收敛为多版本矩阵 `^22.22.2 || ^24.15.0 || ^25.9.0 || >=26.0.0`。
 - 本文档：固化”保持 25.9”决策，记录 jsdom@30 advisory 例外。
 - 2026-08-14：将 `engines.node` 从多版本矩阵收紧为 `^25.9.0`（仅保留实测验证的生产版本，去掉未验证的 22/24 与无上限的 `>=26`）。涉及根 `package.json`、`packages/daemon/package.json`、`apps/mcp-egress-proxy/package.json`。
+- 2026-08-14：新增 `scripts/audit-node-engines.mjs`（`pnpm audit:engines`）作为 engine-strict 的等价门禁；全量审计确认 jsdom@30.0.1 是唯一 engines 违规，并修正复核触发（jsdom 上游不会纳入奇数非 LTS 线，例外到期日 = 升级 Node 26）。
