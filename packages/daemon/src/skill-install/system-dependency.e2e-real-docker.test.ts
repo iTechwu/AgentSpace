@@ -185,15 +185,19 @@ test("REAL DOCKER: Skill Runner system binary probe detects presence and absence
  *     gate polls `iptables-save -c` and requires the per-run managed chain's
  *     final DROP rule to accrue ≥3 packets from the real probe traffic — the
  *     kernel counter is the only evidence attributing the DROPs to OUR chain.
- *   - IPv6 bypass: the acceptance environment MUST provide a global v6 path
- *     (ipv6Available=0 fails the gate unless the operator sets the explicit
- *     DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1 opt-out). With a v6 path: the
- *     ALLOWLISTED v6 host (a real routable :443 listener pinned via --add-host)
- *     must CONNECT (positive baseline — without it a host-level v6 block would
- *     masquerade as enforcement), a non-allowlisted v6 listener must DROP, and
- *     the ip6tables managed chain must accrue DROP-rule packets (counter
- *     attribution, same as v4). A fast-fail is NOT creditable (REJECT/no-route
- *     or no v6 socket) and fails the gate instead of silently passing.
+ *   - IPv6 bypass: the acceptance environment MUST provide a REAL v6 egress
+ *     path, measured by connectivity — ipv6Available=1 only when the ALLOWLISTED
+ *     v6 host (a real routable :443 listener pinned via --add-host) actually
+ *     CONNECTS. A global address alone proves nothing (a node can hold one with
+ *     no routable v6 internet path), so both "no global address" and "address
+ *     present but positive baseline did not connect" are ipv6Available=0: the
+ *     gate fails closed unless the operator holds the explicit, time-limited
+ *     DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1 + approver + expiry opt-out.
+ *     With a measured v6 path: the positive baseline stands, a non-allowlisted
+ *     v6 listener must DROP, and the ip6tables managed chain must accrue
+ *     DROP-rule packets (counter attribution, same as v4). A fast-fail is NOT
+ *     creditable (REJECT/no-route or no v6 socket) and fails the gate instead
+ *     of silently passing.
  */
 test("REAL DOCKER: Runner egress allows ONLY the pinned host on :443 (positive baseline + DROP-verified deny probes)", async (t) => {
   if (!RUN_E2E) {
@@ -279,28 +283,39 @@ port80=$(probe_port ${PINNED_IP} 80)
 # endpoint (DoH bypass probe); 8.8.8.8 is a generic third-party 443 listener.
 doh443=$(probe_port 1.1.1.1 443)
 other443=$(probe_port 8.8.8.8 443)
-# IPv6 availability — a global IPv6 address (scope 00 in /proc/net/if_inet6,
-# excluding lo) is the only honest signal a v6 egress path exists to bypass with.
-ipv6Available=0
+# IPv6 availability is decided by REAL CONNECTIVITY, not interface config: a
+# global IPv6 address (scope 00 in /proc/net/if_inet6, excluding lo) only proves
+# the interface is configured — a node can hold a global address with no
+# routable v6 internet path. The honest signal is the positive baseline above:
+# ipv6Available=1 ONLY when the allowlisted v6 :443 listener actually CONNECTED
+# through this run's managed chain. ipv6GlobalAddr is reported separately for
+# diagnostics (address present but unusable = candidate for the v4-only
+# operator exemption, see the gate-side assertions).
+ipv6GlobalAddr=0
 if awk '\$4=="00" && \$6!="lo"' /proc/net/if_inet6 2>/dev/null | grep -q .; then
+  ipv6GlobalAddr=1
+fi
+ipv6Available=0
+if [ "\${ipv6GlobalAddr}" = "1" ] && [ "\${allowedV6443}" = "0" ]; then
   ipv6Available=1
 fi
-# IPv6 deny-probe outcome, ONLY meaningful when ipv6Available=1. The SKIP case
-# gets its own code (3) so it is never conflated with a fast-fail (2):
+# IPv6 deny-probe outcome, ONLY meaningful when ipv6Available=1 (real v6 egress
+# measured). The SKIP case gets its own code (3) so it is never conflated with
+# a fast-fail (2):
 #   0 = CONNECTED     — regression: v6 egress is open (the bypass this guards)
 #   1 = timed out 5s  — DROP: creditable evidence the firewall engaged v6 traffic
 #   2 = failed fast   — REJECT/refused/no-route (or the probe cannot form a v6
 #                       socket): NOT creditable, never silently passed
-#   3 = skipped       — no global IPv6 path, nothing to test (the gate only
-#                       accepts this with an explicit operator opt-out env)
+#   3 = skipped       — no measured v6 egress path, nothing to test (the gate
+#                       only accepts this with an explicit operator opt-out env)
 # ${DENIED_V6_IP} is Google DNS over IPv6, a real routable :443 listener that
 # is NOT allowlisted (the allowlisted v6 address is a different host).
 ipv6=3
 if [ "\${ipv6Available}" = "1" ]; then
   ipv6=$(probe_port ${DENIED_V6_IP} 443)
 fi
-printf '{"pinnedInHosts":%s,"pinnedV6InHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"allowedV6443":%s,"port80":%s,"doh443":%s,"other443":%s,"ipv6Available":%s,"ipv6":%s}\\n' \\
-  "\${pinned}" "\${pinnedV6}" "\${pinnedResolves}" "\${dnsProbe}" "\${allowed443}" "\${allowedV6443}" "\${port80}" "\${doh443}" "\${other443}" "\${ipv6Available}" "\${ipv6}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
+printf '{"pinnedInHosts":%s,"pinnedV6InHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"allowedV6443":%s,"port80":%s,"doh443":%s,"other443":%s,"ipv6GlobalAddr":%s,"ipv6Available":%s,"ipv6":%s}\\n' \\
+  "\${pinned}" "\${pinnedV6}" "\${pinnedResolves}" "\${dnsProbe}" "\${allowed443}" "\${allowedV6443}" "\${port80}" "\${doh443}" "\${other443}" "\${ipv6GlobalAddr}" "\${ipv6Available}" "\${ipv6}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
 `;
 
   try {
@@ -385,6 +400,7 @@ printf '{"pinnedInHosts":%s,"pinnedV6InHosts":%s,"pinnedResolves":%s,"dnsProbe":
       port80: number;
       doh443: number;
       other443: number;
+      ipv6GlobalAddr: number;
       ipv6Available: number;
       ipv6: number;
     };
@@ -465,14 +481,17 @@ printf '{"pinnedInHosts":%s,"pinnedV6InHosts":%s,"pinnedResolves":%s,"dnsProbe":
         + "identically); observed fresh-chain DROP counters: "
         + JSON.stringify(freshChains),
     );
-    // IPv6 layer. Availability is split from the outcome so a non-creditable
-    // fast-fail is never conflated with a skip; and a v6-bypassed Runner is a
-    // real production risk, so the ACCEPTANCE ENVIRONMENT MUST HAVE a global
-    // v6 path — "no v6 on this node" is NOT a passing state. The v4-only
-    // exemption is deliberately hard to hold: it needs an explicit, TIME-LIMITED
-    // approval (an approver on record + an absolute expiry no more than 30 days
-    // out) in addition to the flag itself, and the exemption actually taken is
-    // logged into the gate output so the CI record carries the audit trail.
+    // IPv6 layer. Availability is measured by REAL CONNECTIVITY (the allowlisted
+    // v6 :443 listener actually connecting), not by the mere presence of a global
+    // address: a node can hold a global address with no routable v6 internet
+    // path, and that state must reach the v4-only exemption branch, not fail at
+    // the positive baseline. A v6-bypassed Runner is a real production risk, so
+    // the ACCEPTANCE ENVIRONMENT MUST HAVE a measured v6 path — "no real v6
+    // egress on this node" is NOT a passing state. The v4-only exemption is
+    // deliberately hard to hold: it needs an explicit, TIME-LIMITED approval
+    // (an approver on record + an absolute expiry no more than 30 days out) in
+    // addition to the flag itself, and the exemption actually taken is logged
+    // into the gate output so the CI record carries the audit trail.
     const allowNoIpv6 = process.env.DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6 === "1";
     if (allowNoIpv6 && result.ipv6Available !== 1) {
       const approvedBy = process.env.DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY?.trim() ?? "";
@@ -495,14 +514,20 @@ printf '{"pinnedInHosts":%s,"pinnedV6InHosts":%s,"pinnedResolves":%s,"dnsProbe":
       );
       console.error(
         `[egress-gate] IPv6 layer EXEMPTED under a time-limited operator approval: ` +
-          `approvedBy=${approvedBy} until=${until}. This run did NOT credit IPv6 enforcement.`,
+          `approvedBy=${approvedBy} until=${until} (ipv6GlobalAddr=${result.ipv6GlobalAddr}, ` +
+          `allowedV6443=${result.allowedV6443}). This run did NOT credit IPv6 enforcement.`,
       );
     } else if (result.ipv6Available !== 1) {
       assert.fail(
-        "the acceptance environment must provide a global IPv6 egress path "
-          + "(ipv6Available=0 inside the Runner) — a v6-bypassed Runner is a real "
+        "the acceptance environment must provide a REAL IPv6 egress path "
+          + "(ipv6Available=0: the allowlisted v6 :443 listener did not connect "
+          + `inside the Runner; ipv6GlobalAddr=${result.ipv6GlobalAddr}, `
+          + `allowedV6443=${result.allowedV6443}) — a v6-bypassed Runner is a real `
           + "production risk, so the gate fails closed instead of silently skipping. "
-          + "A v4-only exemption exists but is deliberately expensive: it requires "
+          + "A global address without a routable path (host-level v6 block, docker "
+          + "v6 isolation, or a v4-only upstream) must be fixed at the network layer "
+          + "(docker network --ipv6 + real host v6 connectivity). A v4-only "
+          + "exemption exists but is deliberately expensive: it requires "
           + "DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1 PLUS a time-limited approval "
           + "(DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY and "
           + "DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL=YYYY-MM-DD, ≤30 days ahead) "
@@ -513,20 +538,17 @@ printf '{"pinnedInHosts":%s,"pinnedV6InHosts":%s,"pinnedResolves":%s,"dnsProbe":
       assert.equal(
         result.ipv6,
         3,
-        "with the operator v4-only opt-out the v6 probe must be honestly skipped (3)",
+        "without a measured v6 egress path the v6 deny probe must be honestly skipped (3)",
       );
     } else {
-      // IPv6 POSITIVE BASELINE: the allowlisted v6 host (a real routable :443
-      // listener pinned via --add-host) must CONNECT. Without it, a host-level
-      // v6 block or docker's default v6 isolation would time out every v6
-      // probe — deny-all and correct enforcement would be indistinguishable.
+      // IPv6 POSITIVE BASELINE consistency: availability is DERIVED from this
+      // probe (allowlisted v6 :443 actually connected), so re-assert it as a
+      // defensive invariant — if this ever trips, the derivation above and the
+      // reported evidence disagree and the run is not interpretable.
       assert.equal(
         result.allowedV6443,
         0,
-        "IPv6 positive baseline failed: the allowlisted v6 host on :443 must CONNECT — "
-          + "if the acceptance node/network lacks real v6 egress, fix the network "
-          + "(docker network --ipv6 + host v6 connectivity) before trusting any v6 "
-          + "deny result",
+        "IPv6 availability must be derived from a connected allowlisted v6 :443 baseline",
       );
       // v6 deny probe on a different, non-allowlisted real v6 :443 listener.
       assert.equal(

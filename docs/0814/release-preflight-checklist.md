@@ -9,7 +9,7 @@
 
 - `deploy-production.yml` 在 `push` 到 `main`（以及 `workflow_dispatch`）时自动部署到生产节点。
 - 该工作流**自动校验**三件事，任一失败都会阻断上线（前两项失败直接退出，服务仍在运行旧版本；第三项失败触发回滚）：
-  1. **停服前预检**：`dofe-skill-runner-e2e-run.sh --preflight`——校验 Linux 节点、三个 digest 钉死的 Runner 镜像变量、镜像已在本地、docker 可用、iptables 可读写（需 CAP_NET_ADMIN）。预检在独立的**候选提交 worktree**（`git worktree add --detach <tmp> "$after"`）中执行，保证预检对象与将要上线的代码严格一致；worktree 注册了 EXIT trap，任何退出路径（job 超时 / 取消 / `set -e` 中断）都会注销临时目录与 worktree 元数据。
+  1. **停服前预检**：`dofe-skill-runner-e2e-run.sh --preflight`——校验 Linux 节点、三个 digest 钉死的 Runner 镜像变量、镜像已在本地、docker 可用、iptables/ip6tables/iptables-save/ip6tables-save 可读写（需 CAP_NET_ADMIN）；若启用了 IPv6 v4-only 豁免，还会以与门禁相同的规则预校验审批人、绝对到期日与 ≤30 天有效期，配置非法在停服前即失败。预检在独立的**候选提交 worktree**（`git worktree add --detach <tmp> "$after"`）中执行，保证预检对象与将要上线的代码严格一致；worktree 注册了 EXIT trap，任何退出路径（job 超时 / 取消 / `set -e` 中断）都会注销临时目录与 worktree 元数据。
   2. 构建成功（`pnpm run build`）。
   3. **Skill Runner egress 发布门禁**：`dofe-skill-runner-e2e-run.sh` 在构建后、`start_service` 前跑真实 Docker + 真实 iptables 验收（两个文件：`skill-runner.e2e-real-docker.test.ts` 覆盖 Runner 容器隔离 / digest / config-socket 清理 / 缓存与依赖元数据篡改 fail-closed / 超时结构化错误码；`system-dependency.e2e-real-docker.test.ts` 覆盖 egress 双层强制——DNS 毒化下真实域名不得解析（含正向 pin 基线）、DOCKER-USER 链放行 IP 仅 :443、非放行 IP / DoH / IPv6 全部 DROP）。失败即回滚到正在运行的版本。
 - 该工作流**不运行**任何单元/集成测试，包括本清单第 1 项的 `test:tos`。仓库也没有独立的测试 CI。
@@ -21,7 +21,7 @@
 
 - 三个 Runner 镜像变量 `DOFE_SKILL_RUNNER_{NODE,PYTHON,BASH}_IMAGE` 必须是 `repo@sha256:<64-hex>` 且镜像已预拉取到本地（`--pull never`，不在部署窗口拉取）。来源由工作流 env `DOFE_SKILL_RUNNER_ENV_FILE=/home/AgentSpace/.env` 显式指定——与 daemon 运行时 `--env-file` 同一份 `.env`；runner 环境显式导出的值优先。注意 `ensure-ci-managed-nodes.sh` 只把变量写进各受管节点容器的 `node.env`，**不会**导出到部署 runner shell，不能假设 shell 自带。
 - 部署 runner 用户需有 docker 权限；节点 `iptables` 在 PATH 上且可读写（host 上落地 DOCKER-USER 链需要 CAP_NET_ADMIN/root）。
-- **验收网络必须具备真实 IPv6 出口**：egress 专用 docker 网络以 `--ipv6` 创建（存量网络需 `docker network rm` 后重建），节点需有全局 v6 连通性。门禁要求 v6 放行正样本（Cloudflare DoH v6 :443 经 `--add-host` pin 后必须连通）+ v6 deny 探测 DROP + ip6tables 链 DROP 包计数归因；容器内无全局 v6 地址时门禁 fail-closed。v4-only 豁免是有时限、可审计的运维审批，需**同时**设置三个变量：`DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1` + `DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY=<审批人>` + `DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL=YYYY-MM-DD`（绝对到期日，距今 ≤30 天，过期即失效）；豁免生效时门禁输出会记录审批人与到期日作为审计痕迹。
+- **验收网络必须具备真实 IPv6 出口**：egress 专用 docker 网络以 `--ipv6` 创建（存量网络需 `docker network rm` 后重建），节点需有全局 v6 连通性。门禁以**真实连通性**判定 v6 可用：只有放行正样本（Cloudflare DoH v6 :443 经 `--add-host` pin 后真实 CONNECT）才算可用；仅有全局 v6 地址但没有可路由出口的节点同样判定为不可用（`ipv6GlobalAddr=1, allowedV6443≠0` 会如实上报），落入 fail-closed 或获批豁免分支。可用时要求 v6 放行正样本连通 + v6 deny 探测 DROP + ip6tables 链 DROP 包计数归因。v4-only 豁免是有时限、可审计的运维审批，需**同时**设置三个变量：`DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6=1` + `DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_APPROVED_BY=<审批人>` + `DOFE_SKILL_RUNNER_EGRESS_ALLOW_NO_IPV6_UNTIL=YYYY-MM-DD`（绝对到期日，距今 ≤30 天，过期即失效）；豁免生效时门禁输出会记录审批人、到期日及当时的连通性证据（ipv6GlobalAddr/allowedV6443）作为审计痕迹。
 - 门禁的 DROP 证据带内核计数器归因：deny 探测超时本身无法区分“我们的链丢弃”与“上游防火墙沉默”，真实 Runner 流量运行期间轮询 `iptables-save -c` / `ip6tables-save -c`，要求本次运行受管链的 DROP 规则包计数 ≥ 探测数。
 - 非 Linux 节点直接失败，不转 skip。详见 `docs/0801/skill-install/05-运维服务与版本治理.md` §2.3。
 
