@@ -435,20 +435,48 @@ pnpm run quality:web
 
 ## 代码结构
 
+这是一个 pnpm + Turborepo 的 monorepo，按「apps（可部署进程）/ packages（可复用库）」划分：
+
 ```text
 DofeAgent/
 ├── apps/
-│   ├── web/                 # Next.js App Router workspace UI
-│   └── cli/                 # 本地控制 CLI
+│   ├── web/                 # Next.js 16 App Router workspace UI + API routes
+│   ├── cli/                 # 本地控制台 CLI（dofe-agent）
+│   ├── workflow-worker/     # 后台任务 worker（workflow engine、调度、运行历史游标）
+│   └── mcp-egress-proxy/    # MCP 出站安全代理（Ed25519 lease 校验、策略防火墙、审计）
 ├── packages/
 │   ├── domain/              # 共享领域模型和 daemon API 类型
-│   ├── db/                  # PostgreSQL 持久化和 runtime records
-│   ├── services/            # web 和 CLI 共用的业务服务
-│   ├── daemon/              # 远程 daemon package 和 AgentRouter CLI
-│   └── sandbox/             # sandbox 抽象和本地 adapter
-├── deploy/                  # systemd、nginx、PostgreSQL、远程 daemon scripts
+│   ├── db/                  # PostgreSQL 持久化、runtime records、schema 初始化与迁移
+│   ├── services/            # web 和 CLI 共用的业务服务（约 50 个域模块）
+│   ├── daemon/              # 远程 daemon package + AgentRouter CLI（独立可分发产物）
+│   └── sandbox/             # sandbox 抽象（local adapter + 实验性 Cube scaffold）
+├── deploy/                  # systemd、nginx、PostgreSQL、self-hosted Compose、远程 daemon 脚本
+├── scripts/                 # 质量门禁与运维脚本（test inventory、engines 审计、dev daemons、飞书 smoke）
+├── docs/                    # 按日期组织的设计/实施文档（0724 ~ 0814）
 └── asset/                   # 产品图片、GIF、视频和 contact sheets
 ```
+
+### 各包职责与依赖方向
+
+依赖方向自顶向下：`apps/*` → `services` → `db` → `domain`。`daemon` 是唯一可独立打包分发的库产物（`dofe-agent-daemon` tgz）：它依赖 `services/db/sandbox/domain`，构建时用 esbuild 把这些依赖（连同 CLI 入口）全量 bundle 进 `dist/`，因此**发布产物自包含、在远端运行时不需要仓库 checkout**。
+
+| 包 | 职责 | 关键模块 |
+| --- | --- | --- |
+| `domain` | 跨包共享的类型与领域模型 | workspace、daemon API 类型 |
+| `db` | PostgreSQL 访问、schema、迁移 | `postgres-schema.ts`、`postgres-cli.ts`（init/migrate/cutover-plan） |
+| `services` | 业务逻辑核心 | channels、tasks、approvals、permissions、documents、knowledge、skills、mcp-center、runtime-provisioning、workflows 等 |
+| `daemon` | 远程执行底座 | agent-router、provider-runtime、skill-runner、managed-runtime-provisioning、bundle |
+| `sandbox` | 执行隔离抽象 | local adapter、实验性 cube |
+
+### 质量与测试
+
+- **类型检查**：`pnpm typecheck`（deps 类型 + web + cli + daemon + workflow-worker）。
+- **测试**：`pnpm test`（`turbo run test --concurrency=2`）；单包用 `pnpm --filter <pkg> test`。
+- **Node engines 门禁**：`pnpm audit:engines`（`scripts/audit-node-engines.mjs`），已接入根 `pretest`。
+- **测试清单门禁**：`scripts/verify-test-inventory.mjs`，防止测试文件漂移漏测。
+- **Web 质量**：`pnpm quality:web`（typecheck + lint + vitest）。
+
+Node 版本策略与运行时矩阵见 [docs/0814/node-runtime-matrix.md](docs/0814/node-runtime-matrix.md)。
 
 ---
 
@@ -456,8 +484,13 @@ DofeAgent/
 
 - [远程 daemon 部署测试指南](deploy/REMOTE_DAEMON_TEST.md)
 - [创始团队执行 showcase](deploy/FOUNDER_EXECUTION_SHOWCASE.md)
+- [Self-hosted Docker Stack](deploy/self-hosted/README.md)
 - [远程 daemon 安装脚本](deploy/install-remote-daemon.sh)
 - [Daemon package README](packages/daemon/README.md)
+- [Node 运行时矩阵与版本策略](docs/0814/node-runtime-matrix.md)
+- [发布前人工预检清单](docs/0814/release-preflight-checklist.md)
+- [Prisma 迁移评估与实施方案](docs/0808/db_migration_to_prisma/README.md)
+- [深度分析与优化建议](docs/optimization-suggestions.md)
 - [Web systemd unit](deploy/systemd/dofe-agent.service)
 - [Web 环境变量模板](deploy/systemd/dofe-agent.env.example)
 - [Daemon systemd unit](deploy/systemd/dofe-agent-daemon.service)
@@ -468,19 +501,25 @@ DofeAgent/
 已实现：
 
 - 多租户工作空间、Dofe SSO 登录、工作空间成员体系和访问控制
-- PostgreSQL 主存储、附件和可靠通知
+- PostgreSQL 主存储（119 张表，SQLite→PG 无缝迁移）、TOS 附件对象存储和可靠通知
 - 频道文档、知识库、全局搜索、审批、任务看板、预算、成本和性能仪表盘
-- 远程 daemon、runtime sharing、AgentRouter harness switching、OpenClaw provider health 和 Hermes Agent support
+- 远程 daemon、runtime sharing、AgentRouter harness switching（claude/codex/antigravity/opencode/openclaw/hermes）、OpenClaw provider health
 - 飞书 Bot 通信、飞书文档/表格/多维表格资源绑定和受治理的数据操作
+- 技能库（Skill 安装/导入/发布/回滚）与托管技能服务（Skill Service，Docker 隔离 + egress 防火墙）
+- MCP 中心（连接管理、凭据加密、出站 egress 租约签名）与 MCP 出站安全代理
+- 可视化自动化工作流引擎（xyflow 画布、发布/调度/运行回放）
+- 托管运行时供给（7 阶段状态机、凭据 vault、OpenMontage 作业集成）
+- 员工数据保护（备份恢复演练、法务保全 legal hold、孤儿 blob 回收）
 
 计划中：
 
 - 更强的 AgentRouter 平台会话
 - 更深入的 OpenClaw provider 加固
-- 多 Agent 隔离和 sandbox policy layer
+- 多 Agent 隔离和 sandbox policy layer（Cube sandbox 数据面）
 - 更完整的 integration adapter contract
 - runtime tool marketplace 和更多 agent-native app harnesses
 - 更严格的 attachment signed URL 与 storage isolation 策略
+- 数据库访问渐进迁移到 Prisma（A→B 路线，见 [docs/0808/db_migration_to_prisma](docs/0808/db_migration_to_prisma/README.md)）
 
 ## 状态与许可证
 
