@@ -276,3 +276,78 @@ test("leaves a modern (non-legacy) skill untouched: no backfill, no legacy audit
     .filter((row) => row.note.includes(`"${skill.name}"`));
   assert.equal(legacyAudit.length, 0, "a modern skill must not receive a legacy_migrated audit");
 });
+
+test("does not backfill a mixed-lineage skill onto its superseded legacy binding", () => {
+  // Regression: when a skill has BOTH a legacy binding and a newer MODERN
+  // artifact that has become active, the legacy migrator used to fall back to
+  // the OLDEST legacy binding and backfill any still-unmapped per-employee
+  // assignment onto it — silently regressing employees to a superseded version
+  // even though the skill's active artifact is modern. active_artifact_digest
+  // (per-skill active version) and agent_skill.skill_artifact_digest (per-
+  // employee mapping) are independent columns, so a NULL assignment survives a
+  // modern activation and is exactly what the bug backfilled.
+  const skill = createLegacySkill("Mixed Lineage", [
+    { path: "scripts/run.sh", content: "echo legacy\n" },
+  ]);
+  createEmployeeSync({ name: "Wren", role: "Researcher", origin: "manual" }, WORKSPACE_ID);
+  setStoredEmployeeSkillAssignmentsSync("Wren", [skill.id], WORKSPACE_ID);
+
+  // First run: full legacy migration — legacy binding created, active = legacy.
+  const first = migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID });
+  assert.equal(first.migrated, 1);
+  const legacyDigest = listSkillArtifactBindingsForSkillSync(skill.id, WORKSPACE_ID)[0]!;
+  assert.equal(readSkillArtifactByDigestSync(legacyDigest, WORKSPACE_ID)?.sourceType, "legacy");
+  assert.equal(readStoredSkillActiveArtifactDigestSync(skill.id, WORKSPACE_ID), legacyDigest);
+  assert.equal(
+    readAssignmentArtifactDigestSync({ employeeName: "Wren", skillId: skill.id, workspaceId: WORKSPACE_ID }),
+    legacyDigest,
+    "Wren's assignment is mapped to the legacy digest",
+  );
+
+  // The lineage now moves on: a MODERN artifact is built and becomes active.
+  const modern = buildAndPersistSkillArtifactSync({
+    skillId: skill.id,
+    name: skill.name,
+    workspaceId: WORKSPACE_ID,
+    sourceType: "local",
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`---\nname: ${skill.name}\ndescription: modern\n---\n# modern\n`) }],
+  });
+  assert.notEqual(modern.digest, legacyDigest);
+  assert.equal(readStoredSkillActiveArtifactDigestSync(skill.id, WORKSPACE_ID), modern.digest, "modern is now active");
+
+  // A SECOND employee is assigned but NOT yet mapped (NULL digest) — the exact
+  // state the bug backfilled onto the oldest legacy binding. setStoredEmployee
+  // SkillAssignmentsSync auto-maps to the active (modern) digest, so we null it
+  // to model the yet-unmapped per-employee state the migrator must not touch.
+  createEmployeeSync({ name: "Pax", role: "Researcher", origin: "manual" }, WORKSPACE_ID);
+  setStoredEmployeeSkillAssignmentsSync("Pax", [skill.id], WORKSPACE_ID);
+  getDatabase()
+    .prepare("UPDATE agent_skill SET skill_artifact_digest = NULL WHERE workspace_id = ? AND skill_id = ? AND employee_name = ?")
+    .run(WORKSPACE_ID, skill.id, "Pax");
+  assert.equal(
+    readAssignmentArtifactDigestSync({ employeeName: "Pax", skillId: skill.id, workspaceId: WORKSPACE_ID }),
+    undefined,
+    "precondition: Pax's assignment has no digest yet",
+  );
+
+  const second = migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID });
+
+  assert.equal(second.migrated, 0, "a superseded skill is not rebuilt");
+  assert.equal(second.reconciled, 0, "a superseded skill is not reconciled");
+  // The crux: Pax's empty assignment must NOT be backfilled onto the legacy digest.
+  assert.equal(
+    readAssignmentArtifactDigestSync({ employeeName: "Pax", skillId: skill.id, workspaceId: WORKSPACE_ID }),
+    undefined,
+    "an unmapped assignment must not be regressed onto the superseded legacy binding",
+  );
+  // Wren, already mapped, is untouched.
+  assert.equal(
+    readAssignmentArtifactDigestSync({ employeeName: "Wren", skillId: skill.id, workspaceId: WORKSPACE_ID }),
+    legacyDigest,
+    "an already-mapped legacy assignment is left as-is",
+  );
+  // No new migration audit for the superseded skill.
+  const audits = listAuditLogsSync(WORKSPACE_ID, { code: "skill.legacy_migrated" })
+    .filter((row) => row.note.includes(`"${skill.name}"`));
+  assert.equal(audits.length, 1, "the single prior migration audit is not duplicated");
+});

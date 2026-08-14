@@ -111,13 +111,24 @@ export function migrateLegacySkillArtifactsSync(input: {
       let builtThisRun: boolean;
       let legacyIncomplete: boolean;
       if (legacyBindings.length > 0) {
+        const active = readStoredSkillActiveArtifactDigestSync(skill.id, workspaceId);
+        // Mixed-lineage guard: the skill keeps its legacy binding(s) but its
+        // ACTIVE artifact is now a MODERN (non-legacy) one — the lineage has
+        // moved on from legacy storage. Phase B below would otherwise backfill
+        // any still-unmapped per-employee assignment onto the OLDEST legacy
+        // binding (bindings are created_at ASC), pointing employees at a
+        // superseded version the modern build/import flow is responsible for.
+        // Leave such a skill entirely alone: its legacy binding is historical.
+        if (active && !legacyBindings.includes(active)) {
+          result.alreadyMigrated += 1;
+          continue;
+        }
         // Reconciliation path — cheap, and NEVER gated by `limit`. A backlog of
         // partial migrations (legacy binding present, downstream phases incomplete)
         // must clear every tick even after the Phase-A build budget is spent.
         // Prefer the skill's ACTIVE digest when it is one of the legacy artifacts
         // (the version installs/assignments resolve to) — never the oldest binding.
-        const active = readStoredSkillActiveArtifactDigestSync(skill.id, workspaceId);
-        digest = active && legacyBindings.includes(active) ? active : legacyBindings[0]!;
+        digest = active ?? legacyBindings[0]!;
         builtThisRun = false;
         const existing = readSkillArtifactByDigestSync(digest, workspaceId);
         legacyIncomplete = existing?.legacyIncomplete ?? false;
