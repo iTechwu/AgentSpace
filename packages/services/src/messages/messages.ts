@@ -28,6 +28,7 @@ import {
   buildMentionCandidates,
   enqueueChannelMentionStepSync,
   getChannelHistoryFilePath,
+  postMessageSync as postMessageSyncShared,
   type ExternalMessageInputContext,
 } from "../shared/messaging.ts";
 import {
@@ -175,43 +176,7 @@ export function acknowledgeMessageSync(
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function postMessageSync(input: {
-  channel: string;
-  speaker: string;
-  role: "human" | "agent";
-  summary: string;
-  code?: string;
-  data?: Record<string, string>;
-  status?: "pending" | "completed" | "error";
-  attachments?: MessageAttachment[];
-  mentions?: MessageMention[];
-}, workspaceId?: string): DofeAgentState {
-  const state = ensureWorkspaceStateSync(workspaceId);
-
-  if (!state.channels.some((channel) => sameValue(channel.name, input.channel))) {
-    throw new Error(`Channel "${input.channel}" does not exist.`);
-  }
-
-  const message = pushWorkspaceMessageToChannel(state, input.channel, {
-    speaker: input.speaker,
-    role: input.role,
-    summary: input.summary,
-    code: input.code,
-    data: input.data,
-    status: input.status ?? "completed",
-    attachments: input.attachments,
-    mentions: input.mentions,
-  }, workspaceId);
-
-  const nextState = writeWorkspaceStateSync(state, workspaceId);
-  publishChannelMessageCreatedEvent({
-    workspaceId: workspaceId ?? DEFAULT_WORKSPACE_ID,
-    channelName: input.channel,
-    messageId: message.id,
-    createdAt: message.time,
-  });
-  return nextState;
-}
+export const postMessageSync: typeof postMessageSyncShared = postMessageSyncShared;
 
 export function parseChannelMentionsSync(
   state: DofeAgentState,
