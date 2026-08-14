@@ -362,6 +362,25 @@ function breakingDiffHash(first: { digest: string; artifact: { manifestJson: str
   });
 }
 
+test("approveSkillUpgradeSync is atomic first-write-wins: a repeat returns created:false with the same approval", () => {
+  // Regression for the upgrade-approval dedup race: the old read-then-insert
+  // let two concurrent callers both read empty and the second tripped the
+  // policy-lock unique index. With INSERT ... ON CONFLICT DO NOTHING the first
+  // decision wins atomically — `created` is authoritative, a repeat observes the
+  // surviving approval, and (because the audit is gated on `created`) the
+  // decision is audited exactly once.
+  resetWorkspaceStateSync("default");
+  const { first, second } = buildUpgradeArtifacts();
+  const diffHash = breakingDiffHash(first, second);
+
+  const initial = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const repeat = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  assert.equal(initial.created, true, "the first decision inserts");
+  assert.equal(repeat.created, false, "a repeat does not insert");
+  assert.equal(repeat.approvalId, initial.approvalId, "the repeat returns the surviving approval, not a duplicate");
+});
+
 test("createSkillUpgradePlanSync rejects a breaking upgrade without an approval", () => {
   resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
@@ -568,7 +587,7 @@ test("createSkillUpgradePlanSync rejects an approval from an obsolete policy ver
   const runtimeId = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts();
   const v1 = readyInstall(runtimeId, first.digest);
-  const approval = createSkillUpgradeApprovalSync({
+  const { record: approval } = createSkillUpgradeApprovalSync({
     fromDigest: first.digest,
     toDigest: second.digest,
     diffHash: breakingDiffHash(first, second),

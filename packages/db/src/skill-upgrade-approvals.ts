@@ -23,42 +23,54 @@ export interface CreateSkillUpgradeApprovalInput {
  * Records an IMMUTABLE skill-upgrade approval decision bound to the exact
  * `(fromDigest, toDigest, diffHash, policyVersion)` the upgrade was reviewed
  * against. A changed diff or digest invalidates it (a new approval is required).
- * Idempotent per the 4-tuple; the first decision wins.
+ *
+ * Idempotent per the 4-tuple with first-decision-wins, and ATOMIC under
+ * concurrency: `INSERT ... ON CONFLICT DO NOTHING` against the policy-lock
+ * unique index lets exactly one caller's row land; the rest conflict and
+ * return the surviving row with `created: false`. There is no read-then-insert
+ * window for a concurrent duplicate to trip the unique index and throw, and
+ * `created` is authoritative so the lifecycle audit fires exactly once.
  */
-export function createSkillUpgradeApprovalSync(input: CreateSkillUpgradeApprovalInput): SkillUpgradeApprovalRecord {
+export function createSkillUpgradeApprovalSync(
+  input: CreateSkillUpgradeApprovalInput,
+): { record: SkillUpgradeApprovalRecord; created: boolean } {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const existing = readSkillUpgradeApprovalByLockSync({
-    workspaceId,
-    fromDigest: input.fromDigest,
-    toDigest: input.toDigest,
-    diffHash: input.diffHash,
-    policyVersion: input.policyVersion,
-  });
-  if (existing) {
-    return existing;
-  }
+  const fromDigest = input.fromDigest.trim().toLowerCase();
+  const toDigest = input.toDigest.trim().toLowerCase();
+  const diffHash = input.diffHash.trim().toLowerCase();
+  const policyVersion = input.policyVersion?.trim() || "v1";
+
   const id = `sua-${randomLikeId()}`;
   const now = new Date().toISOString();
-  db.prepare(
+  const inserted = db.prepare(
     `INSERT INTO skill_upgrade_approval (
       id, workspace_id, skill_id, from_digest, to_digest, diff_hash,
       policy_version, decision, reason, actor_user_id, created_at, consumed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-  ).run(
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ON CONFLICT (workspace_id, from_digest, to_digest, diff_hash, policy_version) DO NOTHING
+    RETURNING id`,
+  ).get(
     id,
     workspaceId,
     input.skillId?.trim() || null,
-    input.fromDigest.trim().toLowerCase(),
-    input.toDigest.trim().toLowerCase(),
-    input.diffHash.trim().toLowerCase(),
-    input.policyVersion?.trim() || "v1",
+    fromDigest,
+    toDigest,
+    diffHash,
+    policyVersion,
     input.decision,
     input.reason?.trim() || null,
     input.actorUserId?.trim() || null,
     now,
-  );
-  return readSkillUpgradeApprovalSync(id, workspaceId)!;
+  ) as { id: string } | undefined;
+
+  if (inserted) {
+    return { record: readSkillUpgradeApprovalSync(inserted.id, workspaceId)!, created: true };
+  }
+  // ON CONFLICT fired → a row for this exact lock tuple exists; re-read it. The
+  // surviving row is whatever another concurrent caller inserted first.
+  const surviving = readSkillUpgradeApprovalByLockSync({ workspaceId, fromDigest, toDigest, diffHash, policyVersion })!;
+  return { record: surviving, created: false };
 }
 
 export function readSkillUpgradeApprovalSync(

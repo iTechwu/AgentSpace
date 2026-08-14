@@ -18,7 +18,6 @@ import {
   readSkillInstallationByLockSync,
   readSkillInstallationComponentsSync,
   readSkillServiceCatalogSync,
-  readSkillUpgradeApprovalByLockSync,
   readSkillUpgradeApprovalSync,
   setSkillInstallationStatusSync,
   upsertSkillArtifactBindingSync,
@@ -544,20 +543,12 @@ export function approveSkillUpgradeSync(input: {
   actorUserId?: string;
 }): { approvalId: string; created: boolean } {
   const workspaceId = input.workspaceId ?? "default";
-  // First-write-wins: detect an existing decision for this exact lock tuple
-  // BEFORE creating, so `created` reflects a real insert (false for an existing
-  // unconsumed approval) and the audit fires only on the first decision — not
-  // once per idempotent retry. `createSkillUpgradeApprovalSync` performs the
-  // same lookup, so `!prior` is exactly the insert condition (single-threaded,
-  // no race).
-  const prior = readSkillUpgradeApprovalByLockSync({
-    workspaceId,
-    fromDigest: input.fromDigest,
-    toDigest: input.toDigest,
-    diffHash: input.diffHash,
-    policyVersion: SKILL_UPGRADE_POLICY_VERSION,
-  });
-  const approval = createSkillUpgradeApprovalSync({
+  // Atomic first-write-wins: `created` comes straight from the upsert
+  // (INSERT ... ON CONFLICT DO NOTHING), not from a racy pre-read. Under
+  // concurrent retries exactly one caller inserts and audits the decision; the
+  // rest observe `created: false` and return the surviving approval — instead
+  // of both reading empty and the second tripping the unique index.
+  const { record: approval, created } = createSkillUpgradeApprovalSync({
     workspaceId: input.workspaceId,
     skillId: input.skillId,
     fromDigest: input.fromDigest,
@@ -568,7 +559,6 @@ export function approveSkillUpgradeSync(input: {
     actorUserId: input.actorUserId,
     policyVersion: SKILL_UPGRADE_POLICY_VERSION,
   });
-  const created = !prior;
   if (created) {
     recordSkillLifecycleAuditSync({
       workspaceId,
