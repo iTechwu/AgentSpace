@@ -21,7 +21,6 @@ test-results
 .claude/
 .github/
 /demo/
-agent-space-daemon-*.tgz
 dofe-agent-daemon-*.tgz
 # Prisma 迁移工作笔记（本地维护，勿入库；重建产物请用 pnpm run daemon:pack）
 findings.md
