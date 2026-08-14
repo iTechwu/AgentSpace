@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes as cryptoRandomBytes } from "node:crypto";
-import { after, before, test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
 import {
   createSkillUpgradeApprovalSync,
   getDatabase,
@@ -58,21 +58,34 @@ before(() => {
   setAttachmentStorageClientForTests(testStorage.client);
 });
 
+// Per-TEST workspace: beforeEach mints a unique throwaway workspace for each
+// test, so this suite never reads, writes, or resets the shared "default"
+// workspace — safe across CI shards / parallel workers running other suites.
+// resetWorkspaceStateSync creates + seeds it, so it starts empty. Declared
+// `let` because beforeEach reassigns it per test.
+let WORKSPACE_ID = "";
+
+beforeEach(() => {
+  WORKSPACE_ID = `release-${randomLikeId()}`;
+  resetWorkspaceStateSync(WORKSPACE_ID);
+  testStorage.clear();
+});
+
 after(() => {
   testStorage.clear();
-  // Best-effort cleanup so the shared test DB does not leak catalog rows.
+  // Best-effort cleanup so the shared test DB does not leak this suite's rows.
+  // Every test minted a unique `release-*` workspace, so the prefix can never
+  // match another suite's (or the "default") workspace. skill_service_binding
+  // carries no workspace_id column, so it is scoped via this suite's catalog
+  // rows only (service_id == catalog.id).
   const db = getDatabase();
-  // skill_service_binding carries no workspace_id column, so an unfiltered
-  // DELETE would wipe EVERY suite's bindings (service_id == catalog.id). Scope
-  // to this suite's "default"-workspace catalog rows only, so a parallel shard
-  // running another suite never loses its bindings.
   db.prepare(
-    "DELETE FROM skill_service_binding WHERE service_id IN (SELECT id FROM skill_service_catalog WHERE workspace_id = ?)",
-  ).run("default");
-  db.prepare("DELETE FROM managed_skill_service_operation WHERE workspace_id = ?").run("default");
-  db.prepare("DELETE FROM managed_skill_service WHERE workspace_id = ?").run("default");
-  db.prepare("DELETE FROM skill_service_catalog WHERE workspace_id = ?").run("default");
-  db.prepare("DELETE FROM mcp_catalog_item WHERE workspace_id = ?").run("default");
+    "DELETE FROM skill_service_binding WHERE service_id IN (SELECT id FROM skill_service_catalog WHERE workspace_id LIKE 'release-%')",
+  ).run();
+  db.prepare("DELETE FROM managed_skill_service_operation WHERE workspace_id LIKE 'release-%'").run();
+  db.prepare("DELETE FROM managed_skill_service WHERE workspace_id LIKE 'release-%'").run();
+  db.prepare("DELETE FROM skill_service_catalog WHERE workspace_id LIKE 'release-%'").run();
+  db.prepare("DELETE FROM mcp_catalog_item WHERE workspace_id LIKE 'release-%'").run();
 });
 
 function manifest(overrides: Record<string, unknown> = {}): string {
@@ -166,7 +179,7 @@ test("diffSkillArtifactsSync flags service template changes", () => {
 test("computeSkillReleaseLockSync derives a content-addressed dependency lock", () => {
   const lock = computeSkillReleaseLockSync({
     id: "art-1",
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     digest: sha("e"),
     name: "render",
     version: "1.0.0",
@@ -184,7 +197,7 @@ test("computeSkillReleaseLockSync derives a content-addressed dependency lock", 
   assert.equal(lock.dependencyLockDigest.length, 64);
   assert.equal(lock.dependencyLockDigest, computeSkillReleaseLockSync({
     id: "art-2",
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     digest: sha("e"),
     name: "render",
     version: "1.0.0",
@@ -203,7 +216,7 @@ test("computeSkillReleaseLockSync derives a content-addressed dependency lock", 
 function artifactWithServicesAndCapabilities(): Parameters<typeof computeSkillReleaseLockSync>[0] {
   return {
     id: "art-full",
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     digest: sha("e"),
     name: "full",
     version: "1.0.0",
@@ -222,9 +235,8 @@ function artifactWithServicesAndCapabilities(): Parameters<typeof computeSkillRe
 }
 
 test("computeSkillReleaseLockSync populates service + MCP fields from catalogs", () => {
-  resetWorkspaceStateSync("default");
   upsertSkillServiceCatalogSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "document-renderer",
     templateVersion: "2.1.0",
     deploymentType: "managed_service",
@@ -232,7 +244,7 @@ test("computeSkillReleaseLockSync populates service + MCP fields from catalogs",
     configSchemaVersion: 3,
   });
   upsertMcpCatalogItemSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "github",
     transport: "streamable_http",
     displayName: "GitHub",
@@ -242,7 +254,7 @@ test("computeSkillReleaseLockSync populates service + MCP fields from catalogs",
     ]),
   });
 
-  const lock = computeSkillReleaseLockSync(artifactWithServicesAndCapabilities());
+  const lock = computeSkillReleaseLockSync(artifactWithServicesAndCapabilities(), WORKSPACE_ID);
 
   assert.equal(lock.serviceTemplateVersions["document-renderer"], "2.1.0");
   assert.equal(lock.serviceImageDigests["document-renderer"], sha("img"));
@@ -252,9 +264,8 @@ test("computeSkillReleaseLockSync populates service + MCP fields from catalogs",
 });
 
 test("computeSkillReleaseLockSync lockDigest is reproducible and provenance-independent", () => {
-  resetWorkspaceStateSync("default");
   upsertSkillServiceCatalogSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "document-renderer",
     templateVersion: "2.1.0",
     deploymentType: "managed_service",
@@ -262,19 +273,19 @@ test("computeSkillReleaseLockSync lockDigest is reproducible and provenance-inde
     configSchemaVersion: 3,
   });
   upsertMcpCatalogItemSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "github",
     transport: "streamable_http",
     displayName: "GitHub",
     declaredToolsJson: JSON.stringify([{ name: "search_issues", description: "Search issues" }]),
   });
 
-  const first = computeSkillReleaseLockSync(artifactWithServicesAndCapabilities());
+  const first = computeSkillReleaseLockSync(artifactWithServicesAndCapabilities(), WORKSPACE_ID);
   const second = computeSkillReleaseLockSync({
     ...artifactWithServicesAndCapabilities(),
     id: "art-other",
     sourceType: "github",
-  });
+  }, WORKSPACE_ID);
   assert.equal(second.lockDigest, first.lockDigest, "lock digest is stable across provenance");
 
   // Changing a dependency perturbs the lock digest.
@@ -288,7 +299,7 @@ test("computeSkillReleaseLockSync lockDigest is reproducible and provenance-inde
       services: [{ catalogSlug: "document-renderer", templateVersion: "2.1.0", required: true }],
       capabilities: [{ kind: "mcp", catalogSlug: "github", requiredTools: ["search_issues"] }],
     }),
-  });
+  }, WORKSPACE_ID);
   assert.notEqual(changed.lockDigest, first.lockDigest, "a dependency change perturbs the lock digest");
 });
 
@@ -301,8 +312,8 @@ function createTestRuntime(): string {
   const now = new Date().toISOString();
   getDatabase().prepare(
     `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
-     VALUES (?, 'default', 'test-provider', ?, 'online', ?, ?)`,
-  ).run(id, `Test Runtime ${id}`, now, now);
+     VALUES (?, ?, 'test-provider', ?, 'online', ?, ?)`,
+  ).run(id, WORKSPACE_ID, `Test Runtime ${id}`, now, now);
   return id;
 }
 
@@ -316,8 +327,8 @@ function buildUpgradeArtifacts(skillId?: string | null) {
   const salt = cryptoRandomBytes(4).toString("hex");
   const resolvedSkillId = skillId === null
     ? undefined
-    : skillId ?? createWorkspaceSkillSync({ name: `Upgrade Test ${salt}` }).id;
-  const first = buildAndPersistSkillArtifactSync({
+    : skillId ?? createWorkspaceSkillSync({ name: `Upgrade Test ${salt}` }, WORKSPACE_ID).id;
+  const first = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId: resolvedSkillId,
     name: "Upgrade Test",
     files: [
@@ -325,7 +336,7 @@ function buildUpgradeArtifacts(skillId?: string | null) {
       { path: "scripts/render.py", bytes: ENCODER.encode("print('v1')\n"), mode: "0755" },
     ],
   });
-  const second = buildAndPersistSkillArtifactSync({
+  const second = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId: resolvedSkillId,
     activate: false,
     name: "Upgrade Test",
@@ -341,7 +352,7 @@ function readyInstall(runtimeId: string, digest: string): { id: string } {
   const installation = approvedPlan(runtimeId, digest);
   setSkillInstallationStatusSync({
     installationId: installation.id,
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     status: "ready",
     health: "healthy",
   });
@@ -350,16 +361,16 @@ function readyInstall(runtimeId: string, digest: string): { id: string } {
 
 /** Creates an install plan after obtaining a fresh per-item risk approval (P0-2 gate). */
 function approvedPlan(runtimeId: string, artifactDigest: string) {
-  const artifact = readSkillArtifactByDigestSync(artifactDigest, "default");
-  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest });
-  const lock = computeSkillReleaseLockSync(artifact, "default");
-  const approvalId = approveSkillInstallSync({
+  const artifact = readSkillArtifactByDigestSync(artifactDigest, WORKSPACE_ID);
+  const riskItems = buildSkillInstallRiskItemsSync({ workspaceId: WORKSPACE_ID, artifactDigest });
+  const lock = computeSkillReleaseLockSync(artifact, WORKSPACE_ID);
+  const approvalId = approveSkillInstallSync({ workspaceId: WORKSPACE_ID,
     artifactDigest,
     releaseLockDigest: lock.lockDigest,
     riskItems,
     reason: "test approval",
   }).approvalId;
-  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
+  return createSkillInstallationPlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest, approvalId });
 }
 
 function breakingDiffHash(first: { digest: string; artifact: { manifestJson: string } }, second: { digest: string; artifact: { manifestJson: string } }): string {
@@ -376,12 +387,11 @@ test("approveSkillUpgradeSync is atomic first-write-wins: a repeat returns creat
   // decision wins atomically — `created` is authoritative, a repeat observes the
   // surviving approval, and (because the audit is gated on `created`) the
   // decision is audited exactly once.
-  resetWorkspaceStateSync("default");
   const { first, second } = buildUpgradeArtifacts();
   const diffHash = breakingDiffHash(first, second);
 
-  const initial = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
-  const repeat = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const initial = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const repeat = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
   assert.equal(initial.created, true, "the first decision inserts");
   assert.equal(repeat.created, false, "a repeat does not insert");
@@ -399,54 +409,51 @@ test("approveSkillUpgradeSync commits the approval and its audit atomically (bot
   // repeat neither re-creates the approval nor duplicates the audit. The rollback
   // direction is enforced by the same withTransaction primitive the install/rollback
   // paths exercise.
-  resetWorkspaceStateSync("default");
   const { first, second } = buildUpgradeArtifacts();
   const diffHash = breakingDiffHash(first, second);
 
-  const initial = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const initial = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
   assert.equal(initial.created, true, "the first decision inserts");
 
   // The approval row AND its audit landed together in one transaction.
-  const approvals = listSkillUpgradeApprovalsSync("default").filter((row) => row.id === initial.approvalId);
+  const approvals = listSkillUpgradeApprovalsSync(WORKSPACE_ID).filter((row) => row.id === initial.approvalId);
   assert.equal(approvals.length, 1, "the approval row committed");
-  const audits = listAuditLogsSync("default", { code: "skill.upgrade_approval_decision" })
+  const audits = listAuditLogsSync(WORKSPACE_ID, { code: "skill.upgrade_approval_decision" })
     .filter((row) => row.note.includes(initial.approvalId));
   assert.equal(audits.length, 1, "the approval-decision audit committed alongside the approval");
 
   // A repeat observes the surviving approval and must NOT duplicate the audit —
   // the audit is atomic with and gated by the single authoritative insert.
-  const repeat = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const repeat = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
   assert.equal(repeat.created, false);
   assert.equal(repeat.approvalId, initial.approvalId);
-  const auditsAfterRepeat = listAuditLogsSync("default", { code: "skill.upgrade_approval_decision" })
+  const auditsAfterRepeat = listAuditLogsSync(WORKSPACE_ID, { code: "skill.upgrade_approval_decision" })
     .filter((row) => row.note.includes(initial.approvalId));
   assert.equal(auditsAfterRepeat.length, 1, "the audit is recorded exactly once, never duplicated by a retry");
 });
 
 test("createSkillUpgradePlanSync rejects a breaking upgrade without an approval", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts();
   const v1 = readyInstall(runtimeId, first.digest);
 
   assert.throws(
-    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id }),
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id }),
     /breaking changes/,
   );
 });
 
 test("createSkillUpgradePlanSync rejects a candidate with NEW high-risk capabilities without a risk approval", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const salt = cryptoRandomBytes(4).toString("hex");
-  const skillId = createWorkspaceSkillSync({ name: `Upgrade Risk ${salt}` }).id;
-  const first = buildAndPersistSkillArtifactSync({
+  const skillId = createWorkspaceSkillSync({ name: `Upgrade Risk ${salt}` }, WORKSPACE_ID).id;
+  const first = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId,
     name: "Risk Upgrade",
     files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v1 ${salt}\n`) }],
   });
   // v2 adds a new 0755 executable — a NEW high-risk capability item vs v1.
-  const second = buildAndPersistSkillArtifactSync({
+  const second = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId,
     activate: false,
     name: "Risk Upgrade",
@@ -458,10 +465,10 @@ test("createSkillUpgradePlanSync rejects a candidate with NEW high-risk capabili
   const v1 = readyInstall(runtimeId, first.digest);
   // Satisfy the breaking gate, but omit the new-risk approval.
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
   assert.throws(
-    () => createSkillUpgradePlanSync({
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID,
       runtimeId,
       artifactDigest: second.digest,
       previousReadyInstallationId: v1.id,
@@ -472,16 +479,15 @@ test("createSkillUpgradePlanSync rejects a candidate with NEW high-risk capabili
 });
 
 test("createSkillUpgradePlanSync consumes a risk approval for NEW high-risk capabilities", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const salt = cryptoRandomBytes(4).toString("hex");
-  const skillId = createWorkspaceSkillSync({ name: `Upgrade Risk ${salt}` }).id;
-  const first = buildAndPersistSkillArtifactSync({
+  const skillId = createWorkspaceSkillSync({ name: `Upgrade Risk ${salt}` }, WORKSPACE_ID).id;
+  const first = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId,
     name: "Risk Upgrade",
     files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v1 ${salt}\n`) }],
   });
-  const second = buildAndPersistSkillArtifactSync({
+  const second = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId,
     activate: false,
     name: "Risk Upgrade",
@@ -492,19 +498,19 @@ test("createSkillUpgradePlanSync consumes a risk approval for NEW high-risk capa
   });
   const v1 = readyInstall(runtimeId, first.digest);
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
   // Approve the candidate's FULL risk set; the plan gate consumes it atomically.
-  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest: second.digest });
-  const lock = computeSkillReleaseLockSync(readSkillArtifactByDigestSync(second.digest, "default"), "default");
-  const { approvalId: installApprovalId } = approveSkillInstallSync({
+  const riskItems = buildSkillInstallRiskItemsSync({ workspaceId: WORKSPACE_ID, artifactDigest: second.digest });
+  const lock = computeSkillReleaseLockSync(readSkillArtifactByDigestSync(second.digest, WORKSPACE_ID), WORKSPACE_ID);
+  const { approvalId: installApprovalId } = approveSkillInstallSync({ workspaceId: WORKSPACE_ID,
     artifactDigest: second.digest,
     releaseLockDigest: lock.lockDigest,
     riskItems,
     reason: "new risk approval",
   });
 
-  const v2 = createSkillUpgradePlanSync({
+  const v2 = createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID,
     runtimeId,
     artifactDigest: second.digest,
     previousReadyInstallationId: v1.id,
@@ -512,35 +518,34 @@ test("createSkillUpgradePlanSync consumes a risk approval for NEW high-risk capa
     installApprovalId,
   });
   assert.ok(v2.id);
-  const approval = readSkillInstallApprovalSync(installApprovalId, "default");
+  const approval = readSkillInstallApprovalSync(installApprovalId, WORKSPACE_ID);
   assert.ok(approval?.consumedAt, "the new-risk approval must be consumed by the upgrade plan");
 });
 
 test("createSkillUpgradePlanSync does not require a risk approval when the candidate adds no new risk items", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   // Both v1 and v2 expose the SAME risk profile (a 0755 script) → no new risk items.
   const { first, second } = buildUpgradeArtifacts();
   const v1 = readyInstall(runtimeId, first.digest);
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
   assert.doesNotThrow(() =>
-    createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
   );
 });
 
 /** Builds a skill with an installed ready v1 and an active candidate v2. */
 function buildInboxCandidate(runtimeId: string) {
   const salt = cryptoRandomBytes(4).toString("hex");
-  const skill = createWorkspaceSkillSync({ name: `Inbox Test ${salt}` });
-  const first = buildAndPersistSkillArtifactSync({
+  const skill = createWorkspaceSkillSync({ name: `Inbox Test ${salt}` }, WORKSPACE_ID);
+  const first = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId: skill.id,
     activate: true,
     name: "Inbox",
     files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v1 ${salt}\n`) }],
   });
-  const second = buildAndPersistSkillArtifactSync({
+  const second = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId: skill.id,
     activate: true,
     name: "Inbox",
@@ -554,11 +559,10 @@ function buildInboxCandidate(runtimeId: string) {
 }
 
 test("listSkillUpgradeReviewCandidatesSync surfaces pending candidates with semantic diff", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { skill, first, second } = buildInboxCandidate(runtimeId);
 
-  const candidates = listSkillUpgradeReviewCandidatesSync("default");
+  const candidates = listSkillUpgradeReviewCandidatesSync(WORKSPACE_ID);
   assert.equal(candidates.length, 1);
   const candidate = candidates[0]!;
   assert.equal(candidate.skillId, skill.id);
@@ -570,11 +574,10 @@ test("listSkillUpgradeReviewCandidatesSync surfaces pending candidates with sema
 });
 
 test("approveSkillUpgradeCandidateSync approves and creates the upgrade plan", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { skill, second, v1 } = buildInboxCandidate(runtimeId);
 
-  const result = approveSkillUpgradeCandidateSync({
+  const result = approveSkillUpgradeCandidateSync({ workspaceId: WORKSPACE_ID,
     skillId: skill.id,
     runtimeId,
     previousInstallationId: v1.id,
@@ -587,11 +590,10 @@ test("approveSkillUpgradeCandidateSync approves and creates the upgrade plan", (
 });
 
 test("approveSkillUpgradeCandidateSync rejects and records immutable rejected approvals", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { skill, second, v1 } = buildInboxCandidate(runtimeId);
 
-  const result = approveSkillUpgradeCandidateSync({
+  const result = approveSkillUpgradeCandidateSync({ workspaceId: WORKSPACE_ID,
     skillId: skill.id,
     runtimeId,
     previousInstallationId: v1.id,
@@ -601,35 +603,33 @@ test("approveSkillUpgradeCandidateSync rejects and records immutable rejected ap
   assert.equal(result.installationId, undefined, "rejection creates no plan");
   assert.equal(result.breaking, true);
 
-  const rejectedUpgrade = listSkillUpgradeApprovalsSync("default")
+  const rejectedUpgrade = listSkillUpgradeApprovalsSync(WORKSPACE_ID)
     .find((approval) => approval.decision === "rejected" && approval.toDigest === second.digest);
   assert.ok(rejectedUpgrade, "a rejected immutable upgrade approval is recorded");
 });
 
 test("createSkillUpgradePlanSync consumes the approval exactly once", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts();
   const v1 = readyInstall(runtimeId, first.digest);
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
-  const v2 = createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId });
+  const v2 = createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId });
   assert.equal(v2.previousReadyRevision, "v1");
 
   // A second plan with the same (consumed) approval must be rejected.
   assert.throws(
-    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /already been consumed/,
   );
 });
 
 test("createSkillUpgradePlanSync rejects an approval from an obsolete policy version", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts();
   const v1 = readyInstall(runtimeId, first.digest);
-  const { record: approval } = createSkillUpgradeApprovalSync({
+  const { record: approval } = createSkillUpgradeApprovalSync({ workspaceId: WORKSPACE_ID,
     fromDigest: first.digest,
     toDigest: second.digest,
     diffHash: breakingDiffHash(first, second),
@@ -638,57 +638,54 @@ test("createSkillUpgradePlanSync rejects an approval from an obsolete policy ver
   });
 
   assert.throws(
-    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId: approval.id }),
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId: approval.id }),
     /policy version/,
   );
 });
 
 test("createSkillUpgradePlanSync rejects an approval whose diffHash does not match", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts();
   const v1 = readyInstall(runtimeId, first.digest);
-  const { approvalId } = approveSkillUpgradeSync({
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID,
     fromDigest: first.digest,
     toDigest: second.digest,
     diffHash: "0".repeat(64),
   });
 
   assert.throws(
-    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /does not match this upgrade/,
   );
 });
 
 test("createSkillUpgradePlanSync rejects a non-ready previous installation", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts();
   const v1 = approvedPlan(runtimeId, first.digest); // still preparing
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
   assert.throws(
-    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /not ready/,
   );
 });
 
 test("promoteSkillUpgradeSync atomically activates a ready candidate and rejects a stale cutover", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
-  const skill = createWorkspaceSkillSync({ name: `Promote ${cryptoRandomBytes(3).toString("hex")}` });
+  const skill = createWorkspaceSkillSync({ name: `Promote ${cryptoRandomBytes(3).toString("hex")}` }, WORKSPACE_ID);
   const { first, second } = buildUpgradeArtifacts(skill.id);
-  setActiveArtifactDigestForSkillSync({ skillId: skill.id, digest: first.digest, workspaceId: "default" });
+  setActiveArtifactDigestForSkillSync({ skillId: skill.id, digest: first.digest, workspaceId: WORKSPACE_ID });
   const previous = readyInstall(runtimeId, first.digest);
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID,
     skillId: skill.id,
     fromDigest: first.digest,
     toDigest: second.digest,
     diffHash,
   });
-  const candidate = createSkillUpgradePlanSync({
+  const candidate = createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID,
     runtimeId,
     artifactDigest: second.digest,
     previousReadyInstallationId: previous.id,
@@ -703,23 +700,23 @@ test("promoteSkillUpgradeSync atomically activates a ready candidate and rejects
       verifiedAt: new Date().toISOString(),
     });
   }
-  setSkillInstallationStatusSync({ installationId: candidate.id, status: "ready", health: "healthy" });
-  assert.equal(readActiveArtifactDigestForSkillSync(skill.id), first.digest);
+  setSkillInstallationStatusSync({ installationId: candidate.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  assert.equal(readActiveArtifactDigestForSkillSync(skill.id, WORKSPACE_ID), first.digest);
 
-  const promoted = promoteSkillUpgradeSync({
+  const promoted = promoteSkillUpgradeSync({ workspaceId: WORKSPACE_ID,
     installationId: candidate.id,
     skillId: skill.id,
     expectedPreviousDigest: first.digest,
   });
   assert.equal(promoted.ok, true);
-  assert.equal(readActiveArtifactDigestForSkillSync(skill.id), second.digest);
+  assert.equal(readActiveArtifactDigestForSkillSync(skill.id, WORKSPACE_ID), second.digest);
   assert.match(
-    readStoredWorkspaceSkillSync(skill.id)?.files.find((file) => file.path === "SKILL.md")?.content ?? "",
+    readStoredWorkspaceSkillSync(skill.id, WORKSPACE_ID)?.files.find((file) => file.path === "SKILL.md")?.content ?? "",
     /Body v2/,
   );
 
   assert.throws(
-    () => promoteSkillUpgradeSync({
+    () => promoteSkillUpgradeSync({ workspaceId: WORKSPACE_ID,
       installationId: candidate.id,
       skillId: skill.id,
       expectedPreviousDigest: first.digest,
@@ -729,69 +726,65 @@ test("promoteSkillUpgradeSync atomically activates a ready candidate and rejects
 });
 
 test("createSkillUpgradePlanSync rejects a cross-runtime upgrade", () => {
-  resetWorkspaceStateSync("default");
   const runtimeA = createTestRuntime();
   const runtimeB = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts();
   const v1 = readyInstall(runtimeA, first.digest);
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
   assert.throws(
-    () => createSkillUpgradePlanSync({ runtimeId: runtimeB, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId: runtimeB, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /must stay on the same runtime/,
   );
 });
 
 test("createSkillUpgradePlanSync rejects artifacts with no lineage bindings", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts(null);
   const v1 = readyInstall(runtimeId, first.digest);
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
   assert.throws(
-    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /bound to a skill lineage/,
   );
 });
 
 test("createSkillUpgradePlanSync rejects artifacts bound to different skills", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
-  const firstSkill = createWorkspaceSkillSync({ name: `Lineage A ${cryptoRandomBytes(3).toString("hex")}` });
-  const secondSkill = createWorkspaceSkillSync({ name: `Lineage B ${cryptoRandomBytes(3).toString("hex")}` });
+  const firstSkill = createWorkspaceSkillSync({ name: `Lineage A ${cryptoRandomBytes(3).toString("hex")}` }, WORKSPACE_ID);
+  const secondSkill = createWorkspaceSkillSync({ name: `Lineage B ${cryptoRandomBytes(3).toString("hex")}` }, WORKSPACE_ID);
   const first = buildUpgradeArtifacts(firstSkill.id).first;
   const second = buildUpgradeArtifacts(secondSkill.id).second;
   const v1 = readyInstall(runtimeId, first.digest);
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID, fromDigest: first.digest, toDigest: second.digest, diffHash });
 
   assert.throws(
-    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    () => createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /crosses skill lineage/,
   );
 });
 
 test("createSkillUpgradePlanSync queues services newly declared by the candidate artifact", () => {
-  resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
-  const skill = createWorkspaceSkillSync({ name: `Service Upgrade ${cryptoRandomBytes(3).toString("hex")}` });
+  const skill = createWorkspaceSkillSync({ name: `Service Upgrade ${cryptoRandomBytes(3).toString("hex")}` }, WORKSPACE_ID);
   const salt = cryptoRandomBytes(4).toString("hex");
-  const first = buildAndPersistSkillArtifactSync({
+  const first = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId: skill.id,
     name: "Service Upgrade",
     files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v1 ${salt}\n`) }],
   });
-  const second = buildAndPersistSkillArtifactSync({
+  const second = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     skillId: skill.id,
     name: "Service Upgrade",
     files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v2 ${salt}\n`) }],
     services: [{ catalogSlug: "candidate-renderer", templateVersion: "2.0.0", required: true }],
   });
   upsertSkillServiceCatalogSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "candidate-renderer",
     templateVersion: "2.0.0",
     deploymentType: "managed_service",
@@ -799,39 +792,38 @@ test("createSkillUpgradePlanSync queues services newly declared by the candidate
   });
   const v1 = readyInstall(runtimeId, first.digest);
   const diffHash = breakingDiffHash(first, second);
-  const { approvalId } = approveSkillUpgradeSync({
+  const { approvalId } = approveSkillUpgradeSync({ workspaceId: WORKSPACE_ID,
     skillId: skill.id,
     fromDigest: first.digest,
     toDigest: second.digest,
     diffHash,
   });
   // The candidate declares a NEW service → a new network risk item → needs a risk approval.
-  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest: second.digest });
-  const riskLock = computeSkillReleaseLockSync(readSkillArtifactByDigestSync(second.digest, "default"), "default");
-  const { approvalId: installApprovalId } = approveSkillInstallSync({
+  const riskItems = buildSkillInstallRiskItemsSync({ workspaceId: WORKSPACE_ID, artifactDigest: second.digest });
+  const riskLock = computeSkillReleaseLockSync(readSkillArtifactByDigestSync(second.digest, WORKSPACE_ID), WORKSPACE_ID);
+  const { approvalId: installApprovalId } = approveSkillInstallSync({ workspaceId: WORKSPACE_ID,
     artifactDigest: second.digest,
     releaseLockDigest: riskLock.lockDigest,
     riskItems,
     reason: "new service risk approval",
   });
 
-  const v2 = createSkillUpgradePlanSync({
+  const v2 = createSkillUpgradePlanSync({ workspaceId: WORKSPACE_ID,
     runtimeId,
     artifactDigest: second.digest,
     previousReadyInstallationId: v1.id,
     approvalId,
     installApprovalId,
   });
-  const serviceOperations = listManagedSkillServiceOperationsSync({ workspaceId: "default", runtimeId });
+  const serviceOperations = listManagedSkillServiceOperationsSync({ workspaceId: WORKSPACE_ID, runtimeId });
   assert.equal(serviceOperations.length, 1);
   assert.equal(serviceOperations[0]?.installationId, v2.id);
   assert.equal(serviceOperations[0]?.operation, "provision");
 });
 
 test("a required service without a catalog entry makes the lock unresolved and blocks the plan", () => {
-  resetWorkspaceStateSync("default");
   const salt = cryptoRandomBytes(4).toString("hex");
-  const artifact = buildAndPersistSkillArtifactSync({
+  const artifact = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     name: "Needs Service",
     files: [
       { path: "SKILL.md", bytes: ENCODER.encode(`# Body ${salt}\n`) },
@@ -840,7 +832,7 @@ test("a required service without a catalog entry makes the lock unresolved and b
     services: [{ catalogSlug: "missing-renderer", templateVersion: "1.0.0", required: true }],
   });
 
-  const lock = computeSkillReleaseLockSync(artifact.artifact, "default");
+  const lock = computeSkillReleaseLockSync(artifact.artifact, WORKSPACE_ID);
   assert.deepEqual(lock.unresolvedRequired, ["service:missing-renderer"]);
 
   // Fail-closed: the installation is blocked at plan time.
@@ -850,14 +842,13 @@ test("a required service without a catalog entry makes the lock unresolved and b
 });
 
 test("an optional service without a catalog entry does not block the plan", () => {
-  resetWorkspaceStateSync("default");
-  const artifact = buildAndPersistSkillArtifactSync({
+  const artifact = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     name: "Optional Service",
     files: [{ path: "SKILL.md", bytes: ENCODER.encode("# Body\n") }],
     services: [{ catalogSlug: "optional-renderer", templateVersion: "1.0.0", required: false }],
   });
 
-  const lock = computeSkillReleaseLockSync(artifact, "default");
+  const lock = computeSkillReleaseLockSync(artifact, WORKSPACE_ID);
   assert.deepEqual(lock.unresolvedRequired, []);
   const runtimeId = createTestRuntime();
   const installation = approvedPlan(runtimeId, artifact.digest);
@@ -865,16 +856,15 @@ test("an optional service without a catalog entry does not block the plan", () =
 });
 
 test("verifySkillInstallationLockReconstructableSync proves reproducibility, and the catalog is immutable", () => {
-  resetWorkspaceStateSync("default");
   upsertSkillServiceCatalogSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "document-renderer",
     templateVersion: "2.1.0",
     deploymentType: "managed_service",
     imageDigest: sha("img"),
     configSchemaVersion: 3,
   });
-  const artifact = buildAndPersistSkillArtifactSync({
+  const artifact = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     name: "Reconstructable",
     files: [{ path: "SKILL.md", bytes: ENCODER.encode("# Body\n") }],
     services: [{ catalogSlug: "document-renderer", templateVersion: "2.1.0", required: true }],
@@ -882,11 +872,11 @@ test("verifySkillInstallationLockReconstructableSync proves reproducibility, and
   const runtimeId = createTestRuntime();
   const installation = approvedPlan(runtimeId, artifact.digest);
   assert.equal(installation.status, "preparing", "required service is pinned, so not blocked");
-  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), true);
+  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, WORKSPACE_ID), true);
 
   // Mutating the catalog breaks reconstruction (the lock no longer re-derives).
   upsertSkillServiceCatalogSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "document-renderer",
     templateVersion: "2.1.0",
     deploymentType: "managed_service",
@@ -896,27 +886,26 @@ test("verifySkillInstallationLockReconstructableSync proves reproducibility, and
   // The catalog is immutable per (slug, templateVersion) — first write wins — so
   // the reconstruction still holds; the digest only changes if the catalog row
   // itself were replaced, which the immutability prevents.
-  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), true);
-  assert.equal(readSkillInstallationLockSync(installation.id, "default")?.serviceImageDigests["document-renderer"], sha("img"));
+  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, WORKSPACE_ID), true);
+  assert.equal(readSkillInstallationLockSync(installation.id, WORKSPACE_ID)?.serviceImageDigests["document-renderer"], sha("img"));
 });
 
 test("MCP release locks remain reconstructable after a newer catalog release is published", () => {
-  resetWorkspaceStateSync("default");
   const firstRelease = upsertMcpCatalogItemSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "github-versioned",
     version: "1.0.0",
     transport: "streamable_http",
     displayName: "GitHub v1",
     declaredToolsJson: JSON.stringify([{ name: "search_issues" }]),
   });
-  const artifact = buildAndPersistSkillArtifactSync({
+  const artifact = buildAndPersistSkillArtifactSync({ workspaceId: WORKSPACE_ID,
     name: "Pinned MCP Release",
     files: [{ path: "SKILL.md", bytes: ENCODER.encode("# Body\n") }],
     capabilities: [{ kind: "mcp", catalogSlug: "github-versioned", requiredTools: ["search_issues"] }],
   });
   const installation = approvedPlan(createTestRuntime(), artifact.digest);
-  const lock = readSkillInstallationLockSync(installation.id, "default");
+  const lock = readSkillInstallationLockSync(installation.id, WORKSPACE_ID);
   assert.deepEqual(lock?.mcpCatalogReleases["github-versioned"], {
     catalogItemId: firstRelease.id,
     version: "1.0.0",
@@ -924,14 +913,14 @@ test("MCP release locks remain reconstructable after a newer catalog release is 
   });
 
   upsertMcpCatalogItemSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "github-versioned",
     version: "2.0.0",
     transport: "streamable_http",
     displayName: "GitHub v2",
     declaredToolsJson: JSON.stringify([{ name: "search_issues" }, { name: "create_issue" }]),
   });
-  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), true);
+  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, WORKSPACE_ID), true);
 
   const {
     mcpCatalogReleases: _mcpCatalogReleases,
@@ -942,9 +931,9 @@ test("MCP release locks remain reconstructable after a newer catalog release is 
   const legacyLockDigest = createHash("sha256").update(stableStringify(legacyFields)).digest("hex");
   getDatabase().prepare(
     `UPDATE skill_installation SET resolved_lock_json = ?::jsonb WHERE id = ? AND workspace_id = ?`,
-  ).run(JSON.stringify({ ...legacyFields, lockDigest: legacyLockDigest, unresolvedRequired }), installation.id, "default");
+  ).run(JSON.stringify({ ...legacyFields, lockDigest: legacyLockDigest, unresolvedRequired }), installation.id, WORKSPACE_ID);
   assert.equal(
-    verifySkillInstallationLockReconstructableSync(installation.id, "default"),
+    verifySkillInstallationLockReconstructableSync(installation.id, WORKSPACE_ID),
     true,
     "legacy fingerprint-only locks resolve their original release instead of the latest",
   );
@@ -952,12 +941,12 @@ test("MCP release locks remain reconstructable after a newer catalog release is 
   // A release is immutable. If an administrative upsert violates that contract,
   // reconstruction must detect the changed tool surface instead of accepting it.
   upsertMcpCatalogItemSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     slug: "github-versioned",
     version: "1.0.0",
     transport: "streamable_http",
     displayName: "GitHub v1 mutated",
     declaredToolsJson: JSON.stringify([{ name: "delete_repository" }]),
   });
-  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), false);
+  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, WORKSPACE_ID), false);
 });
