@@ -10,7 +10,10 @@
  *     skill-service/managed-service-runtime.ts)
  *   - service catalog admission (services/skill-services/catalog.ts)
  *
- * Rules: only http/https origins or bare hostnames; no credentials, path,
+ * Rules: only https origins or bare hostnames (cleartext http is rejected
+ * fail-closed — the L3/L4 firewall only ever opens port 443 and can never
+ * serve port 80, so an http origin could not be honored anyway); no
+ * credentials, path,
  * query, fragment or wildcards; no raw IPv4/IPv6 literals; no localhost,
  * private-suffix or single-label names (they may resolve to private
  * addresses). Explicit non-default ports are only accepted where a L3/L4
@@ -49,10 +52,10 @@ export function parseSkillEgressOrigin(
   try {
     url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
   } catch {
-    return { ok: false, reason: "expected a hostname or an HTTP(S) origin" };
+    return { ok: false, reason: "expected a hostname or an https origin" };
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return { ok: false, reason: "only http and https schemes are supported" };
+  if (url.protocol !== "https:") {
+    return { ok: false, reason: "only https origins are supported: the L3/L4 firewall narrows every grant to port 443 and never opens port 80 for cleartext" };
   }
   if (url.username || url.password) {
     return { ok: false, reason: "credentials are forbidden" };

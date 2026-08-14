@@ -6,11 +6,10 @@ import {
   parseSkillEgressOrigin,
 } from "./skill-egress.ts";
 
-test("parseSkillEgressOrigin accepts bare hostnames and HTTP(S) origins", () => {
+test("parseSkillEgressOrigin accepts bare hostnames and HTTPS origins", () => {
   for (const [entry, hostname] of [
     ["api.example.com", "api.example.com"],
     ["https://api.example.com", "api.example.com"],
-    ["http://api.example.com/", "api.example.com"],
     ["  API.Example.COM  ", "api.example.com"],
     ["api.example.com.", "api.example.com"],
     // Default ports normalize away — the approved object equals the enforced one.
@@ -23,6 +22,18 @@ test("parseSkillEgressOrigin accepts bare hostnames and HTTP(S) origins", () => 
     assert.ok(parsed.ok, entry);
     assert.equal(parsed.origin.hostname, hostname, entry);
     assert.equal(parsed.origin.port, undefined, entry);
+  }
+});
+
+test("parseSkillEgressOrigin rejects cleartext http origins", () => {
+  for (const entry of [
+    "http://api.example.com",
+    "http://api.example.com/",
+    "http://api.example.com:80",
+  ]) {
+    const parsed = parseSkillEgressOrigin(entry);
+    assert.ok(!parsed.ok, entry);
+    if (!parsed.ok) assert.match(parsed.reason, /https/i, entry);
   }
 });
 
