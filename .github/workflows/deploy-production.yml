@@ -133,10 +133,21 @@ jobs:
           # 导出到部署 runner 的 shell，故不能假设 runner shell 已自带这些变量。
           # 预检失败直接退出，服务仍在运行旧版本，避免停服、构建后才因契约不满足触发
           # 回滚、拉长停服窗口。
-          if ! bash packages/daemon/scripts/dofe-skill-runner-e2e-run.sh --preflight; then
+          #
+          # 预检必须执行「候选提交（$after）」中的脚本，而非当前 checkout：此刻工作树
+          # 仍停在旧提交（$before），旧版脚本不识别 --preflight、也不加载新配置约定的
+          # env 来源，首次自部署（旧 checkout 里还没有这份门禁脚本）会被旧脚本不可靠
+          # 地阻断。用独立候选 worktree 保证预检对象与将要上线的代码严格一致（脚本内
+          # 部按自身路径 cd，不能简单 git show 到临时目录执行）。下方真实 e2e 在
+          # git reset 到 $after 之后运行，天然就是候选版本。
+          gate_worktree="$(mktemp -d "${TMPDIR:-/tmp}/agentspace-gate-XXXXXX")"
+          git worktree add --detach "$gate_worktree" "$after"
+          if ! bash "$gate_worktree/packages/daemon/scripts/dofe-skill-runner-e2e-run.sh" --preflight; then
             echo "Skill Runner egress preflight failed; aborting before stop_service."
+            git worktree remove --force "$gate_worktree" || true
             exit 1
           fi
+          git worktree remove --force "$gate_worktree" || true
 
           stop_service
 
