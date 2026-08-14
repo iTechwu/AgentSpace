@@ -2,7 +2,9 @@
 // - listWorkspaceNotificationsAsync 通过 pg.Client 直连 PG 拉
 //   workspace_notification 行，作为 cutover runner 的 async primary。
 // - shadow 关闭时无任何额外开销（不在 sync 路径上调用）。
-// - asyncToNotificationRecord 桥接 pg JSONB → object 与 Date → ISO 的类型差异。
+// - mapAsyncNotificationRow / normalizeNotificationsLimit 为 cutover
+//   wrapper 与单元测试所引用的具名导出；normalizeLimit 默认 100、
+//   Math.round 处理小数输入、最小 1、最大 500。
 
 import { Client } from "pg";
 import { resolvePostgresDatabaseUrl } from "../postgres-config.ts";
@@ -32,29 +34,23 @@ interface AsyncNotificationRow {
   archived_at: Date | string | null;
 }
 
-const RECIPIENT_TYPES = new Set(["human", "employee"]);
+const RECIPIENT_TYPES = new Set(["human", "agent"]);
 const ACTOR_TYPES = new Set(["human", "agent", "system"]);
 const RESOURCE_TYPES = new Set([
-  "approval",
-  "channel",
-  "channel_member",
-  "channel_document",
-  "channel_invitation",
-  "channel_access_request",
-  "credential",
-  "deployment",
-  "document",
-  "employee",
-  "knowledge",
-  "message",
-  "milestone",
-  "model",
-  "runtime",
-  "runtime_credential",
-  "task",
   "workspace",
+  "workspace_member",
+  "agent",
+  "agent_fork_invitation",
+  "channel",
+  "document",
+  "runtime",
+  "task",
+  "approval",
+  "data_protection",
+  "skill",
+  "capability_request",
 ]);
-const SEVERITIES = new Set(["info", "warning", "error", "success"]);
+const SEVERITIES = new Set(["info", "success", "warning", "critical", "error"]);
 const STATUSES = new Set(["unread", "read", "archived"]);
 
 export async function listWorkspaceNotificationsAsync(
@@ -78,7 +74,7 @@ export async function listWorkspaceNotificationsAsync(
   } else if (!options.includeArchived) {
     conditions.push("status <> 'archived'");
   }
-  const limit = normalizeLimit(options.limit);
+  const limit = normalizeNotificationsLimit(options.limit);
   params.push(limit);
 
   const sql = `SELECT id, workspace_id, recipient_type, recipient_id,
@@ -96,7 +92,7 @@ export async function listWorkspaceNotificationsAsync(
     await client.connect();
     const result = await client.query<AsyncNotificationRow>(sql, params);
     return result.rows
-      .map((row) => mapNotificationRow(row))
+      .map(mapAsyncNotificationRow)
       .filter((record): record is WorkspaceNotificationRecord => record !== null);
   } finally {
     await client.end().catch(() => undefined);
@@ -111,6 +107,12 @@ export function isNotificationsShadowReadEnabled(): boolean {
   return process.env.NOTIFICATIONS_SHADOW_READ_ENABLED === "1";
 }
 
+export function normalizeNotificationsLimit(limit: number | undefined): number {
+  const fallback = limit ?? 100;
+  const rounded = Number.isFinite(fallback) ? Math.round(fallback) : 100;
+  return Math.min(Math.max(rounded, 1), 500);
+}
+
 function normalizeStatusFilter(status: ListWorkspaceNotificationsOptions["status"]): string[] {
   if (!status) return [];
   if (Array.isArray(status)) return status.filter((s) => STATUSES.has(s));
@@ -118,39 +120,38 @@ function normalizeStatusFilter(status: ListWorkspaceNotificationsOptions["status
   return [];
 }
 
-function normalizeLimit(limit: number | undefined): number {
-  return Math.min(Math.max(limit ?? 50, 1), 500);
-}
-
-function mapNotificationRow(row: AsyncNotificationRow): WorkspaceNotificationRecord | null {
+export function mapAsyncNotificationRow(
+  row: AsyncNotificationRow,
+): WorkspaceNotificationRecord | null {
   if (!RECIPIENT_TYPES.has(row.recipient_type)) return null;
   if (!RESOURCE_TYPES.has(row.resource_type)) return null;
   if (!SEVERITIES.has(row.severity)) return null;
   if (!STATUSES.has(row.status)) return null;
-  return {
+  const record: WorkspaceNotificationRecord = {
     id: row.id,
     workspaceId: row.workspace_id,
     recipientType: row.recipient_type as WorkspaceNotificationRecord["recipientType"],
     recipientId: row.recipient_id,
-    actorType: row.actor_type && ACTOR_TYPES.has(row.actor_type)
-      ? (row.actor_type as WorkspaceNotificationRecord["actorType"])
-      : undefined,
-    actorId: row.actor_id ?? undefined,
     type: row.type,
     resourceType: row.resource_type as WorkspaceNotificationRecord["resourceType"],
-    resourceId: row.resource_id ?? undefined,
-    channelName: row.channel_name ?? undefined,
     title: row.title,
     body: row.body,
-    actionHref: row.action_href ?? undefined,
     severity: row.severity as WorkspaceNotificationRecord["severity"],
     status: row.status as WorkspaceNotificationRecord["status"],
-    dedupeKey: row.dedupe_key ?? undefined,
     metadataJson: serializeJson(row.metadata_json),
     createdAt: toIsoString(row.created_at),
-    readAt: row.read_at == null ? undefined : toIsoString(row.read_at),
-    archivedAt: row.archived_at == null ? undefined : toIsoString(row.archived_at),
   };
+  if (row.actor_type && ACTOR_TYPES.has(row.actor_type)) {
+    record.actorType = row.actor_type as WorkspaceNotificationRecord["actorType"];
+  }
+  if (row.actor_id !== null) record.actorId = row.actor_id;
+  if (row.resource_id !== null) record.resourceId = row.resource_id;
+  if (row.channel_name !== null) record.channelName = row.channel_name;
+  if (row.action_href !== null) record.actionHref = row.action_href;
+  if (row.dedupe_key !== null) record.dedupeKey = row.dedupe_key;
+  if (row.read_at !== null) record.readAt = toIsoString(row.read_at);
+  if (row.archived_at !== null) record.archivedAt = toIsoString(row.archived_at);
+  return record;
 }
 
 function toIsoString(value: Date | string): string {
@@ -171,10 +172,4 @@ function serializeJson(value: unknown): string {
   } catch {
     return "{}";
   }
-}
-
-function normalizeMetadataJson(value: unknown): Record<string, unknown> {
-  // deprecated: kept only to satisfy any stale import. Use serializeJson in
-  // mapNotificationRow to produce the sync-compatible raw JSON string.
-  return {};
 }

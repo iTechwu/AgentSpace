@@ -5,12 +5,14 @@
 // - Flag ON   → 走 async primary；shadow ON 时同时跑 sync fallback 并 compare
 // - 列表 compare 用结构化 JSON 比较，处理 pg JSONB / sqlite JSON.stringify
 //   的格式差异
+//
+// createListWorkspaceNotificationsCutover 工厂把 cutover runner 抽象为可注入
+// isEnabled / isShadowEnabled / runPrimary / runFallback 的闭包，便于单测
+// 不依赖真实 PG 与 sync API 直接断言 primary / shadow / fallback 三分支行为。
 
 import { listWorkspaceNotificationsForRecipientSync } from "../notifications.ts";
-import type {
-  ListWorkspaceNotificationsOptions,
-  WorkspaceNotificationRecord,
-} from "../notifications.ts";
+import type { ListWorkspaceNotificationsOptions } from "../notifications.ts";
+import type { WorkspaceNotificationRecord } from "../types.ts";
 import {
   isNotificationsAsyncReadEnabled,
   isNotificationsShadowReadEnabled,
@@ -27,6 +29,13 @@ export interface ListNotificationsCutoverMetric {
 
 export type ListNotificationsCutoverMetricSink = (metric: ListNotificationsCutoverMetric) => void;
 
+export interface ListNotificationsCutoverOptions {
+  isEnabled?: () => boolean;
+  isShadowEnabled?: () => boolean;
+  runPrimary?: () => Promise<WorkspaceNotificationRecord[]>;
+  runFallback?: () => WorkspaceNotificationRecord[];
+}
+
 /**
  * Async read cutover for workspace-notifications list. Returns the async
  * primary result when Phase 2 flag is on; falls back to the legacy sync
@@ -36,17 +45,30 @@ export async function listWorkspaceNotificationsCutover(
   options: ListWorkspaceNotificationsOptions,
   metricSink: ListNotificationsCutoverMetricSink = defaultMetricSink,
 ): Promise<WorkspaceNotificationRecord[]> {
-  return withReadCutover<WorkspaceNotificationRecord[]>({
-    isEnabled: isNotificationsAsyncReadEnabled,
-    isShadowEnabled: isNotificationsShadowReadEnabled,
-    runPrimary: async () => listWorkspaceNotificationsAsync(options),
-    runFallback: () => listWorkspaceNotificationsForRecipientSync(options),
-    compare: (primary, fallback) => recordsEqual(primary, fallback),
-    emitMetric: (m) => metricSink({ ...m, source: m.source }),
-  });
+  return createListWorkspaceNotificationsCutover()(options, metricSink);
 }
 
-function recordsEqual(
+/**
+ * Build a cutover runner with injected flag / runPrimary / runFallback
+ * closures. Defaults wire the production async primary + sync fallback +
+ * env-driven flags; tests pass custom closures to drive primary/shadow/
+ * fallback branches deterministically.
+ */
+export function createListWorkspaceNotificationsCutover(
+  overrides: ListNotificationsCutoverOptions = {},
+): (options: ListWorkspaceNotificationsOptions, metricSink?: ListNotificationsCutoverMetricSink) => Promise<WorkspaceNotificationRecord[]> {
+  return (options, metricSink = defaultMetricSink) =>
+    withReadCutover<WorkspaceNotificationRecord[]>({
+      isEnabled: overrides.isEnabled ?? isNotificationsAsyncReadEnabled,
+      isShadowEnabled: overrides.isShadowEnabled ?? isNotificationsShadowReadEnabled,
+      runPrimary: overrides.runPrimary ?? (async () => listWorkspaceNotificationsAsync(options)),
+      runFallback: overrides.runFallback ?? (() => listWorkspaceNotificationsForRecipientSync(options)),
+      compare: (primary, fallback) => recordsEqual(primary, fallback),
+      emitMetric: (m) => metricSink({ ...m, source: m.source }),
+    });
+}
+
+export function recordsEqual(
   primary: WorkspaceNotificationRecord[],
   fallback: WorkspaceNotificationRecord[],
 ): boolean {
