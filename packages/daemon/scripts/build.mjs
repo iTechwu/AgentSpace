@@ -28,6 +28,7 @@ await build({
   },
   format: "esm",
   platform: "node",
-  target: "node20",
+  // 与 engines ^25.9.0 对齐：避免为 Node 25 原生支持的特性下兼容编译。
+  target: "node25",
   sourcemap: false,
 });
