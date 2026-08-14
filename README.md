@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="#agentrouter"><img src="https://img.shields.io/badge/Agents-Claude_Code%20%7C%20Codex%20%7C%20OpenClaw%20%7C%20Hermes-99C9BF.svg" alt="Agents: Claude Code, Codex, OpenClaw, Hermes" /></a>
-  <a href="#环境要求"><img src="https://img.shields.io/badge/Node.js-24%20recommended-FCE7D6.svg" alt="Node.js 24 recommended" /></a>
+  <a href="#环境要求"><img src="https://img.shields.io/badge/Node.js-25.9.0%20recommended-FCE7D6.svg" alt="Node.js 25.9.0 recommended" /></a>
   <a href="#环境要求"><img src="https://img.shields.io/badge/PostgreSQL-16%20recommended-C1E5F5.svg" alt="PostgreSQL 16 recommended" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-F5C6C6.svg" alt="License: Apache 2.0" /></a>
   <a href="https://github.com/HKUDS/.github/blob/main/profile/README.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat-square&logo=feishu&logoColor=white" alt="飞书群" /></a>
@@ -235,7 +235,7 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 
 ### 环境要求
 
-- 推荐 Node.js 24。remote daemon package 最低要求 Node.js `>=22.22.2`，完整支持范围以各 `package.json` 的 `engines` 字段为准。
+- 推荐 Node.js 25.9.0。remote daemon package 最低要求 Node.js `>=25.9.0`，完整支持范围以各 `package.json` 的 `engines` 字段为准，详见 [docs/0814/node-runtime-matrix.md](docs/0814/node-runtime-matrix.md)。
 - pnpm 10.26.2。
 - 推荐 PostgreSQL 16。仓库内包含本地 Docker Compose 配置。
 - 可选 provider CLI：`codex`、`claude`、`agy`（Antigravity）、`gemini`（legacy）、`opencode`、`openclaw`、`nanobot`、`hermes`。

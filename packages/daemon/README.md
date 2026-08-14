@@ -36,7 +36,7 @@ import { HttpDaemonClient } from "dofe-agent-daemon/daemon-client";
 
 ## 要求
 
-- Node.js `>=20.20.0`
+- Node.js `>=25.9.0`（以 `package.json` 的 `engines.node` 为准）
 - 已安装至少一种 provider CLI：`codex`、`claude`、`agy`（Antigravity）、`gemini`（legacy）、`opencode`、`openclaw`、`nanobot`、`hermes`
 - `serverUrl`
 - `daemonToken`
