@@ -7,7 +7,7 @@ import type {
   WorkspaceMessage,
 } from "@dofe-agent/domain/workspace";
 import { sameValue, sanitizeAttachmentFileName } from "../shared/helpers.ts";
-import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
+import { resolveChannelHumanMemberNames } from "../shared/channel-members.ts";
 import { readWorkspaceAttachmentBytesSync } from "../attachments/attachments.ts";
 
 export function findWorkspaceAttachmentById(

@@ -18,7 +18,7 @@ import {
   upsertConversationExecutionWorkspaceState,
 } from "../shared/conversation-execution-workspaces.ts";
 import { sameValue } from "../shared/helpers.ts";
-import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
+import { resolveChannelHumanMemberNames } from "../shared/channel-members.ts";
 import {
   pushWorkspaceMessageToChannel,
   applyWorkspaceDataPolicyToExternalMessageInput,

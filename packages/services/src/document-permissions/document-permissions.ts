@@ -24,7 +24,7 @@ import {
   type DocumentAction,
 } from "@dofe-agent/domain";
 import type { ChannelDocument } from "@dofe-agent/domain/workspace";
-import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
+import { resolveChannelHumanMemberNames } from "../shared/channel-members.ts";
 import { readChannelDocumentSync } from "../documents/sync.ts";
 import { recordTaskExecutionEventSync } from "../task-execution-events.ts";
 import { readWorkspaceStateSync } from "../shared/state-io.ts";

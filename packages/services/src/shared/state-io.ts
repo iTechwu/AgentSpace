@@ -30,7 +30,7 @@ import {
   createDefaultWorkspaceState,
   type DofeAgentState,
 } from "@dofe-agent/domain/workspace";
-import { ensureChannelDocumentAccessSeeds } from "../documents/access.ts";
+import { ensureChannelDocumentAccessSeeds } from "./channel-document-access-seeds.ts";
 import { createAttachmentStorageClient } from "../attachments/storage.ts";
 import { normalizeWorkspaceState } from "./normalizers.ts";
 

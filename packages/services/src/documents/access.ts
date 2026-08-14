@@ -1,23 +1,11 @@
 import { allowsDocumentAction, type ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import type { DofeAgentState, ChannelDocument } from "@dofe-agent/domain/workspace";
 import { sameValue } from "../shared/helpers.ts";
-import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
+import { resolveChannelHumanMemberNames } from "../shared/channel-members.ts";
 
-export function ensureChannelDocumentAccessSeeds(state: DofeAgentState): boolean {
-  let changed = false;
-
-  for (const document of state.channelDocuments) {
-    const existing = state.channelDocumentAccesses.filter((access) => access.documentId === document.id);
-    if (existing.length > 0) {
-      continue;
-    }
-
-    state.channelDocumentAccesses.unshift(...buildDefaultDocumentAccesses(state, document));
-    changed = true;
-  }
-
-  return changed;
-}
+export {
+  ensureChannelDocumentAccessSeeds,
+} from "../shared/channel-document-access-seeds.ts";
 
 export function listChannelDocumentAccesses(
   state: DofeAgentState,
@@ -220,70 +208,6 @@ export function ensureDocumentKeepsAnOwner(
     return;
   }
   throw new Error("A channel document must keep at least one owner.");
-}
-
-function buildDefaultDocumentAccesses(
-  state: DofeAgentState,
-  document: ChannelDocument,
-): DofeAgentState["channelDocumentAccesses"] {
-  const now = document.createdAt;
-  const result: DofeAgentState["channelDocumentAccesses"] = [];
-  const seen = new Set<string>();
-  const channel = state.channels.find((item) => sameValue(item.name, document.channelName));
-  const humanMemberNames = channel
-    ? resolveChannelHumanMemberNames(state, channel)
-    : state.humanMembers.map((member) => member.name);
-
-  const ownerHuman =
-    humanMemberNames.find((name) => sameValue(name, document.createdBy)) ?? humanMemberNames[0];
-  if (ownerHuman) {
-    result.push(createDocumentAccess(document.id, ownerHuman, "human", "owner", now));
-    seen.add(`human:${ownerHuman.toLocaleLowerCase("zh-CN")}`);
-  } else if (state.activeEmployees.some((employee) => sameValue(employee.name, document.createdBy))) {
-    result.push(createDocumentAccess(document.id, document.createdBy, "agent", "editor", now));
-    seen.add(`agent:${document.createdBy.toLocaleLowerCase("zh-CN")}`);
-  }
-
-  for (const memberName of humanMemberNames) {
-    const key = `human:${memberName.toLocaleLowerCase("zh-CN")}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    result.push(createDocumentAccess(document.id, memberName, "human", "editor", now));
-    seen.add(key);
-  }
-
-  for (const employee of state.activeEmployees) {
-    if (!employee.channels.some((channel) => sameValue(channel, document.channelName)) && !sameValue(employee.name, document.createdBy)) {
-      continue;
-    }
-    const key = `agent:${employee.name.toLocaleLowerCase("zh-CN")}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    result.push(createDocumentAccess(document.id, employee.name, "agent", "editor", now));
-    seen.add(key);
-  }
-
-  return result;
-}
-
-function createDocumentAccess(
-  documentId: string,
-  actorId: string,
-  actorType: "human" | "agent",
-  role: ChannelDocumentAccessRole,
-  now: string,
-): DofeAgentState["channelDocumentAccesses"][number] {
-  return {
-    id: `channel-doc-access-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    documentId,
-    actorId,
-    actorType,
-    role,
-    createdAt: now,
-    updatedAt: now,
-  };
 }
 
 function assertAccessTargetExists(

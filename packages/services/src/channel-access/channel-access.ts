@@ -24,13 +24,15 @@ import {
   type WorkspaceRole,
 } from "@dofe-agent/db";
 import type { DofeAgentState, ChannelRecord } from "@dofe-agent/domain/workspace";
-import { resolveChannelHumanMemberNames, updateChannelHumanMemberNamesSync } from "../channels/channels.ts";
+import { updateChannelHumanMemberNamesSync } from "../channels/channels.ts";
+import { resolveChannelHumanMemberNames } from "../shared/channel-members.ts";
 import {
   resolveChannelDocumentRole,
   upsertChannelDocumentAccessRole,
 } from "../documents/access.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue } from "../shared/helpers.ts";
+import { isWorkspaceAdminOrOwnerRole } from "../shared/channel-members.ts";
 import { createNotificationSync, postNotificationChannelMessageSync } from "../notifications/notifications.ts";
 
 export interface ChannelAccessActor {
@@ -45,10 +47,6 @@ export interface ChannelAccessSummary {
   channelName: string;
   state: ChannelAccessState;
   requestId?: string;
-}
-
-export function isWorkspaceAdminOrOwnerRole(role?: WorkspaceRole): boolean {
-  return role === "owner" || role === "admin";
 }
 
 export function canReadChannelForActorSync(input: {

@@ -42,26 +42,10 @@ export function findDirectChannelRecord(
   );
 }
 
-export function resolveChannelHumanMemberNames(
-  state: DofeAgentState,
-  channel: Pick<ChannelRecord, "humanMemberNames" | "humanMembers">,
-): string[] {
-  const explicitNames = uniqueNames(channel.humanMemberNames ?? []);
-  if (explicitNames.length > 0) {
-    return explicitNames;
-  }
-
-  return state.humanMembers
-    .slice(0, Math.max(0, channel.humanMembers))
-    .map((member) => member.name);
-}
-
-export function resolveChannelHumanMemberCount(
-  state: DofeAgentState,
-  channel: Pick<ChannelRecord, "humanMemberNames" | "humanMembers">,
-): number {
-  return resolveChannelHumanMemberNames(state, channel).length;
-}
+export {
+  resolveChannelHumanMemberNames,
+  resolveChannelHumanMemberCount,
+} from "../shared/channel-members.ts";
 
 export function ensureDirectChannelRecord(
   state: DofeAgentState,

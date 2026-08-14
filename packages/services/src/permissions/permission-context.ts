@@ -21,7 +21,7 @@ import type {
 } from "@dofe-agent/domain/workspace";
 import {
   resolveChannelHumanMemberNames,
-} from "../channels/channels.ts";
+} from "../shared/channel-members.ts";
 import {
   ensureWorkspaceStateSync,
 } from "../shared/state-io.ts";

@@ -6,7 +6,7 @@ import {
 } from "@dofe-agent/db";
 import {
   resolveChannelHumanMemberNames,
-} from "../channels/channels.ts";
+} from "../shared/channel-members.ts";
 import {
   sameValue,
 } from "../shared/helpers.ts";
