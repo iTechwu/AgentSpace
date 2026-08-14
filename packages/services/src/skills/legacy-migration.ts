@@ -6,6 +6,7 @@ import {
   listSkillArtifactBindingsForSkillSync,
   listStoredWorkspaceSkillsSync,
   readSkillArtifactByDigestSync,
+  readStoredSkillActiveArtifactDigestSync,
   recordAuditLogSync,
   withTransaction,
 } from "@dofe-agent/db";
@@ -93,25 +94,38 @@ export function migrateLegacySkillArtifactsSync(input: {
     try {
       // Phase A — artifact + binding + active digest. Idempotent: an identical
       // re-import short-circuits inside buildAndPersistSkillArtifactSync. When a
-      // binding already exists from a prior (possibly partial) run we DO NOT
-      // skip — we reuse its digest and reconcile the downstream phases below.
+      // LEGACY binding already exists from a prior (possibly partial) run we DO
+      // NOT skip — we reuse its digest and reconcile the downstream phases below.
       const bindings = listSkillArtifactBindingsForSkillSync(skill.id, workspaceId);
+      // Resolve provenance per binding. A `legacy`-sourceType artifact is THIS
+      // migrator's handiwork; any other sourceType ("local"/"import"/...) is a
+      // modern artifact owned by the normal build/import flow. Treating "has any
+      // binding" as "legacy-migrated" used to pull modern multi-version skills
+      // onto the reconciliation path, backfilling empty assignments onto the
+      // OLDEST binding (bindings are created_at ASC) and emitting a spurious
+      // skill.legacy_migrated audit for a skill that was never legacy storage.
+      const legacyBindings = bindings.filter(
+        (candidate) => readSkillArtifactByDigestSync(candidate, workspaceId)?.sourceType === "legacy",
+      );
       let digest: string;
       let builtThisRun: boolean;
       let legacyIncomplete: boolean;
-      if (bindings.length > 0) {
+      if (legacyBindings.length > 0) {
         // Reconciliation path — cheap, and NEVER gated by `limit`. A backlog of
-        // partial migrations (binding present, downstream phases incomplete) must
-        // clear every tick even after the Phase-A build budget is spent.
-        digest = bindings[0]!;
+        // partial migrations (legacy binding present, downstream phases incomplete)
+        // must clear every tick even after the Phase-A build budget is spent.
+        // Prefer the skill's ACTIVE digest when it is one of the legacy artifacts
+        // (the version installs/assignments resolve to) — never the oldest binding.
+        const active = readStoredSkillActiveArtifactDigestSync(skill.id, workspaceId);
+        digest = active && legacyBindings.includes(active) ? active : legacyBindings[0]!;
         builtThisRun = false;
         const existing = readSkillArtifactByDigestSync(digest, workspaceId);
         legacyIncomplete = existing?.legacyIncomplete ?? false;
-      } else {
-        // `limit` caps ONLY this expensive branch (artifact build + blob upload).
-        // Once spent, defer the remaining un-bound skills to the next maintenance
-        // tick rather than building past the budget. Reconciliation above is the
-        // uncapped path, so a backlog of PARTIAL migrations is never starved.
+      } else if (bindings.length === 0) {
+        // No artifact at all — a file-only legacy skill. Build its legacy artifact
+        // (Phase A). `limit` caps ONLY this expensive branch (build + blob upload);
+        // once spent, defer to the next maintenance tick. Reconciliation above is
+        // the uncapped path, so a backlog of PARTIAL migrations is never starved.
         if (result.migrated >= limit) {
           result.deferred += 1;
           continue;
@@ -126,6 +140,12 @@ export function migrateLegacySkillArtifactsSync(input: {
         digest = built.digest;
         builtThisRun = true;
         legacyIncomplete = built.artifact.legacyIncomplete;
+      } else {
+        // The skill has ONLY modern (non-legacy) artifacts — it was created by
+        // the normal build/import flow, not legacy file-only storage. Nothing for
+        // the legacy migrator to do: no assignment backfill, no legacy audit.
+        result.alreadyMigrated += 1;
+        continue;
       }
 
       // Phases B + C run inside one transaction so a single maintenance tick can

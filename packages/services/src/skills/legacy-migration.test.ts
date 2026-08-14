@@ -10,6 +10,7 @@ import {
   setStoredEmployeeSkillAssignmentsSync,
 } from "@dofe-agent/db";
 import {
+  buildAndPersistSkillArtifactSync,
   createEmployeeSync,
   createSkillInstallationPlanSync,
   createWorkspaceSkillSync,
@@ -225,4 +226,53 @@ test("does not duplicate the migration audit across repeat runs", () => {
   const count = listAuditLogsSync(WORKSPACE_ID, { code: "skill.legacy_migrated" })
     .filter((row) => row.note.includes(`"${skill.name}"`)).length;
   assert.equal(count, 1, "exactly one migration audit per skill, regardless of how often maintenance re-runs");
+});
+
+test("leaves a modern (non-legacy) skill untouched: no backfill, no legacy audit", () => {
+  // Regression: "has any binding" used to route modern skills onto the legacy
+  // reconciliation path — backfilling a NULL assignment onto the OLDEST binding
+  // (bindings are created_at ASC) and recording a bogus skill.legacy_migrated
+  // audit. Only legacy-provenance artifacts are this migrator's business.
+  const skill = createLegacySkill("Modern Multi-Version");
+  createEmployeeSync({ name: "Vega", role: "Researcher", origin: "manual" }, WORKSPACE_ID);
+  // Assign BEFORE any artifact exists, so the assignment has no digest yet — the
+  // exact state the bug backfilled onto an arbitrary binding.
+  setStoredEmployeeSkillAssignmentsSync("Vega", [skill.id], WORKSPACE_ID);
+  assert.equal(
+    readAssignmentArtifactDigestSync({ employeeName: "Vega", skillId: skill.id, workspaceId: WORKSPACE_ID }),
+    undefined,
+    "precondition: the legacy assignment has no artifact digest yet",
+  );
+
+  // Build TWO modern artifacts (sourceType "local"); the newer becomes active.
+  // This is a modern multi-version lineage the legacy migrator must not touch.
+  const v1 = buildAndPersistSkillArtifactSync({
+    skillId: skill.id,
+    name: skill.name,
+    workspaceId: WORKSPACE_ID,
+    sourceType: "local",
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`---\nname: ${skill.name}\ndescription: modern v1\n---\n# v1\n`) }],
+  });
+  const v2 = buildAndPersistSkillArtifactSync({
+    skillId: skill.id,
+    name: skill.name,
+    workspaceId: WORKSPACE_ID,
+    sourceType: "local",
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`---\nname: ${skill.name}\ndescription: modern v2\n---\n# v2\n`) }],
+  });
+  assert.notEqual(v1.digest, v2.digest, "two distinct modern versions");
+  assert.equal(readStoredSkillActiveArtifactDigestSync(skill.id, WORKSPACE_ID), v2.digest, "the newer version is active");
+
+  const result = migrateLegacySkillArtifactsSync({ workspaceId: WORKSPACE_ID });
+
+  assert.equal(result.migrated, 0, "a modern skill is not (re)built by the legacy migrator");
+  assert.equal(result.reconciled, 0, "a modern skill is not reconciled by the legacy migrator");
+  assert.equal(
+    readAssignmentArtifactDigestSync({ employeeName: "Vega", skillId: skill.id, workspaceId: WORKSPACE_ID }),
+    undefined,
+    "the empty assignment must not be backfilled onto the oldest modern binding",
+  );
+  const legacyAudit = listAuditLogsSync(WORKSPACE_ID, { code: "skill.legacy_migrated" })
+    .filter((row) => row.note.includes(`"${skill.name}"`));
+  assert.equal(legacyAudit.length, 0, "a modern skill must not receive a legacy_migrated audit");
 });
