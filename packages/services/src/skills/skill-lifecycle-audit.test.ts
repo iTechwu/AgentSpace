@@ -34,12 +34,13 @@ import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storag
 
 const encoder = new TextEncoder();
 const testStorage = createTestTosAttachmentStorage();
-// Dedicated workspace namespace so this suite never resets the shared `default`
-// workspace nor deletes other workspaces' audit rows — the test database is
-// shared across suites and a global `DELETE FROM audit_log WHERE code LIKE
-// 'skill.%'` races parallel runs. Mirrors the isolation pattern in
-// legacy-migration.test.ts / release.test.ts.
-const WORKSPACE_ID = "skill-lifecycle-audit-test";
+// Per-TEST workspace: beforeEach mints a unique throwaway workspace for each
+// test, so this suite is safe to run across multiple processes (CI shards /
+// parallel workers) — no two processes or tests share or reset one another's
+// workspace. A fresh workspace starts empty (no skills, no audit rows), which
+// also removes the append-only audit_log scoping/clearing a shared fixed
+// workspace required. Declared `let` because beforeEach reassigns it per test.
+let WORKSPACE_ID = "";
 
 // Pin an in-memory storage client so artifact builds never touch real TOS. Real
 // storage I/O (curl/network) recycles pooled PG connections mid-test, producing
@@ -51,15 +52,13 @@ before(() => {
 });
 
 beforeEach(() => {
+  // Mint a unique throwaway workspace for THIS test (and this process).
+  // resetWorkspaceStateSync creates + seeds it via ensureWorkspaceRecordForStateSync,
+  // so it starts empty — no prior skills and no audit rows to scope or clear,
+  // which is why the append-only audit_log needs no DELETE here.
+  WORKSPACE_ID = `skill-lifecycle-audit-${randomLikeId()}`;
   resetWorkspaceStateSync(WORKSPACE_ID);
   testStorage.clear();
-  // resetWorkspaceStateSync deliberately never clears audit_log (it is a
-  // tamper-evident, append-only log), so without this the code-based audit
-  // queries below would match rows left by prior invocations and flake. Clear
-  // ONLY this workspace's skill.* rows — never another workspace's audits.
-  getDatabase()
-    .prepare("DELETE FROM audit_log WHERE workspace_id = ? AND code LIKE 'skill.%'")
-    .run(WORKSPACE_ID);
 });
 
 after(() => {
