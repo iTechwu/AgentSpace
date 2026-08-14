@@ -89,6 +89,7 @@ export const WORKFLOW_ERROR_CODES = [
   "workflow_run_control_conflict",
   "workflow_run_commit_in_progress",
   "workflow_run_not_startable",
+  "workflow_run_not_terminal",
   "workflow_run_create_failed",
   "workflow_run_event_create_failed",
   "workflow_run_materialization_conflict",
@@ -106,6 +107,10 @@ export const WORKFLOW_ERROR_CODES = [
   "workflow_node_retry_conflict",
   "workflow_node_queue_link_conflict",
   "workflow_node_queue_retry_conflict",
+
+  // Run cursor / pagination snapshot
+  "workflow_run_cursor_snapshot_incomplete",
+  "workflow_run_cursor_snapshot_required",
 
   // Outbox
   "workflow_outbox_lease_conflict",
@@ -224,6 +229,7 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   workflow_run_control_conflict: "运行状态已变化，请刷新后重试。",
   workflow_run_commit_in_progress: "步骤结果正在提交，请稍后再取消运行。",
   workflow_run_not_startable: "运行已暂停或结束，当前步骤不能开始执行。",
+  workflow_run_not_terminal: "只能重跑已结束的运行，该运行尚未结束。",
   workflow_run_create_failed: "运行创建失败，请稍后重试。",
   workflow_run_event_create_failed: "运行事件创建失败，请稍后重试。",
   workflow_run_materialization_conflict: "运行物化状态冲突，请刷新后重试。",
@@ -241,6 +247,10 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   workflow_node_retry_conflict: "步骤状态已变化，请刷新后重试。",
   workflow_node_queue_link_conflict: "步骤队列关联冲突，请刷新后重试。",
   workflow_node_queue_retry_conflict: "步骤队列重试冲突，请刷新后重试。",
+
+  // Run cursor / pagination snapshot
+  workflow_run_cursor_snapshot_incomplete: "运行列表快照不完整，无法继续翻页，请刷新后重试。",
+  workflow_run_cursor_snapshot_required: "分页游标缺少必需的快照信息，无法生成分页标记。",
 
   // Outbox
   workflow_outbox_lease_conflict: "出库事件已被其他进程领取。",
