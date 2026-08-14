@@ -126,6 +126,19 @@ jobs:
             exit 1
           fi
 
+          # Skill Runner egress 发布门禁：在真实 Linux 受管节点上跑 real-Docker +
+          # real-iptables 验收（dofe-skill-runner-e2e-run.sh 在非 Linux 直接
+          # fail-closed，并校验三个按 digest 钉住的 Runner 镜像已在本地存在）。
+          # egress 回归必须像构建失败一样阻断上线——回滚到正在运行的版本。此刻依赖
+          # 已装、构建已过、服务已停，是接入门禁最安全的时机；门禁用例的链/容器名独
+          # 立、源地址惰性，停服窗口内不干扰真实流量。镜像未就绪时门禁 fail-closed，
+          # 即"egress 未经验证不得上线"，符合当前 egress 尚未标记生产可用的约束。
+          if ! bash packages/daemon/scripts/dofe-skill-runner-e2e-run.sh; then
+            echo "Skill Runner egress release gate failed; rolling back to $before."
+            rollback "$before"
+            exit 1
+          fi
+
           if ! start_service; then
             rollback "$before"
             exit 1
