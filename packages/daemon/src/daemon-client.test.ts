@@ -328,6 +328,116 @@ test("built library surface exports HttpDaemonClient", async (t) => {
   assert.equal(typeof clientModule.HttpDaemonClient, "function");
 });
 
+test("HttpDaemonClient aborts hung blob transfers within the blob timeout", async () => {
+  const originalFetch = globalThis.fetch;
+  const signals: AbortSignal[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    signals.push(init?.signal ?? new AbortController().signal);
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("request aborted")), { once: true });
+    });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test", {
+      blobTransferTimeoutMs: 5,
+      retryDelayMs: 0,
+      maxRetryAttempts: 1,
+    });
+    await assert.rejects(() => client.getWorkspaceBlob("task-1", "rev-1", "a".repeat(64)), /request aborted/);
+    await assert.rejects(
+      () => client.getWorkspaceBlobRange("task-1", "rev-1", "a".repeat(64), 0, 9),
+      /request aborted/,
+    );
+    await assert.rejects(() => client.uploadWorkspaceBlob("task-1", "a".repeat(64), new Uint8Array([1])), /request aborted/);
+    // Every attempt (download, range, upload) must carry an aborted signal —
+    // the shared AbortController lifecycle applies to all three blob paths.
+    assert.equal(signals.length, 3);
+    for (const signal of signals) assert.ok(signal.aborted);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HttpDaemonClient retries a blob download on 5xx and returns the raw bytes", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input) => {
+    attempts += 1;
+    requestedUrl = String(input);
+    if (attempts === 1) {
+      return new Response(JSON.stringify({ error: "temporary failure" }), { status: 503 });
+    }
+    return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test", {
+      retryDelayMs: 0,
+      maxRetryAttempts: 3,
+    });
+    const bytes = await client.getWorkspaceBlob("task-1", "rev-1", "b".repeat(64));
+    assert.deepEqual(Array.from(bytes), [1, 2, 3]);
+    assert.equal(attempts, 2);
+    assert.equal(
+      requestedUrl,
+      `http://localhost:1455/api/daemon/tasks/task-1/workspace-blobs/${"b".repeat(64)}?revisionId=rev-1`,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HttpDaemonClient surfaces an unsatisfiable blob range as an explicit error", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedRange = "";
+  globalThis.fetch = (async (_input, init) => {
+    requestedRange = String((init?.headers as Record<string, string>).range);
+    return new Response(null, { status: 416 });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test", {
+      retryDelayMs: 0,
+      maxRetryAttempts: 1,
+    });
+    await assert.rejects(
+      () => client.getWorkspaceBlobRange("task-1", "rev-1", "c".repeat(64), 100, 199),
+      /range 100-199 is unsatisfiable/,
+    );
+    assert.equal(requestedRange, "bytes=100-199");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HttpDaemonClient retries a blob upload on 5xx until acknowledged", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  let sawUpload = false;
+  globalThis.fetch = (async (_input, init) => {
+    attempts += 1;
+    sawUpload = init?.method === "PUT";
+    if (attempts < 3) {
+      return new Response(JSON.stringify({ error: "temporary failure" }), { status: 503 });
+    }
+    return new Response(JSON.stringify({ stored: true }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test", {
+      retryDelayMs: 0,
+      maxRetryAttempts: 3,
+    });
+    await client.uploadWorkspaceBlob("task-1", "d".repeat(64), new Uint8Array([9, 8, 7]));
+    assert.ok(sawUpload);
+    assert.equal(attempts, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("reportMcpToolAudits rejects a success response that does not acknowledge every event", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>

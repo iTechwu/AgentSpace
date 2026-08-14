@@ -413,62 +413,38 @@ export class HttpDaemonClient {
 
   async getWorkspaceBlob(taskId: string, revisionId: string, sha256: string): Promise<Uint8Array> {
     const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}?revisionId=${encodeURIComponent(revisionId)}`;
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
-      try {
-        const response = await fetch(this.resolveUrl(path), { method: "GET", headers: this.buildHeaders(), signal: controller.signal });
-        if (response.status >= 500 && attempt < this.maxRetryAttempts) {
-          await sleep(this.retryDelayMs);
-          continue;
-        }
+    return this.requestBlobWithRetry(
+      path,
+      "Workspace blob download failed.",
+      (signal) => ({ method: "GET", headers: this.buildHeaders(), signal }),
+      async (response) => {
         if (!response.ok) await this.readJson<never>(response);
         return new Uint8Array(await response.arrayBuffer());
-      } catch (error) {
-        lastError = error;
-        if (attempt >= this.maxRetryAttempts) throw error;
-        await sleep(this.retryDelayMs);
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error("Workspace blob download failed.");
+      },
+    );
   }
 
   async getWorkspaceBlobRange(taskId: string, revisionId: string, sha256: string, start: number, end: number): Promise<Uint8Array> {
     const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}?revisionId=${encodeURIComponent(revisionId)}`;
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
-      try {
-        const response = await fetch(this.resolveUrl(path), {
-          method: "GET",
-          headers: {
-            ...this.buildHeaders(),
-            range: `bytes=${start}-${end}`,
-          },
-          signal: controller.signal,
-        });
-        if (response.status >= 500 && attempt < this.maxRetryAttempts) {
-          await sleep(this.retryDelayMs);
-          continue;
-        }
+    return this.requestBlobWithRetry(
+      path,
+      "Workspace blob range download failed.",
+      (signal) => ({
+        method: "GET",
+        headers: {
+          ...this.buildHeaders(),
+          range: `bytes=${start}-${end}`,
+        },
+        signal,
+      }),
+      async (response) => {
         if (response.status === 416) {
           throw new Error(`Workspace blob range ${start}-${end} is unsatisfiable.`);
         }
         if (!response.ok) await this.readJson<never>(response);
         return new Uint8Array(await response.arrayBuffer());
-      } catch (error) {
-        lastError = error;
-        if (attempt >= this.maxRetryAttempts) throw error;
-        await sleep(this.retryDelayMs);
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error("Workspace blob range download failed.");
+      },
+    );
   }
 
   async reportMessages(taskId: string, body: ReportTaskMessagesRequest): Promise<void> {
@@ -496,37 +472,22 @@ export class HttpDaemonClient {
 
   async uploadWorkspaceBlob(taskId: string, sha256: string, bytes: Uint8Array): Promise<void> {
     const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}`;
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
-      try {
-        const response = await fetch(this.resolveUrl(path), {
-          method: "PUT",
-          headers: {
-            authorization: `Bearer ${this.daemonToken}`,
-            "content-length": String(bytes.byteLength),
-            "content-type": "application/octet-stream",
-            "x-content-sha256": sha256,
-          },
-          body: Buffer.from(bytes),
-          signal: controller.signal,
-        });
-        if (response.status >= 500 && attempt < this.maxRetryAttempts) {
-          await sleep(this.retryDelayMs);
-          continue;
-        }
-        await this.readJson<unknown>(response);
-        return;
-      } catch (error) {
-        lastError = error;
-        if (attempt >= this.maxRetryAttempts) throw error;
-        await sleep(this.retryDelayMs);
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error("Workspace blob upload failed.");
+    await this.requestBlobWithRetry(
+      path,
+      "Workspace blob upload failed.",
+      (signal) => ({
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${this.daemonToken}`,
+          "content-length": String(bytes.byteLength),
+          "content-type": "application/octet-stream",
+          "x-content-sha256": sha256,
+        },
+        body: Buffer.from(bytes),
+        signal,
+      }),
+      (response) => this.readJson<unknown>(response),
+    );
   }
 
   async completeTask(taskId: string, body: CompleteTaskRequest): Promise<void> {
@@ -608,6 +569,42 @@ export class HttpDaemonClient {
       authorization: `Bearer ${this.daemonToken}`,
       "content-type": "application/json",
     };
+  }
+
+  /**
+   * Shared retry + timeout loop for the three blob-transfer methods
+   * (getWorkspaceBlob / getWorkspaceBlobRange / uploadWorkspaceBlob). Unlike
+   * requestJson (short requestTimeoutMs, JSON body), blob transfers stream
+   * payloads under the longer blobTransferTimeoutMs budget; how a response is
+   * interpreted stays with each caller so only the transport policy
+   * (AbortController lifecycle, 5xx retry, backoff) lives here once.
+   */
+  private async requestBlobWithRetry<T>(
+    path: string,
+    fallbackError: string,
+    init: (signal: AbortSignal) => RequestInit,
+    interpret: (response: Response) => Promise<T>,
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
+      try {
+        const response = await fetch(this.resolveUrl(path), init(controller.signal));
+        if (response.status >= 500 && attempt < this.maxRetryAttempts) {
+          await sleep(this.retryDelayMs);
+          continue;
+        }
+        return await interpret(response);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= this.maxRetryAttempts) throw error;
+        await sleep(this.retryDelayMs);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(fallbackError);
   }
 
   private resolveUrl(path: string): string {
