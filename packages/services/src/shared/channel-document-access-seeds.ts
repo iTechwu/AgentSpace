@@ -1,4 +1,8 @@
-// 频道文档访问种子：纯函数，按频道成员推导文档默认访问记录。
+// 频道文档访问种子：按频道成员推导文档默认访问记录。
+//
+// 注意：这不是纯函数 — 它直接修改入参 state.channelDocumentAccesses
+// （就地 unshift 默认访问记录），并以 Date.now() + Math.random() 生成
+// 访问记录 id。返回 boolean 表示是否有新增。
 // 下沉 shared 层供 state-io（读写快照路径）与 documents/access 共享，
 // 保持 state-io 不再反向依赖 documents 域（依赖单向：域 → shared）。
 import { type ChannelDocumentAccessRole } from "@dofe-agent/domain";
