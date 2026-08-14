@@ -4,6 +4,12 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@types/node':
+      specifier: ^25.9.5
+      version: 25.9.5
+
 overrides:
   hono: ^4.12.34
 
@@ -31,7 +37,7 @@ importers:
         version: link:../../packages/daemon
     devDependencies:
       '@types/node':
-        specifier: ^25.9.5
+        specifier: 'catalog:'
         version: 25.9.5
       typescript:
         specifier: ^5.9.3
@@ -47,7 +53,7 @@ importers:
         version: link:../../packages/services
     devDependencies:
       '@types/node':
-        specifier: ^25.9.5
+        specifier: 'catalog:'
         version: 25.9.5
       esbuild:
         specifier: ^0.28.2
@@ -105,7 +111,7 @@ importers:
         specifier: ^14.6.4
         version: 14.6.4(@testing-library/dom@10.4.1)
       '@types/node':
-        specifier: ^25.9.5
+        specifier: 'catalog:'
         version: 25.9.5
       '@types/react':
         specifier: ^19.2.2
@@ -148,7 +154,7 @@ importers:
         version: link:../../packages/services
     devDependencies:
       '@types/node':
-        specifier: ^25.9.5
+        specifier: 'catalog:'
         version: 25.9.5
       typescript:
         specifier: ^5.9.3
@@ -186,7 +192,7 @@ importers:
         version: 8.23.0
     devDependencies:
       '@types/node':
-        specifier: ^25.9.5
+        specifier: 'catalog:'
         version: 25.9.5
       '@types/pg':
         specifier: ^8.21.0

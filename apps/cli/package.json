@@ -20,7 +20,7 @@
     "dofe-agent-daemon": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^25.9.5",
+    "@types/node": "catalog:",
     "typescript": "^5.9.3"
   }
 }

@@ -2,3 +2,6 @@ packages:
   - "apps/*"
   - "packages/*"
   - "scripts/feishu"
+
+catalog:
+  "@types/node": "^25.9.5"
