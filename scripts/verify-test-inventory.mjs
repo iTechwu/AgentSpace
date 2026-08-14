@@ -80,6 +80,11 @@ function isDefaultOwned(file) {
     "packages/db/src/skill-services.test.ts",
   ]).has(file)) return true;
 
+  // packages/db/src/prisma/*.test.ts — Phase 2 read-cutover runner unit tests
+  // run via the db package default test script (glob src/prisma/*.test.ts);
+  // matches the packages/domain/src/ top-level rule pattern.
+  if (file.startsWith("packages/db/src/prisma/") && !file.slice("packages/db/src/prisma/".length).includes("/") && file.endsWith(".test.ts")) return true;
+
   if (new Set([
     "apps/cli/src/commands/output.test.ts",
     "apps/cli/src/lib/daemon-client.test.ts",
