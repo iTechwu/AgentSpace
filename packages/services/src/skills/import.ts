@@ -1467,7 +1467,16 @@ async function resolveGitHubSkillPointerBySlug(input: {
   };
 }
 
-async function resolveGitHubSkillPointer(
+/**
+ * Single GitHub source classification + SHA resolution path shared by the
+ * import flow ({@link resolveGitHubSkillPointer}) and the update-check flow
+ * ({@link resolveGitHubSourceSha}). A direct tree/blob/raw URL resolves its
+ * own ref; a bare repository URL resolves the default branch first. Both
+ * callers previously re-implemented this sequence — duplicated code that was
+ * free to drift (a URL-classification or SHA-validation fix landing in one
+ * flow silently missing the other). Returns `null` for non-GitHub URLs.
+ */
+async function resolveGitHubPointerWithSha(
   sourceUrl: string,
   workspaceId?: string,
 ): Promise<GitHubDirectoryPointer | null> {
@@ -1488,6 +1497,27 @@ async function resolveGitHubSkillPointer(
   }
   const ref = await fetchGitHubDefaultBranch(repository.owner, repository.repo, workspaceId);
   const resolvedSha = await resolveGitHubRefToSha(repository.owner, repository.repo, ref, workspaceId);
+  return {
+    ...repository,
+    ref,
+    path: "",
+    resolvedSha,
+  };
+}
+
+async function resolveGitHubSkillPointer(
+  sourceUrl: string,
+  workspaceId?: string,
+): Promise<GitHubDirectoryPointer | null> {
+  // Direct tree/blob/raw URLs come back fully resolved (path included). Only a
+  // bare repository URL needs skill discovery against the recursive tree.
+  const base = await resolveGitHubPointerWithSha(sourceUrl, workspaceId);
+  if (!base || base.path) {
+    return base;
+  }
+  const repository = { owner: base.owner, repo: base.repo };
+  const ref = base.ref;
+  const resolvedSha = base.resolvedSha!;
   const response = await fetch(
     `https://api.github.com/repos/${repository.owner}/${repository.repo}/git/trees/${resolvedSha}?recursive=1`,
     {
@@ -1552,17 +1582,8 @@ async function resolveGitHubSkillPointer(
 }
 
 async function resolveGitHubSourceSha(sourceUrl: string, workspaceId?: string): Promise<string | null> {
-  const directPointer = parseGitHubDirectoryUrl(sourceUrl);
-  if (directPointer) {
-    return resolveGitHubRefToSha(directPointer.owner, directPointer.repo, directPointer.ref, workspaceId);
-  }
-
-  const repository = parseGitHubRepositoryUrl(sourceUrl);
-  if (!repository) {
-    return null;
-  }
-  const ref = await fetchGitHubDefaultBranch(repository.owner, repository.repo, workspaceId);
-  return resolveGitHubRefToSha(repository.owner, repository.repo, ref, workspaceId);
+  const resolved = await resolveGitHubPointerWithSha(sourceUrl, workspaceId);
+  return resolved?.resolvedSha ?? null;
 }
 
 function sameSkillSlug(left: string, right: string): boolean {
