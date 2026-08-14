@@ -546,7 +546,23 @@ async function handleBrokerRequest(
             eventId,
           })).catch(() => { /* audit delivery is best-effort */ });
         }
-        sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, { ...result, outputFiles });
+        sendJson(
+          response,
+          result.exitCode === 0 && !result.timedOut ? 200 : 422,
+          {
+            ...result,
+            // A timed-out run carries a structured marker (mirroring
+            // output_limit_exceeded) so callers and audits can distinguish
+            // "force-stopped for timeout" from a generic non-zero exit.
+            ...(result.timedOut
+              ? {
+                error: "skill_runner.timeout_exceeded",
+                message: `Skill runner timed out after ${context.runnerTimeoutMs}ms and was force-stopped.`,
+              }
+              : {}),
+            outputFiles,
+          },
+        );
       } finally {
         if (!preservePrivateState) {
           if (privateConfig) rmSync(privateConfig.dir, { recursive: true, force: true });
@@ -647,7 +663,7 @@ const body = response.body;
 if (Object.prototype.hasOwnProperty.call(body, "outputFiles")) publishOutput(body.outputFiles);
 if (body.stdout) process.stdout.write(String(body.stdout));
 if (body.stderr) process.stderr.write(String(body.stderr));
-if (!response.ok) { if (body.message) process.stderr.write(String(body.message) + "\\n"); process.exit(1); }
+if (!response.ok) { if (body.error) process.stderr.write(String(body.error) + "\\n"); if (body.message) process.stderr.write(String(body.message) + "\\n"); process.exit(1); }
 process.exit(Number.isInteger(body.exitCode) ? body.exitCode : 0);
 `;
 }
