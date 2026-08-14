@@ -2,6 +2,7 @@
 import {
   advanceRuntimeProvisioningTaskStageSync,
   createManagedAgentRuntimeSync,
+  createRuntimeProvisioningTaskSync,
   deleteAgentRuntimeSync,
   listRetryingRuntimeProvisioningTasksReadySync,
   listRunningProvisioningTasksTimedOutSync,
@@ -62,7 +63,10 @@ import {
   resolveManagedRuntimeScopeSync,
 } from "./runtime-provisioning-capacity.ts";
 import type {
+  EnsureManagedRuntimeCapacityInput,
   ManagedRuntimeActor,
+  ManagedRuntimeCapacityResult,
+  RequestManagedRuntimeInput,
 } from "./runtime-provisioning-capacity.ts";
 import type {
   ModelsClientLike,
@@ -78,14 +82,6 @@ export interface PipelineRunOptions {
   modelsClient?: ModelsClientLike;
   /** Test seam: inject a vault. Defaults to the process vault. */
   vault?: RuntimeCredentialVault;
-}
-
-/** Minimal structural type over the SDK client surface the pipeline uses. */
-
-export interface ModelsCreateResult {
-  credential: { id: string; keyFingerprint?: string };
-  secret?: { apiKey: string };
-  secretIssued: boolean;
 }
 
 /** Indirection so tests can swap the client without touching env. */
@@ -699,4 +695,82 @@ export async function safeRevokeCredential(input: {
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function ensureManagedRuntimeCapacitySync(
+  input: EnsureManagedRuntimeCapacityInput,
+): ManagedRuntimeCapacityResult {
+  assertRemoteRuntimeMode();
+  assertCanManageManagedRuntimes(input);
+
+  if (!input.forceProvisioning) {
+    const runtime = findReusableManagedRuntime(input);
+    if (runtime) {
+      tryRecordWorkspaceAuditEventSync({
+        workspaceId: input.workspaceId,
+        title: "Managed runtime capacity reused",
+        note: `Reused ${runtime.provider} runtime ${runtime.id}`,
+        code: "runtime.capacity_reused",
+        data: { runtimeId: runtime.id, runtimeType: runtime.provider, actorId: input.actorUserId },
+      });
+      return { kind: "reused", runtimeId: runtime.id, runtimeName: runtime.name };
+    }
+  }
+
+  return {
+    kind: "provisioning",
+    task: requestManagedRuntimeProvisioningSync(input),
+  };
+}
+
+export function requestManagedRuntimeProvisioningSync(
+  input: RequestManagedRuntimeInput,
+): RuntimeProvisioningTaskRecord {
+  assertRemoteRuntimeMode();
+  resolveManagedRuntimeGatewayBaseUrl();
+  assertCanManageManagedRuntimes(input);
+  resolveManagedRuntimeScopeSync(input.workspaceId);
+  const protocols = input.protocols?.length
+    ? input.protocols
+    : resolveProviderProtocols(input.provider);
+  const defaultModel = resolveManagedRuntimeDefaultModel(input.provider, input.defaultModel);
+  const allowedModels = resolveManagedRuntimeAllowedModels(input.provider, input.allowedModels);
+
+  const task = createRuntimeProvisioningTaskSync({
+    workspaceId: input.workspaceId,
+    requestedByUserId: input.actorUserId,
+    idempotencyKey: input.idempotencyKey,
+    runtimeType: input.provider,
+    protocols,
+    requestedName: input.name,
+    requestedModel: defaultModel,
+    allowedModels,
+    targetServer: input.targetServer,
+  });
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: input.workspaceId,
+    title: "Managed runtime provisioning requested",
+    note: `Requested ${input.provider} runtime (task ${task.id})`,
+    code: "runtime.provision_requested",
+    data: { runtimeType: input.provider, taskId: task.id, actorId: input.actorUserId },
+  });
+
+  // Fire-and-forget: the task row is durable, so the pipeline keeps running
+  // after the caller leaves the page. Errors are written back to the task.
+  void runProvisioningPipeline(task.id, input.workspaceId, {
+    name: input.name,
+    allowedModels,
+    allowNewEmployeeSharing: input.allowNewEmployeeSharing,
+  }).catch((error) => {
+    markRuntimeProvisioningTaskFailedSync({
+      id: task.id,
+      workspaceId: input.workspaceId,
+      stage: "pending",
+      errorCode: "pipeline_unhandled_error",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+  });
+
+  return task;
 }

@@ -1,9 +1,7 @@
 // 供给容量与申请入口：actor 断言、作用域解析、容量复用与供给申请。
 import {
-  createRuntimeProvisioningTaskSync,
   listDaemonSnapshotsSync,
   listManagedAgentRuntimesSync,
-  markRuntimeProvisioningTaskFailedSync,
   readWorkspaceSsoBindingSync,
 } from "@dofe-agent/db";
 import type {
@@ -27,12 +25,6 @@ import {
 import {
   tryRecordWorkspaceAuditEventSync,
 } from "../shared/audit.ts";
-import {
-  resolveManagedRuntimeGatewayBaseUrl,
-} from "./provider-templates.ts";
-import {
-  runProvisioningPipeline,
-} from "./runtime-provisioning-pipeline.ts";
 
 export const MANAGED_RUNTIME_NAME_PREFIX = "Managed";
 
@@ -138,32 +130,6 @@ export interface ManagedExecutionNode {
   status: "online" | "offline";
 }
 
-export function ensureManagedRuntimeCapacitySync(
-  input: EnsureManagedRuntimeCapacityInput,
-): ManagedRuntimeCapacityResult {
-  assertRemoteRuntimeMode();
-  assertCanManageManagedRuntimes(input);
-
-  if (!input.forceProvisioning) {
-    const runtime = findReusableManagedRuntime(input);
-    if (runtime) {
-      tryRecordWorkspaceAuditEventSync({
-        workspaceId: input.workspaceId,
-        title: "Managed runtime capacity reused",
-        note: `Reused ${runtime.provider} runtime ${runtime.id}`,
-        code: "runtime.capacity_reused",
-        data: { runtimeId: runtime.id, runtimeType: runtime.provider, actorId: input.actorUserId },
-      });
-      return { kind: "reused", runtimeId: runtime.id, runtimeName: runtime.name };
-    }
-  }
-
-  return {
-    kind: "provisioning",
-    task: requestManagedRuntimeProvisioningSync(input),
-  };
-}
-
 export function listManagedExecutionNodesSync(
   input: ManagedRuntimeActor,
 ): ManagedExecutionNode[] {
@@ -221,56 +187,4 @@ function isManagedExecutionNodeMetadata(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-export function requestManagedRuntimeProvisioningSync(
-  input: RequestManagedRuntimeInput,
-): RuntimeProvisioningTaskRecord {
-  assertRemoteRuntimeMode();
-  resolveManagedRuntimeGatewayBaseUrl();
-  assertCanManageManagedRuntimes(input);
-  resolveManagedRuntimeScopeSync(input.workspaceId);
-  const protocols = input.protocols?.length
-    ? input.protocols
-    : resolveProviderProtocols(input.provider);
-  const defaultModel = resolveManagedRuntimeDefaultModel(input.provider, input.defaultModel);
-  const allowedModels = resolveManagedRuntimeAllowedModels(input.provider, input.allowedModels);
-
-  const task = createRuntimeProvisioningTaskSync({
-    workspaceId: input.workspaceId,
-    requestedByUserId: input.actorUserId,
-    idempotencyKey: input.idempotencyKey,
-    runtimeType: input.provider,
-    protocols,
-    requestedName: input.name,
-    requestedModel: defaultModel,
-    allowedModels,
-    targetServer: input.targetServer,
-  });
-
-  tryRecordWorkspaceAuditEventSync({
-    workspaceId: input.workspaceId,
-    title: "Managed runtime provisioning requested",
-    note: `Requested ${input.provider} runtime (task ${task.id})`,
-    code: "runtime.provision_requested",
-    data: { runtimeType: input.provider, taskId: task.id, actorId: input.actorUserId },
-  });
-
-  // Fire-and-forget: the task row is durable, so the pipeline keeps running
-  // after the caller leaves the page. Errors are written back to the task.
-  void runProvisioningPipeline(task.id, input.workspaceId, {
-    name: input.name,
-    allowedModels,
-    allowNewEmployeeSharing: input.allowNewEmployeeSharing,
-  }).catch((error) => {
-    markRuntimeProvisioningTaskFailedSync({
-      id: task.id,
-      workspaceId: input.workspaceId,
-      stage: "pending",
-      errorCode: "pipeline_unhandled_error",
-      errorMessage: error instanceof Error ? error.message : String(error),
-    });
-  });
-
-  return task;
 }

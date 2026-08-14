@@ -37,7 +37,7 @@ import {
 } from "./runtime-provisioning-pipeline.ts";
 import type {
   ModelsCreateResult,
-} from "./runtime-provisioning-pipeline.ts";
+} from "./runtime-provisioning-models-types.ts";
 import { clientProvider } from "./runtime-provisioning-models-client.ts";
 
 export interface RotateManagedRuntimeCredentialInput extends ManagedRuntimeActor {

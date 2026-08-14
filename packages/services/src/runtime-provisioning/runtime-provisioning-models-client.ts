@@ -10,7 +10,7 @@ import type {
 } from "@dofe/models-sdk";
 import type {
   ModelsCreateResult,
-} from "./runtime-provisioning-pipeline.ts";
+} from "./runtime-provisioning-models-types.ts";
 
 export interface ModelsClientLike {
   models: {

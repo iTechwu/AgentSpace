@@ -1,8 +1,6 @@
 // 供给域对外门面：仅做再导出，保持原导入路径不变（拆分见同目录各子模块）。
 export {
-  ensureManagedRuntimeCapacitySync,
   listManagedExecutionNodesSync,
-  requestManagedRuntimeProvisioningSync,
   resolveManagedRuntimeScopeSync,
 } from "./runtime-provisioning-capacity.ts";
 export type {
@@ -56,16 +54,20 @@ export type {
   StopManagedRuntimeInput,
 } from "./runtime-provisioning-lifecycle.ts";
 export {
+  ensureManagedRuntimeCapacitySync,
   finalizeManagedRuntimeProvisioningSync,
   preflightManagedRuntimeCreationAsync,
+  requestManagedRuntimeProvisioningSync,
   resumePendingProvisioningTasksAsync,
   runProvisioningPipeline,
 } from "./runtime-provisioning-pipeline.ts";
 export type {
   ManagedRuntimeCreationPreflightResult,
-  ModelsCreateResult,
   PipelineRunOptions,
 } from "./runtime-provisioning-pipeline.ts";
+export type {
+  ModelsCreateResult,
+} from "./runtime-provisioning-models-types.ts";
 export {
   setProvisioningModelsClientProviderForTests,
 } from "./runtime-provisioning-models-client.ts";
