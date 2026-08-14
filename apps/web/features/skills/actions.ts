@@ -13,6 +13,8 @@ import {
   tryRecordWorkspaceAuditEventSync,
   updateWorkspaceSkillSync,
   upsertWorkspaceSkillFileSync,
+  SkillGitHubImportError,
+  type SkillGitHubImportErrorCode,
   type SkillSourceUpdateInspection,
 } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
@@ -20,11 +22,79 @@ import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permiss
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
 import {
   actionToastResult,
+  errorToast,
   infoToast,
   successToast,
   warningToast,
   type ActionToastResult,
+  type LocalizedToastDescriptor,
 } from "@/shared/lib/toast-action";
+
+/** Structured GitHub import failure returned (not thrown) so the UI can offer the matching remedy. */
+export interface SkillImportActionError {
+  code: SkillGitHubImportErrorCode;
+  /** Candidate skill directories (multiple_skills); "" means the repository root. */
+  candidates?: string[];
+  /** Epoch seconds when the shared GitHub API quota resets (rate_limited). */
+  retryAtEpochSeconds?: number;
+}
+
+export interface SkillImportActionData {
+  skillId: string | null;
+  renamed: boolean;
+  replaced: boolean;
+  skipped: boolean;
+  requiresConfiguration: boolean;
+  /** Resolved skill directory inside the repository ("" = repository root). */
+  resolvedPath?: string;
+  /** Immutable commit SHA the import was locked to (first 12 hex shown to users). */
+  resolvedRef?: string;
+  error?: SkillImportActionError;
+}
+
+/**
+ * Localized message + remedy per stable GitHub import error code
+ * (docs/0801/skill-install/14 §Implementation Decisions 的错误码表)。
+ */
+function describeSkillGitHubImportError(error: SkillGitHubImportError): LocalizedToastDescriptor {
+  switch (error.code) {
+    case "skill.github.url_invalid":
+      return errorToast("无法识别该 GitHub 链接，请粘贴仓库、tree、blob 或 raw 链接。", "Unrecognized GitHub link; paste a repository, tree, blob, or raw URL.");
+    case "skill.github.not_found":
+      return errorToast("仓库或目录不存在，请检查链接与访问权限。", "Repository or directory not found; check the link and access.");
+    case "skill.github.no_skill":
+      return errorToast("仓库中未找到 SKILL.md，请使用包含 Skill 的仓库或目录链接。", "No SKILL.md found; use a repository or directory that contains one.");
+    case "skill.github.multiple_skills": {
+      const candidates = (error.candidates ?? [])
+        .map((path) => path === "" ? "（仓库根目录）" : path)
+        .join("、");
+      return errorToast(
+        candidates
+          ? `仓库包含多个 Skill，请选择候选目录后用对应 tree 链接重新导入：${candidates}`
+          : "仓库包含多个 Skill，请粘贴具体目录的 tree 链接重新导入。",
+        "The repository contains multiple skills; pick one candidate directory and re-import with its tree URL.",
+      );
+    }
+    case "skill.github.tree_truncated":
+      return errorToast("仓库过大，无法安全自动定位 Skill，请粘贴具体目录的 tree 链接。", "Repository too large to locate a skill safely; paste a specific tree URL.");
+    case "skill.github.rate_limited": {
+      const retryAt = error.retryAtEpochSeconds !== undefined ? new Date(error.retryAtEpochSeconds * 1000) : null;
+      const retryNote = retryAt && !Number.isNaN(retryAt.getTime())
+        ? `（约 ${retryAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 后重试）`
+        : "";
+      return errorToast(
+        `GitHub API 配额已用尽${retryNote}，可稍后重试，或在工作区配置 GitHub 凭据以使用独立配额。`,
+        "GitHub API quota exhausted; retry later or configure a workspace GitHub credential.",
+      );
+    }
+    case "skill.github.unauthorized":
+      return errorToast("GitHub 凭据无权访问该仓库，请更新工作区 GitHub 凭据后重试。", "The workspace GitHub credential lacks access; update it and retry.");
+    case "skill.github.file_download_failed":
+      return errorToast("Skill 文件下载失败，请重试；若持续失败请检查网络与凭据。", "Skill file download failed; retry and check network/credentials.");
+    default:
+      return errorToast("GitHub 暂时不可用，请稍后重试。", "GitHub is temporarily unavailable; retry later.");
+  }
+}
 
 export async function createWorkspaceSkillAction(input?: {
   name?: string;
@@ -174,16 +244,41 @@ export async function deleteWorkspaceSkillFileAction(input: {
 export async function importWorkspaceSkillFromUrlAction(input: {
   url: string;
   conflict?: "reject" | "rename" | "replace" | "skip";
-}): Promise<ActionToastResult<{ skillId: string; renamed: boolean; replaced: boolean; skipped: boolean; requiresConfiguration: boolean }>> {
+}): Promise<ActionToastResult<SkillImportActionData>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   assertRequired(input.url, "skill import url");
 
-  const result = await importWorkspaceSkillFromUrl({
-    workspaceId: workspaceContext.currentWorkspace.id,
-    url: input.url.trim(),
-    conflict: input.conflict,
-  });
+  let result;
+  try {
+    result = await importWorkspaceSkillFromUrl({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      url: input.url.trim(),
+      conflict: input.conflict,
+    });
+  } catch (error) {
+    // Stable product error codes surface as a NORMAL result (skillId=null +
+    // error payload) so the UI can show the matching remedy instead of a raw
+    // internal English exception; other errors keep propagating.
+    if (error instanceof SkillGitHubImportError) {
+      return actionToastResult(
+        {
+          skillId: null,
+          renamed: false,
+          replaced: false,
+          skipped: false,
+          requiresConfiguration: false,
+          error: {
+            code: error.code,
+            ...(error.candidates ? { candidates: error.candidates } : {}),
+            ...(error.retryAtEpochSeconds !== undefined ? { retryAtEpochSeconds: error.retryAtEpochSeconds } : {}),
+          },
+        },
+        describeSkillGitHubImportError(error),
+      );
+    }
+    throw error;
+  }
   tryRecordWorkspaceAuditEventSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     title: "Skill imported",
@@ -207,6 +302,13 @@ export async function importWorkspaceSkillFromUrlAction(input: {
       : result.renamed
         ? infoToast("Skill 已导入，并因重名自动重命名。", "Skill imported and auto-renamed due to a name conflict.")
         : successToast("Skill 已导入。", "Skill imported.");
+  // Provenance summary: the user pasted a repository URL, so show WHICH
+  // directory was resolved and WHICH commit the import is locked to.
+  const provenanceSummary = result.resolvedRef
+    ? result.resolvedPath
+      ? `（来源目录 ${result.resolvedPath === "" ? "仓库根目录" : result.resolvedPath}，commit ${result.resolvedRef.slice(0, 12)}）`
+      : `（commit ${result.resolvedRef.slice(0, 12)}）`
+    : "";
 
   return actionToastResult({
     skillId: result.skillId,
@@ -214,7 +316,15 @@ export async function importWorkspaceSkillFromUrlAction(input: {
     replaced: result.replaced,
     skipped: result.skipped,
     requiresConfiguration: result.requiresConfiguration,
-  }, toast);
+    ...(result.resolvedPath !== undefined ? { resolvedPath: result.resolvedPath } : {}),
+    ...(result.resolvedRef ? { resolvedRef: result.resolvedRef } : {}),
+  }, provenanceSummary
+    ? {
+      ...toast,
+      zh: `${toast.zh}${provenanceSummary}`,
+      en: `${toast.en}${provenanceSummary}`,
+    }
+    : toast);
 }
 
 export async function importWorkspaceSkillFromServerDirectoryAction(input: {

@@ -577,6 +577,8 @@ export {
   importWorkspaceSkillFromUrl,
   inspectWorkspaceSkillSourceUpdate,
   checkSkillSourceUpdatesForWorkspaceSync,
+  SkillGitHubImportError,
+  type SkillGitHubImportErrorCode,
   type SkillImportConflict,
   type SkillImportResult,
   type SkillSourceUpdateCheckSummary,

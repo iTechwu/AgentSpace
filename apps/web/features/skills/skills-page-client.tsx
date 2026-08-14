@@ -249,6 +249,9 @@ export function SkillsPageClient({
             runAction(
               () => importWorkspaceSkillFromUrlAction(input),
               (result) => {
+                // Handled import failures (stable error code) keep the modal
+                // open so the user can fix the URL / pick a candidate.
+                if (!result.skillId) return;
                 setSelectedSkillId(result.skillId);
                 setShowCreateSkill(false);
                 clearCreateSkillQuery();
@@ -259,6 +262,7 @@ export function SkillsPageClient({
             runAction(
               () => importWorkspaceSkillFromUrlAction(input),
               (result) => {
+                if (!result.skillId) return;
                 setSelectedSkillId(result.skillId);
                 setShowCreateSkill(false);
                 clearCreateSkillQuery();
@@ -290,6 +294,9 @@ export function SkillsPageClient({
                 return importWorkspaceSkillFromUrlAction(input);
               },
               (result) => {
+                // Handled GitHub import failures return skillId=null with an
+                // error toast; keep the modal open so the URL can be corrected.
+                if (!result.skillId) return;
                 setSelectedSkillId(result.skillId);
                 setShowImportSkill(false);
               },

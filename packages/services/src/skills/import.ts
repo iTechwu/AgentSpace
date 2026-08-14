@@ -60,6 +60,75 @@ import { classifySkillFilePath } from "./package/path-safety.ts";
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
 export type SkillImportSourceType = "github" | "gitlab" | "skills.sh" | "clawhub" | "local" | "tos";
 
+/**
+ * Stable product-facing error codes for GitHub skill imports
+ * (docs/0801/skill-install/14 §Implementation Decisions). The Web layer maps
+ * each code to a localized message + remedy instead of showing the raw
+ * internal English exception.
+ */
+export type SkillGitHubImportErrorCode =
+  | "skill.github.url_invalid"
+  | "skill.github.not_found"
+  | "skill.github.no_skill"
+  | "skill.github.multiple_skills"
+  | "skill.github.tree_truncated"
+  | "skill.github.rate_limited"
+  | "skill.github.unauthorized"
+  | "skill.github.file_download_failed"
+  | "skill.github.unavailable";
+
+/** A GitHub import failure carrying a stable {@link SkillGitHubImportErrorCode} plus structured payloads for the UI. */
+export class SkillGitHubImportError extends Error {
+  readonly code: SkillGitHubImportErrorCode;
+  /** Candidate skill directories (multiple_skills) — the user picks one or pastes its tree URL. "" means the repository root. */
+  readonly candidates?: string[];
+  /** Epoch seconds when the shared GitHub API quota resets (rate_limited). */
+  readonly retryAtEpochSeconds?: number;
+
+  constructor(
+    code: SkillGitHubImportErrorCode,
+    message: string,
+    options?: { candidates?: string[]; retryAtEpochSeconds?: number; cause?: unknown },
+  ) {
+    super(message);
+    this.name = "SkillGitHubImportError";
+    this.code = code;
+    if (options?.candidates) this.candidates = options.candidates;
+    if (options?.retryAtEpochSeconds !== undefined) this.retryAtEpochSeconds = options.retryAtEpochSeconds;
+    if (options?.cause !== undefined) (this as { cause?: unknown }).cause = options.cause;
+  }
+}
+
+/** Maps a failed GitHub API response onto the stable product error codes (auth / quota / existence / availability). */
+function skillGitHubHttpError(response: Response, context: string): SkillGitHubImportError {
+  if (response.status === 404) {
+    return new SkillGitHubImportError(
+      "skill.github.not_found",
+      `${context}: repository, ref, or path not found (HTTP 404).`,
+    );
+  }
+  if (response.status === 401 || response.status === 403) {
+    // GitHub answers quota exhaustion as 403 with X-RateLimit-Remaining: 0 —
+    // that is a retryable availability state, distinct from a bad credential.
+    if (response.headers.get("x-ratelimit-remaining") === "0") {
+      const resetHeader = Number(response.headers.get("x-ratelimit-reset"));
+      return new SkillGitHubImportError(
+        "skill.github.rate_limited",
+        `${context}: GitHub API rate limit exhausted (HTTP ${response.status}).`,
+        Number.isSafeInteger(resetHeader) && resetHeader > 0 ? { retryAtEpochSeconds: resetHeader } : undefined,
+      );
+    }
+    return new SkillGitHubImportError(
+      "skill.github.unauthorized",
+      `${context}: credentials lack access (HTTP ${response.status}).`,
+    );
+  }
+  return new SkillGitHubImportError(
+    "skill.github.unavailable",
+    `${context}: GitHub API unavailable (HTTP ${response.status}).`,
+  );
+}
+
 export interface SkillImportResult {
   skillId: string;
   skillName: string;
@@ -72,6 +141,10 @@ export interface SkillImportResult {
   requiresConfiguration: boolean;
   /** Immutable imported artifact digest. On replace this is a candidate until explicitly promoted. */
   artifactDigest?: string;
+  /** Resolved skill directory inside the repository ("" = repository root; GitHub/GitLab imports). */
+  resolvedPath?: string;
+  /** Immutable commit SHA the import was locked to (GitHub/GitLab imports). */
+  resolvedRef?: string;
   warnings: string[];
 }
 
@@ -124,6 +197,8 @@ interface ImportedSkillDefinition {
   warnings: string[];
   /** Immutable commit SHA / registry digest; execution and audit must use this. */
   resolvedRef?: string;
+  /** Resolved skill directory inside the repository ("" = repository root). */
+  resolvedPath?: string;
   /** Original user-submitted URL (mutable branch/tag allowed here). */
   originalUrl?: string;
 }
@@ -411,6 +486,8 @@ async function persistImportedSkillDefinition(
       skipped: true,
       sourceType: imported.sourceType,
       requiresConfiguration: parseSkillRequirementDeclarations(readSkillMarkdown(imported.files)).length > 0,
+      resolvedPath: imported.resolvedPath,
+      resolvedRef: imported.resolvedRef,
       warnings: [...imported.warnings, `Skipped existing skill "${existing.name}".`],
     };
   }
@@ -482,6 +559,8 @@ function commitCreatedSkillImport(
     sourceType: imported.sourceType,
     requiresConfiguration: parseSkillRequirementDeclarations(readSkillMarkdown(imported.files)).length > 0,
     artifactDigest,
+    resolvedPath: imported.resolvedPath,
+    resolvedRef: imported.resolvedRef,
     warnings: imported.warnings,
   };
 }
@@ -550,6 +629,8 @@ function commitReplacedSkillImport(
     sourceType: imported.sourceType,
     requiresConfiguration: parseSkillRequirementDeclarations(readSkillMarkdown(imported.files)).length > 0,
     artifactDigest,
+    resolvedPath: imported.resolvedPath,
+    resolvedRef: imported.resolvedRef,
     warnings: imported.warnings,
   };
 }
@@ -784,7 +865,10 @@ async function importLocalSkillDefinition(sourcePath: string): Promise<ImportedS
 async function importGitHubSkillDefinition(sourceUrl: string, workspaceId?: string): Promise<ImportedSkillDefinition> {
   const pointer = await resolveGitHubSkillPointer(sourceUrl, workspaceId);
   if (!pointer) {
-    throw new Error("Only GitHub repository, tree, blob, or raw skill URLs are supported.");
+    throw new SkillGitHubImportError(
+      "skill.github.url_invalid",
+      "Only GitHub repository, tree, blob, or raw skill URLs are supported.",
+    );
   }
   return importGitHubSkillDefinitionFromPointer(pointer, sourceUrl, "github", workspaceId);
 }
@@ -880,6 +964,7 @@ async function importGitHubSkillDefinitionFromPointer(
       }),
       warnings: [],
       resolvedRef,
+      resolvedPath: pointer.path,
       originalUrl: sourceUrl,
     };
   }
@@ -905,6 +990,7 @@ async function importGitHubSkillDefinitionFromPointer(
     }),
     warnings,
     resolvedRef,
+    resolvedPath: pointer.path,
     originalUrl: sourceUrl,
   };
 }
@@ -1354,7 +1440,7 @@ async function fetchGitHubDefaultBranch(owner: string, repo: string, workspaceId
     },
   });
   if (!response.ok) {
-    throw new Error(`Failed to fetch GitHub repository metadata: ${response.status}`);
+    throw skillGitHubHttpError(response, `Failed to fetch GitHub repository metadata for ${owner}/${repo}`);
   }
 
   const payload = await readResponseJsonWithLimit(
@@ -1374,7 +1460,7 @@ async function resolveGitHubRefToSha(owner: string, repo: string, ref: string, w
     },
   });
   if (!response.ok) {
-    throw new Error(`Failed to resolve GitHub ref "${ref}" to commit SHA: ${response.status}`);
+    throw skillGitHubHttpError(response, `Failed to resolve GitHub ref "${ref}" for ${owner}/${repo}`);
   }
   const payload = await readResponseJsonWithLimit(
     response,
@@ -1435,7 +1521,7 @@ async function resolveGitHubSkillPointerBySlug(input: {
     },
   });
   if (!response.ok) {
-    throw new Error(`Failed to inspect GitHub repository tree: ${response.status}`);
+    throw skillGitHubHttpError(response, `Failed to inspect GitHub repository tree for ${input.owner}/${input.repo}`);
   }
 
   const payload = await readResponseJsonWithLimit(
@@ -1529,7 +1615,7 @@ async function resolveGitHubSkillPointer(
     },
   );
   if (!response.ok) {
-    throw new Error(`Failed to inspect GitHub repository tree: ${response.status}`);
+    throw skillGitHubHttpError(response, `Failed to inspect GitHub repository tree for ${repository.owner}/${repository.repo}`);
   }
   const payload = await readResponseJsonWithLimit(
     response,
@@ -1540,7 +1626,8 @@ async function resolveGitHubSkillPointer(
     tree?: Array<{ path?: string; type?: string; mode?: string }>;
   };
   if (payload.truncated) {
-    throw new Error(
+    throw new SkillGitHubImportError(
+      "skill.github.tree_truncated",
       `GitHub repository tree is too large to discover a unique skill safely in ${repository.owner}/${repository.repo}; use a tree URL for one skill directory.`,
     );
   }
@@ -1553,11 +1640,18 @@ async function resolveGitHubSkillPointer(
     .sort((left, right) => left.localeCompare(right));
 
   if (skillPaths.length === 0) {
-    throw new Error(`GitHub repository ${repository.owner}/${repository.repo} does not contain SKILL.md.`);
+    throw new SkillGitHubImportError(
+      "skill.github.no_skill",
+      `GitHub repository ${repository.owner}/${repository.repo} does not contain SKILL.md.`,
+    );
   }
   if (skillPaths.length > 1) {
-    throw new Error(
+    // Fail closed with the candidate directories on the error payload — the
+    // UI can offer a choice; until then the specific tree URL is the remedy.
+    throw new SkillGitHubImportError(
+      "skill.github.multiple_skills",
       `GitHub repository ${repository.owner}/${repository.repo} contains multiple skills; use a tree URL for one skill directory.`,
+      { candidates: skillPaths },
     );
   }
   return {
@@ -1628,7 +1722,7 @@ async function fetchGitHubDirectoryFiles(
     },
   });
   if (!response.ok) {
-    throw new Error(`Failed to fetch GitHub skill directory: ${response.status}`);
+    throw skillGitHubHttpError(response, `Failed to fetch GitHub skill directory ${pointer.path || "/"}`);
   }
 
   const payload = await readResponseJsonWithLimit(
@@ -1642,7 +1736,10 @@ async function fetchGitHubDirectoryFiles(
     download_url?: string | null;
   }> | { type?: string };
   if (!Array.isArray(payload)) {
-    throw new Error("GitHub URL must point to a directory that contains SKILL.md.");
+    throw new SkillGitHubImportError(
+      "skill.github.no_skill",
+      "GitHub URL must point to a directory that contains SKILL.md.",
+    );
   }
 
   const files: ImportedSkillFile[] = [];
@@ -1690,7 +1787,7 @@ async function fetchGitHubDirectoryFiles(
   }
 
   if (requireSkillFile && !files.some((file) => sameValue(file.path, "SKILL.md"))) {
-    throw new Error("Imported GitHub skill must contain SKILL.md.");
+    throw new SkillGitHubImportError("skill.github.no_skill", "Imported GitHub skill must contain SKILL.md.");
   }
 
   return sortImportedSkillFiles(files);
@@ -1983,7 +2080,12 @@ async function fetchGitHubContentsFileBytes(
     signal: AbortSignal.timeout(GITHUB_RAW_DOWNLOAD_TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`Failed to fetch GitHub skill file "${pointer.path}": ${response.status}`);
+    // The file was already enumerated in a SHA-locked tree, so a miss here is
+    // a transfer failure (the raw fetch above failed too) — not "wrong URL".
+    throw new SkillGitHubImportError(
+      "skill.github.file_download_failed",
+      `Failed to fetch GitHub skill file "${pointer.path}": ${response.status}`,
+    );
   }
   const payload = await readResponseJsonWithLimit(
     response,
