@@ -9,7 +9,7 @@
     "prebuild": "pnpm --dir ../.. run typecheck:deps && pnpm --dir ../.. run typecheck:web:only && pnpm --filter dofe-agent-daemon run build",
     "build": "next build",
     "start": "next start",
-    "typecheck": "pnpm run typecheck:deps && tsc -p tsconfig.typecheck.json --noEmit",
+    "typecheck": "pnpm run typecheck:deps && next typegen && tsc -p tsconfig.typecheck.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "typecheck:deps": "pnpm --dir ../.. run typecheck:deps",
