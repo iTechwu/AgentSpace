@@ -27,6 +27,13 @@ jobs:
       SERVICE_NAME: agentspace
       HEALTHCHECK_URL: http://127.0.0.1:1455/api/health
       BACKUP_DIR: /home/AgentSpace/data/backups/deployments
+      # Skill Runner egress 门禁三个镜像变量的显式来源：运行时同一份 .env
+      # （与 daemon 启动 --env-file 同源）。dofe-skill-runner-e2e-run.sh 据此补齐
+      # 尚未导出的 DOFE_SKILL_RUNNER_{NODE,PYTHON,BASH}_IMAGE（digest 钉死），
+      # preflight 与真实 e2e 共用；runner 环境显式导出的值仍可覆盖。
+      # ensure-ci-managed-nodes.sh 只把变量写进各受管节点容器的 node.env，不导出到
+      # 部署 runner shell，故门禁必须在此显式声明 .env 为镜像来源，而非依赖脚本相对路径。
+      DOFE_SKILL_RUNNER_ENV_FILE: /home/AgentSpace/.env
     steps:
       - name: Deploy from main
         shell: bash
