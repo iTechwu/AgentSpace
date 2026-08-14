@@ -1,6 +1,6 @@
 # AgentSpace（DofeAgent）深度分析与优化建议
 
-> 建立日期：2026-08-14。分析基线：`dev` 分支（领先 `origin/dev` 11 个提交）。
+> 建立日期：2026-08-14。分析基线：`dev` 分支。
 > 范围：`apps/*` + `packages/*` + `deploy/` + `scripts/` + `docs/`，约 38 万行 TS/TSX、1,200+ 源文件、415 个测试文件。
 >
 > **落地进展（2026-08-14 更新）**：除「测试 CI 缺失」专项（本轮明确排除）外，P0 全部完成、P1 完成大半。
@@ -13,6 +13,8 @@
 ### 1.1 定位与技术栈
 
 AgentSpace（代码内名 DofeAgent）是一个「人类 + Agent」协作工作空间：数字员工（Employee）作为一等公民被招募、分配、调度、授权、审计。它是 pnpm + Turborepo 的 monorepo，按「apps（可部署进程）/ packages（可复用库）」划分。
+
+> 命名说明：本仓库/部署名为 **AgentSpace**（`agentspace.dofe.ai`，GitHub 仓库 `HKUDS/AgentSpace`），代码包前缀为 **`@dofe-agent`**，产品对外品牌为 **agent.dofe**，`Target.md` 中的代码内名是 **DofeAgent**——四者指同一项目。
 
 | 维度 | 结论 |
 | --- | --- |
@@ -51,12 +53,12 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 | 优先级 | 主题 | 一句话 | 预估成本 | 状态 |
 | --- | --- | --- | --- | --- |
-| P0 | 仓库卫生 | 删除误提交的 `-`(plist) 文件、1.8MB tgz 构建产物入库、`.DS_Store`、失效 Prisma CI | 极低 | ✅ 66de23fc（部分条目核实为已过期，见 3.1 行内标注） |
+| P0 | 仓库卫生 | 删除误提交的 `-`(plist) 文件、1.8MB tgz 构建产物入库、`.DS_Store`、失效 Prisma CI | 极低 | ✅ 66de23fc + 5a39362f（`-`/tgz 真正 git rm；AI 规则符号链接；`.DS_Store`/Prisma CI 核实已不存在） |
 | P0 | daemon 死代码 | 删除 `provider-runtime.ts` 约 550 行未被调用的 legacy Codex/Claude 路径 | 低 | ✅ 3b81dd12（实际删除 859 行，2,679→1,820） |
 | P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ 0945c0cb（三处 blob 传输加 300s AbortController 超时） |
 | P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ 本轮明确排除，未动 |
 | P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏳ 待办（大工程，需按域渐进） |
-| P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 data.ts 已拆（683f2d9e，5,737→3,533+973+1,410）；permissions/runtime-provisioning/postgres-schema 等待办 |
+| P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 data.ts 已拆（683f2d9e，5,737→3,533+973+1,410）、permissions.ts 已拆（374b1bc1，2,439→209 门面+9 子模块）；runtime-provisioning/postgres-schema 等待办 |
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 WorkspaceModuleHost 17 模块已改 next/dynamic 懒加载（32a1bb8a，全量 1153 用例通过）；channels-page-client 等文件内拆分待办 |
 | P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | 🟡 文件级环 4→2（c8c7c37b，skills 三文件环与 feishu data-plane↔operation-plan 已解）；剩余 12 文件大 SCC 需设计级 channel/notification 分层 |
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ⏳ 待办（属测试门禁类，与 CI 专项同批处理为宜） |
@@ -71,13 +73,13 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 ### 3.1 仓库卫生与工程化（P0，成本极低，立即做）
 
-> ✅ **已落地（66de23fc）**：`.gitignore` tgz 规则改为 `dofe-agent-daemon-*.tgz`；AI 规则 5 份重复文件改为指向 CLAUDE.md 的符号链接；`findings.md`/`progress.md`/`task_plan.md` 纳入 `.gitignore`。其余条目（`-` plist、`.DS_Store`、失效 Prisma CI、`data/*.sqlite`）复核时已不处于文档描述的状态，属过期结论，未重复处理。
+> ✅ **已落地**：AI 规则 5 份重复文件改为指向 `CLAUDE.md` 的符号链接、`findings.md`/`progress.md`/`task_plan.md` 纳入 `.gitignore`（66de23fc）；误提交的 `-` plist 与 `dofe-agent-daemon-0.1.3.tgz` 真正从索引移除，并清理 `.gitignore` 过时的 `agent-space-daemon-*.tgz` 规则（5a39362f）。复核结论：`.DS_Store` 当前 0 个跟踪；`.github/workflows/migration-ci.yml` 已不存在；`packages/db/dist-types/generated/prisma/` 与 `data/*.sqlite` 均为 `.gitignore` 内的本地产物，不属跟踪残留。
 
 1. **删除误提交的 `-` 文件**：仓库根有一个名为 `-` 的 macOS plist（`mkcert` trustList，2019 字节，已 `git ls-files` 确认被跟踪），是 `curl -o -` 类操作误产物，含本机证书指纹，应删除并加入 `.gitignore`。
-2. **构建产物移出 git**：`dofe-agent-daemon-0.1.3.tgz`（1.8MB 二进制）自首个提交起就被跟踪。`.gitignore` 已有 `agent-space-daemon-*.tgz` 规则但文件名不匹配（应为 `dofe-agent-daemon-*.tgz`）。改为通过 CI artifact 或 release 附件发布。
-3. **`.DS_Store` 入库**：`apps/.DS_Store`、`docs/.DS_Store` 等 macOS 垃圾文件已被跟踪，应从 git 移除（`.gitignore` 已声明 `.DS_Store` 但对已跟踪文件不生效）。
+2. **构建产物移出 git**：`dofe-agent-daemon-0.1.3.tgz`（1.8MB 二进制）自首个提交起就被跟踪，应改为通过 CI artifact 或 release 附件发布。✅ 已移除（5a39362f，`.gitignore` 规则改为 `dofe-agent-daemon-*.tgz` 并清理旧规则）。
+3. **`.DS_Store` 入库**：`apps/.DS_Store`、`docs/.DS_Store` 等 macOS 垃圾文件应从 git 移除。✅ 复核：当前 0 个 `.DS_Store` 被 git 跟踪（原始结论有误——它们仅存在于磁盘，且已被 `.gitignore` 覆盖，从未入库）。
 4. **AI 规则文件重复**：`CLAUDE.md`(92 行) 与 `CODEBUDDY.md`/`GEMINI.md`/`QODER.md`/`.cursorrules`/`.windsurfrules`(各 38 行，MD5 完全一致) 内容重复。建议保留一份权威版本，其余改为 `@` 引用或符号链接，避免多编辑器规则漂移。
-5. **失效的 Prisma CI 残留**：`packages/db/dist-types/prisma/` 与 `.github/workflows/migration-ci.yml`（watch 已不存在的 `prisma/**` 路径）是历史 Prisma 尝试的残留，当前 `dev` 分支无任何 Prisma 引用，应删除或停用。
+5. **失效的 Prisma CI 残留**：`.github/workflows/migration-ci.yml`（watch 已不存在的 `prisma/**` 路径）是历史 Prisma 尝试的残留，应删除或停用。当前 `dev` 分支源码无任何 Prisma 引用；`packages/db/dist-types/generated/prisma/` 是 `.gitignore` 内 `dist-types` 的本地构建产物，非跟踪残留。
 6. **根目录 AI 工作笔记**：`findings.md`/`progress.md`/`task_plan.md` 是 Prisma 迁移的工作笔记，靠 `.git/info/exclude` 本地排除（未提交但未加入 `.gitignore`），易被 `git add -A` 误提交。建议移到 `docs/0808/db_migration_to_prisma/` 或明确 `.gitignore`。
 7. **`data/*.sqlite` 旧文件**：SQLite→PG 迁移后 `data/` 下遗留空 sqlite/db 文件，建议清理并在文档中说明产物归属。
 
@@ -98,7 +100,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 ### 3.3 业务服务层（services，363 文件 / 56 域模块）
 
-1. **【P1】拆分 `permissions.ts`（2,439 行，全包最大）**：把 17+ 种数据源聚合为权限树/中心视图。`capabilities` 域已示范正确做法（facade + 4 个单职责子模块），照此拆分「数据源聚合 / 树构建 / 诊断」。
+1. **【P1】拆分 `permissions.ts`（2,439 行，全包最大）**：把 17+ 种数据源聚合为权限树/中心视图。`capabilities` 域已示范正确做法（facade + 4 个单职责子模块），照此拆分「数据源聚合 / 树构建 / 诊断」。✅ **已落地（374b1bc1）**：拆为 9 个单职责子模块（`permission-context` / `permission-diagnostics` / `permission-nodes-{agents,channels,documents,feishu-guests,runtime}` / `permission-types` / `permission-utils`），原文件收敛为 209 行门面。
 2. **【P1】拆分 `runtime-provisioning.ts`（2,258 行）**：7 阶段供给状态机，按「阶段机 / 命令构建 / 凭证恢复」分文件。
 3. **【P1】打破模块循环依赖**（已核实）：
    - `messages → automations → workflows → messages`
