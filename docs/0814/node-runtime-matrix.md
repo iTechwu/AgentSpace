@@ -6,7 +6,7 @@
 
 - **生产运行时固定为 Node 25.9.0**。所有容器基础镜像统一使用 `uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim`（见 `deploy/*/Dockerfile*`）。
 - **不升级到 Node 26，不改 Docker 基础镜像**。升级主版本需另起评估（原生模块兼容、`--experimental-strip-types` 行为、Turbo/Next 支持）。
-- `engines.node` 字段维持：`^22.22.2 || ^24.15.0 || ^25.9.0 || >=26.0.0`（声明 25.9 起可用，同时容忍 22/24 LTS 与未来 26）。
+- `engines.node` 收紧为 `^25.9.0`（`>=25.9.0 <26.0.0`）：仅声明实测验证的生产版本。此前多版本矩阵 `^22.22.2 || ^24.15.0 || ^25.9.0 || >=26.0.0` 声明了未经验证的 22/24，且 `>=26.0.0` 无上限接受未来 27/28，已于 2026-08-14 收紧。升级到 26 需先完成下方「升级 Node 前置条件」并同步放开 engines。
 
 ## 运行时矩阵
 
@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 生产容器（daemon / web / worker / provider-runtime / egress-proxy） | 25.9.0 | `node:25.9-bookworm-slim` |
 | 本地开发工作站 | 25.9.0 | 仅安装 v25.9.0，未安装 24/26，未使用 nvm/fnm/volta |
-| `engines.node` 声明 | `^22.22.2 \|\| ^24.15.0 \|\| ^25.9.0 \|\| >=26.0.0` | 跨多主版本兼容，CI 可在不同 Node 上校验 |
+| `engines.node` 声明 | `^25.9.0` | 仅保留实测验证的生产版本（`>=25.9.0 <26.0.0`） |
 
 ## jsdom@30 与 Node 25 的 advisory 例外（限时跟踪）
 
@@ -50,4 +50,5 @@
 ## 相关提交
 
 - `e5b4d483`：首次将 `engines.node` 收敛为多版本矩阵 `^22.22.2 || ^24.15.0 || ^25.9.0 || >=26.0.0`。
-- 本文档：固化“保持 25.9”决策，记录 jsdom@30 advisory 例外。
+- 本文档：固化”保持 25.9”决策，记录 jsdom@30 advisory 例外。
+- 2026-08-14：将 `engines.node` 从多版本矩阵收紧为 `^25.9.0`（仅保留实测验证的生产版本，去掉未验证的 22/24 与无上限的 `>=26`）。涉及根 `package.json`、`packages/daemon/package.json`、`apps/mcp-egress-proxy/package.json`。
