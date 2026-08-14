@@ -141,13 +141,22 @@ jobs:
           # 部按自身路径 cd，不能简单 git show 到临时目录执行）。下方真实 e2e 在
           # git reset 到 $after 之后运行，天然就是候选版本。
           gate_worktree="$(mktemp -d "${TMPDIR:-/tmp}/agentspace-gate-XXXXXX")"
+          # 注册即清理：worktree 一旦创建，任何退出路径（job 超时 / 步骤取消 /
+          # set -e 中断）都必须注销它，否则临时目录与 git worktree 元数据会
+          # 残留在部署 checkout 里，累积成脏 worktree 列表。成功路径手动清理
+          # 后解除 trap，避免拖慢后续退出。
+          cleanup_gate_worktree() {
+            git worktree remove --force "$gate_worktree" 2>/dev/null || true
+            rm -rf "$gate_worktree" || true
+          }
+          trap cleanup_gate_worktree EXIT
           git worktree add --detach "$gate_worktree" "$after"
           if ! bash "$gate_worktree/packages/daemon/scripts/dofe-skill-runner-e2e-run.sh" --preflight; then
             echo "Skill Runner egress preflight failed; aborting before stop_service."
-            git worktree remove --force "$gate_worktree" || true
             exit 1
           fi
-          git worktree remove --force "$gate_worktree" || true
+          cleanup_gate_worktree
+          trap - EXIT
 
           stop_service
 
