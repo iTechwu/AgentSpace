@@ -14,7 +14,7 @@ import {
   type WorkspaceNotificationSeverity,
   type WorkspaceNotificationStatus,
 } from "@dofe-agent/db";
-import { postMessageSync } from "../messages/messages.ts";
+import { postMessageSync } from "../shared/messaging.ts";
 import { readWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue } from "../shared/helpers.ts";
 
