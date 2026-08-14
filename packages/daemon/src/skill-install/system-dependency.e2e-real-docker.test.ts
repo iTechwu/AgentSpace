@@ -106,9 +106,12 @@ test("REAL DOCKER: Skill Runner system binary probe detects presence and absence
  * for the container's source IP that allows ONLY the pinned host on :443.
  *
  * Layer 1 (hostname pinning + DNS poison): the pinned host is written into
- * /etc/hosts via `--add-host` and DNS is poisoned to 192.0.2.1; the script
- * proves the pin took effect and a non-allowlisted host does not resolve
- * (verified via `getent` when available, else by the F5 unit tests).
+ * /etc/hosts via `--add-host` and DNS is poisoned to an unroutable resolver;
+ * the script proves the pin resolves to the pinned IP (positive baseline) and
+ * that a REAL normally-resolvable non-allowlisted host does not resolve inside
+ * the container. `getent` is a pre-flighted hard requirement: without it the
+ * DNS layer cannot be measured and the gate FAILS rather than recording an
+ * isolation it cannot observe (unit tests cover the flag shape separately).
  *
  * Layer 2 (L3/L4 firewall, real traffic): the script opens TCP sockets and
  * classifies each outcome so the gate only credits what it can actually
@@ -123,8 +126,11 @@ test("REAL DOCKER: Skill Runner system binary probe detects presence and absence
  *   - outcome codes distinguish connected / timed-out (DROP semantics — what
  *     the managed chain does) / failed-fast (REJECT·refused·no-route, which is
  *     NOT our chain and therefore not creditable evidence of enforcement).
- *   - IPv6 bypass is probed when (and only when) the container has a global
- *     IPv6 address; without one there is no v6 egress path to bypass with.
+ *   - IPv6 bypass: availability (a global IPv6 address) is reported separately
+ *     from the probe outcome. When a v6 path exists the outcome must be a DROP
+ *     (timed out) — a fast-fail is NOT creditable (REJECT/no-route, or the
+ *     probe cannot form a v6 socket) and fails the gate instead of silently
+ *     passing. Without a global v6 address the probe is honestly skipped.
  */
 test("REAL DOCKER: Runner egress allows ONLY the pinned host on :443 (positive baseline + DROP-verified deny probes)", async (t) => {
   if (!RUN_E2E) {
@@ -136,7 +142,7 @@ test("REAL DOCKER: Runner egress allows ONLY the pinned host on :443 (positive b
   // The probe mechanism itself must exist in the Runner image: a missing
   // `timeout`/`date` must fail the gate outright instead of every probe quietly
   // "failing" (and thus counting as blocked).
-  for (const binary of ["timeout", "date"]) {
+  for (const binary of ["timeout", "date", "getent"]) {
     assert.equal(
       runSkillRunnerSystemProbe({ image: bashImage, binary }, env),
       true,
@@ -158,11 +164,24 @@ set -uo pipefail
 pinned=$(grep -c '${PINNED_HOST}' /etc/hosts || true)
 has_getent=0
 if command -v getent >/dev/null 2>&1; then has_getent=1; fi
-poisoned_ok=0
+# POSITIVE RESOLUTION BASELINE: the pinned host must resolve (via the --add-host
+# /etc/hosts pin) to the pinned IP. This proves getent and the hosts database
+# are functional, so the cloudflare.com probe below failing is attributable to
+# the DNS layer (unroutable resolver), not a broken resolution tool.
+pinnedResolves=0
 if [ "\${has_getent}" = "1" ]; then
-  if ! timeout 8 getent hosts evil-egress-example.invalid >/dev/null 2>&1; then poisoned_ok=1; fi
-else
-  poisoned_ok=1
+  if getent hosts ${PINNED_HOST} 2>/dev/null | grep -q '${PINNED_IP}'; then pinnedResolves=1; fi
+fi
+# DNS isolation probe. The container's resolver is the unroutable EGRESS_BLOCK_DNS,
+# so a REAL normally-resolvable non-allowlisted host must NOT resolve inside the
+# container. Never probe an RFC-2606 .invalid TLD — it is guaranteed
+# unresolvable everywhere, so it would "pass" even with the DNS layer disabled.
+#   dnsProbe: 0 = host RESOLVED      (DNS isolation broken — regression)
+#             1 = host did not resolve (DNS isolation verified)
+#             2 = getent unavailable   (cannot measure — NOT credited as success)
+dnsProbe=2
+if [ "\${has_getent}" = "1" ]; then
+  if timeout 8 getent hosts cloudflare.com >/dev/null 2>&1; then dnsProbe=0; else dnsProbe=1; fi
 fi
 # Layer-2 (L3/L4 firewall) real-traffic probes. While this script runs the
 # broker has installed a real DOCKER-USER chain for THIS container's source IP
@@ -191,16 +210,26 @@ port80=$(probe_port ${PINNED_IP} 80)
 # endpoint (DoH bypass probe); 8.8.8.8 is a generic third-party 443 listener.
 doh443=$(probe_port 1.1.1.1 443)
 other443=$(probe_port 8.8.8.8 443)
-# IPv6 bypass probe — only meaningful when the container actually has a global
-# IPv6 address (scope 00 in /proc/net/if_inet6, excluding lo). Without one there
-# is no v6 egress path to bypass with and the probe is honestly reported as 2
-# (skipped). 2606:4700:4700::1111 is Cloudflare DNS over IPv6, serving :443.
-ipv6=2
+# IPv6 availability — a global IPv6 address (scope 00 in /proc/net/if_inet6,
+# excluding lo) is the only honest signal a v6 egress path exists to bypass with.
+ipv6Available=0
 if awk '\$4=="00" && \$6!="lo"' /proc/net/if_inet6 2>/dev/null | grep -q .; then
+  ipv6Available=1
+fi
+# IPv6 deny-probe outcome, ONLY meaningful when ipv6Available=1. The SKIP case
+# gets its own code (3) so it is never conflated with a fast-fail (2):
+#   0 = CONNECTED     — regression: v6 egress is open (the bypass this guards)
+#   1 = timed out 5s  — DROP: creditable evidence the firewall engaged v6 traffic
+#   2 = failed fast   — REJECT/refused/no-route (or the probe cannot form a v6
+#                       socket): NOT creditable, never silently passed
+#   3 = skipped       — no global IPv6 path, nothing to test
+# 2606:4700:4700::1111 is Cloudflare DNS over IPv6, a real routable :443 listener.
+ipv6=3
+if [ "\${ipv6Available}" = "1" ]; then
   ipv6=$(probe_port 2606:4700:4700::1111 443)
 fi
-printf '{"pinnedInHosts":%s,"poisonedOk":%s,"allowed443":%s,"port80":%s,"doh443":%s,"other443":%s,"ipv6":%s}\\n' \\
-  "\${pinned}" "\${poisoned_ok}" "\${allowed443}" "\${port80}" "\${doh443}" "\${other443}" "\${ipv6}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
+printf '{"pinnedInHosts":%s,"pinnedResolves":%s,"dnsProbe":%s,"allowed443":%s,"port80":%s,"doh443":%s,"other443":%s,"ipv6Available":%s,"ipv6":%s}\\n' \\
+  "\${pinned}" "\${pinnedResolves}" "\${dnsProbe}" "\${allowed443}" "\${port80}" "\${doh443}" "\${other443}" "\${ipv6Available}" "\${ipv6}" > "\${DOFE_SKILL_OUTPUT_DIR}/egress.json"
 `;
 
   try {
@@ -246,18 +275,42 @@ printf '{"pinnedInHosts":%s,"poisonedOk":%s,"allowed443":%s,"port80":%s,"doh443"
       readFileSync(join(workDir, "runtime-output", "skill-runs", entrypoint.key, "egress.json"), "utf8"),
     ) as {
       pinnedInHosts: number;
-      poisonedOk: number;
+      pinnedResolves: number;
+      dnsProbe: number;
       allowed443: number;
       port80: number;
       doh443: number;
       other443: number;
+      ipv6Available: number;
       ipv6: number;
     };
     assert.ok(
       result.pinnedInHosts >= 1,
       "the approved host must be pinned into /etc/hosts via --add-host",
     );
-    assert.equal(result.poisonedOk, 1, "a non-allowlisted host must not resolve (DNS poisoned)");
+    // Positive resolution baseline: getent must resolve the pinned host to the
+    // pinned IP via the /etc/hosts pin. This proves the resolution mechanism
+    // works, so the DNS-isolation probe below measures the DNS layer itself.
+    assert.equal(
+      result.pinnedResolves,
+      1,
+      "getent must resolve the pinned host to the pinned IP (via --add-host) — " +
+        "if this fails the resolution tooling is broken and the DNS probe below proves nothing",
+    );
+    // DNS isolation: a REAL normally-resolvable non-allowlisted host (cloudflare.com)
+    // must NOT resolve inside the container. The old probe used an RFC-2606
+    // `.invalid` hostname, which never resolves anywhere, so it "passed" even
+    // with the DNS layer disabled; a getent-missing environment likewise recorded
+    // success. dnsProbe=2 (getent unavailable) must FAIL the gate rather than be
+    // silently credited — the gate never records an isolation it cannot measure.
+    assert.equal(
+      result.dnsProbe,
+      1,
+      "a real normally-resolvable non-allowlisted host (cloudflare.com) must not resolve " +
+        "inside the container (DNS isolated via the unroutable resolver) — dnsProbe=0 means " +
+        "normal DNS is reachable (regression); dnsProbe=2 means getent was unavailable and " +
+        "the DNS layer could not be measured (not credited as success)",
+    );
     // POSITIVE BASELINE (checked first on purpose): the one allowed flow must
     // genuinely connect. If it cannot, deny-all and "node without internet" are
     // indistinguishable from correct enforcement — the gate proves NOTHING and
@@ -288,14 +341,31 @@ printf '{"pinnedInHosts":%s,"poisonedOk":%s,"allowed443":%s,"port80":%s,"doh443"
       1,
       "a non-allowlisted third-party 443 listener (8.8.8.8) must be DROPped — raw-IP bypass closed",
     );
-    // IPv6 bypass: 1 = a real global-v6 path exists and was DROPped;
-    // 2 = the container has no global IPv6 address (no v6 path to bypass with).
-    // 0 = an IPv6 destination CONNECTED — the regression this guards.
-    assert.notEqual(
-      result.ipv6,
-      0,
-      "an IPv6 destination must never connect when the allowlist has no IPv6 entry",
-    );
+    // IPv6 bypass — availability is split from the outcome so a non-creditable
+    // fast-fail is never conflated with an honest "no v6 path" skip (the old
+    // single `ipv6` field used code 2 for both, silently passing either). There
+    // is no allowlisted IPv6 destination, so a connect-baseline is impossible;
+    // the creditable evidence is instead a DROP (code 1) on a real routable v6
+    // :443 listener when a v6 path exists — proving the firewall engaged v6
+    // traffic rather than the probe being structurally unable to form a v6 socket.
+    if (result.ipv6Available === 1) {
+      assert.equal(
+        result.ipv6,
+        1,
+        "a global IPv6 path exists, so the v6 deny probe must DROP (time out) — " +
+          "code 0 means v6 egress is open (the bypass); code 2 (fast-fail) is NOT " +
+          "creditable (REJECT/no-route, or bash /dev/tcp cannot form an IPv6 socket); " +
+          "either way v6 isolation cannot be credited, so the gate fails closed instead " +
+          "of passing",
+      );
+    } else {
+      assert.equal(
+        result.ipv6,
+        3,
+        "with no global IPv6 address there is no v6 egress path to bypass with — " +
+          "the probe must be honestly skipped (3), not silently credited as enforcement",
+      );
+    }
   } finally {
     await broker?.close().catch(() => {});
     if (artifactDir) {
