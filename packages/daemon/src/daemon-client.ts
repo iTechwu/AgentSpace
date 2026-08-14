@@ -150,6 +150,7 @@ export class HttpDaemonClient {
   private readonly retryDelayMs: number;
   private readonly maxRetryAttempts: number;
   private readonly requestTimeoutMs: number;
+  private readonly blobTransferTimeoutMs: number;
 
   constructor(
     serverUrl: string,
@@ -158,6 +159,7 @@ export class HttpDaemonClient {
       retryDelayMs?: number;
       maxRetryAttempts?: number;
       requestTimeoutMs?: number;
+      blobTransferTimeoutMs?: number;
     },
   ) {
     this.serverUrl = serverUrl;
@@ -165,6 +167,9 @@ export class HttpDaemonClient {
     this.retryDelayMs = options?.retryDelayMs ?? 250;
     this.maxRetryAttempts = Math.max(1, options?.maxRetryAttempts ?? 3);
     this.requestTimeoutMs = Math.max(1_000, options?.requestTimeoutMs ?? 10_000);
+    // Blob transfers carry whole workspace archives; they need a much longer
+    // ceiling than JSON requests, but must still abort instead of hanging forever.
+    this.blobTransferTimeoutMs = Math.max(1_000, options?.blobTransferTimeoutMs ?? 300_000);
   }
 
   async register(request: RegisterDaemonRequest): Promise<RegisterDaemonResponse> {
@@ -410,8 +415,10 @@ export class HttpDaemonClient {
     const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}?revisionId=${encodeURIComponent(revisionId)}`;
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
       try {
-        const response = await fetch(this.resolveUrl(path), { method: "GET", headers: this.buildHeaders() });
+        const response = await fetch(this.resolveUrl(path), { method: "GET", headers: this.buildHeaders(), signal: controller.signal });
         if (response.status >= 500 && attempt < this.maxRetryAttempts) {
           await sleep(this.retryDelayMs);
           continue;
@@ -422,6 +429,8 @@ export class HttpDaemonClient {
         lastError = error;
         if (attempt >= this.maxRetryAttempts) throw error;
         await sleep(this.retryDelayMs);
+      } finally {
+        clearTimeout(timeout);
       }
     }
     throw lastError instanceof Error ? lastError : new Error("Workspace blob download failed.");
@@ -431,6 +440,8 @@ export class HttpDaemonClient {
     const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}?revisionId=${encodeURIComponent(revisionId)}`;
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
       try {
         const response = await fetch(this.resolveUrl(path), {
           method: "GET",
@@ -438,6 +449,7 @@ export class HttpDaemonClient {
             ...this.buildHeaders(),
             range: `bytes=${start}-${end}`,
           },
+          signal: controller.signal,
         });
         if (response.status >= 500 && attempt < this.maxRetryAttempts) {
           await sleep(this.retryDelayMs);
@@ -452,6 +464,8 @@ export class HttpDaemonClient {
         lastError = error;
         if (attempt >= this.maxRetryAttempts) throw error;
         await sleep(this.retryDelayMs);
+      } finally {
+        clearTimeout(timeout);
       }
     }
     throw lastError instanceof Error ? lastError : new Error("Workspace blob range download failed.");
@@ -484,6 +498,8 @@ export class HttpDaemonClient {
     const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}`;
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
       try {
         const response = await fetch(this.resolveUrl(path), {
           method: "PUT",
@@ -494,6 +510,7 @@ export class HttpDaemonClient {
             "x-content-sha256": sha256,
           },
           body: Buffer.from(bytes),
+          signal: controller.signal,
         });
         if (response.status >= 500 && attempt < this.maxRetryAttempts) {
           await sleep(this.retryDelayMs);
@@ -505,6 +522,8 @@ export class HttpDaemonClient {
         lastError = error;
         if (attempt >= this.maxRetryAttempts) throw error;
         await sleep(this.retryDelayMs);
+      } finally {
+        clearTimeout(timeout);
       }
     }
     throw lastError instanceof Error ? lastError : new Error("Workspace blob upload failed.");

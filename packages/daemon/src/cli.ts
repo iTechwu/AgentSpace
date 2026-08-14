@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 import { printRemoteDaemonHelp, runRemoteDaemonCommand } from "./remote-daemon.ts";
+// Single source of truth for the daemon version; esbuild inlines this at bundle time.
+import daemonPackageJson from "../package.json" with { type: "json" };
 
 export async function main(): Promise<number> {
   const args = process.argv.slice(2);
@@ -11,7 +13,7 @@ export async function main(): Promise<number> {
   }
 
   if (args[0] === "--version" || args[0] === "version") {
-    console.log("0.1.3");
+    console.log(daemonPackageJson.version);
     return 0;
   }
 
