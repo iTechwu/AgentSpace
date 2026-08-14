@@ -340,3 +340,266 @@ test("REAL DOCKER: listLiveSkillRunnerEgressPolicyServiceIds enumerates a labele
     execFileSync(dockerBin, ["rm", "-f", containerName], { stdio: "ignore", timeout: 30_000 });
   }
 });
+
+function dockerImageIsPresent(image: string): boolean {
+  try {
+    execFileSync(
+      process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker",
+      ["image", "inspect", image],
+      { stdio: "ignore", timeout: 30_000 },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * §13 production gate: 删除本地 Runner image 后新任务能力立即 blocked，任务执行
+ * 不会触发 pull。Exercised with a properly digest-pinned image reference that is
+ * NOT present locally (the same state `docker rmi` leaves behind): the capability
+ * must come up `missing` (never `available`), executing it must fail closed, and
+ * the image must STILL be absent afterwards — proving `--pull never` kept the
+ * missing image missing instead of fetching it.
+ */
+test("REAL DOCKER: a locally missing Runner image blocks the capability and never pulls", async (t) => {
+  if (!RUN_E2E) {
+    t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
+    return;
+  }
+  assertReleaseGateEnvironment();
+  const configuredBashImage = process.env.DOFE_SKILL_RUNNER_BASH_IMAGE!;
+  // Same repository, digest that was never pulled — indistinguishable from a
+  // deleted image except we never had to remove the real one.
+  const missingImage = configuredBashImage.replace(/@sha256:[a-fA-F0-9]{64}$/, `@sha256:${"f".repeat(64)}`);
+  assert.equal(dockerImageIsPresent(missingImage), false, "precondition: the fake digest must not be present locally");
+
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-missing-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-missing-work-"));
+  const installationId = "real-missing-image";
+  const artifactDigest = `4${ARTIFACT_DIGEST.slice(1)}`;
+  let broker: Awaited<ReturnType<typeof startSkillRunnerBroker>> | undefined;
+  let artifactDir: string | undefined;
+
+  try {
+    const materialized = createArtifact({
+      stateDir,
+      artifactDigest,
+      scriptName: "noop.sh",
+      script: "#!/usr/bin/env bash\nexit 0\n",
+    });
+    artifactDir = materialized.artifactDir;
+    broker = await startSkillRunnerBroker({
+      stateDir,
+      workspaceId: WORKSPACE_ID,
+      workDir,
+      entrypoints: [entrypoint({
+        id: "noop",
+        installationId,
+        artifactDigest,
+        scriptName: "noop.sh",
+        scriptBytes: materialized.scriptBytes,
+        runtime: "bash",
+      })],
+      environment: { ...process.env, DOFE_SKILL_RUNNER_BASH_IMAGE: missingImage },
+    });
+
+    const capability = broker.capabilities[0]!;
+    assert.equal(capability.status, "missing", "a locally absent image must block the capability at build time");
+    assert.match(capability.denialReason ?? "", /not available locally/);
+
+    // Executing the blocked capability must fail closed…
+    await assert.rejects(execFileAsync(capability.binPath!, [], { timeout: 60_000 }));
+    // …without pulling the image as a side effect.
+    assert.equal(
+      dockerImageIsPresent(missingImage),
+      false,
+      "the missing image must still be missing after a run attempt (--pull never)",
+    );
+  } finally {
+    await broker?.close().catch(() => {});
+    if (artifactDir) {
+      chmodSync(artifactDir, 0o755);
+      chmodSync(join(artifactDir, "scripts"), 0o755);
+    }
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * §13 production gate: timeout、输出超限产生结构化失败，且 `docker ps -a` 不存在
+ * 对应随机容器。A 120s sleeper under a 2s runner timeout must be killed well
+ * before its natural end; a stdout flood past the 64KiB per-run cap must surface
+ * the structured `skill_runner.output_limit_exceeded` failure. Both must leave no
+ * container behind — container names embed the spawning process's pid, so
+ * filtering on `dofe-skill-run-${process.pid}-` isolates THIS test's runs.
+ */
+test("REAL DOCKER: timeout and output overrun fail closed and leave no container behind", async (t) => {
+  if (!RUN_E2E) {
+    t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
+    return;
+  }
+  assertReleaseGateEnvironment();
+  const dockerBin = process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker";
+
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-failclosed-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-failclosed-work-"));
+  const timeoutDigest = `5${ARTIFACT_DIGEST.slice(1)}`;
+  const overrunDigest = `6${ARTIFACT_DIGEST.slice(1)}`;
+  const artifacts: string[] = [];
+  let broker: Awaited<ReturnType<typeof startSkillRunnerBroker>> | undefined;
+
+  try {
+    const sleeper = createArtifact({
+      stateDir,
+      artifactDigest: timeoutDigest,
+      scriptName: "sleeper.sh",
+      script: "#!/usr/bin/env bash\nsleep 120\n",
+    });
+    artifacts.push(sleeper.artifactDir);
+    // ~300KB of stdout — far past the 64KiB per-run cap (SKILL_RUNNER_MAX_OUTPUT_BYTES).
+    const flooder = createArtifact({
+      stateDir,
+      artifactDigest: overrunDigest,
+      scriptName: "flooder.sh",
+      script: `#!/usr/bin/env bash
+set -euo pipefail
+line=$(printf 'x%.0s' {1..100})
+for ((i = 0; i < 3000; i++)); do printf '%s\\n' "\$line"; done
+`,
+    });
+    artifacts.push(flooder.artifactDir);
+
+    broker = await startSkillRunnerBroker({
+      stateDir,
+      workspaceId: WORKSPACE_ID,
+      workDir,
+      entrypoints: [
+        entrypoint({
+          id: "sleeper",
+          installationId: "real-timeout-installation",
+          artifactDigest: timeoutDigest,
+          scriptName: "sleeper.sh",
+          scriptBytes: sleeper.scriptBytes,
+          runtime: "bash",
+        }),
+        entrypoint({
+          id: "flooder",
+          installationId: "real-overrun-installation",
+          artifactDigest: overrunDigest,
+          scriptName: "flooder.sh",
+          scriptBytes: flooder.scriptBytes,
+          runtime: "bash",
+        }),
+      ],
+      environment: { ...process.env, DOFE_SKILL_RUNNER_TIMEOUT_MS: "2000" },
+    });
+
+    const byId = new Map(broker.capabilities.map((capability) => [capability.id.split(":").pop(), capability]));
+    const sleeperCapability = byId.get("sleeper")!;
+    const flooderCapability = byId.get("flooder")!;
+    assert.equal(sleeperCapability.status, "available", sleeperCapability.denialReason ?? "");
+    assert.equal(flooderCapability.status, "available", flooderCapability.denialReason ?? "");
+
+    // Timeout: the 120s sleeper must be killed by the 2s runner timeout — well
+    // before the execFileAsync 60s ceiling.
+    const startedAt = Date.now();
+    await assert.rejects(execFileAsync(sleeperCapability.binPath!, [], { timeout: 60_000 }));
+    assert.ok(
+      Date.now() - startedAt < 30_000,
+      "the 120s sleeper must be stopped by the 2s runner timeout, not run to completion",
+    );
+
+    // Output overrun: failing the 64KiB cap must surface the structured marker.
+    const overrunFailure = await execFileAsync(flooderCapability.binPath!, [], { timeout: 60_000 })
+      .then(() => null, (error) => error as Error & { stderr?: string });
+    assert.ok(overrunFailure, "an output-overrunning run must exit non-zero");
+    assert.match(String(overrunFailure.stderr), /skill_runner\.output_limit_exceeded/);
+
+    // §13: docker ps -a shows no leftover random container from THIS process.
+    const leftovers = execFileSync(dockerBin, ["ps", "-a", "--format", "{{.Names}}"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    }).split("\n")
+      .filter((name) => name.startsWith(`dofe-skill-run-${process.pid}-`));
+    assert.deepEqual(
+      leftovers,
+      [],
+      "timed-out / output-overrunning containers must be force-removed, not left in docker ps -a",
+    );
+  } finally {
+    await broker?.close().catch(() => {});
+    for (const artifactDir of artifacts) {
+      chmodSync(artifactDir, 0o755);
+      chmodSync(join(artifactDir, "scripts"), 0o755);
+    }
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * §13 production gate: entrypoint hash 篡改 fail-closed。The broker re-verifies the
+ * cached entrypoint's sha256 on EVERY run (assertSkillRunnerCacheEntry), so a
+ * script modified after materialization — even with the read-only mode restored —
+ * must be rejected with the structured digest-mismatch failure, never executed.
+ */
+test("REAL DOCKER: a tampered artifact cache entry is rejected by the per-run entrypoint hash check", async (t) => {
+  if (!RUN_E2E) {
+    t.skip("set DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1 on a Linux managed node to run the release gate");
+    return;
+  }
+  assertReleaseGateEnvironment();
+
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-tamper-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-tamper-work-"));
+  const artifactDigest = `7${ARTIFACT_DIGEST.slice(1)}`;
+  let broker: Awaited<ReturnType<typeof startSkillRunnerBroker>> | undefined;
+  let artifactDir: string | undefined;
+
+  try {
+    const materialized = createArtifact({
+      stateDir,
+      artifactDigest,
+      scriptName: "victim.sh",
+      script: "#!/usr/bin/env bash\nprintf 'original\\n'\n",
+    });
+    artifactDir = materialized.artifactDir;
+    broker = await startSkillRunnerBroker({
+      stateDir,
+      workspaceId: WORKSPACE_ID,
+      workDir,
+      entrypoints: [entrypoint({
+        id: "victim",
+        installationId: "real-tamper-installation",
+        artifactDigest,
+        scriptName: "victim.sh",
+        scriptBytes: materialized.scriptBytes,
+        runtime: "bash",
+      })],
+    });
+    const capability = broker.capabilities[0]!;
+    assert.equal(capability.status, "available", capability.denialReason ?? "");
+
+    // Tamper AFTER the broker built the capability: rewrite the script and
+    // restore the read-only mode, so only the CONTENT differs.
+    const scriptPath = join(artifactDir, "scripts", "victim.sh");
+    chmodSync(scriptPath, 0o755);
+    writeFileSync(scriptPath, "#!/usr/bin/env bash\nprintf 'tampered\\n'\n");
+    chmodSync(scriptPath, 0o555);
+
+    const failure = await execFileAsync(capability.binPath!, [], { timeout: 60_000 })
+      .then(() => null, (error) => error as Error & { stderr?: string });
+    assert.ok(failure, "a tampered entrypoint must not execute");
+    assert.match(String(failure.stderr), /skill_runner\.entrypoint_digest_mismatch/);
+  } finally {
+    await broker?.close().catch(() => {});
+    if (artifactDir) {
+      chmodSync(artifactDir, 0o755);
+      chmodSync(join(artifactDir, "scripts"), 0o755);
+    }
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
