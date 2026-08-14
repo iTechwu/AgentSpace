@@ -94,7 +94,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 3. **【P1】消除双重行映射**：部分 SQL 用显式 `AS workspaceId`，部分用全小写别名（如 `skillartifactdigest`）依赖 worker 的 400+ 条别名表兜底。两种风格并存易漂移。建议以 schema 列名为唯一事实源，统一生成 camelCase 映射。
 4. **【P2】巨型业务模块拆分**：`external-integrations.ts`(2,576)、`types.ts`(2,219，106 interface 可按模块拆后 re-export)、`mcp-center.ts`(1,467)。
 5. **【P2】类型安全加固**：可评估 Kysely 之类轻量 typed query builder 做列名编译期校验，降低手写 SQL 与 `types.ts` 的漂移风险（无需完整 ORM）。
-6. **【战略】Prisma 迁移已有详细方案**：`docs/0808/db_migration_to_prisma/README.md` 给出了 A→B 渐进路线（A=Prisma 只负责 schema/迁移；B=Prisma Client 与 SQL 并存按域替换），明确不建议一次性全量 Prisma Client 化。当前 `techwu/prisma-migration` 分支在推进。**建议**：坚持 A→B，`FOR UPDATE SKIP LOCKED`、触发器、advisory lock、在线 DDL 等高风险 SQL 继续保留原生实现。
+6. **【战略】Prisma 迁移已有详细方案**：`docs/0808/db_migration_to_prisma/README.md` 给出了 A→B 渐进路线（A=Prisma 只负责 schema/迁移；B=Prisma Client 与 SQL 并存按域替换），明确不建议一次性全量 Prisma Client 化。当前 `techwu/prisma-migration` 分支在推进，且 `dev` 分支已落地 Phase 2 read-cutover 影子读取骨架（`packages/db/src/prisma/read-cutover.ts`，a74f362c）。**建议**：坚持 A→B，`FOR UPDATE SKIP LOCKED`、触发器、advisory lock、在线 DDL 等高风险 SQL 继续保留原生实现。
 
 > 亮点（值得保留）：手写幂等 DDL + advisory lock 迁移协议 + 前向版本守卫 + `CREATE INDEX CONCURRENTLY` 后台构建 + 测试库 URL 守卫，是一套成熟的「SQLite 无缝演进到 PostgreSQL」工具链。
 
@@ -119,12 +119,12 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 5. **【P2】手写 `.d.ts` 孪生去重**：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
 6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串**：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
 7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）**：继续按域拆子路径（`/workflows`、`/skills`…），收窄 web/daemon 的 200+ 处 import。
-8. **【P2】测试门覆盖不均**：门内只含 runtime-maintenance/skills/mcp-center/skill-services/openmontage/workflows/attachments；`permissions`、`employees`、`documents`、`messages`、`knowledge` 等核心域无自动测试门，建议把 verify 脚本的 COVERED_PREFIXES 扩到这些域。
+8. **【P2】测试门覆盖不均**：门内只含 runtime-maintenance/skills/mcp-center/skill-services/openmontage/workflows/attachments；`permissions`、`employees`、`documents`、`messages`、`knowledge` 等核心域无自动测试门，建议把 verify 脚本的 COVERED_PREFIXES 扩到这些域。🟡 **部分已落地（707e80a5）**：`permissions`、`document-permissions` 已纳入 services 默认测试脚本与 COVERED_PREFIXES；`employees`、`documents`、`messages`、`knowledge` 等待办。
 9. **【P3】供应链**：`xlsx` 依赖是 CDN tarball URL（`cdn.sheetjs.com`）非 registry 包，建议评估锁定与镜像策略。
 
 ### 3.4 Web 前端（apps/web，Next.js 16）
 
-1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）**：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。✅ **第一阶段已落地（683f2d9e）**：先按「类型层 / 视图构建层 / 装配层」切开——`data.ts` 3,533 行（各域 loader，`export *` 对外导入路径不变，43 个引用方零改动）、`data-types.ts` 973 行、`dashboard-view-builders.ts` 1,410 行，依赖单向 `data.ts → view-builders → data-types`。后续按域再拆 `features/*/server-data.ts` 有了干净落点。
+1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）**：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。✅ **第一阶段已落地（683f2d9e）**：先按「类型层 / 视图构建层 / 装配层」切开——`data.ts` 3,533 行（各域 loader，`export *` 对外导入路径不变，43 个引用方零改动）、`data-types.ts` 973 行、`dashboard-view-builders.ts` 1,410 行，依赖单向 `data.ts → view-builders → data-types`。后续按域再拆 `features/*/server-data.ts` 有了干净落点。✅ **第二阶段已落地（ad4de69e）**：`dashboard-view-builders.ts` 按领域拆为 `builders/` 九个子模块（`channel-documents` / `channel-files` / `channel-view` / `document-changesets` / `feishu-summary` / `knowledge-view` / `task-queue` / `text` / `workspace-members`），原文件收敛为 65 行 facade。
 2. **【P1】代码分割**：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施，接入成本低）。同批处理 `agent-detail.tsx`(1,657)、`conversation-shell.tsx`(1,590)、`knowledge-page-client.tsx`(1,580)。✅ **WorkspaceModuleHost 部分已落地（32a1bb8a）**：17 个页面客户端全部改 `next/dynamic` 按模块懒加载，路由 page.tsx 仍静态导入保证 SSR 直出；全量 vitest 144 文件 / 1,153 用例通过。✅ **knowledge-page-client 已完成四件套拆分（2a86a772 + 95349d52 + a9ada12a + cce1b274）**：1,580→1,114 行，子组件全部移出独立文件——`parse-task-panel.tsx`（ParseTaskPanel）、`assignment-panel.tsx`（KnowledgeAssignmentPanel/DraftControls + toggleEmployeeSelection）、`document-page-viewer.tsx`（DocumentPageViewer + formatKnowledgeTime/DocumentSize 私有）、`knowledge-tree-node.tsx`（KnowledgeTreeNode 递归）。文件内拆分（agent-detail / conversation-shell / channels-page-client）⏳ 待办。
 3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）**：轮询/性能埋点/执行时间线/pin 逻辑已「文件内堆叠」，先抽 hooks 再抽子组件。
 4. **【P2】`next.config.mjs` 的 `typescript.ignoreBuildErrors: true`**：构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 目前不跑 typecheck）。建议移除该开关，让 `next build` 前强制 `tsc --noEmit`。
@@ -174,7 +174,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | 现状 | 问题 | 建议 |
 | --- | --- | --- |
 | 415 个测试文件、node:test + vitest + Playwright | 无独立测试 CI，生产部署不跑单测 | 新增 test CI job；部署前强制 `turbo run test --concurrency=2` |
-| `verify-test-inventory.mjs` 门禁 | 只覆盖部分域，飞书 24 文件、permissions/employees 等核心域游离 | 扩 COVERED_PREFIXES；飞书纯单测纳入门内 |
+| `verify-test-inventory.mjs` 门禁 | 只覆盖部分域，飞书 24 文件、employees 等核心域仍游离 | 扩 COVERED_PREFIXES；飞书纯单测纳入门内（`permissions`/`document-permissions` 已纳入 707e80a5，`prisma` 已纳入 a74f362c） |
 | `audit-node-engines.mjs`（engines 审计） | 已接入 `pretest`，但 CI/部署不自动运行 | 纳入 CI job |
 | vitest `fileParallelism: false` | 149 文件单线程（共享 DB 种子竞态） | 迁移每用例独立 workspace（已在推进，见 git log） |
 | db 测试依赖真实 PG | CI 需预置测试库 | 评估 testcontainers ephemeral PG |
