@@ -40,6 +40,7 @@ export function emitPrismaCutoverMetric(
     durationMs: Math.max(0, metric.durationMs),
   };
   if ("fallbackInvoked" in metric) record.fallbackInvoked = metric.fallbackInvoked;
+  if (metric.fallbackFailed !== undefined) record.fallbackFailed = metric.fallbackFailed;
   // Error messages can contain connection details. The application error path
   // keeps the original exception; telemetry only records its presence.
   if (metric.error !== undefined) record.error = "present";

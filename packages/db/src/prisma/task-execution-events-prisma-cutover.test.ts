@@ -142,7 +142,7 @@ test("listTaskExecutionEventsPrismaCutover falls back to sync when Prisma primar
   assert.deepEqual(result, []);
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "fallback");
-  assert.ok(metrics[0]!.error?.includes("prisma task events unreachable"));
+  assert.equal(metrics[0]!.error, "present");
 });
 
 test("listTaskExecutionEventsPrismaCutover compares the Prisma result when shadow is enabled", async () => {

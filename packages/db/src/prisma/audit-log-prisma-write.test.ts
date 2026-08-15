@@ -183,7 +183,7 @@ test("createAuditLogPrismaCutover does not duplicate a write when Prisma primary
     assert.equal(metrics.length, 1);
     assert.equal(metrics[0]!.source, "primary");
     assert.equal(metrics[0]!.fallbackInvoked, 0);
-    assert.ok(metrics[0]!.error?.includes("prisma write unreachable"));
+    assert.equal(metrics[0]!.error, "present");
   } finally {
     setAuditLogPrismaClientForTests(null);
   }

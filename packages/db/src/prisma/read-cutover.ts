@@ -18,6 +18,7 @@ export interface ReadCutoverMetric {
   mismatch: 0 | 1;
   durationMs: number;
   error?: string;
+  fallbackFailed?: 0 | 1;
 }
 
 export interface ReadCutoverConfig<TResult> {
@@ -90,8 +91,15 @@ function runFallbackAfterPrimaryFailure<TResult>(
     });
     return fallbackResult;
   } catch (fallbackError) {
-    // Fallback is broken too; preserve the primary error because it is what
-    // the caller would have seen without the migration.
+    safeEmitMetric(config, {
+      source: "fallback",
+      mismatch: 0,
+      durationMs: Date.now() - start,
+      error: primaryMessage,
+      fallbackFailed: 1,
+    });
+    // Preserve the primary error because it is what the caller would have
+    // seen without the migration.
     throw primaryError;
   }
 }

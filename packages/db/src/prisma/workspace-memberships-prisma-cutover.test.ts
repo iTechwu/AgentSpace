@@ -121,7 +121,7 @@ test("listWorkspaceMembershipsPrismaCutover falls back to sync when Prisma prima
   assert.ok(Array.isArray(result));
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "fallback");
-  assert.ok(metrics[0]!.error?.includes("prisma memberships unreachable"));
+  assert.equal(metrics[0]!.error, "present");
 });
 
 test("listWorkspaceMembershipsPrismaCutover compares the Prisma result when shadow is enabled", async () => {

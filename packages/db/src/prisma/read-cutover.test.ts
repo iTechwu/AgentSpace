@@ -88,6 +88,7 @@ test("withReadCutover falls back to sync when primary fails", async () => {
 });
 
 test("withReadCutover propagates primary error when fallback also fails", async () => {
+  const metrics: Array<{ source: string; error?: string; fallbackFailed?: number }> = [];
   await assert.rejects(
     async () =>
       withReadCutover({
@@ -100,10 +101,14 @@ test("withReadCutover propagates primary error when fallback also fails", async 
           throw new Error("fallback failure");
         },
         compare: () => true,
-        emitMetric: () => {},
+        emitMetric: (metric) => metrics.push(metric),
       }),
     /primary failure/,
   );
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0]?.source, "fallback");
+  assert.equal(metrics[0]?.fallbackFailed, 1);
+  assert.ok(metrics[0]?.error?.includes("primary failure"));
 });
 
 test("withReadCutover propagates shadow fallback error and does not fall back to it", async () => {

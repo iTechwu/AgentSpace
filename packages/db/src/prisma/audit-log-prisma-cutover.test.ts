@@ -144,7 +144,7 @@ test("readAuditLogPrismaCutover falls back to sync when Prisma primary throws", 
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "fallback");
   assert.equal(metrics[0]!.mismatch, 0);
-  assert.ok(metrics[0]!.error?.includes("prisma unreachable"));
+  assert.equal(metrics[0]!.error, "present");
 });
 
 test("readAuditLogPrismaCutover detects mismatch under shadow flag", async () => {

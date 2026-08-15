@@ -167,9 +167,9 @@ packages/db
 所有 Prisma 试点开关在环境模板中默认关闭。发布时必须按域灰度，禁止一次开启多个新域：
 
 1. 先设置 `PRISMA_CUTOVER_METRICS_ENABLED=1`，保留 `PRISMA_CUTOVER_SUCCESS_SAMPLE_RATE=0.01`；正常 primary 成功按比例采样，fallback、shadow mismatch 和 primary error 不采样、全部记录。
-2. 选择一个域，同时开启该域的 `*_PRISMA_READ_ENABLED=1` 与 `*_PRISMA_SHADOW_READ_ENABLED=1`。结构化日志的 `eventCode` 固定为 `prisma.cutover`，按 `domain`、`operation`、`source`、`mismatch`、`durationMs` 聚合。错误只记录 `error=present`，不输出可能包含连接信息的原始异常文本。
+2. 选择一个域，同时开启该域的 `*_PRISMA_READ_ENABLED=1` 与 `*_PRISMA_SHADOW_READ_ENABLED=1`。结构化日志的 `eventCode` 固定为 `prisma.cutover`，按 `domain`、`operation`、`source`、`mismatch`、`durationMs` 聚合；primary 与 legacy 同时失败时额外记录 `fallbackFailed=1`。错误只记录 `error=present`，不输出可能包含连接信息的原始异常文本。
 3. shadow 对比稳定后关闭该域的 `*_PRISMA_SHADOW_READ_ENABLED`，继续观察 fallback 数、错误率和 P95。一个域完成验收后才进入下一个域。
-4. 任一域出现 mismatch、fallback 增长、连接池耗尽或延迟回退，立即把该域 `*_PRISMA_READ_ENABLED` 设回 `0` 并滚动重启应用；保留 metrics 开关用于确认流量已经回到 legacy。
+4. 任一域出现 mismatch、fallback 增长、连接池耗尽或延迟回退，立即把该域 `*_PRISMA_READ_ENABLED` 设回 `0` 并滚动重启应用；通过部署环境确认开关已加载，并确认重启后该域不再产生新的 `prisma.cutover` 事件。Flag OFF 的纯 legacy 读取不主动发指标。
 5. `AUDIT_LOG_PRISMA_WRITE_ENABLED=1` 必须最后单独开启。Prisma 写入错误会 fail closed，不会自动执行 legacy 二次写入；回退开关只影响后续请求，失败请求需按 idempotency key 核对后再重试。
 
 当前试点域开关：

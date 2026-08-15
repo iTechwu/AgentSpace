@@ -94,7 +94,7 @@ export function buildDomainWriteCutover<TInput, TResult, TMetric extends DomainW
       isEnabled: config.isEnabled,
       runPrimary: () => config.runPrimary(input),
       runFallback: () => config.runFallback(input),
-      emitMetric: metricSink ?? config.emitMetric,
+      emitMetric: combineMetricSinks(config.emitMetric, metricSink),
     });
 }
 
@@ -155,6 +155,33 @@ export function buildDomainCutover<TInput, TResult, TMetric extends ReadCutoverM
       runPrimary: () => config.runPrimary(input),
       runFallback: () => config.runFallback(input),
       compare: config.compare,
-      emitMetric: metricSink ?? config.emitMetric,
+      emitMetric: combineMetricSinks(config.emitMetric, metricSink),
     });
+}
+
+function combineMetricSinks<TMetric extends ReadCutoverMetric>(
+  defaultSink: ((metric: TMetric) => void) | undefined,
+  callerSink: ((metric: TMetric) => void) | undefined,
+): ((metric: TMetric) => void) | undefined {
+  if (!callerSink) return defaultSink;
+  if (!defaultSink) return callerSink;
+  return (metric) => {
+    safelyInvokeMetricSink(defaultSink, metric);
+    safelyInvokeMetricSink(callerSink, sanitizeCallerMetric(metric));
+  };
+}
+
+function safelyInvokeMetricSink<TMetric extends ReadCutoverMetric>(
+  sink: (metric: TMetric) => void,
+  metric: TMetric,
+): void {
+  try {
+    sink(metric);
+  } catch {
+    // A secondary observer must not block the other sink or business result.
+  }
+}
+
+function sanitizeCallerMetric<TMetric extends ReadCutoverMetric>(metric: TMetric): TMetric {
+  return metric.error === undefined ? metric : { ...metric, error: "present" };
 }

@@ -138,5 +138,5 @@ test("listEmployeeRuntimeBindingsPrismaCutover falls back to sync when Prisma pr
   assert.ok(Array.isArray(result));
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "fallback");
-  assert.ok(metrics[0]!.error?.includes("prisma runtime bindings unreachable"));
+  assert.equal(metrics[0]!.error, "present");
 });
