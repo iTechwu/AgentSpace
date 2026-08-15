@@ -150,3 +150,19 @@ model AgentTaskQueue {
 
   @@map("agent_task_queue")
 }
+
+model AgentSkill {
+  workspaceId        String   @map("workspace_id")
+  /// agent_id column is conditionally present (see skills.ts hasAgentIdColumn);
+  /// mapped as String? to handle legacy rows where the column is missing.
+  agentId            String?  @map("agent_id")
+  employeeId         String   @map("employee_id")
+  employeeName       String   @map("employee_name")
+  skillId            String   @map("skill_id")
+  skillArtifactDigest String? @map("skill_artifact_digest")
+  rolloutPin         String?  @map("rollout_pin")
+  createdAt          DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@id([workspaceId, employeeId, skillId])
+  @@map("agent_skill")
+}
