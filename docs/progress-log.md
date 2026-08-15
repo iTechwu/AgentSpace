@@ -112,14 +112,17 @@
 
 ## P2（部分完成，多数待办）
 
-### 3.3-7 / 3.2-6 Prisma 迁移（战略项）—— 🟡 Phase 2 试点可运行
+### 3.3-7 / 3.2-6 Prisma 迁移（战略项）—— 🟡 Phase 2 已覆盖 22 读域 + 4 写路径
 
 - `docs/0808/db_migration_to_prisma/README.md` 给出 A→B 渐进路线（A=Prisma 管 schema/迁移；B=Prisma Client 与 SQL 并存按域替换）。
-- `schema.prisma` 于 `9b4ceb0e`（audit-log 真接入 `@prisma/client`）首次落地，现含 8 个已提交 model（200 行）。七域 Prisma Client read cutover：audit-log、notifications、task-execution-events、workspace-memberships、employee-runtime-bindings（前五域）→ task-queue（`e405a3cc`，AgentTaskQueue）→ agent-skill（`1cf73255`，AgentSkill）。共享 `PrismaPg` adapter/单例通过真实 PostgreSQL `SELECT 1` smoke，员工绑定通过 `agent_runtime` relation 获取 provider/name，不再把 JOIN 字段误当表列。
+- `schema.prisma` 于 `9b4ceb0e` 首次落地，现含 25 个 model（含 Skill/SkillFile/SkillDraft、WorkflowDefinition/Version/Trigger/Run/NodeRun 全家桶、ChannelParticipant/AccessRequest/Invitation、DocumentAgentAccess(带 4 列唯一约束)/PermissionRequest、AgentAccessRequest、Attachment、SkillServiceCatalog 等）。共享 `PrismaPg` adapter 单例收敛在 `prisma-client.ts`（DI setter + shutdown hooks），员工绑定通过 `agent_runtime` relation 获取 provider/name。
+- **读路径 22 域全双 runner**（每域 4 实现 + 2 测试文件：pg 原型 `*-async.ts`/`*-cutover.ts` @deprecated 迁移期 fallback + 真 Prisma `*-prisma.ts`/`*-prisma-cutover.ts` 生产路径）：audit-log、notifications、task-execution-events、workspace-memberships、employee-runtime-bindings、task-queue、agent-skill、knowledge-proposals、document-agent-access、document-permission-requests、agent-access-requests、attachments、skill-service-catalog、workflow-definitions、channel-participants、channel-access-requests、channel-invitations、workspace-skills、workflow-runs、workflow-triggers、workflow-node-runs、workflow-versions。通用工厂 `cutover-runner.ts`（buildDomainCutover/buildDomainWriteCutover）+ 可观测 `cutover-observability.ts`（`PRISMA_CUTOVER_METRICS_ENABLED` 门控、成功采样、error 脱敏为 `"present"`）。
+- **写路径 4 面**：audit-log create（`AUDIT_LOG_PRISMA_WRITE_ENABLED`）；notifications create/markRead/archive（`NOTIFICATIONS_PRISMA_WRITE_ENABLED`，dedupe 为 partial unique index 改用 updateMany→create→并发读回，COALESCE 语义用 `$executeRaw` 保真）；document-agent-access grant/revoke（4 列唯一约束走 Prisma upsert，revoke COALESCE 用 `$executeRaw`）；skill-draft upsert/delete（复合主键 Prisma upsert）。写语义统一 fail closed：primary 抛错不重写（`fallbackInvoked: 0`）。
 - notifications、task-execution-events、workspace-memberships、employee-runtime-bindings 已分别接入 Inbox、飞书设置成员列表与工作流编辑页；audit read 已接入平台/工作区审计页，audit write 已接入平台管理员登录审计。同步业务调用方仍按风险逐步迁移。
-- 每域均保留独立 read/shadow flag；audit write 在 flag 打开后对不明确的 primary 失败 fail closed，禁止 legacy 二次写入。根 `build` 与 `typecheck:deps` 会先执行 `prisma generate`。
-- `packages/db/src/prisma/*.test.ts` 已纳入 DB 默认测试门；`prisma:verify:pilot` 会在测试前对照真实 PostgreSQL 检查各试点模型的列类型、可空性、默认值和主键。剩余工作是补全量 baseline、可观测指标与灰度/回滚运行手册，而不是一次性替换原生 SQL。
-- 进行中（未提交）：第八域 knowledge-proposals（工作区已有 `knowledge-proposals-async.ts` / `knowledge-proposals-cutover.ts` 与 `schema.prisma` 的 `KnowledgeProposal` model，尚未提交）。
+- 每域均保留独立 read/shadow flag（`<域>_PRISMA_READ_ENABLED` / `_SHADOW_READ_ENABLED`）。根 `build` 与 `typecheck:deps` 会先执行 `prisma generate`。
+- `packages/db/src/prisma/*.test.ts` 已纳入 DB 默认测试门（189 例全过）；库存门禁 `scripts/verify-test-inventory.mjs` 302 default-owned / 183 frozen（摘要 `b95ff63482e9`）。
+- **有意不做**：task enqueue 切 Prisma 写路径 —— `enqueueNativeTaskSync` 缠绕 employee binding 解析 + router session 创建 + 双生命周期事件写入，属跨表编排而非机械单表写，待编排层整体迁移时一并处理。
+- **迁移期收尾条件**：pg 原型 44 个文件（`*-async.ts`/`*-cutover.ts`）在 shadow 对比连续 30 天零 drift 后整体删除；届时同步评估删除 worker-thread 同步 DB 层与重复行映射。
 
 ### 3.5-6 构建/版本漂移 —— 🟡 部分完成
 
