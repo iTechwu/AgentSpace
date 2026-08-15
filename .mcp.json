@@ -9,6 +9,15 @@
       "cwd": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai",
       "type": "stdio"
     },
+    "repomix": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "repomix",
+        "--mcp"
+      ],
+      "type": "stdio"
+    },
     "chrome-devtools": {
       "command": "npx",
       "args": [
