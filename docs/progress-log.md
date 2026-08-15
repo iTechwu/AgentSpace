@@ -138,7 +138,6 @@
 | 3.4-4 | 移除 `next.config.mjs` 的 `typescript.ignoreBuildErrors: true` |
 | 3.4-5 | 评估部分静态渲染（全站 `force-dynamic`） |
 | 3.4-6 | i18n 无 key 体系迁移 |
-| 3.4-7 | 清理 "loadtest" 命名（`readLoadtest*Cache`） |
 | 3.4-8 | 统一 34 个 page.tsx 样板 |
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
 | 3.5-5 | sandbox 抽象决策收口（Cube `exec()` 未实现，`connectSandbox()` 无调用方） |

@@ -46,10 +46,10 @@ model WorkspaceNotification {
   title          String
   body           String
   actionHref     String?  @map("action_href")
-  severity       String
+  severity       String   @default("info")
   status         String   @default("unread")
   dedupeKey      String?  @map("dedupe_key")
-  metadataJson   Json     @map("metadata_json")
+  metadataJson   Json     @default("{}") @map("metadata_json")
   createdAt      DateTime @map("created_at") @db.Timestamptz(6)
   readAt         DateTime? @map("read_at") @db.Timestamptz(6)
   archivedAt     DateTime? @map("archived_at") @db.Timestamptz(6)
@@ -59,19 +59,19 @@ model WorkspaceNotification {
 
 model TaskExecutionEvent {
   id          String   @id
-  workspaceId String?  @map("workspace_id")
+  workspaceId String   @map("workspace_id")
   taskId      String   @map("task_id")
-  channelName String?  @map("channel_name")
-  agentId     String?  @map("agent_id")
+  channelName String   @default("") @map("channel_name")
+  agentId     String
   runtimeId   String?  @map("runtime_id")
   runId       String?  @map("run_id")
   type        String
-  title       String?
+  title       String
   summary     String?
   severity    String   @default("info")
   status      String?
-  dataJson    Json     @map("data_json")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  dataJson    Json     @default("{}") @map("data_json")
+  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
 
   @@map("task_execution_event")
 }
@@ -82,10 +82,10 @@ model AuditLog {
   title       String
   note        String
   code        String?
-  dataJson    Json     @map("data_json")
-  source      String   @default("runtime_lifecycle")
+  dataJson    Json     @default("{}") @map("data_json")
+  source      String   @default("workspace_snapshot_ledger")
   sourceIndex Int      @default(0) @map("source_index")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
 
   @@map("audit_log")
 }
@@ -97,8 +97,8 @@ model EmployeeRuntimeBinding {
   runtimeId       String   @map("runtime_id")
   runtime         AgentRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   /// EmployeeBindingStatus: online|degraded|offline|recovering|needs_attention.
-  status          String   @default("offline")
-  generation      Int      @default(0)
+  status          String   @default("online")
+  generation      Int      @default(1)
   desiredProvider String?  @map("desired_provider")
   boundAt         DateTime @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @map("updated_at") @db.Timestamptz(6)
