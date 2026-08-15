@@ -9,6 +9,7 @@ export * from "./daemon-api.ts";
 export * from "./daemon-provider.ts";
 export * from "./agent-templates.ts";
 export * from "./skill-package.ts";
+export * from "./skill-production.ts";
 export * from "./skill-egress.ts";
 export * from "./openmontage.ts";
 export * from "./workflows.ts";
