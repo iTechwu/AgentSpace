@@ -213,6 +213,7 @@ model DocumentAgentAccess {
   updatedAt       DateTime  @map("updated_at") @db.Timestamptz(6)
   revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
 
+  @@unique([workspaceId, documentId, subjectType, subjectId])
   @@map("document_agent_access")
 }
 
