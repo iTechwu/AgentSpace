@@ -69,7 +69,11 @@
 
 - `aafd88fb`：`readLoadtestWorkspaceModuleCache` / `readLoadtestWorkspaceModuleCacheTtlMs` 改名为 `readTtlWorkspaceModuleCache` / `readTtlWorkspaceModuleCacheTtlMs`（TTL 缓存语义）；保留环境变量 `LOADTEST_MODE` / `DOFE_AGENT_WORKSPACE_MODULE_LOAD_CACHE_TTL_MS`（运维契约）与 `resolveLoadtestAwareInitialImDetailChannelNames`（语义上是 load-test aware 频道名解析，与本缓存无关）。
 
-### 3.3-3 模块循环依赖 —— 🟡 部分完成
+### 3.4-4 关闭 ignoreBuildErrors 冗余开关 —— ✅ 完成
+
+- `5877aea5`：`next.config.mjs` 的 `typescript.ignoreBuildErrors` 由 `true` 改为 `false`，`next build` 恢复类型检查，`prebuild` 继续提供更早的依赖与 Web 类型检查。
+
+### 3.3-3 模块循环依赖 —— ✅ 完成（消环目标达成）
 
 **文件级环（4→2）** `c8c7c37b`：
 - skills `release↔installations↔import` 三文件环解体（锁计算下沉 `release-lock.ts`、安装排队下沉 `skill-services/install-queue.ts`）。
@@ -135,7 +139,6 @@
 | 3.3-6 | `preloaded-skill-sources.ts` 176KB 内联字符串外置 |
 | 3.3-9 | `xlsx` CDN tarball 供应链锁定 |
 | 3.4-3 | 拆分 `channels-page-client.tsx`（3,925 行） |
-| 3.4-4 | 移除 `next.config.mjs` 的 `typescript.ignoreBuildErrors: true` |
 | 3.4-5 | 评估部分静态渲染（全站 `force-dynamic`） |
 | 3.4-6 | i18n 无 key 体系迁移 |
 | 3.4-8 | 统一 34 个 page.tsx 样板 |

@@ -113,7 +113,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
    3. ⏸ `channels → attachments`（`deleteUnreferencedWorkspaceAttachmentsSync`）：GC 语义上移至 channels 的调用方或回调注入；需梳理调用方语义，留待后续。
    4. ✅ **`attachments → channel-access`**（`isWorkspaceAdminOrOwnerRole` 部分）：纯角色判断下沉 `shared/channel-members.ts`（与 cut 2 同文件），`canReadChannelForActorSync` 嵌入 channel-access 域逻辑未下沉（**8eb08332**）。
    5. ✅ **`notifications → messages`**（`postMessageSync`）：发送核心下沉 `shared/messaging.ts`，`messages.ts` 保留 facade；随后移除 `shared/messaging → runtime-access` 反向依赖，原 5 节点环已消除（**c8f32035**、**2a63cf67**）。
-   6. ✅ **`attachments → channel-access`**（`canReadChannelForActorSync` 访问判定）：访问判定下沉 `shared/access-decisions.ts`，channel-access 改 facade（**836c30c7**）。
+   6. ✅ **`attachments → channel-access`**（`canReadChannelForActorSync` 访问判定）：访问判定下沉 `shared/access-decisions.ts`，channel-access 改 facade（**87bc2e43**）。
 
    **当前进度**：原 12 文件大 SCC 已消除。cut 3（GC 语义上移）仍需梳理调用方语义，但已不再构成循环依赖；可作为后续职责收敛项独立推进。
 4. **【P1】飞书 24 个测试文件游离于测试门之外**：`src/integrations/...`（含全包最大测试 `inbound.test.ts` 2,406 行、`data-plane.test.ts` 2,239 行）不在 `package.json` 的 test glob 内，`verify-test-coverage.mjs` 注释为 "intentional"。**8,000+ 行测试形同虚设**——要么纳入门禁（纯单测无需外部环境），要么给独立 CI 任务。
@@ -143,7 +143,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 3. **【P1】版本号单一来源** ✅：`cli.ts:14` 硬编码 `"0.1.3"`（与 package.json 重复）。已改为读 package.json，见 [progress-log.md §3.5-3](progress-log.md)。
 4. **【P1】拆分三大文件** ⏳：`provider-runtime.ts`(已清死代码至 1,820)、`remote-daemon.ts`(2,138，heartbeat/poll/execute 拆独立模块)、`task-context.ts`(1,544)。
 5. **【P1】sandbox 抽象决策收口** ⏳：Cube `exec()` 未实现（`CUBE_EXEC_NOT_READY`，"TODO 46"）；`connectSandbox()` 当前无调用方，`Sandbox` 接口未被执行路径真正接线。要么完成 Cube envd/E2B 数据面，要么移除实验开关与 README 承诺，避免「看似可选实则不可用」的抽象。
-6. **【P2】构建/版本漂移** 🟡：esbuild `target: node20` vs engines `^25.9.0`；`remote-daemon.ts` 硬编码 `dofe/agent-runtime-${provider}:latest`（生产应锁 digest）；4 个默认模型名硬编码在 `provider-runtime.ts`。版本单一来源已做，其余待办。
+6. **【P2】构建/版本漂移** 🟡：esbuild `target` 已对齐 `node25`（0a8e2acc）；`remote-daemon.ts` 硬编码 `dofe/agent-runtime-${provider}:latest`（生产应锁 digest）；4 个默认模型名硬编码在 `provider-runtime.ts`。版本单一来源已做（0945c0cb），镜像 digest 锁定与默认模型名待办。
 7. **【P2】测试路径与产物不对齐** ⏳：单测跑 TS 源码，`dist/`（esbuild 产物，含 CJS banner 注入兼容）不被单测覆盖，仅靠 e2e。建议加一个最小 smoke test 直接加载 `dist/*.js`。
 8. **【P2】轮询请求放大** ⏳：`pollRemoteTasks` 每 3s 每 runtime 最多 6 次 claim 请求，可合并为单一 claim 端点或加 jitter/背压。
 
