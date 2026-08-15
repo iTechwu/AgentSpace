@@ -8,7 +8,6 @@ import {
   isEmployeesRuntimeBindingsPrismaReadEnabled,
   isEmployeesRuntimeBindingsPrismaShadowReadEnabled,
   listEmployeeRuntimeBindingsPrisma,
-  setEmployeesRuntimeBindingsPrismaClientForTests,
 } from "./employees-runtime-bindings-prisma.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
@@ -66,6 +65,3 @@ function recordEqual(
     primary.updatedAt === fallback.updatedAt
   );
 }
-
-const _ensureSetterExport: typeof setEmployeesRuntimeBindingsPrismaClientForTests | undefined = undefined;
-void _ensureSetterExport;

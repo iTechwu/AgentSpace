@@ -342,6 +342,13 @@ export {
   readAuditLogPrismaCutover,
   type ReadAuditLogPrismaCutoverMetric,
 } from "./prisma/audit-log-prisma-cutover.ts";
+export {
+  createAuditLogPrismaCutover,
+  type CreateAuditLogPrismaCutoverMetric,
+} from "./prisma/audit-log-prisma-write.ts";
+export {
+  disconnectDofePrismaClient,
+} from "./prisma/prisma-client.ts";
 
 // Database
 export {
@@ -693,6 +700,18 @@ export {
   listWorkspaceNotificationsPrismaCutover,
   type ListNotificationsPrismaCutoverMetric,
 } from "./prisma/notifications-prisma-cutover.ts";
+export {
+  listTaskExecutionEventsPrismaCutover,
+  type ListTaskExecutionEventsPrismaCutoverMetric,
+} from "./prisma/task-execution-events-prisma-cutover.ts";
+export {
+  listWorkspaceMembershipsPrismaCutover,
+  type ListWorkspaceMembershipsPrismaCutoverMetric,
+} from "./prisma/workspace-memberships-prisma-cutover.ts";
+export {
+  listEmployeeRuntimeBindingsPrismaCutover,
+  type ListEmployeesRuntimeBindingsPrismaCutoverMetric,
+} from "./prisma/employees-runtime-bindings-prisma-cutover.ts";
 
 // Runtime apps
 export {
