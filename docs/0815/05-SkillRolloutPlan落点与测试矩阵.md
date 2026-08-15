@@ -135,8 +135,7 @@ CREATE TABLE IF NOT EXISTS skill_rollout_plan (
   decision TEXT NOT NULL DEFAULT 'pending',
   actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL,
-  consumed_at TIMESTAMPTZ,
-  UNIQUE(workspace_id, plan_digest)
+  consumed_at TIMESTAMPTZ
 );
 
 ALTER TABLE skill_installation ADD COLUMN rollout_plan_id TEXT

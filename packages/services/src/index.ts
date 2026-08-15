@@ -653,6 +653,8 @@ export {
   buildSkillRolloutItemsSync,
   aggregateSkillRolloutRiskSync,
   computeSkillRolloutPlanDigestSync,
+  recomputeSkillRolloutPlanDigestSync,
+  finalizeSkillRolloutPlanSync,
   versionSatisfies,
   type SkillRolloutTargetScope,
   type SkillRolloutPlan,

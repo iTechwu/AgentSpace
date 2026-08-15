@@ -62,7 +62,7 @@ flowchart TD
   - `packages/db/src/types.ts`（`SkillRolloutPlanRecord`）
   - `packages/db/src/skill-rollout-plans.ts`（新）
   - `packages/db/src/skill-rollout-plans.test.ts`（新）
-- **验收**：T13–T15 通过；`UNIQUE(workspace_id, plan_digest)` 幂等。
+- **验收**：T13–T15 通过；非唯一 + `consumedAt`/`planDigest` 重放防护（见 08）。
 - **依赖**：无。
 
 ### Issue #5 —— createSkillInstallationSync 原子 upsert

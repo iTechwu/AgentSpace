@@ -37,8 +37,10 @@ import {
   createSkillUpgradePlanSync,
   createWorkspaceSkillSync,
   failSkillInstallationOperationSync,
+  finalizeSkillRolloutPlanSync,
   parseCompleteSkillInstallationOperationPayload,
   parseFailSkillInstallationOperationPayload,
+  planSkillRollout,
   promoteSkillUpgradeSync,
   resolveClaimedSkillInstallationOperation,
   resetWorkspaceStateSync,
@@ -146,18 +148,27 @@ test("createSkillInstallationPlanSync builds installation, components, and a que
   assert.equal(operations[0]?.operation, "prepare");
 });
 
+function createApprovedRolloutPlan(runtimeIds: string[], artifactDigest: string) {
+  const plan = planSkillRollout({
+    rootArtifactDigest: artifactDigest,
+    targetScope: { kind: "runtimes", runtimeIds },
+  });
+  const record = createSkillRolloutPlanSync({
+    workspaceId: "default",
+    rootArtifactDigest: artifactDigest,
+    planDigest: plan.planDigest,
+    closureJson: JSON.stringify(plan.closure),
+    targetRuntimesJson: JSON.stringify(runtimeIds),
+    riskSummaryJson: JSON.stringify(plan.risks),
+  });
+  decideSkillRolloutPlanSync(record.id, "default", "approved");
+  return record;
+}
+
 test("createSkillInstallationPlanSync accepts a rolloutPlanId covering the artifact and runtime", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  const plan = createSkillRolloutPlanSync({
-    workspaceId: "default",
-    rootArtifactDigest: digest,
-    planDigest: "rollout-plan-digest-1",
-    closureJson: JSON.stringify([]),
-    targetRuntimesJson: JSON.stringify([runtimeId]),
-    riskSummaryJson: JSON.stringify([]),
-  });
-  decideSkillRolloutPlanSync(plan.id, "default", "approved");
+  const plan = createApprovedRolloutPlan([runtimeId], digest);
 
   const installation = createSkillInstallationPlanSync({
     workspaceId: "default",
@@ -172,13 +183,46 @@ test("createSkillInstallationPlanSync rejects a rolloutPlanId whose scope does n
   const runtimeId = createTestRuntime();
   const otherRuntime = createTestRuntime();
   const { digest } = buildArtifact();
+  const plan = createApprovedRolloutPlan([otherRuntime], digest);
+
+  assert.throws(
+    () => createSkillInstallationPlanSync({
+      workspaceId: "default",
+      runtimeId,
+      artifactDigest: digest,
+      rolloutPlanId: plan.id,
+    }),
+    /目标集合/,
+  );
+});
+
+test("createSkillInstallationPlanSync rejects a consumed rollout plan", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  const plan = createApprovedRolloutPlan([runtimeId], digest);
+  assert.equal(finalizeSkillRolloutPlanSync(plan.id, "default"), true);
+
+  assert.throws(
+    () => createSkillInstallationPlanSync({
+      workspaceId: "default",
+      runtimeId,
+      artifactDigest: digest,
+      rolloutPlanId: plan.id,
+    }),
+    /已被消费/,
+  );
+});
+
+test("createSkillInstallationPlanSync rejects a rollout plan whose digest does not match its content", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
   const plan = createSkillRolloutPlanSync({
     workspaceId: "default",
     rootArtifactDigest: digest,
-    planDigest: "rollout-plan-digest-2",
+    planDigest: "tampered-digest",
     closureJson: JSON.stringify([]),
-    targetRuntimesJson: JSON.stringify([otherRuntime]),
-    riskSummaryJson: JSON.stringify([]),
+    targetRuntimesJson: JSON.stringify([runtimeId]),
+    riskSummaryJson: JSON.stringify({ totalRiskItems: 0, artifactsWithRisk: [], riskItems: [] }),
   });
   decideSkillRolloutPlanSync(plan.id, "default", "approved");
 
@@ -189,7 +233,7 @@ test("createSkillInstallationPlanSync rejects a rolloutPlanId whose scope does n
       artifactDigest: digest,
       rolloutPlanId: plan.id,
     }),
-    /目标集合/,
+    /篡改/,
   );
 });
 
