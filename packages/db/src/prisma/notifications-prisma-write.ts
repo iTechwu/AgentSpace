@@ -19,11 +19,11 @@ import {
   createWorkspaceNotificationSync,
   markWorkspaceNotificationReadSync,
   type CreateWorkspaceNotificationInput,
+  type WorkspaceNotificationRecipient,
 } from "../notifications.ts";
 import type {
   WorkspaceNotificationActorType,
   WorkspaceNotificationRecord,
-  WorkspaceNotificationRecipient,
   WorkspaceNotificationRecipientType,
   WorkspaceNotificationResourceType,
   WorkspaceNotificationSeverity,
