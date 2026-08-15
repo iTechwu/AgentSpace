@@ -240,3 +240,24 @@ model DocumentPermissionRequest {
 
   @@map("document_permission_request")
 }
+
+model AgentAccessRequest {
+  id                  String    @id
+  workspaceId         String    @map("workspace_id")
+  sourceAgentName     String    @map("source_agent_name")
+  requesterUserId     String    @map("requester_user_id")
+  /// AgentAccessRequestType: fork_copy|channel_use.
+  requestType         String    @map("request_type")
+  targetChannelName   String?   @map("target_channel_name")
+  /// AgentAccessRequestStatus: pending|approved|rejected|cancelled.
+  status              String    @default("pending")
+  reason              String
+  resolverUserId      String?   @map("resolver_user_id")
+  resolvedAt          DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @map("updated_at") @db.Timestamptz(6)
+  forkInvitationId    String?   @map("fork_invitation_id")
+  auditDataJson       Json      @map("audit_data_json")
+
+  @@map("agent_access_request")
+}
