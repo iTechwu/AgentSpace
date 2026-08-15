@@ -19,6 +19,7 @@
     }
   },
   "scripts": {
+    "pretest": "pnpm run prisma:generate",
     "test": "sh -c 'for file in src/skill-service-operations.test.ts src/skill-services.test.ts src/skill-runner-invocations.test.ts src/employee-data-legal-holds.test.ts src/openmontage-jobs.test.ts src/workflows/*.test.ts src/prisma/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
     "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
     "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
