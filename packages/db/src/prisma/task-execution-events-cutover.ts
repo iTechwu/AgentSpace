@@ -1,6 +1,6 @@
 // task-execution-events read cutover runner：把 sync `listTaskExecutionEventsSync`
-// 与 async primary `listTaskExecutionEventsAsync` 接到 withReadCutover，落地
-// Phase 2 协议（与 audit-log / notifications 同款）：
+// 与 async primary `listTaskExecutionEventsAsync` 接到通用 cutover-runner，
+// 落地 Phase 2 协议（与 audit-log / notifications 同款）：
 // - Flag OFF  → 直接走 sync fallback（与 cut 1 前一致，零额外开销）
 // - Flag ON   → 走 async primary；shadow ON 时同时跑 sync fallback 并 compare
 // - 列表 compare 用结构化 JSON 比较，处理 pg JSONB / sqlite JSON.stringify
@@ -14,39 +14,37 @@ import {
   isTaskExecutionEventsShadowReadEnabled,
   listTaskExecutionEventsAsync,
 } from "./task-execution-events-async.ts";
-import { withReadCutover } from "./read-cutover.ts";
+import { buildDomainCutover } from "./cutover-runner.ts";
+import type { ReadCutoverMetric } from "./read-cutover.ts";
 
-export interface ListTaskExecutionEventsCutoverMetric {
-  source: "primary" | "fallback";
-  mismatch: 0 | 1;
-  durationMs: number;
-  error?: string;
-}
+export type ListTaskExecutionEventsCutoverMetric = ReadCutoverMetric;
+export type ListTaskExecutionEventsCutoverMetricSink = (metric: ListTaskExecutionEventsCutoverMetric) => void;
 
-export type ListTaskExecutionEventsCutoverMetricSink = (
-  metric: ListTaskExecutionEventsCutoverMetric,
-) => void;
+const listTaskExecutionEventsCutoverImpl = buildDomainCutover<
+  TaskExecutionEventListOptions,
+  TaskExecutionEventRecord[],
+  ListTaskExecutionEventsCutoverMetric
+>({
+  isEnabled: isTaskExecutionEventsAsyncReadEnabled,
+  isShadowEnabled: isTaskExecutionEventsShadowReadEnabled,
+  runPrimary: async (options) => listTaskExecutionEventsAsync(options),
+  runFallback: (options) => listTaskExecutionEventsSync(options),
+  compare: (primary, fallback) => recordsEqual(primary, fallback),
+});
 
 /**
  * Async read cutover for task-execution-events list. Returns the async
  * primary result when Phase 2 flag is on; falls back to the legacy sync
  * result on primary error.
  */
-export async function listTaskExecutionEventsCutover(
+export function listTaskExecutionEventsCutover(
   options: TaskExecutionEventListOptions = {},
-  metricSink: ListTaskExecutionEventsCutoverMetricSink = defaultMetricSink,
+  metricSink?: ListTaskExecutionEventsCutoverMetricSink,
 ): Promise<TaskExecutionEventRecord[]> {
-  return withReadCutover<TaskExecutionEventRecord[]>({
-    isEnabled: isTaskExecutionEventsAsyncReadEnabled,
-    isShadowEnabled: isTaskExecutionEventsShadowReadEnabled,
-    runPrimary: async () => listTaskExecutionEventsAsync(options),
-    runFallback: () => listTaskExecutionEventsSync(options),
-    compare: (primary, fallback) => recordsEqual(primary, fallback),
-    emitMetric: (m) => metricSink({ ...m, source: m.source }),
-  });
+  return listTaskExecutionEventsCutoverImpl(options, metricSink);
 }
 
-function recordsEqual(
+export function recordsEqual(
   primary: TaskExecutionEventRecord[],
   fallback: TaskExecutionEventRecord[],
 ): boolean {

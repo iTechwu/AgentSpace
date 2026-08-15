@@ -1,16 +1,8 @@
 // audit-log read cutover runner：把 sync `readAuditLogSync` 与 async primary
-// `readAuditLogAsync` 接到 withReadCutover，落地 Phase 2 协议：
+// `readAuditLogAsync` 接到通用 cutover-runner，落地 Phase 2 协议：
 // - Flag OFF  → 直接走 sync fallback（与 cut 1 前一致，零额外开销）
 // - Flag ON   → 走 async primary；shadow ON 时同时跑 sync fallback 并 compare
-//   - shadow fallback 抛错 → 按模块级契约传播（fallback 仅作比较）
-//   - primary 抛错 → 走 fallback（不抛错）
-// - emitMetric 失败与业务读取隔离（已在 read-cutover.ts 实现）
-//
-// 调用约定：cutover runner 是 async，调用方必须 await。同步业务路径继续用
-// readAuditLogSync（legacy，零开销）；新代码或迁移目标改用
-// readAuditLogCutover 异步版本。同步 facade 不可在主线程上做（参见 commit
-// 调研：Atomics.wait busy-poll 阻塞事件循环，pg 客户端的 microtask 无法
-// resolve），故本版本不提供 sync wrapper。
+// - 影子 fallback 抛错 → 按 read-cutover 模块级契约传播（fallback 仅作比较）
 
 import { readAuditLogSync } from "../audit-log.ts";
 import type { AuditLogRecord } from "../types.ts";
@@ -20,40 +12,41 @@ import {
   isAuditLogShadowReadEnabled,
   readAuditLogAsync,
 } from "./audit-log-async.ts";
-import { withReadCutover } from "./read-cutover.ts";
+import { buildDomainCutover } from "./cutover-runner.ts";
+import type { ReadCutoverMetric } from "./read-cutover.ts";
 
-export interface ReadAuditLogCutoverMetric {
-  source: "primary" | "fallback";
-  mismatch: 0 | 1;
-  durationMs: number;
-  error?: string;
+export interface ReadAuditLogCutoverInput {
+  id: string;
+  workspaceId?: string;
 }
+
+export type ReadAuditLogCutoverMetric = ReadCutoverMetric;
 
 export type ReadAuditLogCutoverMetricSink = (metric: ReadAuditLogCutoverMetric) => void;
 
+const readAuditLogCutoverImpl = buildDomainCutover<ReadAuditLogCutoverInput, AuditLogRecord | null, ReadAuditLogCutoverMetric>({
+  isEnabled: isAuditLogAsyncReadEnabled,
+  isShadowEnabled: isAuditLogShadowReadEnabled,
+  runPrimary: async (input) => {
+    const record = await readAuditLogAsync(input);
+    return record ? asyncToAuditLogRecord(record) : null;
+  },
+  runFallback: (input) => readAuditLogSync(input.id, input.workspaceId),
+  compare: (primary, fallback) => recordsEqual(primary, fallback),
+});
+
 /**
- * Async read cutover for audit-log domain. Returns the async primary result
- * when Phase 2 flag is on; falls back to the legacy sync result on primary
- * error. Shadow compare runs only when both flags are on.
+ * Async read cutover for audit-log. Returns the async primary result when
+ * Phase 2 flag is on; falls back to the legacy sync result on primary error.
  */
-export async function readAuditLogCutover(
-  input: { id: string; workspaceId?: string },
-  metricSink: ReadAuditLogCutoverMetricSink = defaultMetricSink,
+export function readAuditLogCutover(
+  input: ReadAuditLogCutoverInput,
+  metricSink?: ReadAuditLogCutoverMetricSink,
 ): Promise<AuditLogRecord | null> {
-  return withReadCutover<AuditLogRecord | null>({
-    isEnabled: isAuditLogAsyncReadEnabled,
-    isShadowEnabled: isAuditLogShadowReadEnabled,
-    runPrimary: async () => {
-      const record = await readAuditLogAsync(input);
-      return record ? asyncToAuditLogRecord(record) : null;
-    },
-    runFallback: () => readAuditLogSync(input.id, input.workspaceId),
-    compare: (primary, fallback) => recordsEqual(primary, fallback),
-    emitMetric: (m) => metricSink({ ...m, source: m.source }),
-  });
+  return readAuditLogCutoverImpl(input, metricSink);
 }
 
-function recordsEqual(
+export function recordsEqual(
   primary: AuditLogRecord | null,
   fallback: AuditLogRecord | null,
 ): boolean {

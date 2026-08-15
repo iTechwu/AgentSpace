@@ -1,6 +1,6 @@
 // notifications read cutover runner：把 sync `listWorkspaceNotificationsForRecipientSync`
-// 与 async primary `listWorkspaceNotificationsAsync` 接到 withReadCutover，落地
-// Phase 2 协议（与 audit-log 同款）：
+// 与 async primary `listWorkspaceNotificationsAsync` 接到通用 cutover-runner，
+// 落地 Phase 2 协议（与 audit-log / task-execution-events 同款）：
 // - Flag OFF  → 直接走 sync fallback（与 cut 1 前一致，零额外开销）
 // - Flag ON   → 走 async primary；shadow ON 时同时跑 sync fallback 并 compare
 // - 列表 compare 用结构化 JSON 比较，处理 pg JSONB / sqlite JSON.stringify
@@ -18,14 +18,10 @@ import {
   isNotificationsShadowReadEnabled,
   listWorkspaceNotificationsAsync,
 } from "./notifications-async.ts";
-import { withReadCutover } from "./read-cutover.ts";
+import { buildDomainCutover } from "./cutover-runner.ts";
+import type { ReadCutoverMetric } from "./read-cutover.ts";
 
-export interface ListNotificationsCutoverMetric {
-  source: "primary" | "fallback";
-  mismatch: 0 | 1;
-  durationMs: number;
-  error?: string;
-}
+export interface ListNotificationsCutoverMetric extends ReadCutoverMetric {}
 
 export type ListNotificationsCutoverMetricSink = (metric: ListNotificationsCutoverMetric) => void;
 
@@ -36,16 +32,28 @@ export interface ListNotificationsCutoverOptions {
   runFallback?: () => WorkspaceNotificationRecord[];
 }
 
+const listWorkspaceNotificationsCutoverImpl = buildDomainCutover<
+  ListWorkspaceNotificationsOptions,
+  WorkspaceNotificationRecord[],
+  ListNotificationsCutoverMetric
+>({
+  isEnabled: isNotificationsAsyncReadEnabled,
+  isShadowEnabled: isNotificationsShadowReadEnabled,
+  runPrimary: async (options) => listWorkspaceNotificationsAsync(options),
+  runFallback: (options) => listWorkspaceNotificationsForRecipientSync(options),
+  compare: (primary, fallback) => recordsEqual(primary, fallback),
+});
+
 /**
  * Async read cutover for workspace-notifications list. Returns the async
  * primary result when Phase 2 flag is on; falls back to the legacy sync
  * result on primary error.
  */
-export async function listWorkspaceNotificationsCutover(
+export function listWorkspaceNotificationsCutover(
   options: ListWorkspaceNotificationsOptions,
-  metricSink: ListNotificationsCutoverMetricSink = defaultMetricSink,
+  metricSink?: ListNotificationsCutoverMetricSink,
 ): Promise<WorkspaceNotificationRecord[]> {
-  return createListWorkspaceNotificationsCutover()(options, metricSink);
+  return listWorkspaceNotificationsCutoverImpl(options, metricSink);
 }
 
 /**
@@ -57,15 +65,14 @@ export async function listWorkspaceNotificationsCutover(
 export function createListWorkspaceNotificationsCutover(
   overrides: ListNotificationsCutoverOptions = {},
 ): (options: ListWorkspaceNotificationsOptions, metricSink?: ListNotificationsCutoverMetricSink) => Promise<WorkspaceNotificationRecord[]> {
-  return (options, metricSink = defaultMetricSink) =>
-    withReadCutover<WorkspaceNotificationRecord[]>({
+  return (options, metricSink) =>
+    buildDomainCutover<ListWorkspaceNotificationsOptions, WorkspaceNotificationRecord[], ListNotificationsCutoverMetric>({
       isEnabled: overrides.isEnabled ?? isNotificationsAsyncReadEnabled,
       isShadowEnabled: overrides.isShadowEnabled ?? isNotificationsShadowReadEnabled,
       runPrimary: overrides.runPrimary ?? (async () => listWorkspaceNotificationsAsync(options)),
       runFallback: overrides.runFallback ?? (() => listWorkspaceNotificationsForRecipientSync(options)),
       compare: (primary, fallback) => recordsEqual(primary, fallback),
-      emitMetric: (m) => metricSink({ ...m, source: m.source }),
-    });
+    })(options, metricSink);
 }
 
 export function recordsEqual(
