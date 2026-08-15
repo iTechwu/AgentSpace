@@ -338,6 +338,10 @@ export {
   auditLogExistsForCodeSync,
   type RecordAuditLogInput,
 } from "./audit-log.ts";
+export {
+  readAuditLogPrismaCutover,
+  type ReadAuditLogPrismaCutoverMetric,
+} from "./prisma/audit-log-prisma-cutover.ts";
 
 // Database
 export {
@@ -685,6 +689,10 @@ export {
   type ListWorkspaceNotificationsOptions,
   type WorkspaceNotificationRecipient,
 } from "./notifications.ts";
+export {
+  listWorkspaceNotificationsPrismaCutover,
+  type ListNotificationsPrismaCutoverMetric,
+} from "./prisma/notifications-prisma-cutover.ts";
 
 // Runtime apps
 export {

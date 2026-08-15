@@ -297,6 +297,19 @@ export function sendChannelHumanMessageSync(
   }
 
   if (mentionPlan.mode === "sequential" && mentionPlan.steps.length > 1) {
+    // Preflight every step before creating or enqueueing the run. This keeps
+    // an unauthorized later handoff from leaving earlier steps queued.
+    for (const step of mentionPlan.steps) {
+      assertCanDispatchMentionedEmployee({
+        state,
+        workspaceId: effectiveWorkspaceId,
+        channelName: channel.name,
+        employeeName: step.agentId,
+        actorUserId: requesterUserId,
+        actorDisplayName: speaker,
+      });
+    }
+
     const { run, steps } = createChannelDocumentRun({
       state,
       channelName: channel.name,
@@ -375,22 +388,14 @@ export function sendChannelHumanMessageSync(
     if (!agent) {
       continue;
     }
-    if (requesterUserId) {
-      assertCanUseEmployeeInChannelForActorSync({
-        workspaceId: effectiveWorkspaceId,
-        employeeName: agent.name,
-        channelName: channel.name,
-        actorUserId: requesterUserId,
-        actorDisplayName: speaker,
-      });
-      assertCanUseBoundEmployeeRuntimeInChannelForActorSync({
-        workspaceId: effectiveWorkspaceId,
-        employeeName: agent.name,
-        channelName: channel.name,
-        actorUserId: requesterUserId,
-        actorDisplayName: speaker,
-      });
-    }
+    assertCanDispatchMentionedEmployee({
+      state,
+      workspaceId: effectiveWorkspaceId,
+      employeeName: agent.name,
+      channelName: channel.name,
+      actorUserId: requesterUserId,
+      actorDisplayName: speaker,
+    });
 
     const existingExecutionWorkspace = readConversationExecutionWorkspaceState(state, {
       channelName: channel.name,
@@ -562,6 +567,33 @@ function uniqueNames(values: string[]): string[] {
     result.push(trimmed);
   }
   return result;
+}
+
+function assertCanDispatchMentionedEmployee(input: {
+  state: DofeAgentState;
+  workspaceId: string;
+  employeeName: string;
+  channelName: string;
+  actorUserId?: string;
+  actorDisplayName: string;
+}): void {
+  if (!input.actorUserId) {
+    return;
+  }
+  assertCanUseEmployeeInChannelForActorSync({
+    workspaceId: input.workspaceId,
+    employeeName: input.employeeName,
+    channelName: input.channelName,
+    actorUserId: input.actorUserId,
+    actorDisplayName: input.actorDisplayName,
+  });
+  assertCanUseBoundEmployeeRuntimeInChannelForActorSync({
+    workspaceId: input.workspaceId,
+    employeeName: input.employeeName,
+    channelName: input.channelName,
+    actorUserId: input.actorUserId,
+    actorDisplayName: input.actorDisplayName,
+  });
 }
 
 function assertHumanCanAccessMessageChannel(

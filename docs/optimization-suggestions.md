@@ -128,10 +128,10 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）**：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。✅ **第一阶段已落地（683f2d9e）**：先按「类型层 / 视图构建层 / 装配层」切开——`data.ts` 3,533 行（各域 loader，`export *` 对外导入路径不变，43 个引用方零改动）、`data-types.ts` 973 行、`dashboard-view-builders.ts` 1,410 行，依赖单向 `data.ts → view-builders → data-types`。后续按域再拆 `features/*/server-data.ts` 有了干净落点。
 2. **【P1】代码分割**：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施，接入成本低）。同批处理 `agent-detail.tsx`(1,657)、`conversation-shell.tsx`(1,590)、`knowledge-page-client.tsx`(1,580)。✅ **WorkspaceModuleHost 部分已落地（32a1bb8a）**：17 个页面客户端全部改 `next/dynamic` 按模块懒加载，路由 page.tsx 仍静态导入保证 SSR 直出；全量 vitest 144 文件 / 1,153 用例通过。✅ **knowledge-page-client 已完成四件套拆分（2a86a772 + 95349d52 + a9ada12a + cce1b274）**：1,580→1,114 行，子组件全部移出独立文件——`parse-task-panel.tsx`（ParseTaskPanel）、`assignment-panel.tsx`（KnowledgeAssignmentPanel/DraftControls + toggleEmployeeSelection）、`document-page-viewer.tsx`（DocumentPageViewer + formatKnowledgeTime/DocumentSize 私有）、`knowledge-tree-node.tsx`（KnowledgeTreeNode 递归）。文件内拆分（agent-detail / conversation-shell / channels-page-client）⏳ 待办。
 3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）**：轮询/性能埋点/执行时间线/pin 逻辑已「文件内堆叠」，先抽 hooks 再抽子组件。
-4. **【P2】`next.config.mjs` 的 `typescript.ignoreBuildErrors: true`**：构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 目前不跑 typecheck）。建议移除该开关，让 `next build` 前强制 `tsc --noEmit`。
+4. **【已完成】`next.config.mjs` 的类型检查开关**：已移除 `ignoreBuildErrors: true` 的 fail-open 配置，`next build` 保留类型检查，`prebuild` 继续提供更早的依赖和 Web 类型检查。
 5. **【P2】评估部分静态渲染**：全站 `force-dynamic`，但 `/platform`、设置只读 section、模板库等低个性化数据可评估 `revalidate` 或客户端缓存降载。
 6. **【P2】i18n 无 key 体系**：`tx(zh, en)` 内联双语 + `presentation.ts` 集中翻译，无字典/key 校验，翻译散落 90+ 调用点。>2 种语言或翻译平台协作时需迁移。
-7. **【P2】清理 "loadtest" 命名**：`readLoadtest*Cache` 三处是通用 TTL 缓存（`LOADTEST_MODE` 开关），命名与实际功能脱节，重命名为 `readTtlCache` 语义。
+7. **【已完成】清理 "loadtest" 命名**：搜索、Workspace Context 和 Workspace Shell 的三个通用 TTL 缓存已改为 `readTtl*Cache` 命名；`LOADTEST_MODE` 仅保留为运维开关。
 8. **【P2】统一 34 个 page.tsx 样板**：重复 `getWorkspacePageContext → loadWorkspaceModuleDataWithMeta → WorkspaceInitialModuleData → *PageClient` 四步，可收敛为 `renderWorkspaceModule()` 辅助或生成器。
 
 > 亮点（值得保留）：服务端薄页 + 客户端胖壳 + 自研 `WorkspaceModuleCache`/失效事件体系，SSR 数据 seed 进客户端缓存实现「首屏零额外请求」；`any`/TODO/console.log 全零。

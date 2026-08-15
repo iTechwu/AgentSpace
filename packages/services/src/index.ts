@@ -38,6 +38,7 @@ export {
   createNotificationSync,
   createNotificationsSync,
   listNotificationsForRecipientSync,
+  listNotificationsForRecipientAsync,
   markNotificationReadSync,
   notifyWorkspaceAdminsSync,
   postNotificationChannelMessageSync,

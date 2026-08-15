@@ -18,8 +18,11 @@ import {
 import {
   isNotificationsAsyncReadEnabled,
   isNotificationsShadowReadEnabled,
+  mapAsyncNotificationRow,
+  normalizeNotificationsLimit,
 } from "./notifications-async.ts";
 import {
+  createListWorkspaceNotificationsCutover,
   listWorkspaceNotificationsCutover,
   type ListNotificationsCutoverMetric,
 } from "./notifications-cutover.ts";
@@ -137,4 +140,111 @@ test("listWorkspaceNotificationsCutover emits metric under shadow flag", async (
   for (const m of metrics) {
     assert.equal(typeof m.durationMs, "number");
   }
+});
+
+test("async notification rows preserve the workspace notification domain contract", () => {
+  const record = mapAsyncNotificationRow({
+    id: "notification-contract",
+    workspace_id: "workspace-contract",
+    recipient_type: "agent",
+    recipient_id: "agent-contract",
+    actor_type: "system",
+    actor_id: "system-contract",
+    type: "capability.request.completed",
+    resource_type: "capability_request",
+    resource_id: "request-contract",
+    channel_name: null,
+    title: "Capability ready",
+    body: "The requested capability is ready.",
+    action_href: "/market",
+    severity: "critical",
+    status: "unread",
+    dedupe_key: "request-contract:completed",
+    metadata_json: { requestId: "request-contract" },
+    created_at: new Date("2026-08-15T00:00:00.000Z"),
+    read_at: null,
+    archived_at: null,
+  });
+
+  assert.deepEqual(record, {
+    id: "notification-contract",
+    workspaceId: "workspace-contract",
+    recipientType: "agent",
+    recipientId: "agent-contract",
+    actorType: "system",
+    actorId: "system-contract",
+    type: "capability.request.completed",
+    resourceType: "capability_request",
+    resourceId: "request-contract",
+    title: "Capability ready",
+    body: "The requested capability is ready.",
+    actionHref: "/market",
+    severity: "critical",
+    status: "unread",
+    dedupeKey: "request-contract:completed",
+    metadataJson: '{"requestId":"request-contract"}',
+    createdAt: "2026-08-15T00:00:00.000Z",
+  });
+  assert.equal(normalizeNotificationsLimit(undefined), 100);
+  assert.equal(normalizeNotificationsLimit(19.6), 20);
+});
+
+test("notifications cutover deterministically exercises primary, shadow, and fallback", async () => {
+  const fallbackRecord = createWorkspaceNotificationSync({
+    workspaceId: "default",
+    recipientType: "human",
+    recipientId: "cutover-injected",
+    type: "cutover.injected",
+    resourceType: "task",
+    title: "fallback",
+    body: "fallback",
+  });
+  const primaryRecord = { ...fallbackRecord, title: "primary" };
+  const metrics: ListNotificationsCutoverMetric[] = [];
+  let fallbackCalls = 0;
+  const read = createListWorkspaceNotificationsCutover({
+    isEnabled: () => true,
+    isShadowEnabled: () => true,
+    runPrimary: async () => [primaryRecord],
+    runFallback: () => {
+      fallbackCalls += 1;
+      return [fallbackRecord];
+    },
+  });
+
+  const result = await read(
+    {
+      workspaceId: "default",
+      recipientType: "human",
+      recipientId: "cutover-injected",
+    },
+    (metric) => metrics.push(metric),
+  );
+
+  assert.deepEqual(result, [primaryRecord]);
+  assert.equal(fallbackCalls, 1);
+  assert.deepEqual(metrics.map(({ source, mismatch }) => ({ source, mismatch })), [
+    { source: "primary", mismatch: 1 },
+  ]);
+
+  const fallbackMetrics: ListNotificationsCutoverMetric[] = [];
+  const readWithFailure = createListWorkspaceNotificationsCutover({
+    isEnabled: () => true,
+    isShadowEnabled: () => false,
+    runPrimary: async () => {
+      throw new Error("primary unavailable");
+    },
+    runFallback: () => [fallbackRecord],
+  });
+  const fallbackResult = await readWithFailure(
+    {
+      workspaceId: "default",
+      recipientType: "human",
+      recipientId: "cutover-injected",
+    },
+    (metric) => fallbackMetrics.push(metric),
+  );
+  assert.deepEqual(fallbackResult, [fallbackRecord]);
+  assert.equal(fallbackMetrics[0]?.source, "fallback");
+  assert.match(fallbackMetrics[0]?.error ?? "", /primary unavailable/);
 });

@@ -97,7 +97,7 @@ export function getWorkspaceShellData(
   currentMembershipRole?: WorkspaceRole,
   options?: { channelNames?: string[] },
 ): WorkspaceShellData {
-  return readLoadtestWorkspaceShellCache(
+  return readTtlWorkspaceShellCache(
     buildWorkspaceShellCacheKey("full", currentUserDisplayName, workspaceId, currentUserId, currentMembershipRole, options),
     () => getWorkspaceShellDataUncached(currentUserDisplayName, workspaceId, currentUserId, currentMembershipRole, options),
   );
@@ -137,7 +137,7 @@ export function getWorkspaceShellStableData(
   currentMembershipRole?: WorkspaceRole,
   options?: { channelNames?: string[] },
 ): WorkspaceShellStableData {
-  return readLoadtestWorkspaceShellCache(
+  return readTtlWorkspaceShellCache(
     buildWorkspaceShellCacheKey("stable", currentUserDisplayName, workspaceId, currentUserId, currentMembershipRole, options),
     () => buildWorkspaceShellStableData(
       buildWorkspaceShellContext(workspaceId, currentUserId, currentMembershipRole, options),
@@ -154,7 +154,7 @@ export function getWorkspaceShellCounterData(
   currentMembershipRole?: WorkspaceRole,
   options?: { channelNames?: string[] },
 ): WorkspaceShellCounterData {
-  return readLoadtestWorkspaceShellCache(
+  return readTtlWorkspaceShellCache(
     buildWorkspaceShellCacheKey("counter", currentUserDisplayName, workspaceId, currentUserId, currentMembershipRole, options),
     () => buildWorkspaceShellCounterData(
       buildWorkspaceShellContext(workspaceId, currentUserId, currentMembershipRole, options),
@@ -172,8 +172,8 @@ interface WorkspaceShellCacheEntry<TData> {
 
 const workspaceShellCache = new Map<string, WorkspaceShellCacheEntry<unknown>>();
 
-function readLoadtestWorkspaceShellCache<TData>(key: string, load: () => TData): TData {
-  const ttlMs = readLoadtestWorkspaceShellCacheTtlMs();
+function readTtlWorkspaceShellCache<TData>(key: string, load: () => TData): TData {
+  const ttlMs = readTtlWorkspaceShellCacheTtlMs();
   if (ttlMs <= 0) {
     return load();
   }
@@ -192,7 +192,7 @@ function readLoadtestWorkspaceShellCache<TData>(key: string, load: () => TData):
   return value;
 }
 
-function readLoadtestWorkspaceShellCacheTtlMs(): number {
+function readTtlWorkspaceShellCacheTtlMs(): number {
   const configured = Number.parseInt(process.env.DOFE_AGENT_WORKSPACE_SHELL_CACHE_TTL_MS ?? "", 10);
   if (Number.isFinite(configured) && configured > 0) {
     return configured;

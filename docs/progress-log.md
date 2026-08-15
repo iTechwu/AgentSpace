@@ -65,7 +65,7 @@
 - knowledge-page-client 四件套拆分（`2a86a772` + `95349d52` + `a9ada12a` + `cce1b274`）：1,580→1,114 行，子组件移出独立文件——`parse-task-panel.tsx`、`assignment-panel.tsx`、`document-page-viewer.tsx`、`knowledge-tree-node.tsx`。
 - 剩余：`agent-detail.tsx`(1,657) / `conversation-shell.tsx`(1,590) / `channels-page-client.tsx`(3,925) 文件内拆分 ⏳。
 
-### 3.4-7 readLoadtest*Cache 重命名 —— ✅ 完成
+### 3.4-7 readTtl*Cache 重命名 —— ✅ 完成
 
 - `aafd88fb`：`readLoadtestWorkspaceModuleCache` / `readLoadtestWorkspaceModuleCacheTtlMs` 改名为 `readTtlWorkspaceModuleCache` / `readTtlWorkspaceModuleCacheTtlMs`（TTL 缓存语义）；保留环境变量 `LOADTEST_MODE` / `DOFE_AGENT_WORKSPACE_MODULE_LOAD_CACHE_TTL_MS`（运维契约）与 `resolveLoadtestAwareInitialImDetailChannelNames`（语义上是 load-test aware 频道名解析，与本缓存无关）。
 

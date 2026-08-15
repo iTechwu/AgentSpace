@@ -17,8 +17,7 @@ const nextConfig = {
   devIndicators: false,
   reactStrictMode: true,
   typescript: {
-    // 类型错误由包内 `prebuild` 钩子（typecheck:deps + typecheck:web:only）拦截，
-    // 此处不再冗余运行 `next build` 内置 tsc。
+    // 保留 Next 内置类型检查作为构建末道防线；prebuild 仍负责更早的依赖和 Web 类型检查。
     ignoreBuildErrors: false,
     tsconfigPath: "tsconfig.typecheck.json",
   },

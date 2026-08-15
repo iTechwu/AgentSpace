@@ -47,7 +47,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const types = typesRaw
     ? (typesRaw.split(",").filter(Boolean) as SearchResultType[])
     : undefined;
-  const results = await readLoadtestSearchResultsCache(
+  const results = await readTtlSearchResultsCache(
     [
       workspaceContext.currentWorkspace.id,
       workspaceContext.currentUser.id,
@@ -207,24 +207,24 @@ type SearchResultsCacheEntry = {
 };
 
 const searchCacheGlobal = globalThis as typeof globalThis & {
-  __dofeAgentLoadtestSearchResultsCache?: Map<string, SearchResultsCacheEntry>;
+  __dofeAgentTtlSearchResultsCache?: Map<string, SearchResultsCacheEntry>;
 };
 
-const loadtestSearchResultsCache = searchCacheGlobal.__dofeAgentLoadtestSearchResultsCache
+const ttlSearchResultsCache = searchCacheGlobal.__dofeAgentTtlSearchResultsCache
   ?? new Map<string, SearchResultsCacheEntry>();
-searchCacheGlobal.__dofeAgentLoadtestSearchResultsCache = loadtestSearchResultsCache;
+searchCacheGlobal.__dofeAgentTtlSearchResultsCache = ttlSearchResultsCache;
 
-function readLoadtestSearchResultsCache(
+function readTtlSearchResultsCache(
   key: string,
   loader: () => SearchResult[],
 ): Promise<SearchResult[]> {
-  const ttlMs = getLoadtestSearchCacheTtlMs();
+  const ttlMs = getSearchCacheTtlMs();
   if (ttlMs <= 0) {
     return Promise.resolve(loader());
   }
 
   const now = Date.now();
-  const existing = loadtestSearchResultsCache.get(key);
+  const existing = ttlSearchResultsCache.get(key);
   if (existing && existing.expiresAt > now) {
     if (existing.value) {
       return Promise.resolve(existing.value);
@@ -237,29 +237,29 @@ function readLoadtestSearchResultsCache(
   const promise = Promise.resolve()
     .then(loader)
     .then((value) => {
-      loadtestSearchResultsCache.set(key, {
+      ttlSearchResultsCache.set(key, {
         expiresAt: Date.now() + ttlMs,
         value,
       });
-      pruneLoadtestSearchResultsCache();
+      pruneTtlSearchResultsCache();
       return value;
     })
     .catch((error) => {
-      const current = loadtestSearchResultsCache.get(key);
+      const current = ttlSearchResultsCache.get(key);
       if (current?.promise === promise) {
-        loadtestSearchResultsCache.delete(key);
+        ttlSearchResultsCache.delete(key);
       }
       throw error;
     });
 
-  loadtestSearchResultsCache.set(key, {
+  ttlSearchResultsCache.set(key, {
     expiresAt: now + ttlMs,
     promise,
   });
   return promise;
 }
 
-function getLoadtestSearchCacheTtlMs(): number {
+function getSearchCacheTtlMs(): number {
   const explicit = Number(process.env.DOFE_AGENT_SEARCH_CACHE_TTL_MS ?? "");
   if (Number.isFinite(explicit) && explicit > 0) {
     return explicit;
@@ -267,14 +267,14 @@ function getLoadtestSearchCacheTtlMs(): number {
   return process.env.LOADTEST_MODE === "local" ? 30_000 : 0;
 }
 
-function pruneLoadtestSearchResultsCache(): void {
-  if (loadtestSearchResultsCache.size <= 200) {
+function pruneTtlSearchResultsCache(): void {
+  if (ttlSearchResultsCache.size <= 200) {
     return;
   }
   const now = Date.now();
-  for (const [key, entry] of loadtestSearchResultsCache) {
+  for (const [key, entry] of ttlSearchResultsCache) {
     if (entry.expiresAt <= now) {
-      loadtestSearchResultsCache.delete(key);
+      ttlSearchResultsCache.delete(key);
     }
   }
 }

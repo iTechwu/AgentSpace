@@ -5,6 +5,7 @@ import {
   createWorkspaceNotificationsSync,
   listWorkspaceMemberUsersSync,
   listWorkspaceNotificationsForRecipientSync,
+  listWorkspaceNotificationsPrismaCutover,
   markWorkspaceNotificationReadSync,
   type CreateWorkspaceNotificationInput,
   type WorkspaceNotificationRecipient,
@@ -45,6 +46,17 @@ export function listNotificationsForRecipientSync(input: {
   limit?: number;
 }): WorkspaceNotificationRecord[] {
   return listWorkspaceNotificationsForRecipientSync(input);
+}
+
+export async function listNotificationsForRecipientAsync(input: {
+  workspaceId: string;
+  recipientType: WorkspaceNotificationRecipientType;
+  recipientId: string;
+  status?: WorkspaceNotificationStatus | WorkspaceNotificationStatus[];
+  includeArchived?: boolean;
+  limit?: number;
+}): Promise<WorkspaceNotificationRecord[]> {
+  return listWorkspaceNotificationsPrismaCutover(input);
 }
 
 export function markNotificationReadSync(input: {

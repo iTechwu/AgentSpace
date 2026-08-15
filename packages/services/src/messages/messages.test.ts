@@ -809,6 +809,64 @@ test("sendChannelHumanMessageSync rejects channel members when agent channel acc
   );
 });
 
+test("sendChannelHumanMessageSync preflights every sequential handoff before enqueueing", () => {
+  const previousRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+  process.env.DOFE_AGENT_RUNTIME_MODE = "local";
+  try {
+    seedWorkspace();
+    addAgentToTourVisit("Nova");
+    bindRuntimeForAgent("Atlas");
+    bindRuntimeForAgent("Nova");
+    setEmployeeChannelMemberAccessSync("Nova", "disabled");
+
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const mina = createUserSync({
+      displayName: `Mina sequential ${suffix}`,
+      primaryEmail: `mina-sequential-${suffix}@example.com`,
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      userId: mina.id,
+      role: "member",
+    });
+    const state = readWorkspaceStateSync();
+    writeWorkspaceStateSync({
+      ...state,
+      humanMembers: [
+        ...state.humanMembers,
+        { name: mina.displayName, role: "Member" },
+      ],
+      channels: state.channels.map((channel) =>
+        channel.name === "tour visit"
+          ? {
+              ...channel,
+              humanMemberNames: ["techwu", mina.displayName],
+              humanMembers: 2,
+            }
+          : channel,
+      ),
+    });
+
+    assert.throws(
+      () =>
+        sendChannelHumanMessageSync(
+          "tour visit",
+          mina.displayName,
+          "@Atlas 先起草，然后 @Nova 审阅",
+          undefined,
+          undefined,
+          DEFAULT_WORKSPACE_ID,
+          mina.id,
+        ),
+      /This agent is not available to the current user/,
+    );
+    assert.equal(listQueuedTasksSync().length, 0);
+  } finally {
+    if (previousRuntimeMode === undefined) delete process.env.DOFE_AGENT_RUNTIME_MODE;
+    else process.env.DOFE_AGENT_RUNTIME_MODE = previousRuntimeMode;
+  }
+});
+
 test("createTaskSync lets channel members dispatch enabled workspace agents in joined channels", runtimeSkip, () => {
   seedWorkspace();
   bindAtlasRuntime();

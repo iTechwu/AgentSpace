@@ -51,7 +51,7 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Query parameter `query` is required for this action." }, { status: 400 });
   }
 
-  const payload = await readLoadtestWorkspaceContextCache(
+  const payload = await readTtlWorkspaceContextCache(
     [
       workspaceContext.currentWorkspace.id,
       workspaceContext.currentUser.id,
@@ -123,24 +123,24 @@ type WorkspaceContextCacheEntry = {
 };
 
 const workspaceContextCacheGlobal = globalThis as typeof globalThis & {
-  __dofeAgentLoadtestWorkspaceContextCache?: Map<string, WorkspaceContextCacheEntry>;
+  __dofeAgentTtlWorkspaceContextCache?: Map<string, WorkspaceContextCacheEntry>;
 };
 
-const loadtestWorkspaceContextCache = workspaceContextCacheGlobal.__dofeAgentLoadtestWorkspaceContextCache
+const ttlWorkspaceContextCache = workspaceContextCacheGlobal.__dofeAgentTtlWorkspaceContextCache
   ?? new Map<string, WorkspaceContextCacheEntry>();
-workspaceContextCacheGlobal.__dofeAgentLoadtestWorkspaceContextCache = loadtestWorkspaceContextCache;
+workspaceContextCacheGlobal.__dofeAgentTtlWorkspaceContextCache = ttlWorkspaceContextCache;
 
-function readLoadtestWorkspaceContextCache(
+function readTtlWorkspaceContextCache(
   key: string,
   loader: () => Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const ttlMs = getLoadtestWorkspaceContextCacheTtlMs();
+  const ttlMs = getWorkspaceContextCacheTtlMs();
   if (ttlMs <= 0) {
     return Promise.resolve(loader());
   }
 
   const now = Date.now();
-  const existing = loadtestWorkspaceContextCache.get(key);
+  const existing = ttlWorkspaceContextCache.get(key);
   if (existing && existing.expiresAt > now) {
     if (existing.value) {
       return Promise.resolve(existing.value);
@@ -153,29 +153,29 @@ function readLoadtestWorkspaceContextCache(
   const promise = Promise.resolve()
     .then(loader)
     .then((value) => {
-      loadtestWorkspaceContextCache.set(key, {
+      ttlWorkspaceContextCache.set(key, {
         expiresAt: Date.now() + ttlMs,
         value,
       });
-      pruneLoadtestWorkspaceContextCache();
+      pruneTtlWorkspaceContextCache();
       return value;
     })
     .catch((error) => {
-      const current = loadtestWorkspaceContextCache.get(key);
+      const current = ttlWorkspaceContextCache.get(key);
       if (current?.promise === promise) {
-        loadtestWorkspaceContextCache.delete(key);
+        ttlWorkspaceContextCache.delete(key);
       }
       throw error;
     });
 
-  loadtestWorkspaceContextCache.set(key, {
+  ttlWorkspaceContextCache.set(key, {
     expiresAt: now + ttlMs,
     promise,
   });
   return promise;
 }
 
-function getLoadtestWorkspaceContextCacheTtlMs(): number {
+function getWorkspaceContextCacheTtlMs(): number {
   const explicit = Number(process.env.DOFE_AGENT_WORKSPACE_CONTEXT_CACHE_TTL_MS ?? "");
   if (Number.isFinite(explicit) && explicit > 0) {
     return explicit;
@@ -183,14 +183,14 @@ function getLoadtestWorkspaceContextCacheTtlMs(): number {
   return process.env.LOADTEST_MODE === "local" ? 30_000 : 0;
 }
 
-function pruneLoadtestWorkspaceContextCache(): void {
-  if (loadtestWorkspaceContextCache.size <= 200) {
+function pruneTtlWorkspaceContextCache(): void {
+  if (ttlWorkspaceContextCache.size <= 200) {
     return;
   }
   const now = Date.now();
-  for (const [key, entry] of loadtestWorkspaceContextCache) {
+  for (const [key, entry] of ttlWorkspaceContextCache) {
     if (entry.expiresAt <= now) {
-      loadtestWorkspaceContextCache.delete(key);
+      ttlWorkspaceContextCache.delete(key);
     }
   }
 }

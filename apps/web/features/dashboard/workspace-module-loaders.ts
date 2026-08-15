@@ -23,6 +23,7 @@ import {
   getCostPageDataAsync,
   getDataTablesPageData,
   getInboxPageData,
+  getInboxPageDataAsync,
   getKnowledgePageData,
   getOrgChartPageData,
   getPerformancePageData,
@@ -250,7 +251,7 @@ async function loadWorkspaceModuleDataUncached(
     case "inbox":
       return {
         moduleId,
-        data: getInboxPageData(workspaceId, viewer),
+        data: await getInboxPageDataAsync(workspaceId, viewer),
       };
     case "knowledge":
       return {

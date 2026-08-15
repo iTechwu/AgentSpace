@@ -11,6 +11,7 @@ import {
   archiveNotificationSync,
   countUnreadNotificationsSync,
   createNotificationSync,
+  listNotificationsForRecipientAsync,
   listNotificationsForRecipientSync,
   markNotificationReadSync,
   postNotificationChannelMessageSync,
@@ -78,6 +79,44 @@ test("notification service lists, reads, and archives recipient-scoped notificat
     recipientType: "human",
     recipientId: user.id,
   }).length, 0);
+});
+
+test("notification async service keeps the sync fallback contract when Prisma cutover is off", async () => {
+  const previous = process.env.NOTIFICATIONS_PRISMA_READ_ENABLED;
+  delete process.env.NOTIFICATIONS_PRISMA_READ_ENABLED;
+  try {
+    const workspace = createWorkspaceSync({
+      slug: `notification-async-${Math.random().toString(36).slice(2)}`,
+      name: "Notification Async",
+      createdBy: "system",
+    });
+    const user = createUserSync({
+      displayName: "Async Mina",
+      primaryEmail: `async-mina-${Math.random().toString(36).slice(2)}@example.com`,
+    });
+    const notification = createNotificationSync({
+      workspaceId: workspace.id,
+      recipientType: "human",
+      recipientId: user.id,
+      actorType: "system",
+      type: "capability.request.completed",
+      resourceType: "capability_request",
+      title: "Capability ready",
+      body: "The capability is ready.",
+      severity: "critical",
+    });
+
+    const result = await listNotificationsForRecipientAsync({
+      workspaceId: workspace.id,
+      recipientType: "human",
+      recipientId: user.id,
+    });
+    assert.equal(result[0]?.id, notification.id);
+    assert.equal(result[0]?.severity, "critical");
+  } finally {
+    if (previous === undefined) delete process.env.NOTIFICATIONS_PRISMA_READ_ENABLED;
+    else process.env.NOTIFICATIONS_PRISMA_READ_ENABLED = previous;
+  }
 });
 
 test("notification channel messages post to group channels and skip direct channels", { concurrency: false }, () => {

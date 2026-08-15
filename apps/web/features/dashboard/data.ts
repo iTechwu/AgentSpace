@@ -27,6 +27,7 @@ import {
   listKnowledgeAssignmentsSync,
   listManagedRuntimesForWorkspaceSync,
   listNotificationsForRecipientSync,
+  listNotificationsForRecipientAsync,
   listWorkspaceSkillsSync,
   normalizeCliHubReadiness,
   normalizeRuntimeProviderHealth,
@@ -781,6 +782,48 @@ export function getInboxPageData(
   };
 }
 
+export async function getInboxPageDataAsync(
+  workspaceId = DEFAULT_WORKSPACE_ID,
+  currentUser?: DashboardCurrentUser,
+): Promise<InboxPageData> {
+  const syncData = getInboxPageData(workspaceId, currentUser);
+  if (!currentUser?.id) {
+    return syncData;
+  }
+
+  const state = readWorkspaceStateCached(workspaceId);
+  const ownedAgentNames = state.activeEmployees
+    .filter((employee) => employee.ownerUserId === currentUser.id)
+    .map((employee) => employee.name);
+  const notifications = [
+    ...await listNotificationsForRecipientAsync({
+      workspaceId,
+      recipientType: "human",
+      recipientId: currentUser.id,
+      includeArchived: false,
+      limit: 100,
+    }),
+    ...await Promise.all(ownedAgentNames.map((agentName) =>
+      listNotificationsForRecipientAsync({
+        workspaceId,
+        recipientType: "agent",
+        recipientId: agentName,
+        includeArchived: false,
+        limit: 50,
+      }),
+    )).then((records) => records.flat()),
+  ].sort((left, right) => {
+    const byTime = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    return byTime || right.id.localeCompare(left.id);
+  });
+  const notificationItems = buildNotificationInboxItemsFromRecords(notifications);
+  const items = [
+    ...notificationItems,
+    ...syncData.items.filter((item) => item.kind !== "notification"),
+  ];
+  return { ...syncData, items, totalCount: items.length };
+}
+
 interface ReadableChannelLookup {
   canRead(channelName?: string | null): boolean;
 }
@@ -888,6 +931,12 @@ function buildNotificationInboxItems(
     return byTime || right.id.localeCompare(left.id);
   });
 
+  return buildNotificationInboxItemsFromRecords(notifications);
+}
+
+function buildNotificationInboxItemsFromRecords(
+  notifications: WorkspaceNotificationRecord[],
+): InboxItem[] {
   return notifications.map((notification) => ({
     id: `notification:${notification.id}`,
     kind: "notification",
