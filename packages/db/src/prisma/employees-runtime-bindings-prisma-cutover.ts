@@ -10,6 +10,7 @@ import {
   listEmployeeRuntimeBindingsPrisma,
 } from "./employees-runtime-bindings-prisma.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 
 export type ListEmployeesRuntimeBindingsPrismaCutoverMetric = ReadCutoverMetric;
@@ -27,6 +28,7 @@ const listEmployeeRuntimeBindingsPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (workspaceId) => listEmployeeRuntimeBindingsPrisma(workspaceId),
   runFallback: (workspaceId) => listEmployeeRuntimeBindingsSync(workspaceId),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "employee_runtime_bindings", operation: "list" }),
 });
 
 export function listEmployeeRuntimeBindingsPrismaCutover(

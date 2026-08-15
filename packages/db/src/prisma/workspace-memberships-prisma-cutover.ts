@@ -9,6 +9,7 @@ import {
   listWorkspaceMembershipsPrisma,
 } from "./workspace-memberships-prisma.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 
 export type ListWorkspaceMembershipsPrismaCutoverMetric = ReadCutoverMetric;
@@ -26,6 +27,7 @@ const listWorkspaceMembershipsPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (workspaceId) => listWorkspaceMembershipsPrisma(workspaceId),
   runFallback: (workspaceId) => listWorkspaceMembershipsSync(workspaceId),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "workspace_memberships", operation: "list" }),
 });
 
 export function listWorkspaceMembershipsPrismaCutover(

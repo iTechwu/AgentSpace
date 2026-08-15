@@ -17,6 +17,7 @@ import {
   buildDomainWriteCutover,
   type DomainWriteCutoverMetric,
 } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 // Reuse the read-path PrismaClient + setter + disconnect so mock injection
 // covers both read and write without duplicating the cache plumbing.
 import {
@@ -103,6 +104,7 @@ const createAuditLogPrismaCutoverImpl = buildDomainWriteCutover<
   isEnabled: isAuditLogPrismaWriteEnabled,
   runPrimary: async (input) => createAuditLogPrisma(input),
   runFallback: (input) => recordAuditLogSync(input),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "audit_log", operation: "create" }),
 });
 
 /**

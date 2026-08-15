@@ -11,6 +11,7 @@ import {
   listWorkspaceNotificationsPrisma,
 } from "./notifications-prisma.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 
 export type ListNotificationsPrismaCutoverMetric = ReadCutoverMetric;
@@ -28,6 +29,7 @@ const listWorkspaceNotificationsPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (options) => listWorkspaceNotificationsPrisma(options),
   runFallback: (options) => listWorkspaceNotificationsForRecipientSync(options),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "notifications", operation: "list" }),
 });
 
 export function listWorkspaceNotificationsPrismaCutover(

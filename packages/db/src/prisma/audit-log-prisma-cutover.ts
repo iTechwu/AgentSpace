@@ -15,6 +15,7 @@ import {
   listAuditLogsPrisma,
 } from "./audit-log-prisma.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 
 export type ReadAuditLogPrismaCutoverMetric = ReadCutoverMetric;
@@ -32,6 +33,7 @@ const readAuditLogPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (input) => readAuditLogPrisma(input),
   runFallback: (input) => readAuditLogSync(input.id, input.workspaceId),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "audit_log", operation: "read" }),
 });
 
 /**
@@ -54,6 +56,7 @@ const listAuditLogsPrismaCutoverImpl = buildDomainCutover<
   runPrimary: ({ workspaceId, options }) => listAuditLogsPrisma(workspaceId, options),
   runFallback: ({ workspaceId, options }) => listAuditLogsSync(workspaceId, options),
   compare: (primary, fallback) => arraysEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "audit_log", operation: "list" }),
 });
 
 export function listAuditLogsPrismaCutover(

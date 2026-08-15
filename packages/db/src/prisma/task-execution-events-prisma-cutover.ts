@@ -10,6 +10,7 @@ import {
   listTaskExecutionEventsPrisma,
 } from "./task-execution-events-prisma.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 
 export type ListTaskExecutionEventsPrismaCutoverMetric = ReadCutoverMetric;
@@ -27,6 +28,7 @@ const listTaskExecutionEventsPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (options) => listTaskExecutionEventsPrisma(options),
   runFallback: (options) => listTaskExecutionEventsSync(options),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "task_execution_events", operation: "list" }),
 });
 
 export function listTaskExecutionEventsPrismaCutover(
