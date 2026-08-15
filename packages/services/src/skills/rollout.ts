@@ -384,13 +384,17 @@ function resolveRolloutItemState(input: {
   return { runtimeId: input.runtimeId, artifactDigest: input.artifactDigest, revision: "v1", state: "pending" };
 }
 
+function collectClosureArtifactDigests(rootArtifactDigest: string, closure: SkillRolloutClosureEntry[]): string[] {
+  return [rootArtifactDigest, ...closure.map((entry) => entry.artifactDigest)];
+}
+
 export function aggregateSkillRolloutRiskSync(input: {
   workspaceId?: string;
   rootArtifactDigest: string;
   closure: SkillRolloutClosureEntry[];
 }): SkillRolloutRiskSummary {
   const workspaceId = input.workspaceId ?? "default";
-  const digests = [input.rootArtifactDigest, ...input.closure.map((entry) => entry.artifactDigest)];
+  const digests = collectClosureArtifactDigests(input.rootArtifactDigest, input.closure);
   const riskItems = new Map<string, { category: string; key: string }>();
   const artifactsWithRisk: string[] = [];
   for (const digest of digests) {

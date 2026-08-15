@@ -28,3 +28,13 @@ test("attributeBatchFailures splits retryable failures from asset gaps", () => {
   assert.deepEqual(attribution.assetGaps[0], { shotId: "s2", missingCharacters: ["c1"], missingScenes: [] });
   assert.deepEqual(attribution.assetGaps[1], { shotId: "s3", missingCharacters: [], missingScenes: ["sc1"] });
 });
+
+test("attributeBatchFailures records the convergence revision a gap loops back to", () => {
+  const attribution = attributeBatchFailures([
+    { shotId: "s1", errorCode: "missing_character", missingCharacters: ["c1"], inputRevision: "r2" },
+    { shotId: "s2", errorCode: "missing_scene", missingScenes: ["sc1"] },
+  ]);
+
+  assert.equal(attribution.assetGaps[0]?.targetRevision, "r2");
+  assert.equal(attribution.assetGaps[1]?.targetRevision, undefined, "no inputRevision -> no targetRevision");
+});

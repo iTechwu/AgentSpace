@@ -71,8 +71,10 @@ export function computeSkillReleaseLockInternal(
   // Lock the AUTHOR-declared Skill→Skill dependencies (coordinate + version range).
   // The RESOLVED digest closure is not part of the per-artifact lock — it depends
   // on the workspace's imported artifacts and is captured in skill_rollout_plan.
+  // Sort so the lock digest is ORDER-INDEPENDENT (reordering frontmatter
+  // declarations must not perturb the lock).
   const skillDependencyLockDigest = createHash("sha256")
-    .update(stableStringify((manifest.skillDependencies ?? []).map((dep) => `${dep.coordinate}@${dep.version}`)))
+    .update(stableStringify((manifest.skillDependencies ?? []).map((dep) => `${dep.coordinate}@${dep.version}`).sort()))
     .digest("hex");
 
   const serviceTemplateVersions: Record<string, string> = {};

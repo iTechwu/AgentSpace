@@ -10,12 +10,16 @@ export interface ShotFailure {
   errorCode: string;
   missingCharacters?: string[];
   missingScenes?: string[];
+  /** The frozen input revision (R(n)) the shot was generated against. */
+  inputRevision?: string;
 }
 
 export interface AssetGap {
   shotId: string;
   missingCharacters: string[];
   missingScenes: string[];
+  /** The convergence revision this gap must loop back to (defaults to the shot's inputRevision). */
+  targetRevision?: string;
 }
 
 export interface BatchFailureAttribution {
@@ -47,6 +51,7 @@ export function attributeBatchFailures(failures: ShotFailure[]): BatchFailureAtt
         shotId: failure.shotId,
         missingCharacters: failure.missingCharacters ?? [],
         missingScenes: failure.missingScenes ?? [],
+        ...(failure.inputRevision ? { targetRevision: failure.inputRevision } : {}),
       });
     } else {
       retryable.push(failure);

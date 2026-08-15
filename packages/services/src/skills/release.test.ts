@@ -957,4 +957,30 @@ test("MCP release locks remain reconstructable after a newer catalog release is 
     declaredToolsJson: JSON.stringify([{ name: "delete_repository" }]),
   });
   assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, WORKSPACE_ID), false);
+
+test("skillDependencyLockDigest is order-independent", () => {
+  const base = {
+    id: "art-order",
+    workspaceId: WORKSPACE_ID,
+    digest: sha("f"),
+    name: "order",
+    version: "1.0.0",
+    manifestVersion: 1,
+    sourceType: "manual",
+    provenanceJson: "{}",
+    fileCount: 0,
+    totalSizeBytes: 0,
+    legacyIncomplete: false,
+    createdAt: new Date().toISOString(),
+  };
+  const depsA = [
+    { coordinate: "github:a", version: "^1.0.0", placement: "workflow", required: true },
+    { coordinate: "github:b", version: "^2.0.0", placement: "same_runtime", required: true },
+  ];
+  const depsB = [...depsA].reverse();
+  const lockA = computeSkillReleaseLockSync({ ...base, manifestJson: JSON.stringify({ skillDependencies: depsA }) });
+  const lockB = computeSkillReleaseLockSync({ ...base, manifestJson: JSON.stringify({ skillDependencies: depsB }) });
+  assert.equal(lockA.skillDependencyLockDigest, lockB.skillDependencyLockDigest);
+  assert.equal(lockA.lockDigest, lockB.lockDigest);
+});
 });
