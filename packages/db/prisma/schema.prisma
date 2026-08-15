@@ -205,7 +205,7 @@ model DocumentAgentAccess {
   /// DocumentAgentAccessSubjectType: agent|human|system.
   subjectType     String    @default("agent") @map("subject_type")
   subjectId       String    @map("subject_id")
-  /// DocumentAgentAccessRole: viewer|commenter|editor|owner.
+  /// DocumentAgentAccessRole: viewer|editor|forwarder.
   role            String
   scope           String    @default("document")
   grantedByUserId String    @map("granted_by_user_id")

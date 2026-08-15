@@ -731,6 +731,10 @@ export {
   listDocumentAgentAccessPrismaCutover,
   type ListDocumentAgentAccessPrismaCutoverMetric,
 } from "./prisma/document-agent-access-prisma-cutover.ts";
+export {
+  listDocumentPermissionRequestsPrismaCutover,
+  type ListDocumentPermissionRequestsPrismaCutoverMetric,
+} from "./prisma/document-permission-requests-prisma-cutover.ts";
 
 // Runtime apps
 export {

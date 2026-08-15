@@ -7,6 +7,7 @@ import {
   listDaemonSnapshotsSync,
   listDocumentAgentAccessSync,
   listDocumentAgentAccessPrismaCutover,
+  listDocumentPermissionRequestsPrismaCutover,
   listDocumentPermissionRequestsSync,
   listEmployeeRuntimeBindingsSync,
   listRuntimeGrantsSync,
@@ -15,6 +16,7 @@ import {
   listWorkspaceMemberUsersSync,
   listWorkspaceRuntimeDisplayNamesSync,
   type DocumentAgentAccessRecord,
+  type DocumentPermissionRequestRecord,
 } from "@dofe-agent/db";
 import type {
   ActiveEmployee,
@@ -47,6 +49,7 @@ export function buildPermissionContext(input: {
   return buildPermissionContextWithDocumentAccess(
     input,
     listDocumentAgentAccessSync({ workspaceId: input.workspaceId }),
+    listDocumentPermissionRequestsSync({ workspaceId: input.workspaceId }),
   );
 }
 
@@ -54,9 +57,14 @@ export async function buildPermissionContextAsync(input: {
   workspaceId: string;
   actor: PermissionCenterActorInput;
 }): Promise<PermissionBuildContext> {
+  const [documentAgentAccesses, documentPermissionRequests] = await Promise.all([
+    listDocumentAgentAccessPrismaCutover({ workspaceId: input.workspaceId }),
+    listDocumentPermissionRequestsPrismaCutover({ workspaceId: input.workspaceId }),
+  ]);
   return buildPermissionContextWithDocumentAccess(
     input,
-    await listDocumentAgentAccessPrismaCutover({ workspaceId: input.workspaceId }),
+    documentAgentAccesses,
+    documentPermissionRequests,
   );
 }
 
@@ -66,6 +74,7 @@ function buildPermissionContextWithDocumentAccess(
     actor: PermissionCenterActorInput;
   },
   documentAgentAccesses: DocumentAgentAccessRecord[],
+  documentPermissionRequests: DocumentPermissionRequestRecord[],
 ): PermissionBuildContext {
   const state = ensureWorkspaceStateSync(input.workspaceId);
   const members = listWorkspaceMemberUsersSync(input.workspaceId).map((member) => ({
@@ -136,9 +145,6 @@ function buildPermissionContextWithDocumentAccess(
     }),
     (invitation) => invitation.channelName,
   );
-  const documentPermissionRequests = listDocumentPermissionRequestsSync({
-    workspaceId: input.workspaceId,
-  });
   const agentForkInvitationsBySourceName = groupByNormalizedKey(
     listAgentForkInvitationsSync(input.workspaceId, {
       statuses: ["pending"],

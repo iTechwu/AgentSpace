@@ -379,8 +379,17 @@ test("permission center async entry reads non-empty document grants through Pris
     role: "forwarder",
     grantedByUserId: fixtures.owner.id,
   });
+  const request = createDocumentPermissionRequestSync({
+    workspaceId: fixtures.workspace.id,
+    documentId: document.id,
+    requestedRole: "editor",
+    requestedByAgentName: "Atlas",
+    reason: "Need to update the document",
+  });
   const previous = process.env.DOCUMENT_AGENT_ACCESS_PRISMA_READ_ENABLED;
+  const previousRequestFlag = process.env.DOCUMENT_PERMISSION_REQUESTS_PRISMA_READ_ENABLED;
   process.env.DOCUMENT_AGENT_ACCESS_PRISMA_READ_ENABLED = "1";
+  process.env.DOCUMENT_PERMISSION_REQUESTS_PRISMA_READ_ENABLED = "1";
   try {
     const center = await getWorkspacePermissionCenter({
       workspaceId: fixtures.workspace.id,
@@ -395,9 +404,16 @@ test("permission center async entry reads non-empty document grants through Pris
     assert.ok(documentNode?.bindings.some((binding) =>
       binding.subjectId === "Atlas" && binding.permission === "forwarder"
     ));
+    assert.ok(documentNode?.bindings.some((binding) =>
+      binding.source === "document_permission_request"
+      && binding.permission === "requested editor"
+      && binding.metadata?.requestId === request.id
+    ));
   } finally {
     if (previous === undefined) delete process.env.DOCUMENT_AGENT_ACCESS_PRISMA_READ_ENABLED;
     else process.env.DOCUMENT_AGENT_ACCESS_PRISMA_READ_ENABLED = previous;
+    if (previousRequestFlag === undefined) delete process.env.DOCUMENT_PERMISSION_REQUESTS_PRISMA_READ_ENABLED;
+    else process.env.DOCUMENT_PERMISSION_REQUESTS_PRISMA_READ_ENABLED = previousRequestFlag;
     await disconnectDofePrismaClient();
   }
 });

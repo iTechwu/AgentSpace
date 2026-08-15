@@ -14,6 +14,7 @@ import type {
 
 const VALID_PROVIDERS = new Set(["notion", "microsoft_365"]);
 const VALID_STATUSES = new Set(["pending", "approved", "rejected", "cancelled"]);
+const VALID_ROLES = new Set(["viewer", "editor", "forwarder"]);
 
 interface PrismaPermissionRequest {
   id: string;
@@ -83,6 +84,7 @@ function mapPrismaRow(
 ): DocumentPermissionRequestRecord | null {
   if (row.externalProvider !== null && !VALID_PROVIDERS.has(row.externalProvider)) return null;
   if (!VALID_STATUSES.has(row.status)) return null;
+  if (!VALID_ROLES.has(row.requestedRole)) return null;
   const record: DocumentPermissionRequestRecord = {
     id: row.id,
     workspaceId: row.workspaceId,
