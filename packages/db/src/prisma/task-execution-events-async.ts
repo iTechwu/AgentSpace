@@ -24,7 +24,7 @@ interface AsyncTaskEventRow {
   title: string | null;
   summary: string | null;
   severity: string;
-  status: string;
+  status: string | null;
   data_json: unknown;
   created_at: Date | string;
 }
@@ -56,19 +56,43 @@ export async function listTaskExecutionEventsAsync(
   pushIfString(options.agentId, "agent_id");
   pushIfString(options.runtimeId, "runtime_id");
 
-  const limit = normalizeLimit(options.limit, options.taskIds ? 5000 : 500);
+  const taskIds = options.taskIds ? normalizeTaskIds(options.taskIds) : [];
+  const limitPerTask = taskIds.length > 0 && options.limitPerTask !== undefined
+    ? normalizeLimit(options.limitPerTask, 500)
+    : null;
+  const limit = limitPerTask === null
+    ? normalizeLimit(options.limit, options.taskIds ? 5000 : 500)
+    : Math.min(5000, taskIds.length * limitPerTask);
   const order = options.order === "desc" ? "DESC" : "ASC";
   const tieOrder = options.order === "desc" ? "DESC" : "ASC";
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  params.push(limit);
-
-  const sql = `SELECT id, workspace_id, task_id, channel_name, agent_id,
-                      runtime_id, run_id, type, title, summary,
-                      severity, status, data_json, created_at
-               FROM task_execution_event
-               ${whereClause}
-               ORDER BY created_at ${order}, id ${tieOrder}
-               LIMIT $${params.length}`;
+  let sql: string;
+  if (limitPerTask === null) {
+    params.push(limit);
+    sql = `SELECT id, workspace_id, task_id, channel_name, agent_id,
+                  runtime_id, run_id, type, title, summary,
+                  severity, status, data_json, created_at
+           FROM task_execution_event
+           ${whereClause}
+           ORDER BY created_at ${order}, id ${tieOrder}
+           LIMIT $${params.length}`;
+  } else {
+    params.push(limitPerTask, limit);
+    sql = `SELECT id, workspace_id, task_id, channel_name, agent_id,
+                  runtime_id, run_id, type, title, summary,
+                  severity, status, data_json, created_at
+           FROM (
+             SELECT task_execution_event.*,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY task_id ORDER BY created_at ${order}, id ${tieOrder}
+                    ) AS task_rank
+             FROM task_execution_event
+             ${whereClause}
+           ) ranked
+           WHERE task_rank <= $${params.length - 1}
+           ORDER BY created_at ${order}, id ${tieOrder}
+           LIMIT $${params.length}`;
+  }
 
   const client = new Client({ connectionString: resolvePostgresDatabaseUrl() });
   try {
@@ -94,11 +118,15 @@ function normalizeLimit(limit: number | undefined, maximum: number): number {
   return Math.min(Math.max(limit ?? 100, 1), maximum);
 }
 
+function normalizeTaskIds(taskIds: string[]): string[] {
+  return [...new Set(taskIds)].filter((taskId) => taskId.length > 0);
+}
+
 function mapTaskExecutionEventRow(
   row: AsyncTaskEventRow,
 ): TaskExecutionEventRecord | null {
   if (!SEVERITIES.has(row.severity)) return null;
-  if (!STATUSES.has(row.status)) return null;
+  if (row.status !== null && !STATUSES.has(row.status)) return null;
   return {
     id: row.id,
     workspaceId: row.workspace_id ?? "",
@@ -111,7 +139,7 @@ function mapTaskExecutionEventRow(
     title: row.title ?? "",
     summary: row.summary ?? undefined,
     severity: row.severity as TaskExecutionEventRecord["severity"],
-    status: row.status as TaskExecutionEventRecord["status"],
+    status: (row.status ?? undefined) as TaskExecutionEventRecord["status"],
     dataJson: serializeJson(row.data_json),
     createdAt: toIsoString(row.created_at),
   };

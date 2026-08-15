@@ -36,6 +36,7 @@ export interface TaskExecutionEventListOptions {
   agentId?: string;
   runtimeId?: string;
   limit?: number;
+  limitPerTask?: number;
   order?: "asc" | "desc";
 }
 
@@ -134,11 +135,17 @@ export function listTaskExecutionEventsSync(
     params.push(options.runtimeId);
   }
 
-  const limit = normalizeLimit(options.limit, options.taskIds ? 5000 : 500);
+  const taskIds = options.taskIds ? normalizeTaskIds(options.taskIds) : [];
+  const limitPerTask = taskIds.length > 0 && options.limitPerTask !== undefined
+    ? normalizeLimit(options.limitPerTask, 500)
+    : null;
+  const limit = limitPerTask === null
+    ? normalizeLimit(options.limit, options.taskIds ? 5000 : 500)
+    : Math.min(5000, taskIds.length * limitPerTask);
   const order = options.order === "desc" ? "DESC" : "ASC";
   const tieOrder = options.order === "desc" ? "DESC" : "ASC";
   const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
-  const rows = db.prepare(
+  const rows = limitPerTask === null ? db.prepare(
     `SELECT
       id,
       workspace_id AS workspaceId,
@@ -158,7 +165,46 @@ export function listTaskExecutionEventsSync(
      ${whereClause}
      ORDER BY created_at ${order}, id ${tieOrder}
      LIMIT ?`,
-  ).all(...params, limit) as Array<Record<string, unknown>>;
+  ).all(...params, limit) as Array<Record<string, unknown>> : db.prepare(
+    `SELECT
+      id,
+      "workspaceId",
+      "taskId",
+      "channelName",
+      "agentId",
+      "runtimeId",
+      "runId",
+      type,
+      title,
+      summary,
+      severity,
+      status,
+      "dataJson",
+      "createdAt"
+     FROM (
+       SELECT
+         id,
+         workspace_id AS "workspaceId",
+         task_id AS "taskId",
+         channel_name AS "channelName",
+         agent_id AS "agentId",
+         runtime_id AS "runtimeId",
+         run_id AS "runId",
+         type,
+         title,
+         summary,
+         severity,
+         status,
+         data_json AS "dataJson",
+         created_at AS "createdAt",
+         ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY created_at ${order}, id ${tieOrder}) AS "taskRank"
+       FROM task_execution_event
+       ${whereClause}
+     ) ranked
+     WHERE "taskRank" <= ?
+     ORDER BY "createdAt" ${order}, id ${tieOrder}
+     LIMIT ?`,
+  ).all(...params, limitPerTask, limit) as Array<Record<string, unknown>>;
 
   return rows
     .map((row) => mapTaskExecutionEventRecord(row))

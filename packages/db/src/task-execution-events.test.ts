@@ -14,6 +14,7 @@ import {
   failQueuedTaskSync,
   listTaskExecutionEventsSync,
   listTaskMessagesForTaskSync,
+  recordTaskExecutionEventSync,
   registerDaemonRuntimesSync,
   startQueuedTaskSync,
   updateAgentRuntimeManagedFieldsSync,
@@ -162,14 +163,37 @@ test("lists execution events for multiple tasks in one query", () => {
   assert.ok(first);
   assert.ok(second);
   assert.ok(excluded);
+  for (let index = 0; index < 90; index += 1) {
+    recordTaskExecutionEventSync({
+      workspaceId: "default",
+      taskId: first.id,
+      agentId: "emp-atlas",
+      type: "message_posted",
+      title: `First task event ${index}`,
+      createdAt: new Date(Date.UTC(2026, 7, 15, 0, 0, 0, index)).toISOString(),
+    });
+  }
+  for (let index = 0; index < 2; index += 1) {
+    recordTaskExecutionEventSync({
+      workspaceId: "default",
+      taskId: second.id,
+      agentId: "emp-atlas",
+      type: "message_posted",
+      title: `Second task event ${index}`,
+      createdAt: new Date(Date.UTC(2026, 7, 15, 0, 1, 0, index)).toISOString(),
+    });
+  }
 
   const events = listTaskExecutionEventsSync({
     workspaceId: "default",
     taskIds: [first.id, second.id, first.id],
+    limitPerTask: 80,
     order: "asc",
   });
 
   assert.deepEqual(new Set(events.map((event) => event.taskId)), new Set([first.id, second.id]));
+  assert.equal(events.filter((event) => event.taskId === first.id).length, 80);
+  assert.equal(events.filter((event) => event.taskId === second.id).length, 3);
   assert.equal(events.some((event) => event.taskId === excluded.id), false);
   assert.deepEqual(listTaskExecutionEventsSync({ taskIds: [] }), []);
 });

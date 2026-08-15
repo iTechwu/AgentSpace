@@ -17,8 +17,15 @@ import {
   createWorkspaceSync,
   hardDeleteWorkspaceSync,
 } from "../workspaces.ts";
+import {
+  listTaskExecutionEventsSync,
+  recordTaskExecutionEventSync,
+} from "../task-execution-events.ts";
+import { enqueueNativeTaskSync } from "../task-queue.ts";
 import { listEmployeeRuntimeBindingsPrisma } from "./employees-runtime-bindings-prisma.ts";
 import { listAuditLogsPrismaCutover } from "./audit-log-prisma-cutover.ts";
+import { listTaskExecutionEventsPrisma } from "./task-execution-events-prisma.ts";
+import { listTaskExecutionEventsAsync } from "./task-execution-events-async.ts";
 import {
   disconnectDofePrismaClient,
   getDofePrismaClient,
@@ -124,6 +131,97 @@ test("audit log list cutover matches legacy filters on real rows", async () => {
   } finally {
     if (previous === undefined) delete process.env.AUDIT_LOG_PRISMA_READ_ENABLED;
     else process.env.AUDIT_LOG_PRISMA_READ_ENABLED = previous;
+    await disconnectDofePrismaClient();
+    hardDeleteWorkspaceSync(workspaceId);
+  }
+});
+
+test("task execution event batch limits each task independently", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const workspaceId = `workspace-prisma-task-events-${suffix}`;
+  const employeeName = `Prisma Task Events ${suffix}`;
+  createWorkspaceSync({
+    id: workspaceId,
+    slug: workspaceId,
+    name: `Prisma Task Events Workspace ${suffix}`,
+    createdBy: "prisma-task-events-test",
+  });
+  createStoredEmployeeSync({
+    id: `employee-task-events-${suffix}`,
+    name: employeeName,
+    role: "Agent",
+    origin: "manual",
+    summary: "Prisma task event test fixture",
+    traits: [],
+    fit: "Ready",
+    status: "active",
+    instructions: "",
+    skillIds: [],
+    channels: [],
+  }, workspaceId);
+  const runtime = registerDaemonRuntimesSync({
+    daemonKey: `prisma-task-events-${suffix}`,
+    deviceName: `Prisma Task Events Device ${suffix}`,
+    workspaceId,
+    runtimes: [{ provider: "codex", name: `Prisma Task Events Runtime ${suffix}`, version: "test" }],
+  }).runtimes[0]!;
+  bindEmployeeRuntimeSync({ workspaceId, employeeName, runtimeId: runtime.id });
+  const firstTask = enqueueNativeTaskSync({
+    workspaceId,
+    assignee: employeeName,
+    title: "First task",
+    channel: "general",
+    priority: "medium",
+  });
+  const secondTask = enqueueNativeTaskSync({
+    workspaceId,
+    assignee: employeeName,
+    title: "Second task",
+    channel: "general",
+    priority: "medium",
+  });
+  assert.ok(firstTask);
+  assert.ok(secondTask);
+  const firstTaskId = firstTask.id;
+  const secondTaskId = secondTask.id;
+  for (let index = 0; index < 5; index += 1) {
+    recordTaskExecutionEventSync({
+      workspaceId,
+      taskId: firstTaskId,
+      agentId: "employee-first",
+      type: "message_posted",
+      title: `First event ${index}`,
+      createdAt: new Date(Date.UTC(2026, 7, 15, 1, 0, 0, index)).toISOString(),
+    });
+  }
+  for (let index = 0; index < 2; index += 1) {
+    recordTaskExecutionEventSync({
+      workspaceId,
+      taskId: secondTaskId,
+      agentId: "employee-second",
+      type: "message_posted",
+      title: `Second event ${index}`,
+      createdAt: new Date(Date.UTC(2026, 7, 15, 1, 1, 0, index)).toISOString(),
+    });
+  }
+
+  const options = {
+    workspaceId,
+    taskIds: [firstTaskId, secondTaskId],
+    limitPerTask: 2,
+    order: "asc" as const,
+  };
+  try {
+    const expected = listTaskExecutionEventsSync(options);
+    const [prismaActual, pgActual] = await Promise.all([
+      listTaskExecutionEventsPrisma(options),
+      listTaskExecutionEventsAsync(options),
+    ]);
+    assert.deepEqual(prismaActual, expected);
+    assert.deepEqual(pgActual, expected);
+    assert.equal(prismaActual.filter((event) => event.taskId === firstTaskId).length, 2);
+    assert.equal(prismaActual.filter((event) => event.taskId === secondTaskId).length, 2);
+  } finally {
     await disconnectDofePrismaClient();
     hardDeleteWorkspaceSync(workspaceId);
   }

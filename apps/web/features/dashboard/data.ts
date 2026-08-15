@@ -835,12 +835,13 @@ async function replaceInboxExecutionTimelinesAsync(
   if (queueIds.length === 0) {
     return current;
   }
-  const events = await listTaskExecutionEventsAsync({
-    workspaceId,
-    taskIds: queueIds,
-    limit: queueIds.length * 80,
-    order: "asc",
-  });
+  const events = (await Promise.all(chunkValues(queueIds, 50).map((taskIds) =>
+    listTaskExecutionEventsAsync({
+      workspaceId,
+      taskIds,
+      limitPerTask: 80,
+      order: "asc",
+    })))).flat();
   const timelines = new Map<string, TaskExecutionTimelineEntry[]>();
   for (const event of events) {
     const timeline = timelines.get(event.taskId) ?? [];
@@ -869,6 +870,14 @@ async function replaceInboxExecutionTimelinesAsync(
       };
     }),
   };
+}
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 export function replaceInboxNotificationItems(
