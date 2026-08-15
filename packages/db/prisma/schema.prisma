@@ -62,7 +62,7 @@ model TaskExecutionEvent {
   workspaceId String   @map("workspace_id")
   taskId      String   @map("task_id")
   channelName String   @default("") @map("channel_name")
-  agentId     String
+  agentId     String   @map("agent_id")
   runtimeId   String?  @map("runtime_id")
   runId       String?  @map("run_id")
   type        String

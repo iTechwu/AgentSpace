@@ -111,9 +111,9 @@
 
 - `docs/0808/db_migration_to_prisma/README.md` 给出 A→B 渐进路线（A=Prisma 管 schema/迁移；B=Prisma Client 与 SQL 并存按域替换）。
 - 已落地 audit-log、notifications、task-execution-events、workspace-memberships、employee-runtime-bindings 五域 Prisma Client read cutover；共享 `PrismaPg` adapter/单例通过真实 PostgreSQL `SELECT 1` smoke，员工绑定通过 `agent_runtime` relation 获取 provider/name，不再把 JOIN 字段误当表列。
-- notifications 已接入 services 异步 API 与 Inbox loader；其余三域 read cutover 及 audit write cutover已从 `@dofe-agent/db` 公共出口暴露，尚未全面替换同步业务调用方。
+- notifications、task-execution-events、workspace-memberships、employee-runtime-bindings 已分别接入 Inbox、飞书设置成员列表与工作流编辑页；audit write 已接入平台管理员登录审计。同步业务调用方仍按风险逐步迁移。
 - 每域均保留独立 read/shadow flag；audit write 在 flag 打开后对不明确的 primary 失败 fail closed，禁止 legacy 二次写入。根 `build` 与 `typecheck:deps` 会先执行 `prisma generate`。
-- `packages/db/src/prisma/*.test.ts` 已纳入 DB 默认测试门；剩余工作是按热路径逐域接线、补可观测指标与灰度/回滚运行手册，而不是一次性替换原生 SQL。
+- `packages/db/src/prisma/*.test.ts` 已纳入 DB 默认测试门；`prisma:verify:pilot` 会在测试前对照真实 PostgreSQL 检查六个试点模型的列类型、可空性、默认值和主键。剩余工作是补全量 baseline、可观测指标与灰度/回滚运行手册，而不是一次性替换原生 SQL。
 
 ### 3.5-6 构建/版本漂移 —— 🟡 部分完成
 

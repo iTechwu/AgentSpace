@@ -138,6 +138,7 @@ packages/db
 - 增加 `prisma:generate`、`prisma:migrate:deploy`、`prisma:validate` 脚本；CI 仅对 migration 目录变化运行 deploy job，连接串由 secret 注入。
 - 将结构迁移从应用请求/启动路径移到 CI/release step，由 `prisma migrate deploy` 单点执行；运行时 `ensureRuntimeSchema` 只保留 `app_metadata` 版本/sentinel 检查和前向守卫，advisory lock 与后台维护命令继续保留。
 - 让 legacy SQL 与 Prisma Client 指向同一外部 PostgreSQL，增加双连接 smoke test、连接池耗尽测试和 graceful shutdown 测试。
+- 五域试点期间运行 `pnpm --filter @dofe-agent/db run prisma:verify:pilot`，对照外部 PostgreSQL 检查 Prisma 已声明列的类型、可空性、默认值和主键；DB 默认测试会先执行该门禁。该命令只覆盖试点模型，不能替代 Phase 0 的全量 baseline/diff。
 - 不在 Docker/Compose 中添加数据库服务；不在本机启动 Jenkins 或执行部署。
 
 **退出条件：** 新实例只执行 Prisma migration；旧实例仍可读写；滚动发布中旧实例遇到更高 `schema_version` 不降级；所有现有 db 测试通过。
