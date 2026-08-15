@@ -1,5 +1,5 @@
 import { WorkflowBuilderClient } from "@/features/workflows/workflow-builder-client";
-import { getWorkflowBuilderPageData } from "@/features/workflows/workflow-data";
+import { getWorkflowBuilderPageDataAsync } from "@/features/workflows/workflow-data";
 import type { WorkflowBuilderEntry } from "@/features/workflows/workflow-types";
 import { getWorkspacePageContext } from "../../_lib/workspace-page-context";
 
@@ -14,10 +14,10 @@ export default async function NewWorkflowPage({
 }) {
   const [{ workspaceSlug }, query] = await Promise.all([params, searchParams]);
   const context = await getWorkspacePageContext(workspaceSlug);
-  const data = getWorkflowBuilderPageData(context.currentWorkspace.id, undefined, {
+  const data = (await getWorkflowBuilderPageDataAsync(context.currentWorkspace.id, undefined, {
     userId: context.currentUser.id,
     displayName: context.currentUser.displayName,
-  })!;
+  }))!;
   return <WorkflowBuilderClient channels={data.channels} employees={data.employees} entry={normalizeEntry(query.entry)} members={data.members} ownerLabel={data.ownerLabel} workspaceSlug={workspaceSlug} />;
 }
 

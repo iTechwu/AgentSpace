@@ -72,6 +72,7 @@ export {
   listEmployeeSkillIdsMapSync,
   listEmployeeSkillIdsSync,
   listEmployeeRuntimeBindingsForWorkspaceSync,
+  listEmployeeRuntimeBindingsForWorkspaceAsync,
   assertRuntimeCanBindEmployeeSync,
   bindEmployeeRuntimeSync,
   unbindEmployeeRuntimeSync,
@@ -86,6 +87,7 @@ export {
   setEmployeeSkillIdsSync,
   listEmployeeSkillIdsByAgentIdMapSync,
 } from "./employees/employees.ts";
+export { listWorkspaceMembershipsAsync } from "./workspace-memberships.ts";
 export {
   promoteTaskOutputsToWorkspaceSync,
   promoteArtifactSync,
@@ -786,6 +788,7 @@ export {
 export {
   recordTaskExecutionEventSync,
   listTaskExecutionEventsSync,
+  listTaskExecutionEventsAsync,
   type TaskExecutionEventInput,
   type TaskExecutionEventListOptions,
   type TaskExecutionEventRecord,

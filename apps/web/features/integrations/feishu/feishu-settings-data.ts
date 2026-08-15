@@ -8,6 +8,7 @@ import {
   listExternalUserBindingsSync,
   listStoredChannelsSync,
   listWorkspaceMemberUsersSync,
+  readUserSync,
   type ExternalResourceBindingRecord,
   type WorkspaceRole,
 } from "@dofe-agent/db";
@@ -22,6 +23,7 @@ import {
   FEISHU_REQUIRED_CREDENTIAL_FIELDS,
   FEISHU_REQUIRED_EVENTS,
   listActiveEmployeesSync,
+  listWorkspaceMembershipsAsync,
   sanitizeFeishuOperationResponseSummary,
 } from "@dofe-agent/services";
 import { buildPublicAppUrl } from "@/features/auth/public-app-url";
@@ -407,6 +409,21 @@ export function listFeishuAvailableUsers(input: {
     primaryEmail: member.primaryEmail,
     role: member.role,
   }));
+}
+
+export async function listFeishuAvailableUsersAsync(input: {
+  workspaceId: string;
+}): Promise<FeishuAvailableUserItem[]> {
+  const memberships = await listWorkspaceMembershipsAsync(input.workspaceId);
+  return memberships.flatMap((membership) => {
+    const user = readUserSync(membership.userId);
+    return user ? [{
+      userId: user.id,
+      displayName: user.displayName,
+      primaryEmail: user.primaryEmail,
+      role: membership.role,
+    }] : [];
+  });
 }
 
 export function buildFeishuEventCallbackUrl(input: {

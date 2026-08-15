@@ -18,6 +18,7 @@ import {
 } from "@dofe-agent/db";
 import type { WorkflowRunRecord, WorkflowRunListCursor } from "@dofe-agent/db";
 import {
+  listEmployeeRuntimeBindingsForWorkspaceAsync,
   readWorkflowCutoverModeSync,
   readWorkspaceStateSnapshotSync,
   shouldReadLegacyWorkflowSources,
@@ -514,6 +515,28 @@ export function getWorkflowBuilderPageData(
       },
       ...(workflow.channelName ? { channelName: workflow.channelName } : {}),
     },
+  };
+}
+
+export async function getWorkflowBuilderPageDataAsync(
+  workspaceId: string,
+  workflowId?: string,
+  actor?: { userId: string; displayName: string },
+): Promise<WorkflowBuilderPageData | null> {
+  const data = getWorkflowBuilderPageData(workspaceId, workflowId, actor);
+  if (!data) {
+    return null;
+  }
+  const statusByEmployeeId = new Map(
+    (await listEmployeeRuntimeBindingsForWorkspaceAsync(workspaceId))
+      .map((binding) => [binding.employeeId, binding.status] as const),
+  );
+  return {
+    ...data,
+    employees: data.employees.map((employee) => ({
+      ...employee,
+      status: statusByEmployeeId.get(employee.id) ?? "unbound",
+    })),
   };
 }
 

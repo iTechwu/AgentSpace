@@ -11,7 +11,7 @@ import {
   canManageFeishuIntegrations,
   listFeishuAvailableAgents,
   listFeishuAvailableChannels,
-  listFeishuAvailableUsers,
+  listFeishuAvailableUsersAsync,
   listFeishuIntegrationSettingsItems,
 } from "@/features/integrations/feishu/feishu-settings-data";
 import {
@@ -96,7 +96,7 @@ export async function loadSettingsPageData(input: {
   const shouldLoadSessions = requestedSection === "security";
   const canManageIntegrations = canManageFeishuIntegrations(ssoDirectory.role);
   const feishuAvailableUsers = shouldLoadIntegrations
-    ? listFeishuAvailableUsers({ workspaceId })
+    ? (await listFeishuAvailableUsersAsync({ workspaceId }))
       .filter((user) => canManageIntegrations || user.userId === input.currentUser.id)
     : [];
 

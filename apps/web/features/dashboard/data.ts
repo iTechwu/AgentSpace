@@ -23,6 +23,7 @@ import {
   listDocumentAgentAccessSync,
   listDocumentPermissionRequestsSync,
   listEmployeeSkillIdsByAgentIdMapSync,
+  listTaskExecutionEventsAsync,
   listKnowledgeAssignmentPoliciesSync,
   listKnowledgeAssignmentsSync,
   listManagedRuntimesForWorkspaceSync,
@@ -787,37 +788,82 @@ export async function getInboxPageDataAsync(
   currentUser?: DashboardCurrentUser,
 ): Promise<InboxPageData> {
   const syncData = getInboxPageData(workspaceId, currentUser);
+  const dataWithAuthoritativeTimelines = replaceInboxExecutionTimelinesAsync(syncData, workspaceId);
   if (!currentUser?.id) {
-    return syncData;
+    return dataWithAuthoritativeTimelines;
   }
 
   const state = readWorkspaceStateCached(workspaceId);
   const ownedAgentNames = state.activeEmployees
     .filter((employee) => employee.ownerUserId === currentUser.id)
     .map((employee) => employee.name);
-  const notifications = [
-    ...await listNotificationsForRecipientAsync({
-      workspaceId,
-      recipientType: "human",
-      recipientId: currentUser.id,
-      includeArchived: false,
-      limit: 100,
-    }),
-    ...await Promise.all(ownedAgentNames.map((agentName) =>
+  const [currentData, notificationGroups] = await Promise.all([
+    dataWithAuthoritativeTimelines,
+    Promise.all([
       listNotificationsForRecipientAsync({
+        workspaceId,
+        recipientType: "human",
+        recipientId: currentUser.id,
+        includeArchived: false,
+        limit: 100,
+      }),
+      ...ownedAgentNames.map((agentName) => listNotificationsForRecipientAsync({
         workspaceId,
         recipientType: "agent",
         recipientId: agentName,
         includeArchived: false,
         limit: 50,
-      }),
-    )).then((records) => records.flat()),
-  ].sort((left, right) => {
+      })),
+    ]),
+  ]);
+  const notifications = notificationGroups.flat();
+  notifications.sort((left, right) => {
     const byTime = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
     return byTime || right.id.localeCompare(left.id);
   });
   const notificationItems = buildNotificationInboxItemsFromRecords(notifications);
-  return replaceInboxNotificationItems(syncData, notificationItems);
+  return replaceInboxNotificationItems(currentData, notificationItems);
+}
+
+async function replaceInboxExecutionTimelinesAsync(
+  current: InboxPageData,
+  workspaceId: string,
+): Promise<InboxPageData> {
+  const queueIds = Array.from(new Set(current.items
+    .map((item) => item.execution?.queueId.trim())
+    .filter((queueId): queueId is string => Boolean(queueId))));
+  if (queueIds.length === 0) {
+    return current;
+  }
+  const timelines = new Map(await Promise.all(queueIds.map(async (queueId) => [
+    queueId,
+    (await listTaskExecutionEventsAsync({
+      workspaceId,
+      taskId: queueId,
+      limit: 80,
+      order: "asc",
+    })).map(mapTaskExecutionTimelineEntry),
+  ] as const)));
+  return {
+    ...current,
+    items: current.items.map((item) => {
+      if (!item.execution?.queueId) {
+        return item;
+      }
+      const timeline = timelines.get(item.execution.queueId);
+      if (!timeline) {
+        return item;
+      }
+      return {
+        ...item,
+        execution: {
+          ...item.execution,
+          currentEvent: timeline.at(-1),
+          timeline,
+        },
+      };
+    }),
+  };
 }
 
 export function replaceInboxNotificationItems(

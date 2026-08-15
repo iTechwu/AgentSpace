@@ -1,4 +1,5 @@
 import {
+  listTaskExecutionEventsPrismaCutover,
   listTaskExecutionEventsSync as listDbTaskExecutionEventsSync,
   recordTaskExecutionEventSync as recordDbTaskExecutionEventSync,
   type TaskExecutionEventInput,
@@ -23,6 +24,12 @@ export function listTaskExecutionEventsSync(
   options: TaskExecutionEventListOptions = {},
 ): TaskExecutionEventRecord[] {
   return listDbTaskExecutionEventsSync(options);
+}
+
+export function listTaskExecutionEventsAsync(
+  options: TaskExecutionEventListOptions = {},
+): Promise<TaskExecutionEventRecord[]> {
+  return listTaskExecutionEventsPrismaCutover(options);
 }
 
 export type { TaskExecutionEventInput, TaskExecutionEventListOptions, TaskExecutionEventRecord };

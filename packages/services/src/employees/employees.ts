@@ -9,6 +9,7 @@ import {
   deleteEmployeeExecutionStateSync,
   listStoredAgentSkillAssignmentsSync,
   getDatabase,
+  listEmployeeRuntimeBindingsPrismaCutover,
   listEmployeeRuntimeBindingsSync,
   readAgentRuntimeSync,
   readEmployeeRuntimeBindingSync,
@@ -51,6 +52,12 @@ export function listEmployeeRuntimeBindingsForWorkspaceSync(
   workspaceId?: string,
 ): ReturnType<typeof listEmployeeRuntimeBindingsSync> {
   return listEmployeeRuntimeBindingsSync(workspaceId);
+}
+
+export function listEmployeeRuntimeBindingsForWorkspaceAsync(
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): ReturnType<typeof listEmployeeRuntimeBindingsPrismaCutover> {
+  return listEmployeeRuntimeBindingsPrismaCutover(workspaceId);
 }
 
 export function listEmployeeSkillIdsMapSync(workspaceId?: string): Map<string, string[]> {
