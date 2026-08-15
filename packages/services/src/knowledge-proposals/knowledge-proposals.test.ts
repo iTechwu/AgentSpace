@@ -9,6 +9,7 @@ import {
   createUserSync,
   createWorkspaceMembershipSync,
   enqueueNativeTaskSync,
+  disconnectDofePrismaClient,
   loadRepositoryEnvIntoProcess,
   listTaskExecutionEventsSync,
   listWorkspaceNotificationsForRecipientSync,
@@ -20,6 +21,7 @@ import {
   createKnowledgePageSync,
   createKnowledgeProposalFromAgentSync,
   listEmployeeKnowledgePageIdsSync,
+  listKnowledgeProposalsForWorkspace,
   readWorkspaceStateSync,
   rejectKnowledgeProposalForActorSync,
   readKnowledgeProposalSync,
@@ -69,6 +71,31 @@ test("agent knowledge proposal creates pending approval without writing a knowle
   assert.equal(state.approvals[0]?.type, "knowledge_proposal");
   assert.equal(state.approvals[0]?.metadata?.proposalId, proposal.id);
   assert.equal(notifications.some((notification) => notification.type === "knowledge.proposal_requested"), true);
+});
+
+test("knowledge proposal async service entry reads a non-empty Prisma fixture", async () => {
+  const fixture = seedProposalWorkspace("prisma-read");
+  const proposal = createKnowledgeProposalFromAgentSync({
+    workspaceId: fixture.workspaceId,
+    sourceTaskQueueId: fixture.queued.id,
+    sourceAgentName: "Atlas",
+    operation: "create",
+    title: "Prisma proposal",
+    contentMarkdown: "# Prisma proposal",
+  });
+  const previous = process.env.KNOWLEDGE_PROPOSALS_PRISMA_READ_ENABLED;
+  process.env.KNOWLEDGE_PROPOSALS_PRISMA_READ_ENABLED = "1";
+  try {
+    const proposals = await listKnowledgeProposalsForWorkspace({
+      workspaceId: fixture.workspaceId,
+      statuses: ["pending"],
+    });
+    assert.deepEqual(proposals.map((candidate) => candidate.id), [proposal.id]);
+  } finally {
+    if (previous === undefined) delete process.env.KNOWLEDGE_PROPOSALS_PRISMA_READ_ENABLED;
+    else process.env.KNOWLEDGE_PROPOSALS_PRISMA_READ_ENABLED = previous;
+    await disconnectDofePrismaClient();
+  }
 });
 
 test("approving create proposal writes knowledge page and selected assignment", () => {

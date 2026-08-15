@@ -153,7 +153,7 @@ test("listQueuedTasksPrismaCutover uses Prisma primary when flag is on", async (
   assert.equal(result[0]!.id, "task-prisma-mock");
   assert.deepEqual(findManyArgs, {
     where: {},
-    orderBy: [{ createdAt: "asc" }],
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "primary");

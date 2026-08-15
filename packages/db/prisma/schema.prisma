@@ -215,3 +215,28 @@ model DocumentAgentAccess {
 
   @@map("document_agent_access")
 }
+
+model DocumentPermissionRequest {
+  id                      String    @id
+  workspaceId             String    @map("workspace_id")
+  documentId              String?   @map("document_id")
+  /// DocumentPermissionRequestExternalProvider: notion|microsoft_365.
+  externalProvider        String?   @map("external_provider")
+  externalFileId          String?   @map("external_file_id")
+  externalUrl             String?   @map("external_url")
+  /// DocumentAgentAccessRole: viewer|commenter|editor|owner.
+  requestedRole           String    @map("requested_role")
+  requestedByAgentName    String    @map("requested_by_agent_name")
+  requestedForChannelName String?   @map("requested_for_channel_name")
+  triggeredByUserId       String?   @map("triggered_by_user_id")
+  reason                  String
+  /// DocumentPermissionRequestStatus: pending|approved|rejected|cancelled.
+  status                  String    @default("pending")
+  decidedByUserId         String?   @map("decided_by_user_id")
+  decisionNote            String?   @map("decision_note")
+  sourceTaskId            String?   @map("source_task_id")
+  createdAt               DateTime  @map("created_at") @db.Timestamptz(6)
+  decidedAt               DateTime? @map("decided_at") @db.Timestamptz(6)
+
+  @@map("document_permission_request")
+}

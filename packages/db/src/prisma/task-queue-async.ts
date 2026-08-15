@@ -43,7 +43,7 @@ export async function listQueuedTasksAsync(options?: {
                      finished_at, mcp_session_claimed_at, created_at, updated_at
               FROM agent_task_queue
               ${whereClause}
-              ORDER BY queued_at ASC, id ASC`;
+              ORDER BY created_at ASC, id ASC`;
 
   const client = new Client({ connectionString: resolvePostgresDatabaseUrl() });
   try {

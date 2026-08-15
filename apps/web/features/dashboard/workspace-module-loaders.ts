@@ -27,7 +27,7 @@ import {
   getKnowledgePageData,
   getOrgChartPageData,
   getPerformancePageData,
-  getSkillsPageData,
+  getSkillsPageDataAsync,
   getTaskBoardPageData,
   getTemplatesPageData,
 } from "@/features/dashboard/data";
@@ -241,7 +241,7 @@ async function loadWorkspaceModuleDataUncached(
     case "skills":
       return {
         moduleId,
-        data: getSkillsPageData(workspaceId, viewer?.role),
+        data: await getSkillsPageDataAsync(workspaceId, viewer?.role),
       };
     case "tables":
       return {

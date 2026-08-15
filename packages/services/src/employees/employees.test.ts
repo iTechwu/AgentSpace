@@ -3,7 +3,11 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
-import { getDatabase } from "@dofe-agent/db";
+import {
+  disconnectDofePrismaClient,
+  enqueueNativeTaskSync,
+  getDatabase,
+} from "@dofe-agent/db";
 import {
   registerDaemonRuntimesSync,
   updateAgentRuntimeManagedFieldsSync,
@@ -12,7 +16,9 @@ import {
   bindEmployeeRuntimeSync,
   createEmployeeSync,
   createWorkspaceSkillSync,
+  getPerformanceDashboardData,
   initializeOrganizationSync,
+  listEmployeeSkillIdsByAgentIdMap,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   setEmployeeSkillIdsSync,
@@ -67,6 +73,48 @@ function createManagedRuntime(provider: "claude" | "codex") {
   });
   return runtimeId;
 }
+
+test("Prisma async service entries read non-empty task and skill fixtures", async () => {
+  process.env.DOFE_AGENT_RUNTIME_MODE = "local";
+  const runtimeId = createManagedRuntime("codex");
+  const skill = createWorkspaceSkillSync({
+    name: "prisma-pilot-skill",
+    description: "Prisma pilot fixture",
+  }, WORKSPACE_ID);
+  createEmployeeSync({ name: "Atlas", role: "Planner" }, WORKSPACE_ID);
+  setEmployeeSkillIdsSync("Atlas", [skill.id], WORKSPACE_ID);
+  bindEmployeeRuntimeSync("Atlas", runtimeId, WORKSPACE_ID, TEST_USER_ID);
+  const task = enqueueNativeTaskSync({
+    workspaceId: WORKSPACE_ID,
+    assignee: "Atlas",
+    title: "Prisma pilot task",
+    channel: "general",
+    priority: "medium",
+  });
+  assert.ok(task);
+  const employee = readWorkspaceStateSync(WORKSPACE_ID).activeEmployees
+    .find((candidate) => candidate.name === "Atlas");
+  assert.ok(employee);
+  const previousTaskFlag = process.env.TASK_QUEUE_PRISMA_READ_ENABLED;
+  const previousSkillFlag = process.env.AGENT_SKILLS_PRISMA_READ_ENABLED;
+  process.env.TASK_QUEUE_PRISMA_READ_ENABLED = "1";
+  process.env.AGENT_SKILLS_PRISMA_READ_ENABLED = "1";
+
+  try {
+    const [performance, skillIdsByAgentId] = await Promise.all([
+      getPerformanceDashboardData(WORKSPACE_ID),
+      listEmployeeSkillIdsByAgentIdMap(WORKSPACE_ID),
+    ]);
+    assert.equal(performance.totalTasks, 1);
+    assert.deepEqual(skillIdsByAgentId.get(employee.id), [skill.id]);
+  } finally {
+    if (previousTaskFlag === undefined) delete process.env.TASK_QUEUE_PRISMA_READ_ENABLED;
+    else process.env.TASK_QUEUE_PRISMA_READ_ENABLED = previousTaskFlag;
+    if (previousSkillFlag === undefined) delete process.env.AGENT_SKILLS_PRISMA_READ_ENABLED;
+    else process.env.AGENT_SKILLS_PRISMA_READ_ENABLED = previousSkillFlag;
+    await disconnectDofePrismaClient();
+  }
+});
 
 test("bindEmployeeRuntimeSync rejects binding a managed runtime whose credential key is declared by an assigned skill", () => {
   process.env.DOFE_AGENT_RUNTIME_MODE = "remote";

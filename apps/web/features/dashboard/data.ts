@@ -2008,9 +2008,31 @@ export function listRuntimeProvisionRequestViews(workspaceId = DEFAULT_WORKSPACE
 }
 
 export function getSkillsPageData(workspaceId = DEFAULT_WORKSPACE_ID, currentMembershipRole?: WorkspaceRole): SkillsPageData {
+  return buildSkillsPageData(
+    workspaceId,
+    currentMembershipRole,
+    listEmployeeSkillIdsByAgentIdMapSync(workspaceId),
+  );
+}
+
+export async function getSkillsPageDataAsync(
+  workspaceId = DEFAULT_WORKSPACE_ID,
+  currentMembershipRole?: WorkspaceRole,
+): Promise<SkillsPageData> {
+  return buildSkillsPageData(
+    workspaceId,
+    currentMembershipRole,
+    await listEmployeeSkillIdsByAgentIdMap(workspaceId),
+  );
+}
+
+function buildSkillsPageData(
+  workspaceId: string,
+  currentMembershipRole: WorkspaceRole | undefined,
+  skillIdsByAgentId: Map<string, string[]>,
+): SkillsPageData {
   const state = readWorkspaceStateCached(workspaceId);
   const workspaceSkills = listWorkspaceSkillsCached(workspaceId);
-  const skillIdsByAgentId = listEmployeeSkillIdsByAgentIdMapSync(workspaceId);
   const assignedSkillCount = Array.from(skillIdsByAgentId.values()).reduce((sum, skillIds) => sum + skillIds.length, 0);
   const recentImports = listStoredSkillImportEventsCached(workspaceId, 12).map((event) => ({
     id: event.id,

@@ -1,5 +1,5 @@
 // agent-skill Phase 2 真 Prisma Client primary：listAgentSkillAssignmentsPrisma
-// 通过 prisma.agentSkill.findMany 查询；复用 prisma-client.ts 共享单例。
+// 通过参数化 raw query 保持 LOWER(employee_name) 排序；复用 prisma-client.ts 共享单例。
 //
 // 注意 agent_skill 表的 PK 是 (workspace_id, employee_id, skill_id)，但 sync
 // path 把 employeeId 作为记录身份（agentId 是 employeeId 的别名）；这里按

@@ -11,6 +11,7 @@ import {
   createUserSync,
   createWorkspaceMembershipSync,
   createWorkspaceSync,
+  disconnectDofePrismaClient,
   getDatabase,
   grantRuntimeUseToUserSync,
   registerDaemonRuntimesSync,
@@ -25,6 +26,7 @@ import {
   createWorkspaceSkillSync,
   grantDocumentAgentAccessSync,
   getPermissionDiagnosticsSync,
+  getWorkspacePermissionCenter,
   getWorkspacePermissionCenterSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
@@ -363,6 +365,41 @@ test("permission center exposes document agent grants and requests for review", 
       permission.status === "pending"
     )
   ));
+});
+
+test("permission center async entry reads non-empty document grants through Prisma", async () => {
+  const fixtures = seedPermissionWorkspace();
+  const document = readWorkspaceStateSync(fixtures.workspace.id).channelDocuments
+    .find((item) => item.title === "Trip notes");
+  assert.ok(document);
+  grantDocumentAgentAccessSync({
+    workspaceId: fixtures.workspace.id,
+    documentId: document.id,
+    agentName: "Atlas",
+    role: "forwarder",
+    grantedByUserId: fixtures.owner.id,
+  });
+  const previous = process.env.DOCUMENT_AGENT_ACCESS_PRISMA_READ_ENABLED;
+  process.env.DOCUMENT_AGENT_ACCESS_PRISMA_READ_ENABLED = "1";
+  try {
+    const center = await getWorkspacePermissionCenter({
+      workspaceId: fixtures.workspace.id,
+      actor: {
+        userId: fixtures.owner.id,
+        displayName: fixtures.owner.displayName,
+        role: "owner",
+      },
+    });
+    const documentNode = flattenPermissionTree(center.tree)
+      .find((node) => node.id === `document:${document.id}`);
+    assert.ok(documentNode?.bindings.some((binding) =>
+      binding.subjectId === "Atlas" && binding.permission === "forwarder"
+    ));
+  } finally {
+    if (previous === undefined) delete process.env.DOCUMENT_AGENT_ACCESS_PRISMA_READ_ENABLED;
+    else process.env.DOCUMENT_AGENT_ACCESS_PRISMA_READ_ENABLED = previous;
+    await disconnectDofePrismaClient();
+  }
 });
 
 test("workspace owners can review document permission requests", () => {

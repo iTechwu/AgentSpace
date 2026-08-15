@@ -179,7 +179,7 @@ export function listQueuedTasksSync(options?: {
         updated_at AS updatedAt
       FROM agent_task_queue
       ${whereClause}
-      ORDER BY created_at ASC`,
+      ORDER BY created_at ASC, id ASC`,
     )
     .all(...params) as Array<Record<string, unknown>>;
 
