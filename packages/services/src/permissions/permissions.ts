@@ -7,6 +7,7 @@ import {
 } from "../knowledge/assignments.ts";
 import {
   buildPermissionContext,
+  buildPermissionContextAsync,
 } from "./permission-context.ts";
 import {
   attachDiagnostics,
@@ -51,7 +52,23 @@ export function getWorkspacePermissionCenterSync(input: {
   workspaceId: string;
   actor: PermissionCenterActorInput;
 }): PermissionCenterData {
-  const context = buildPermissionContext(input);
+  return buildWorkspacePermissionCenter(input, buildPermissionContext(input));
+}
+
+export async function getWorkspacePermissionCenter(input: {
+  workspaceId: string;
+  actor: PermissionCenterActorInput;
+}): Promise<PermissionCenterData> {
+  return buildWorkspacePermissionCenter(input, await buildPermissionContextAsync(input));
+}
+
+function buildWorkspacePermissionCenter(
+  input: {
+    workspaceId: string;
+    actor: PermissionCenterActorInput;
+  },
+  context: PermissionBuildContext,
+): PermissionCenterData {
   const diagnostics = buildPermissionDiagnostics(input, context);
   const tree = buildWorkspacePermissionTree(input, context, diagnostics);
   const actors = getWorkspaceActorPermissionSummarySync({

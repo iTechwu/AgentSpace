@@ -6,6 +6,7 @@ import {
   listChannelInvitationsSync,
   listDaemonSnapshotsSync,
   listDocumentAgentAccessSync,
+  listDocumentAgentAccessPrismaCutover,
   listDocumentPermissionRequestsSync,
   listEmployeeRuntimeBindingsSync,
   listRuntimeGrantsSync,
@@ -13,6 +14,7 @@ import {
   listWorkspaceChannelParticipantsSync,
   listWorkspaceMemberUsersSync,
   listWorkspaceRuntimeDisplayNamesSync,
+  type DocumentAgentAccessRecord,
 } from "@dofe-agent/db";
 import type {
   ActiveEmployee,
@@ -42,6 +44,29 @@ export function buildPermissionContext(input: {
   workspaceId: string;
   actor: PermissionCenterActorInput;
 }): PermissionBuildContext {
+  return buildPermissionContextWithDocumentAccess(
+    input,
+    listDocumentAgentAccessSync({ workspaceId: input.workspaceId }),
+  );
+}
+
+export async function buildPermissionContextAsync(input: {
+  workspaceId: string;
+  actor: PermissionCenterActorInput;
+}): Promise<PermissionBuildContext> {
+  return buildPermissionContextWithDocumentAccess(
+    input,
+    await listDocumentAgentAccessPrismaCutover({ workspaceId: input.workspaceId }),
+  );
+}
+
+function buildPermissionContextWithDocumentAccess(
+  input: {
+    workspaceId: string;
+    actor: PermissionCenterActorInput;
+  },
+  documentAgentAccesses: DocumentAgentAccessRecord[],
+): PermissionBuildContext {
   const state = ensureWorkspaceStateSync(input.workspaceId);
   const members = listWorkspaceMemberUsersSync(input.workspaceId).map((member) => ({
     userId: member.userId,
@@ -111,9 +136,6 @@ export function buildPermissionContext(input: {
     }),
     (invitation) => invitation.channelName,
   );
-  const documentAgentAccesses = listDocumentAgentAccessSync({
-    workspaceId: input.workspaceId,
-  });
   const documentPermissionRequests = listDocumentPermissionRequestsSync({
     workspaceId: input.workspaceId,
   });

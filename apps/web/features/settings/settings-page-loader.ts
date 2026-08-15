@@ -3,7 +3,7 @@ import {
   readAuthIdentityForUserSync,
   type WorkspaceRole,
 } from "@dofe-agent/db";
-import { getWorkspacePermissionCenterSync, resolveAgentRuntimeMode } from "@dofe-agent/services";
+import { getWorkspacePermissionCenter, resolveAgentRuntimeMode } from "@dofe-agent/services";
 import { loadSsoWorkspaceDirectory } from "@/features/auth/sso-directory";
 import { readPublicAppUrl } from "@/features/auth/public-app-url";
 import {
@@ -127,7 +127,7 @@ export async function loadSettingsPageData(input: {
       })
       : [],
     permissions: shouldLoadPermissions
-      ? getWorkspacePermissionCenterSync({
+      ? await getWorkspacePermissionCenter({
         workspaceId,
         actor: {
           userId: input.currentUser.id,

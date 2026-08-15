@@ -1373,6 +1373,7 @@ export {
 
 // Permissions
 export {
+  getWorkspacePermissionCenter,
   getWorkspacePermissionCenterSync,
   getWorkspacePermissionTreeSync,
   getWorkspaceActorPermissionSummarySync,
