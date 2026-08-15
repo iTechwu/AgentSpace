@@ -26,10 +26,9 @@ export type { ReadCutoverMetric };
 /**
  * Write cutover semantics (different from read):
  * - Primary returns successfully → return primary result, no fallback call.
- * - Primary throws → run fallback. If fallback throws too, surface the primary
- *   error (write-side caller already saw it implicitly via the fallback attempt).
- * - The metric source distinguishes primary success / primary failure +
- *   fallback success / primary + fallback both failure paths.
+ * - Primary throws → surface the primary error without invoking fallback.
+ *   The primary may have committed before the transport failed, so retrying a
+ *   non-idempotent legacy write here can create a duplicate record.
  */
 export interface DomainWriteCutoverConfig<T, TMetric extends ReadCutoverMetric = ReadCutoverMetric> {
   isEnabled: () => boolean;
@@ -59,15 +58,14 @@ export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutove
     } as TMetric);
     return result;
   } catch (primaryError) {
-    const fallbackResult = await config.runFallback();
     config.emitMetric?.({
-      source: "fallback",
+      source: "primary",
       mismatch: 0,
       durationMs: Date.now() - start,
       error: primaryError instanceof Error ? primaryError.message : String(primaryError),
-      fallbackInvoked: 1,
+      fallbackInvoked: 0,
     } as TMetric);
-    return fallbackResult;
+    throw primaryError;
   }
 }
 

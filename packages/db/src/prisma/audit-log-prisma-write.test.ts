@@ -1,8 +1,8 @@
 // Unit tests for the audit-log Prisma write cutover runner.
 //
 // Validates the buildDomainWriteCutover semantics: primary success returns
-// primary result; primary throws falls back to sync; sync fallback also throws
-// surfaces the original primary error.
+// primary result; an ambiguous primary failure is surfaced without a second
+// non-idempotent insert.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -117,7 +117,7 @@ test("createAuditLogPrismaCutover uses Prisma primary when flag is on", async ()
   }
 });
 
-test("createAuditLogPrismaCutover falls back to sync when Prisma primary throws", async () => {
+test("createAuditLogPrismaCutover does not duplicate a write when Prisma primary throws", async () => {
   resetFlags();
   process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED = "1";
 
@@ -129,24 +129,19 @@ test("createAuditLogPrismaCutover falls back to sync when Prisma primary throws"
   );
   try {
     const metrics: CreateAuditLogPrismaCutoverMetric[] = [];
-    const record = await createAuditLogPrismaCutover(
-      {
+    await assert.rejects(
+      createAuditLogPrismaCutover({
         workspaceId: "default",
-        title: "write cutover fallback",
-        note: "should fall back to sync",
+        title: "write cutover fail closed",
+        note: "must not fall back to sync",
         source: "runtime_lifecycle",
-        data: { path: "fallback" },
-      },
-      (metric) => metrics.push(metric),
+        data: { path: "fail-closed" },
+      }, (metric) => metrics.push(metric)),
+      /prisma write unreachable/,
     );
-    assert.equal(record.title, "write cutover fallback");
-    // Sync fallback wrote the row; read-back must succeed.
-    const fromDb = readAuditLogSync(record.id, "default");
-    assert.ok(fromDb);
-    assert.equal(fromDb!.title, "write cutover fallback");
     assert.equal(metrics.length, 1);
-    assert.equal(metrics[0]!.source, "fallback");
-    assert.equal(metrics[0]!.fallbackInvoked, 1);
+    assert.equal(metrics[0]!.source, "primary");
+    assert.equal(metrics[0]!.fallbackInvoked, 0);
     assert.ok(metrics[0]!.error?.includes("prisma write unreachable"));
   } finally {
     setAuditLogPrismaClientForTests(null);

@@ -2,9 +2,9 @@
 // @prisma/client 的 prisma.auditLog.create 插入行；createAuditLogPrismaCutover
 // 通过 buildDomainWriteCutover 工厂接线：
 // - Flag OFF  → 直接走 sync recordAuditLogSync（与 cut 1 前一致）
-// - Flag ON   → 走 Prisma primary；primary 抛错时 fallback 到 sync
+// - Flag ON   → 走 Prisma primary；primary 抛错时 fail closed
 // - 写语义与读 cutover 区别：primary 成功即返回（不并行 dual-write）；
-//   仅 primary 失败才调 fallback 兜底，避免双写数据漂移。
+//   primary 的事务结果不明确时禁止 legacy 重写，避免重复审计。
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { recordAuditLogSync } from "../audit-log.ts";
@@ -29,9 +29,6 @@ export interface CreateAuditLogInput {
   source?: AuditLogSource;
   data?: Record<string, unknown>;
 }
-
-let _cachedClientWrite: unknown = null;
-void _cachedClientWrite;
 
 export function isAuditLogPrismaWriteEnabled(): boolean {
   return process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED === "1";
@@ -96,8 +93,8 @@ const createAuditLogPrismaCutoverImpl = buildDomainWriteCutover<
 });
 
 /**
- * Write cutover for audit-log: tries Prisma primary when flag is on,
- * otherwise / on primary failure falls back to the legacy sync insert.
+ * Write cutover for audit-log: uses Prisma primary when the flag is on and
+ * propagates ambiguous primary failures without attempting a second insert.
  */
 export function createAuditLogPrismaCutover(
   input: CreateAuditLogInput,
