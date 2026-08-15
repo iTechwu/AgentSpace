@@ -638,6 +638,22 @@ export {
   approveSkillInstallSync,
 } from "./skills/install-approval.ts";
 export {
+  SKILL_ROLLOUT_POLICY_VERSION,
+  planSkillRollout,
+  resolveSkillDependencyClosureSync,
+  lockSkillDependencyDigestSync,
+  computeSkillRolloutTargetRuntimesSync,
+  buildSkillRolloutItemsSync,
+  aggregateSkillRolloutRiskSync,
+  computeSkillRolloutPlanDigestSync,
+  versionSatisfies,
+  type SkillRolloutTargetScope,
+  type SkillRolloutPlan,
+  type SkillRolloutClosureEntry,
+  type SkillRolloutItem,
+  type SkillRolloutRiskSummary,
+} from "./skills/rollout.ts";
+export {
   resolveSkillMcpCapabilitySync,
   resolveSkillCliCapabilitySync,
   evaluateSkillInstallationCapabilitiesSync,
