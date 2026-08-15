@@ -1311,6 +1311,7 @@ export {
 
 // Performance
 export {
+  getPerformanceDashboardData,
   getPerformanceDashboardDataSync,
   type AgentPerformanceMetrics,
   type PerformanceDashboardData,

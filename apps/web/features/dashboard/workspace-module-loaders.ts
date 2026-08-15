@@ -231,7 +231,7 @@ async function loadWorkspaceModuleDataUncached(
     case "performance":
       return {
         moduleId,
-        data: getPerformancePageData(workspaceId),
+        data: await getPerformancePageData(workspaceId),
       };
     case "settings":
       return {

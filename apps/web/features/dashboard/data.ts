@@ -13,7 +13,7 @@ import {
   getChannelAccessSummaryForActorSync,
   getCostDashboardDataAsync,
   getCostDashboardDataSync,
-  getPerformanceDashboardDataSync,
+  getPerformanceDashboardData,
   inferAttachmentKind,
   isSystemSkillName,
   listAgentAccessRequestsForActorSync,
@@ -249,7 +249,7 @@ const listStoredSkillImportEventsCached = cache((workspaceId: string, limit: num
 const getCostDashboardDataCached = cache((period: BudgetPeriod, workspaceId: string) => getCostDashboardDataSync(period, workspaceId));
 const getAuthoritativeCostDashboardDataCached = cache((period: BudgetPeriod, workspaceId: string) => getCostDashboardDataAsync(period, workspaceId));
 const listBudgetsWithSpentCached = cache((workspaceId: string) => listBudgetsWithSpentSync(workspaceId));
-const getPerformanceDashboardDataCached = cache((workspaceId: string) => getPerformanceDashboardDataSync(workspaceId));
+const getPerformanceDashboardDataCached = cache((workspaceId: string) => getPerformanceDashboardData(workspaceId));
 const INBOX_TASK_ITEM_LIMIT = 60;
 const TASK_BOARD_TASK_LIMIT = 180;
 const AGENT_TASK_PREVIEW_LIMIT = 12;
@@ -3463,7 +3463,7 @@ function buildAgentKnowledgePageRecord(
 
 // ── Performance ──
 
-export function getPerformancePageData(workspaceId = DEFAULT_WORKSPACE_ID): PerformanceDashboardData {
+export function getPerformancePageData(workspaceId = DEFAULT_WORKSPACE_ID): Promise<PerformanceDashboardData> {
   return getPerformanceDashboardDataCached(workspaceId);
 }
 

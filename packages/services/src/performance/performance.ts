@@ -1,6 +1,6 @@
-import { listQueuedTasksSync } from "@dofe-agent/db";
+import { listQueuedTasksPrismaCutover, listQueuedTasksSync } from "@dofe-agent/db";
 import type { QueuedTaskRecord } from "@dofe-agent/db";
-import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
+import type { ActiveEmployee, DofeAgentState } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 
 export interface AgentPerformanceMetrics {
@@ -31,6 +31,24 @@ export function getPerformanceDashboardDataSync(workspaceId?: string): Performan
   const state = ensureWorkspaceStateSync(workspaceId);
   const queuedTasks = listQueuedTasksSync({ workspaceId });
 
+  return buildPerformanceDashboardData(state, queuedTasks);
+}
+
+export async function getPerformanceDashboardData(
+  workspaceId?: string,
+): Promise<PerformanceDashboardData> {
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const queuedTasks = await listQueuedTasksPrismaCutover({ workspaceId });
+
+  return buildPerformanceDashboardData(state, queuedTasks);
+}
+
+function buildPerformanceDashboardData(
+  state: DofeAgentState,
+  queuedTasks: QueuedTaskRecord[],
+): PerformanceDashboardData {
+  const activeEmployees = state.activeEmployees;
+
   const tasksByAgent = new Map<string, QueuedTaskRecord[]>();
   for (const task of queuedTasks) {
     const list = tasksByAgent.get(task.employeeId) ?? [];
@@ -38,7 +56,7 @@ export function getPerformanceDashboardDataSync(workspaceId?: string): Performan
     tasksByAgent.set(task.employeeId, list);
   }
 
-  const employeeIdByName = new Map(state.activeEmployees.map((employee) => [employee.name, employee.id]));
+  const employeeIdByName = new Map(activeEmployees.map((employee) => [employee.name, employee.id]));
   const approvalsByAgent = new Map<string, { approved: number; rejected: number }>();
   for (const approval of state.approvals ?? []) {
     const approvalEmployeeId = employeeIdByName.get(approval.agentId) ?? approval.agentId;
@@ -51,7 +69,7 @@ export function getPerformanceDashboardDataSync(workspaceId?: string): Performan
     approvalsByAgent.set(approvalEmployeeId, entry);
   }
 
-  const employeeEntries: Array<[string, ActiveEmployee]> = state.activeEmployees.map((employee: ActiveEmployee) => [
+  const employeeEntries: Array<[string, ActiveEmployee]> = activeEmployees.map((employee: ActiveEmployee) => [
     employee.id,
     employee,
   ]);
@@ -61,7 +79,7 @@ export function getPerformanceDashboardDataSync(workspaceId?: string): Performan
   for (const task of queuedTasks) {
     agentIds.add(task.employeeId);
   }
-  for (const employee of state.activeEmployees) {
+  for (const employee of activeEmployees) {
     agentIds.add(employee.id);
   }
 
