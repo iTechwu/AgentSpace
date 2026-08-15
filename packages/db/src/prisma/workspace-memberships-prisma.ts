@@ -12,6 +12,13 @@ function getPrismaClient(): PrismaClient {
   return cachedClient;
 }
 
+/**
+ * Override the cached PrismaClient (test/seed path). Pass null to clear.
+ */
+export function setWorkspaceMembershipsPrismaClientForTests(client: PrismaClient | null): void {
+  cachedClient = client;
+}
+
 interface PrismaMembership {
   id: string;
   workspaceId: string;
@@ -24,8 +31,9 @@ interface PrismaMembership {
 
 export async function listWorkspaceMembershipsPrisma(
   workspaceId: string,
+  client?: PrismaClient,
 ): Promise<StoredWorkspaceMembershipRecord[]> {
-  const prisma = getPrismaClient();
+  const prisma = client ?? getPrismaClient();
   const rows = await prisma.workspaceMembership.findMany({
     where: { workspaceId, status: "active" },
     orderBy: { joinedAt: "asc" },

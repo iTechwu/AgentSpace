@@ -13,6 +13,13 @@ function getPrismaClient(): PrismaClient {
   return cachedClient;
 }
 
+/**
+ * Override the cached PrismaClient (test/seed path). Pass null to clear.
+ */
+export function setTaskExecutionEventsPrismaClientForTests(client: PrismaClient | null): void {
+  cachedClient = client;
+}
+
 interface PrismaTaskEvent {
   id: string;
   workspaceId: string | null;
@@ -32,8 +39,9 @@ interface PrismaTaskEvent {
 
 export async function listTaskExecutionEventsPrisma(
   options: TaskExecutionEventListOptions = {},
+  client?: PrismaClient,
 ): Promise<TaskExecutionEventRecord[]> {
-  const prisma = getPrismaClient();
+  const prisma = client ?? getPrismaClient();
   const where: Record<string, unknown> = {};
   if (typeof options.workspaceId === "string") where.workspaceId = options.workspaceId;
   if (typeof options.taskId === "string") where.taskId = options.taskId;

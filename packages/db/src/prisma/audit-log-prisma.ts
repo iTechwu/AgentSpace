@@ -29,11 +29,18 @@ function getPrismaClient(): PrismaClient {
   return cachedClient;
 }
 
+/**
+ * Override the cached PrismaClient (test/seed path). Pass null to clear.
+ */
+export function setAuditLogPrismaClientForTests(client: PrismaClient | null): void {
+  cachedClient = client;
+}
+
 export async function readAuditLogPrisma(input: {
   id: string;
   workspaceId?: string;
-}): Promise<AuditLogRecord | null> {
-  const prisma = getPrismaClient();
+}, client?: PrismaClient): Promise<AuditLogRecord | null> {
+  const prisma = client ?? getPrismaClient();
   const row = await prisma.auditLog.findFirst({
     where: input.workspaceId
       ? { id: input.id, workspaceId: input.workspaceId }

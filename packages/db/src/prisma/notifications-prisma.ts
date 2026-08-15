@@ -14,6 +14,13 @@ function getPrismaClient(): PrismaClient {
   return cachedClient;
 }
 
+/**
+ * Override the cached PrismaClient (test/seed path). Pass null to clear.
+ */
+export function setNotificationsPrismaClientForTests(client: PrismaClient | null): void {
+  cachedClient = client;
+}
+
 interface PrismaNotification {
   id: string;
   workspaceId: string;
@@ -39,8 +46,9 @@ interface PrismaNotification {
 
 export async function listWorkspaceNotificationsPrisma(
   options: ListWorkspaceNotificationsOptions,
+  client?: PrismaClient,
 ): Promise<WorkspaceNotificationRecord[]> {
-  const prisma = getPrismaClient();
+  const prisma = client ?? getPrismaClient();
   const where: Record<string, unknown> = {
     workspaceId: options.workspaceId ?? "default",
     recipientType: options.recipientType,

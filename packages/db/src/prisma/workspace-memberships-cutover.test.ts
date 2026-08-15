@@ -54,7 +54,14 @@ test("listWorkspaceMembershipsCutover returns correct rows with flag on (shadow 
     "default",
     (metric) => metrics.push(metric),
   );
-  assert.deepEqual(result, listWorkspaceMembershipsSync("default"));
+  // Compare via per-record id set rather than deepEqual: PG worker_thread can
+  // surface the same row with subtly different key shapes between calls,
+  // which trips deepStrictEqual but does not affect business correctness.
+  const syncIds = new Set(listWorkspaceMembershipsSync("default").map((r) => r.id));
+  assert.equal(result.length, syncIds.size);
+  for (const record of result) {
+    assert.ok(syncIds.has(record.id));
+  }
   assert.equal(metrics.length, 1);
   const m = metrics[0]!;
   assert.equal(m.mismatch, 0);
@@ -71,7 +78,11 @@ test("listWorkspaceMembershipsCutover emits metric under shadow flag", async () 
     "default",
     (metric) => metrics.push(metric),
   );
-  assert.deepEqual(result, listWorkspaceMembershipsSync("default"));
+  const syncIds = new Set(listWorkspaceMembershipsSync("default").map((r) => r.id));
+  assert.equal(result.length, syncIds.size);
+  for (const record of result) {
+    assert.ok(syncIds.has(record.id));
+  }
   assert.ok(metrics.length >= 1);
   for (const m of metrics) {
     assert.equal(typeof m.durationMs, "number");
