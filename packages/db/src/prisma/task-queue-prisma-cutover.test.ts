@@ -39,18 +39,18 @@ interface MockPrismaTask {
   workspaceId: string;
   employeeId: string;
   employeeName: string;
-  agentId: string | null;
-  runtimeId: string | null;
+  agentId: string;
+  runtimeId: string;
   runtimeCredentialId: string | null;
   routerSessionId: string | null;
   issueId: string | null;
   triggerType: string;
   priority: number;
   status: string;
-  inputJson: string;
+  inputJson: unknown;
   requestedByUserId: string | null;
   requestedByDisplayName: string | null;
-  resultJson: string | null;
+  resultJson: unknown | null;
   errorText: string | null;
   sessionId: string | null;
   workDir: string | null;
@@ -80,18 +80,18 @@ function toPrismaRow(record: QueuedTaskRecord): MockPrismaTask {
     workspaceId: record.workspaceId,
     employeeId: record.employeeId,
     employeeName: record.employeeName,
-    agentId: record.agentId === record.employeeId ? null : record.agentId,
-    runtimeId: record.runtimeId || null,
+    agentId: record.agentId,
+    runtimeId: record.runtimeId,
     runtimeCredentialId: record.runtimeCredentialId ?? null,
     routerSessionId: record.routerSessionId ?? null,
     issueId: record.issueId ?? null,
     triggerType: record.triggerType,
     priority: record.priority,
     status: record.status,
-    inputJson: record.inputJson,
+    inputJson: JSON.parse(record.inputJson),
     requestedByUserId: record.requestedByUserId ?? null,
     requestedByDisplayName: record.requestedByDisplayName ?? null,
-    resultJson: record.resultJson ?? null,
+    resultJson: record.resultJson ? JSON.parse(record.resultJson) : null,
     errorText: record.errorText ?? null,
     sessionId: record.sessionId ?? null,
     workDir: record.workDir ?? null,

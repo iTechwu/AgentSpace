@@ -21,7 +21,7 @@ const VALID_STATUSES = new Set([
   "superseded",
   "committed",
 ]);
-const VALID_MODES = new Set(["explicit", "by_skill", "inherited", "manual"]);
+const VALID_MODES = new Set(["all_agents", "selected_agents"]);
 
 interface PrismaKnowledgeProposal {
   id: string;
@@ -35,10 +35,10 @@ interface PrismaKnowledgeProposal {
   contentMarkdown: string;
   summary: string | null;
   reason: string | null;
-  tags: unknown;
+  tagsJson: unknown;
   parentId: string | null;
   assignmentMode: string;
-  assignedEmployeeNames: unknown;
+  assignedEmployeeNamesJson: unknown;
   targetKnowledgePageId: string | null;
   baseUpdatedAt: Date | null;
   createdKnowledgePageId: string | null;
@@ -102,8 +102,8 @@ function mapPrismaRow(row: PrismaKnowledgeProposal): KnowledgeProposalRecord | n
     status: row.status as KnowledgeProposalRecord["status"],
     title: row.title,
     contentMarkdown: row.contentMarkdown,
-    tags: normalizeStringArray(row.tags),
-    assignedEmployeeNames: normalizeStringArray(row.assignedEmployeeNames),
+    tags: normalizeStringArray(row.tagsJson),
+    assignedEmployeeNames: normalizeStringArray(row.assignedEmployeeNamesJson),
     assignmentMode: row.assignmentMode as KnowledgeProposalRecord["assignmentMode"],
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

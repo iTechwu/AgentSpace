@@ -24,20 +24,20 @@ const VALID_STATUSES = new Set([
 interface PrismaTask {
   id: string;
   workspaceId: string;
-  employeeId: string;
-  employeeName: string;
-  agentId: string | null;
-  runtimeId: string | null;
+  employeeId: string | null;
+  employeeName: string | null;
+  agentId: string;
+  runtimeId: string;
   runtimeCredentialId: string | null;
   routerSessionId: string | null;
   issueId: string | null;
   triggerType: string;
   priority: number;
   status: string;
-  inputJson: string;
+  inputJson: unknown;
   requestedByUserId: string | null;
   requestedByDisplayName: string | null;
-  resultJson: string | null;
+  resultJson: unknown | null;
   errorText: string | null;
   sessionId: string | null;
   workDir: string | null;
@@ -87,14 +87,14 @@ function mapPrismaRow(row: PrismaTask): QueuedTaskRecord | null {
   const record: QueuedTaskRecord = {
     id: row.id,
     workspaceId: row.workspaceId,
-    employeeId: row.employeeId,
-    employeeName: row.employeeName,
-    agentId: row.agentId ?? row.employeeId,
-    runtimeId: row.runtimeId ?? "",
+    employeeId: row.employeeId ?? row.agentId,
+    employeeName: row.employeeName ?? row.agentId,
+    agentId: row.agentId,
+    runtimeId: row.runtimeId,
     triggerType: row.triggerType,
     priority: row.priority,
     status: row.status as QueuedTaskRecord["status"],
-    inputJson: row.inputJson,
+    inputJson: serializeJson(row.inputJson),
     queuedAt: row.queuedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -104,7 +104,7 @@ function mapPrismaRow(row: PrismaTask): QueuedTaskRecord | null {
   if (row.issueId !== null) record.issueId = row.issueId;
   if (row.requestedByUserId !== null) record.requestedByUserId = row.requestedByUserId;
   if (row.requestedByDisplayName !== null) record.requestedByDisplayName = row.requestedByDisplayName;
-  if (row.resultJson !== null) record.resultJson = row.resultJson;
+  if (row.resultJson !== null) record.resultJson = serializeJson(row.resultJson);
   if (row.errorText !== null) record.errorText = row.errorText;
   if (row.sessionId !== null) record.sessionId = row.sessionId;
   if (row.workDir !== null) record.workDir = row.workDir;
@@ -114,4 +114,19 @@ function mapPrismaRow(row: PrismaTask): QueuedTaskRecord | null {
   if (row.finishedAt) record.finishedAt = row.finishedAt.toISOString();
   if (row.mcpSessionClaimedAt) record.mcpSessionClaimedAt = row.mcpSessionClaimedAt.toISOString();
   return record;
+}
+
+function serializeJson(value: unknown): string {
+  if (typeof value === "string") {
+    try {
+      return JSON.stringify(JSON.parse(value));
+    } catch {
+      return value;
+    }
+  }
+  try {
+    return JSON.stringify(value ?? {});
+  } catch {
+    return "{}";
+  }
 }

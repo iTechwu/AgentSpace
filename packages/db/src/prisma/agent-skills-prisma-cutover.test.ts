@@ -35,7 +35,7 @@ test.after(async () => {
 
 interface MockPrismaAgentSkill {
   workspaceId: string;
-  agentId: string | null;
+  agentId: string;
   employeeId: string;
   employeeName: string;
   skillId: string;
@@ -59,7 +59,7 @@ function makeMockPrisma(
 function toPrismaRow(record: StoredAgentSkillRecord): MockPrismaAgentSkill {
   return {
     workspaceId: record.workspaceId,
-    agentId: record.agentId === record.employeeId ? null : record.agentId,
+    agentId: record.agentId,
     employeeId: record.employeeId,
     employeeName: record.employeeName,
     skillId: record.skillId,

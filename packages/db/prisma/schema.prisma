@@ -33,26 +33,26 @@ model WorkspaceMembership {
 }
 
 model WorkspaceNotification {
-  id             String   @id
-  workspaceId    String   @map("workspace_id")
-  recipientType  String   @map("recipient_type")
-  recipientId    String   @map("recipient_id")
-  actorType      String?  @map("actor_type")
-  actorId        String?  @map("actor_id")
-  type           String
-  resourceType   String   @map("resource_type")
-  resourceId     String?  @map("resource_id")
-  channelName    String?  @map("channel_name")
-  title          String
-  body           String
-  actionHref     String?  @map("action_href")
-  severity       String   @default("info")
-  status         String   @default("unread")
-  dedupeKey      String?  @map("dedupe_key")
-  metadataJson   Json     @default("{}") @map("metadata_json")
-  createdAt      DateTime @map("created_at") @db.Timestamptz(6)
-  readAt         DateTime? @map("read_at") @db.Timestamptz(6)
-  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(6)
+  id            String    @id
+  workspaceId   String    @map("workspace_id")
+  recipientType String    @map("recipient_type")
+  recipientId   String    @map("recipient_id")
+  actorType     String?   @map("actor_type")
+  actorId       String?   @map("actor_id")
+  type          String
+  resourceType  String    @map("resource_type")
+  resourceId    String?   @map("resource_id")
+  channelName   String?   @map("channel_name")
+  title         String
+  body          String
+  actionHref    String?   @map("action_href")
+  severity      String    @default("info")
+  status        String    @default("unread")
+  dedupeKey     String?   @map("dedupe_key")
+  metadataJson  Json      @default("{}") @map("metadata_json")
+  createdAt     DateTime  @map("created_at") @db.Timestamptz(6)
+  readAt        DateTime? @map("read_at") @db.Timestamptz(6)
+  archivedAt    DateTime? @map("archived_at") @db.Timestamptz(6)
 
   @@map("workspace_notification")
 }
@@ -91,17 +91,17 @@ model AuditLog {
 }
 
 model EmployeeRuntimeBinding {
-  workspaceId     String   @map("workspace_id")
-  employeeId      String   @map("employee_id")
-  employeeName    String   @map("employee_name")
-  runtimeId       String   @map("runtime_id")
+  workspaceId     String       @map("workspace_id")
+  employeeId      String       @map("employee_id")
+  employeeName    String       @map("employee_name")
+  runtimeId       String       @map("runtime_id")
   runtime         AgentRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   /// EmployeeBindingStatus: online|degraded|offline|recovering|needs_attention.
-  status          String   @default("online")
-  generation      Int      @default(1)
-  desiredProvider String?  @map("desired_provider")
-  boundAt         DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @map("updated_at") @db.Timestamptz(6)
+  status          String       @default("online")
+  generation      Int          @default(1)
+  desiredProvider String?      @map("desired_provider")
+  boundAt         DateTime     @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @map("updated_at") @db.Timestamptz(6)
 
   @@id([workspaceId, employeeId])
   @@map("employee_runtime_binding")
@@ -117,102 +117,101 @@ model AgentRuntime {
 }
 
 model AgentTaskQueue {
-  id                       String   @id
-  workspaceId              String   @map("workspace_id")
+  id                     String    @id
+  workspaceId            String    @map("workspace_id")
   /// COALESCE(employee_id, agent_id) in SQL — domain keeps both names.
-  employeeId               String   @map("employee_id")
-  employeeName             String   @map("employee_name")
+  employeeId             String?   @map("employee_id")
+  employeeName           String?   @map("employee_name")
   /// @deprecated Legacy display-name alias. Kept for back-compat reads.
-  agentId                  String?  @map("agent_id")
-  runtimeId                String?  @map("runtime_id")
-  runtimeCredentialId      String?  @map("runtime_credential_id")
-  routerSessionId          String?  @map("router_session_id")
-  issueId                  String?  @map("issue_id")
-  triggerType              String   @map("trigger_type")
-  priority                 Int
+  agentId                String    @map("agent_id")
+  runtimeId              String    @map("runtime_id")
+  runtimeCredentialId    String?   @map("runtime_credential_id")
+  routerSessionId        String?   @map("router_session_id")
+  issueId                String?   @map("issue_id")
+  triggerType            String    @default("manual") @map("trigger_type")
+  priority               Int       @default(0)
   /// NativeTaskStatus: queued|claimed|running|preparing_commit|committed|completed|failed|cancelled.
-  status                   String
-  inputJson                String   @map("input_json")
-  requestedByUserId        String?  @map("requested_by_user_id")
-  requestedByDisplayName   String?  @map("requested_by_display_name")
-  resultJson               String?  @map("result_json")
-  errorText                 String?  @map("error_text")
-  sessionId                 String?  @map("session_id")
-  workDir                   String?  @map("work_dir")
-  bindingGeneration         Int?     @map("binding_generation")
-  queuedAt                  DateTime @map("queued_at") @db.Timestamptz(6)
-  claimedAt                 DateTime? @map("claimed_at") @db.Timestamptz(6)
-  startedAt                 DateTime? @map("started_at") @db.Timestamptz(6)
-  finishedAt                DateTime? @map("finished_at") @db.Timestamptz(6)
-  mcpSessionClaimedAt       DateTime? @map("mcp_session_claimed_at") @db.Timestamptz(6)
-  createdAt                 DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime @map("updated_at") @db.Timestamptz(6)
+  status                 String
+  inputJson              Json      @default("{}") @map("input_json")
+  requestedByUserId      String?   @map("requested_by_user_id")
+  requestedByDisplayName String?   @map("requested_by_display_name")
+  resultJson             Json?     @map("result_json")
+  errorText              String?   @map("error_text")
+  sessionId              String?   @map("session_id")
+  workDir                String?   @map("work_dir")
+  bindingGeneration      Int?      @map("binding_generation")
+  queuedAt               DateTime  @map("queued_at") @db.Timestamptz(6)
+  claimedAt              DateTime? @map("claimed_at") @db.Timestamptz(6)
+  startedAt              DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt             DateTime? @map("finished_at") @db.Timestamptz(6)
+  mcpSessionClaimedAt    DateTime? @map("mcp_session_claimed_at") @db.Timestamptz(6)
+  createdAt              DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @map("updated_at") @db.Timestamptz(6)
 
   @@map("agent_task_queue")
 }
 
 model AgentSkill {
-  workspaceId        String   @map("workspace_id")
-  /// agent_id column is conditionally present (see skills.ts hasAgentIdColumn);
-  /// mapped as String? to handle legacy rows where the column is missing.
-  agentId            String?  @map("agent_id")
-  employeeId         String   @map("employee_id")
-  employeeName       String   @map("employee_name")
-  skillId            String   @map("skill_id")
-  skillArtifactDigest String? @map("skill_artifact_digest")
-  rolloutPin         String?  @map("rollout_pin")
-  createdAt          DateTime @map("created_at") @db.Timestamptz(6)
+  workspaceId         String   @map("workspace_id")
+  /// agent_id is the legacy display-name identity retained beside employee_id.
+  agentId             String   @map("agent_id")
+  employeeId          String   @map("employee_id")
+  employeeName        String   @map("employee_name")
+  skillId             String   @map("skill_id")
+  skillArtifactDigest String?  @map("skill_artifact_digest")
+  rolloutPin          String?  @map("rollout_pin")
+  createdAt           DateTime @map("created_at") @db.Timestamptz(6)
 
   @@id([workspaceId, employeeId, skillId])
   @@map("agent_skill")
 }
 
 model KnowledgeProposal {
-  id                       String   @id
-  workspaceId              String   @map("workspace_id")
-  sourceTaskQueueId        String   @map("source_task_queue_id")
-  sourceChannelName        String?  @map("source_channel_name")
-  sourceAgentName          String   @map("source_agent_name")
+  id                        String    @id
+  workspaceId               String    @map("workspace_id")
+  sourceTaskQueueId         String    @map("source_task_queue_id")
+  sourceChannelName         String?   @map("source_channel_name")
+  sourceAgentName           String    @map("source_agent_name")
   /// KnowledgeProposalOperation: create|update|append|archive|assign.
-  operation                String
+  operation                 String
   /// KnowledgeProposalStatus: pending|approved|rejected|superseded|committed.
-  status                   String
-  title                    String
-  contentMarkdown          String   @map("content_markdown")
-  summary                  String?
-  reason                   String?
-  tagsJson                 Json     @map("tags")
-  parentId                 String?  @map("parent_id")
-  /// KnowledgeAssignmentMode: explicit|by_skill|inherited|manual.
-  assignmentMode           String   @map("assignment_mode")
-  assignedEmployeeNamesJson Json     @map("assigned_employee_names")
-  targetKnowledgePageId    String?  @map("target_knowledge_page_id")
-  baseUpdatedAt            DateTime? @map("base_updated_at") @db.Timestamptz(6)
-  createdKnowledgePageId   String?  @map("created_knowledge_page_id")
-  approvalId               String?  @map("approval_id")
-  decidedByUserId          String?  @map("decided_by_user_id")
-  decidedAt                DateTime? @map("decided_at") @db.Timestamptz(6)
-  reviewerComment          String?  @map("reviewer_comment")
-  createdAt                DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt                DateTime @map("updated_at") @db.Timestamptz(6)
+  status                    String    @default("pending")
+  title                     String
+  contentMarkdown           String    @map("content_markdown")
+  summary                   String?
+  reason                    String?
+  tagsJson                  Json      @default("[]") @map("tags_json")
+  parentId                  String?   @map("parent_id")
+  /// KnowledgeAssignmentMode: all_agents|selected_agents.
+  assignmentMode            String    @default("selected_agents") @map("assignment_mode")
+  assignedEmployeeNamesJson Json      @default("[]") @map("assigned_employee_names_json")
+  targetKnowledgePageId     String?   @map("target_knowledge_page_id")
+  baseUpdatedAt             DateTime? @map("base_updated_at") @db.Timestamptz(6)
+  createdKnowledgePageId    String?   @map("created_knowledge_page_id")
+  approvalId                String?   @map("approval_id")
+  decidedByUserId           String?   @map("decided_by_user_id")
+  decidedAt                 DateTime? @map("decided_at") @db.Timestamptz(6)
+  reviewerComment           String?   @map("reviewer_comment")
+  createdAt                 DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @map("updated_at") @db.Timestamptz(6)
 
   @@map("knowledge_proposal")
 }
 
 model DocumentAgentAccess {
-  id               String   @id
-  workspaceId      String   @map("workspace_id")
-  documentId       String   @map("document_id")
+  id              String    @id
+  workspaceId     String    @map("workspace_id")
+  documentId      String    @map("document_id")
   /// DocumentAgentAccessSubjectType: agent|human|system.
-  subjectType      String   @map("subject_type")
-  subjectId        String   @map("subject_id")
+  subjectType     String    @default("agent") @map("subject_type")
+  subjectId       String    @map("subject_id")
   /// DocumentAgentAccessRole: viewer|commenter|editor|owner.
-  role             String
-  scope            String   @default("document")
-  grantedByUserId  String   @map("granted_by_user_id")
-  createdAt        DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime @map("updated_at") @db.Timestamptz(6)
-  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  role            String
+  scope           String    @default("document")
+  grantedByUserId String    @map("granted_by_user_id")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @map("updated_at") @db.Timestamptz(6)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
 
   @@map("document_agent_access")
 }

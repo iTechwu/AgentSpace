@@ -46,10 +46,10 @@ interface MockPrismaProposal {
   contentMarkdown: string;
   summary: string | null;
   reason: string | null;
-  tags: unknown;
+  tagsJson: unknown;
   parentId: string | null;
   assignmentMode: string;
-  assignedEmployeeNames: unknown;
+  assignedEmployeeNamesJson: unknown;
   targetKnowledgePageId: string | null;
   baseUpdatedAt: Date | null;
   createdKnowledgePageId: string | null;
@@ -86,10 +86,10 @@ function toPrismaRow(record: KnowledgeProposalRecord): MockPrismaProposal {
     contentMarkdown: record.contentMarkdown,
     summary: record.summary ?? null,
     reason: record.reason ?? null,
-    tags: record.tags,
+    tagsJson: record.tags,
     parentId: record.parentId ?? null,
     assignmentMode: record.assignmentMode,
-    assignedEmployeeNames: record.assignedEmployeeNames,
+    assignedEmployeeNamesJson: record.assignedEmployeeNames,
     targetKnowledgePageId: record.targetKnowledgePageId ?? null,
     baseUpdatedAt: record.baseUpdatedAt ? new Date(record.baseUpdatedAt) : null,
     createdKnowledgePageId: record.createdKnowledgePageId ?? null,
@@ -130,7 +130,7 @@ test("listKnowledgeProposalsPrismaCutover uses Prisma primary when flag is on", 
     contentMarkdown: "# mock",
     tags: ["mock"],
     assignedEmployeeNames: ["MockEmp"],
-    assignmentMode: "explicit",
+    assignmentMode: "selected_agents",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

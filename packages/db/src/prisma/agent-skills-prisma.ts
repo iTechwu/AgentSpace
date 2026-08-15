@@ -16,7 +16,7 @@ import type { StoredAgentSkillRecord } from "../types.ts";
 
 interface PrismaAgentSkill {
   workspaceId: string;
-  agentId: string | null;
+  agentId: string;
   employeeId: string;
   employeeName: string;
   skillId: string;
@@ -54,7 +54,7 @@ export async function disconnectAgentSkillsPrismaForTests(): Promise<void> {
 function mapPrismaRow(row: PrismaAgentSkill): StoredAgentSkillRecord {
   const record: StoredAgentSkillRecord = {
     workspaceId: row.workspaceId,
-    agentId: row.agentId ?? row.employeeId,
+    agentId: row.agentId,
     employeeId: row.employeeId,
     employeeName: row.employeeName,
     skillId: row.skillId,
