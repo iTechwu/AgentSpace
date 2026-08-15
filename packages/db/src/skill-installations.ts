@@ -30,6 +30,7 @@ export interface CreateSkillInstallationInput {
   revision?: string;
   previousReadyRevision?: string;
   previousReadyArtifactDigest?: string;
+  rolloutPlanId?: string;
   components: SkillInstallationComponentInput[];
   createdAt?: string;
 }
@@ -53,6 +54,7 @@ const SKILL_INSTALLATION_COLUMNS = `SELECT
   prepared_path AS preparedPath, prepared_digest AS preparedDigest, health,
   previous_ready_revision AS previousReadyRevision,
   previous_ready_artifact_digest AS previousReadyArtifactDigest,
+  rollout_plan_id AS rolloutPlanId,
   revision, installed_at AS installedAt, verified_at AS verifiedAt,
   created_at AS createdAt, updated_at AS updatedAt`;
 
@@ -120,8 +122,8 @@ export function createSkillInstallationSync(input: CreateSkillInstallationInput)
       `INSERT INTO skill_installation (
         id, workspace_id, runtime_id, artifact_digest, status, resolved_lock_json,
         prepared_path, health, previous_ready_revision, previous_ready_artifact_digest,
-        revision, installed_at, verified_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'unknown', ?, ?, ?, NULL, NULL, ?, ?)
+        rollout_plan_id, revision, installed_at, verified_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'unknown', ?, ?, ?, ?, NULL, NULL, ?, ?)
       ON CONFLICT (workspace_id, runtime_id, artifact_digest, revision) DO NOTHING`,
     ).run(
       id,
@@ -132,6 +134,7 @@ export function createSkillInstallationSync(input: CreateSkillInstallationInput)
       input.resolvedLockJson ?? "{}",
       input.previousReadyRevision?.trim() || null,
       input.previousReadyArtifactDigest?.trim() || null,
+      input.rolloutPlanId?.trim() || null,
       revision,
       now,
       now,
@@ -622,6 +625,7 @@ function mapSkillInstallationRecord(value: Record<string, unknown>): StoredSkill
     health: value.health,
     previousReadyRevision: readOptionalString(value.previousReadyRevision),
     previousReadyArtifactDigest: readOptionalString(value.previousReadyArtifactDigest),
+    rolloutPlanId: readOptionalString(value.rolloutPlanId),
     revision: value.revision,
     installedAt: readOptionalString(value.installedAt),
     verifiedAt: readOptionalString(value.verifiedAt),

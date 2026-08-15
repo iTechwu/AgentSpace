@@ -1558,6 +1558,7 @@ export interface StoredSkillInstallationRecord {
   health: string;
   previousReadyRevision?: string;
   previousReadyArtifactDigest?: string;
+  rolloutPlanId?: string;
   revision: string;
   installedAt?: string;
   verifiedAt?: string;

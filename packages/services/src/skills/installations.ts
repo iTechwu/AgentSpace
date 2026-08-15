@@ -9,6 +9,7 @@ import {
   readSkillArtifactFilesSync,
   readSkillInstallApprovalSync,
   readSkillInstallationByLockSync,
+  readSkillRolloutPlanSync,
   readSkillInstallationComponentsSync,
   readSkillInstallationOperationSync,
   readSkillInstallationSync,
@@ -27,6 +28,7 @@ import {
   withTransaction,
   type ContentBlobRecord,
   type SkillInstallationComponentInput,
+  type SkillRolloutPlanRecord,
   type StoredSkillInstallationOperationRecord,
   type StoredSkillInstallationRecord,
 } from "@dofe-agent/db";
@@ -104,6 +106,8 @@ export function createSkillInstallationPlanSync(input: {
    * consumed atomically inside the plan-creation transaction.
    */
   approvalId?: string;
+  /** A rollout plan id: child installations reference the ONE approved rollout plan instead of consuming a per-item approval. */
+  rolloutPlanId?: string;
   serviceResolutionMode?: "provision_or_reuse" | "require_existing";
 }): StoredSkillInstallationRecord {
   const artifact = readSkillArtifactByDigestSync(input.artifactDigest, input.workspaceId);
@@ -137,7 +141,17 @@ export function createSkillInstallationPlanSync(input: {
         riskItems,
       })
     : undefined;
-  if (riskItems.length > 0) {
+
+  let rolloutPlan: SkillRolloutPlanRecord | null = null;
+  if (input.rolloutPlanId) {
+    rolloutPlan = readSkillRolloutPlanSync(input.rolloutPlanId, input.workspaceId ?? "default");
+    if (!rolloutPlan) {
+      throw new Error(`Rollout plan "${input.rolloutPlanId}" 不存在。`);
+    }
+    assertRolloutPlanCoversInstallationSync(rolloutPlan, artifact.digest, input.runtimeId);
+  }
+
+  if (riskItems.length > 0 && !rolloutPlan) {
     const workspaceId = input.workspaceId ?? "default";
     if (!input.approvalId) {
       throw new Error(
@@ -173,7 +187,7 @@ export function createSkillInstallationPlanSync(input: {
   }
 
   return withTransaction(getDatabase(), () => {
-    if (riskItems.length > 0 && input.approvalId) {
+    if (riskItems.length > 0 && !rolloutPlan && input.approvalId) {
       const consumed = consumeSkillInstallApprovalSync(
         input.approvalId,
         input.workspaceId ?? "default",
@@ -193,6 +207,7 @@ export function createSkillInstallationPlanSync(input: {
       status: lock.unresolvedRequired.length > 0 ? "blocked" : "preparing",
       components,
       resolvedLockJson,
+      rolloutPlanId: input.rolloutPlanId,
     });
 
     createSkillInstallationOperationSync({
@@ -235,6 +250,39 @@ export function createSkillInstallationPlanSync(input: {
 
     return installation;
   });
+}
+
+/** Validates that an approved rollout plan covers this (artifact, runtime) child installation. */
+function assertRolloutPlanCoversInstallationSync(
+  plan: SkillRolloutPlanRecord,
+  artifactDigest: string,
+  runtimeId: string,
+): void {
+  if (plan.decision !== "approved") {
+    throw new Error("Rollout plan 未批准。");
+  }
+  const coveredDigests = new Set<string>([plan.rootArtifactDigest]);
+  try {
+    const closure = JSON.parse(plan.closureJson) as Array<{ artifactDigest?: string }>;
+    for (const entry of closure) {
+      if (typeof entry.artifactDigest === "string") coveredDigests.add(entry.artifactDigest);
+    }
+  } catch {
+    // Malformed closure → fail closed below.
+  }
+  if (!coveredDigests.has(artifactDigest)) {
+    throw new Error(`Artifact "${artifactDigest}" 不在 rollout plan "${plan.id}" 的依赖闭包内。`);
+  }
+  let runtimes: string[] = [];
+  try {
+    const parsed = JSON.parse(plan.targetRuntimesJson) as unknown;
+    runtimes = Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : [];
+  } catch {
+    // Ignore.
+  }
+  if (!runtimes.includes(runtimeId)) {
+    throw new Error(`Runtime "${runtimeId}" 不在 rollout plan "${plan.id}" 的目标集合内。`);
+  }
 }
 
 function assertDeclaredServicesReusableSync(input: {

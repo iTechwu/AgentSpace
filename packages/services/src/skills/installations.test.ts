@@ -7,7 +7,9 @@ import {
   completeManagedSkillServiceProvisioningSync,
   completeSkillInstallationOperationSync as completeSkillOperationDbSync,
   createManagedSkillServiceSync,
+  createSkillRolloutPlanSync,
   createSkillServiceBindingSync,
+  decideSkillRolloutPlanSync,
   listManagedSkillServicesSync,
   listSkillInstallationOperationsSync,
   readActiveArtifactDigestForSkillSync,
@@ -142,6 +144,53 @@ test("createSkillInstallationPlanSync builds installation, components, and a que
   const operations = listSkillInstallationOperationsSync({ workspaceId: "default", installationId: installation.id });
   assert.equal(operations.length, 1);
   assert.equal(operations[0]?.operation, "prepare");
+});
+
+test("createSkillInstallationPlanSync accepts a rolloutPlanId covering the artifact and runtime", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  const plan = createSkillRolloutPlanSync({
+    workspaceId: "default",
+    rootArtifactDigest: digest,
+    planDigest: "rollout-plan-digest-1",
+    closureJson: JSON.stringify([]),
+    targetRuntimesJson: JSON.stringify([runtimeId]),
+    riskSummaryJson: JSON.stringify([]),
+  });
+  decideSkillRolloutPlanSync(plan.id, "default", "approved");
+
+  const installation = createSkillInstallationPlanSync({
+    workspaceId: "default",
+    runtimeId,
+    artifactDigest: digest,
+    rolloutPlanId: plan.id,
+  });
+  assert.equal(installation.rolloutPlanId, plan.id);
+});
+
+test("createSkillInstallationPlanSync rejects a rolloutPlanId whose scope does not cover the runtime", () => {
+  const runtimeId = createTestRuntime();
+  const otherRuntime = createTestRuntime();
+  const { digest } = buildArtifact();
+  const plan = createSkillRolloutPlanSync({
+    workspaceId: "default",
+    rootArtifactDigest: digest,
+    planDigest: "rollout-plan-digest-2",
+    closureJson: JSON.stringify([]),
+    targetRuntimesJson: JSON.stringify([otherRuntime]),
+    riskSummaryJson: JSON.stringify([]),
+  });
+  decideSkillRolloutPlanSync(plan.id, "default", "approved");
+
+  assert.throws(
+    () => createSkillInstallationPlanSync({
+      workspaceId: "default",
+      runtimeId,
+      artifactDigest: digest,
+      rolloutPlanId: plan.id,
+    }),
+    /目标集合/,
+  );
 });
 
 test("buildSkillRunnerEntrypointsForSnapshotSync derives executable scripts from the frozen artifact", () => {

@@ -543,6 +543,7 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["closurejson", "closureJson"],
   ["targetruntimesjson", "targetRuntimesJson"],
   ["risksummaryjson", "riskSummaryJson"],
+  ["rolloutplanid", "rolloutPlanId"],
   ["resourcesjson", "resourcesJson"],
   ["retentionpolicyjson", "retentionPolicyJson"],
   ["rollbackclass", "rollbackClass"],
