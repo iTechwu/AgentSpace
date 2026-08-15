@@ -11,6 +11,7 @@ import {
   listAgentSkillAssignmentsPrismaCutover,
   type ListAgentSkillsPrismaCutoverMetric,
 } from "./agent-skills-prisma-cutover.ts";
+import { isAgentSkillsPrismaShadowReadEnabled } from "./agent-skills-prisma.ts";
 
 const ORIGINAL_ASYNC = process.env.AGENT_SKILLS_PRISMA_READ_ENABLED;
 const ORIGINAL_SHADOW = process.env.AGENT_SKILLS_PRISMA_SHADOW_READ_ENABLED;
@@ -125,5 +126,19 @@ test("listAgentSkillAssignmentsPrismaCutover falls back to sync when Prisma prim
   assert.ok(Array.isArray(result));
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "fallback");
-  assert.ok(metrics[0]!.error?.includes("prisma agent skills unreachable"));
+  assert.equal(metrics[0]!.error, "present");
+});
+
+test("agent Skill Prisma shadow flag uses the documented environment name", async () => {
+  resetFlags();
+  process.env.AGENT_SKILLS_PRISMA_READ_ENABLED = "1";
+  process.env.AGENT_SKILLS_PRISMA_SHADOW_READ_ENABLED = "1";
+  setDofePrismaClientForTests(
+    makeMockPrisma(async () => []) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
+  );
+  const metrics: ListAgentSkillsPrismaCutoverMetric[] = [];
+
+  assert.equal(isAgentSkillsPrismaShadowReadEnabled(), true);
+  await listAgentSkillAssignmentsPrismaCutover("default", (metric) => metrics.push(metric));
+  assert.equal(metrics.length, 1);
 });

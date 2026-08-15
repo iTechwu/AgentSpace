@@ -4,6 +4,7 @@
 import { listStoredAgentSkillAssignmentsSync } from "../skills.ts";
 import type { StoredAgentSkillRecord } from "../types.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 import {
   isAgentSkillsPrismaReadEnabled,
@@ -26,6 +27,7 @@ const listAgentSkillAssignmentsPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (workspaceId) => listAgentSkillAssignmentsPrisma(workspaceId),
   runFallback: (workspaceId) => listStoredAgentSkillAssignmentsSync(workspaceId),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "agent_skills", operation: "list" }),
 });
 
 export function listAgentSkillAssignmentsPrismaCutover(

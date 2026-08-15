@@ -168,5 +168,5 @@ test("listKnowledgeProposalsPrismaCutover falls back to sync when Prisma primary
   assert.ok(Array.isArray(result));
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "fallback");
-  assert.ok(metrics[0]!.error?.includes("prisma knowledge proposals unreachable"));
+  assert.equal(metrics[0]!.error, "present");
 });

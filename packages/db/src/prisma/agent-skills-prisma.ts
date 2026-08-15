@@ -42,7 +42,7 @@ export function isAgentSkillsPrismaReadEnabled(): boolean {
 }
 
 export function isAgentSkillsPrismaShadowReadEnabled(): boolean {
-  return process.env.AGENT_SKILLS_SHADOW_READ_ENABLED === "1";
+  return process.env.AGENT_SKILLS_PRISMA_SHADOW_READ_ENABLED === "1";
 }
 
 export { setDofePrismaClientForTests as setAgentSkillsPrismaClientForTests };

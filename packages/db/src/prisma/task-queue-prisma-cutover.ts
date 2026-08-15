@@ -4,6 +4,7 @@
 import { listQueuedTasksSync } from "../task-queue.ts";
 import type { QueuedTaskRecord } from "../types.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 import {
   isTaskQueuePrismaReadEnabled,
@@ -26,6 +27,7 @@ const listQueuedTasksPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (options) => listQueuedTasksPrisma(options),
   runFallback: (options) => listQueuedTasksSync(options),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "task_queue", operation: "list" }),
 });
 
 export function listQueuedTasksPrismaCutover(

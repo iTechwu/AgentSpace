@@ -136,5 +136,5 @@ test("listDocumentAgentAccessPrismaCutover falls back to sync when Prisma primar
   assert.ok(Array.isArray(result));
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "fallback");
-  assert.ok(metrics[0]!.error?.includes("prisma document agent access unreachable"));
+  assert.equal(metrics[0]!.error, "present");
 });

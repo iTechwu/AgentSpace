@@ -7,6 +7,7 @@ import type {
   KnowledgeProposalRecord,
 } from "../knowledge-proposals.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 import {
   isKnowledgeProposalsPrismaReadEnabled,
@@ -30,6 +31,7 @@ const listKnowledgeProposalsPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (input) => listKnowledgeProposalsPrisma(input.workspaceId, input.options),
   runFallback: (input) => listKnowledgeProposalsSync(input.workspaceId, input.options),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "knowledge_proposals", operation: "list" }),
 });
 
 export function listKnowledgeProposalsPrismaCutover(

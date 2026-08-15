@@ -5,6 +5,7 @@
 import { listDocumentAgentAccessSync } from "../document-agent-access.ts";
 import type { DocumentAgentAccessRecord } from "../types.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
+import { createPrismaCutoverMetricSink } from "./cutover-observability.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
 import {
   isDocumentAgentAccessPrismaReadEnabled,
@@ -28,6 +29,7 @@ const listDocumentAgentAccessPrismaCutoverImpl = buildDomainCutover<
   runPrimary: async (input) => listDocumentAgentAccessPrisma(input),
   runFallback: (input) => listDocumentAgentAccessSync(input),
   compare: (primary, fallback) => recordsEqual(primary, fallback),
+  emitMetric: createPrismaCutoverMetricSink({ domain: "document_agent_access", operation: "list" }),
 });
 
 export function listDocumentAgentAccessPrismaCutover(
