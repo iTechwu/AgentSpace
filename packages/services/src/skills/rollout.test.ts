@@ -3,6 +3,7 @@ import test, { before, beforeEach } from "node:test";
 import { getDatabase, randomLikeId } from "@dofe-agent/db";
 import {
   buildAndPersistSkillArtifactSync,
+  computeSkillRolloutItemsSync,
   computeSkillRolloutTargetRuntimesSync,
   lockSkillDependencyDigestSync,
   planSkillRollout,
@@ -85,6 +86,7 @@ test("resolveSkillDependencyClosureSync resolves coordinate ranges to exact dige
       requestedVersion: "^1.0.0",
       placement: "same_runtime",
       required: true,
+      parentArtifactDigest: root.digest,
     },
   ]);
 });
@@ -153,4 +155,36 @@ test("planSkillRollout builds closure, items and a stable digest", () => {
     targetScope: { kind: "runtimes", runtimeIds: [runtimeId] },
   });
   assert.equal(again.planDigest, plan.planDigest, "plan digest is reproducible");
+});
+
+test("computeSkillRolloutItemsSync honors placement (same_runtime co-locates, workflow on primary)", () => {
+  const r1 = createRuntime();
+  const r2 = createRuntime();
+  const sameDep = buildArtifact({ name: "same-dep", version: "1.0.0", coordinate: "github:owner/repo/skills/same-dep" });
+  const workflowDep = buildArtifact({ name: "workflow-dep", version: "1.0.0", coordinate: "github:owner/repo/skills/workflow-dep" });
+  const root = buildArtifact({
+    name: "root",
+    coordinate: "github:owner/repo/skills/root",
+    skillDependencies: [
+      { coordinate: "github:owner/repo/skills/same-dep", version: "^1.0.0", placement: "same_runtime", required: true },
+      { coordinate: "github:owner/repo/skills/workflow-dep", version: "^1.0.0", placement: "workflow", required: true },
+    ],
+  });
+
+  const closure = resolveSkillDependencyClosureSync({ rootArtifactDigest: root.digest });
+  const items = computeSkillRolloutItemsSync({
+    rootArtifactDigest: root.digest,
+    closure,
+    rootRuntimeIds: [r1, r2],
+    primaryRuntimeId: r1,
+  });
+
+  const pairs = items.map((item) => `${item.runtimeId}:${item.artifactDigest}`);
+  assert.ok(pairs.includes(`${r1}:${root.digest}`));
+  assert.ok(pairs.includes(`${r2}:${root.digest}`));
+  assert.ok(pairs.includes(`${r1}:${sameDep.digest}`), "same_runtime dep co-locates with root on r1");
+  assert.ok(pairs.includes(`${r2}:${sameDep.digest}`), "same_runtime dep co-locates with root on r2");
+  assert.ok(pairs.includes(`${r1}:${workflowDep.digest}`), "workflow dep on primary runtime");
+  assert.ok(!pairs.includes(`${r2}:${workflowDep.digest}`), "workflow dep must NOT be on every runtime");
+  assert.equal(items.length, 5);
 });

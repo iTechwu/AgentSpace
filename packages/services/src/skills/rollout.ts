@@ -27,6 +27,8 @@ export interface SkillRolloutClosureEntry {
   requestedVersion: string;
   placement: "same_runtime" | "workflow";
   required: boolean;
+  /** The artifact digest of the skill that declared this dependency (co-location anchor). */
+  parentArtifactDigest?: string;
 }
 
 export interface SkillRolloutItem {
@@ -153,6 +155,7 @@ export function resolveSkillDependencyClosureSync(input: {
           requestedVersion: dependency.version,
           placement: dependency.placement,
           required: dependency.required,
+          parentArtifactDigest: artifactDigest,
         });
         emitted.add(locked.artifactDigest);
       }
@@ -211,7 +214,47 @@ export function computeSkillRolloutTargetRuntimesSync(
     return computeSkillRolloutTargetRuntimesSync({ kind: "employees", employeeIds }, workspaceId);
   }
   const rows = getDatabase().prepare(
-    `SELECT id FROM agent_runtime WHERE workspace_id = ? ORDER BY id ASC`,
+    `SELECT id FROM agent_runtime WHERE workspace_id = ? AND status = 'online' ORDER BY id ASC`,
+  ).all(workspaceId) as Array<{ id: string }>;
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Resolves the ROOT runtime set — where the root skill and its transitive
+ * `same_runtime` closure install. For an explicit runtime list / all-compatible
+ * scope this is every target runtime; for an employees / workflow scope it is
+ * the coordinator runtime only (docs/0815/01 §4: 编排入口只装协调者).
+ */
+export function resolveSkillRolloutRootRuntimeIdsSync(
+  scope: SkillRolloutTargetScope,
+  workspaceId = "default",
+): string[] {
+  if (scope.kind === "runtimes") {
+    return [...new Set(scope.runtimeIds)];
+  }
+  if (scope.kind === "employees") {
+    const coordinator = scope.employeeIds[0];
+    if (!coordinator) return [];
+    const binding = listEmployeeRuntimeBindingsSync(workspaceId).find((candidate) => candidate.employeeId === coordinator);
+    return binding ? [binding.runtimeId] : [];
+  }
+  if (scope.kind === "workflow") {
+    const version = readWorkflowVersionSync(scope.workflowId, workspaceId);
+    if (!version) return [];
+    let coordinatorEmployeeId: string | undefined;
+    try {
+      const graph = JSON.parse(version.graphJson) as { nodes?: Array<{ type?: string; employeeId?: string }> };
+      coordinatorEmployeeId = (graph.nodes ?? [])
+        .find((node) => node.type === "employee_task" && typeof node.employeeId === "string")
+        ?.employeeId;
+    } catch {
+      coordinatorEmployeeId = undefined;
+    }
+    if (!coordinatorEmployeeId) return [];
+    return resolveSkillRolloutRootRuntimeIdsSync({ kind: "employees", employeeIds: [coordinatorEmployeeId] }, workspaceId);
+  }
+  const rows = getDatabase().prepare(
+    `SELECT id FROM agent_runtime WHERE workspace_id = ? AND status = 'online' ORDER BY id ASC`,
   ).all(workspaceId) as Array<{ id: string }>;
   return rows.map((row) => row.id);
 }
@@ -220,17 +263,66 @@ export function computeSkillRolloutTargetRuntimesSync(
 /* Items, risks, plan digest                                           */
 /* ------------------------------------------------------------------ */
 
-export function buildSkillRolloutItemsSync(input: {
+function computePlacementRuntimeIds(input: {
+  rootArtifactDigest: string;
+  closure: SkillRolloutClosureEntry[];
+  rootRuntimeIds: string[];
+  primaryRuntimeId: string;
+}): Map<string, string[]> {
+  const children = new Map<string, Array<{ artifactDigest: string; placement: "same_runtime" | "workflow" }>>();
+  for (const entry of input.closure) {
+    const parent = entry.parentArtifactDigest ?? input.rootArtifactDigest;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent)!.push({ artifactDigest: entry.artifactDigest, placement: entry.placement });
+  }
+  const runtimeIds = new Map<string, string[]>();
+  runtimeIds.set(input.rootArtifactDigest, input.rootRuntimeIds);
+  const queue = [input.rootArtifactDigest];
+  const visited = new Set<string>([input.rootArtifactDigest]);
+  while (queue.length > 0) {
+    const parent = queue.shift()!;
+    const parentRuntimes = runtimeIds.get(parent) ?? input.rootRuntimeIds;
+    for (const child of children.get(parent) ?? []) {
+      const childRuntimes = child.placement === "same_runtime" ? parentRuntimes : [input.primaryRuntimeId];
+      runtimeIds.set(child.artifactDigest, childRuntimes);
+      if (!visited.has(child.artifactDigest)) {
+        visited.add(child.artifactDigest);
+        queue.push(child.artifactDigest);
+      }
+    }
+  }
+  return runtimeIds;
+}
+
+/**
+ * Computes the installation items honoring `placement`:
+ * - the root + its transitive `same_runtime` closure co-locate on the root runtime set;
+ * - each `workflow` dependency installs on the PRIMARY runtime only (one node,
+ *   never the full cartesian product).
+ */
+export function computeSkillRolloutItemsSync(input: {
   workspaceId?: string;
   rootArtifactDigest: string;
   closure: SkillRolloutClosureEntry[];
-  runtimeIds: string[];
+  rootRuntimeIds: string[];
+  primaryRuntimeId?: string;
 }): SkillRolloutItem[] {
   const workspaceId = input.workspaceId ?? "default";
-  const digests = [input.rootArtifactDigest, ...input.closure.map((entry) => entry.artifactDigest)];
+  const primary = input.primaryRuntimeId ?? input.rootRuntimeIds[0];
+  if (!primary) return [];
+  const runtimeIdsByDigest = computePlacementRuntimeIds({
+    rootArtifactDigest: input.rootArtifactDigest,
+    closure: input.closure,
+    rootRuntimeIds: input.rootRuntimeIds,
+    primaryRuntimeId: primary,
+  });
   const items: SkillRolloutItem[] = [];
-  for (const runtimeId of input.runtimeIds) {
-    for (const artifactDigest of digests) {
+  const seen = new Set<string>();
+  for (const [artifactDigest, runtimeIds] of runtimeIdsByDigest) {
+    for (const runtimeId of runtimeIds) {
+      const key = `${runtimeId}:${artifactDigest}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       items.push(resolveRolloutItemState({ workspaceId, runtimeId, artifactDigest }));
     }
   }
@@ -376,11 +468,13 @@ export function planSkillRollout(input: {
     dependencyMode: input.dependencyMode,
   });
   const targetRuntimes = computeSkillRolloutTargetRuntimesSync(input.targetScope, workspaceId);
-  const items = buildSkillRolloutItemsSync({
+  const rootRuntimeIds = resolveSkillRolloutRootRuntimeIdsSync(input.targetScope, workspaceId);
+  const items = computeSkillRolloutItemsSync({
     workspaceId,
     rootArtifactDigest: input.rootArtifactDigest,
     closure,
-    runtimeIds: targetRuntimes,
+    rootRuntimeIds,
+    primaryRuntimeId: rootRuntimeIds[0],
   });
   const risks = aggregateSkillRolloutRiskSync({ workspaceId, rootArtifactDigest: input.rootArtifactDigest, closure });
   const planDigest = computeSkillRolloutPlanDigestSync({
