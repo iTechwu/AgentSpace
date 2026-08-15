@@ -7,15 +7,21 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { listWorkspaceNotificationsForRecipientSync } from "../notifications.ts";
+import {
+  createWorkspaceNotificationSync,
+  listWorkspaceNotificationsForRecipientSync,
+} from "../notifications.ts";
 import {
   setNotificationsPrismaClientForTests,
   disconnectNotificationsPrismaForTests,
 } from "./notifications-prisma.ts";
 import {
+  archiveWorkspaceNotificationPrismaCutover,
   createWorkspaceNotificationPrisma,
   createWorkspaceNotificationPrismaCutover,
+  markWorkspaceNotificationReadPrismaCutover,
   type CreateWorkspaceNotificationPrismaCutoverMetric,
+  type UpdateNotificationStatusPrismaCutoverMetric,
 } from "./notifications-prisma-write.ts";
 
 const ORIGINAL_WRITE_FLAG = process.env.NOTIFICATIONS_PRISMA_WRITE_ENABLED;
@@ -67,6 +73,7 @@ interface MockPrismaClient {
     }) => Promise<{ count: number }>;
     findFirst: (args: Record<string, unknown>) => Promise<MockNotificationRow | null>;
   };
+  $executeRaw: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<number>;
 }
 
 interface MockBehavior {
@@ -76,6 +83,7 @@ interface MockBehavior {
     data: Record<string, unknown>;
   }) => Promise<{ count: number }>;
   findFirst?: (args: Record<string, unknown>) => Promise<MockNotificationRow | null>;
+  executeRaw?: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<number>;
 }
 
 function makeMockPrisma(behavior: MockBehavior): MockPrismaClient {
@@ -87,6 +95,7 @@ function makeMockPrisma(behavior: MockBehavior): MockPrismaClient {
       updateMany: behavior.updateMany ?? (async () => ({ count: 0 })),
       findFirst: behavior.findFirst ?? (async () => null),
     },
+    $executeRaw: behavior.executeRaw ?? (async () => 1),
   };
 }
 
@@ -291,4 +300,114 @@ test("createWorkspaceNotificationPrisma rejects invalid enum inputs like sync", 
     }),
     /Invalid notification resource type/,
   );
+});
+
+test("markWorkspaceNotificationReadPrismaCutover uses sync fallback when flag is disabled", async () => {
+  resetFlags();
+  const recipientId = `user-markread-${Date.now()}`;
+  const created = createWorkspaceNotificationSync({
+    ...BASE_INPUT,
+    recipientId,
+    dedupeKey: `markread-off-${Date.now()}`,
+  });
+  const metrics: UpdateNotificationStatusPrismaCutoverMetric[] = [];
+  const record = await markWorkspaceNotificationReadPrismaCutover(
+    {
+      workspaceId: "default",
+      notificationId: created.id,
+      recipient: { recipientType: "human", recipientId },
+    },
+    (metric) => metrics.push(metric),
+  );
+  assert.ok(record);
+  assert.equal(record!.status, "read");
+  assert.equal(metrics.length, 0);
+});
+
+test("markWorkspaceNotificationReadPrismaCutover uses Prisma primary when flag is on", async () => {
+  resetFlags();
+  process.env.NOTIFICATIONS_PRISMA_WRITE_ENABLED = "1";
+
+  const rawCalls: Array<{ sql: string; values: unknown[] }> = [];
+  setNotificationsPrismaClientForTests(
+    makeMockPrisma({
+      executeRaw: async (strings, ...values) => {
+        rawCalls.push({ sql: strings.join("?"), values });
+        return 1;
+      },
+      findFirst: async () => makeRow({ id: "notification-read-mock", status: "read", readAt: new Date() }),
+    }) as unknown as Parameters<typeof setNotificationsPrismaClientForTests>[0],
+  );
+  const metrics: UpdateNotificationStatusPrismaCutoverMetric[] = [];
+  const record = await markWorkspaceNotificationReadPrismaCutover(
+    {
+      workspaceId: "default",
+      notificationId: "notification-read-mock",
+      recipient: { recipientType: "human", recipientId: "user-mock" },
+    },
+    (metric) => metrics.push(metric),
+  );
+  assert.ok(record);
+  assert.equal(record!.id, "notification-read-mock");
+  assert.equal(record!.status, "read");
+  // COALESCE 语义：UPDATE 语句保留 read_at/archived_at 首次时间戳写法。
+  assert.match(rawCalls[0]!.sql, /COALESCE\(read_at/);
+  assert.match(rawCalls[0]!.sql, /COALESCE\(archived_at/);
+  assert.equal(rawCalls[0]!.values[0], "read");
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0]!.source, "primary");
+  assert.equal(metrics[0]!.fallbackInvoked, 0);
+});
+
+test("archiveWorkspaceNotificationPrismaCutover returns null for a missing row", async () => {
+  resetFlags();
+  process.env.NOTIFICATIONS_PRISMA_WRITE_ENABLED = "1";
+
+  setNotificationsPrismaClientForTests(
+    makeMockPrisma({
+      executeRaw: async () => 0,
+      findFirst: async () => null,
+    }) as unknown as Parameters<typeof setNotificationsPrismaClientForTests>[0],
+  );
+  const metrics: UpdateNotificationStatusPrismaCutoverMetric[] = [];
+  const record = await archiveWorkspaceNotificationPrismaCutover(
+    {
+      workspaceId: "default",
+      notificationId: "notification-missing",
+      recipient: { recipientType: "human", recipientId: "user-mock" },
+    },
+    (metric) => metrics.push(metric),
+  );
+  assert.equal(record, null);
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0]!.source, "primary");
+});
+
+test("markWorkspaceNotificationReadPrismaCutover propagates primary failures without fallback", async () => {
+  resetFlags();
+  process.env.NOTIFICATIONS_PRISMA_WRITE_ENABLED = "1";
+
+  setNotificationsPrismaClientForTests(
+    makeMockPrisma({
+      executeRaw: async () => {
+        throw new Error("prisma mark-read unreachable");
+      },
+    }) as unknown as Parameters<typeof setNotificationsPrismaClientForTests>[0],
+  );
+  const metrics: UpdateNotificationStatusPrismaCutoverMetric[] = [];
+  await assert.rejects(
+    markWorkspaceNotificationReadPrismaCutover(
+      {
+        workspaceId: "default",
+        notificationId: "notification-any",
+        recipient: { recipientType: "human", recipientId: "user-mock" },
+      },
+      (metric) => metrics.push(metric),
+    ),
+    /prisma mark-read unreachable/,
+  );
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0]!.source, "primary");
+  assert.equal(metrics[0]!.fallbackInvoked, 0);
+  assert.equal(metrics[0]!.error, "present");
 });

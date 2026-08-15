@@ -15,15 +15,19 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { randomLikeId } from "../database.ts";
 import {
+  archiveWorkspaceNotificationSync,
   createWorkspaceNotificationSync,
+  markWorkspaceNotificationReadSync,
   type CreateWorkspaceNotificationInput,
 } from "../notifications.ts";
 import type {
   WorkspaceNotificationActorType,
   WorkspaceNotificationRecord,
+  WorkspaceNotificationRecipient,
   WorkspaceNotificationRecipientType,
   WorkspaceNotificationResourceType,
   WorkspaceNotificationSeverity,
+  WorkspaceNotificationStatus,
 } from "../types.ts";
 import {
   buildDomainWriteCutover,
@@ -169,6 +173,121 @@ export function createWorkspaceNotificationPrismaCutover(
   metricSink?: CreateWorkspaceNotificationPrismaCutoverMetricSink,
 ): Promise<WorkspaceNotificationRecord> {
   return createWorkspaceNotificationPrismaCutoverImpl(input, metricSink);
+}
+
+// ---------------------------------------------------------------------------
+// markRead / archive 写路径：sync 的 UPDATE 用
+// read_at = COALESCE(read_at, ?) / archived_at = COALESCE(archived_at, ?)
+// 保留首次时间戳；Prisma updateMany 表达不了 COALESCE，用 $executeRaw 保真。
+// ---------------------------------------------------------------------------
+
+export interface NotificationStatusInput {
+  workspaceId?: string;
+  notificationId: string;
+  recipient: WorkspaceNotificationRecipient;
+}
+
+export async function markWorkspaceNotificationReadPrisma(
+  input: NotificationStatusInput,
+  client?: PrismaClient,
+): Promise<WorkspaceNotificationRecord | null> {
+  return updateNotificationStatusForRecipientPrisma(input, "read", client);
+}
+
+export async function archiveWorkspaceNotificationPrisma(
+  input: NotificationStatusInput,
+  client?: PrismaClient,
+): Promise<WorkspaceNotificationRecord | null> {
+  return updateNotificationStatusForRecipientPrisma(input, "archived", client);
+}
+
+async function updateNotificationStatusForRecipientPrisma(
+  input: NotificationStatusInput,
+  status: Exclude<WorkspaceNotificationStatus, "unread">,
+  client?: PrismaClient,
+): Promise<WorkspaceNotificationRecord | null> {
+  const prisma = client ?? getDofePrismaClient();
+  const workspaceId = input.workspaceId ?? "default";
+  const notificationId = normalizeRequired(input.notificationId, "notificationId");
+  const recipientId = normalizeRequired(input.recipient.recipientId, "recipientId");
+  if (!isRecipientType(input.recipient.recipientType)) {
+    throw new Error(`Invalid notification recipient type "${input.recipient.recipientType}".`);
+  }
+
+  const now = new Date();
+  await prisma.$executeRaw`UPDATE workspace_notification
+     SET status = ${status},
+         read_at = COALESCE(read_at, ${status === "read" ? now : null}),
+         archived_at = COALESCE(archived_at, ${status === "archived" ? now : null})
+     WHERE workspace_id = ${workspaceId}
+       AND id = ${notificationId}
+       AND recipient_type = ${input.recipient.recipientType}
+       AND recipient_id = ${recipientId}`;
+
+  const row = await prisma.workspaceNotification.findFirst({
+    where: {
+      workspaceId,
+      id: notificationId,
+      recipientType: input.recipient.recipientType,
+      recipientId,
+    },
+  });
+  return row ? mapRowToRecord(row) : null;
+}
+
+export type UpdateNotificationStatusPrismaCutoverMetric = DomainWriteCutoverMetric;
+export type UpdateNotificationStatusPrismaCutoverMetricSink = (
+  metric: UpdateNotificationStatusPrismaCutoverMetric,
+) => void;
+
+const markWorkspaceNotificationReadPrismaCutoverImpl = buildDomainWriteCutover<
+  NotificationStatusInput,
+  WorkspaceNotificationRecord | null,
+  UpdateNotificationStatusPrismaCutoverMetric
+>({
+  isEnabled: isNotificationsPrismaWriteEnabled,
+  runPrimary: async (input) => markWorkspaceNotificationReadPrisma(input),
+  runFallback: (input) => markWorkspaceNotificationReadSync(input),
+  emitMetric: createPrismaCutoverMetricSink({
+    domain: "workspace_notification",
+    operation: "mark_read",
+  }),
+});
+
+const archiveWorkspaceNotificationPrismaCutoverImpl = buildDomainWriteCutover<
+  NotificationStatusInput,
+  WorkspaceNotificationRecord | null,
+  UpdateNotificationStatusPrismaCutoverMetric
+>({
+  isEnabled: isNotificationsPrismaWriteEnabled,
+  runPrimary: async (input) => archiveWorkspaceNotificationPrisma(input),
+  runFallback: (input) => archiveWorkspaceNotificationSync(input),
+  emitMetric: createPrismaCutoverMetricSink({
+    domain: "workspace_notification",
+    operation: "archive",
+  }),
+});
+
+/**
+ * Write cutover for notification mark-read: Prisma primary when the flag is
+ * on, sync fallback otherwise. Returns the updated row or null when absent.
+ */
+export function markWorkspaceNotificationReadPrismaCutover(
+  input: NotificationStatusInput,
+  metricSink?: UpdateNotificationStatusPrismaCutoverMetricSink,
+): Promise<WorkspaceNotificationRecord | null> {
+  return markWorkspaceNotificationReadPrismaCutoverImpl(input, metricSink);
+}
+
+/**
+ * Write cutover for notification archive: Prisma primary when the flag is
+ * on, sync fallback otherwise. Returns the updated row or null when absent.
+ */
+export function archiveWorkspaceNotificationPrismaCutover(
+  input: NotificationStatusInput,
+  metricSink?: UpdateNotificationStatusPrismaCutoverMetricSink,
+): Promise<WorkspaceNotificationRecord | null> {
+  return archiveWorkspaceNotificationPrismaCutoverImpl(input, metricSink);
 }
 
 function mapRowToRecord(row: {
