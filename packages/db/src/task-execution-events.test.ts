@@ -9,6 +9,7 @@ import {
   cancelQueuedTaskSync,
   claimNextQueuedTaskForRuntimeSync,
   completeQueuedTaskSync,
+  createStoredEmployeeSync,
   enqueueNativeTaskSync,
   failQueuedTaskSync,
   listTaskExecutionEventsSync,
@@ -45,6 +46,7 @@ beforeEach(() => {
   db.exec("DELETE FROM agent_task_queue");
   db.exec("DELETE FROM agent_router_session");
   db.exec("DELETE FROM employee_runtime_binding");
+  db.exec("DELETE FROM workspace_employee");
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
   const now = new Date().toISOString();
@@ -53,6 +55,19 @@ beforeEach(() => {
      VALUES ('default', 'default', 'Dofe Agent', '', ?, ?)
      ON CONFLICT (id) DO NOTHING`,
   ).run(now, now);
+  createStoredEmployeeSync({
+    id: "emp-atlas",
+    name: "Atlas",
+    role: "Agent",
+    origin: "manual",
+    summary: "Task execution test employee",
+    traits: [],
+    fit: "Ready",
+    status: "active",
+    instructions: "",
+    skillIds: [],
+    channels: [],
+  });
 });
 
 test("records lifecycle, tool, message, and artifact execution events", () => {
@@ -122,6 +137,41 @@ test("records lifecycle, tool, message, and artifact execution events", () => {
   const data = JSON.parse(attachmentEvent.dataJson) as { artifactKind?: string; targetHref?: string };
   assert.equal(data.artifactKind, "attachment");
   assert.equal(data.targetHref, "/api/attachments/att-launch");
+});
+
+test("lists execution events for multiple tasks in one query", () => {
+  createRuntimeAndBinding();
+  const first = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "First batched task",
+    channel: "general",
+    priority: "medium",
+  });
+  const second = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Second batched task",
+    channel: "general",
+    priority: "medium",
+  });
+  const excluded = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Excluded task",
+    channel: "general",
+    priority: "medium",
+  });
+  assert.ok(first);
+  assert.ok(second);
+  assert.ok(excluded);
+
+  const events = listTaskExecutionEventsSync({
+    workspaceId: "default",
+    taskIds: [first.id, second.id, first.id],
+    order: "asc",
+  });
+
+  assert.deepEqual(new Set(events.map((event) => event.taskId)), new Set([first.id, second.id]));
+  assert.equal(events.some((event) => event.taskId === excluded.id), false);
+  assert.deepEqual(listTaskExecutionEventsSync({ taskIds: [] }), []);
 });
 
 test("records actionable provider failures as blocked events with structured metadata", () => {

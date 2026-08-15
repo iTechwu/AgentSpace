@@ -43,6 +43,11 @@ export async function listTaskExecutionEventsPrisma(
   const where: Record<string, unknown> = {};
   if (typeof options.workspaceId === "string") where.workspaceId = options.workspaceId;
   if (typeof options.taskId === "string") where.taskId = options.taskId;
+  else if (options.taskIds) {
+    const taskIds = [...new Set(options.taskIds)].filter((taskId) => taskId.length > 0);
+    if (taskIds.length === 0) return [];
+    where.taskId = { in: taskIds };
+  }
   if (typeof options.channelName === "string") where.channelName = options.channelName;
   if (typeof options.agentId === "string") where.agentId = options.agentId;
   if (typeof options.runtimeId === "string") where.runtimeId = options.runtimeId;
@@ -51,7 +56,7 @@ export async function listTaskExecutionEventsPrisma(
   const rows = await prisma.taskExecutionEvent.findMany({
     where,
     orderBy: [{ createdAt: order }, { id: order }],
-    take: normalizePrismaLimit(options.limit),
+    take: normalizePrismaLimit(options.limit, options.taskIds ? 5000 : 500),
   });
   return rows
     .map((row) => mapPrismaTaskEvent(row as unknown as PrismaTaskEvent))
@@ -70,8 +75,8 @@ export async function disconnectTaskExecutionEventsPrismaForTests(): Promise<voi
   await disconnectDofePrismaClient();
 }
 
-function normalizePrismaLimit(limit: number | undefined): number {
-  return Math.min(Math.max(limit ?? 100, 1), 500);
+function normalizePrismaLimit(limit: number | undefined, maximum: number): number {
+  return Math.min(Math.max(limit ?? 100, 1), maximum);
 }
 
 function mapPrismaTaskEvent(

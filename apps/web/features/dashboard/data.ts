@@ -835,15 +835,20 @@ async function replaceInboxExecutionTimelinesAsync(
   if (queueIds.length === 0) {
     return current;
   }
-  const timelines = new Map(await Promise.all(queueIds.map(async (queueId) => [
-    queueId,
-    (await listTaskExecutionEventsAsync({
-      workspaceId,
-      taskId: queueId,
-      limit: 80,
-      order: "asc",
-    })).map(mapTaskExecutionTimelineEntry),
-  ] as const)));
+  const events = await listTaskExecutionEventsAsync({
+    workspaceId,
+    taskIds: queueIds,
+    limit: queueIds.length * 80,
+    order: "asc",
+  });
+  const timelines = new Map<string, TaskExecutionTimelineEntry[]>();
+  for (const event of events) {
+    const timeline = timelines.get(event.taskId) ?? [];
+    if (timeline.length < 80) {
+      timeline.push(mapTaskExecutionTimelineEntry(event));
+      timelines.set(event.taskId, timeline);
+    }
+  }
   return {
     ...current,
     items: current.items.map((item) => {

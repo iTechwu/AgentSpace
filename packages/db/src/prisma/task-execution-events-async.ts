@@ -46,11 +46,17 @@ export async function listTaskExecutionEventsAsync(
   }
   pushIfString(options.workspaceId, "workspace_id");
   pushIfString(options.taskId, "task_id");
+  if (!options.taskId && options.taskIds) {
+    const taskIds = [...new Set(options.taskIds)].filter((taskId) => taskId.length > 0);
+    if (taskIds.length === 0) return [];
+    conditions.push(`task_id = ANY($${params.length + 1}::text[])`);
+    params.push(taskIds);
+  }
   pushIfString(options.channelName, "channel_name");
   pushIfString(options.agentId, "agent_id");
   pushIfString(options.runtimeId, "runtime_id");
 
-  const limit = normalizeLimit(options.limit);
+  const limit = normalizeLimit(options.limit, options.taskIds ? 5000 : 500);
   const order = options.order === "desc" ? "DESC" : "ASC";
   const tieOrder = options.order === "desc" ? "DESC" : "ASC";
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -84,8 +90,8 @@ export function isTaskExecutionEventsShadowReadEnabled(): boolean {
   return process.env.TASK_EXECUTION_EVENTS_SHADOW_READ_ENABLED === "1";
 }
 
-function normalizeLimit(limit: number | undefined): number {
-  return Math.min(Math.max(limit ?? 100, 1), 500);
+function normalizeLimit(limit: number | undefined, maximum: number): number {
+  return Math.min(Math.max(limit ?? 100, 1), maximum);
 }
 
 function mapTaskExecutionEventRow(

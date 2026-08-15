@@ -31,6 +31,7 @@ export interface TaskExecutionEventInput {
 export interface TaskExecutionEventListOptions {
   workspaceId?: string;
   taskId?: string;
+  taskIds?: string[];
   channelName?: string;
   agentId?: string;
   runtimeId?: string;
@@ -114,6 +115,11 @@ export function listTaskExecutionEventsSync(
   if (typeof options.taskId === "string") {
     where.push("task_id = ?");
     params.push(options.taskId);
+  } else if (options.taskIds) {
+    const taskIds = normalizeTaskIds(options.taskIds);
+    if (taskIds.length === 0) return [];
+    where.push(`task_id IN (${taskIds.map(() => "?").join(", ")})`);
+    params.push(...taskIds);
   }
   if (typeof options.channelName === "string") {
     where.push("channel_name = ?");
@@ -128,7 +134,7 @@ export function listTaskExecutionEventsSync(
     params.push(options.runtimeId);
   }
 
-  const limit = normalizeLimit(options.limit);
+  const limit = normalizeLimit(options.limit, options.taskIds ? 5000 : 500);
   const order = options.order === "desc" ? "DESC" : "ASC";
   const tieOrder = options.order === "desc" ? "DESC" : "ASC";
   const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
@@ -157,6 +163,10 @@ export function listTaskExecutionEventsSync(
   return rows
     .map((row) => mapTaskExecutionEventRecord(row))
     .filter((row): row is TaskExecutionEventRecord => row !== null);
+}
+
+function normalizeTaskIds(taskIds: string[]): string[] {
+  return [...new Set(taskIds)].filter((taskId) => typeof taskId === "string" && taskId.length > 0);
 }
 
 export function buildTaskExecutionEventContext(task: QueuedTaskRecord): TaskExecutionEventContext {
@@ -234,11 +244,11 @@ function mapTaskExecutionEventRecord(value: Record<string, unknown>): TaskExecut
   };
 }
 
-function normalizeLimit(limit: number | undefined): number {
+function normalizeLimit(limit: number | undefined, maximum: number): number {
   if (typeof limit !== "number" || !Number.isFinite(limit)) {
     return 100;
   }
-  return Math.min(500, Math.max(1, Math.floor(limit)));
+  return Math.min(maximum, Math.max(1, Math.floor(limit)));
 }
 
 function safeParseJsonObject(value: string): Record<string, unknown> {
