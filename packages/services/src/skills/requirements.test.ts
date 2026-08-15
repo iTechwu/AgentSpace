@@ -32,6 +32,32 @@ test("parseSkillRequirementDeclarations accepts the bounded installation manifes
   ]);
 });
 
+test("parseSkillRequirementDeclarations ignores nested metadata requirements", () => {
+  const ecosystemRequirementsSkill = `---
+name: ecosystem-requirements
+metadata:
+  requires:
+    bins:
+      - node
+    optional:
+      - codex
+---`;
+
+  assert.deepEqual(parseSkillRequirementDeclarations(ecosystemRequirementsSkill), []);
+});
+
+test("parseSkillRequirementDeclarations accepts a JSON-style YAML list", () => {
+  const flowSequenceSkill = `---
+name: flow-sequence
+requires: ["provider:codex", "config:API_BASE_URL"]
+---`;
+
+  assert.deepEqual(parseSkillRequirementDeclarations(flowSequenceSkill), [
+    { kind: "provider", value: "codex" },
+    { kind: "config", value: "API_BASE_URL" },
+  ]);
+});
+
 test("parseSkillRequirementDeclarations treats APPKEY as a credential", () => {
   const appKeySkill = `---
 requires:

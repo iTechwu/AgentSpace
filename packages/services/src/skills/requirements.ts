@@ -1,4 +1,5 @@
 import { DAEMON_PROVIDER_IDS, type DaemonProvider } from "@dofe-agent/domain";
+import { parse as parseYaml } from "yaml";
 
 export type SkillRequirementKind = "provider" | "model" | "capability" | "project" | "config" | "secret";
 
@@ -33,34 +34,35 @@ const VALUE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/+\-]{0,159}$/;
 const CONFIG_KEY_PATTERN = /^[A-Z][A-Z0-9_]{0,79}$/;
 
 export function parseSkillRequirementDeclarations(skillMarkdown: string): SkillRequirementDeclaration[] {
-  const frontmatter = readFrontmatter(skillMarkdown);
-  if (!frontmatter) {
+  const frontmatterText = readFrontmatter(skillMarkdown);
+  if (!frontmatterText) {
     return [];
   }
 
-  const declarations: SkillRequirementDeclaration[] = [];
-  let inRequires = false;
-  for (const rawLine of frontmatter.split(/\r?\n/)) {
-    if (/^requires\s*:\s*$/.test(rawLine.trim())) {
-      inRequires = true;
-      continue;
-    }
-    if (!inRequires) {
-      continue;
-    }
-    if (/^\S/.test(rawLine)) {
-      break;
-    }
-    const match = rawLine.match(/^\s+-\s+(.+)\s*$/);
-    if (!match) {
-      if (rawLine.trim()) {
-        throw new Error("Skill requires must be a YAML list.");
-      }
-      continue;
-    }
-    declarations.push(parseSkillRequirementDeclaration(stripYamlScalar(match[1]!.trim())));
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(frontmatterText);
+  } catch (error) {
+    throw new Error(`Skill frontmatter is not valid YAML: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return uniqueDeclarations(declarations);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return [];
+  }
+
+  const requires = (parsed as Record<string, unknown>).requires;
+  if (requires === undefined || requires === null) {
+    return [];
+  }
+  if (!Array.isArray(requires)) {
+    throw new Error("Skill requires must be a YAML list.");
+  }
+
+  return uniqueDeclarations(requires.map((requirement) => {
+    if (typeof requirement !== "string") {
+      throw new Error("Skill requires entries must be strings.");
+    }
+    return parseSkillRequirementDeclaration(requirement.trim());
+  }));
 }
 
 export function readSkillRequirementDeclarations(configJson: string | undefined): SkillRequirementDeclaration[] {
@@ -460,11 +462,4 @@ function runtimeHasCapability(runtimeCapabilities: readonly string[], required: 
   // Allow declaring just the app name (e.g. "ffmpeg") to match a CLI Hub id
   // such as "clihub:homebrew:ffmpeg".
   return runtimeCapabilities.some((id) => id.endsWith(`:${required}`));
-}
-
-function stripYamlScalar(value: string): string {
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1);
-  }
-  return value;
 }
