@@ -42,14 +42,22 @@ interface MockAuditLogRow {
 
 interface MockPrismaClient {
   auditLog: {
-    create: (args: { data: Omit<MockAuditLogRow, "createdAt"> & { createdAt: Date } }) => Promise<MockAuditLogRow>;
+    upsert: (args: {
+      where: { id: string };
+      create: Omit<MockAuditLogRow, "createdAt"> & { createdAt: Date };
+      update: Record<string, never>;
+    }) => Promise<MockAuditLogRow>;
   };
 }
 
 function makeMockPrisma(
-  behavior: (args: { data: Omit<MockAuditLogRow, "createdAt"> & { createdAt: Date } }) => Promise<MockAuditLogRow>,
+  behavior: (args: {
+    where: { id: string };
+    create: Omit<MockAuditLogRow, "createdAt"> & { createdAt: Date };
+    update: Record<string, never>;
+  }) => Promise<MockAuditLogRow>,
 ): MockPrismaClient {
-  return { auditLog: { create: behavior } };
+  return { auditLog: { upsert: behavior } };
 }
 
 test("createAuditLogPrismaCutover uses sync fallback when flag is disabled", async () => {
@@ -83,15 +91,15 @@ test("createAuditLogPrismaCutover uses Prisma primary when flag is on", async ()
   // because both share the same Prisma cache).
   const { setAuditLogPrismaClientForTests } = await import("./audit-log-prisma.ts");
   const mock = makeMockPrisma(async (args) => ({
-    id: args.data.id,
-    workspaceId: args.data.workspaceId,
-    title: args.data.title,
-    note: args.data.note,
-    code: args.data.code,
-    source: args.data.source,
-    sourceIndex: args.data.sourceIndex,
-    dataJson: args.data.dataJson,
-    createdAt: args.data.createdAt,
+    id: args.create.id,
+    workspaceId: args.create.workspaceId,
+    title: args.create.title,
+    note: args.create.note,
+    code: args.create.code,
+    source: args.create.source,
+    sourceIndex: args.create.sourceIndex,
+    dataJson: args.create.dataJson,
+    createdAt: args.create.createdAt,
   }));
   setAuditLogPrismaClientForTests(mock as unknown as Parameters<typeof setAuditLogPrismaClientForTests>[0]);
   try {
@@ -126,8 +134,8 @@ test("createAuditLogPrismaCutover returns a committed primary result when metric
     makeMockPrisma(async (args) => {
       primaryCalls += 1;
       return {
-        ...args.data,
-        createdAt: args.data.createdAt,
+        ...args.create,
+        createdAt: args.create.createdAt,
       };
     }) as unknown as Parameters<typeof setAuditLogPrismaClientForTests>[0],
   );
@@ -211,15 +219,15 @@ test("createAuditLogPrisma returns a record with the expected shape", async () =
   const { setAuditLogPrismaClientForTests } = await import("./audit-log-prisma.ts");
   setAuditLogPrismaClientForTests(
     makeMockPrisma(async (args) => ({
-      id: args.data.id,
-      workspaceId: args.data.workspaceId,
-      title: args.data.title,
-      note: args.data.note,
-      code: args.data.code,
-      source: args.data.source,
-      sourceIndex: args.data.sourceIndex,
-      dataJson: args.data.dataJson,
-      createdAt: args.data.createdAt,
+      id: args.create.id,
+      workspaceId: args.create.workspaceId,
+      title: args.create.title,
+      note: args.create.note,
+      code: args.create.code,
+      source: args.create.source,
+      sourceIndex: args.create.sourceIndex,
+      dataJson: args.create.dataJson,
+      createdAt: args.create.createdAt,
     })) as unknown as Parameters<typeof setAuditLogPrismaClientForTests>[0],
   );
   try {
@@ -239,4 +247,80 @@ test("createAuditLogPrisma returns a record with the expected shape", async () =
   } finally {
     setAuditLogPrismaClientForTests(null);
   }
+});
+
+test("createAuditLogPrisma reuses a stable row for the same idempotency key", async () => {
+  let stored: MockAuditLogRow | undefined;
+  let upsertCalls = 0;
+  const { setAuditLogPrismaClientForTests } = await import("./audit-log-prisma.ts");
+  setAuditLogPrismaClientForTests(
+    makeMockPrisma(async (args) => {
+      upsertCalls += 1;
+      stored ??= { ...args.create };
+      return stored;
+    }) as unknown as Parameters<typeof setAuditLogPrismaClientForTests>[0],
+  );
+  try {
+    const input = {
+      workspaceId: "default",
+      idempotencyKey: "runtime-provision:request-42:completed",
+      title: "Runtime provisioned",
+      note: "The operation completed.",
+      code: "runtime.provisioned",
+      data: { runtimeId: "runtime-42" },
+    };
+    const first = await createAuditLogPrisma(input);
+    const retried = await createAuditLogPrisma(input);
+
+    assert.equal(retried.id, first.id);
+    assert.equal(retried.createdAt, first.createdAt);
+    assert.equal(upsertCalls, 2);
+  } finally {
+    setAuditLogPrismaClientForTests(null);
+  }
+});
+
+test("createAuditLogPrisma rejects reused idempotency keys with different content", async () => {
+  let stored: MockAuditLogRow | undefined;
+  const { setAuditLogPrismaClientForTests } = await import("./audit-log-prisma.ts");
+  setAuditLogPrismaClientForTests(
+    makeMockPrisma(async (args) => {
+      stored ??= { ...args.create };
+      return stored;
+    }) as unknown as Parameters<typeof setAuditLogPrismaClientForTests>[0],
+  );
+  try {
+    await createAuditLogPrisma({
+      idempotencyKey: "shared-key",
+      title: "First event",
+      note: "Original payload",
+    });
+    await assert.rejects(
+      createAuditLogPrisma({
+        idempotencyKey: "shared-key",
+        title: "Different event",
+        note: "Changed payload",
+      }),
+      /audit_log.idempotency_conflict/,
+    );
+  } finally {
+    setAuditLogPrismaClientForTests(null);
+  }
+});
+
+test("sync fallback also deduplicates by idempotency key", async () => {
+  resetFlags();
+  const input = {
+    workspaceId: "default",
+    idempotencyKey: `sync-retry-${Date.now()}`,
+    title: "Sync retry",
+    note: "One immutable audit row",
+    data: { operationId: "op-sync-retry" },
+  };
+
+  const first = await createAuditLogPrismaCutover(input);
+  const retried = await createAuditLogPrismaCutover(input);
+
+  assert.equal(retried.id, first.id);
+  assert.equal(retried.createdAt, first.createdAt);
 });

@@ -8,6 +8,10 @@
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { recordAuditLogSync } from "../audit-log.ts";
+import {
+  assertAuditLogIdempotencyMatch,
+  resolveAuditLogWrite,
+} from "../audit-log-idempotency.ts";
 import type { AuditLogRecord, AuditLogSource } from "../types.ts";
 import {
   buildDomainWriteCutover,
@@ -23,6 +27,7 @@ import {
 
 export interface CreateAuditLogInput {
   workspaceId?: string;
+  idempotencyKey?: string;
   title: string;
   note: string;
   code?: string;
@@ -47,24 +52,30 @@ export async function createAuditLogPrisma(
   client?: PrismaClient,
 ): Promise<AuditLogRecord> {
   const prisma = client ?? getPrismaClient();
-  const id = `audit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const workspaceId = input.workspaceId ?? "default";
+  const resolved = resolveAuditLogWrite({
+    ...input,
+    workspaceId,
+    createRandomId: () => `audit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  });
   const now = new Date();
   const args = {
-    data: {
-      id,
-      workspaceId,
-      title: input.title,
-      note: input.note,
-      code: input.code ?? null,
-      source: input.source ?? "runtime_lifecycle",
+    where: { id: resolved.id },
+    create: {
+      id: resolved.id,
+      workspaceId: resolved.workspaceId,
+      title: resolved.title,
+      note: resolved.note,
+      code: resolved.code,
+      source: resolved.source,
       sourceIndex: 0,
-      dataJson: JSON.parse(JSON.stringify(input.data ?? {})) as Prisma.InputJsonValue,
+      dataJson: JSON.parse(resolved.dataJson) as Prisma.InputJsonValue,
       createdAt: now,
     },
-  } satisfies Prisma.AuditLogCreateArgs;
-  const row = await prisma.auditLog.create(args);
-  return {
+    update: {},
+  } satisfies Prisma.AuditLogUpsertArgs;
+  const row = await prisma.auditLog.upsert(args);
+  const record: AuditLogRecord = {
     id: row.id,
     workspaceId: row.workspaceId,
     title: row.title,
@@ -75,6 +86,8 @@ export async function createAuditLogPrisma(
     sourceIndex: row.sourceIndex,
     createdAt: row.createdAt.toISOString(),
   };
+  assertAuditLogIdempotencyMatch(record, resolved);
+  return record;
 }
 
 export type CreateAuditLogPrismaCutoverMetric = DomainWriteCutoverMetric;

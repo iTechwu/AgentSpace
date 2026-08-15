@@ -1,8 +1,13 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
+import {
+  assertAuditLogIdempotencyMatch,
+  resolveAuditLogWrite,
+} from "./audit-log-idempotency.ts";
 import type { AuditLogRecord, AuditLogSource } from "./types.ts";
 
 export interface RecordAuditLogInput {
   workspaceId?: string;
+  idempotencyKey?: string;
   title: string;
   note: string;
   code?: string;
@@ -18,23 +23,29 @@ export interface RecordAuditLogInput {
  */
 export function recordAuditLogSync(input: RecordAuditLogInput): AuditLogRecord {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const id = `audit-${randomLikeId()}`;
+  const resolved = resolveAuditLogWrite({
+    ...input,
+    workspaceId,
+    createRandomId: () => `audit-${randomLikeId()}`,
+  });
   const now = new Date().toISOString();
-  const dataJson = JSON.stringify(input.data ?? {});
   getDatabase().prepare(
     `INSERT INTO audit_log (id, workspace_id, title, note, code, data_json, source, source_index, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+     ON CONFLICT (id) DO NOTHING`,
   ).run(
-    id,
-    workspaceId,
-    input.title,
-    input.note,
-    input.code ?? null,
-    dataJson,
-    input.source ?? "runtime_lifecycle",
+    resolved.id,
+    resolved.workspaceId,
+    resolved.title,
+    resolved.note,
+    resolved.code,
+    resolved.dataJson,
+    resolved.source,
     now,
   );
-  return readAuditLogSync(id, workspaceId)!;
+  const persisted = readAuditLogSync(resolved.id, resolved.workspaceId)!;
+  assertAuditLogIdempotencyMatch(persisted, resolved);
+  return persisted;
 }
 
 export function readAuditLogSync(
