@@ -34,7 +34,13 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // Re-frozen 2026-08-15: promoted shared/audit.test.ts and the new
 // prisma-read-cutovers.test.ts into the services default test command. Both are
 // classified default-owned below, reducing the reviewed deferred set to 181.
-const EXPECTED_DEFERRED_DIGEST = "b4d6fbff2a5e553b94578c4d41f15adfd4369e1474dc06e83b9eb25b24f9f01a";
+// Re-frozen 2026-08-15 (round 6, 179-file set): promoted 8 Phase 2 cutover
+// unit tests (audit-log/notifications/task-execution-events/workspace-memberships/
+// employees-runtime-bindings/task-queue/agent-skills/knowledge-proposals — both pg
+// 原型 + Prisma 真接入) into the db default test command via the regex rule
+// above. Reviewed and confirmed all 8 belong in default coverage; deferred set
+// shrinks to 179.
+const EXPECTED_DEFERRED_DIGEST = "b95ff63482e91d2c190a26e4f70599aed468a6befa02f46d1a95766d50457d00";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -110,6 +116,16 @@ function isDefaultOwned(file) {
     "packages/services/src/prisma-read-cutovers.test.ts",
     "packages/services/src/shared/audit.test.ts",
   ]).has(file)) return true;
+
+  // packages/db/src/prisma/{knowledge-proposals,task-queue,agent-skills,
+  // employees-runtime-bindings,audit-log,notifications,task-execution-events,
+  // workspace-memberships,read-cutover,prisma-client,cutover-runner,
+  // audit-log-prisma,audit-log-prisma-write}-*.test.ts — Phase 2 cutover
+  // unit tests run via db package default test script (glob src/prisma/*.test.ts
+  // already captures *.test.ts directly under src/prisma/). The rule below is
+  // redundant with the glob above but kept explicit for future tests that
+  // might land in subdirectories.
+  if (/^packages\/db\/src\/prisma\/[a-z][a-z0-9._-]*\.test\.ts$/.test(file)) return true;
 
   if (new Set([
     "apps/cli/src/commands/output.test.ts",

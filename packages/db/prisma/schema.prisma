@@ -166,3 +166,35 @@ model AgentSkill {
   @@id([workspaceId, employeeId, skillId])
   @@map("agent_skill")
 }
+
+model KnowledgeProposal {
+  id                       String   @id
+  workspaceId              String   @map("workspace_id")
+  sourceTaskQueueId        String   @map("source_task_queue_id")
+  sourceChannelName        String?  @map("source_channel_name")
+  sourceAgentName          String   @map("source_agent_name")
+  /// KnowledgeProposalOperation: create|update|append|archive|assign.
+  operation                String
+  /// KnowledgeProposalStatus: pending|approved|rejected|superseded|committed.
+  status                   String
+  title                    String
+  contentMarkdown          String   @map("content_markdown")
+  summary                  String?
+  reason                   String?
+  tagsJson                 Json     @map("tags")
+  parentId                 String?  @map("parent_id")
+  /// KnowledgeAssignmentMode: explicit|by_skill|inherited|manual.
+  assignmentMode           String   @map("assignment_mode")
+  assignedEmployeeNamesJson Json     @map("assigned_employee_names")
+  targetKnowledgePageId    String?  @map("target_knowledge_page_id")
+  baseUpdatedAt            DateTime? @map("base_updated_at") @db.Timestamptz(6)
+  createdKnowledgePageId   String?  @map("created_knowledge_page_id")
+  approvalId               String?  @map("approval_id")
+  decidedByUserId          String?  @map("decided_by_user_id")
+  decidedAt                DateTime? @map("decided_at") @db.Timestamptz(6)
+  reviewerComment          String?  @map("reviewer_comment")
+  createdAt                DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@map("knowledge_proposal")
+}

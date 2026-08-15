@@ -7,6 +7,15 @@ import type {
 } from "./types.ts";
 import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 
+// Re-export the record / option types so Phase 2 cutover modules can
+// import them from this domain module (which is the public surface that
+// already exports the corresponding sync API).
+export type {
+  KnowledgeProposalOperation,
+  KnowledgeProposalRecord,
+  KnowledgeProposalStatus,
+};
+
 export interface CreateKnowledgeProposalInput {
   workspaceId?: string;
   sourceTaskQueueId: string;
