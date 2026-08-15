@@ -31,7 +31,10 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // to default-owned — services package test script now runs them
 // (channel-access/notifications 4/4+2/2 pass unconditionally; messages 27/27 pass
 // + 14 runtime-dependent cases gated by MANAGED_RUNTIME_AVAILABLE=1, default skip).
-const EXPECTED_DEFERRED_DIGEST = "90a5a68e3456ff58b5ff45206b449ada179da707b836dfa3e1ec44d18b5be125";
+// Re-frozen 2026-08-15: promoted shared/audit.test.ts and the new
+// prisma-read-cutovers.test.ts into the services default test command. Both are
+// classified default-owned below, reducing the reviewed deferred set to 181.
+const EXPECTED_DEFERRED_DIGEST = "b4d6fbff2a5e553b94578c4d41f15adfd4369e1474dc06e83b9eb25b24f9f01a";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -102,6 +105,11 @@ function isDefaultOwned(file) {
       return true;
     }
   }
+
+  if (new Set([
+    "packages/services/src/prisma-read-cutovers.test.ts",
+    "packages/services/src/shared/audit.test.ts",
+  ]).has(file)) return true;
 
   if (new Set([
     "apps/cli/src/commands/output.test.ts",
