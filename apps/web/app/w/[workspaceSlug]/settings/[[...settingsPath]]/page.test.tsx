@@ -90,6 +90,7 @@ vi.mock("@/features/integrations/feishu/feishu-settings-data", () => ({
   listFeishuAvailableAgents: mockListFeishuAvailableAgents,
   listFeishuAvailableChannels: mockListFeishuAvailableChannels,
   listFeishuAvailableUsers: mockListFeishuAvailableUsers,
+  listFeishuAvailableUsersAsync: mockListFeishuAvailableUsers,
   listFeishuIntegrationSettingsItems: mockListFeishuIntegrationSettingsItems,
 }));
 
