@@ -197,6 +197,10 @@ export function validateWorkflowNodeForDispatchSync(
   const readiness = validateWorkflowEmployeeReadiness(node, employees, bindings);
   if (readiness) return readiness;
   return validateWorkflowNodeDependencies(node, {
+    workspaceId,
+    runtimeBindings: new Map(
+      [...bindings.entries()].map(([employeeId, binding]) => [employeeId, binding.runtimeId]),
+    ),
     employees,
     assignedSkills: new Set(
       listStoredAgentSkillAssignmentsSync(workspaceId)
