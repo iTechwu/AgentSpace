@@ -432,3 +432,45 @@ model SkillFile {
 
   @@map("skill_file")
 }
+
+model WorkflowRun {
+  id              String    @id
+  workspaceId     String    @map("workspace_id")
+  workflowId      String    @map("workflow_id")
+  versionId       String    @map("version_id")
+  rootTaskId      String?   @map("root_task_id")
+  triggerId       String?   @map("trigger_id")
+  triggerType     String    @map("trigger_type")
+  triggerKey      String    @map("trigger_key")
+  inputJson       String    @map("input_json")
+  status          String
+  currentSequence BigInt    @default(0) @map("current_sequence")
+  budgetJson      String    @map("budget_json")
+  startedAt       DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(6)
+  createdBy       String    @map("created_by")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("workflow_run")
+}
+
+model WorkflowTrigger {
+  id                  String    @id
+  workspaceId         String    @map("workspace_id")
+  workflowId          String    @map("workflow_id")
+  type                String
+  configJson          String    @map("config_json")
+  timezone            String?
+  status              String
+  nextFireAt          DateTime? @map("next_fire_at") @db.Timestamptz(6)
+  lastFireAt          DateTime? @map("last_fire_at") @db.Timestamptz(6)
+  misfirePolicy       String    @map("misfire_policy")
+  dedupeWindowSeconds Int       @map("dedupe_window_seconds")
+  leaseOwner          String?   @map("lease_owner")
+  leaseExpiresAt      DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+  createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("workflow_trigger")
+}
