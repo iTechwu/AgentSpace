@@ -20,3 +20,19 @@ test("domain cutover keeps the default sink and redacts caller metrics", async (
   assert.deepEqual(defaultErrors, ["postgres://user:secret@example/db"]);
   assert.deepEqual(callerErrors, ["present"]);
 });
+
+test("domain cutover redacts caller metrics when no default sink is configured", async () => {
+  const callerErrors: Array<string | undefined> = [];
+  const read = buildDomainCutover<void, string>({
+    isEnabled: () => true,
+    isShadowEnabled: () => false,
+    runPrimary: async () => {
+      throw new Error("postgres://user:secret@example/db");
+    },
+    runFallback: () => "legacy",
+    compare: (primary, fallback) => primary === fallback,
+  });
+
+  assert.equal(await read(undefined, (metric) => callerErrors.push(metric.error)), "legacy");
+  assert.deepEqual(callerErrors, ["present"]);
+});

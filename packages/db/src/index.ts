@@ -715,6 +715,22 @@ export {
   listEmployeeRuntimeBindingsPrismaCutover,
   type ListEmployeesRuntimeBindingsPrismaCutoverMetric,
 } from "./prisma/employees-runtime-bindings-prisma-cutover.ts";
+export {
+  listQueuedTasksPrismaCutover,
+  type ListTaskQueuePrismaCutoverMetric,
+} from "./prisma/task-queue-prisma-cutover.ts";
+export {
+  listAgentSkillAssignmentsPrismaCutover,
+  type ListAgentSkillsPrismaCutoverMetric,
+} from "./prisma/agent-skills-prisma-cutover.ts";
+export {
+  listKnowledgeProposalsPrismaCutover,
+  type ListKnowledgeProposalsPrismaCutoverMetric,
+} from "./prisma/knowledge-proposals-prisma-cutover.ts";
+export {
+  listDocumentAgentAccessPrismaCutover,
+  type ListDocumentAgentAccessPrismaCutoverMetric,
+} from "./prisma/document-agent-access-prisma-cutover.ts";
 
 // Runtime apps
 export {

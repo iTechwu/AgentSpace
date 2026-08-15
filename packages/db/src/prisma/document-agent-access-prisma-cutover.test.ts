@@ -98,7 +98,7 @@ test("listDocumentAgentAccessPrismaCutover uses Prisma primary when flag is on",
     documentId: "doc-mock",
     subjectType: "agent",
     subjectId: "agent-mock",
-    role: "editor",
+    role: "forwarder",
     scope: "document",
     grantedByUserId: "user-mock",
     createdAt: new Date().toISOString(),
@@ -114,6 +114,7 @@ test("listDocumentAgentAccessPrismaCutover uses Prisma primary when flag is on",
   );
   assert.equal(result.length, 1);
   assert.equal(result[0]!.id, "daa-prisma-mock");
+  assert.equal(result[0]!.role, "forwarder");
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "primary");
 });

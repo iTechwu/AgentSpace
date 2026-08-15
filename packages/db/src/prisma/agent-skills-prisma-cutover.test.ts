@@ -94,16 +94,23 @@ test("listAgentSkillAssignmentsPrismaCutover uses Prisma primary when flag is on
     skillId: "skill-prisma-mock",
     createdAt: new Date().toISOString(),
   };
+  const alphabeticallyFirst: StoredAgentSkillRecord = {
+    ...mockedRow,
+    agentId: "emp-alpha",
+    employeeId: "emp-alpha",
+    employeeName: "alpha",
+    skillId: "skill-alpha",
+  };
   setDofePrismaClientForTests(
-    makeMockPrisma(async () => [toPrismaRow(mockedRow)]) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
+    makeMockPrisma(async () => [toPrismaRow(mockedRow), toPrismaRow(alphabeticallyFirst)]) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
   );
   const metrics: ListAgentSkillsPrismaCutoverMetric[] = [];
   const result = await listAgentSkillAssignmentsPrismaCutover(
     "default",
     (metric) => metrics.push(metric),
   );
-  assert.equal(result.length, 1);
-  assert.equal(result[0]!.skillId, "skill-prisma-mock");
+  assert.equal(result.length, 2);
+  assert.deepEqual(result.map((row) => row.skillId), ["skill-alpha", "skill-prisma-mock"]);
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "primary");
 });

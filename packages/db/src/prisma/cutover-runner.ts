@@ -164,7 +164,9 @@ function combineMetricSinks<TMetric extends ReadCutoverMetric>(
   callerSink: ((metric: TMetric) => void) | undefined,
 ): ((metric: TMetric) => void) | undefined {
   if (!callerSink) return defaultSink;
-  if (!defaultSink) return callerSink;
+  if (!defaultSink) {
+    return (metric) => safelyInvokeMetricSink(callerSink, sanitizeCallerMetric(metric));
+  }
   return (metric) => {
     safelyInvokeMetricSink(defaultSink, metric);
     safelyInvokeMetricSink(callerSink, sanitizeCallerMetric(metric));

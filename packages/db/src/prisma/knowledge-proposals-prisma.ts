@@ -13,13 +13,13 @@ import type {
   KnowledgeProposalRecord,
 } from "../knowledge-proposals.ts";
 
-const VALID_OPERATIONS = new Set(["create", "update", "append", "archive", "assign"]);
+const VALID_OPERATIONS = new Set(["create", "update"]);
 const VALID_STATUSES = new Set([
   "pending",
   "approved",
   "rejected",
-  "superseded",
-  "committed",
+  "stale",
+  "cancelled",
 ]);
 const VALID_MODES = new Set(["all_agents", "selected_agents"]);
 
@@ -59,6 +59,9 @@ export async function listKnowledgeProposalsPrisma(
   const where: Record<string, unknown> = { workspaceId };
   if (options?.statuses?.length) {
     where.status = { in: options.statuses };
+  }
+  if (options?.sourceTaskQueueId?.trim()) {
+    where.sourceTaskQueueId = options.sourceTaskQueueId.trim();
   }
   if (options?.sourceAgentName) {
     where.sourceAgentName = options.sourceAgentName;

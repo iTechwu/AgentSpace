@@ -10,8 +10,8 @@ import {
 } from "./prisma-client.ts";
 import type { DocumentAgentAccessRecord } from "../types.ts";
 
-const VALID_SUBJECT_TYPES = new Set(["agent", "human", "system"]);
-const VALID_ROLES = new Set(["viewer", "commenter", "editor", "owner"]);
+const VALID_SUBJECT_TYPES = new Set(["agent"]);
+const VALID_ROLES = new Set(["viewer", "editor", "forwarder"]);
 
 interface PrismaDocumentAgentAccess {
   id: string;
@@ -74,6 +74,7 @@ export async function disconnectDocumentAgentAccessPrismaForTests(): Promise<voi
 function mapPrismaRow(row: PrismaDocumentAgentAccess): DocumentAgentAccessRecord | null {
   if (!VALID_SUBJECT_TYPES.has(row.subjectType)) return null;
   if (!VALID_ROLES.has(row.role)) return null;
+  if (row.scope !== "document") return null;
   const record: DocumentAgentAccessRecord = {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -81,7 +82,7 @@ function mapPrismaRow(row: PrismaDocumentAgentAccess): DocumentAgentAccessRecord
     subjectType: row.subjectType as DocumentAgentAccessRecord["subjectType"],
     subjectId: row.subjectId,
     role: row.role as DocumentAgentAccessRecord["role"],
-    scope: "document",
+    scope: row.scope,
     grantedByUserId: row.grantedByUserId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

@@ -137,8 +137,12 @@ test("listQueuedTasksPrismaCutover uses Prisma primary when flag is on", async (
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+  let findManyArgs: unknown;
   setDofePrismaClientForTests(
-    makeMockPrisma(async () => [toPrismaRow(mockedRow)]) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
+    makeMockPrisma(async (args) => {
+      findManyArgs = args;
+      return [toPrismaRow(mockedRow)];
+    }) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
   );
   const metrics: ListTaskQueuePrismaCutoverMetric[] = [];
   const result = await listQueuedTasksPrismaCutover(
@@ -147,6 +151,10 @@ test("listQueuedTasksPrismaCutover uses Prisma primary when flag is on", async (
   );
   assert.equal(result.length, 1);
   assert.equal(result[0]!.id, "task-prisma-mock");
+  assert.deepEqual(findManyArgs, {
+    where: {},
+    orderBy: [{ createdAt: "asc" }],
+  });
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "primary");
 });

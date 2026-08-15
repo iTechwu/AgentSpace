@@ -32,9 +32,16 @@ export async function listAgentSkillAssignmentsPrisma(
   const prisma = client ?? getDofePrismaClient();
   const rows = await prisma.agentSkill.findMany({
     where: { workspaceId },
-    orderBy: [{ employeeName: "asc" }, { skillId: "asc" }],
   });
-  return rows.map((row) => mapPrismaRow(row as unknown as PrismaAgentSkill));
+  return rows
+    .map((row) => mapPrismaRow(row as unknown as PrismaAgentSkill))
+    .sort(compareAgentSkillAssignments);
+}
+
+function compareAgentSkillAssignments(a: StoredAgentSkillRecord, b: StoredAgentSkillRecord): number {
+  return a.employeeName.toLocaleLowerCase().localeCompare(b.employeeName.toLocaleLowerCase())
+    || a.employeeName.localeCompare(b.employeeName)
+    || a.skillId.localeCompare(b.skillId);
 }
 
 export function isAgentSkillsPrismaReadEnabled(): boolean {

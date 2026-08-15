@@ -125,7 +125,7 @@ test("listKnowledgeProposalsPrismaCutover uses Prisma primary when flag is on", 
     sourceTaskQueueId: "task-prisma-mock",
     sourceAgentName: "MockEmp",
     operation: "create",
-    status: "pending",
+    status: "stale",
     title: "Mock proposal",
     contentMarkdown: "# mock",
     tags: ["mock"],
@@ -134,17 +134,29 @@ test("listKnowledgeProposalsPrismaCutover uses Prisma primary when flag is on", 
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+  let findManyArgs: unknown;
   setDofePrismaClientForTests(
-    makeMockPrisma(async () => [toPrismaRow(mockedRow)]) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
+    makeMockPrisma(async (args) => {
+      findManyArgs = args;
+      return [toPrismaRow(mockedRow)];
+    }) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
   );
   const metrics: ListKnowledgeProposalsPrismaCutoverMetric[] = [];
   const result = await listKnowledgeProposalsPrismaCutover(
     "default",
-    undefined,
+    { statuses: ["stale", "cancelled"], sourceTaskQueueId: " task-prisma-mock " },
     (metric) => metrics.push(metric),
   );
   assert.equal(result.length, 1);
   assert.equal(result[0]!.id, "kp-prisma-mock");
+  assert.deepEqual(findManyArgs, {
+    where: {
+      workspaceId: "default",
+      status: { in: ["stale", "cancelled"] },
+      sourceTaskQueueId: "task-prisma-mock",
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "primary");
 });

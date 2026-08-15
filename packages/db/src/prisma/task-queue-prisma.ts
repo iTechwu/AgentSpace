@@ -61,7 +61,7 @@ export async function listQueuedTasksPrisma(
   if (typeof options?.runtimeId === "string") where.runtimeId = options.runtimeId;
   const rows = await prisma.agentTaskQueue.findMany({
     where,
-    orderBy: [{ queuedAt: "asc" }, { id: "asc" }],
+    orderBy: [{ createdAt: "asc" }],
   });
   return rows
     .map((row) => mapPrismaRow(row as unknown as PrismaTask))
