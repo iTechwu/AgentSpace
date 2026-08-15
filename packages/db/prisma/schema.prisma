@@ -503,3 +503,21 @@ model WorkflowNodeRun {
 
   @@map("workflow_node_run")
 }
+
+model WorkflowVersion {
+  id               String   @id
+  workspaceId      String   @map("workspace_id")
+  workflowId       String   @map("workflow_id")
+  versionNumber    Int      @map("version_number")
+  schemaVersion    Int      @map("schema_version")
+  graphJson        String   @map("graph_json")
+  inputSchemaJson  String   @map("input_schema_json")
+  outputSchemaJson String   @map("output_schema_json")
+  governanceJson   String   @map("governance_json")
+  contentHash      String   @map("content_hash")
+  publishedBy      String   @map("published_by")
+  publishedAt      DateTime @map("published_at") @db.Timestamptz(6)
+  createdAt        DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@map("workflow_version")
+}

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  consumeSkillRolloutPlanSync,
   getDatabase,
   listEmployeeRuntimeBindingsSync,
   listSkillInstallationsSync,
@@ -307,6 +308,51 @@ export function computeSkillRolloutPlanDigestSync(input: {
       .sort((left, right) => `${left.category}:${left.key}`.localeCompare(`${right.category}:${right.key}`)),
   };
   return createHash("sha256").update(stableStringify(canonical)).digest("hex");
+}
+
+/**
+ * Re-derives the planDigest from a plan's STORED fields, for the anti-tamper
+ * replay guard: the digest the admin approved must still equal the closure +
+ * target runtimes + risk set persisted on the plan. Returns null when the JSON
+ * is malformed or not in canonical shape (fail-closed).
+ */
+export function recomputeSkillRolloutPlanDigestSync(input: {
+  rootArtifactDigest: string;
+  closureJson: string;
+  targetRuntimesJson: string;
+  riskSummaryJson: string;
+  policyVersion?: string;
+}): string | null {
+  try {
+    const closure = JSON.parse(input.closureJson) as SkillRolloutClosureEntry[];
+    const targetRuntimes = JSON.parse(input.targetRuntimesJson) as string[];
+    const risks = JSON.parse(input.riskSummaryJson) as SkillRolloutRiskSummary;
+    if (!Array.isArray(closure) || !Array.isArray(targetRuntimes) || !risks || !Array.isArray(risks.riskItems)) {
+      return null;
+    }
+    return computeSkillRolloutPlanDigestSync({
+      rootArtifactDigest: input.rootArtifactDigest,
+      closure,
+      targetRuntimes,
+      risks,
+      policyVersion: input.policyVersion,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Marks an approved rollout plan consumed once all of its child installations
+ * have been dispatched. After this, no new child installation may reference the
+ * plan (the replay guard rejects consumed plans). Called by the orchestration
+ * flow (G1), not per child installation.
+ */
+export function finalizeSkillRolloutPlanSync(
+  planId: string,
+  workspaceId = "default",
+): boolean {
+  return consumeSkillRolloutPlanSync(planId, workspaceId);
 }
 
 /* ------------------------------------------------------------------ */

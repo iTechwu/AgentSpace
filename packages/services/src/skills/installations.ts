@@ -57,6 +57,7 @@ import {
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { recordSkillLifecycleAuditSync } from "./audit.ts";
 import { computeSkillReleaseLockSync } from "./release-lock.ts";
+import { recomputeSkillRolloutPlanDigestSync } from "./rollout.ts";
 import { queueManagedSkillServiceForInstallationSync } from "../skill-services/install-queue.ts";
 
 /* ------------------------------------------------------------------ */
@@ -260,6 +261,19 @@ function assertRolloutPlanCoversInstallationSync(
 ): void {
   if (plan.decision !== "approved") {
     throw new Error("Rollout plan 未批准。");
+  }
+  if (plan.consumedAt) {
+    throw new Error("Rollout plan 已被消费，不可再派发子安装。");
+  }
+  const recomputed = recomputeSkillRolloutPlanDigestSync({
+    rootArtifactDigest: plan.rootArtifactDigest,
+    closureJson: plan.closureJson,
+    targetRuntimesJson: plan.targetRuntimesJson,
+    riskSummaryJson: plan.riskSummaryJson,
+    policyVersion: plan.policyVersion,
+  });
+  if (!recomputed || recomputed !== plan.planDigest) {
+    throw new Error("Rollout plan 的 planDigest 与其存储内容不一致，审批可能已被篡改。");
   }
   const coveredDigests = new Set<string>([plan.rootArtifactDigest]);
   try {
