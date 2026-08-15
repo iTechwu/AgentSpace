@@ -30,6 +30,7 @@ import {
   setEmployeeSkillIdsSync,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
+import { deriveSkillCoordinate } from "./import.ts";
 import {
   MAX_SKILL_ARCHIVE_BYTES,
   MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES,
@@ -1483,6 +1484,22 @@ function jsonResponse(body: unknown, headers: Record<string, string> = {}): Resp
     },
   });
 }
+
+test("deriveSkillCoordinate builds a stable version-independent coordinate", () => {
+  assert.equal(
+    deriveSkillCoordinate(
+      "github",
+      "https://github.com/eternityspring/shuohao-skills/tree/main/skills/novel-outline",
+      "skills/novel-outline",
+    ),
+    "github:eternityspring/shuohao-skills/skills/novel-outline",
+  );
+  assert.equal(
+    deriveSkillCoordinate("github", "https://github.com/owner/repo", undefined),
+    "github:owner/repo",
+  );
+  assert.equal(deriveSkillCoordinate("local", "/tmp/skill", undefined), undefined);
+});
 
 function restoreEnvironmentVariable(name: string, value: string | undefined): void {
   if (value === undefined) {

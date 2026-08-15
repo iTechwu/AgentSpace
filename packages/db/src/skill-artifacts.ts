@@ -29,6 +29,7 @@ export interface CreateSkillArtifactInput {
   manifestJson: string;
   sourceType?: string;
   sourceUrl?: string;
+  coordinate?: string;
   provenanceJson?: string;
   fileCount: number;
   totalSizeBytes: number;
@@ -44,7 +45,7 @@ export interface CreateSkillArtifactInput {
 const SKILL_ARTIFACT_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, digest, skill_id AS skillId, name, version,
   manifest_version AS manifestVersion, manifest_json AS manifestJson,
-  source_type AS sourceType, source_url AS sourceUrl,
+  source_type AS sourceType, source_url AS sourceUrl, coordinate,
   provenance_json AS provenanceJson, file_count AS fileCount,
   total_size_bytes AS totalSizeBytes, legacy_incomplete AS legacyIncomplete,
   created_at AS createdAt`;
@@ -85,9 +86,9 @@ export function createSkillArtifactSync(input: CreateSkillArtifactInput): SkillA
     db.prepare(
       `INSERT INTO skill_artifact (
         id, workspace_id, digest, skill_id, name, version, manifest_version, manifest_json,
-        source_type, source_url, provenance_json, file_count, total_size_bytes,
+        source_type, source_url, coordinate, provenance_json, file_count, total_size_bytes,
         legacy_incomplete, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       workspaceId,
@@ -99,6 +100,7 @@ export function createSkillArtifactSync(input: CreateSkillArtifactInput): SkillA
       input.manifestJson,
       input.sourceType ?? "manual",
       input.sourceUrl?.trim() || null,
+      input.coordinate?.trim() || null,
       input.provenanceJson ?? "{}",
       input.fileCount,
       input.totalSizeBytes,
@@ -153,6 +155,17 @@ export function readSkillArtifactByDigestSync(
     `${SKILL_ARTIFACT_COLUMNS} FROM skill_artifact WHERE workspace_id = ? AND digest = ?`,
   ).get(workspaceId, digest.trim().toLowerCase()) as Record<string, unknown> | undefined;
   return row ? mapSkillArtifactRecord(row) : null;
+}
+
+export function readSkillArtifactsByCoordinateSync(
+  coordinate: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): SkillArtifactRecord[] {
+  const rows = getDatabase().prepare(
+    `${SKILL_ARTIFACT_COLUMNS} FROM skill_artifact
+     WHERE workspace_id = ? AND coordinate = ? ORDER BY created_at DESC`,
+  ).all(workspaceId, coordinate.trim()) as Array<Record<string, unknown>>;
+  return rows.map(mapSkillArtifactRecord).filter((r): r is SkillArtifactRecord => r !== null);
 }
 
 export function listSkillArtifactsForSkillSync(
@@ -465,6 +478,7 @@ function mapSkillArtifactRecord(value: Record<string, unknown>): SkillArtifactRe
     manifestJson: value.manifestJson,
     sourceType: value.sourceType as SkillArtifactSource,
     sourceUrl: readOptionalString(value.sourceUrl),
+    coordinate: readOptionalString(value.coordinate),
     provenanceJson: value.provenanceJson,
     fileCount: value.fileCount,
     totalSizeBytes: value.totalSizeBytes,

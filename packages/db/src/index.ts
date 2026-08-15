@@ -1094,6 +1094,7 @@ export {
   createSkillArtifactSync,
   readSkillArtifactSync,
   readSkillArtifactByDigestSync,
+  readSkillArtifactsByCoordinateSync,
   listSkillArtifactsForSkillSync,
   listSkillArtifactsSync,
   readSkillArtifactFilesSync,

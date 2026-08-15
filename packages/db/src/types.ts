@@ -1495,6 +1495,8 @@ export interface SkillArtifactRecord {
   manifestJson: string;
   sourceType: string;
   sourceUrl?: string;
+  /** Stable logical coordinate (e.g. github:owner/repo/skills/name); nullable. */
+  coordinate?: string;
   provenanceJson: string;
   fileCount: number;
   totalSizeBytes: number;

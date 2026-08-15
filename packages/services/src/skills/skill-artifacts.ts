@@ -178,6 +178,7 @@ export interface BuildAndPersistSkillArtifactInput {
   files: ArtifactFileInput[];
   sourceType?: string;
   sourceUrl?: string;
+  coordinate?: string;
   provenance?: Record<string, unknown>;
   dependencies?: ArtifactSkillDependency[];
   skillDependencies?: SkillSkillDependency[];
@@ -341,6 +342,7 @@ export function buildAndPersistSkillArtifactSync(
     manifestJson: stableStringify(manifest),
     sourceType: input.sourceType,
     sourceUrl: input.sourceUrl,
+    coordinate: input.coordinate,
     provenanceJson: JSON.stringify(input.provenance ?? {}),
     fileCount: manifestFiles.length,
     totalSizeBytes,

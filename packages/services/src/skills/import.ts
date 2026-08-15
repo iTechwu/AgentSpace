@@ -635,6 +635,36 @@ function upsertTextProjectionFiles(skillId: string, files: ImportedSkillFile[], 
  * every declared file — including scripts and binary resources — must be present;
  * a manifest that omits files cannot represent a "successful" import.
  */
+/**
+ * Derives a stable logical coordinate from the import source, matching the
+ * `coordinate` shape declared in `skillDependencies`. Version-independent: the
+ * ref/commit SHA is deliberately excluded (version is a separate axis).
+ */
+export function deriveSkillCoordinate(
+  sourceType: string | undefined,
+  sourceUrl: string,
+  resolvedPath?: string,
+): string | undefined {
+  const path = (resolvedPath ?? "").replace(/^\/+|\/+$/g, "");
+  if (sourceType === "github") {
+    const dir = parseGitHubDirectoryUrl(sourceUrl);
+    if (dir) {
+      return path ? `github:${dir.owner}/${dir.repo}/${path}` : `github:${dir.owner}/${dir.repo}`;
+    }
+    const repo = parseGitHubRepositoryUrl(sourceUrl);
+    if (repo) {
+      return path ? `github:${repo.owner}/${repo.repo}/${path}` : `github:${repo.owner}/${repo.repo}`;
+    }
+  }
+  if (sourceType === "gitlab") {
+    const dir = parseGitLabDirectoryUrl(sourceUrl);
+    if (dir) {
+      return path ? `gitlab:${dir.projectPath}/${path}` : `gitlab:${dir.projectPath}`;
+    }
+  }
+  return undefined;
+}
+
 function prepareSkillArtifact(
   imported: ImportedSkillDefinition,
   workspaceId: string,
@@ -668,6 +698,7 @@ function prepareSkillArtifact(
       files: artifactFiles,
       sourceType: imported.sourceType,
       sourceUrl: imported.sourceUrl,
+      coordinate: deriveSkillCoordinate(imported.sourceType, imported.sourceUrl, imported.resolvedPath),
       dependencies: (manifest?.dependencies ?? []).map((dependency) => ({
         manager: dependency.kind,
         name: dependency.name,
