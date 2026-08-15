@@ -5,6 +5,7 @@ import {
   listStoredEmployeesSync,
   listEmployeeRuntimeBindingsSync,
   listWorkspaceMemberUsersSync,
+  readStoredSkillActiveArtifactDigestSync,
 } from "@dofe-agent/db";
 import {
   validateWorkflowGraph,
@@ -13,6 +14,8 @@ import {
 } from "@dofe-agent/domain";
 import { validateWorkflowInputReferences } from "./inputs.ts";
 import { normalizeWorkflowTriggerForPublish } from "./scheduler.ts";
+import { resolveSkillDependencyClosureSync } from "../skills/rollout.ts";
+import { readHighestRevisionSkillInstallationSync } from "../skills/installations.ts";
 
 export type WorkflowActorRole = "owner" | "admin" | "editor" | "viewer";
 
@@ -43,10 +46,13 @@ export interface ValidateWorkflowForPublishInput {
 }
 
 export interface WorkflowDependencyInventory {
+  workspaceId?: string;
   employees: Map<string, { id: string; name: string; remarkName?: string }>;
   assignedSkills: Set<string>;
   channels: Map<string, { employeeNames: string[] }>;
   memberUserIds: Set<string>;
+  /** employeeId → runtimeId */
+  runtimeBindings?: Map<string, string>;
 }
 
 export interface WorkflowRuntimeBindingInventory {
@@ -115,6 +121,10 @@ export function validateWorkflowForPublishSync(
     listEmployeeRuntimeBindingsSync(input.workspaceId).map((binding) => [binding.employeeId, binding]),
   );
   const inventory: WorkflowDependencyInventory = {
+    workspaceId: input.workspaceId,
+    runtimeBindings: new Map(
+      [...bindings.entries()].map(([employeeId, binding]) => [employeeId, binding.runtimeId]),
+    ),
     employees,
     assignedSkills: new Set(
       listStoredAgentSkillAssignmentsSync(input.workspaceId)
@@ -201,6 +211,60 @@ export function validateWorkflowNodeForDispatchSync(
   })[0];
 }
 
+/**
+ * Dependency-closure preflight (0815 I7): an assigned skill must have its full
+ * Skill→Skill dependency closure installed (ready) on the employee's runtime
+ * before the workflow can publish. A missing or not-ready artifact yields
+ * `workflow_skill_closure_not_ready`.
+ */
+function validateWorkflowNodeSkillClosure(
+  node: WorkflowNodeDefinition,
+  inventory: WorkflowDependencyInventory,
+  requiredSkillIds: string[],
+): WorkflowPublishBlocker[] {
+  if (node.type !== "employee_task" || !node.employeeId) return [];
+  if (!inventory.workspaceId || !inventory.runtimeBindings) return [];
+  const runtimeId = inventory.runtimeBindings.get(node.employeeId);
+  if (!runtimeId) return [];
+  const blockers: WorkflowPublishBlocker[] = [];
+  for (const skillId of requiredSkillIds) {
+    if (!inventory.assignedSkills.has(dependencyKey(node.employeeId, skillId))) continue;
+    const activeDigest = readStoredSkillActiveArtifactDigestSync(skillId, inventory.workspaceId);
+    if (!activeDigest) continue;
+    try {
+      const closure = resolveSkillDependencyClosureSync({
+        workspaceId: inventory.workspaceId,
+        rootArtifactDigest: activeDigest,
+      });
+      const digests = [activeDigest, ...closure.map((entry) => entry.artifactDigest)];
+      for (const digest of digests) {
+        const installation = readHighestRevisionSkillInstallationSync({
+          workspaceId: inventory.workspaceId,
+          runtimeId,
+          artifactDigest: digest,
+        });
+        if (!installation || installation.status !== "ready") {
+          blockers.push({
+            code: "workflow_skill_closure_not_ready",
+            nodeId: node.id,
+            employeeId: node.employeeId,
+            detail: `${skillId}:${digest}`,
+          });
+          break;
+        }
+      }
+    } catch (error) {
+      blockers.push({
+        code: "workflow_skill_closure_not_ready",
+        nodeId: node.id,
+        employeeId: node.employeeId,
+        detail: `${skillId}:${error instanceof Error ? error.message : "closure_error"}`,
+      });
+    }
+  }
+  return blockers;
+}
+
 export function validateWorkflowNodeDependencies(
   node: WorkflowNodeDefinition,
   inventory: WorkflowDependencyInventory,
@@ -238,6 +302,8 @@ export function validateWorkflowNodeDependencies(
       });
     }
   }
+
+  blockers.push(...validateWorkflowNodeSkillClosure(node, inventory, requiredSkillIds));
 
   const channelName = typeof node.config.channelName === "string" ? node.config.channelName.trim() : "";
   if (channelName) {
