@@ -339,6 +339,17 @@ model SkillServiceCatalog {
   @@map("skill_service_catalog")
 }
 
+model SkillDraft {
+  workspaceId      String   @map("workspace_id")
+  skillId          String   @map("skill_id")
+  draftJson        String   @map("draft_json")
+  updatedByUserId  String?  @map("updated_by_user_id")
+  updatedAt        DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@id([workspaceId, skillId])
+  @@map("skill_draft")
+}
+
 model WorkflowDefinition {
   id               String    @id
   workspaceId      String    @map("workspace_id")
