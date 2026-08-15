@@ -261,3 +261,45 @@ model AgentAccessRequest {
 
   @@map("agent_access_request")
 }
+
+model Attachment {
+  id                  String    @id
+  workspaceId         String    @map("workspace_id")
+  /// Optional link to the channel message that owns this attachment.
+  messageId           String?   @map("message_id")
+  channelName         String?   @map("channel_name")
+  speaker             String
+  /// "human" | "agent" | "system".
+  role                String
+  fileName            String    @map("file_name")
+  /// MIME / media type (e.g. image/png, application/pdf).
+  mediaType           String?   @map("media_type")
+  sizeBytes           Int?      @map("size_bytes")
+  /// SHA-256 (or similar) content digest, hex-encoded.
+  contentDigest       String?   @map("content_digest")
+  /// Local storage path inside the workspace data dir.
+  storedPath          String    @map("stored_path")
+  /// Remote object-storage provider key (TOS / S3 / etc.).
+  storageProvider     String?   @map("storage_provider")
+  storageBucket       String?   @map("storage_bucket")
+  storageRegion       String?   @map("storage_region")
+  storageEndpoint     String?   @map("storage_endpoint")
+  storageKey          String?   @map("storage_key")
+  storageUrl          String?   @map("storage_url")
+  /// Free-form note attached to the file at upload time.
+  note                String?
+  /// TUS resumable-upload id, if applicable.
+  uploadId            String?   @map("upload_id")
+  /// Position in the owning message's attachment list (0-based).
+  sourceMessageIndex  Int       @map("source_message_index")
+  sourceMessageTime   DateTime? @map("source_message_time") @db.Timestamptz(6)
+  sourceSummary       String?   @map("source_summary")
+  /// Set when the attachment has been logically deleted.
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId     String?   @map("deleted_by_user_id")
+  deletedByDisplayName String?  @map("deleted_by_display_name")
+  createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("attachment")
+}
