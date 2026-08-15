@@ -78,7 +78,10 @@ const SKILL_INSTALLATION_OPERATION_COLUMNS = `SELECT
 /**
  * Create an installation (artifact × runtime) together with its component
  * rows. Idempotent by the release lock: re-creating the same (workspace,
- * runtime, artifact, revision) returns the existing record.
+ * runtime, artifact, revision) returns the existing record. The INSERT uses
+ * `ON CONFLICT ... DO NOTHING` so concurrent batch installs cannot race into a
+ * unique-key violation — the loser skips its component inserts and returns the
+ * winner's record.
  */
 export function createSkillInstallationSync(input: CreateSkillInstallationInput): StoredSkillInstallationRecord {
   const db = getDatabase();
@@ -111,13 +114,15 @@ export function createSkillInstallationSync(input: CreateSkillInstallationInput)
   const now = input.createdAt ?? new Date().toISOString();
   const status = input.status ?? "preparing";
 
+  let inserted = false;
   withTransaction(db, () => {
-    db.prepare(
+    const result = db.prepare(
       `INSERT INTO skill_installation (
         id, workspace_id, runtime_id, artifact_digest, status, resolved_lock_json,
         prepared_path, health, previous_ready_revision, previous_ready_artifact_digest,
         revision, installed_at, verified_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'unknown', ?, ?, ?, NULL, NULL, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'unknown', ?, ?, ?, NULL, NULL, ?, ?)
+      ON CONFLICT (workspace_id, runtime_id, artifact_digest, revision) DO NOTHING`,
     ).run(
       id,
       workspaceId,
@@ -131,6 +136,13 @@ export function createSkillInstallationSync(input: CreateSkillInstallationInput)
       now,
       now,
     );
+    inserted = result.changes > 0;
+    if (!inserted) {
+      // A concurrent writer already created this (workspace, runtime, artifact,
+      // revision) tuple. The atomic ON CONFLICT DO NOTHING skipped our insert, so
+      // we must NOT insert component rows for our would-be installation.
+      return;
+    }
 
     for (const component of input.components) {
       db.prepare(
@@ -150,7 +162,14 @@ export function createSkillInstallationSync(input: CreateSkillInstallationInput)
     }
   });
 
-  const record = readSkillInstallationSync(id, workspaceId);
+  const record = inserted
+    ? readSkillInstallationSync(id, workspaceId)
+    : readSkillInstallationByLockSync({
+        workspaceId,
+        runtimeId: input.runtimeId,
+        artifactDigest: input.artifactDigest,
+        revision,
+      });
   if (!record) {
     throw new Error("Failed to persist skill installation.");
   }
