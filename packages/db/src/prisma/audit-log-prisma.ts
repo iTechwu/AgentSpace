@@ -23,7 +23,12 @@ interface PrismaAuditLog {
 }
 
 let cachedClient: PrismaClient | null = null;
-function getPrismaClient(): PrismaClient {
+
+/**
+ * Read/write modules share this PrismaClient cache so mock injection via
+ * `setAuditLogPrismaClientForTests` covers both paths.
+ */
+export function getPrismaClient(): PrismaClient {
   if (cachedClient) return cachedClient;
   cachedClient = new PrismaClient();
   return cachedClient;

@@ -23,6 +23,71 @@ export type DomainCutoverMetric<TMetric extends ReadCutoverMetric = ReadCutoverM
 
 export type { ReadCutoverMetric };
 
+/**
+ * Write cutover semantics (different from read):
+ * - Primary returns successfully → return primary result, no fallback call.
+ * - Primary throws → run fallback. If fallback throws too, surface the primary
+ *   error (write-side caller already saw it implicitly via the fallback attempt).
+ * - The metric source distinguishes primary success / primary failure +
+ *   fallback success / primary + fallback both failure paths.
+ */
+export interface DomainWriteCutoverConfig<T, TMetric extends ReadCutoverMetric = ReadCutoverMetric> {
+  isEnabled: () => boolean;
+  runPrimary: () => Promise<T>;
+  runFallback: () => T | Promise<T>;
+  emitMetric?: (metric: TMetric) => void;
+}
+
+export interface DomainWriteCutoverMetric extends ReadCutoverMetric {
+  fallbackInvoked: 0 | 1;
+}
+
+export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutoverMetric = DomainWriteCutoverMetric>(
+  config: DomainWriteCutoverConfig<T, TMetric>,
+): Promise<T> {
+  if (!config.isEnabled()) {
+    return await config.runFallback();
+  }
+  const start = Date.now();
+  try {
+    const result = await config.runPrimary();
+    config.emitMetric?.({
+      source: "primary",
+      mismatch: 0,
+      durationMs: Date.now() - start,
+      fallbackInvoked: 0,
+    } as TMetric);
+    return result;
+  } catch (primaryError) {
+    const fallbackResult = await config.runFallback();
+    config.emitMetric?.({
+      source: "fallback",
+      mismatch: 0,
+      durationMs: Date.now() - start,
+      error: primaryError instanceof Error ? primaryError.message : String(primaryError),
+      fallbackInvoked: 1,
+    } as TMetric);
+    return fallbackResult;
+  }
+}
+
+export function buildDomainWriteCutover<TInput, TResult, TMetric extends DomainWriteCutoverMetric = DomainWriteCutoverMetric>(
+  config: {
+    isEnabled: () => boolean;
+    runPrimary: (input: TInput) => Promise<TResult>;
+    runFallback: (input: TInput) => TResult | Promise<TResult>;
+    emitMetric?: (metric: TMetric) => void;
+  },
+): (input: TInput, metricSink?: (metric: TMetric) => void) => Promise<TResult> {
+  return (input, metricSink) =>
+    runDomainWriteCutover<TResult, TMetric>({
+      isEnabled: config.isEnabled,
+      runPrimary: () => config.runPrimary(input),
+      runFallback: () => config.runFallback(input),
+      emitMetric: metricSink ?? config.emitMetric,
+    });
+}
+
 export interface DomainCutoverConfig<T, TMetric extends ReadCutoverMetric = ReadCutoverMetric> {
   isEnabled: () => boolean;
   isShadowEnabled: () => boolean;

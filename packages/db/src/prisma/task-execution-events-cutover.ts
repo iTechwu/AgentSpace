@@ -1,3 +1,6 @@
+// @deprecated — Phase 2 pg 原型 cutover，保留作 Prisma 接入迁移期 fallback。
+// 生产路径走 task-execution-events-prisma-cutover.ts。
+//
 // task-execution-events read cutover runner：把 sync `listTaskExecutionEventsSync`
 // 与 async primary `listTaskExecutionEventsAsync` 接到通用 cutover-runner，
 // 落地 Phase 2 协议（与 audit-log / notifications 同款）：
@@ -33,9 +36,8 @@ const listTaskExecutionEventsCutoverImpl = buildDomainCutover<
 });
 
 /**
- * Async read cutover for task-execution-events list. Returns the async
- * primary result when Phase 2 flag is on; falls back to the legacy sync
- * result on primary error.
+ * @deprecated Use {@link listTaskExecutionEventsPrismaCutover} instead.
+ * Kept as Prisma 接入迁移期 fallback + 影子对比驱动。
  */
 export function listTaskExecutionEventsCutover(
   options: TaskExecutionEventListOptions = {},

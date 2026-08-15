@@ -1,3 +1,6 @@
+// @deprecated — Phase 2 pg 直连原型，保留作 Prisma 接入迁移期 fallback。
+// 生产路径走 task-execution-events-prisma.ts（同等接口，@prisma/client 真接入）。
+//
 // task-execution-events Phase 2 异步 primary（pg.Client 直连原型）：
 // - listTaskExecutionEventsAsync 通过 pg.Client 直连 PG 拉 task_execution_event
 //   行，作为 cutover runner 的 async primary。

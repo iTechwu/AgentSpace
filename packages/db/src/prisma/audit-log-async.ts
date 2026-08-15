@@ -1,3 +1,7 @@
+// @deprecated — Phase 2 pg 直连原型，保留作 Prisma 接入迁移期 fallback。
+// 生产路径走 audit-log-prisma.ts（同等接口，@prisma/client 真接入）。
+// 迁移完成（Prisma runner 全量生产化 + 影子对比零漂移 ≥ 30 天）后删除本文件。
+//
 // audit-log Phase 2 异步 primary（pg.Client 直连原型）：
 // - 当前 production 路径仍是 sync `recordAuditLogSync` / `readAuditLogSync`，
 //   通过 worker_thread 内单连接 sqlite-bridge 走 pg（见 `database.ts`）。

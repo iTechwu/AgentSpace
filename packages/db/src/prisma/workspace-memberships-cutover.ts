@@ -1,3 +1,6 @@
+// @deprecated — Phase 2 pg 原型 cutover，保留作 Prisma 接入迁移期 fallback。
+// 生产路径走 workspace-memberships-prisma-cutover.ts。
+//
 // workspace-memberships read cutover runner：把 sync `listWorkspaceMembershipsSync`
 // 与 async primary `listWorkspaceMembershipsAsync` 接到通用 cutover-runner，
 // 落地 Phase 2 协议（与 audit-log / notifications / task-execution-events 同款）：
@@ -32,9 +35,8 @@ const listWorkspaceMembershipsCutoverImpl = buildDomainCutover<
 });
 
 /**
- * Async read cutover for workspace-memberships list. Returns the async
- * primary result when Phase 2 flag is on; falls back to the legacy sync
- * result on primary error.
+ * @deprecated Use {@link listWorkspaceMembershipsPrismaCutover} instead.
+ * Kept as Prisma 接入迁移期 fallback + 影子对比驱动。
  */
 export function listWorkspaceMembershipsCutover(
   workspaceId: string,

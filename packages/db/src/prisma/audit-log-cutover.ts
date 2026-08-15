@@ -1,3 +1,6 @@
+// @deprecated — Phase 2 pg 原型 cutover，保留作 Prisma 接入迁移期 fallback。
+// 生产路径走 audit-log-prisma-cutover.ts。
+//
 // audit-log read cutover runner：把 sync `readAuditLogSync` 与 async primary
 // `readAuditLogAsync` 接到通用 cutover-runner，落地 Phase 2 协议：
 // - Flag OFF  → 直接走 sync fallback（与 cut 1 前一致，零额外开销）
@@ -36,8 +39,8 @@ const readAuditLogCutoverImpl = buildDomainCutover<ReadAuditLogCutoverInput, Aud
 });
 
 /**
- * Async read cutover for audit-log. Returns the async primary result when
- * Phase 2 flag is on; falls back to the legacy sync result on primary error.
+ * @deprecated Use {@link readAuditLogPrismaCutover} instead. Kept as Prisma
+ * 接入迁移期 fallback + 影子对比驱动（参见 audit-log-prisma-cutover.ts）。
  */
 export function readAuditLogCutover(
   input: ReadAuditLogCutoverInput,
