@@ -303,3 +303,37 @@ model Attachment {
 
   @@map("attachment")
 }
+
+model SkillServiceCatalog {
+  id                       String    @id
+  workspaceId              String    @map("workspace_id")
+  slug                     String
+  templateVersion          String    @map("template_version")
+  deploymentType           String    @map("deployment_type")
+  imageDigest              String    @map("image_digest")
+  protocol                 String
+  scope                    String
+  resourcesJson            String    @map("resources_json")
+  healthJson               String    @map("health_json")
+  networkJson              String    @map("network_json")
+  configSchemaVersion      Int       @map("config_schema_version")
+  configSchemaJson         String    @map("config_schema_json")
+  secretFieldsJson         String    @map("secret_fields_json")
+  externalDependenciesJson String   @map("external_dependencies_json")
+  rollbackClass            String    @map("rollback_class")
+  templateDigest           String    @map("template_digest")
+  sbomDigest               String?   @map("sbom_digest")
+  runAsNonRoot             Boolean   @map("run_as_non_root")
+  readOnlyRootfs           Boolean   @map("read_only_rootfs")
+  capDropJson              String    @map("cap_drop_json")
+  /// Cosign public key (PEM) trusted to sign this template's image, when enforced.
+  signatureKeyPem          String?   @map("signature_key_pem")
+  /// When true the managed node MUST verify the image signature before pulling.
+  signatureRequired        Boolean   @default(false) @map("signature_required")
+  risk                     String
+  createdAt                DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, slug, templateVersion])
+  @@map("skill_service_catalog")
+}
