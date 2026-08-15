@@ -71,6 +71,7 @@ export {
 // Employees
 export {
   listActiveEmployeesSync,
+  listEmployeeSkillIdsMap,
   listEmployeeSkillIdsMapSync,
   listEmployeeSkillIdsSync,
   listEmployeeRuntimeBindingsForWorkspaceSync,
@@ -88,6 +89,7 @@ export {
   buildLegacyAgentIdForEmployeeName,
   setEmployeeSkillIdsSync,
   listEmployeeSkillIdsByAgentIdMapSync,
+  listEmployeeSkillIdsByAgentIdMap,
 } from "./employees/employees.ts";
 export { listWorkspaceMembershipsAsync } from "./workspace-memberships.ts";
 export {

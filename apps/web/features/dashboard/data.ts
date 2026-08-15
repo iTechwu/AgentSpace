@@ -22,6 +22,7 @@ import {
   listBudgetsWithSpentSync,
   listDocumentAgentAccessSync,
   listDocumentPermissionRequestsSync,
+  listEmployeeSkillIdsByAgentIdMap,
   listEmployeeSkillIdsByAgentIdMapSync,
   listTaskExecutionEventsAsync,
   listKnowledgeAssignmentPoliciesSync,
@@ -1040,6 +1041,17 @@ interface AgentsPageDataOptions {
   workspaceId?: string;
   currentUserId?: string;
   currentMembershipRole?: WorkspaceRole;
+  skillIdsByAgentId?: Map<string, string[]>;
+}
+
+export async function getAgentsPageDataAsync(
+  input: string | AgentsPageDataOptions = DEFAULT_WORKSPACE_ID,
+): Promise<AgentsPageData> {
+  const options = resolveAgentsPageDataOptions(input);
+  return getAgentsPageData({
+    ...options,
+    skillIdsByAgentId: await listEmployeeSkillIdsByAgentIdMap(options.workspaceId),
+  });
 }
 
 export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAULT_WORKSPACE_ID): AgentsPageData {
@@ -1057,7 +1069,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
     ? workspaceSkills.map(summarizeWorkspaceSkillForAgentPage)
     : workspaceSkills;
   const workspaceSkillIndex = new Map(workspaceSkillSummaries.map((skill) => [skill.id, skill]));
-  const skillIdsByAgentId = listEmployeeSkillIdsByAgentIdMapSync(workspaceId);
+  const skillIdsByAgentId = options.skillIdsByAgentId ?? listEmployeeSkillIdsByAgentIdMapSync(workspaceId);
   const knowledgePolicies = listKnowledgeAssignmentPoliciesCached(workspaceId);
   const knowledgeAssignments = listKnowledgeAssignmentsCached(workspaceId);
   const knowledgePolicyIndex = new Map(knowledgePolicies.map((policy) => [policy.knowledgePageId, policy]));
@@ -1290,6 +1302,7 @@ function resolveAgentsPageDataOptions(input: string | AgentsPageDataOptions): Re
     workspaceId: input.workspaceId ?? DEFAULT_WORKSPACE_ID,
     currentUserId: input.currentUserId,
     currentMembershipRole: input.currentMembershipRole,
+    skillIdsByAgentId: input.skillIdsByAgentId,
   };
 }
 

@@ -14,7 +14,7 @@ import type {
   TemplatesPageData,
 } from "@/features/dashboard/data";
 import {
-  getAgentsPageData,
+  getAgentsPageDataAsync,
   getApprovalsPageData,
   getBudgetPageData,
   getCalendarPageData,
@@ -181,7 +181,7 @@ async function loadWorkspaceModuleDataUncached(
     case "agents":
       return {
         moduleId,
-        data: getAgentsPageData({
+        data: await getAgentsPageDataAsync({
           workspaceId,
           currentUserId: viewer?.id,
           currentMembershipRole: viewer?.role,

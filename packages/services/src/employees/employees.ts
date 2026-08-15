@@ -8,6 +8,7 @@ import {
   deleteStoredKnowledgeAssignmentsForEmployeeSync,
   deleteEmployeeExecutionStateSync,
   listStoredAgentSkillAssignmentsSync,
+  listAgentSkillAssignmentsPrismaCutover,
   getDatabase,
   listEmployeeRuntimeBindingsPrismaCutover,
   listEmployeeRuntimeBindingsSync,
@@ -61,8 +62,18 @@ export function listEmployeeRuntimeBindingsForWorkspaceAsync(
 }
 
 export function listEmployeeSkillIdsMapSync(workspaceId?: string): Map<string, string[]> {
+  return buildEmployeeSkillIdsMap(listStoredAgentSkillAssignmentsSync(workspaceId));
+}
+
+export async function listEmployeeSkillIdsMap(workspaceId?: string): Promise<Map<string, string[]>> {
+  return buildEmployeeSkillIdsMap(await listAgentSkillAssignmentsPrismaCutover(workspaceId ?? DEFAULT_WORKSPACE_ID));
+}
+
+function buildEmployeeSkillIdsMap(
+  assignments: Awaited<ReturnType<typeof listAgentSkillAssignmentsPrismaCutover>>,
+): Map<string, string[]> {
   const map = new Map<string, string[]>();
-  for (const assignment of listStoredAgentSkillAssignmentsSync(workspaceId)) {
+  for (const assignment of assignments) {
     const employeeName = assignment.employeeName;
     const next = map.get(employeeName) ?? [];
     next.push(assignment.skillId);
@@ -72,8 +83,20 @@ export function listEmployeeSkillIdsMapSync(workspaceId?: string): Map<string, s
 }
 
 export function listEmployeeSkillIdsByAgentIdMapSync(workspaceId?: string): Map<string, string[]> {
+  return buildEmployeeSkillIdsByAgentIdMap(listStoredAgentSkillAssignmentsSync(workspaceId));
+}
+
+export async function listEmployeeSkillIdsByAgentIdMap(workspaceId?: string): Promise<Map<string, string[]>> {
+  return buildEmployeeSkillIdsByAgentIdMap(await listAgentSkillAssignmentsPrismaCutover(
+    workspaceId ?? DEFAULT_WORKSPACE_ID,
+  ));
+}
+
+function buildEmployeeSkillIdsByAgentIdMap(
+  assignments: Awaited<ReturnType<typeof listAgentSkillAssignmentsPrismaCutover>>,
+): Map<string, string[]> {
   const map = new Map<string, string[]>();
-  for (const assignment of listStoredAgentSkillAssignmentsSync(workspaceId)) {
+  for (const assignment of assignments) {
     const agentId = assignment.agentId?.trim() || buildLegacyAgentIdForEmployeeName(assignment.employeeName);
     const next = map.get(agentId) ?? [];
     next.push(assignment.skillId);
