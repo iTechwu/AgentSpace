@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
+import {
+  listAuditLogsSync,
+  recordAuditLogSync,
+} from "../audit-log.ts";
 import { registerDaemonRuntimesSync } from "../daemons.ts";
 import {
   bindEmployeeRuntimeSync,
@@ -14,6 +18,7 @@ import {
   hardDeleteWorkspaceSync,
 } from "../workspaces.ts";
 import { listEmployeeRuntimeBindingsPrisma } from "./employees-runtime-bindings-prisma.ts";
+import { listAuditLogsPrismaCutover } from "./audit-log-prisma-cutover.ts";
 import {
   disconnectDofePrismaClient,
   getDofePrismaClient,
@@ -82,6 +87,43 @@ test("employee runtime binding relation matches the legacy JOIN", async () => {
     assert.equal(actual?.provider, "codex");
     assert.equal(actual?.runtimeName, runtime.name);
   } finally {
+    await disconnectDofePrismaClient();
+    hardDeleteWorkspaceSync(workspaceId);
+  }
+});
+
+test("audit log list cutover matches legacy filters on real rows", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const workspaceId = `workspace-prisma-audit-${suffix}`;
+  createWorkspaceSync({
+    id: workspaceId,
+    slug: workspaceId,
+    name: `Prisma Audit Workspace ${suffix}`,
+    createdBy: "prisma-audit-test",
+  });
+  recordAuditLogSync({
+    workspaceId,
+    title: "Runtime ready",
+    note: "Provision completed",
+    code: "runtime.ready",
+    data: { runtimeId: `runtime-${suffix}`, actorId: `actor-${suffix}` },
+  });
+  const previous = process.env.AUDIT_LOG_PRISMA_READ_ENABLED;
+  process.env.AUDIT_LOG_PRISMA_READ_ENABLED = "1";
+  try {
+    const options = {
+      code: "runtime.ready",
+      runtimeId: `runtime-${suffix}`,
+      actorId: `actor-${suffix}`,
+      limit: 10,
+    };
+    assert.deepEqual(
+      await listAuditLogsPrismaCutover(workspaceId, options),
+      listAuditLogsSync(workspaceId, options),
+    );
+  } finally {
+    if (previous === undefined) delete process.env.AUDIT_LOG_PRISMA_READ_ENABLED;
+    else process.env.AUDIT_LOG_PRISMA_READ_ENABLED = previous;
     await disconnectDofePrismaClient();
     hardDeleteWorkspaceSync(workspaceId);
   }

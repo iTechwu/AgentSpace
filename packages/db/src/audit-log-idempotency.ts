@@ -39,7 +39,7 @@ export function resolveAuditLogWrite(input: {
     note: input.note,
     code: input.code ?? null,
     source: input.source ?? "runtime_lifecycle",
-    dataJson: canonicalJson(input.data ?? {}),
+    dataJson: canonicalizeAuditLogDataJson(input.data ?? {}),
     idempotent: Boolean(normalizedKey),
   };
 }
@@ -58,29 +58,32 @@ export function assertAuditLogIdempotencyMatch(
     || persisted.note !== expected.note
     || (persisted.code ?? null) !== expected.code
     || persisted.source !== expected.source
-    || canonicalJsonString(persisted.dataJson) !== expected.dataJson
+    || canonicalizeAuditLogDataJson(persisted.dataJson) !== expected.dataJson
   ) {
     throw new Error("audit_log.idempotency_conflict");
   }
 }
 
-function canonicalJsonString(value: string): string {
-  try {
-    return canonicalJson(JSON.parse(value));
-  } catch {
-    return value;
+export function canonicalizeAuditLogDataJson(value: unknown): string {
+  if (typeof value === "string") {
+    try {
+      return canonicalJsonValue(JSON.parse(value));
+    } catch {
+      return value;
+    }
   }
+  return canonicalJsonValue(value);
 }
 
-function canonicalJson(value: unknown): string {
+function canonicalJsonValue(value: unknown): string {
   if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
+    return `[${value.map(canonicalJsonValue).join(",")}]`;
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     return `{${Object.keys(record)
       .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .map((key) => `${JSON.stringify(key)}:${canonicalJsonValue(record[key])}`)
       .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";

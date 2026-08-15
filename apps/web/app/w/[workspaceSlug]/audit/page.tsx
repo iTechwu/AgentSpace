@@ -1,4 +1,4 @@
-import { listAuditLogsSync } from "@dofe-agent/db";
+import { listAuditLogsPrismaCutover } from "@dofe-agent/db";
 import { notFound } from "next/navigation";
 import { AuditLogView } from "@/features/audit/audit-log-view";
 import { parseAuditLogFilters } from "@/features/audit/audit-log-filters";
@@ -13,6 +13,6 @@ export default async function WorkspaceAuditPage({ params, searchParams }: { par
   const context = await getWorkspacePageContext(workspaceSlug);
   if (!hasWorkspaceRole(context.currentMembership.role, "admin")) notFound();
   const filters = parseAuditLogFilters(await searchParams);
-  const logs = listAuditLogsSync(context.currentWorkspace.id, { ...filters, limit: 500 });
+  const logs = await listAuditLogsPrismaCutover(context.currentWorkspace.id, { ...filters, limit: 500 });
   return <AuditLogView logs={logs} filters={filters} clearHref={buildWorkspacePath(workspaceSlug, "/audit")} />;
 }

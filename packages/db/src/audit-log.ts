@@ -1,6 +1,7 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
 import {
   assertAuditLogIdempotencyMatch,
+  canonicalizeAuditLogDataJson,
   resolveAuditLogWrite,
 } from "./audit-log-idempotency.ts";
 import type { AuditLogRecord, AuditLogSource } from "./types.ts";
@@ -13,6 +14,20 @@ export interface RecordAuditLogInput {
   code?: string;
   source?: AuditLogSource;
   data?: Record<string, unknown>;
+}
+
+export interface AuditLogListOptions {
+  source?: AuditLogSource;
+  code?: string;
+  actorId?: string;
+  employeeId?: string;
+  runtimeId?: string;
+  sessionId?: string;
+  taskId?: string;
+  modelId?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  limit?: number;
 }
 
 /**
@@ -89,19 +104,7 @@ export function auditLogExistsForCodeSync(input: {
 
 export function listAuditLogsSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
-  options?: {
-    source?: AuditLogSource;
-    code?: string;
-    actorId?: string;
-    employeeId?: string;
-    runtimeId?: string;
-    sessionId?: string;
-    taskId?: string;
-    modelId?: string;
-    createdFrom?: string;
-    createdTo?: string;
-    limit?: number;
-  },
+  options?: AuditLogListOptions,
 ): AuditLogRecord[] {
   const limit = Math.min(Math.max(options?.limit ?? 100, 1), 500);
   const clauses = ["workspace_id = ?"];
@@ -173,7 +176,7 @@ function mapAuditLog(row: RawAuditLog): AuditLogRecord {
     title: row.title,
     note: row.note,
     code: row.code ?? undefined,
-    dataJson: row.data_json,
+    dataJson: canonicalizeAuditLogDataJson(row.data_json),
     source: row.source,
     sourceIndex: row.source_index,
     createdAt: row.created_at,

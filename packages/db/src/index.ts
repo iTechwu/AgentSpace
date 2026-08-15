@@ -337,9 +337,11 @@ export {
   recordAuditLogSync,
   auditLogExistsForCodeSync,
   type RecordAuditLogInput,
+  type AuditLogListOptions,
 } from "./audit-log.ts";
 export {
   readAuditLogPrismaCutover,
+  listAuditLogsPrismaCutover,
   type ReadAuditLogPrismaCutoverMetric,
 } from "./prisma/audit-log-prisma-cutover.ts";
 export {

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/features/auth/server-auth";
-import { listAuditLogsSync } from "@dofe-agent/db";
+import { listAuditLogsPrismaCutover } from "@dofe-agent/db";
 import { PLATFORM_AUDIT_WORKSPACE_ID } from "@dofe-agent/services";
 import { AuditLogView } from "@/features/audit/audit-log-view";
 import { parseAuditLogFilters } from "@/features/audit/audit-log-filters";
@@ -21,7 +21,7 @@ export default async function PlatformAuditPage({ searchParams }: { searchParams
   }
 
   const filters = parseAuditLogFilters(await searchParams);
-  const logs = listAuditLogsSync(PLATFORM_AUDIT_WORKSPACE_ID, {
+  const logs = await listAuditLogsPrismaCutover(PLATFORM_AUDIT_WORKSPACE_ID, {
     ...filters,
     source: "platform_admin",
     limit: 500,

@@ -6,12 +6,13 @@
 // - 与 audit-log-cutover.ts（pg 原型）共存：pg 原型走 AUDIT_LOG_ASYNC_* ，
 //   Prisma 切流走 AUDIT_LOG_PRISMA_* ，两个 runner 互不干扰。
 
-import { readAuditLogSync } from "../audit-log.ts";
+import { listAuditLogsSync, readAuditLogSync, type AuditLogListOptions } from "../audit-log.ts";
 import type { AuditLogRecord } from "../types.ts";
 import {
   isAuditLogPrismaReadEnabled,
   isAuditLogPrismaShadowReadEnabled,
   readAuditLogPrisma,
+  listAuditLogsPrisma,
 } from "./audit-log-prisma.ts";
 import { buildDomainCutover } from "./cutover-runner.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
@@ -41,6 +42,31 @@ export function readAuditLogPrismaCutover(
   metricSink?: ReadAuditLogPrismaCutoverMetricSink,
 ): Promise<AuditLogRecord | null> {
   return readAuditLogPrismaCutoverImpl(input, metricSink);
+}
+
+const listAuditLogsPrismaCutoverImpl = buildDomainCutover<
+  { workspaceId: string; options?: AuditLogListOptions },
+  AuditLogRecord[],
+  ReadAuditLogPrismaCutoverMetric
+>({
+  isEnabled: isAuditLogPrismaReadEnabled,
+  isShadowEnabled: isAuditLogPrismaShadowReadEnabled,
+  runPrimary: ({ workspaceId, options }) => listAuditLogsPrisma(workspaceId, options),
+  runFallback: ({ workspaceId, options }) => listAuditLogsSync(workspaceId, options),
+  compare: (primary, fallback) => arraysEqual(primary, fallback),
+});
+
+export function listAuditLogsPrismaCutover(
+  workspaceId: string,
+  options?: AuditLogListOptions,
+  metricSink?: ReadAuditLogPrismaCutoverMetricSink,
+): Promise<AuditLogRecord[]> {
+  return listAuditLogsPrismaCutoverImpl({ workspaceId, options }, metricSink);
+}
+
+function arraysEqual(primary: AuditLogRecord[], fallback: AuditLogRecord[]): boolean {
+  return primary.length === fallback.length
+    && primary.every((record, index) => recordsEqual(record, fallback[index] ?? null));
 }
 
 export function recordsEqual(

@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/features/auth/server-auth";
 import {
   getMonthStartIso,
   listAllManagedAgentRuntimesSync,
-  listAuditLogsSync,
+  listAuditLogsPrismaCutover,
   listRuntimeCostSummariesSync,
   listWorkspacesSync,
 } from "@dofe-agent/db";
@@ -69,7 +69,7 @@ export default async function PlatformConsolePage(): Promise<ReactNode> {
     })
     .sort((a, b) => b.managedRuntimeCount - a.managedRuntimeCount || b.periodActualCostUsd - a.periodActualCostUsd);
 
-  const recentAudit = listAuditLogsSync(PLATFORM_AUDIT_WORKSPACE_ID, {
+  const recentAudit = await listAuditLogsPrismaCutover(PLATFORM_AUDIT_WORKSPACE_ID, {
     source: "platform_admin",
     limit: 8,
   });

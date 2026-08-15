@@ -7,7 +7,9 @@
 //   AUDIT_LOG_PRISMA_READ_ENABLED=1 / AUDIT_LOG_PRISMA_SHADOW_READ_ENABLED=1
 //   （独立于 pg 原型 flag，避免混用）。
 
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import type { AuditLogListOptions } from "../audit-log.ts";
+import { canonicalizeAuditLogDataJson } from "../audit-log-idempotency.ts";
 import type { AuditLogRecord } from "../types.ts";
 import {
   disconnectDofePrismaClient,
@@ -55,6 +57,56 @@ export async function readAuditLogPrisma(input: {
   return row ? prismaAuditLogToRecord(row as unknown as PrismaAuditLog) : null;
 }
 
+export async function listAuditLogsPrisma(
+  workspaceId: string,
+  options: AuditLogListOptions = {},
+  client?: PrismaClient,
+): Promise<AuditLogRecord[]> {
+  const prisma = client ?? getPrismaClient();
+  const and: Prisma.AuditLogWhereInput[] = [];
+  for (const [path, value] of [
+    ["runtimeId", options.runtimeId],
+    ["taskId", options.taskId],
+  ] as const) {
+    if (value) and.push(jsonPathEquals(path, value));
+  }
+  addJsonAlternatives(and, options.actorId, ["actorId", "requestedByUserId", "actorUserId"]);
+  addJsonAlternatives(and, options.employeeId, ["employeeId", "agentId", "employeeName"]);
+  addJsonAlternatives(and, options.sessionId, ["sessionId", "routerSessionId"]);
+  addJsonAlternatives(and, options.modelId, ["modelId", "model", "defaultModel"]);
+  const createdAt = options.createdFrom || options.createdTo
+    ? {
+        ...(options.createdFrom ? { gte: new Date(options.createdFrom) } : {}),
+        ...(options.createdTo ? { lte: new Date(options.createdTo) } : {}),
+      }
+    : undefined;
+  const rows = await prisma.auditLog.findMany({
+    where: {
+      workspaceId,
+      ...(options.source ? { source: options.source } : {}),
+      ...(options.code ? { code: options.code } : {}),
+      ...(createdAt ? { createdAt } : {}),
+      ...(and.length > 0 ? { AND: and } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: Math.min(Math.max(options.limit ?? 100, 1), 500),
+  });
+  return rows.map((row) => prismaAuditLogToRecord(row as unknown as PrismaAuditLog));
+}
+
+function jsonPathEquals(path: string, value: string): Prisma.AuditLogWhereInput {
+  return { dataJson: { path: [path], equals: value } };
+}
+
+function addJsonAlternatives(
+  target: Prisma.AuditLogWhereInput[],
+  value: string | undefined,
+  paths: string[],
+): void {
+  if (!value) return;
+  target.push({ OR: paths.map((path) => jsonPathEquals(path, value)) });
+}
+
 export function isAuditLogPrismaReadEnabled(): boolean {
   return process.env.AUDIT_LOG_PRISMA_READ_ENABLED === "1";
 }
@@ -68,11 +120,7 @@ export async function disconnectAuditLogPrismaForTests(): Promise<void> {
 }
 
 function prismaAuditLogToRecord(row: PrismaAuditLog): AuditLogRecord {
-  const dataJson = typeof row.dataJson === "string"
-    ? row.dataJson
-    : row.dataJson === null || row.dataJson === undefined
-      ? "{}"
-      : JSON.stringify(row.dataJson);
+  const dataJson = canonicalizeAuditLogDataJson(row.dataJson ?? {});
   return {
     id: row.id,
     workspaceId: row.workspaceId,
