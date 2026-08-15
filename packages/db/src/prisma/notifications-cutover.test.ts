@@ -246,5 +246,9 @@ test("notifications cutover deterministically exercises primary, shadow, and fal
   );
   assert.deepEqual(fallbackResult, [fallbackRecord]);
   assert.equal(fallbackMetrics[0]?.source, "fallback");
-  assert.match(fallbackMetrics[0]?.error ?? "", /primary unavailable/);
+  // Caller-side metrics are sanitized via combineMetricSinks: error content
+  // is replaced with the sentinel "present" to avoid leaking connection
+  // details through telemetry. The actual error message still lives in the
+  // cutover-runner internal metric path.
+  assert.equal(fallbackMetrics[0]?.error, "present");
 });
