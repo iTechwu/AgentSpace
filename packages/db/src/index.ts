@@ -348,6 +348,7 @@ export {
 } from "./prisma/audit-log-prisma-write.ts";
 export {
   disconnectDofePrismaClient,
+  registerDofePrismaShutdownHooks,
 } from "./prisma/prisma-client.ts";
 
 // Database

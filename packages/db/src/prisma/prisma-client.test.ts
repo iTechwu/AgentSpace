@@ -1,20 +1,24 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
-import { getDatabase } from "../database.ts";
 import { registerDaemonRuntimesSync } from "../daemons.ts";
 import {
   bindEmployeeRuntimeSync,
   listEmployeeRuntimeBindingsSync,
-  unbindEmployeeRuntimeSync,
 } from "../employee-bindings.ts";
 import {
   createStoredEmployeeSync,
-  deleteStoredEmployeeSync,
 } from "../workspace-employees.ts";
+import {
+  createWorkspaceSync,
+  hardDeleteWorkspaceSync,
+} from "../workspaces.ts";
 import { listEmployeeRuntimeBindingsPrisma } from "./employees-runtime-bindings-prisma.ts";
 import {
   disconnectDofePrismaClient,
   getDofePrismaClient,
+  registerDofePrismaShutdownHooks,
+  type PrismaShutdownSignalSource,
 } from "./prisma-client.ts";
 
 test("shared Prisma client uses the PostgreSQL driver adapter", async () => {
@@ -33,8 +37,15 @@ test("shared Prisma client uses the PostgreSQL driver adapter", async () => {
 
 test("employee runtime binding relation matches the legacy JOIN", async () => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const workspaceId = `workspace-prisma-relation-${suffix}`;
   const employeeName = `Prisma Relation ${suffix}`;
   const daemonKey = `prisma-relation-${suffix}`;
+  createWorkspaceSync({
+    id: workspaceId,
+    slug: workspaceId,
+    name: `Prisma Relation Workspace ${suffix}`,
+    createdBy: "prisma-relation-test",
+  });
   createStoredEmployeeSync({
     id: `employee-${suffix}`,
     name: employeeName,
@@ -47,22 +58,23 @@ test("employee runtime binding relation matches the legacy JOIN", async () => {
     instructions: "",
     skillIds: [],
     channels: [],
-  });
+  }, workspaceId);
   const runtime = registerDaemonRuntimesSync({
     daemonKey,
     deviceName: `Prisma Relation Device ${suffix}`,
+    workspaceId,
     runtimes: [{
       provider: "codex",
       name: `Prisma Relation Runtime ${suffix}`,
       version: "test",
     }],
   }).runtimes[0]!;
-  bindEmployeeRuntimeSync({ employeeName, runtimeId: runtime.id });
+  bindEmployeeRuntimeSync({ workspaceId, employeeName, runtimeId: runtime.id });
 
   try {
-    const expected = listEmployeeRuntimeBindingsSync("default")
+    const expected = listEmployeeRuntimeBindingsSync(workspaceId)
       .find((binding) => binding.employeeName === employeeName);
-    const actual = (await listEmployeeRuntimeBindingsPrisma("default"))
+    const actual = (await listEmployeeRuntimeBindingsPrisma(workspaceId))
       .find((binding) => binding.employeeName === employeeName);
 
     assert.ok(expected);
@@ -71,9 +83,32 @@ test("employee runtime binding relation matches the legacy JOIN", async () => {
     assert.equal(actual?.runtimeName, runtime.name);
   } finally {
     await disconnectDofePrismaClient();
-    unbindEmployeeRuntimeSync(employeeName);
-    deleteStoredEmployeeSync(employeeName);
-    getDatabase().prepare("DELETE FROM agent_runtime WHERE id = ?").run(runtime.id);
-    getDatabase().prepare("DELETE FROM daemon_connection WHERE daemon_key = ?").run(daemonKey);
+    hardDeleteWorkspaceSync(workspaceId);
   }
+});
+
+test("Prisma shutdown hooks disconnect once and remove every listener", async () => {
+  const signalSource = new EventEmitter();
+  let disconnectCalls = 0;
+  let resolveDisconnect!: () => void;
+  const disconnected = new Promise<void>((resolve) => {
+    resolveDisconnect = resolve;
+  });
+  const unregister = registerDofePrismaShutdownHooks({
+    signalSource: signalSource as unknown as PrismaShutdownSignalSource,
+    disconnect: async () => {
+      disconnectCalls += 1;
+      resolveDisconnect();
+    },
+  });
+
+  signalSource.emit("SIGTERM");
+  signalSource.emit("beforeExit");
+  await disconnected;
+
+  assert.equal(disconnectCalls, 1);
+  assert.equal(signalSource.listenerCount("SIGINT"), 0);
+  assert.equal(signalSource.listenerCount("SIGTERM"), 0);
+  assert.equal(signalSource.listenerCount("beforeExit"), 0);
+  unregister();
 });

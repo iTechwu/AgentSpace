@@ -7,4 +7,6 @@ export async function register(): Promise<void> {
   loadRepositoryEnvIntoProcess({
     override: process.env.DOFE_AGENT_REPOSITORY_ENV_OVERRIDE !== "0",
   });
+  const { registerDofePrismaShutdownHooks } = await import("@dofe-agent/db");
+  registerDofePrismaShutdownHooks();
 }

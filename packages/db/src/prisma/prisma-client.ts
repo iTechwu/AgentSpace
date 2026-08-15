@@ -5,6 +5,19 @@ import { resolvePostgresDatabaseUrl } from "../postgres-config.ts";
 let sharedClient: PrismaClient | null = null;
 let injectedClient: PrismaClient | null = null;
 
+type PrismaShutdownEvent = "beforeExit" | "SIGINT" | "SIGTERM";
+
+export interface PrismaShutdownSignalSource {
+  once(event: PrismaShutdownEvent, listener: () => void): unknown;
+  off(event: PrismaShutdownEvent, listener: () => void): unknown;
+}
+
+export interface RegisterDofePrismaShutdownHooksOptions {
+  signalSource?: PrismaShutdownSignalSource;
+  disconnect?: () => Promise<void>;
+  onError?: (error: unknown) => void;
+}
+
 export function getDofePrismaClient(): PrismaClient {
   if (injectedClient) {
     return injectedClient;
@@ -39,4 +52,33 @@ export async function disconnectDofePrismaClient(): Promise<void> {
   if (client) {
     await client.$disconnect();
   }
+}
+
+export function registerDofePrismaShutdownHooks(
+  options: RegisterDofePrismaShutdownHooksOptions = {},
+): () => void {
+  const signalSource = options.signalSource ?? process;
+  const disconnect = options.disconnect ?? disconnectDofePrismaClient;
+  const onError = options.onError ?? ((error: unknown) => {
+    console.error("Failed to disconnect Prisma Client during shutdown.", error);
+  });
+  let closing = false;
+  const events: PrismaShutdownEvent[] = ["beforeExit", "SIGINT", "SIGTERM"];
+  const unregister = (): void => {
+    for (const event of events) {
+      signalSource.off(event, close);
+    }
+  };
+  const close = (): void => {
+    if (closing) {
+      return;
+    }
+    closing = true;
+    unregister();
+    void disconnect().catch(onError);
+  };
+  for (const event of events) {
+    signalSource.once(event, close);
+  }
+  return unregister;
 }
