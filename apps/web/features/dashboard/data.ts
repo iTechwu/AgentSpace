@@ -817,11 +817,24 @@ export async function getInboxPageDataAsync(
     return byTime || right.id.localeCompare(left.id);
   });
   const notificationItems = buildNotificationInboxItemsFromRecords(notifications);
+  return replaceInboxNotificationItems(syncData, notificationItems);
+}
+
+export function replaceInboxNotificationItems(
+  current: InboxPageData,
+  notificationItems: InboxItem[],
+): InboxPageData {
   const items = [
     ...notificationItems,
-    ...syncData.items.filter((item) => item.kind !== "notification"),
+    ...current.items.filter((item) => item.kind !== "notification"),
   ];
-  return { ...syncData, items, totalCount: items.length };
+  return {
+    ...current,
+    items,
+    totalCount: items.length,
+    unreadCount: items.filter((item) => item.unread).length,
+    notificationCount: notificationItems.length,
+  };
 }
 
 interface ReadableChannelLookup {

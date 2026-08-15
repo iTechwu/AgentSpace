@@ -55,6 +55,7 @@ import {
   getInboxPageData,
   getKnowledgePageData,
   getSkillsPageData,
+  replaceInboxNotificationItems,
 } from "./data.ts";
 import { getWorkspaceShellData } from "./workspace-shell-data";
 
@@ -132,6 +133,37 @@ function createAttachment(id: string, fileName: string, mediaType: string, conte
 }
 
 describe("dashboard data", () => {
+  it("recomputes inbox counters after async notification replacement", () => {
+    const current = {
+      items: [
+        { id: "old-notification", kind: "notification", unread: true },
+        { id: "task", kind: "task", unread: true },
+      ],
+      totalCount: 2,
+      unreadCount: 2,
+      notificationCount: 1,
+      taskCount: 1,
+      channelCount: 0,
+      activityCount: 0,
+    } as ReturnType<typeof getInboxPageData>;
+    const replacement = [
+      { id: "new-read-notification", kind: "notification", unread: false },
+      { id: "new-unread-notification", kind: "notification", unread: true },
+    ] as ReturnType<typeof getInboxPageData>["items"];
+
+    const result = replaceInboxNotificationItems(current, replacement);
+
+    expect(result.items.map((item) => item.id)).toEqual([
+      "new-read-notification",
+      "new-unread-notification",
+      "task",
+    ]);
+    expect(result.totalCount).toBe(3);
+    expect(result.unreadCount).toBe(2);
+    expect(result.notificationCount).toBe(2);
+    expect(result.taskCount).toBe(1);
+  });
+
   it("builds shell human contacts from active workspace memberships", () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const owner = createUserSync({
