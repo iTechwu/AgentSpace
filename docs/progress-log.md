@@ -84,10 +84,10 @@
 | 2 | `documents/access → channels`（`resolveChannelHumanMemberNames` 下沉 `shared/channel-members.ts`，6 处改引 shared） | ✅ | `8eb08332` |
 | 3 | `channels → attachments`（`deleteUnreferencedWorkspaceAttachmentsSync` GC 语义上移） | ⏸ 跨域编排层，非机械可切 | — |
 | 4 | `attachments → channel-access`（角色判断下沉 `shared/channel-members.ts`） | ✅ | `8eb08332` |
-| 5 | `notifications → messages`（`postMessageSync` 下沉 `shared/messaging.ts`，messages 保留 facade） | 🟡 部分完成：拆除了直接循环，但 `notifications → shared/messaging → runtime-access → notifications` 5 节点环仍在，cut 5 仅缩小未消除，需进一步切分 messaging 发送内核与 runtime 通知能力 | `c8f32035` |
+| 5 | `notifications → messages`（`postMessageSync` 下沉 `shared/messaging.ts`，messages 保留 facade） | ✅ `shared/messaging` 不再依赖 `runtime-access`，原 5 节点环已消除 | `c8f32035`、`2a63cf67` |
 | 6 | `attachments → channel-access`（访问判定下沉 `shared/access-decisions.ts`，channel-access 改 facade） | ✅ | `87bc2e43` |
 
-**当前进度**：cut 1/2/4/6 已落地，cut 5 部分完成（缩小未消除），最大 SCC 由 12 缩为 5；剩余 cut 3（GC 语义）与一个 type-only 运行时无害环（feishu `agent-bot-bindings↔external-guests`），建议接受现状或留待 P2 重构周期。
+**当前进度**：原 12 文件大 SCC 已消除；当前仅剩一个 type-only、运行时无害的飞书双节点环（`agent-bot-bindings↔external-guests`）。cut 3（附件 GC 语义上移）仍是分层优化项，但已不再阻塞消环目标。
 
 ### 3.3-8 / 测试门覆盖 —— 🟡 部分完成
 
@@ -107,11 +107,13 @@
 
 ## P2（部分完成，多数待办）
 
-### 3.3-7 / 3.2-6 Prisma 迁移（战略项）—— 🟡 早期落地
+### 3.3-7 / 3.2-6 Prisma 迁移（战略项）—— 🟡 Phase 2 试点可运行
 
 - `docs/0808/db_migration_to_prisma/README.md` 给出 A→B 渐进路线（A=Prisma 管 schema/迁移；B=Prisma Client 与 SQL 并存按域替换）。
-- `dev` 分支已落地 Phase 2 read-cutover 影子读取骨架：`packages/db/src/prisma/read-cutover.ts`（`a74f362c` 纳入测试门禁，`c786982d` 补 read-cutover shadow 异常按契约传播）。
-- `techwu/prisma-migration` 分支仍在推进主迁移。
+- 已落地 audit-log、notifications、task-execution-events、workspace-memberships、employee-runtime-bindings 五域 Prisma Client read cutover；共享 `PrismaPg` adapter/单例通过真实 PostgreSQL `SELECT 1` smoke，员工绑定通过 `agent_runtime` relation 获取 provider/name，不再把 JOIN 字段误当表列。
+- notifications 已接入 services 异步 API 与 Inbox loader；其余三域 read cutover 及 audit write cutover已从 `@dofe-agent/db` 公共出口暴露，尚未全面替换同步业务调用方。
+- 每域均保留独立 read/shadow flag；audit write 在 flag 打开后对不明确的 primary 失败 fail closed，禁止 legacy 二次写入。根 `build` 与 `typecheck:deps` 会先执行 `prisma generate`。
+- `packages/db/src/prisma/*.test.ts` 已纳入 DB 默认测试门；剩余工作是按热路径逐域接线、补可观测指标与灰度/回滚运行手册，而不是一次性替换原生 SQL。
 
 ### 3.5-6 构建/版本漂移 —— 🟡 部分完成
 

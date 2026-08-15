@@ -60,7 +60,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏳ 待办（大工程，需按域渐进） |
 | P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 data.ts 已拆（683f2d9e，5,737→3,533+973+1,410）、permissions.ts 已拆（374b1bc1，2,439→209 门面+9 子模块）、runtime-provisioning.ts 已拆（7f9ee7d4，2,258→74 门面+7 子模块）；postgres-schema 等待办 |
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 WorkspaceModuleHost 17 模块已改 next/dynamic 懒加载（32a1bb8a，全量 1153 用例通过）；channels-page-client 等文件内拆分待办 |
-| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | 🟡 文件级环 4→2（c8c7c37b，skills 三文件环与 feishu data-plane↔operation-plan 已解）；12 文件大 SCC 五处切断已实施 4 处（cut 1/2/4 8eb08332、cut 5 c8f32035、cut 6 836c30c7）；cut 5 仅缩小未消除（notifications → shared/messaging → runtime-access → notifications 5 节点环仍在，需进一步切分 messaging 发送内核与 runtime 通知能力），最大 SCC 12→5；剩余 cut 3（channels→attachments GC 语义上移）跨域编排层非机械可切；runtime-provisioning 域内环归零（cc4047bd）；进展详见 [progress-log §3.3-3](progress-log.md) |
+| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | ✅ 原 12 文件大 SCC 已消除；当前仅剩 Feishu `agent-bot-bindings↔external-guests` 的 type-only 双节点环。cut 3（附件 GC 语义上移）仍是分层优化项但不再构成环；进展详见 [progress-log §3.3-3](progress-log.md) |
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ⏳ 待办（属测试门禁类，与 CI 专项同批处理为宜） |
 | P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ 待办 |
 | P2 | i18n 无 key | `tx(zh, en)` 内联双语无字典校验 | 中 | ⏳ 待办 |
@@ -75,11 +75,11 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 > 本类目 7 项已全部完成，落地与复核记录见 [progress-log.md §3.1](progress-log.md)。以下保留原始问题描述。
 
-1. **删除误提交的 `-` 文件**：仓库根有一个名为 `-` 的 macOS plist（`mkcert` trustList，含本机证书指纹），是 `curl -o -` 类操作误产物，应删除并加入 `.gitignore`。
+1. **删除误提交的 `-` 文件**：已从仓库删除并由 `.gitignore` 防止同类本机产物再次入库。
 2. **构建产物移出 git**：`dofe-agent-daemon-0.1.3.tgz`（1.8MB 二进制）自首个提交起就被跟踪，应改为通过 CI artifact 或 release 附件发布。
 3. **`.DS_Store` 入库**：`apps/.DS_Store`、`docs/.DS_Store` 等 macOS 垃圾文件应从 git 移除（复核：实际从未入库，仅存在于磁盘且被 `.gitignore` 覆盖）。
 4. **AI 规则文件重复**：`CLAUDE.md` 与 `CODEBUDDY.md`/`GEMINI.md`/`QODER.md`/`.cursorrules`/`.windsurfrules` 内容重复，应保留一份权威版本，其余改为 `@` 引用或符号链接。
-5. **失效的 Prisma CI 残留**：`.github/workflows/migration-ci.yml`（watch 已不存在的 `prisma/**` 路径）是历史 Prisma 尝试的残留，应删除或停用。
+5. **失效的 Prisma CI 残留**：历史 `.github/workflows/migration-ci.yml` 已确认不存在；当前 Prisma 验证由 DB 默认测试门和根构建/类型检查中的生成步骤承担。
 6. **根目录 AI 工作笔记**：`findings.md`/`progress.md`/`task_plan.md` 是 Prisma 迁移工作笔记，易被 `git add -A` 误提交，应移到 docs 子目录或明确 `.gitignore`。
 7. **`data/*.sqlite` 旧文件**：SQLite→PG 迁移后遗留的空 sqlite/db 文件，应清理并在文档说明产物归属。
 
@@ -94,7 +94,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 3. **【P1】消除双重行映射** ⏳：部分 SQL 用显式 `AS workspaceId`，部分用全小写别名（如 `skillartifactdigest`）依赖 worker 的 400+ 条别名表兜底。两种风格并存易漂移。建议以 schema 列名为唯一事实源，统一生成 camelCase 映射。
 4. **【P2】巨型业务模块拆分** ⏳：`external-integrations.ts`(2,576)、`types.ts`(2,219，106 interface 可按模块拆后 re-export)、`mcp-center.ts`(1,467)。
 5. **【P2】类型安全加固** ⏳：可评估 Kysely 之类轻量 typed query builder 做列名编译期校验，降低手写 SQL 与 `types.ts` 的漂移风险（无需完整 ORM）。
-6. **【战略】Prisma 迁移已有详细方案** 🟡：`docs/0808/db_migration_to_prisma/README.md` 给出了 A→B 渐进路线（A=Prisma 只负责 schema/迁移；B=Prisma Client 与 SQL 并存按域替换），明确不建议一次性全量 Prisma Client 化。**建议**：坚持 A→B，`FOR UPDATE SKIP LOCKED`、触发器、advisory lock、在线 DDL 等高风险 SQL 继续保留原生实现。当前 `dev` 已落地 read-cutover 影子读取骨架，详见 [progress-log.md](progress-log.md)。
+6. **【战略】Prisma 迁移已有详细方案** 🟡：`docs/0808/db_migration_to_prisma/README.md` 给出了 A→B 渐进路线（A=Prisma 只负责 schema/迁移；B=Prisma Client 与 SQL 并存按域替换），明确不建议一次性全量 Prisma Client 化。**建议**：坚持 A→B，`FOR UPDATE SKIP LOCKED`、触发器、advisory lock、在线 DDL 等高风险 SQL 继续保留原生实现。当前 `dev` 已完成五域可运行 read cutover、notifications 业务接线与 audit write fail-closed 试点；其余域仍按公共出口逐步接线，详见 [progress-log.md](progress-log.md)。
 
 > 亮点（值得保留）：手写幂等 DDL + advisory lock 迁移协议 + 前向版本守卫 + `CREATE INDEX CONCURRENTLY` 后台构建 + 测试库 URL 守卫，是一套成熟的「SQLite 无缝演进到 PostgreSQL」工具链。
 
@@ -105,22 +105,22 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 3. **【P1】打破模块循环依赖**（已核实）：
    - `messages → automations → workflows → messages`
    - `documents → notifications → messages → documents`
-   建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。🟡 **文件级环 4→2 已落地（c8c7c37b）**：skills `release↔installations↔import` 三文件环解体（锁计算下沉 `release-lock.ts`、安装排队下沉 `skill-services/install-queue.ts`）；飞书 `data-plane↔operation-plan` 解体（描述符常量下沉 `data-operation-descriptors.ts`）。runtime-provisioning 拆分引入的域内环也已归零（cc4047bd：`ModelsCreateResult` 独立 types 文件 + 两个编排入口迁至 pipeline，pipeline→capacity 单向）。剩余为 12 文件大 SCC（channel/notification 域）与一个 type-only 运行时无害环（feishu agent-bot-bindings↔external-guests）。
+   建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。✅ **文件级业务环已消除**：skills `release↔installations↔import` 三文件环解体（锁计算下沉 `release-lock.ts`、安装排队下沉 `skill-services/install-queue.ts`）；飞书 `data-plane↔operation-plan` 解体（描述符常量下沉 `data-operation-descriptors.ts`）；runtime-provisioning 域内环归零。原 channel/notification 12 文件大 SCC 也已完成切断，当前仅剩一个 type-only、运行时无害的飞书双节点环。
 
    **12 文件 SCC 分层方案（已评估，2026-08-14）**：SCC 成员与全部反向边已核实——违反分层的只有 5 条边，其余边均可自然落入以下六层（底→顶）：L0 `shared/state-io`（快照持久化）→ L1 `documents/access`、`shared/audit`、`shared/conversation-execution-workspaces`（纯规则）→ L2 `attachments`、`channels`（存储域）→ L3 `channel-access`、`notifications`（访问/通知域）→ L4 `shared/messaging`、`runtime-access`（运行时消息）→ L5 `messages`、`automations/auto-continuation`（顶层编排）。5 处切断：
    1. ✅ **`state-io → documents/access`**（`ensureChannelDocumentAccessSeeds`，仅读写两条路径调用）：种子补全改由 `shared/channel-document-access-seeds.ts` 提供，state-io 仅依赖 shared，回归纯持久化（**8eb08332**）。
    2. ✅ **`documents/access → channels`**（`resolveChannelHumanMemberNames` ×3 + count）：纯函数下沉 `shared/channel-members.ts`，双方及 `messages` / `permissions` / `document-permissions` / `documents/files` / `attachments` / `channel-access` 共 6 处改引 shared（**8eb08332**）。
    3. ⏸ `channels → attachments`（`deleteUnreferencedWorkspaceAttachmentsSync`）：GC 语义上移至 channels 的调用方或回调注入；需梳理调用方语义，留待后续。
    4. ✅ **`attachments → channel-access`**（`isWorkspaceAdminOrOwnerRole` 部分）：纯角色判断下沉 `shared/channel-members.ts`（与 cut 2 同文件），`canReadChannelForActorSync` 嵌入 channel-access 域逻辑未下沉（**8eb08332**）。
-   5. 🟡 **`notifications → messages`**（`postMessageSync`）：发送核心下沉 `shared/messaging.ts`（追加 import state-io/realtime-events + 末尾追加函数体），`messages.ts` 改 `export const postMessageSync = postMessageSyncShared` 保留 facade（**c8f32035**）；notifications 直接引 shared，12 个外部调用方零改动。**仅缩小未消除**：`notifications → shared/messaging → runtime-access → notifications` 5 节点环仍在，需进一步切分 messaging 发送内核与 runtime 通知能力（**2a63cf67** 收尾拆 `messaging → runtime-access` 一边后，最大 SCC 由 6 缩为 5）。
+   5. ✅ **`notifications → messages`**（`postMessageSync`）：发送核心下沉 `shared/messaging.ts`，`messages.ts` 保留 facade；随后移除 `shared/messaging → runtime-access` 反向依赖，原 5 节点环已消除（**c8f32035**、**2a63cf67**）。
    6. ✅ **`attachments → channel-access`**（`canReadChannelForActorSync` 访问判定）：访问判定下沉 `shared/access-decisions.ts`，channel-access 改 facade（**836c30c7**）。
 
-   实施顺序建议：1/2/4/6 纯机械下沉低风险先行；3 需梳理调用方语义；5 触及消息发送路径（行为敏感），需配 messages 域回归。**当前进度**：1/2/4/6 已落地，5 仅缩小未消除，最大 SCC 由 12 缩为 5；剩余 cut 3（GC 语义）跨域编排层非机械可切，**建议接受现状或留待 P2 重构周期**。
+   **当前进度**：原 12 文件大 SCC 已消除。cut 3（GC 语义上移）仍需梳理调用方语义，但已不再构成循环依赖；可作为后续职责收敛项独立推进。
 4. **【P1】飞书 24 个测试文件游离于测试门之外**：`src/integrations/...`（含全包最大测试 `inbound.test.ts` 2,406 行、`data-plane.test.ts` 2,239 行）不在 `package.json` 的 test glob 内，`verify-test-coverage.mjs` 注释为 "intentional"。**8,000+ 行测试形同虚设**——要么纳入门禁（纯单测无需外部环境），要么给独立 CI 任务。
 5. **【P2】手写 `.d.ts` 孪生去重**：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
 6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串**：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
 7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）**：继续按域拆子路径（`/workflows`、`/skills`…），收窄 web/daemon 的 200+ 处 import。
-8. **【P2】测试门覆盖不均**：门内只含 runtime-maintenance/skills/mcp-center/skill-services/openmontage/workflows/attachments；`permissions`、`employees`、`documents`、`messages`、`knowledge` 等核心域无自动测试门，建议把 verify 脚本的 COVERED_PREFIXES 扩到这些域。
+8. **【P2】测试门覆盖不均**：permissions、document-permissions、messages、notifications、channel-access 已进入 services 默认测试门；`employees`、`documents`、`knowledge` 等核心域及飞书部分测试仍未纳入，需继续扩展 inventory 与默认脚本。
 9. **【P3】供应链**：`xlsx` 依赖是 CDN tarball URL（`cdn.sheetjs.com`）非 registry 包，建议评估锁定与镜像策略。
 
 ### 3.4 Web 前端（apps/web，Next.js 16）
