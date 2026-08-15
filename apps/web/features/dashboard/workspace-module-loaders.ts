@@ -190,7 +190,7 @@ async function loadWorkspaceModuleDataUncached(
     case "approvals":
       return {
         moduleId,
-        data: getApprovalsPageData(workspaceId, viewer ? {
+        data: await getApprovalsPageData(workspaceId, viewer ? {
           userId: viewer.id,
           displayName: viewer.displayName,
           role: viewer.role,

@@ -1,6 +1,7 @@
 import { cache } from "react";
 import {
   listAgentAccessRequestsForActorSync,
+  listKnowledgeProposalsForWorkspace,
   listKnowledgeProposalsForWorkspaceSync,
   listDocumentPermissionRequestsSync,
   readWorkspaceStateSnapshotSync,
@@ -87,11 +88,14 @@ export interface ApprovalsPageData {
   cancelledCount: number;
 }
 
-export function getApprovalsPageData(
+export async function getApprovalsPageData(
   workspaceId = DEFAULT_WORKSPACE_ID,
   actor?: ApprovalQueueActor,
-): ApprovalsPageData {
-  const approvals = buildApprovalItems(workspaceId, actor);
+): Promise<ApprovalsPageData> {
+  const knowledgeProposals = isWorkspaceManager(actor)
+    ? await listKnowledgeProposalsForWorkspace({ workspaceId })
+    : [];
+  const approvals = buildApprovalItems(workspaceId, actor, knowledgeProposals);
 
   return {
     approvals,
@@ -110,7 +114,11 @@ export function getPendingApprovalCount(
   return buildApprovalItems(workspaceId, actor).filter((approval) => approval.status === "pending").length;
 }
 
-function buildApprovalItems(workspaceId: string, actor?: ApprovalQueueActor): ApprovalItem[] {
+function buildApprovalItems(
+  workspaceId: string,
+  actor?: ApprovalQueueActor,
+  knowledgeProposals?: Awaited<ReturnType<typeof listKnowledgeProposalsForWorkspace>>,
+): ApprovalItem[] {
   const state = readWorkspaceStateCached(workspaceId);
   const employeeIndex = new Map(
     state.activeEmployees.map((employee) => [normalizeKey(employee.name), employee]),
@@ -246,7 +254,7 @@ function buildApprovalItems(workspaceId: string, actor?: ApprovalQueueActor): Ap
     : [];
 
   const knowledgeProposalApprovals: ApprovalItem[] = isManager
-    ? listKnowledgeProposalsForWorkspaceSync({ workspaceId }).map((proposal) => {
+    ? (knowledgeProposals ?? listKnowledgeProposalsForWorkspaceSync({ workspaceId })).map((proposal) => {
         const employee = employeeIndex.get(normalizeKey(proposal.sourceAgentName));
         const targetPage = proposal.targetKnowledgePageId
           ? state.knowledgePages.find((page) => page.id === proposal.targetKnowledgePageId)

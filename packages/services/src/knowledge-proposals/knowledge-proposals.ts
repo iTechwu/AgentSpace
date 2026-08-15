@@ -3,6 +3,7 @@ import {
   createKnowledgeProposalSync,
   DEFAULT_WORKSPACE_ID,
   decideKnowledgeProposalSync,
+  listKnowledgeProposalsPrismaCutover,
   listKnowledgeProposalsSync,
   listWorkspaceMembershipsSync,
   readKnowledgeProposalSync as readStoredKnowledgeProposalSync,
@@ -203,11 +204,34 @@ export function listPendingKnowledgeProposalsForApproverSync(input: {
   return listKnowledgeProposalsSync(input.workspaceId ?? DEFAULT_WORKSPACE_ID, { statuses: ["pending"] });
 }
 
+export async function listPendingKnowledgeProposalsForApprover(input: {
+  workspaceId?: string;
+  actor?: { userId?: string; role?: WorkspaceRole };
+}): Promise<KnowledgeProposalRecord[]> {
+  if (input.actor?.userId && !isManagerRole(input.actor.role)) {
+    return [];
+  }
+  return listKnowledgeProposalsPrismaCutover(
+    input.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    { statuses: ["pending"] },
+  );
+}
+
 export function listKnowledgeProposalsForWorkspaceSync(input: {
   workspaceId?: string;
   statuses?: KnowledgeProposalStatus[];
 } = {}): KnowledgeProposalRecord[] {
   return listKnowledgeProposalsSync(input.workspaceId ?? DEFAULT_WORKSPACE_ID, { statuses: input.statuses });
+}
+
+export function listKnowledgeProposalsForWorkspace(input: {
+  workspaceId?: string;
+  statuses?: KnowledgeProposalStatus[];
+} = {}): Promise<KnowledgeProposalRecord[]> {
+  return listKnowledgeProposalsPrismaCutover(
+    input.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    { statuses: input.statuses },
+  );
 }
 
 export function readKnowledgeProposalSync(

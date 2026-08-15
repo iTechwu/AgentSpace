@@ -890,7 +890,9 @@ export {
 export {
   approveKnowledgeProposalForActorSync,
   createKnowledgeProposalFromAgentSync,
+  listKnowledgeProposalsForWorkspace,
   listKnowledgeProposalsForWorkspaceSync,
+  listPendingKnowledgeProposalsForApprover,
   listPendingKnowledgeProposalsForApproverSync,
   readKnowledgeProposalSync,
   rejectKnowledgeProposalForActorSync,
