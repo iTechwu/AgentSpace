@@ -14,6 +14,7 @@ import {
   getDatabase,
   grantRuntimeUseToUserSync,
   registerDaemonRuntimesSync,
+  updateAgentRuntimeManagedFieldsSync,
 } from "@dofe-agent/db";
 import {
   bindEmployeeRuntimeSync,
@@ -490,6 +491,12 @@ function seedPermissionWorkspace() {
     ],
   });
   const runtime = runtimeSnapshot.runtimes[0]!;
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: runtime.id,
+    managedCredentialId: "permission-center-codex-credential",
+    provisioningState: "managed",
+    status: "online",
+  });
   grantRuntimeUseToUserSync({
     workspaceId: workspace.id,
     runtimeId: runtime.id,
