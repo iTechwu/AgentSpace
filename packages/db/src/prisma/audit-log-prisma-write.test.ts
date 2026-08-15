@@ -117,6 +117,39 @@ test("createAuditLogPrismaCutover uses Prisma primary when flag is on", async ()
   }
 });
 
+test("createAuditLogPrismaCutover returns a committed primary result when metrics fail", async () => {
+  resetFlags();
+  process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED = "1";
+  let primaryCalls = 0;
+  const { setAuditLogPrismaClientForTests } = await import("./audit-log-prisma.ts");
+  setAuditLogPrismaClientForTests(
+    makeMockPrisma(async (args) => {
+      primaryCalls += 1;
+      return {
+        ...args.data,
+        createdAt: args.data.createdAt,
+      };
+    }) as unknown as Parameters<typeof setAuditLogPrismaClientForTests>[0],
+  );
+  try {
+    const record = await createAuditLogPrismaCutover(
+      {
+        workspaceId: "default",
+        title: "metric failure must not retry",
+        note: "primary already committed",
+      },
+      () => {
+        throw new Error("metrics unavailable");
+      },
+    );
+
+    assert.equal(record.title, "metric failure must not retry");
+    assert.equal(primaryCalls, 1);
+  } finally {
+    setAuditLogPrismaClientForTests(null);
+  }
+});
+
 test("createAuditLogPrismaCutover does not duplicate a write when Prisma primary throws", async () => {
   resetFlags();
   process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED = "1";
@@ -143,6 +176,30 @@ test("createAuditLogPrismaCutover does not duplicate a write when Prisma primary
     assert.equal(metrics[0]!.source, "primary");
     assert.equal(metrics[0]!.fallbackInvoked, 0);
     assert.ok(metrics[0]!.error?.includes("prisma write unreachable"));
+  } finally {
+    setAuditLogPrismaClientForTests(null);
+  }
+});
+
+test("createAuditLogPrismaCutover preserves the primary error when metrics also fail", async () => {
+  resetFlags();
+  process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED = "1";
+  const { setAuditLogPrismaClientForTests } = await import("./audit-log-prisma.ts");
+  setAuditLogPrismaClientForTests(
+    makeMockPrisma(async () => {
+      throw new Error("primary write failed");
+    }) as unknown as Parameters<typeof setAuditLogPrismaClientForTests>[0],
+  );
+  try {
+    await assert.rejects(
+      createAuditLogPrismaCutover(
+        { title: "preserve primary failure", note: "metrics fail too" },
+        () => {
+          throw new Error("metrics unavailable");
+        },
+      ),
+      /primary write failed/,
+    );
   } finally {
     setAuditLogPrismaClientForTests(null);
   }

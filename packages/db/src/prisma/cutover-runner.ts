@@ -48,17 +48,11 @@ export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutove
     return await config.runFallback();
   }
   const start = Date.now();
+  let result: T;
   try {
-    const result = await config.runPrimary();
-    config.emitMetric?.({
-      source: "primary",
-      mismatch: 0,
-      durationMs: Date.now() - start,
-      fallbackInvoked: 0,
-    } as TMetric);
-    return result;
+    result = await config.runPrimary();
   } catch (primaryError) {
-    config.emitMetric?.({
+    safeEmitWriteMetric(config.emitMetric, {
       source: "primary",
       mismatch: 0,
       durationMs: Date.now() - start,
@@ -66,6 +60,24 @@ export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutove
       fallbackInvoked: 0,
     } as TMetric);
     throw primaryError;
+  }
+  safeEmitWriteMetric(config.emitMetric, {
+    source: "primary",
+    mismatch: 0,
+    durationMs: Date.now() - start,
+    fallbackInvoked: 0,
+  } as TMetric);
+  return result;
+}
+
+function safeEmitWriteMetric<TMetric extends DomainWriteCutoverMetric>(
+  emitMetric: ((metric: TMetric) => void) | undefined,
+  metric: TMetric,
+): void {
+  try {
+    emitMetric?.(metric);
+  } catch {
+    // Observability must not change a write result or invite a duplicate retry.
   }
 }
 
