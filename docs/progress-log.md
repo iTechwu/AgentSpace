@@ -5,6 +5,7 @@
 >
 > 状态约定：✅ 完成 · 🟡 部分完成 · ⏳ 待办 · ⏸ 明确排除/暂缓。
 > 条目编号对应 optimization-suggestions.md 的 §3.x 章节。
+> **维护约定**：提交号与落地结果**仅**记录于本文档（optimization-suggestions.md 只保留状态符号）；落地后在此追加记录，并同步 optimization-suggestions.md 的状态符号。
 
 ---
 
