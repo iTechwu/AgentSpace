@@ -20,6 +20,8 @@
   },
   "scripts": {
     "test": "sh -c 'for file in src/skill-service-operations.test.ts src/skill-services.test.ts src/skill-runner-invocations.test.ts src/employee-data-legal-holds.test.ts src/openmontage-jobs.test.ts src/workflows/*.test.ts src/prisma/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
+    "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
+    "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false",
     "postgres": "node --experimental-strip-types ./src/postgres-cli.ts",
     "postgres:status": "node --experimental-strip-types ./src/postgres-cli.ts status",
@@ -29,7 +31,9 @@
   },
   "dependencies": {
     "@dofe-agent/domain": "workspace:*",
-    "pg": "^8.23.0"
+    "@prisma/client": "^7.9.1",
+    "pg": "^8.23.0",
+    "prisma": "^7.9.1"
   },
   "devDependencies": {
     "@types/node": "catalog:",

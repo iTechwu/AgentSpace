@@ -1,0 +1,91 @@
+// Minimal Prisma schema for Phase 2 read-cutover domains.
+//
+// The full schema (119+ tables) lives in postgres-schema.ts and is the source
+// of truth for the runtime schema. This Prisma schema is intentionally
+// narrow: it only mirrors the four tables whose read-cutover wrappers are
+// shipped in this PR (audit-log, notifications, task-execution-events,
+// workspace-memberships) so we can demonstrate a real Prisma Client round
+// trip without standing up a full schema migration.
+//
+// When the broader Prisma migration lands, this file will be replaced by
+// the canonical schema; until then it serves as the bridge between pg.Client
+// (current Phase 2 prototype) and Prisma Client.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model WorkspaceMembership {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  userId      String   @map("user_id")
+  role        String   @default("member")
+  status      String   @default("active")
+  joinedAt    DateTime @map("joined_at") @db.Timestamptz(6)
+  invitedBy   String?  @map("invited_by")
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_membership")
+}
+
+model WorkspaceNotification {
+  id             String   @id
+  workspaceId    String   @map("workspace_id")
+  recipientType  String   @map("recipient_type")
+  recipientId    String   @map("recipient_id")
+  actorType      String?  @map("actor_type")
+  actorId        String?  @map("actor_id")
+  type           String
+  resourceType   String   @map("resource_type")
+  resourceId     String?  @map("resource_id")
+  channelName    String?  @map("channel_name")
+  title          String
+  body           String
+  actionHref     String?  @map("action_href")
+  severity       String
+  status         String   @default("unread")
+  dedupeKey      String?  @map("dedupe_key")
+  metadataJson   Json     @map("metadata_json")
+  createdAt      DateTime @map("created_at") @db.Timestamptz(6)
+  readAt         DateTime? @map("read_at") @db.Timestamptz(6)
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@map("workspace_notification")
+}
+
+model TaskExecutionEvent {
+  id          String   @id
+  workspaceId String?  @map("workspace_id")
+  taskId      String   @map("task_id")
+  channelName String?  @map("channel_name")
+  agentId     String?  @map("agent_id")
+  runtimeId   String?  @map("runtime_id")
+  runId       String?  @map("run_id")
+  type        String
+  title       String?
+  summary     String?
+  severity    String   @default("info")
+  status      String?
+  dataJson    Json     @map("data_json")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("task_execution_event")
+}
+
+model AuditLog {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  title       String
+  note        String
+  code        String?
+  dataJson    Json     @map("data_json")
+  source      String   @default("runtime_lifecycle")
+  sourceIndex Int      @default(0) @map("source_index")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("audit_log")
+}

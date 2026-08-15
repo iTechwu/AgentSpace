@@ -1,0 +1,77 @@
+// audit-log Phase 2 真 Prisma Client primary：
+// - 使用 prisma generate 产出的 @prisma/client 替代 pg.Client 直连。
+// - 模型字段映射通过 @map 注解保持与 postgres-schema.ts 的 snake_case
+//   列名一致；查询语意（filter by id / workspace_id）与 sync readAuditLogSync
+//   等价。
+// - 切流 flag 由 env var 控制，与 audit-log-async.ts 同样语义：
+//   AUDIT_LOG_PRISMA_READ_ENABLED=1 / AUDIT_LOG_PRISMA_SHADOW_READ_ENABLED=1
+//   （独立于 pg 原型 flag，避免混用）。
+
+import { PrismaClient } from "@prisma/client";
+import type { AuditLogRecord } from "../types.ts";
+
+interface PrismaAuditLog {
+  id: string;
+  workspaceId: string;
+  title: string;
+  note: string;
+  code: string | null;
+  dataJson: unknown;
+  source: string;
+  sourceIndex: number;
+  createdAt: Date;
+}
+
+let cachedClient: PrismaClient | null = null;
+function getPrismaClient(): PrismaClient {
+  if (cachedClient) return cachedClient;
+  cachedClient = new PrismaClient();
+  return cachedClient;
+}
+
+export async function readAuditLogPrisma(input: {
+  id: string;
+  workspaceId?: string;
+}): Promise<AuditLogRecord | null> {
+  const prisma = getPrismaClient();
+  const row = await prisma.auditLog.findFirst({
+    where: input.workspaceId
+      ? { id: input.id, workspaceId: input.workspaceId }
+      : { id: input.id },
+  });
+  return row ? prismaAuditLogToRecord(row as unknown as PrismaAuditLog) : null;
+}
+
+export function isAuditLogPrismaReadEnabled(): boolean {
+  return process.env.AUDIT_LOG_PRISMA_READ_ENABLED === "1";
+}
+
+export function isAuditLogPrismaShadowReadEnabled(): boolean {
+  return process.env.AUDIT_LOG_PRISMA_SHADOW_READ_ENABLED === "1";
+}
+
+export async function disconnectAuditLogPrismaForTests(): Promise<void> {
+  if (cachedClient) {
+    await cachedClient.$disconnect();
+    cachedClient = null;
+  }
+}
+
+function prismaAuditLogToRecord(row: PrismaAuditLog): AuditLogRecord {
+  const dataJson = typeof row.dataJson === "string"
+    ? row.dataJson
+    : row.dataJson === null || row.dataJson === undefined
+      ? "{}"
+      : JSON.stringify(row.dataJson);
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    title: row.title,
+    note: row.note,
+    code: row.code ?? undefined,
+    dataJson,
+    source: row.source as AuditLogRecord["source"],
+    sourceIndex: row.sourceIndex,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
