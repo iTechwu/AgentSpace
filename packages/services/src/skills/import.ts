@@ -629,13 +629,6 @@ function upsertTextProjectionFiles(skillId: string, files: ImportedSkillFile[], 
 }
 
 /**
- * Validates the package and persists the immutable content-addressed artifact
- * from the full file set (text + binary). The resulting digest is pinned on the
- * skill row inside the same transaction that commits the Skill. Per EAD-004:
- * every declared file — including scripts and binary resources — must be present;
- * a manifest that omits files cannot represent a "successful" import.
- */
-/**
  * Derives a stable logical coordinate from the import source, matching the
  * `coordinate` shape declared in `skillDependencies`. Version-independent: the
  * ref/commit SHA is deliberately excluded (version is a separate axis).
@@ -665,6 +658,13 @@ export function deriveSkillCoordinate(
   return undefined;
 }
 
+/**
+ * Validates the package and persists the immutable content-addressed artifact
+ * from the full file set (text + binary). The resulting digest is pinned on the
+ * skill row inside the same transaction that commits the Skill. Per EAD-004:
+ * every declared file — including scripts and binary resources — must be present;
+ * a manifest that omits files cannot represent a "successful" import.
+ */
 function prepareSkillArtifact(
   imported: ImportedSkillDefinition,
   workspaceId: string,

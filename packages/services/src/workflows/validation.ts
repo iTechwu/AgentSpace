@@ -143,7 +143,7 @@ export function validateWorkflowForPublishSync(
   }
   for (const node of input.graph.nodes) {
     if (node.type === "employee_task") {
-    const blocker = validateWorkflowEmployeeReadiness(node, employees, bindings);
+      const blocker = validateWorkflowEmployeeReadiness(node, employees, bindings);
       if (blocker) {
         blockers.push(blocker);
         continue;

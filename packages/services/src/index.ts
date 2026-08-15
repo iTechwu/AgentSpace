@@ -648,6 +648,7 @@ export {
   SKILL_ROLLOUT_POLICY_VERSION,
   planSkillRollout,
   resolveSkillDependencyClosureSync,
+  resolveSkillDependencyClosureDetailedSync,
   lockSkillDependencyDigestSync,
   computeSkillRolloutTargetRuntimesSync,
   resolveSkillRolloutRootRuntimeIdsSync,
@@ -660,6 +661,7 @@ export {
   type SkillRolloutTargetScope,
   type SkillRolloutPlan,
   type SkillRolloutClosureEntry,
+  type SkillRolloutSkippedDependency,
   type SkillRolloutItem,
   type SkillRolloutRiskSummary,
 } from "./skills/rollout.ts";

@@ -38,19 +38,19 @@ export function buildNovelProductionWorkflowGraph(
   const consistency = input.consistencyEmployeeId ?? coordinator;
 
   const productionOutput = ["artifactDigest", "revision"];
-  const production = (skillId: string) => ({ requiredSkillIds: [skillId], outputFields: productionOutput });
+  const productionSkillConfig = (skillId: string) => ({ requiredSkillIds: [skillId], outputFields: productionOutput });
 
   return {
     schemaVersion: 1,
     nodes: [
-      { id: "cast-baseline", type: "employee_task", employeeId: coordinator, config: production(NOVEL_PRODUCTION_SKILL_IDS.characters) },
-      { id: "outline", type: "employee_task", employeeId: coordinator, config: production(NOVEL_PRODUCTION_SKILL_IDS.outline) },
-      { id: "art-r1", type: "employee_task", employeeId: artist, config: production(NOVEL_PRODUCTION_SKILL_IDS.art) },
-      { id: "script-r1", type: "employee_task", employeeId: script, config: production(NOVEL_PRODUCTION_SKILL_IDS.script) },
+      { id: "cast-baseline", type: "employee_task", employeeId: coordinator, config: productionSkillConfig(NOVEL_PRODUCTION_SKILL_IDS.characters) },
+      { id: "outline", type: "employee_task", employeeId: coordinator, config: productionSkillConfig(NOVEL_PRODUCTION_SKILL_IDS.outline) },
+      { id: "art-r1", type: "employee_task", employeeId: artist, config: productionSkillConfig(NOVEL_PRODUCTION_SKILL_IDS.art) },
+      { id: "script-r1", type: "employee_task", employeeId: script, config: productionSkillConfig(NOVEL_PRODUCTION_SKILL_IDS.script) },
       { id: "round1-join", type: "join", config: {} },
       { id: "consistency-r1", type: "employee_task", employeeId: consistency, config: { outputFields: ["blockingCount", "qualityReportDigest"] } },
-      { id: "art-r2", type: "employee_task", employeeId: artist, config: production(NOVEL_PRODUCTION_SKILL_IDS.art) },
-      { id: "script-r2", type: "employee_task", employeeId: script, config: production(NOVEL_PRODUCTION_SKILL_IDS.script) },
+      { id: "art-r2", type: "employee_task", employeeId: artist, config: productionSkillConfig(NOVEL_PRODUCTION_SKILL_IDS.art) },
+      { id: "script-r2", type: "employee_task", employeeId: script, config: productionSkillConfig(NOVEL_PRODUCTION_SKILL_IDS.script) },
       { id: "round2-join", type: "join", config: {} },
       { id: "consistency-r2", type: "employee_task", employeeId: consistency, config: { outputFields: ["blockingCount", "qualityReportDigest"] } },
       { id: "approval", type: "approval", config: {} },

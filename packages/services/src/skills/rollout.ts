@@ -8,7 +8,6 @@ import {
   readSkillArtifactsByCoordinateSync,
   readWorkflowVersionSync,
 } from "@dofe-agent/db";
-import type { SkillArtifactRecord } from "@dofe-agent/db";
 import type { SkillSkillDependency } from "@dofe-agent/domain";
 import { stableStringify } from "./package/package-digest.ts";
 import { buildSkillInstallRiskItemsSync } from "./install-approval.ts";
@@ -29,6 +28,13 @@ export interface SkillRolloutClosureEntry {
   required: boolean;
   /** The artifact digest of the skill that declared this dependency (co-location anchor). */
   parentArtifactDigest?: string;
+}
+
+export interface SkillRolloutSkippedDependency {
+  coordinate: string;
+  requestedVersion: string;
+  placement: "same_runtime" | "workflow";
+  reason: "optional";
 }
 
 export interface SkillRolloutItem {
@@ -53,6 +59,7 @@ export interface SkillRolloutPlan {
   requiredCount: number;
   readyCount: number;
   pendingCount: number;
+  skipped: SkillRolloutSkippedDependency[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -120,17 +127,19 @@ export function lockSkillDependencyDigestSync(
   return { artifactDigest: best.digest, version: best.version };
 }
 
-export function resolveSkillDependencyClosureSync(input: {
+export function resolveSkillDependencyClosureDetailedSync(input: {
   workspaceId?: string;
   rootArtifactDigest: string;
   dependencyMode?: "required-only" | "include-optional";
-}): SkillRolloutClosureEntry[] {
+}): { entries: SkillRolloutClosureEntry[]; skipped: SkillRolloutSkippedDependency[] } {
   const workspaceId = input.workspaceId ?? "default";
   const mode = input.dependencyMode ?? "required-only";
   const entries: SkillRolloutClosureEntry[] = [];
+  const skipped: SkillRolloutSkippedDependency[] = [];
   const emitted = new Set<string>([input.rootArtifactDigest]);
   const processed = new Set<string>();
   const visiting: string[] = [];
+  const coordinateDecls = new Map<string, { requestedVersion: string; placement: string }>();
 
   const visit = (artifactDigest: string): void => {
     const cycleIndex = visiting.indexOf(artifactDigest);
@@ -146,7 +155,24 @@ export function resolveSkillDependencyClosureSync(input: {
     const dependencies = parseSkillDependencies(artifact.manifestJson);
     visiting.push(artifactDigest);
     for (const dependency of dependencies) {
-      if (dependency.required === false && mode === "required-only") continue;
+      // Cross-parent conflict: the same coordinate declared with a different
+      // version range or placement is rejected (textual comparison, fail-closed).
+      const declKey = dependency.coordinate.toLowerCase();
+      const previous = coordinateDecls.get(declKey);
+      if (previous && (previous.requestedVersion !== dependency.version || previous.placement !== dependency.placement)) {
+        throw new Error(`skill_dependency_conflict: "${dependency.coordinate}" declared with conflicting version/placement.`);
+      }
+      coordinateDecls.set(declKey, { requestedVersion: dependency.version, placement: dependency.placement });
+
+      if (dependency.required === false && mode === "required-only") {
+        skipped.push({
+          coordinate: dependency.coordinate,
+          requestedVersion: dependency.version,
+          placement: dependency.placement,
+          reason: "optional",
+        });
+        continue;
+      }
       const locked = lockSkillDependencyDigestSync(dependency.coordinate, dependency.version, workspaceId);
       if (!emitted.has(locked.artifactDigest)) {
         entries.push({
@@ -166,7 +192,15 @@ export function resolveSkillDependencyClosureSync(input: {
   };
 
   visit(input.rootArtifactDigest);
-  return entries;
+  return { entries, skipped };
+}
+
+export function resolveSkillDependencyClosureSync(input: {
+  workspaceId?: string;
+  rootArtifactDigest: string;
+  dependencyMode?: "required-only" | "include-optional";
+}): SkillRolloutClosureEntry[] {
+  return resolveSkillDependencyClosureDetailedSync(input).entries;
 }
 
 function parseSkillDependencies(manifestJson: string): SkillSkillDependency[] {
@@ -462,7 +496,7 @@ export function planSkillRollout(input: {
   if (!root) {
     throw new Error(`Skill artifact "${input.rootArtifactDigest}" does not exist in this workspace.`);
   }
-  const closure = resolveSkillDependencyClosureSync({
+  const { entries: closure, skipped } = resolveSkillDependencyClosureDetailedSync({
     workspaceId,
     rootArtifactDigest: input.rootArtifactDigest,
     dependencyMode: input.dependencyMode,
@@ -495,5 +529,6 @@ export function planSkillRollout(input: {
     requiredCount,
     readyCount,
     pendingCount,
+    skipped,
   };
 }

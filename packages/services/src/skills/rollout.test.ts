@@ -188,3 +188,32 @@ test("computeSkillRolloutItemsSync honors placement (same_runtime co-locates, wo
   assert.ok(!pairs.includes(`${r2}:${workflowDep.digest}`), "workflow dep must NOT be on every runtime");
   assert.equal(items.length, 5);
 });
+
+test("planSkillRollout records skipped optional deps in required-only mode", () => {
+  buildArtifact({ name: "optional-dep", version: "1.0.0", coordinate: "github:owner/repo/skills/optional-dep" });
+  const root = buildArtifact({
+    name: "root",
+    coordinate: "github:owner/repo/skills/root",
+    skillDependencies: [{ coordinate: "github:owner/repo/skills/optional-dep", version: "^1.0.0", placement: "workflow", required: false }],
+  });
+  const plan = planSkillRollout({ rootArtifactDigest: root.digest, targetScope: { kind: "runtimes", runtimeIds: [createRuntime()] } });
+  assert.equal(plan.closure.length, 0);
+  assert.equal(plan.skipped.length, 1);
+  assert.equal(plan.skipped[0]?.coordinate, "github:owner/repo/skills/optional-dep");
+  assert.equal(plan.items.length, 1, "root only (optional dep excluded)");
+});
+
+test("resolveSkillDependencyClosureSync rejects conflicting version ranges for the same coordinate", () => {
+  buildArtifact({ name: "dep", version: "1.0.0", coordinate: "github:owner/repo/skills/dep" });
+  buildArtifact({ name: "a", coordinate: "github:owner/repo/skills/a", skillDependencies: [{ coordinate: "github:owner/repo/skills/dep", version: "^1.0.0", placement: "workflow", required: true }] });
+  buildArtifact({ name: "b", coordinate: "github:owner/repo/skills/b", skillDependencies: [{ coordinate: "github:owner/repo/skills/dep", version: "^2.0.0", placement: "workflow", required: true }] });
+  const root = buildArtifact({
+    name: "root",
+    coordinate: "github:owner/repo/skills/root",
+    skillDependencies: [
+      { coordinate: "github:owner/repo/skills/a", version: "^1.0.0", placement: "workflow", required: true },
+      { coordinate: "github:owner/repo/skills/b", version: "^1.0.0", placement: "workflow", required: true },
+    ],
+  });
+  assert.throws(() => resolveSkillDependencyClosureSync({ rootArtifactDigest: root.digest }), /skill_dependency_conflict/);
+});

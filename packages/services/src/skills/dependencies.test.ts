@@ -110,3 +110,20 @@ dependencies:
   - npm:foo@1.2.3
 ---`), []);
 });
+
+test("parseSkillSkillDependencies rejects conflicting declarations for the same coordinate", () => {
+  assert.throws(
+    () => parseSkillSkillDependencies(`---
+skillDependencies:
+  - coordinate: github:owner/repo/skills/x
+    version: "^1.0.0"
+    placement: workflow
+    required: true
+  - coordinate: github:owner/repo/skills/x
+    version: "^2.0.0"
+    placement: workflow
+    required: true
+---`),
+    /Conflicting skillDependencies/,
+  );
+});

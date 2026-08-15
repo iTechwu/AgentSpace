@@ -1,20 +1,10 @@
-/**
- * The six production coordinates the thin novel-production entry skill depends
- * on: the five independent upstream skills plus the new shot-generation module.
- */
-export const NOVEL_PRODUCTION_COORDINATES = [
-  "github:eternityspring/shuohao-skills/skills/novel-characters",
-  "github:eternityspring/shuohao-skills/skills/novel-outline",
-  "github:eternityspring/shuohao-skills/skills/novel-art",
-  "github:eternityspring/shuohao-skills/skills/novel-script",
-  "github:eternityspring/shuohao-skills/skills/novel-storyboard",
-  "github:eternityspring/shuohao-skills/skills/shot-generation",
-] as const;
+import { parseSkillSkillDependencies } from "./dependencies.ts";
 
 /**
  * The thin novel-production orchestration entry SKILL.md. It only collects
  * parameters, starts the workflow, and explains progress — it does NOT copy the
- * five production implementations.
+ * five production implementations. This is the SOURCE OF TRUTH for the six
+ * production dependencies.
  */
 export const NOVEL_PRODUCTION_ENTRY_SKILL_MD = [
   "---",
@@ -53,3 +43,10 @@ export const NOVEL_PRODUCTION_ENTRY_SKILL_MD = [
   "不在内部复制五个生产 Skill 的实现。",
   "",
 ].join("\n");
+
+/**
+ * The six production coordinates, derived from the entry SKILL.md's
+ * `skillDependencies` frontmatter (single source of truth — no duplicated list).
+ */
+export const NOVEL_PRODUCTION_COORDINATES = parseSkillSkillDependencies(NOVEL_PRODUCTION_ENTRY_SKILL_MD)
+  .map((dependency) => dependency.coordinate) as readonly string[];

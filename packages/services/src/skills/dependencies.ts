@@ -1,6 +1,12 @@
 import type { SkillSkillDependency } from "@dofe-agent/domain";
 import { resolveSystemDependencySync } from "./system-dependency-catalog.ts";
 
+/** Extracts the frontmatter body as lines, or null when there is no frontmatter. */
+function extractFrontmatterLines(skillMarkdown: string): string[] | null {
+  const match = skillMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*/);
+  return match ? match[1].split(/\r?\n/) : null;
+}
+
 export type SkillDependencyManager = "npm" | "pip" | "uv" | "system";
 
 export interface SkillDependencyDeclaration {
@@ -11,14 +17,14 @@ export interface SkillDependencyDeclaration {
 }
 
 export function parseSkillDependencyDeclarations(skillMarkdown: string): SkillDependencyDeclaration[] {
-  const frontmatterMatch = skillMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*/);
-  if (!frontmatterMatch) {
+  const lines = extractFrontmatterLines(skillMarkdown);
+  if (!lines) {
     return [];
   }
 
   const declarations: SkillDependencyDeclaration[] = [];
   let inDependencies = false;
-  for (const rawLine of frontmatterMatch[1].split(/\r?\n/)) {
+  for (const rawLine of lines) {
     if (/^dependencies\s*:\s*$/.test(rawLine.trim())) {
       inDependencies = true;
       continue;
@@ -50,11 +56,10 @@ export function parseSkillDependencyDeclarations(skillMarkdown: string): SkillDe
  * plan resolves it to an exact artifact digest.
  */
 export function parseSkillSkillDependencies(skillMarkdown: string): SkillSkillDependency[] {
-  const frontmatterMatch = skillMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*/);
-  if (!frontmatterMatch) {
+  const lines = extractFrontmatterLines(skillMarkdown);
+  if (!lines) {
     return [];
   }
-  const lines = frontmatterMatch[1].split(/\r?\n/);
   const dependencies: SkillSkillDependency[] = [];
   let current: Record<string, string> | null = null;
   let inSkillDependencies = false;
@@ -132,13 +137,25 @@ function finishSkillDependencyMapping(record: Record<string, string>): SkillSkil
 }
 
 function uniqueSkillDependencies(dependencies: SkillSkillDependency[]): SkillSkillDependency[] {
-  const seen = new Set<string>();
-  return dependencies.filter((dependency) => {
+  const seen = new Map<string, SkillSkillDependency>();
+  const result: SkillSkillDependency[] = [];
+  for (const dependency of dependencies) {
     const key = dependency.coordinate.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+    const existing = seen.get(key);
+    if (existing) {
+      if (
+        existing.version !== dependency.version
+        || existing.placement !== dependency.placement
+        || existing.required !== dependency.required
+      ) {
+        throw new Error(`Conflicting skillDependencies for "${dependency.coordinate}": version/placement mismatch.`);
+      }
+      continue;
+    }
+    seen.set(key, dependency);
+    result.push(dependency);
+  }
+  return result;
 }
 
 export function readSkillDependencyDeclarations(configJson: string | undefined): SkillDependencyDeclaration[] {
