@@ -278,6 +278,55 @@ test("importWorkspaceSkillFromUrl falls back to immutable Contents API when raw 
   assert.equal(contentsFallbackRequests, 2);
 });
 
+test("importWorkspaceSkillFromUrl falls back when a raw response does not match the Git blob", async () => {
+  const previousFetch = globalThis.fetch;
+  const sha = "abc123def456789012345678901234567890abcd";
+  const skillBytes = strToU8("---\nname: integrity-skill\ndescription: Blob integrity fallback\n---\n# Integrity Skill\n");
+  const blobSha = createHash("sha1")
+    .update(`blob ${skillBytes.byteLength}\0`)
+    .update(skillBytes)
+    .digest("hex");
+  let contentsFallbackRequests = 0;
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/integrity-skill-repo/commits/main") {
+      return jsonResponse({ sha });
+    }
+    if (url === `https://api.github.com/repos/octo-org/integrity-skill-repo/contents/skill?ref=${sha}`) {
+      return jsonResponse([{
+        type: "file",
+        name: "SKILL.md",
+        path: "skill/SKILL.md",
+        sha: blobSha,
+        size: skillBytes.byteLength,
+      }]);
+    }
+    if (url === `https://raw.githubusercontent.com/octo-org/integrity-skill-repo/${sha}/skill/SKILL.md`) {
+      return new Response(new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x00, 0x01]), { status: 200 });
+    }
+    if (url === `https://api.github.com/repos/octo-org/integrity-skill-repo/contents/skill/SKILL.md?ref=${sha}`) {
+      contentsFallbackRequests += 1;
+      return jsonResponse({
+        type: "file",
+        encoding: "base64",
+        content: Buffer.from(skillBytes).toString("base64"),
+      });
+    }
+    return previousFetch(input);
+  }) as typeof fetch;
+
+  const result = await importWorkspaceSkillFromUrl({
+    workspaceId: WORKSPACE_ID,
+    url: "https://github.com/octo-org/integrity-skill-repo/tree/main/skill",
+  });
+
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill.name, "integrity-skill");
+  assert.equal(contentsFallbackRequests, 1);
+});
+
 test("importWorkspaceSkillFromUrl imports a repository-root SKILL.md", async () => {
   const previousFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -875,6 +924,29 @@ description: TOS upload
   });
   assert.equal(reimported.replaced, true);
   assert.equal(reimported.sourceType, "tos");
+});
+
+test("binary bytes with a text extension remain artifact-only", async () => {
+  const binaryScript = new Uint8Array(9_000).fill(0x61);
+  binaryScript[8_500] = 0;
+  const archive = zipSync({
+    "SKILL.md": strToU8("---\nname: binary-script\ndescription: Binary script projection\n---\n# Binary Script\n"),
+    "scripts/binary.mjs": binaryScript,
+  });
+
+  const result = await importWorkspaceSkillFromZipUpload({
+    workspaceId: WORKSPACE_ID,
+    fileName: "binary-script.zip",
+    contentBytes: archive,
+  });
+
+  const skill = listWorkspaceSkillsSync(WORKSPACE_ID).find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill.files.some((file) => file.path === "scripts/binary.mjs"), false);
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, WORKSPACE_ID);
+  assert.ok(artifact);
+  const manifest = JSON.parse(artifact.manifestJson) as { files: Array<{ path: string }> };
+  assert.equal(manifest.files.some((file) => file.path === "scripts/binary.mjs"), true);
 });
 
 test("zip manifest version and executable mode survive validation into the stored artifact", async () => {

@@ -113,22 +113,21 @@ export function isImportableSkillTextFile(path: string): boolean {
 }
 
 /**
- * Heuristic binary detection. A file is binary if it contains a NUL byte in the
- * first 8 KB, or if that sample is not valid UTF-8. Binary files are NEVER
+ * Heuristic binary detection. A file is binary if it contains a NUL byte or is
+ * not valid UTF-8. Binary files are NEVER
  * coerced to a UTF-8 string — they are stored as blobs (Phase 1).
  */
 export function isLikelyBinaryBytes(bytes: Uint8Array): boolean {
   if (bytes.length === 0) {
     return false;
   }
-  const sample = bytes.length > 8000 ? bytes.subarray(0, 8000) : bytes;
-  for (let i = 0; i < sample.length; i += 1) {
-    if (sample[i] === 0) {
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (bytes[i] === 0) {
       return true;
     }
   }
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(sample);
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return false;
   } catch {
     return true;

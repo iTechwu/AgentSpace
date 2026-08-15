@@ -33,6 +33,12 @@ test("isLikelyBinaryBytes detects a NUL byte as binary", () => {
   assert.equal(isLikelyBinaryBytes(new Uint8Array([0x68, 0x00, 0x69])), true);
 });
 
+test("isLikelyBinaryBytes detects a NUL byte late in the file", () => {
+  const bytes = new Uint8Array(9_000).fill(0x61);
+  bytes[8_500] = 0;
+  assert.equal(isLikelyBinaryBytes(bytes), true);
+});
+
 test("isLikelyBinaryBytes detects invalid UTF-8 as binary", () => {
   assert.equal(isLikelyBinaryBytes(new Uint8Array([0xff, 0xfe, 0xfd])), true);
 });

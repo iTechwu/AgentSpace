@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdir, readFile, readlink, realpath, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,11 +39,7 @@ import {
   persistWorkspaceAttachmentFromBytesSync,
   readWorkspaceAttachmentBytesSync,
 } from "../attachments/attachments.ts";
-import {
-  buildAndPersistSkillArtifactSync,
-  isTextMediaType,
-  mediaTypeForPath,
-} from "./skill-artifacts.ts";
+import { buildAndPersistSkillArtifactSync } from "./skill-artifacts.ts";
 import {
   validateSkillPackage,
   type SkillPackageInputFile,
@@ -56,6 +53,7 @@ import {
   MAX_SKILL_SINGLE_FILE_BYTES,
 } from "./package/archive-limits.ts";
 import { classifySkillFilePath } from "./package/path-safety.ts";
+import { classifySkillFile } from "./package/skill-file-policy.ts";
 
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
 export type SkillImportSourceType = "github" | "gitlab" | "skills.sh" | "clawhub" | "local" | "tos";
@@ -212,7 +210,7 @@ interface GitHubDirectoryPointer {
   /** Immutable commit SHA resolved from `ref` before any content fetch. */
   resolvedSha?: string;
   /** Immutable tree entries captured while discovering a repository-root URL. */
-  discoveredFiles?: Array<{ path: string; mode?: string }>;
+  discoveredFiles?: Array<{ path: string; mode?: string; sha?: string; size?: number }>;
   /** API requests already spent resolving a repository-root URL. */
   discoveryRequestCount?: number;
 }
@@ -226,27 +224,6 @@ interface GitLabDirectoryPointer {
   /** Immutable commit SHA resolved from `ref` before any content fetch. */
   resolvedSha?: string;
 }
-
-// Extensions whose contents we additionally mirror into the text skill_file
-// projection for backward compatibility. Binary files are NOT mirrored there —
-// they live only in the immutable artifact. Nothing is skipped on import.
-const TEXT_PROJECTION_EXTENSIONS = new Set([
-  ".md",
-  ".txt",
-  ".json",
-  ".yaml",
-  ".yml",
-  ".toml",
-  ".ini",
-  ".cfg",
-  ".csv",
-  ".js",
-  ".mjs",
-  ".ts",
-  ".py",
-  ".sh",
-  ".html",
-]);
 
 export async function importWorkspaceSkillFromUrl(input: {
   workspaceId?: string;
@@ -640,7 +617,7 @@ function upsertTextProjectionFiles(skillId: string, files: ImportedSkillFile[], 
     if (sameValue(file.path, "SKILL.md")) {
       continue;
     }
-    if (!isTextProjectionPath(file.path)) {
+    if (!classifySkillFile(file.path, file.bytes).inlineableText) {
       continue; // binary files live only in the artifact
     }
     upsertWorkspaceSkillFileSync({
@@ -1623,7 +1600,7 @@ async function resolveGitHubSkillPointer(
     "GitHub repository tree",
   ) as {
     truncated?: boolean;
-    tree?: Array<{ path?: string; type?: string; mode?: string }>;
+    tree?: Array<{ path?: string; type?: string; mode?: string; sha?: string; size?: number }>;
   };
   if (payload.truncated) {
     throw new SkillGitHubImportError(
@@ -1661,7 +1638,7 @@ async function resolveGitHubSkillPointer(
     resolvedSha,
     discoveryRequestCount: 3,
     discoveredFiles: treeEntries
-      .filter((entry): entry is { path: string; type?: string; mode?: string } => (
+      .filter((entry): entry is { path: string; type?: string; mode?: string; sha?: string; size?: number } => (
         entry.type === "blob" && typeof entry.path === "string"
       ))
       .filter((entry) => {
@@ -1671,6 +1648,8 @@ async function resolveGitHubSkillPointer(
       .map((entry) => ({
         path: entry.path,
         ...(entry.mode ? { mode: entry.mode } : {}),
+        ...(entry.sha ? { sha: entry.sha } : {}),
+        ...(entry.size !== undefined ? { size: entry.size } : {}),
       })),
   };
 }
@@ -1734,6 +1713,8 @@ async function fetchGitHubDirectoryFiles(
     name?: string;
     path?: string;
     download_url?: string | null;
+    sha?: string;
+    size?: number;
   }> | { type?: string };
   if (!Array.isArray(payload)) {
     throw new SkillGitHubImportError(
@@ -1777,7 +1758,12 @@ async function fetchGitHubDirectoryFiles(
     assertSkillSourceRequestBudget(budget, "GitHub skill");
     const bytes = await fetchGitHubRawFileBytes(
       { ...pointer, path: entry.path },
-      { workspaceId, fallbackBudget: budget },
+      {
+        workspaceId,
+        fallbackBudget: budget,
+        expectedBlobSha: entry.sha,
+        expectedSize: entry.size,
+      },
     );
     assertSkillSourceFileBudget(budget, relativePath, bytes, "GitHub skill");
     files.push({
@@ -1805,7 +1791,7 @@ async function fetchDiscoveredGitHubFiles(
   };
   const prefix = pointer.path ? `${pointer.path.replace(/\/+$/, "")}/` : "";
   const downloadEntries: Array<{
-    entry: { path: string; mode?: string };
+    entry: { path: string; mode?: string; sha?: string; size?: number };
     relativePath: string;
   }> = [];
 
@@ -1836,7 +1822,12 @@ async function fetchDiscoveredGitHubFiles(
     async ({ entry, relativePath }) => {
       const bytes = await fetchGitHubRawFileBytes(
         { ...pointer, path: entry.path },
-        { workspaceId, fallbackBudget: budget },
+        {
+          workspaceId,
+          fallbackBudget: budget,
+          expectedBlobSha: entry.sha,
+          expectedSize: entry.size,
+        },
       );
       assertSkillSourceFileBudget(budget, relativePath, bytes, "GitHub skill");
       return {
@@ -2037,9 +2028,11 @@ async function fetchGitHubRawFileBytes(
   options: {
     workspaceId?: string;
     fallbackBudget?: SkillSourceBudget;
+    expectedBlobSha?: string;
+    expectedSize?: number;
   } = {},
 ): Promise<Uint8Array> {
-  const { workspaceId, fallbackBudget } = options;
+  const { workspaceId, fallbackBudget, expectedBlobSha, expectedSize } = options;
   const ref = pointer.resolvedSha ?? pointer.ref;
   let response: Response | undefined;
   try {
@@ -2057,18 +2050,22 @@ async function fetchGitHubRawFileBytes(
     response = undefined;
   }
   if (response?.ok) {
-    return readResponseBytesWithLimit(response, MAX_SKILL_SINGLE_FILE_BYTES, "GitHub skill file");
+    const bytes = await readResponseBytesWithLimit(response, MAX_SKILL_SINGLE_FILE_BYTES, "GitHub skill file");
+    if (matchesGitHubFileIntegrity(bytes, { expectedBlobSha, expectedSize })) {
+      return bytes;
+    }
   }
 
   if (fallbackBudget) {
     assertSkillSourceRequestBudget(fallbackBudget, "GitHub skill");
   }
-  return fetchGitHubContentsFileBytes(pointer, workspaceId);
+  return fetchGitHubContentsFileBytes(pointer, workspaceId, { expectedBlobSha, expectedSize });
 }
 
 async function fetchGitHubContentsFileBytes(
   pointer: GitHubDirectoryPointer,
   workspaceId?: string,
+  expected: { expectedBlobSha?: string; expectedSize?: number } = {},
 ): Promise<Uint8Array> {
   const ref = pointer.resolvedSha ?? pointer.ref;
   const response = await fetch(buildGitHubContentsApiUrl(pointer.owner, pointer.repo, pointer.path, ref), {
@@ -2095,11 +2092,23 @@ async function fetchGitHubContentsFileBytes(
     type?: string;
     encoding?: string;
     content?: string;
+    sha?: string;
+    size?: number;
   };
   if (payload.type !== "file" || payload.encoding !== "base64" || typeof payload.content !== "string") {
     throw new Error(`GitHub skill file "${pointer.path}" is not a supported file.`);
   }
-  return new Uint8Array(Buffer.from(payload.content.replace(/\n/g, ""), "base64"));
+  const bytes = new Uint8Array(Buffer.from(payload.content.replace(/\n/g, ""), "base64"));
+  if (!matchesGitHubFileIntegrity(bytes, {
+    expectedBlobSha: expected.expectedBlobSha ?? payload.sha,
+    expectedSize: expected.expectedSize ?? payload.size,
+  })) {
+    throw new SkillGitHubImportError(
+      "skill.github.file_download_failed",
+      `GitHub skill file "${pointer.path}" did not match its immutable blob metadata.`,
+    );
+  }
+  return bytes;
 }
 
 async function readResponseJsonWithLimit(response: Response, maxBytes: number, label: string): Promise<unknown> {
@@ -2182,18 +2191,6 @@ function deriveSkillNameFromPath(path: string): string {
   return base || basename(path).replace(/\.md$/i, "") || "Imported Skill";
 }
 
-function isTextProjectionPath(path: string): boolean {
-  if (sameValue(path, "SKILL.md")) {
-    return true;
-  }
-  const normalized = path.toLowerCase();
-  const extension = normalized.includes(".") ? normalized.slice(normalized.lastIndexOf(".")) : "";
-  if (TEXT_PROJECTION_EXTENSIONS.has(extension)) {
-    return true;
-  }
-  return isTextMediaType(mediaTypeForPath(path));
-}
-
 function readSkillMarkdown(files: ImportedSkillFile[]): string {
   const match = files.find((file) => sameValue(file.path, "SKILL.md"));
   if (!match) {
@@ -2208,6 +2205,25 @@ function decodeUtf8(bytes: Uint8Array): string {
 
 function encodeUtf8(text: string): Uint8Array {
   return new Uint8Array(Buffer.from(text, "utf8"));
+}
+
+function matchesGitHubFileIntegrity(
+  bytes: Uint8Array,
+  expected: { expectedBlobSha?: string; expectedSize?: number },
+): boolean {
+  const expectedSize = expected.expectedSize;
+  if (Number.isSafeInteger(expectedSize) && expectedSize !== undefined && expectedSize >= 0 && bytes.byteLength !== expectedSize) {
+    return false;
+  }
+  const blobSha = expected.expectedBlobSha?.trim().toLowerCase();
+  if (!blobSha || !/^[a-f0-9]{40}$/.test(blobSha)) {
+    return true;
+  }
+  const actual = createHash("sha1")
+    .update(`blob ${bytes.byteLength}\0`)
+    .update(bytes)
+    .digest("hex");
+  return actual === blobSha;
 }
 
 function joinRelative(prefix: string, name: string): string {
