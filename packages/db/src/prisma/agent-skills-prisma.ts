@@ -6,7 +6,7 @@
 // (workspace_id, employee_id, skill_id) 复合 PK 暴露 Prisma 模型，并通过
 // mapPrismaRow 在记录层填充 agentId = employeeId 以与 sync 形态对齐。
 
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   disconnectDofePrismaClient,
   getDofePrismaClient,
@@ -30,18 +30,21 @@ export async function listAgentSkillAssignmentsPrisma(
   client?: PrismaClient,
 ): Promise<StoredAgentSkillRecord[]> {
   const prisma = client ?? getDofePrismaClient();
-  const rows = await prisma.agentSkill.findMany({
-    where: { workspaceId },
-  });
-  return rows
-    .map((row) => mapPrismaRow(row as unknown as PrismaAgentSkill))
-    .sort(compareAgentSkillAssignments);
-}
-
-function compareAgentSkillAssignments(a: StoredAgentSkillRecord, b: StoredAgentSkillRecord): number {
-  return a.employeeName.toLocaleLowerCase().localeCompare(b.employeeName.toLocaleLowerCase())
-    || a.employeeName.localeCompare(b.employeeName)
-    || a.skillId.localeCompare(b.skillId);
+  const rows = await prisma.$queryRaw<PrismaAgentSkill[]>(Prisma.sql`
+    SELECT
+      workspace_id AS "workspaceId",
+      COALESCE(agent_id, employee_id) AS "agentId",
+      employee_id AS "employeeId",
+      employee_name AS "employeeName",
+      skill_id AS "skillId",
+      skill_artifact_digest AS "skillArtifactDigest",
+      rollout_pin AS "rolloutPin",
+      created_at AS "createdAt"
+    FROM agent_skill
+    WHERE workspace_id = ${workspaceId}
+    ORDER BY LOWER(employee_name) ASC, employee_name ASC, skill_id ASC
+  `);
+  return rows.map(mapPrismaRow);
 }
 
 export function isAgentSkillsPrismaReadEnabled(): boolean {

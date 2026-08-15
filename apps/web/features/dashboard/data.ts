@@ -1048,9 +1048,13 @@ export async function getAgentsPageDataAsync(
   input: string | AgentsPageDataOptions = DEFAULT_WORKSPACE_ID,
 ): Promise<AgentsPageData> {
   const options = resolveAgentsPageDataOptions(input);
+  const canManageAllAgents = !options.currentUserId
+    || isWorkspaceManagerRole(options.currentMembershipRole);
   return getAgentsPageData({
     ...options,
-    skillIdsByAgentId: await listEmployeeSkillIdsByAgentIdMap(options.workspaceId),
+    skillIdsByAgentId: canManageAllAgents
+      ? await listEmployeeSkillIdsByAgentIdMap(options.workspaceId)
+      : new Map(),
   });
 }
 

@@ -46,15 +46,13 @@ interface MockPrismaAgentSkill {
 }
 
 interface MockPrismaClient {
-  agentSkill: {
-    findMany: (args: unknown) => Promise<MockPrismaAgentSkill[]>;
-  };
+  $queryRaw: (query: unknown) => Promise<MockPrismaAgentSkill[]>;
 }
 
 function makeMockPrisma(
   behavior: (args: unknown) => Promise<MockPrismaAgentSkill[]>,
 ): MockPrismaClient {
-  return { agentSkill: { findMany: behavior } };
+  return { $queryRaw: behavior };
 }
 
 function toPrismaRow(record: StoredAgentSkillRecord): MockPrismaAgentSkill {
@@ -102,7 +100,7 @@ test("listAgentSkillAssignmentsPrismaCutover uses Prisma primary when flag is on
     skillId: "skill-alpha",
   };
   setDofePrismaClientForTests(
-    makeMockPrisma(async () => [toPrismaRow(mockedRow), toPrismaRow(alphabeticallyFirst)]) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
+    makeMockPrisma(async () => [toPrismaRow(alphabeticallyFirst), toPrismaRow(mockedRow)]) as unknown as Parameters<typeof setDofePrismaClientForTests>[0],
   );
   const metrics: ListAgentSkillsPrismaCutoverMetric[] = [];
   const result = await listAgentSkillAssignmentsPrismaCutover(

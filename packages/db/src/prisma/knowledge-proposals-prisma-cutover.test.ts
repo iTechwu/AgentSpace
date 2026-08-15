@@ -144,7 +144,12 @@ test("listKnowledgeProposalsPrismaCutover uses Prisma primary when flag is on", 
   const metrics: ListKnowledgeProposalsPrismaCutoverMetric[] = [];
   const result = await listKnowledgeProposalsPrismaCutover(
     "default",
-    { statuses: ["stale", "cancelled"], sourceTaskQueueId: " task-prisma-mock " },
+    {
+      statuses: ["stale", "cancelled"],
+      sourceTaskQueueId: " task-prisma-mock ",
+      sourceAgentName: " MockEmp ",
+      approvalId: " approval-mock ",
+    },
     (metric) => metrics.push(metric),
   );
   assert.equal(result.length, 1);
@@ -154,6 +159,8 @@ test("listKnowledgeProposalsPrismaCutover uses Prisma primary when flag is on", 
       workspaceId: "default",
       status: { in: ["stale", "cancelled"] },
       sourceTaskQueueId: "task-prisma-mock",
+      sourceAgentName: "MockEmp",
+      approvalId: "approval-mock",
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });

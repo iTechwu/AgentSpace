@@ -63,11 +63,11 @@ export async function listKnowledgeProposalsPrisma(
   if (options?.sourceTaskQueueId?.trim()) {
     where.sourceTaskQueueId = options.sourceTaskQueueId.trim();
   }
-  if (options?.sourceAgentName) {
-    where.sourceAgentName = options.sourceAgentName;
+  if (options?.sourceAgentName?.trim()) {
+    where.sourceAgentName = options.sourceAgentName.trim();
   }
-  if (options?.approvalId) {
-    where.approvalId = options.approvalId;
+  if (options?.approvalId?.trim()) {
+    where.approvalId = options.approvalId.trim();
   }
   const rows = await prisma.knowledgeProposal.findMany({
     where,
