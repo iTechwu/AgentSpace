@@ -3,22 +3,16 @@
 // （NOTIFICATIONS_PRISMA_READ_ENABLED=1 / NOTIFICATIONS_PRISMA_SHADOW_READ_ENABLED=1），
 // 与 pg 原型 flag（NOTIFICATIONS_ASYNC_*）解耦。
 
-import { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type { ListWorkspaceNotificationsOptions } from "../notifications.ts";
 import type { WorkspaceNotificationRecord } from "../types.ts";
-
-let cachedClient: PrismaClient | null = null;
-function getPrismaClient(): PrismaClient {
-  if (cachedClient) return cachedClient;
-  cachedClient = new PrismaClient();
-  return cachedClient;
-}
+import { disconnectDofePrismaClient, getDofePrismaClient, setDofePrismaClientForTests } from "./prisma-client.ts";
 
 /**
  * Override the cached PrismaClient (test/seed path). Pass null to clear.
  */
 export function setNotificationsPrismaClientForTests(client: PrismaClient | null): void {
-  cachedClient = client;
+  setDofePrismaClientForTests(client);
 }
 
 interface PrismaNotification {
@@ -48,7 +42,7 @@ export async function listWorkspaceNotificationsPrisma(
   options: ListWorkspaceNotificationsOptions,
   client?: PrismaClient,
 ): Promise<WorkspaceNotificationRecord[]> {
-  const prisma = client ?? getPrismaClient();
+  const prisma = client ?? getDofePrismaClient();
   const where: Record<string, unknown> = {
     workspaceId: options.workspaceId ?? "default",
     recipientType: options.recipientType,
@@ -80,10 +74,7 @@ export function isNotificationsPrismaShadowReadEnabled(): boolean {
 }
 
 export async function disconnectNotificationsPrismaForTests(): Promise<void> {
-  if (cachedClient) {
-    await cachedClient.$disconnect();
-    cachedClient = null;
-  }
+  await disconnectDofePrismaClient();
 }
 
 function normalizePrismaLimit(limit: number | undefined): number {

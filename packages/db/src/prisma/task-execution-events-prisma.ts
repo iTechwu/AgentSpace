@@ -2,22 +2,20 @@
 // notifications 同款双 runner 模式，切流 flag 走
 // TASK_EXECUTION_EVENTS_PRISMA_*。
 
-import { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type { TaskExecutionEventListOptions } from "../task-execution-events.ts";
 import type { TaskExecutionEventRecord } from "../types.ts";
-
-let cachedClient: PrismaClient | null = null;
-function getPrismaClient(): PrismaClient {
-  if (cachedClient) return cachedClient;
-  cachedClient = new PrismaClient();
-  return cachedClient;
-}
+import {
+  disconnectDofePrismaClient,
+  getDofePrismaClient,
+  setDofePrismaClientForTests,
+} from "./prisma-client.ts";
 
 /**
  * Override the cached PrismaClient (test/seed path). Pass null to clear.
  */
 export function setTaskExecutionEventsPrismaClientForTests(client: PrismaClient | null): void {
-  cachedClient = client;
+  setDofePrismaClientForTests(client);
 }
 
 interface PrismaTaskEvent {
@@ -41,7 +39,7 @@ export async function listTaskExecutionEventsPrisma(
   options: TaskExecutionEventListOptions = {},
   client?: PrismaClient,
 ): Promise<TaskExecutionEventRecord[]> {
-  const prisma = client ?? getPrismaClient();
+  const prisma = client ?? getDofePrismaClient();
   const where: Record<string, unknown> = {};
   if (typeof options.workspaceId === "string") where.workspaceId = options.workspaceId;
   if (typeof options.taskId === "string") where.taskId = options.taskId;
@@ -65,14 +63,11 @@ export function isTaskExecutionEventsPrismaReadEnabled(): boolean {
 }
 
 export function isTaskExecutionEventsPrismaShadowReadEnabled(): boolean {
-  return process.env.TASK_EXECUTION_EVENTS_SHADOW_READ_ENABLED === "1";
+  return process.env.TASK_EXECUTION_EVENTS_PRISMA_SHADOW_READ_ENABLED === "1";
 }
 
 export async function disconnectTaskExecutionEventsPrismaForTests(): Promise<void> {
-  if (cachedClient) {
-    await cachedClient.$disconnect();
-    cachedClient = null;
-  }
+  await disconnectDofePrismaClient();
 }
 
 function normalizePrismaLimit(limit: number | undefined): number {

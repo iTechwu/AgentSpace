@@ -123,3 +123,30 @@ test("listWorkspaceMembershipsPrismaCutover falls back to sync when Prisma prima
   assert.equal(metrics[0]!.source, "fallback");
   assert.ok(metrics[0]!.error?.includes("prisma memberships unreachable"));
 });
+
+test("listWorkspaceMembershipsPrismaCutover compares the Prisma result when shadow is enabled", async () => {
+  resetFlags();
+  process.env.WORKSPACE_MEMBERSHIPS_PRISMA_READ_ENABLED = "1";
+  process.env.WORKSPACE_MEMBERSHIPS_PRISMA_SHADOW_READ_ENABLED = "1";
+  const row = toPrismaRow({
+    id: "membership-prisma-shadow",
+    workspaceId: "default",
+    userId: "prisma-shadow-user",
+    role: "member",
+    status: "active",
+    joinedAt: new Date().toISOString(),
+  });
+  setWorkspaceMembershipsPrismaClientForTests(
+    makeMockPrisma(async () => [row]) as unknown as Parameters<typeof setWorkspaceMembershipsPrismaClientForTests>[0],
+  );
+  const metrics: ListWorkspaceMembershipsPrismaCutoverMetric[] = [];
+
+  const result = await listWorkspaceMembershipsPrismaCutover(
+    "default",
+    (metric) => metrics.push(metric),
+  );
+
+  assert.equal(result[0]?.id, row.id);
+  assert.equal(metrics[0]?.source, "primary");
+  assert.equal(metrics[0]?.mismatch, 1);
+});

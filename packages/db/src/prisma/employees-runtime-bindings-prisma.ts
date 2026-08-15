@@ -2,20 +2,18 @@
 // notifications / task-execution-events / workspace-memberships 同款双 runner
 // 模式，pg 原型 runner 仅作迁移期 fallback（见同目录 -async.ts 顶部）。
 
-import { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type { EmployeeRuntimeBindingRecord } from "../types.ts";
-
-let cachedClient: PrismaClient | null = null;
-function getPrismaClient(): PrismaClient {
-  if (cachedClient) return cachedClient;
-  cachedClient = new PrismaClient();
-  return cachedClient;
-}
+import {
+  disconnectDofePrismaClient,
+  getDofePrismaClient,
+  setDofePrismaClientForTests,
+} from "./prisma-client.ts";
 
 export function setEmployeesRuntimeBindingsPrismaClientForTests(
   client: PrismaClient | null,
 ): void {
-  cachedClient = client;
+  setDofePrismaClientForTests(client);
 }
 
 interface PrismaBinding {
@@ -23,8 +21,10 @@ interface PrismaBinding {
   employeeId: string;
   employeeName: string;
   runtimeId: string;
-  provider: string;
-  runtimeName: string;
+  runtime: {
+    provider: string;
+    name: string;
+  };
   status: string;
   generation: number;
   desiredProvider: string | null;
@@ -36,15 +36,15 @@ export async function listEmployeeRuntimeBindingsPrisma(
   workspaceId: string,
   client?: PrismaClient,
 ): Promise<EmployeeRuntimeBindingRecord[]> {
-  const prisma = client ?? getPrismaClient();
-  // The Prisma schema for this PR uses EmployeeRuntimeBinding as a flat
-  // projection; the runtime JOIN is collapsed here because Prisma's
-  // generated model does not have an explicit `agentRuntime` relation.
-  // Domain callers receive the same shape the sync listEmployeeRuntimeBindingsSync
-  // produces.
+  const prisma = client ?? getDofePrismaClient();
   const rows = await prisma.employeeRuntimeBinding.findMany({
     where: { workspaceId },
     orderBy: { employeeName: "asc" },
+    include: {
+      runtime: {
+        select: { provider: true, name: true },
+      },
+    },
   });
   return rows.map((row) => mapPrismaRow(row as unknown as PrismaBinding));
 }
@@ -58,10 +58,7 @@ export function isEmployeesRuntimeBindingsPrismaShadowReadEnabled(): boolean {
 }
 
 export async function disconnectEmployeesRuntimeBindingsPrismaForTests(): Promise<void> {
-  if (cachedClient) {
-    await cachedClient.$disconnect();
-    cachedClient = null;
-  }
+  await disconnectDofePrismaClient();
 }
 
 function mapPrismaRow(row: PrismaBinding): EmployeeRuntimeBindingRecord {
@@ -70,8 +67,8 @@ function mapPrismaRow(row: PrismaBinding): EmployeeRuntimeBindingRecord {
     employeeId: row.employeeId,
     employeeName: row.employeeName,
     runtimeId: row.runtimeId,
-    provider: row.provider as EmployeeRuntimeBindingRecord["provider"],
-    runtimeName: row.runtimeName,
+    provider: row.runtime.provider as EmployeeRuntimeBindingRecord["provider"],
+    runtimeName: row.runtime.name,
     status: row.status as EmployeeRuntimeBindingRecord["status"],
     generation: row.generation,
     boundAt: row.boundAt.toISOString(),

@@ -2,21 +2,19 @@
 // notifications / task-execution-events 同款双 runner 模式，切流 flag 走
 // WORKSPACE_MEMBERSHIPS_PRISMA_*。
 
-import { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type { StoredWorkspaceMembershipRecord } from "../types.ts";
-
-let cachedClient: PrismaClient | null = null;
-function getPrismaClient(): PrismaClient {
-  if (cachedClient) return cachedClient;
-  cachedClient = new PrismaClient();
-  return cachedClient;
-}
+import {
+  disconnectDofePrismaClient,
+  getDofePrismaClient,
+  setDofePrismaClientForTests,
+} from "./prisma-client.ts";
 
 /**
  * Override the cached PrismaClient (test/seed path). Pass null to clear.
  */
 export function setWorkspaceMembershipsPrismaClientForTests(client: PrismaClient | null): void {
-  cachedClient = client;
+  setDofePrismaClientForTests(client);
 }
 
 interface PrismaMembership {
@@ -33,7 +31,7 @@ export async function listWorkspaceMembershipsPrisma(
   workspaceId: string,
   client?: PrismaClient,
 ): Promise<StoredWorkspaceMembershipRecord[]> {
-  const prisma = client ?? getPrismaClient();
+  const prisma = client ?? getDofePrismaClient();
   const rows = await prisma.workspaceMembership.findMany({
     where: { workspaceId, status: "active" },
     orderBy: { joinedAt: "asc" },
@@ -46,14 +44,11 @@ export function isWorkspaceMembershipsPrismaReadEnabled(): boolean {
 }
 
 export function isWorkspaceMembershipsPrismaShadowReadEnabled(): boolean {
-  return process.env.WORKSPACE_MEMBERSHIPS_SHADOW_READ_ENABLED === "1";
+  return process.env.WORKSPACE_MEMBERSHIPS_PRISMA_SHADOW_READ_ENABLED === "1";
 }
 
 export async function disconnectWorkspaceMembershipsPrismaForTests(): Promise<void> {
-  if (cachedClient) {
-    await cachedClient.$disconnect();
-    cachedClient = null;
-  }
+  await disconnectDofePrismaClient();
 }
 
 function mapPrismaMembership(row: PrismaMembership): StoredWorkspaceMembershipRecord {

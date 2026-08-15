@@ -70,7 +70,3 @@ function normalizeJsonEqual(a: string, b: string): boolean {
     return a === b;
   }
 }
-
-const defaultMetricSink: ReadAuditLogPrismaCutoverMetricSink = () => {
-  // Default no-op sink: callers can pass their own for telemetry.
-};

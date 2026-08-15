@@ -60,5 +60,3 @@ function recordEqual(
     primary.invitedBy === fallback.invitedBy
   );
 }
-
-const defaultMetricSink: ListWorkspaceMembershipsPrismaCutoverMetricSink = () => {};

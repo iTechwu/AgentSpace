@@ -7,8 +7,13 @@
 //   AUDIT_LOG_PRISMA_READ_ENABLED=1 / AUDIT_LOG_PRISMA_SHADOW_READ_ENABLED=1
 //   （独立于 pg 原型 flag，避免混用）。
 
-import { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type { AuditLogRecord } from "../types.ts";
+import {
+  disconnectDofePrismaClient,
+  getDofePrismaClient,
+  setDofePrismaClientForTests,
+} from "./prisma-client.ts";
 
 interface PrismaAuditLog {
   id: string;
@@ -22,23 +27,19 @@ interface PrismaAuditLog {
   createdAt: Date;
 }
 
-let cachedClient: PrismaClient | null = null;
-
 /**
- * Read/write modules share this PrismaClient cache so mock injection via
+ * Read/write modules share the process-level PrismaClient so mock injection via
  * `setAuditLogPrismaClientForTests` covers both paths.
  */
 export function getPrismaClient(): PrismaClient {
-  if (cachedClient) return cachedClient;
-  cachedClient = new PrismaClient();
-  return cachedClient;
+  return getDofePrismaClient();
 }
 
 /**
  * Override the cached PrismaClient (test/seed path). Pass null to clear.
  */
 export function setAuditLogPrismaClientForTests(client: PrismaClient | null): void {
-  cachedClient = client;
+  setDofePrismaClientForTests(client);
 }
 
 export async function readAuditLogPrisma(input: {
@@ -63,10 +64,7 @@ export function isAuditLogPrismaShadowReadEnabled(): boolean {
 }
 
 export async function disconnectAuditLogPrismaForTests(): Promise<void> {
-  if (cachedClient) {
-    await cachedClient.$disconnect();
-    cachedClient = null;
-  }
+  await disconnectDofePrismaClient();
 }
 
 function prismaAuditLogToRecord(row: PrismaAuditLog): AuditLogRecord {

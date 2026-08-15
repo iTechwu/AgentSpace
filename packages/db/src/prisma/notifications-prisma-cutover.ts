@@ -77,5 +77,3 @@ function recordEqual(
     primary.archivedAt === fallback.archivedAt
   );
 }
-
-const defaultMetricSink: ListNotificationsPrismaCutoverMetricSink = () => {};

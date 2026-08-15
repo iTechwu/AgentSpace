@@ -39,8 +39,10 @@ interface MockPrismaBinding {
   employeeId: string;
   employeeName: string;
   runtimeId: string;
-  provider: string;
-  runtimeName: string;
+  runtime: {
+    provider: string;
+    name: string;
+  };
   status: string;
   generation: number;
   desiredProvider: string | null;
@@ -64,8 +66,10 @@ function toPrismaRow(record: EmployeeRuntimeBindingRecord): MockPrismaBinding {
     employeeId: record.employeeId,
     employeeName: record.employeeName,
     runtimeId: record.runtimeId,
-    provider: record.provider,
-    runtimeName: record.runtimeName,
+    runtime: {
+      provider: record.provider,
+      name: record.runtimeName,
+    },
     status: record.status,
     generation: record.generation,
     desiredProvider: record.desiredProvider ?? null,

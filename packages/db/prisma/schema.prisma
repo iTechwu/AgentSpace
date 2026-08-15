@@ -95,9 +95,7 @@ model EmployeeRuntimeBinding {
   employeeId      String   @map("employee_id")
   employeeName    String   @map("employee_name")
   runtimeId       String   @map("runtime_id")
-  /// DaemonProvider enum (claude/codex/antigravity/opencode/openclaw/hermes).
-  provider        String
-  runtimeName     String   @map("runtime_name")
+  runtime         AgentRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
   /// EmployeeBindingStatus: online|degraded|offline|recovering|needs_attention.
   status          String   @default("offline")
   generation      Int      @default(0)
@@ -107,4 +105,13 @@ model EmployeeRuntimeBinding {
 
   @@id([workspaceId, employeeId])
   @@map("employee_runtime_binding")
+}
+
+model AgentRuntime {
+  id               String                   @id
+  provider         String
+  name             String
+  employeeBindings EmployeeRuntimeBinding[]
+
+  @@map("agent_runtime")
 }

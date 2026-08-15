@@ -70,5 +70,3 @@ function recordEqual(
     primary.createdAt === fallback.createdAt
   );
 }
-
-const defaultMetricSink: ListTaskExecutionEventsPrismaCutoverMetricSink = () => {};

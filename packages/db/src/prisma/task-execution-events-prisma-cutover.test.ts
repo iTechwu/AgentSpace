@@ -17,7 +17,7 @@ const ORIGINAL_SHADOW = process.env.TASK_EXECUTION_EVENTS_PRISMA_SHADOW_READ_ENA
 
 function resetFlags(): void {
   delete process.env.TASK_EXECUTION_EVENTS_PRISMA_READ_ENABLED;
-  delete process.env.TASK_EXECUTION_EVENTS_PRADOW_READ_ENABLED;
+  delete process.env.TASK_EXECUTION_EVENTS_PRISMA_SHADOW_READ_ENABLED;
 }
 
 test.before(() => {
@@ -29,8 +29,8 @@ test.after(async () => {
   await disconnectTaskExecutionEventsPrismaForTests();
   if (ORIGINAL_ASYNC === undefined) delete process.env.TASK_EXECUTION_EVENTS_PRISMA_READ_ENABLED;
   else process.env.TASK_EXECUTION_EVENTS_PRISMA_READ_ENABLED = ORIGINAL_ASYNC;
-  if (ORIGINAL_SHADOW === undefined) delete process.env.TASK_EXECUTION_EVENTS_PRADOW_READ_ENABLED;
-  else process.env.TASK_EXECUTION_EVENTS_PRADOW_READ_ENABLED = ORIGINAL_SHADOW;
+  if (ORIGINAL_SHADOW === undefined) delete process.env.TASK_EXECUTION_EVENTS_PRISMA_SHADOW_READ_ENABLED;
+  else process.env.TASK_EXECUTION_EVENTS_PRISMA_SHADOW_READ_ENABLED = ORIGINAL_SHADOW;
 });
 
 interface MockPrismaTaskEvent {
@@ -93,7 +93,7 @@ test("listTaskExecutionEventsPrismaCutover returns sync result when flag is disa
 test("listTaskExecutionEventsPrismaCutover uses Prisma primary when flag is on", async () => {
   resetFlags();
   process.env.TASK_EXECUTION_EVENTS_PRISMA_READ_ENABLED = "1";
-  delete process.env.TASK_EXECUTION_EVENTS_PRADOW_READ_ENABLED;
+  delete process.env.TASK_EXECUTION_EVENTS_PRISMA_SHADOW_READ_ENABLED;
 
   const mockedRow: TaskExecutionEventRecord = {
     id: "task-event-prisma-mock",
@@ -127,7 +127,7 @@ test("listTaskExecutionEventsPrismaCutover uses Prisma primary when flag is on",
 test("listTaskExecutionEventsPrismaCutover falls back to sync when Prisma primary throws", async () => {
   resetFlags();
   process.env.TASK_EXECUTION_EVENTS_PRISMA_READ_ENABLED = "1";
-  delete process.env.TASK_EXECUTION_EVENTS_PRADOW_READ_ENABLED;
+  delete process.env.TASK_EXECUTION_EVENTS_PRISMA_SHADOW_READ_ENABLED;
 
   setTaskExecutionEventsPrismaClientForTests(
     makeMockPrisma(async () => {
@@ -143,4 +143,36 @@ test("listTaskExecutionEventsPrismaCutover falls back to sync when Prisma primar
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "fallback");
   assert.ok(metrics[0]!.error?.includes("prisma task events unreachable"));
+});
+
+test("listTaskExecutionEventsPrismaCutover compares the Prisma result when shadow is enabled", async () => {
+  resetFlags();
+  process.env.TASK_EXECUTION_EVENTS_PRISMA_READ_ENABLED = "1";
+  process.env.TASK_EXECUTION_EVENTS_PRISMA_SHADOW_READ_ENABLED = "1";
+  const row = toPrismaRow({
+    id: "task-event-prisma-shadow",
+    workspaceId: "default",
+    taskId: "task-prisma-shadow",
+    channelName: "empty-prisma-shadow-channel",
+    agentId: "Atlas",
+    type: "task_execution.test.seed",
+    title: "shadow-only row",
+    severity: "info",
+    status: "succeeded",
+    dataJson: "{}",
+    createdAt: new Date().toISOString(),
+  });
+  setTaskExecutionEventsPrismaClientForTests(
+    makeMockPrisma(async () => [row]) as unknown as Parameters<typeof setTaskExecutionEventsPrismaClientForTests>[0],
+  );
+  const metrics: ListTaskExecutionEventsPrismaCutoverMetric[] = [];
+
+  const result = await listTaskExecutionEventsPrismaCutover(
+    { channelName: "empty-prisma-shadow-channel" },
+    (metric) => metrics.push(metric),
+  );
+
+  assert.equal(result[0]?.id, row.id);
+  assert.equal(metrics[0]?.source, "primary");
+  assert.equal(metrics[0]?.mismatch, 1);
 });
