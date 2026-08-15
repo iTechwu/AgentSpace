@@ -6,7 +6,7 @@ import { validateDspManifest } from "./manifest-schema.ts";
 import { sha256Hex } from "./package-digest.ts";
 import { skillPackageError, type SkillPackageError } from "./errors.ts";
 import { DEFAULT_SKILL_INGEST_LIMITS, type SkillIngestLimits } from "./archive-limits.ts";
-import { parseSkillDependencyDeclarations } from "../dependencies.ts";
+import { parseSkillDependencyDeclarations, parseSkillSkillDependencies } from "../dependencies.ts";
 
 /**
  * Validates a normalized skill file set into an immutable artifact contract.
@@ -394,6 +394,16 @@ function synthesizeManifest(
       name: dependency.name,
       version: dependency.version,
     }));
+  }
+
+  // Skill→Skill dependencies come from the same `skillDependencies:` frontmatter
+  // contract; the synthesized manifest keeps them so release-lock and the
+  // rollout planner can resolve the dependency closure.
+  const frontmatterSkillDependencies = parseSkillSkillDependencies(skillMarkdown);
+  if (submittedManifest?.skillDependencies) {
+    manifest.skillDependencies = submittedManifest.skillDependencies;
+  } else if (frontmatterSkillDependencies.length > 0) {
+    manifest.skillDependencies = frontmatterSkillDependencies;
   }
 
   // Preserve platform-level declarations from a validated submitted manifest.

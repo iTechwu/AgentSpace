@@ -708,6 +708,7 @@ function prepareSkillArtifact(
       ...(manifest?.capabilities ? { capabilities: manifest.capabilities } : {}),
       ...(manifest?.services ? { services: manifest.services } : {}),
       ...(manifest?.entrypoints ? { entrypoints: manifest.entrypoints } : {}),
+      ...(manifest?.skillDependencies ? { skillDependencies: manifest.skillDependencies } : {}),
       provenance: {
         importedVia: imported.sourceType,
         sourceUrl: imported.sourceUrl,
