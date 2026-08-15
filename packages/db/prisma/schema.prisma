@@ -474,3 +474,32 @@ model WorkflowTrigger {
 
   @@map("workflow_trigger")
 }
+
+model WorkflowNodeRun {
+  id                    String    @id
+  workspaceId           String    @map("workspace_id")
+  runId                 String    @map("run_id")
+  nodeId                String    @map("node_id")
+  nodeType              String    @map("node_type")
+  employeeId            String?   @map("employee_id")
+  employeeNameSnapshot  String?   @map("employee_name_snapshot")
+  status                String
+  attemptCount          Int       @map("attempt_count")
+  maxAttempts           Int       @map("max_attempts")
+  availableAt           DateTime? @map("available_at") @db.Timestamptz(6)
+  taskQueueId           String?   @map("task_queue_id")
+  approvalId            String?   @map("approval_id")
+  approvalDeadline      DateTime? @map("approval_deadline") @db.Timestamptz(6)
+  approvalScanAfter     DateTime? @map("approval_scan_after") @db.Timestamptz(6)
+  inputJson             String    @map("input_json")
+  outputJson            String?   @map("output_json")
+  artifactManifestJson  String?   @map("artifact_manifest_json")
+  errorCode             String?   @map("error_code")
+  errorMessage          String?   @map("error_message")
+  startedAt             DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt            DateTime? @map("finished_at") @db.Timestamptz(6)
+  createdAt             DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("workflow_node_run")
+}
