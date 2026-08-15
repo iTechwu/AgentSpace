@@ -664,6 +664,10 @@ export {
   type SkillRolloutRiskSummary,
 } from "./skills/rollout.ts";
 export {
+  installSkillRolloutSync,
+  type SkillRolloutDispatchResult,
+} from "./skills/rollout-dispatch.ts";
+export {
   attributeShotFailure,
   attributeBatchFailures,
   type ShotFailure,
