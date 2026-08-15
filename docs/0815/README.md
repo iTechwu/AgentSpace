@@ -12,6 +12,8 @@
 | [02-依赖模型与接口契约.md](./02-依赖模型与接口契约.md) | `skillDependencies` 语义、`planSkillRollout` 深模块、Artifact Revision 契约 |
 | [03-novel-production编排落地.md](./03-novel-production编排落地.md) | 5 Skill 独立 + 编排入口 Skill + Workflow DAG 的端到端落地用例 |
 | [04-实施计划与验收.md](./04-实施计划与验收.md) | 数据模型变更、现有代码调整清单、分阶段实施与验收 |
+| [05-SkillRolloutPlan落点与测试矩阵.md](./05-SkillRolloutPlan落点与测试矩阵.md) | 逐文件改动点、函数签名、T01–T22 测试矩阵 |
+| [06-Issue拆解与PR顺序.md](./06-Issue拆解与PR顺序.md) | 9 个可执行 issue、依赖关系、PR 顺序与门禁 |
 
 ## 决策摘要
 
