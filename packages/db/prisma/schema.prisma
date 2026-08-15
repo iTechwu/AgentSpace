@@ -115,3 +115,38 @@ model AgentRuntime {
 
   @@map("agent_runtime")
 }
+
+model AgentTaskQueue {
+  id                       String   @id
+  workspaceId              String   @map("workspace_id")
+  /// COALESCE(employee_id, agent_id) in SQL — domain keeps both names.
+  employeeId               String   @map("employee_id")
+  employeeName             String   @map("employee_name")
+  /// @deprecated Legacy display-name alias. Kept for back-compat reads.
+  agentId                  String?  @map("agent_id")
+  runtimeId                String?  @map("runtime_id")
+  runtimeCredentialId      String?  @map("runtime_credential_id")
+  routerSessionId          String?  @map("router_session_id")
+  issueId                  String?  @map("issue_id")
+  triggerType              String   @map("trigger_type")
+  priority                 Int
+  /// NativeTaskStatus: queued|claimed|running|preparing_commit|committed|completed|failed|cancelled.
+  status                   String
+  inputJson                String   @map("input_json")
+  requestedByUserId        String?  @map("requested_by_user_id")
+  requestedByDisplayName   String?  @map("requested_by_display_name")
+  resultJson               String?  @map("result_json")
+  errorText                 String?  @map("error_text")
+  sessionId                 String?  @map("session_id")
+  workDir                   String?  @map("work_dir")
+  bindingGeneration         Int?     @map("binding_generation")
+  queuedAt                  DateTime @map("queued_at") @db.Timestamptz(6)
+  claimedAt                 DateTime? @map("claimed_at") @db.Timestamptz(6)
+  startedAt                 DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt                DateTime? @map("finished_at") @db.Timestamptz(6)
+  mcpSessionClaimedAt       DateTime? @map("mcp_session_claimed_at") @db.Timestamptz(6)
+  createdAt                 DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@map("agent_task_queue")
+}
