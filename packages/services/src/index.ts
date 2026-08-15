@@ -158,7 +158,7 @@ export {
   resolveDependencyIntegrityLock,
   type SkillDependencyInstallStatus,
 } from "./skills/dependency-install.ts";
-export { parseSkillDependencyDeclaration } from "./skills/dependencies.ts";
+export { parseSkillDependencyDeclaration, parseSkillSkillDependencies } from "./skills/dependencies.ts";
 export type { SkillDependencyDeclaration } from "./skills/dependencies.ts";
 export {
   canonicalizeWorkflowGraph,

@@ -19,6 +19,8 @@ export interface ResolvedSkillReleaseLock {
   artifactDigest: string;
   packageSchemaVersion: number;
   dependencyLockDigest: string;
+  /** sha256 over the declared (coordinate@version) Skill→Skill dependencies. */
+  skillDependencyLockDigest: string;
   serviceTemplateVersions: Record<string, string>;
   serviceImageDigests: Record<string, string>;
   serviceConfigSchemaVersions: Record<string, number>;
@@ -64,6 +66,13 @@ export function computeSkillReleaseLockInternal(
   const dependencies = manifest.dependencies ?? [];
   const dependencyLockDigest = createHash("sha256")
     .update(stableStringify(dependencies.map((dep) => `${dep.manager ?? dep.kind}:${dep.name}@${dep.version}`)))
+    .digest("hex");
+
+  // Lock the AUTHOR-declared Skill→Skill dependencies (coordinate + version range).
+  // The RESOLVED digest closure is not part of the per-artifact lock — it depends
+  // on the workspace's imported artifacts and is captured in skill_rollout_plan.
+  const skillDependencyLockDigest = createHash("sha256")
+    .update(stableStringify((manifest.skillDependencies ?? []).map((dep) => `${dep.coordinate}@${dep.version}`)))
     .digest("hex");
 
   const serviceTemplateVersions: Record<string, string> = {};
@@ -122,6 +131,7 @@ export function computeSkillReleaseLockInternal(
     artifactDigest: artifact.digest,
     packageSchemaVersion: artifact.manifestVersion,
     dependencyLockDigest,
+    skillDependencyLockDigest,
     serviceTemplateVersions,
     serviceImageDigests,
     serviceConfigSchemaVersions,
@@ -148,6 +158,7 @@ export interface ManifestLike {
   artifact?: { name?: string; version?: string };
   files?: Array<{ path?: string; sha256?: string; mode?: string }>;
   dependencies?: Array<{ manager?: string; kind?: string; name?: string; version?: string }>;
+  skillDependencies?: Array<{ coordinate?: string; version?: string; placement?: string; required?: boolean }>;
   capabilities?: Array<{ kind?: string; catalogSlug?: string; requiredTools?: string[] }>;
   services?: Array<{ catalogSlug?: string; templateVersion?: string; required?: boolean }>;
   entrypoints?: Array<{ id?: string; kind?: string; path?: string; runtime?: string; configKeys?: string[] }>;

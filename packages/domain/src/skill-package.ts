@@ -23,6 +23,8 @@ export interface DspManifest {
   artifact: DspArtifactMeta;
   files: DspFileEntry[];
   dependencies?: DspDependency[];
+  /** Skill→Skill dependencies (a skill depends on another skill's output/execution). */
+  skillDependencies?: SkillSkillDependency[];
   capabilities?: DspCapability[];
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
@@ -72,6 +74,30 @@ export interface DspDependency {
   version: string;
   /** Subresource integrity, e.g. "sha512-..." for npm. */
   integrity?: string;
+}
+
+/**
+ * Where a Skill→Skill dependency must be satisfied relative to the dependent.
+ * - `same_runtime`: the dependent directly invokes it; both must be co-located
+ *   on the same Runtime.
+ * - `workflow`: only requires an executable node to exist in the Workflow; it
+ *   need not be installed on the dependent's Runtime.
+ */
+export type SkillSkillPlacement = "same_runtime" | "workflow";
+
+/**
+ * A Skill→Skill dependency. `coordinate` is a STABLE logical identity (must
+ * carry a scheme prefix, e.g. `github:owner/repo/skills/novel-outline`) and
+ * never a renameable display name. `version` is a range the AUTHOR declares;
+ * the install plan must resolve it to an exact artifact digest.
+ */
+export interface SkillSkillDependency {
+  coordinate: string;
+  /** Author-declared version range (e.g. "^1.1.0"); resolved to a digest at install time. */
+  version: string;
+  placement: SkillSkillPlacement;
+  /** Optional dependencies may be skipped explicitly; defaults to required. */
+  required: boolean;
 }
 
 export type SkillCapabilityKind = "mcp" | "cli";

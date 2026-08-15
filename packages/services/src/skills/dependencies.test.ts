@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseSkillDependencyDeclarations } from "./dependencies.ts";
+import { parseSkillDependencyDeclarations, parseSkillSkillDependencies } from "./dependencies.ts";
 
 test("parseSkillDependencyDeclarations accepts exact supported dependencies", () => {
   const dependencies = parseSkillDependencyDeclarations(`---
@@ -35,4 +35,78 @@ dependencies:
 ---`),
     /Unsupported skill dependency manager/,
   );
+});
+
+test("parseSkillSkillDependencies parses a mapping list", () => {
+  const deps = parseSkillSkillDependencies(`---
+name: novel-production
+skillDependencies:
+  - coordinate: github:eternityspring/shuohao-skills/skills/novel-outline
+    version: "^1.1.0"
+    placement: workflow
+    required: true
+  - coordinate: github:eternityspring/shuohao-skills/skills/novel-art
+    version: "^1.1.0"
+    placement: same_runtime
+    required: true
+---
+# Novel Production
+`);
+
+  assert.deepEqual(deps, [
+    { coordinate: "github:eternityspring/shuohao-skills/skills/novel-outline", version: "^1.1.0", placement: "workflow", required: true },
+    { coordinate: "github:eternityspring/shuohao-skills/skills/novel-art", version: "^1.1.0", placement: "same_runtime", required: true },
+  ]);
+});
+
+test("parseSkillSkillDependencies defaults required to true", () => {
+  const deps = parseSkillSkillDependencies(`---
+skillDependencies:
+  - coordinate: github:owner/repo/skills/foo
+    version: "^2.0.0"
+    placement: same_runtime
+---`);
+  assert.deepEqual(deps, [
+    { coordinate: "github:owner/repo/skills/foo", version: "^2.0.0", placement: "same_runtime", required: true },
+  ]);
+});
+
+test("parseSkillSkillDependencies rejects bare-name coordinates", () => {
+  assert.throws(
+    () => parseSkillSkillDependencies(`---
+skillDependencies:
+  - coordinate: novel-outline
+    version: "^1.0.0"
+    placement: workflow
+---`),
+    /scheme prefix/,
+  );
+});
+
+test("parseSkillSkillDependencies rejects invalid placement and missing version", () => {
+  assert.throws(
+    () => parseSkillSkillDependencies(`---
+skillDependencies:
+  - coordinate: github:owner/repo/skills/foo
+    version: "^1.0.0"
+    placement: everywhere
+---`),
+    /placement/,
+  );
+  assert.throws(
+    () => parseSkillSkillDependencies(`---
+skillDependencies:
+  - coordinate: github:owner/repo/skills/foo
+    placement: workflow
+---`),
+    /requires a version/,
+  );
+});
+
+test("parseSkillSkillDependencies returns empty without the key", () => {
+  assert.deepEqual(parseSkillSkillDependencies(`---
+name: plain
+dependencies:
+  - npm:foo@1.2.3
+---`), []);
 });

@@ -23,6 +23,7 @@ import type {
   DspEntrypoint,
   DspNetworkEgress,
   DspServiceRef,
+  SkillSkillDependency,
 } from "@dofe-agent/domain";
 import { inferSkillMediaType } from "./package/skill-file-policy.ts";
 
@@ -43,6 +44,7 @@ export interface SkillArtifactManifest {
   artifact: { name: string; version: string };
   files: SkillArtifactManifestFile[];
   dependencies: ArtifactSkillDependency[];
+  skillDependencies?: SkillSkillDependency[];
   capabilities?: DspCapability[];
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
@@ -178,6 +180,7 @@ export interface BuildAndPersistSkillArtifactInput {
   sourceUrl?: string;
   provenance?: Record<string, unknown>;
   dependencies?: ArtifactSkillDependency[];
+  skillDependencies?: SkillSkillDependency[];
   capabilities?: DspCapability[];
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
@@ -239,6 +242,7 @@ export function buildAndPersistSkillArtifactSync(
     artifact: { name: input.name, version: input.version ?? "" },
     files: manifestFiles,
     dependencies: input.dependencies ?? [],
+    ...(input.skillDependencies?.length ? { skillDependencies: input.skillDependencies } : {}),
     ...(input.capabilities ? { capabilities: input.capabilities } : {}),
     ...(input.services ? { services: input.services } : {}),
     ...(input.entrypoints ? { entrypoints: input.entrypoints } : {}),

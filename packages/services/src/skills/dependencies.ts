@@ -1,3 +1,4 @@
+import type { SkillSkillDependency } from "@dofe-agent/domain";
 import { resolveSystemDependencySync } from "./system-dependency-catalog.ts";
 
 export type SkillDependencyManager = "npm" | "pip" | "uv" | "system";
@@ -39,6 +40,105 @@ export function parseSkillDependencyDeclarations(skillMarkdown: string): SkillDe
   }
 
   return uniqueDeclarations(declarations);
+}
+
+/**
+ * Parses a `skillDependencies:` frontmatter block — a YAML list of mappings
+ * describing Skill→Skill dependencies. Distinct from `dependencies` (runtime
+ * package managers), these carry a stable `coordinate`, a version RANGE, a
+ * placement, and a required flag. The author declares the range; the install
+ * plan resolves it to an exact artifact digest.
+ */
+export function parseSkillSkillDependencies(skillMarkdown: string): SkillSkillDependency[] {
+  const frontmatterMatch = skillMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*/);
+  if (!frontmatterMatch) {
+    return [];
+  }
+  const lines = frontmatterMatch[1].split(/\r?\n/);
+  const dependencies: SkillSkillDependency[] = [];
+  let current: Record<string, string> | null = null;
+  let inSkillDependencies = false;
+
+  const flush = () => {
+    if (!current) return;
+    dependencies.push(finishSkillDependencyMapping(current));
+    current = null;
+  };
+
+  for (const rawLine of lines) {
+    if (/^skillDependencies\s*:\s*$/.test(rawLine.trim())) {
+      inSkillDependencies = true;
+      continue;
+    }
+    if (!inSkillDependencies) continue;
+    // A new top-level key (no leading whitespace) ends the block.
+    if (/^\S/.test(rawLine)) break;
+
+    const item = rawLine.match(/^\s+-\s+(.+?)\s*$/);
+    if (item) {
+      flush();
+      current = {};
+      assignSkillDependencyEntry(current, item[1]!);
+      continue;
+    }
+    const kv = rawLine.match(/^\s+([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.+?)\s*$/);
+    if (kv && current) {
+      current[kv[1]!] = stripYamlScalar(kv[2]!);
+      continue;
+    }
+    if (rawLine.trim()) {
+      throw new Error("skillDependencies must be a YAML list of key: value mappings.");
+    }
+  }
+  flush();
+  return uniqueSkillDependencies(dependencies);
+}
+
+function assignSkillDependencyEntry(target: Record<string, string>, text: string): void {
+  const separator = text.indexOf(":");
+  if (separator <= 0) {
+    throw new Error("skillDependencies entries must be key: value mappings.");
+  }
+  const key = text.slice(0, separator).trim();
+  const value = stripYamlScalar(text.slice(separator + 1).trim());
+  target[key] = value;
+}
+
+function finishSkillDependencyMapping(record: Record<string, string>): SkillSkillDependency {
+  const coordinate = record.coordinate?.trim();
+  const version = record.version?.trim();
+  const placement = record.placement?.trim();
+  const requiredValue = record.required?.trim();
+
+  if (!coordinate || !/^[a-z][a-z0-9+.-]*:/.test(coordinate)) {
+    throw new Error(
+      `Invalid skillDependencies coordinate "${coordinate ?? ""}". Coordinate must carry a scheme prefix (e.g. github:owner/repo/skills/name).`,
+    );
+  }
+  if (!version) {
+    throw new Error(`skillDependencies coordinate "${coordinate}" requires a version range.`);
+  }
+  if (placement !== "same_runtime" && placement !== "workflow") {
+    throw new Error(`Invalid skillDependencies placement "${placement ?? ""}". Use same_runtime or workflow.`);
+  }
+  let required = true;
+  if (requiredValue !== undefined && requiredValue !== "") {
+    const normalized = requiredValue.toLowerCase();
+    if (normalized === "true") required = true;
+    else if (normalized === "false") required = false;
+    else throw new Error(`Invalid skillDependencies required "${requiredValue}". Use true or false.`);
+  }
+  return { coordinate, version, placement, required };
+}
+
+function uniqueSkillDependencies(dependencies: SkillSkillDependency[]): SkillSkillDependency[] {
+  const seen = new Set<string>();
+  return dependencies.filter((dependency) => {
+    const key = dependency.coordinate.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function readSkillDependencyDeclarations(configJson: string | undefined): SkillDependencyDeclaration[] {
