@@ -337,3 +337,98 @@ model SkillServiceCatalog {
   @@unique([workspaceId, slug, templateVersion])
   @@map("skill_service_catalog")
 }
+
+model WorkflowDefinition {
+  id               String    @id
+  workspaceId      String    @map("workspace_id")
+  name             String
+  description      String?
+  ownerUserId      String    @map("owner_user_id")
+  channelName      String?   @map("channel_name")
+  /// "draft" | "published" | "paused" | "archived".
+  status           String    @default("draft")
+  draftGraphJson   String    @map("draft_graph_json")
+  draftVersion     Int       @default(0) @map("draft_version")
+  activeVersionId  String?   @map("active_version_id")
+  legacySourceType String?   @map("legacy_source_type")
+  legacySourceId   String?   @map("legacy_source_id")
+  createdBy        String
+  createdAt        DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @map("updated_at") @db.Timestamptz(6)
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@map("workflow_definition")
+}
+
+model ChannelParticipant {
+  id          String    @id
+  workspaceId String    @map("workspace_id")
+  channelName String    @map("channel_name")
+  userId      String    @map("user_id")
+  /// ChannelParticipantStatus: active|invited|removed.
+  status      String    @default("active")
+  addedBy     String?   @map("added_by")
+  joinedAt    DateTime  @map("joined_at") @db.Timestamptz(6)
+  removedAt   DateTime? @map("removed_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("channel_participant")
+}
+
+model ChannelAccessRequest {
+  id          String    @id
+  workspaceId String    @map("workspace_id")
+  channelName String    @map("channel_name")
+  userId      String    @map("user_id")
+  /// ChannelAccessRequestStatus: pending|approved|rejected|cancelled.
+  status      String    @default("pending")
+  requestedAt DateTime  @map("requested_at") @db.Timestamptz(6)
+  resolvedAt  DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy  String?   @map("resolved_by")
+  note        String?
+
+  @@map("channel_access_request")
+}
+
+model ChannelInvitation {
+  id              String    @id
+  workspaceId     String    @map("workspace_id")
+  channelName     String    @map("channel_name")
+  inviteeUserId   String?   @map("invitee_user_id")
+  inviteeEmail    String?   @map("invitee_email")
+  invitedBy       String    @map("invited_by")
+  /// ChannelInvitationStatus: pending|accepted|rejected|revoked|expired.
+  status          String    @default("pending")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(6)
+  respondedAt     DateTime? @map("responded_at") @db.Timestamptz(6)
+  respondedBy     String?   @map("responded_by")
+
+  @@map("channel_invitation")
+}
+
+model Skill {
+  id          String    @id
+  workspaceId String    @map("workspace_id")
+  name        String
+  description String
+  /// Source: github|local_upload|generated|...
+  sourceType  String?   @map("source_type")
+  sourceUrl   String?   @map("source_url")
+  configJson  String?   @map("config_json")
+  createdAt   DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("skill")
+}
+
+model SkillFile {
+  id        String   @id
+  skillId   String   @map("skill_id")
+  path      String
+  content   String
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@map("skill_file")
+}
