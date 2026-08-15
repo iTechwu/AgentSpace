@@ -175,6 +175,11 @@ export {
   type WorkflowRuntimeBindingInventory,
 } from "./workflows/validation.ts";
 export {
+  buildNovelProductionWorkflowGraph,
+  NOVEL_PRODUCTION_SKILL_IDS,
+  type NovelProductionTemplateInput,
+} from "./workflows/novel-production-template.ts";
+export {
   publishWorkflowSync,
   type PublishWorkflowInput,
   type PublishWorkflowResult,
@@ -653,6 +658,20 @@ export {
   type SkillRolloutItem,
   type SkillRolloutRiskSummary,
 } from "./skills/rollout.ts";
+export {
+  attributeShotFailure,
+  attributeBatchFailures,
+  type ShotFailure,
+  type AssetGap,
+  type BatchFailureAttribution,
+  type ShotGenerationFailureKind,
+  type VideoModelAdapter,
+  type ShotGenerationBatch,
+} from "./skills/shot-generation.ts";
+export {
+  NOVEL_PRODUCTION_COORDINATES,
+  NOVEL_PRODUCTION_ENTRY_SKILL_MD,
+} from "./skills/novel-production-entry.ts";
 export {
   resolveSkillMcpCapabilitySync,
   resolveSkillCliCapabilitySync,
