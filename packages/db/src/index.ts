@@ -1184,6 +1184,15 @@ export {
   consumeSkillUpgradeApprovalSync,
   type CreateSkillUpgradeApprovalInput,
 } from "./skill-upgrade-approvals.ts";
+export {
+  createSkillRolloutPlanSync,
+  readSkillRolloutPlanSync,
+  readSkillRolloutPlanByDigestSync,
+  listSkillRolloutPlansSync,
+  decideSkillRolloutPlanSync,
+  consumeSkillRolloutPlanSync,
+  type CreateSkillRolloutPlanInput,
+} from "./skill-rollout-plans.ts";
 export type {
   StoredSkillInstallationRecord,
   StoredSkillInstallationComponentRecord,
@@ -1191,6 +1200,7 @@ export type {
   SkillUpgradeApprovalRecord,
   SkillInstallApprovalRecord,
   SkillInstallApprovalRiskItem,
+  SkillRolloutPlanRecord,
   SkillRunnerInvocationRecord,
   WorkspaceGitCredentialRecord,
   PagerAlertStateRecord,

@@ -1656,6 +1656,21 @@ export interface SkillInstallApprovalRecord {
   consumedAt?: string;
 }
 
+export interface SkillRolloutPlanRecord {
+  id: string;
+  workspaceId: string;
+  rootArtifactDigest: string;
+  planDigest: string;
+  policyVersion: string;
+  closureJson: string;
+  targetRuntimesJson: string;
+  riskSummaryJson: string;
+  decision: "pending" | "approved" | "rejected";
+  actorUserId?: string;
+  createdAt: string;
+  consumedAt?: string;
+}
+
 export interface SkillUpgradeApprovalRecord {
   id: string;
   workspaceId: string;

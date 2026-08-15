@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "119";
+export const POSTGRES_SCHEMA_VERSION = "120";
 // 跨版本固定锁：不能使用 schema 版本作为锁键，否则滚动升级中的相邻版本会并发迁移。
 // 取 116 兼容已经发布的 schema 116 实例；后续版本必须保持此值不变。
 export const POSTGRES_SCHEMA_ADVISORY_LOCK_ID = 116;
@@ -3542,6 +3542,46 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       ALTER TABLE skill_installation ADD COLUMN IF NOT EXISTS previous_ready_artifact_digest TEXT
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_rollout_plan (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        root_artifact_digest TEXT NOT NULL,
+        plan_digest TEXT NOT NULL,
+        policy_version TEXT NOT NULL DEFAULT 'v1',
+        closure_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        target_runtimes_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        risk_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        decision TEXT NOT NULL DEFAULT 'pending',
+        actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        consumed_at TIMESTAMPTZ
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_rollout_plan_workspace
+        ON skill_rollout_plan(workspace_id, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_rollout_plan_digest
+        ON skill_rollout_plan(workspace_id, plan_digest, created_at DESC)
+    `,
+    `
+      ALTER TABLE skill_installation
+        ADD COLUMN IF NOT EXISTS rollout_plan_id TEXT
+          REFERENCES skill_rollout_plan(id) ON DELETE SET NULL
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_installation_rollout_plan
+        ON skill_installation(rollout_plan_id)
+    `,
+    `
+      ALTER TABLE skill_artifact ADD COLUMN IF NOT EXISTS coordinate TEXT
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_artifact_coordinate
+        ON skill_artifact(workspace_id, coordinate)
     `,
     `
       CREATE TABLE IF NOT EXISTS skill_installation_operation (
