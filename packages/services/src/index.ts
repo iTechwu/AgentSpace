@@ -27,9 +27,11 @@ export {
 } from "./shared/state-io.ts";
 export {
   recordPlatformAuditEventSync,
+  recordPlatformAuditEventAsync,
   PLATFORM_AUDIT_WORKSPACE_ID,
   recordWorkspaceAuditEventSync,
   tryRecordPlatformAuditEventSync,
+  tryRecordPlatformAuditEventAsync,
   tryRecordWorkspaceAuditEventSync,
 } from "./shared/audit.ts";
 export {

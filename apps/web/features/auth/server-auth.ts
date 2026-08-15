@@ -18,7 +18,7 @@ import {
   type StoredSessionRecord,
   type StoredUserRecord,
 } from "@dofe-agent/db";
-import { tryRecordPlatformAuditEventSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { tryRecordPlatformAuditEventAsync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { syncSsoWorkspacesForUserSync, type SsoWorkspaceScope } from "./sso-workspaces";
 import { clearWorkspaceSelectionCookie, writeWorkspaceSelectionCookie } from "./workspace-selection";
 
@@ -111,7 +111,8 @@ export async function createSessionForSsoLogin(input: {
   }
   const session = await createSsoLoginSession(updatedUser.id, input.idToken);
   if (updatedUser.isAdmin) {
-    tryRecordPlatformAuditEventSync({
+    await tryRecordPlatformAuditEventAsync({
+      idempotencyKey: `sso-login:${createHash("sha256").update(session.sessionToken).digest("hex")}`,
       title: "Platform administrator login succeeded",
       note: `${updatedUser.displayName} signed in through Dofe SSO.`,
       code: "auth.sso_platform_admin_login_succeeded",

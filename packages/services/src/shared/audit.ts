@@ -1,5 +1,13 @@
 import type { LedgerItem } from "@dofe-agent/domain/workspace";
-import { createWorkspaceSync, isPlatformAdminUserSync, readUserSync, readWorkspaceSync, recordAuditLogSync, type AuditLogSource } from "@dofe-agent/db";
+import {
+  createAuditLogPrismaCutover,
+  createWorkspaceSync,
+  isPlatformAdminUserSync,
+  readUserSync,
+  readWorkspaceSync,
+  recordAuditLogSync,
+  type AuditLogSource,
+} from "@dofe-agent/db";
 import { readWorkspaceStateSync, writeWorkspaceStateSync } from "./state-io.ts";
 
 const MAX_AUDIT_LEDGER_ENTRIES = 200;
@@ -7,6 +15,14 @@ const PLATFORM_ADMIN_DISPLAY_NAME = "平台运维";
 export const PLATFORM_AUDIT_WORKSPACE_ID = "platform-audit";
 
 type AuditValue = string | number | boolean | null | undefined;
+
+interface PlatformAuditEventInput {
+  idempotencyKey?: string;
+  title: string;
+  note: string;
+  code?: string;
+  data?: Record<string, AuditValue>;
+}
 
 export function recordWorkspaceAuditEventSync(input: {
   workspaceId: string;
@@ -55,15 +71,28 @@ export function tryRecordWorkspaceAuditEventSync(input: {
   }
 }
 
-export function recordPlatformAuditEventSync(input: {
-  title: string;
-  note: string;
-  code?: string;
-  data?: Record<string, AuditValue>;
-}): ReturnType<typeof recordAuditLogSync> {
+export function recordPlatformAuditEventSync(
+  input: PlatformAuditEventInput,
+): ReturnType<typeof recordAuditLogSync> {
   ensurePlatformAuditWorkspace(input.data);
   return recordAuditLogSync({
     workspaceId: PLATFORM_AUDIT_WORKSPACE_ID,
+    idempotencyKey: input.idempotencyKey,
+    title: input.title,
+    note: input.note,
+    code: input.code,
+    source: "platform_admin" as AuditLogSource,
+    data: input.data,
+  });
+}
+
+export async function recordPlatformAuditEventAsync(
+  input: PlatformAuditEventInput,
+): ReturnType<typeof createAuditLogPrismaCutover> {
+  ensurePlatformAuditWorkspace(input.data);
+  return createAuditLogPrismaCutover({
+    workspaceId: PLATFORM_AUDIT_WORKSPACE_ID,
+    idempotencyKey: input.idempotencyKey,
     title: input.title,
     note: input.note,
     code: input.code,
@@ -87,14 +116,20 @@ function ensurePlatformAuditWorkspace(data: Record<string, AuditValue> | undefin
   }
 }
 
-export function tryRecordPlatformAuditEventSync(input: {
-  title: string;
-  note: string;
-  code?: string;
-  data?: Record<string, AuditValue>;
-}): boolean {
+export function tryRecordPlatformAuditEventSync(input: PlatformAuditEventInput): boolean {
   try {
     recordPlatformAuditEventSync(input);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function tryRecordPlatformAuditEventAsync(
+  input: PlatformAuditEventInput,
+): Promise<boolean> {
+  try {
+    await recordPlatformAuditEventAsync(input);
     return true;
   } catch {
     return false;

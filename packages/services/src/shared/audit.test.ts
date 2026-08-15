@@ -5,7 +5,11 @@ import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import { getDatabase, isPlatformAdminUserSync, listAuditLogsSync } from "@dofe-agent/db";
 import { readWorkspaceStateSync } from "./state-io.ts";
-import { PLATFORM_AUDIT_WORKSPACE_ID, tryRecordWorkspaceAuditEventSync } from "./audit.ts";
+import {
+  PLATFORM_AUDIT_WORKSPACE_ID,
+  tryRecordPlatformAuditEventAsync,
+  tryRecordWorkspaceAuditEventSync,
+} from "./audit.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-platform-audit-"));
@@ -70,4 +74,28 @@ test("platform intervention keeps real identity in platform audit and anonymizes
   assert.equal(serializedTeamEntry.includes(PLATFORM_USER_ID), false);
   assert.equal(serializedTeamEntry.includes("Real Operator"), false);
   assert.equal(serializedTeamEntry.includes("operator@example.com"), false);
+});
+
+test("async platform audit deduplicates a retried operation", async () => {
+  const previous = process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED;
+  delete process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED;
+  try {
+    const input = {
+      idempotencyKey: "platform-login:session-1",
+      title: "Platform administrator login succeeded",
+      note: "Real Operator signed in through Dofe SSO.",
+      code: "auth.sso_platform_admin_login_succeeded",
+      data: { actorUserId: PLATFORM_USER_ID },
+    };
+    assert.equal(await tryRecordPlatformAuditEventAsync(input), true);
+    assert.equal(await tryRecordPlatformAuditEventAsync(input), true);
+
+    const logs = listAuditLogsSync(PLATFORM_AUDIT_WORKSPACE_ID, {
+      code: input.code,
+    });
+    assert.equal(logs.length, 1);
+  } finally {
+    if (previous === undefined) delete process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED;
+    else process.env.AUDIT_LOG_PRISMA_WRITE_ENABLED = previous;
+  }
 });
