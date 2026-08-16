@@ -102,11 +102,11 @@
 - `a7c252eb`：`messages` / `notifications` / `channel-access` 三个测试包纳入 services 默认测试脚本与 inventory default-owned；messages 14 项受 managed_runtime 夹具约束的用例以 `MANAGED_RUNTIME_AVAILABLE=1` env 门控跳过。
 - 剩余：`employees`、`documents`、`knowledge` 等待办；飞书 24 个测试文件仍游离（3.3-4）。
 
-### 3.6-3 / 3.6-4 CLI 巨型文件与测试脚本 —— 🟡 feishu.ts 已拆分、脚本/inventory 已对齐，daemon.ts 待拆
+### 3.6-3 / 3.6-4 CLI 巨型文件与测试脚本 —— ✅ CLI 侧完成
 
 - `apps/cli/src/commands/integrations/feishu.ts` 10,597 行已拆分（见下文 P2 §3.6-3）。
+- `apps/cli/src/commands/daemon.ts` 2,233 行已拆分（见下文 P2 §3.6-3 补充）。
 - CLI 测试脚本与 verify-test-inventory 的 default-owned 集已对齐（见下文 P2 §3.6-4）。
-- `daemon.ts` 2,222 行：未拆分。
 
 ### 3.6-5 runtime-maintenance 自旋轮询 —— ⏳ 待办
 
@@ -302,6 +302,12 @@
 - **验证**：apps/cli `tsc --noEmit` 0 错误；`integrations.test.ts` 182/182 通过（该文件 11k 行，仍按 3.6-2 决策排除在默认测试脚本外，作为手动验证跑）。
 
 其余 P2 待办表至此清空。
+
+### 3.6-3 补充 apps/cli `daemon.ts` 拆分 —— ✅ 完成
+
+- **拆分**（`03a3d8d`）：`daemon.ts` 2,233 行拆为 `src/commands/daemon/` 下 6 个域模块——`config`（配置与 provider 探测）、`command`（命令分发与子命令编排 539 行）、`lifecycle`（pid/进程/日志管理）、`task-runner`（队列任务轮询与执行 1,145 行）、`runtime`（provider 运行时适配）、`utils`（任务/路径/恢复快照工具）。原文件收敛为 7 行 barrel，`runDaemonCommand` 等 5 个导出 + 3 个 lib re-export 按原路径再导出，`src/index.ts` 与 `daemon.test.ts` 零改动。
+- **方法**：与 feishu.ts 相同的声明级重组；额外逐项保真 import 别名（`原名 as 正文名` 方向）、type-only import、内联 `type` 标记（首轮脚本踩坑：别名取错端 + type-only 被重组为 value import，导致 strip-types 运行时报 ESM 链接错误）。
+- **验证**：tsc `--noEmit` 0 错误；`daemon.test.ts` 19 pass / 3 fail 与 HEAD 完全一致（stash 对比确认 3 个 TOS 附件用例为预存失败，缺 TOS 环境）；CLI 默认测试 24/24。
 
 ### 3.6-4 CLI 测试脚本与 verify-test-inventory 双维护对齐 —— ✅ 完成
 
