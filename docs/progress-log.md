@@ -156,11 +156,17 @@
 - **连带修复**：draft_json Json 化后 `skill-drafts-prisma-write.ts` 的行映射接口放宽为 JsonValue 并统一字符串化，保持 `SkillDraftRecord.draftJson: string` 契约不变。
 - **验证**：`prisma:verify:pilot` 0 drift（25 模型全匹配）、`prisma generate` 通过（真实 Prisma 解析器接受全部 @default/复合主键）、db `pnpm types` 干净、**db `pnpm test` 全链 exit 0（pretest 门解除，默认测试环恢复可用）**。
 
+### 3.2-4 拆分 db 巨型文件 —— ✅ 完成
+
+- **external-integrations.ts（2,576 → 614 行核心 + 8 域模块）**：私有共享层（select 片段 / 行映射 / 守卫 / JSON 规范化）下沉 `external-integration-internal.ts`；7 个绑定/映射/outbox 域实现迁入 `integrations/external-*.ts`；原文件保留核心集成 CRUD + 事件 + re-export barrel，导入面零改动。internal ↔ core 互引为函数声明级 ESM 环，live binding 安全。回归：services 飞书 DB 测试（data-plane 8/8 + outbound 6/6）运行时穿透验证。
+- **types.ts（2,237 → 22 行 barrel + 20 域文件）**：216 个导出按域下沉 `src/types/`（identity…capability，24-344 行/文件），跨域引用生成 sibling `import type`，外部包类型（DaemonProvider/KnowledgeAssignmentMode）归位；`from "../types.ts"` 导入面零改动。
+- **mcp-center.ts（1,467 → 72 行 barrel + 7 文件）**：26 个私有导出下沉 `mcp-center/mcp-center-internal.ts`（列片段/行映射/类型守卫，无环）；6 个域模块 catalog(8 fn)/connections(7)/secrets(4)/discovery(2)/operations(11)/tool-audits(3) 各持 input interface，域私有 helper（writeMcpCatalogItemSync/claimDueHealthCheckOperationSync/defaultConnectionStatusForFailedOperation）随域内聚不外泄。
+- **验证**：db `pnpm types` 干净、db 全测试环 exit 0（含 mcp-center 10/10）、services `pnpm types` 干净。提交：996d281a / 82bde242 / d8192384。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
-| 3.2-4 | 拆分 `external-integrations.ts`(2,576)/`types.ts`(2,219)/`mcp-center.ts`(1,467) |
 | 3.2-5 | 类型安全加固（Kysely 等轻量 typed query builder） |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
 | 3.3-5 | 手写 `.d.ts` 孪生去重（`lark-cli.ts`/`.d.ts` 26 导出人工同步） |
