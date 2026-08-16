@@ -102,7 +102,7 @@ Provider Account 只保存 secret/config 的引用，不保存 API key。部署 
 - `opencode`：通过 AgentRouter 调用 `opencode run --format json`，支持 JSON event 归一化、session 传递、timeout/non-zero/empty-response diagnostics；如果设置了 `OPENCODE_MODEL`，daemon 会映射到 `--model`
 - `openclaw`：OpenClaw execution path 是 AgentRouter-only。provider-runtime 只组装 `AgentRouterRunRequest`，不能直接 spawn OpenClaw。当前通过 `openclaw agents add --workspace ...` 建立临时 agent，再用 `openclaw agent --local --json --message ...` 执行；OpenClaw 2026.3.3 的 `agent --help` 未暴露显式 `--model` 参数，所以 per-task model hint 通过 `OPENCLAW_MODEL` 注入
 - `nanobot`：当前走 `nanobot agent -m ... -w ...` 的 one-shot 模式；如果设置了 `NANOBOT_MODEL`，daemon 会映射到 `NANOBOT_AGENTS__DEFAULTS__MODEL`
-- `hermes`：通过 AgentRouter 调用 `hermes -z ... --yolo` 的 headless 文本模式；检测时优先使用 `hermes`，并兼容 `hermes-agent` wrapper。当前支持 `HERMES_MODEL` / `HERMES_INFERENCE_MODEL` 映射到 `--model`，未设置时沿用 Hermes 本机默认配置；暂不支持 Hermes 原生 session resume 或 structured events
+- `hermes`：通过 AgentRouter 调用 `hermes -z ...` 的 headless 文本模式（不带 `--yolo`）；检测时优先使用 `hermes`，并兼容 `hermes-agent` wrapper。当前支持 `HERMES_MODEL` / `HERMES_INFERENCE_MODEL` 映射到 `--model`，未设置时沿用 Hermes 本机默认配置；暂不支持 Hermes 原生 session resume 或 structured events
 
 注意：
 
@@ -133,55 +133,11 @@ OpenClaw troubleshooting：
 - `provider.tool_missing` / `provider.tool_unauthorized` / `provider.tool_permission_denied`：检查 `dofe-agent output`、CLI-Hub app 是否在 PATH 且已授权
 - `provider.protocol_parse_failed`：OpenClaw stdout/stderr 不符合 JSON event 预期；查看 provider diagnostic tail
 
-## Sandbox provider（实验中的 Cube scaffold）
+## Sandbox provider
 
-remote daemon 当前默认仍使用本地 `LocalSandbox`。`packages/sandbox` 已支持通过环境变量把 `connectSandbox()` 切到 `cube` provider，并直接调用 CubeAPI 完成 sandbox 的创建、暂停、快照和销毁。
+sandbox 当前只有 `local` 一个 provider（`LocalSandbox`，daemon 本地 `workDir` 执行，兼容现有 input/output bundle 流程）。
 
-当前状态（截至 2026-04-24）：
-
-- `local`：完整可用，provider CLI 真实执行依旧走这一条路径
-- `cube`：仅完成 lifecycle scaffold，`exec()` 还没有接到 Cube 的 envd/E2B 数据面，所以**不要把它当成已可生产执行的隔离 runtime**
-- 文件读写当前仍以 daemon 本地 `workDir` 为准，方便继续兼容现有 input/output bundle 流程
-- `CubeSandbox.destroy()` 当前只销毁远端 sandbox；本地 `workDir` 清理仍由 daemon/task 层负责
-
-启用 `cube` scaffold 时，可使用下面这组环境变量：
-
-```bash
-# provider 选择
-DOFE_AGENT_SANDBOX_PROVIDER=cube
-# 显式确认你要启用实验性 Cube scaffold
-DOFE_AGENT_CUBE_ENABLE_EXPERIMENTAL=true
-# 兼容旧约定
-SANDBOX_PROVIDER=cube
-
-# 注意：当前仅用于验证 create/pause/snapshot/destroy 生命周期；
-# 真正的 provider CLI 执行仍然必须继续使用 local
-
-# Cube API 连接（优先使用 DOFE_AGENT_* 命名）
-DOFE_AGENT_CUBE_API_URL=http://127.0.0.1:3000
-DOFE_AGENT_CUBE_API_KEY=dummy
-DOFE_AGENT_CUBE_TEMPLATE_ID=<your-template-id>
-
-# 兼容 Cube 示例中的 E2B 命名
-E2B_API_URL=http://127.0.0.1:3000
-E2B_API_KEY=dummy
-CUBE_TEMPLATE_ID=<your-template-id>
-
-# 可选：让 sandbox TTL 与 long-horizon task timeout 对齐
-DOFE_AGENT_CUBE_TIMEOUT_SECONDS=43200
-
-# 可选：把 daemon workDir 作为 Cube host-mount metadata 传过去
-DOFE_AGENT_CUBE_MOUNT_WORKDIR=true
-DOFE_AGENT_CUBE_MOUNT_PATH=/workspace
-
-# 可选：网络策略
-DOFE_AGENT_CUBE_ALLOW_INTERNET=false
-DOFE_AGENT_CUBE_ALLOW_OUT=10.0.0.53/32,10.0.1.0/24
-DOFE_AGENT_CUBE_DENY_OUT=169.254.0.0/16
-```
-
-如果 CubeAPI 走 HTTPS 且证书不在系统信任链中，需要先把对应 CA 注入 Node 运行时信任链（例如设置 `NODE_EXTRA_CA_CERTS=/path/to/rootCA.pem`），再启动 daemon。
-另外要明确一点：即使启用了 `cube` scaffold，当前 input/output bundle 的文件 IO 仍然发生在 daemon 主机本地，不会自动迁移到 Cube guest 内部。
+历史上的 Cube scaffold（仅 lifecycle、`exec()` 未接数据面）已于 2026-08-16 随 commit `bbc935f6` 移除，沙箱收口为 local-only；如需恢复远端沙箱，从 git 历史找回并补齐 exec data plane 后再评估（另见 TODO README 已放弃项 46）。
 
 查看帮助：
 

@@ -18,11 +18,13 @@
 
 - DofeAgent Web/Backend 已经可访问
 - 你能打开这些页面：
-  - `/agents?mode=container`
-  - `/agents?mode=agent`
-  - `/settings`
-  - `/im`
-  - `/contacts`
+  - `/w/<workspace-slug>/agents?mode=container`
+  - `/w/<workspace-slug>/agents?mode=agent`
+  - `/w/<workspace-slug>/settings`
+  - `/w/<workspace-slug>/im`
+  - `/w/<workspace-slug>/contacts`
+
+  `<workspace-slug>` 是目标工作区的 slug。旧版根路径（`/agents`、`/settings`、`/im` 等）仍会经 legacy 重定向自动跳到当前工作区的对应页面，但本文统一使用现行路径。
 
 ### Server B
 
@@ -69,11 +71,11 @@ agent-router run --harness openclaw --cwd /tmp "reply with ok"
 跑完后，你应该确认：
 
 - [ ] `Server B` 成功执行安装命令
-- [ ] `/settings` 能看到在线 daemon
+- [ ] `/w/<workspace-slug>/settings` 能看到在线 daemon
 - [ ] `Atlas` 已绑定到这个容器
 - [ ] `@Atlas` 能回复
 - [ ] `Atlas` 私聊能回复
-- [ ] 停止 daemon 后 `/settings` 变离线
+- [ ] 停止 daemon 后 `/w/<workspace-slug>/settings` 变离线
 
 可选：
 
@@ -86,7 +88,7 @@ agent-router run --harness openclaw --cwd /tmp "reply with ok"
 1. 打开：
 
 ```text
-https://<server-a-domain>/agents?mode=container
+https://<server-a-domain>/w/<workspace-slug>/agents?mode=container
 ```
 
 2. 点击 `添加容器`
@@ -97,7 +99,7 @@ https://<server-a-domain>/agents?mode=container
 
 - `Daemon token 记录 ID`
 
-这个 ID 用于最后在 `/settings` 吊销 token。
+这个 ID 用于最后在 `/w/<workspace-slug>/settings` 吊销 token。
 
 ## 4. 在 Server B 执行安装命令
 
@@ -135,12 +137,12 @@ bash <(curl -fsSL https://<server-a-domain>/api/daemon/install-script) \
 
 ## 5. 在前端确认容器上线
 
-### 看 `/settings`
+### 看 `/w/<workspace-slug>/settings`
 
 打开：
 
 ```text
-https://<server-a-domain>/settings
+https://<server-a-domain>/w/<workspace-slug>/settings
 ```
 
 预期：
@@ -150,12 +152,12 @@ https://<server-a-domain>/settings
 - 模式是 `远程 / Remote`
 - 下方至少有一条 runtime
 
-### 看 `/agents?mode=container`
+### 看 `/w/<workspace-slug>/agents?mode=container`
 
 打开：
 
 ```text
-https://<server-a-domain>/agents?mode=container
+https://<server-a-domain>/w/<workspace-slug>/agents?mode=container
 ```
 
 预期：
@@ -193,7 +195,7 @@ https://<server-a-domain>/agents?mode=container
 1. 打开：
 
 ```text
-https://<server-a-domain>/agents?mode=agent
+https://<server-a-domain>/w/<workspace-slug>/agents?mode=agent
 ```
 
 2. 点击 `新建 Agent`
@@ -205,7 +207,7 @@ https://<server-a-domain>/agents?mode=agent
 
 ### 绑定容器
 
-1. 仍然在 `/agents`
+1. 仍然在 `/w/<workspace-slug>/agents`
 2. 选中 `Atlas`
 3. 切到 `Settings`
 4. 在 `Bind container` 下拉框里选择刚才上线的容器
@@ -221,7 +223,7 @@ https://<server-a-domain>/agents?mode=agent
 1. 打开：
 
 ```text
-https://<server-a-domain>/im
+https://<server-a-domain>/w/<workspace-slug>/im
 ```
 
 2. 选择任意已有频道
@@ -252,7 +254,7 @@ manual mention smoke passed
 1. 打开：
 
 ```text
-https://<server-a-domain>/contacts
+https://<server-a-domain>/w/<workspace-slug>/contacts
 ```
 
 2. 选择联系人 `Atlas`
@@ -274,7 +276,7 @@ manual contact smoke passed
 
 ## 10. 可选：测试附件输出
 
-在 `/contacts` 给 `Atlas` 发：
+在 `/w/<workspace-slug>/contacts` 给 `Atlas` 发：
 
 ```text
 请生成一个 Markdown 文件作为附件返回。正文只写：manual attachment smoke passed
@@ -291,7 +293,7 @@ manual contact smoke passed
 1. 打开：
 
 ```text
-https://<server-a-domain>/im
+https://<server-a-domain>/w/<workspace-slug>/im
 ```
 
 2. 如果右侧没有文档，就先点 `+` 新建一份文档
@@ -318,7 +320,7 @@ https://<server-a-domain>/im
 然后刷新：
 
 ```text
-https://<server-a-domain>/settings
+https://<server-a-domain>/w/<workspace-slug>/settings
 ```
 
 预期：
@@ -335,9 +337,9 @@ https://<server-a-domain>/settings
 ~/.dofe-agent-daemon/runtime/bin/dofe-agent-daemon logs --lines 100 --state-dir ~/.dofe-agent-daemon
 ```
 
-2. 前端 `/settings`
-3. 前端 `/agents?mode=container`
-4. 前端 `/inbox`
+2. 前端 `/w/<workspace-slug>/settings`
+3. 前端 `/w/<workspace-slug>/agents?mode=container`
+4. 前端 `/w/<workspace-slug>/inbox`
 
 最常见原因：
 
@@ -354,7 +356,7 @@ https://<server-a-domain>/settings
 1. 打开：
 
 ```text
-https://<server-a-domain>/settings
+https://<server-a-domain>/w/<workspace-slug>/settings
 ```
 
 2. 在 token 列表里找到刚才那条记录
@@ -363,7 +365,7 @@ https://<server-a-domain>/settings
 
 ### 解绑 Agent
 
-1. 打开 `/agents`
+1. 打开 `/w/<workspace-slug>/agents`
 2. 选中 `Atlas`
 3. 切到 `Settings`
 4. 点击 `解除绑定`

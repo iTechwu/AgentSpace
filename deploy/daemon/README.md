@@ -14,6 +14,23 @@ Codex uses `workspace-write` by default. The daemon no longer turns off provider
 
 Each provider credential directory contains a node-local `provider-accounts.json` map. It maps a Provider Account ID to `configRef` and `secretRef`; the daemon accepts only `file://` references beneath `DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT`, copies their `files` entries to that runtime's private provider HOME, and supplies their `environment` entries only to that runtime's process. The secret-derived profile is stored with mode `0700` in that runtime's state volume and is replaced on each daemon start.
 
+A `configRef` / `secretRef` target file looks like this:
+
+```json
+{
+  "version": 1,
+  "environment": {
+    "ANTHROPIC_BASE_URL": "https://provider-gateway.example",
+    "ANTHROPIC_API_KEY": "node-local-secret"
+  },
+  "files": {
+    ".config/openclaw/auth-profiles.json": "{...}"
+  }
+}
+```
+
+Put non-sensitive endpoint/model settings in `config.json`; put API keys and provider auth files in `secret.json`. Their contents are merged at runtime, with `secret.json` taking precedence. Add an account map such as `{ "accounts": { "provider-account_xxx": { "configRef": "file:///run/dofe-agent-provider/config.json", "secretRef": "file:///run/dofe-agent-provider/secret.json" } } }`. The credential directory is mounted read-only into exactly one runtime container at `/run/dofe-agent-provider`.
+
 ## Managed execution node
 
 `docker-compose.managed-node.yml` is the separate deployment mode used by the
@@ -95,18 +112,3 @@ distinct managed-node bootstrap token and state directory, preserving the
 workspace binding enforced by daemon registration and task APIs. Set its
 required `MANAGED_NODE_*` variables from protected CI configuration; do not
 replace this with a cross-workspace daemon token.
-
-```json
-{
-  "version": 1,
-  "environment": {
-    "ANTHROPIC_BASE_URL": "https://provider-gateway.example",
-    "ANTHROPIC_API_KEY": "node-local-secret"
-  },
-  "files": {
-    ".config/openclaw/auth-profiles.json": "{...}"
-  }
-}
-```
-
-Put non-sensitive endpoint/model settings in `config.json`; put API keys and provider auth files in `secret.json`. Their contents are merged at runtime, with `secret.json` taking precedence. Add an account map such as `{ "accounts": { "provider-account_xxx": { "configRef": "file:///run/dofe-agent-provider/config.json", "secretRef": "file:///run/dofe-agent-provider/secret.json" } } }`. The credential directory is mounted read-only into exactly one runtime container at `/run/dofe-agent-provider`.
