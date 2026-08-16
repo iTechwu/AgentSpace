@@ -227,6 +227,11 @@
 - **不做单一 schema 源生成器**：各模板注释即部署文档，生成会牺牲；机器强制一致性下限先落地，生成器留待模板数量继续增长时再评估。
 - **验证**：三段 pretest 链全通过；审计首次运行即扫出 4 对近重复并逐一代码核实为合法（豁免表注明出处）。
 
+### 3.6-7 `dev-daemons.sh` 硬编码本机路径 —— ✅ 完成
+
+- **改动**（`b72a144`）：`REPO` 改为脚本自定位（`dirname` 推导）；`NODE_BIN` 取交互 PATH 的 `node`（daemon 依赖交互 PATH 探测 provider CLI，注释已说明）；workspace id、daemon id、device/runtime 名称、providers 五项保留本机 dev 默认值并全部支持 `DOFE_AGENT_DEV_*` env 覆盖。任意克隆可直接运行。
+- **验证**：`bash -n` + `cmd`（自定位路径、`%q` 转义、env 覆盖 `ws-test` 均生效）+ `status` 冒烟。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |

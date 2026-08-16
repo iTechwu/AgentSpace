@@ -144,7 +144,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 4. **【P1】CLI 测试脚本与 verify-test-inventory 的 default-owned 集不一致** ⏳：脚本跑 5 个文件，inventory 只记 3 个+deploy 门禁（`task-completion-outbox`/`token-usage` 被脚本执行却不在 inventory 集）。以脚本为准或让 inventory 从 `package.json` 解析，消除人工双维护。
 5. **【P1】`runtime-maintenance.mjs` 用容器内自旋轮询** ⏳：每 30s 打 3 个 HTTP cron 端点，异常只打日志无退避/告警。建议改为内置定时器或接外部 cron + 指标。
 6. **【P2】多套 env 模板漂移风险** ✅（4041898）：audit-env-templates.mjs 入 pretest —— 自动发现 11 模板/186 键，键名规范+单文件重复+跨模板近重复三类强制；4 对合法共存入豁免表。不做生成器（模板注释即部署文档）。
-7. **【P2】`dev-daemons.sh` 硬编码本机绝对路径** ⏳：`/Users/techwu/...`、`node-v24.9.0`、固定 workspace id 不可共享，应参数化/从环境读取。
+7. **【P2】`dev-daemons.sh` 硬编码本机绝对路径** ✅（b72a144）：REPO 自定位、NODE_BIN 取交互 PATH，workspace/daemon 身份等 5 项支持 DOFE_AGENT_DEV_* env 覆盖（本机默认值保留）。
 8. **【P2】`audit-node-engines.mjs` 从 `.pnpm` 目录「借用」semver** ⏳：应改为在 devDependencies 显式声明 `semver`。
 9. **【P2】两个 bin wrapper（cli/mcp-egress-proxy）都是 `spawnSync` 子进程再执行** ⏳：每次调用多一层进程开销，可直接 `import` 后调 main。
 10. **【P2】`apps/workflow-worker` 的 `types` 依赖 `apps/web/node_modules/.bin/tsc`** ⏳：monorepo 内多个包用相对路径指向 web 的 tsc，web 是事实上的 tsc 宿主。应在根/共享包显式依赖 typescript。
