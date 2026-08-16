@@ -1,5 +1,7 @@
 # MCP Chinese Status Display Implementation Plan
 
+> 状态：✅ 已实施并合入主链（2026-08-17 复核确认）。实现见 `apps/web/features/market/capability-presentation.ts` 及 `mcp-presentation.test.ts`。计划勾选框未回填，以实际代码为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace raw MCP transport, risk, connection, operation, and tool-call enum values with consistent Chinese UI labels across the market, Runtime capability, and connection detail pages.

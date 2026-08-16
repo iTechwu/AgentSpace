@@ -1,5 +1,7 @@
 # MCP 页面中文状态展示设计
 
+> 状态：✅ 已实施并合入主链（2026-08-17 复核确认）。实现见 `apps/web/features/market/capability-presentation.ts`（mcpTransportLabel 等）及 `mcp-presentation.test.ts`。计划勾选框未回填，以实际代码为准。
+
 ## 目标
 
 将 MCP 相关页面中的英文枚举和下划线状态转换为稳定、易读的中文文案。保持现有后端状态值、连通性判断、轮询和操作流程不变。

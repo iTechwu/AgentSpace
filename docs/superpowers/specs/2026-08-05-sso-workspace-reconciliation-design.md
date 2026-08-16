@@ -1,5 +1,7 @@
 # SSO Workspace 对账与清理设计
 
+> 状态：✅ 已实施并合入主链（2026-08-17 复核确认）。实现见 `apps/web/scripts/reconcile-sso-workspaces.ts`、`apps/web/features/auth/sso-workspace-maintenance.ts`、`sso-workspaces.ts`。计划勾选框未回填，以实际代码为准。
+
 ## 背景与目标
 
 AgentSpace 将 SSO tenant/team 映射为本地 workspace。当前应用库存在 97 个未归档的 `sso-*` workspace，但按 SSO 当前有效目录只能形成 3 个 workspace scope。其余记录包括 75 个 `E2E Workspace`、12 个 `Loading Visual Check` 和 7 个历史失效 SSO binding。

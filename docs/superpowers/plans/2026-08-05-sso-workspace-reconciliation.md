@@ -1,5 +1,7 @@
 # SSO Workspace Reconciliation Implementation Plan
 
+> 状态：✅ 已实施并合入主链（2026-08-17 复核确认）。实现见 `apps/web/scripts/reconcile-sso-workspaces.ts`、`apps/web/features/auth/sso-workspace-maintenance.ts`。计划勾选框未回填，以实际代码为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让平台管理员只看到当前有效的 SSO workspace，并以可恢复的归档对账清理现有测试与历史漂移数据。

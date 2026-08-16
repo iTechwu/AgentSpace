@@ -60,7 +60,7 @@
 ## 5. 各部署面细节入口
 
 - A/B 面：`deploy/self-hosted/README.md`、`deploy/systemd/`（unit + env 模板）
-- D/E 面：`deploy/daemon/README.md`（凭据目录、provider accounts、镜像构建）、`deploy/daemon/REMOTE_DAEMON_TEST.md`、`install-remote-daemon.sh`
+- D/E 面：`deploy/daemon/README.md`（凭据目录、provider accounts、镜像构建）、`deploy/REMOTE_DAEMON_TEST.md`、`deploy/install-remote-daemon.sh`
 - F 面：`deploy/staging/README.md`（含真实计费证据的产生方式）
 - G 面：`deploy/feishu-worker/README.md`（含与 daemon 托管互斥的完整说明）
 - workflow-worker：`deploy/workflow-worker/README.md`

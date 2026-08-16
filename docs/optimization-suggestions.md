@@ -57,7 +57,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P0 | daemon 死代码 | 删除 `provider-runtime.ts` 约 550 行未被调用的 legacy Codex/Claude 路径 | 低 | ✅ |
 | P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ |
 | P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ |
-| P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏳ |
+| P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏸ |
 | P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 |
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 |
 | P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | ✅ |
@@ -89,7 +89,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 **这是全系统最大的结构性技术债**：services+daemon 共 220 个文件 import `@dofe-agent/db`，services 非测试代码中有 **3,020 处 `*Sync` 调用**。任何异步化/池化改造都会波及这 3000+ 调用点。
 
-1. **【P1·大】引入 `pg.Pool` 异步平行路径** ⏳：当前单连接全串行、每查询主线程阻塞一次（worker 往返 + Atomics 轮询）。建议新增 `async getDatabaseAsync()` 平行 API，让新代码与热路径（`token-usage`、`task-queue`、`mcp-center`）逐步迁移；同步门面保留给存量调用。同时为 worker 协议加查询延迟/队列深度指标。
+1. **【P1·大】引入 `pg.Pool` 异步平行路径** ⏸ 已被 Prisma Phase 2 取代（异步化由 Prisma Client 切流承担，与 [progress-log.md](progress-log.md) 3.2-1 对齐）：当前单连接全串行、每查询主线程阻塞一次（worker 往返 + Atomics 轮询）。原建议为新增 `async getDatabaseAsync()` 平行 API；现随 Prisma 迁移推进，存量 `*Sync` 调用将整体切至 async Prisma 仓库，不再单独建设平行门面。
 2. **【P1】拆分 `postgres-schema.ts`（4,838 行）** ✅：119 张表 + 幂等 DDL 流 + 版本号 + 回填/在线索引全在一个文件。按领域（workflow/mcp/skill/token-usage/employee…）拆成多个语句数组，用有序版本化组合器拼装，保持幂等与版本号语义。
 3. **【P1】消除双重行映射** ✅：部分 SQL 用显式 `AS workspaceId`，部分用全小写别名（如 `skillartifactdigest`）依赖 worker 的 400+ 条别名表兜底。两种风格并存易漂移。建议以 schema 列名为唯一事实源，统一生成 camelCase 映射。
 4. **【P2】巨型业务模块拆分** ✅：`external-integrations.ts`(2,576)、`types.ts`(2,219，106 interface 可按模块拆后 re-export)、`mcp-center.ts`(1,467)。
