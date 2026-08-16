@@ -102,9 +102,10 @@
 - `a7c252eb`：`messages` / `notifications` / `channel-access` 三个测试包纳入 services 默认测试脚本与 inventory default-owned；messages 14 项受 managed_runtime 夹具约束的用例以 `MANAGED_RUNTIME_AVAILABLE=1` env 门控跳过。
 - 剩余：`employees`、`documents`、`knowledge` 等待办；飞书 24 个测试文件仍游离（3.3-4）。
 
-### 3.6-3 / 3.6-4 CLI 巨型文件与测试脚本 —— ⏳ 待办
+### 3.6-3 / 3.6-4 CLI 巨型文件与测试脚本 —— 🟡 feishu.ts 已拆分，其余待办
 
-- `apps/cli/src/commands/integrations/feishu.ts` 10,597 行、`daemon.ts` 2,222 行：未拆分。
+- `apps/cli/src/commands/integrations/feishu.ts` 10,597 行已拆分（见下文 P2 §3.6-3）。
+- `daemon.ts` 2,222 行：未拆分。
 - CLI 测试脚本（5 文件）与 verify-test-inventory default-owned 集（3 个+deploy）不一致：未处理。
 
 ### 3.6-5 runtime-maintenance 自旋轮询 —— ⏳ 待办
@@ -294,11 +295,13 @@
 - **顺手修复 dev 预存回归**（`c02fd360`）：纳门后跑全门暴露 `prisma-write-cutovers.test.ts` 在 HEAD 即失败（stash 复现确认与本改动无关）——`upsertSkillDraftPrisma` 把 draftJson 字符串直接赋给 Prisma `Json` 字段产生 jsonb 双重编码，与 sync 路径（单层）不一致，读回 `parseDraftSnapshot` 形状校验失败返回 null。对齐 audit-log/notifications 既有「写入前 JSON.parse」惯例修复；db 侧既有测试用 mock client 回显，真实 jsonb 往返从未被覆盖（mock 盲区）。
 - **验证**：23 文件单跑 154 pass + 55 env-gated skip；修复后 services 全门 916 tests / 847 pass / 0 fail / 69 skip；db 侧 5/5、`db types` 通过。
 
-### 其余 P2 待办（未启动）
+### 3.6-3 apps/cli `feishu.ts` 巨型文件拆分 —— ✅ 完成
 
-| 条目 | 主题 |
-| --- | --- |
-| 3.6-3 | apps/cli `feishu.ts` 10,597 行巨型文件拆分 |
+- **拆分**（`e4ba456`）：10,597 行按域拆为 `src/commands/integrations/feishu/` 下 12 个模块——`types`（类型与常量 752 行）、`command`（命令分发 666 行）、`create`/`agent-bot`/`bindings`/`data-operations`/`readiness`/`evidence`（3,885 行，证据域内部实现）/`smoke-env`/`smoke-plan`（各域 CLI 命令）、`cli-shared`（共享辅助）、`worker`（WebSocket worker 装配）。原文件收敛为 14 行 barrel，72 个公共导出按原路径再导出，`integrations/index.ts` 与 31 个测试导入零改动。
+- **方法**：声明级重组——解析全部 ~230 个顶层声明，按域区块映射归入模块；内部声明补 `export`；外部依赖（db/services/args/format）与跨模块依赖按词边界扫描逐模块布线。无 `noUnusedLocals`，过近似导入无害。
+- **验证**：apps/cli `tsc --noEmit` 0 错误；`integrations.test.ts` 182/182 通过（该文件 11k 行，仍按 3.6-2 决策排除在默认测试脚本外，作为手动验证跑）。
+
+其余 P2 待办表至此清空。
 
 ---
 
