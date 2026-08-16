@@ -17,7 +17,7 @@ model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通
 
 ## 2. 发现与风险
 
-### P1（已部分落地）：drift 门禁已覆盖 Prisma unique/index/FK
+### P1（已部分落地）：drift 门禁已覆盖 Prisma contract 与自定义对象存在性
 
 `packages/db/src/prisma-schema-drift.ts` 现在同时读取非主键 PostgreSQL index，
 `packages/db/src/prisma/schema-contract.ts` 解析并比较字段级/复合 `@unique`、`@@unique` 和
@@ -25,18 +25,23 @@ model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通
 `prisma:verify:contract` 命令与现有 pilot 使用同一入口，先补齐最容易发生且可由 Prisma
 表达的约束漂移。
 
-当前门禁仍不会发现 check constraint、enum、partial index、
-trigger、function、view 或 migration 历史漂移。项目文档却将这些对象列为 Prisma 与自定义
-SQL 的共同边界。
+本轮新增 `postgres:verify:invariants`，从版本化 PostgreSQL schema 语句提取 index、function、
+trigger 和命名 CHECK 清单，再查询当前 catalog 做 fail-closed 比对。定向纯函数测试通过；
+对当前 dev 数据库的实际执行结果为失败：数据库 `schema_version=117`，代码当前要求 `121`，
+缺少 `idx_skill_rollout_reconcile_plan_status`。这说明迁移尚未应用，不能把当前数据库当作已验收状态。
 
-建议：拆成两个明确门禁：
+当前门禁仍不会发现 CHECK 表达式/predicate 漂移、enum 定义、partial index 谓词、view、
+function body 或 migration 历史顺序漂移。项目文档仍将这些对象列为 Prisma 与自定义 SQL 的共同边界。
+
+建议：继续拆成两个明确门禁：
 
 1. `prisma:verify:contract`：继续扩展到枚举和删除动作；
-2. `postgres:verify:invariants`：查询并校验 trigger/function/view/partial index 等
-   Prisma 不表达的对象。
+2. `postgres:verify:invariants`：在现有对象存在性清单基础上，继续校验 CHECK/partial index
+   predicate、enum、view 和 function body 等 Prisma 不表达的对象。
 
-两者都应在 CI 的 schema/migration 变更时执行；若暂时不能全量实现，命令必须继续叫
-`pilot`，进度文档不得把它描述为全库 drift gate。
+两者都应在 CI 的 schema/migration 变更时执行；当前命令只代表对象存在性 gate，必须先完成
+`schema_version 117 -> 121` 的迁移应用，再补齐 predicate/enum/view/function body 检查，才能
+升级为全库 drift gate。
 
 ### P1（已部分落地）：Prisma Client 的连接池与运行容量仍需验收
 
