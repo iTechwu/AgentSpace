@@ -1,6 +1,6 @@
-export type WorkflowNodeType = "employee_task" | "join" | "approval";
+export type WorkflowNodeType = "employee_task" | "join" | "approval" | "iteration_group";
 export type WorkflowJoinPolicy = "all_success" | "allow_partial";
-export const WORKFLOW_NODE_TYPES = ["employee_task", "join", "approval"] as const satisfies readonly WorkflowNodeType[];
+export const WORKFLOW_NODE_TYPES = ["employee_task", "join", "approval", "iteration_group"] as const satisfies readonly WorkflowNodeType[];
 export const WORKFLOW_EVENT_NAMES = [
   "task.completed",
   "document.updated",
@@ -57,6 +57,25 @@ export interface WorkflowGraphDefinition {
   edges: WorkflowEdgeDefinition[];
 }
 
+/**
+ * Config of an `iteration_group` node — a bounded, quality-gated loop. Externally
+ * it is a single deep module; internally it iterates its `body` until the quality
+ * gate passes or `maxRounds` is exhausted (then `overLimit` applies).
+ */
+export interface WorkflowIterationGroupConfig {
+  maxRounds: number;
+  body: WorkflowGraphDefinition;
+  qualityGate: {
+    /** The body node whose output decides pass vs block. */
+    nodeId: string;
+    /** The output field whose zero value means "all gates pass". */
+    blockingField: string;
+  };
+  overLimit: "approval" | "fail";
+  /** Approver config used when overLimit === "approval" (compiled into an approval node). */
+  overLimitApproval?: { employeeId: string; channelName?: string };
+}
+
 export const WORKFLOW_GRAPH_ERROR_CODES = [
   "workflow_graph_duplicate_node_id",
   "workflow_graph_edge_endpoint_missing",
@@ -70,6 +89,7 @@ export const WORKFLOW_GRAPH_ERROR_CODES = [
   "workflow_graph_isolated_node",
   "workflow_node_unreachable",
   "workflow_graph_cycle",
+  "workflow_iteration_group_invalid",
 ] as const;
 export type WorkflowGraphErrorCode = typeof WORKFLOW_GRAPH_ERROR_CODES[number];
 
@@ -155,6 +175,9 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
     if (node.type === "join" && (outgoing.get(node.id) ?? []).length === 0) {
       errors.push({ code: "workflow_join_requires_downstream", nodeIds: [node.id] });
     }
+    if (node.type === "iteration_group") {
+      errors.push(...validateWorkflowIterationGroupConfig(node.id, node.config));
+    }
   }
 
   const roots = [...nodeIndex.keys()].filter((id) => (incoming.get(id) ?? []).length === 0);
@@ -210,4 +233,111 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
   }
 
   return { errors, topologicalOrder };
+}
+
+/** Validates an `iteration_group` node's config (bounded rounds, quality gate, body). */
+function validateWorkflowIterationGroupConfig(
+  nodeId: string,
+  config: Record<string, unknown>,
+): WorkflowGraphError[] {
+  const errors: WorkflowGraphError[] = [];
+  const invalid = () => {
+    errors.push({ code: "workflow_iteration_group_invalid", nodeIds: [nodeId] });
+  };
+
+  const maxRounds = config.maxRounds;
+  if (typeof maxRounds !== "number" || !Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 10) {
+    invalid();
+  }
+
+  const overLimit = config.overLimit;
+  if (overLimit !== "approval" && overLimit !== "fail") {
+    invalid();
+  }
+
+  const qualityGate = config.qualityGate as { nodeId?: unknown; blockingField?: unknown } | undefined;
+  const body = config.body as WorkflowGraphDefinition | undefined;
+  if (!qualityGate || typeof qualityGate.nodeId !== "string" || typeof qualityGate.blockingField !== "string") {
+    invalid();
+  } else if (!body || !Array.isArray(body.nodes) || !Array.isArray(body.edges)
+    || !body.nodes.some((candidate) => candidate?.id === qualityGate.nodeId)) {
+    invalid();
+  }
+
+  if (body && Array.isArray(body.nodes) && Array.isArray(body.edges)) {
+    if (validateWorkflowGraph(body).errors.length > 0) {
+      invalid();
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Compiles every `iteration_group` node into a statically-unrolled DAG the
+ * current executor can run: `maxRounds` copies of the body, the round gate
+ * feeding the next round's entry, and the final gate feeding an `approval`
+ * (overLimit=approval) or ending at the gate (overLimit=fail). Early-exit when
+ * the gate passes mid-loop is left to the future runtime loop executor.
+ */
+export function compileWorkflowIterationGroups(graph: WorkflowGraphDefinition): WorkflowGraphDefinition {
+  const nodes: WorkflowNodeDefinition[] = [];
+  const edges: WorkflowEdgeDefinition[] = [];
+  const unrolled = new Map<string, { entry: string; exit: string }>();
+
+  for (const node of graph.nodes) {
+    if (node.type !== "iteration_group") {
+      nodes.push(node);
+      continue;
+    }
+    const config = node.config as unknown as WorkflowIterationGroupConfig;
+    const body = compileWorkflowIterationGroups(config.body);
+    const entryNodeId = body.nodes.find((candidate) => !body.edges.some((edge) => edge.target === candidate.id))?.id;
+    const gateNodeId = config.qualityGate.nodeId;
+    if (!entryNodeId) {
+      throw new Error(`Iteration group "${node.id}" body has no entry node.`);
+    }
+
+    const roundEntryIds: string[] = [];
+    const roundGateIds: string[] = [];
+    for (let round = 1; round <= config.maxRounds; round += 1) {
+      const suffix = `-r${round}`;
+      const idMap = new Map<string, string>();
+      for (const bodyNode of body.nodes) {
+        const newId = `${node.id}.${bodyNode.id}${suffix}`;
+        idMap.set(bodyNode.id, newId);
+        nodes.push({ ...bodyNode, id: newId });
+      }
+      for (const bodyEdge of body.edges) {
+        edges.push({ source: idMap.get(bodyEdge.source)!, target: idMap.get(bodyEdge.target)! });
+      }
+      roundEntryIds.push(idMap.get(entryNodeId)!);
+      roundGateIds.push(idMap.get(gateNodeId)!);
+    }
+
+    // Round r gate -> round r+1 entry (block -> next round).
+    for (let round = 1; round < config.maxRounds; round += 1) {
+      edges.push({ source: roundGateIds[round - 1]!, target: roundEntryIds[round]! });
+    }
+
+    let exitId: string;
+    if (config.overLimit === "approval") {
+      const approvalId = `${node.id}.over-limit-approval`;
+      nodes.push({ id: approvalId, type: "approval", config: config.overLimitApproval ?? {} });
+      edges.push({ source: roundGateIds[roundGateIds.length - 1]!, target: approvalId });
+      exitId = approvalId;
+    } else {
+      exitId = roundGateIds[roundGateIds.length - 1]!;
+    }
+    unrolled.set(node.id, { entry: roundEntryIds[0]!, exit: exitId });
+  }
+
+  // Remap external edges through the unrolled entry/exit points.
+  for (const edge of graph.edges) {
+    const source = unrolled.get(edge.source)?.exit ?? edge.source;
+    const target = unrolled.get(edge.target)?.entry ?? edge.target;
+    edges.push({ source, target });
+  }
+
+  return { schemaVersion: 1, nodes, edges };
 }

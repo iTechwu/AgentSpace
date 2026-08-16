@@ -1,24 +1,39 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateWorkflowGraph } from "@dofe-agent/domain";
+import { compileWorkflowIterationGroups, validateWorkflowGraph } from "@dofe-agent/domain";
 import { buildNovelProductionWorkflowGraph } from "./novel-production-template.ts";
 
-test("novel-production template is a valid acyclic two-round DAG", () => {
+test("novel-production template is valid and expresses convergence as a single iteration_group", () => {
   const graph = buildNovelProductionWorkflowGraph({ coordinatorEmployeeId: "emp-coord" });
   const result = validateWorkflowGraph(graph);
   assert.deepEqual(result.errors, []);
-  assert.equal(result.topologicalOrder.length, graph.nodes.length);
+
+  const convergence = graph.nodes.find((node) => node.id === "convergence");
+  assert.equal(convergence?.type, "iteration_group");
+  const config = convergence?.config as { maxRounds?: number; qualityGate?: { nodeId?: string; blockingField?: string }; overLimit?: string };
+  assert.equal(config.maxRounds, 2);
+  assert.equal(config.qualityGate?.nodeId, "consistency");
+  assert.equal(config.qualityGate?.blockingField, "blockingCount");
+  assert.equal(config.overLimit, "approval");
 });
 
-test("novel-production template fans out parallel art/script per round and converges", () => {
+test("compileWorkflowIterationGroups unrolls the convergence group into an acyclic DAG with approval", () => {
   const graph = buildNovelProductionWorkflowGraph({
     coordinatorEmployeeId: "emp-coord",
     artistEmployeeId: "emp-artist",
     scriptEmployeeId: "emp-script",
   });
-  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
-  assert.equal(byId.get("art-r1")?.employeeId, "emp-artist");
-  assert.equal(byId.get("script-r1")?.employeeId, "emp-script");
-  assert.equal(graph.edges.filter((edge) => edge.target === "round1-join").length, 2);
-  assert.equal(graph.edges.filter((edge) => edge.target === "round2-join").length, 2);
+  const compiled = compileWorkflowIterationGroups(graph);
+  const result = validateWorkflowGraph(compiled);
+  assert.deepEqual(result.errors, [], JSON.stringify(result.errors));
+
+  const ids = compiled.nodes.map((node) => node.id);
+  assert.ok(ids.includes("convergence.art-r1"));
+  assert.ok(ids.includes("convergence.script-r1"));
+  assert.ok(ids.includes("convergence.art-r2"));
+  assert.ok(ids.includes("convergence.script-r2"));
+  assert.ok(ids.includes("convergence.over-limit-approval"));
+
+  const artNode = compiled.nodes.find((node) => node.id === "convergence.art-r1");
+  assert.equal(artNode?.employeeId, "emp-artist");
 });

@@ -152,6 +152,7 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   workflow_graph_isolated_node: "存在未连接到主流程的步骤。",
   workflow_node_unreachable: "存在无法从起点到达的步骤。",
   workflow_graph_cycle: "流程中不能存在循环连接。",
+  workflow_iteration_group_invalid: "迭代组配置无效（轮数、质量门或循环体）。",
 
   // Definition lifecycle & control
   workflow_version_conflict: "草稿已被其他编辑者更新，请刷新后重试。",
