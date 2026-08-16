@@ -64,7 +64,7 @@
 
 - `32a1bb8a`：`WorkspaceModuleHost` 17 个页面客户端全部改 `next/dynamic` 按模块懒加载（路由 page.tsx 仍静态导入保证 SSR 直出），全量 vitest 144 文件 / 1,153 用例通过。
 - knowledge-page-client 四件套拆分（`2a86a772` + `95349d52` + `a9ada12a` + `cce1b274`）：1,580→1,114 行，子组件移出独立文件——`parse-task-panel.tsx`、`assignment-panel.tsx`、`document-page-viewer.tsx`、`knowledge-tree-node.tsx`。
-- 剩余：`agent-detail.tsx`(1,657) / `conversation-shell.tsx`(1,590) / `channels-page-client.tsx`(3,925) 文件内拆分 ⏳。
+- 剩余：`agent-detail.tsx`(1,657) / `conversation-shell.tsx`(1,590) 文件内拆分 ⏳（`channels-page-client.tsx` 3,925 行已拆，见 3.4-3）。
 
 ### 3.4-7 readTtl*Cache 重命名 —— ✅ 完成
 
@@ -187,12 +187,17 @@
 - **修复**：tarball 一次性下载入仓 `packages/services/vendor/xlsx-0.20.3.tgz`（2.3MB，sha512 记录于 `vendor/README.md`），依赖改 `file:vendor/xlsx-0.20.3.tgz`；lockfile 现固定 `integrity: sha512-...`，install 不再触网，构建可离线复现。README 含升级与校验步骤。
 - **验证**：xlsx 0.20.3 运行时导入与写入 OK、`parse-file.test.ts` 6/6、services `pnpm types` 干净。
 
+### 3.4-3 拆分 `channels-page-client.tsx` —— ✅ 完成
+
+- **改动**：3,925 行单文件拆为 2,091 行主组件 + 7 个域模块（shared 135 / model 604 / hooks 261 / icons 193 / modals 378 / views 559 / channel-workspace-header 376）；主文件保留 "use client"、原导入面与组件结构，跨模块导入全部生成后人工补齐。
+- **附带修复**：全量 vitest 暴露 3 个与拆分无关的滞留失败 —— `c46775bc` Prisma cutover 将 `markNotificationRead/archiveNotification/notifyWorkspaceAdmins` 改名 `*Async` 后，`inbox/actions.test.ts` 与 `cron/backup-recovery-drill/route.test.ts` 的 `vi.mock` 仍导出旧名。已补齐并改 `mockResolvedValue`（d105c02）。
+- **验证**：web `pnpm typecheck` 0 错误；channels 44/44、workspace-frame 35/35；修复后全量 vitest 144 文件 1,155 用例全绿。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
-| 3.4-3 | 拆分 `channels-page-client.tsx`（3,925 行） |
 | 3.4-5 | 评估部分静态渲染（全站 `force-dynamic`） |
 | 3.4-6 | i18n 无 key 体系迁移 |
 | 3.4-8 | 统一 34 个 page.tsx 样板 |

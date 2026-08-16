@@ -114,7 +114,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）** ✅：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。
 2. **【P1】代码分割** 🟡：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施），并同批处理 `agent-detail.tsx`/`conversation-shell.tsx`/`knowledge-page-client.tsx` 等超大客户端页的文件内拆分。
-3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）** ⏳：轮询/性能埋点/执行时间线/pin 逻辑已「文件内堆叠」，先抽 hooks 再抽子组件。
+3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）** ✅（f06b5af）：拆为 2,091 行主组件 + 7 个域模块（shared/model/hooks/icons/modals/views/header）。
 4. **【P2】关闭 `next.config.mjs` 的 `typescript.ignoreBuildErrors`** ✅：原为 `true` 时构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 不跑 typecheck）。应改为 `false` 让 `next build` 恢复类型检查，`prebuild` 继续提供更早的依赖与 Web 类型检查。
 5. **【P2】评估部分静态渲染** ⏳：全站 `force-dynamic`，但 `/platform`、设置只读 section、模板库等低个性化数据可评估 `revalidate` 或客户端缓存降载。
 6. **【P2】i18n 无 key 体系** ⏳：`tx(zh, en)` 内联双语 + `presentation.ts` 集中翻译，无字典/key 校验，翻译散落 90+ 调用点。>2 种语言或翻译平台协作时需迁移。
