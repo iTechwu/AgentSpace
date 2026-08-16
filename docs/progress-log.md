@@ -207,12 +207,18 @@
 - **不收敛范围**：带 searchParams / 自定义 loader options 的 im、settings、contacts、agents 及重定向页/详情页保持原样 —— 它们的样板差异不是纯样板而是页面逻辑。
 - **验证**：逐页 diff 对齐 render props（typecheck 抓出 automations 需补 workspaceId/workspaceSlug）；web `pnpm typecheck` 0 错误、全量 vitest 1,155/1,155。
 
+### 3.4-6 i18n 无 key 体系评估 —— ✅ 完成（结论：保持现状，记录迁移路径）
+
+- **现状盘点**：`LanguageProvider`（localStorage 持久化 zh/en）+ `tx(zh, en)` 内联三元；4,263 个 `tx(` 调用点 / 103 文件；`presentation.ts`（620 行）集中 ~20 个 `translate*(value, tx)` 枚举标签映射，测试齐全。
+- **结论（不迁移）**：仅 2 种语言时 `tx(zh, en)` 内联即**编译期类型安全字典**——两串同签名、无 key 漂移、无缺译运行时错误；4,263 调用点迁移成本巨大而当下收益为零。无 key 的真实代价（翻译平台协作、缺译检测、文案全量检索）仅在 >2 语言或外包翻译时兑现。
+- **迁移路径（若触发，已验证可行）**：`tx` 调用点是机械可提取源——codemod 将每对 `(zh, en)` 提取为字典条目（key 用 zh 串 slug 化），`tx` 签名不变、内部改查字典 → **调用面零改动**；`presentation.ts` 映射表天然就是字典片段；协作时字典导出 XLIFF/CSV。
+- **触发条件**：产品决定上线第 3 种语言，或引入翻译平台（Crowdin 等）协作。在此之前不投入。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
-| 3.4-6 | i18n 无 key 体系迁移 |
 | 3.4-8 | 统一 34 个 page.tsx 样板 |
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
 | 3.5-5 | sandbox 抽象决策收口（Cube `exec()` 未实现，`connectSandbox()` 无调用方） |
