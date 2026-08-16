@@ -135,7 +135,9 @@ export function deleteSkillDraftPrismaCutover(
 interface PrismaSkillDraftRow {
   workspaceId: string;
   skillId: string;
-  draftJson: string;
+  // 3.2-7 后 draft_json 列为 jsonb：写入侧仍收字符串，读回是 JsonValue，
+  // 统一字符串化以保持 SkillDraftRecord 的 string 契约。
+  draftJson: string | number | boolean | object | null;
   updatedByUserId: string | null;
   updatedAt: Date;
 }
@@ -144,7 +146,7 @@ function mapRowToRecord(row: PrismaSkillDraftRow): SkillDraftRecord {
   const record: SkillDraftRecord = {
     workspaceId: row.workspaceId,
     skillId: row.skillId,
-    draftJson: row.draftJson,
+    draftJson: typeof row.draftJson === "string" ? row.draftJson : JSON.stringify(row.draftJson ?? null),
     updatedAt: row.updatedAt.toISOString(),
   };
   if (row.updatedByUserId !== null) record.updatedByUserId = row.updatedByUserId;

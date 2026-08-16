@@ -252,56 +252,51 @@ model AgentAccessRequest {
   targetChannelName   String?   @map("target_channel_name")
   /// AgentAccessRequestStatus: pending|approved|rejected|cancelled.
   status              String    @default("pending")
-  reason              String
+  reason              String    @default("")
   resolverUserId      String?   @map("resolver_user_id")
   resolvedAt          DateTime? @map("resolved_at") @db.Timestamptz(6)
   createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @map("updated_at") @db.Timestamptz(6)
   forkInvitationId    String?   @map("fork_invitation_id")
-  auditDataJson       Json      @map("audit_data_json")
+  auditDataJson       Json      @default("{}") @map("audit_data_json")
 
   @@map("agent_access_request")
 }
 
 model Attachment {
-  id                  String    @id
   workspaceId         String    @map("workspace_id")
+  id                  String
   /// Optional link to the channel message that owns this attachment.
   messageId           String?   @map("message_id")
   channelName         String?   @map("channel_name")
-  speaker             String
+  speaker             String    @default("")
   /// "human" | "agent" | "system".
-  role                String
+  role                String    @default("")
   fileName            String    @map("file_name")
   /// MIME / media type (e.g. image/png, application/pdf).
-  mediaType           String?   @map("media_type")
-  sizeBytes           Int?      @map("size_bytes")
-  /// SHA-256 (or similar) content digest, hex-encoded.
-  contentDigest       String?   @map("content_digest")
+  mediaType           String    @map("media_type")
+  /// Legacy storage kind of the row (kept by the sync layer, unused by new code).
+  kind                String    @map("kind")
+  sizeBytes           BigInt    @default(0) @map("size_bytes")
   /// Local storage path inside the workspace data dir.
   storedPath          String    @map("stored_path")
-  /// Remote object-storage provider key (TOS / S3 / etc.).
-  storageProvider     String?   @map("storage_provider")
+  /// Remote object-storage provider key (TOS / S3 / etc.). CHECK-constrained to 'tos'.
+  storageProvider     String    @default("tos") @map("storage_provider")
   storageBucket       String?   @map("storage_bucket")
   storageRegion       String?   @map("storage_region")
   storageEndpoint     String?   @map("storage_endpoint")
-  storageKey          String?   @map("storage_key")
+  storageKey          String    @map("storage_key")
   storageUrl          String?   @map("storage_url")
-  /// Free-form note attached to the file at upload time.
-  note                String?
-  /// TUS resumable-upload id, if applicable.
-  uploadId            String?   @map("upload_id")
+  /// SHA-256 content digest, hex-encoded (legacy column name sha256).
+  contentDigest       String?   @map("sha256")
+  /// Legacy column kept as TEXT by the sync layer (not a real timestamp).
+  sourceMessageTime   String?   @map("source_message_time")
   /// Position in the owning message's attachment list (0-based).
-  sourceMessageIndex  Int       @map("source_message_index")
-  sourceMessageTime   DateTime? @map("source_message_time") @db.Timestamptz(6)
+  sourceMessageIndex  Int       @default(0) @map("source_message_index")
   sourceSummary       String?   @map("source_summary")
-  /// Set when the attachment has been logically deleted.
-  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
-  deletedByUserId     String?   @map("deleted_by_user_id")
-  deletedByDisplayName String?  @map("deleted_by_display_name")
   createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime  @map("updated_at") @db.Timestamptz(6)
 
+  @@id([workspaceId, id])
   @@map("attachment")
 }
 
@@ -312,26 +307,26 @@ model SkillServiceCatalog {
   templateVersion          String    @map("template_version")
   deploymentType           String    @map("deployment_type")
   imageDigest              String    @map("image_digest")
-  protocol                 String
-  scope                    String
-  resourcesJson            String    @map("resources_json")
-  healthJson               String    @map("health_json")
-  networkJson              String    @map("network_json")
-  configSchemaVersion      Int       @map("config_schema_version")
-  configSchemaJson         String    @map("config_schema_json")
-  secretFieldsJson         String    @map("secret_fields_json")
-  externalDependenciesJson String   @map("external_dependencies_json")
-  rollbackClass            String    @map("rollback_class")
+  protocol                 String    @default("http")
+  scope                    String    @default("workspace_runtime")
+  resourcesJson            Json      @default("{}") @map("resources_json")
+  healthJson               Json      @default("{}") @map("health_json")
+  networkJson              Json      @default("{}") @map("network_json")
+  configSchemaVersion      Int       @default(1) @map("config_schema_version")
+  configSchemaJson         Json      @default("{}") @map("config_schema_json")
+  secretFieldsJson         Json      @default("[]") @map("secret_fields_json")
+  externalDependenciesJson Json      @default("[]") @map("external_dependencies_json")
+  rollbackClass            String    @default("stateless") @map("rollback_class")
   templateDigest           String    @map("template_digest")
   sbomDigest               String?   @map("sbom_digest")
-  runAsNonRoot             Boolean   @map("run_as_non_root")
-  readOnlyRootfs           Boolean   @map("read_only_rootfs")
-  capDropJson              String    @map("cap_drop_json")
+  runAsNonRoot             Boolean   @default(false) @map("run_as_non_root")
+  readOnlyRootfs           Boolean   @default(true) @map("read_only_rootfs")
+  capDropJson              Json      @default("[\"ALL\"]") @map("cap_drop_json")
   /// Cosign public key (PEM) trusted to sign this template's image, when enforced.
   signatureKeyPem          String?   @map("signature_key_pem")
   /// When true the managed node MUST verify the image signature before pulling.
   signatureRequired        Boolean   @default(false) @map("signature_required")
-  risk                     String
+  risk                     String    @default("high")
   createdAt                DateTime  @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime  @map("updated_at") @db.Timestamptz(6)
 
@@ -342,7 +337,7 @@ model SkillServiceCatalog {
 model SkillDraft {
   workspaceId      String   @map("workspace_id")
   skillId          String   @map("skill_id")
-  draftJson        String   @map("draft_json")
+  draftJson        Json     @map("draft_json")
   updatedByUserId  String?  @map("updated_by_user_id")
   updatedAt        DateTime @map("updated_at") @db.Timestamptz(6)
 
@@ -359,12 +354,12 @@ model WorkflowDefinition {
   channelName      String?   @map("channel_name")
   /// "draft" | "published" | "paused" | "archived".
   status           String    @default("draft")
-  draftGraphJson   String    @map("draft_graph_json")
+  draftGraphJson   Json      @default("{\"edges\": [], \"nodes\": [], \"schemaVersion\": 1}") @map("draft_graph_json")
   draftVersion     Int       @default(0) @map("draft_version")
   activeVersionId  String?   @map("active_version_id")
   legacySourceType String?   @map("legacy_source_type")
   legacySourceId   String?   @map("legacy_source_id")
-  createdBy        String
+  createdBy        String    @map("created_by")
   createdAt        DateTime  @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @map("updated_at") @db.Timestamptz(6)
   archivedAt       DateTime? @map("archived_at") @db.Timestamptz(6)
@@ -420,16 +415,17 @@ model ChannelInvitation {
 }
 
 model Skill {
-  id          String    @id
-  workspaceId String    @map("workspace_id")
-  name        String
-  description String
+  id                   String    @id
+  workspaceId          String    @map("workspace_id")
+  name                 String
+  description          String    @default("")
   /// Source: github|local_upload|generated|...
-  sourceType  String?   @map("source_type")
-  sourceUrl   String?   @map("source_url")
-  configJson  String?   @map("config_json")
-  createdAt   DateTime  @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @map("updated_at") @db.Timestamptz(6)
+  sourceType           String    @default("manual") @map("source_type")
+  sourceUrl            String?   @map("source_url")
+  configJson           Json      @default("{}") @map("config_json")
+  activeArtifactDigest String?   @map("active_artifact_digest")
+  createdAt            DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @map("updated_at") @db.Timestamptz(6)
 
   @@map("skill")
 }
@@ -454,15 +450,16 @@ model WorkflowRun {
   triggerId       String?   @map("trigger_id")
   triggerType     String    @map("trigger_type")
   triggerKey      String    @map("trigger_key")
-  inputJson       String    @map("input_json")
-  status          String
-  currentSequence BigInt    @default(0) @map("current_sequence")
-  budgetJson      String    @map("budget_json")
+  inputJson       Json      @default("{}") @map("input_json")
+  status          String    @default("created")
+  currentSequence Int       @default(0) @map("current_sequence")
+  budgetJson      Json      @default("{}") @map("budget_json")
   startedAt       DateTime? @map("started_at") @db.Timestamptz(6)
   finishedAt      DateTime? @map("finished_at") @db.Timestamptz(6)
   createdBy       String    @map("created_by")
   createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @map("updated_at") @db.Timestamptz(6)
+  historySequence BigInt    @map("history_sequence")
 
   @@map("workflow_run")
 }
@@ -472,13 +469,13 @@ model WorkflowTrigger {
   workspaceId         String    @map("workspace_id")
   workflowId          String    @map("workflow_id")
   type                String
-  configJson          String    @map("config_json")
+  configJson          Json      @default("{}") @map("config_json")
   timezone            String?
-  status              String
+  status              String    @default("active")
   nextFireAt          DateTime? @map("next_fire_at") @db.Timestamptz(6)
   lastFireAt          DateTime? @map("last_fire_at") @db.Timestamptz(6)
-  misfirePolicy       String    @map("misfire_policy")
-  dedupeWindowSeconds Int       @map("dedupe_window_seconds")
+  misfirePolicy       String    @default("skip") @map("misfire_policy")
+  dedupeWindowSeconds Int       @default(0) @map("dedupe_window_seconds")
   leaseOwner          String?   @map("lease_owner")
   leaseExpiresAt      DateTime? @map("lease_expires_at") @db.Timestamptz(6)
   createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
@@ -495,17 +492,17 @@ model WorkflowNodeRun {
   nodeType              String    @map("node_type")
   employeeId            String?   @map("employee_id")
   employeeNameSnapshot  String?   @map("employee_name_snapshot")
-  status                String
-  attemptCount          Int       @map("attempt_count")
-  maxAttempts           Int       @map("max_attempts")
+  status                String    @default("pending")
+  attemptCount          Int       @default(0) @map("attempt_count")
+  maxAttempts           Int       @default(1) @map("max_attempts")
   availableAt           DateTime? @map("available_at") @db.Timestamptz(6)
   taskQueueId           String?   @map("task_queue_id")
   approvalId            String?   @map("approval_id")
   approvalDeadline      DateTime? @map("approval_deadline") @db.Timestamptz(6)
   approvalScanAfter     DateTime? @map("approval_scan_after") @db.Timestamptz(6)
-  inputJson             String    @map("input_json")
-  outputJson            String?   @map("output_json")
-  artifactManifestJson  String?   @map("artifact_manifest_json")
+  inputJson             Json      @default("{}") @map("input_json")
+  outputJson            Json?     @map("output_json")
+  artifactManifestJson  Json?     @map("artifact_manifest_json")
   errorCode             String?   @map("error_code")
   errorMessage          String?   @map("error_message")
   startedAt             DateTime? @map("started_at") @db.Timestamptz(6)
@@ -522,10 +519,10 @@ model WorkflowVersion {
   workflowId       String   @map("workflow_id")
   versionNumber    Int      @map("version_number")
   schemaVersion    Int      @map("schema_version")
-  graphJson        String   @map("graph_json")
-  inputSchemaJson  String   @map("input_schema_json")
-  outputSchemaJson String   @map("output_schema_json")
-  governanceJson   String   @map("governance_json")
+  graphJson        Json     @map("graph_json")
+  inputSchemaJson  Json     @default("{}") @map("input_schema_json")
+  outputSchemaJson Json     @default("{}") @map("output_schema_json")
+  governanceJson   Json     @default("{}") @map("governance_json")
   contentHash      String   @map("content_hash")
   publishedBy      String   @map("published_by")
   publishedAt      DateTime @map("published_at") @db.Timestamptz(6)
