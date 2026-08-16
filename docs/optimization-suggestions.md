@@ -128,7 +128,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 1. **【P0】删除 legacy 死代码** ✅：`provider-runtime.ts` 的 `runCodexProviderTaskAttempt` 与 `runClaudeProviderTask` 从未被调用（Codex/Claude 已全走 AgentRouter），`mapCodexExecEvent`/`mapClaudeEvent` 仅被死路径使用——约 550 行，且与 `agent-router/events.ts` 存在平行事件映射重复。
 2. **【P0】daemon-client blob 传输加超时** ✅：`getWorkspaceBlob`/`getWorkspaceBlobRange`/`uploadWorkspaceBlob` 的 fetch 没有 AbortSignal 超时（`requestJson` 有 10s），大文件传输断网会无限挂起。
 3. **【P1】版本号单一来源** ✅：`cli.ts` 硬编码 `"0.1.3"`（与 package.json 重复），建议构建注入或加测试断言。
-4. **【P1】拆分三大文件** 🟡（fc3bbe0 + 2cbad3c）：`remote-daemon.ts`(2,178→12 模块，最大 574)、`task-context.ts`(1,544→7 模块，最大 369) 已拆——原文件保留为 barrel 显式重导出原公共面，外部 import 零改动；余 `provider-runtime.ts`(1,820) 待拆。
+4. **【P1】拆分三大文件** ✅（fc3bbe0 + 2cbad3c + 4d25905）：`remote-daemon.ts`(2,178→12 模块，最大 574)、`task-context.ts`(1,544→7 模块，最大 369)、`provider-runtime.ts`(1,820→11 模块，最大 455) 全部拆毕——原文件保留为 barrel 显式重导出原公共面，外部 import 零改动。
 5. **【P1】sandbox 抽象决策收口** ✅（bbc935f）：移除未完成的 Cube provider（exec 数据面落地起未实现，双开关只会真建云沙箱后必抛）；`connectSandbox` 收口 local-only fail-closed。注：「`connectSandbox()` 无调用方」前提已过时——provider-runtime 两条执行路径一直在用 `Sandbox`/`LocalSandbox`。
 6. **【P2】构建/版本漂移** 🟡：esbuild `target` 与 engines 不一致；`remote-daemon.ts` 硬编码 `dofe/agent-runtime-${provider}:latest`（生产应锁 digest）；4 个默认模型名硬编码在 `provider-runtime.ts`。
 7. **【P2】测试路径与产物不对齐** ✅（f3e623b）：`dist-smoke.test.ts` 入 daemon 测试门——每次先 esbuild 重建再加载全部 6 个 dist 入口断言导出面/`--version`。首跑即抓到真实缺口：`preloaded-skill-sources.json` 未随 bundle 输出，`dist/dofe-agent.js`（tgz 部署入口）import 即 ENOENT；build.mjs 已补拷贝。
