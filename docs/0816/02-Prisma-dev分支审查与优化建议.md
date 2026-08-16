@@ -17,17 +17,20 @@ model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通
 
 ## 2. 发现与风险
 
-### P1：drift 门禁仍是列级 pilot，无法保护完整数据库契约
+### P1（已部分落地）：drift 门禁已覆盖 Prisma unique/index
 
-`packages/db/src/prisma-schema-drift.ts:18-61` 只查询 columns 和 primary keys；
-`packages/db/src/prisma/schema-contract.ts:20-29,98-136` 也只比较列、可空性、默认值和主键。
-当前门禁不会发现 unique/index、外键及 `onDelete`、check constraint、enum、partial index、
+`packages/db/src/prisma-schema-drift.ts` 现在同时读取非主键 PostgreSQL index，
+`packages/db/src/prisma/schema-contract.ts` 解析并比较字段级/复合 `@unique`、`@@unique` 和
+`@@index`。新增 `prisma:verify:contract` 命令与现有 pilot 使用同一入口，先补齐最容易
+发生且可由 Prisma 表达的约束漂移。
+
+当前门禁仍不会发现外键及 `onDelete`、check constraint、enum、partial index、
 trigger、function、view 或 migration 历史漂移。项目文档却将这些对象列为 Prisma 与自定义
 SQL 的共同边界。
 
 建议：拆成两个明确门禁：
 
-1. `prisma:verify:contract`：覆盖全部 model、unique/index、外键、枚举和删除动作；
+1. `prisma:verify:contract`：继续扩展到外键、枚举和删除动作；
 2. `postgres:verify:invariants`：查询并校验 trigger/function/view/partial index 等
    Prisma 不表达的对象。
 

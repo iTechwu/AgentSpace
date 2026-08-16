@@ -7,10 +7,16 @@ export interface PrismaColumnContract {
   primary: boolean;
 }
 
+export interface PrismaIndexContract {
+  columns: string[];
+  unique: boolean;
+}
+
 export interface PrismaModelContract {
   name: string;
   tableName: string;
   columns: PrismaColumnContract[];
+  indexes: PrismaIndexContract[];
 }
 
 export interface PrismaSchemaContract {
@@ -26,6 +32,11 @@ export interface PostgresSchemaSnapshot {
     hasDefault: boolean;
   }>;
   primaryKeys: Map<string, string[]>;
+  indexes?: Array<{
+    tableName: string;
+    columns: string[];
+    unique: boolean;
+  }>;
 }
 
 const SCALAR_TYPES = new Set([
@@ -92,7 +103,26 @@ function parseModel(
       primary: attributes.includes("@id") || compositePrimaryFields.has(fieldName),
     });
   }
-  return { name, tableName, columns };
+  const fieldToColumn = new Map(columns.map((column) => [column.fieldName, column.columnName]));
+  const indexes: PrismaIndexContract[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const field = line.match(/^(\w+)\s+\w+(?:\[\])?\??\s+.*@unique(?:\(|\s|$)/)?.[1];
+    if (field) {
+      const columnName = fieldToColumn.get(field);
+      if (columnName) indexes.push({ columns: [columnName], unique: true });
+    }
+    const composite = line.match(/^@@(unique|index)\(\[([^\]]+)\]/);
+    if (!composite?.[1] || !composite[2]) continue;
+    const columnsForIndex = composite[2]
+      .split(",")
+      .map((value) => fieldToColumn.get(value.trim()))
+      .filter((value): value is string => Boolean(value));
+    if (columnsForIndex.length > 0) {
+      indexes.push({ columns: columnsForIndex, unique: composite[1] === "unique" });
+    }
+  }
+  return { name, tableName, columns, indexes };
 }
 
 export function comparePrismaSchemaContract(
@@ -131,6 +161,15 @@ export function comparePrismaSchemaContract(
     const actualPrimary = snapshot.primaryKeys.get(model.tableName) ?? [];
     if (expectedPrimary.join("\0") !== actualPrimary.join("\0")) {
       drift.push(`${model.tableName}: expected primary key (${expectedPrimary.join(", ")}), received (${actualPrimary.join(", ")})`);
+    }
+    const actualIndexes = (snapshot.indexes ?? [])
+      .filter((index) => index.tableName === model.tableName)
+      .map((index) => `${index.unique ? "unique" : "index"}:${index.columns.join(",")}`);
+    for (const expectedIndex of model.indexes) {
+      const key = `${expectedIndex.unique ? "unique" : "index"}:${expectedIndex.columns.join(",")}`;
+      if (!actualIndexes.includes(key)) {
+        drift.push(`${model.tableName}: missing ${key}`);
+      }
     }
   }
   return drift;

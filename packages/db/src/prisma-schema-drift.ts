@@ -49,6 +49,29 @@ try {
       GROUP BY relation.relname`,
     [tableNames],
   );
+  const indexes = await client.query<{
+    table_name: string;
+    is_unique: boolean;
+    column_names: string[];
+  }>(
+    `SELECT relation.relname AS table_name,
+            index_record.indisunique AS is_unique,
+            array_agg(attribute.attname::text ORDER BY key_column.ordinality) AS column_names
+       FROM pg_index AS index_record
+       JOIN pg_class AS relation ON relation.oid = index_record.indrelid
+       JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+       JOIN LATERAL unnest(index_record.indkey)
+         WITH ORDINALITY AS key_column(attnum, ordinality) ON true
+       JOIN pg_attribute AS attribute
+         ON attribute.attrelid = relation.oid
+        AND attribute.attnum = key_column.attnum
+      WHERE namespace.nspname = current_schema()
+        AND relation.relname = ANY($1::text[])
+        AND NOT index_record.indisprimary
+      GROUP BY relation.relname, index_record.indexrelid, index_record.indisunique
+      ORDER BY relation.relname, index_record.indexrelid`,
+    [tableNames],
+  );
   const snapshot: PostgresSchemaSnapshot = {
     columns: columns.rows.map((column) => ({
       tableName: column.table_name,
@@ -58,14 +81,19 @@ try {
       hasDefault: column.column_default !== null,
     })),
     primaryKeys: new Map(primaryKeys.rows.map((row) => [row.table_name, row.column_names])),
+    indexes: indexes.rows.map((row) => ({
+      tableName: row.table_name,
+      columns: row.column_names,
+      unique: row.is_unique,
+    })),
   };
   const drift = comparePrismaSchemaContract(contract, snapshot);
   if (drift.length > 0) {
-    console.error("Prisma pilot schema drift detected:");
+    console.error("Prisma contract schema drift detected:");
     for (const finding of drift) console.error(`- ${finding}`);
     process.exitCode = 1;
   } else {
-    console.log(`Prisma pilot schema matches PostgreSQL (${contract.models.length} models).`);
+    console.log(`Prisma contract schema matches PostgreSQL (${contract.models.length} models).`);
   }
 } finally {
   await client.end().catch(() => undefined);

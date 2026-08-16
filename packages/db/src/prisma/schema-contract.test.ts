@@ -30,7 +30,27 @@ test("Prisma schema contract captures mapped columns and composite primary keys"
       { fieldName: "employeeId", columnName: "employee_id", prismaType: "String", required: true, hasDefault: false, primary: true },
       { fieldName: "note", columnName: "note", prismaType: "String", required: false, hasDefault: true, primary: false },
     ],
+    indexes: [],
   });
+});
+
+test("Prisma schema contract captures field and composite unique/index declarations", () => {
+  const contract = parsePrismaSchemaContract(`
+    model Membership {
+      id String @id
+      workspaceId String @map("workspace_id")
+      userId String @map("user_id") @unique
+      slug String
+      @@unique([workspaceId, slug])
+      @@index([workspaceId, userId])
+      @@map("membership")
+    }
+  `);
+  assert.deepEqual(contract.models[0]?.indexes, [
+    { columns: ["user_id"], unique: true },
+    { columns: ["workspace_id", "slug"], unique: true },
+    { columns: ["workspace_id", "user_id"], unique: false },
+  ]);
 });
 
 test("schema comparison reports type, nullability, default, and primary-key drift", () => {
@@ -49,6 +69,7 @@ test("schema comparison reports type, nullability, default, and primary-key drif
       { tableName: "audit_log", columnName: "data", dataType: "text", nullable: false, hasDefault: false },
     ],
     primaryKeys: new Map([["audit_log", []]]),
+    indexes: [],
   });
 
   assert.deepEqual(drift, [
@@ -58,4 +79,26 @@ test("schema comparison reports type, nullability, default, and primary-key drif
     "audit_log.data: expected a database default",
     "audit_log: expected primary key (id), received ()",
   ]);
+});
+
+test("schema comparison reports missing unique and regular indexes", () => {
+  const contract = parsePrismaSchemaContract(`
+    model Membership {
+      id String @id
+      workspaceId String @map("workspace_id")
+      userId String @map("user_id")
+      @@unique([workspaceId, userId])
+      @@map("membership")
+    }
+  `);
+  const drift = comparePrismaSchemaContract(contract, {
+    columns: [
+      { tableName: "membership", columnName: "id", dataType: "text", nullable: false, hasDefault: false },
+      { tableName: "membership", columnName: "workspace_id", dataType: "text", nullable: false, hasDefault: false },
+      { tableName: "membership", columnName: "user_id", dataType: "text", nullable: false, hasDefault: false },
+    ],
+    primaryKeys: new Map([["membership", ["id"]]]),
+    indexes: [],
+  });
+  assert.deepEqual(drift, ["membership: missing unique:workspace_id,user_id"]);
 });
