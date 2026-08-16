@@ -71,6 +71,8 @@ test("installSkillRolloutSync dispatches root + closure in one operation and con
   assert.equal(result.totalItems, 3);
   assert.equal(result.reusedCount, 0);
   assert.equal(result.planDigest.length, 64);
+  assert.equal(result.plan.planId, result.planId);
+  assert.equal(result.plan.planDigest, result.planDigest);
 
   const plan = readSkillRolloutPlanSync(result.planId, "default");
   assert.equal(plan?.decision, "approved");
@@ -99,4 +101,5 @@ test("installSkillRolloutSync reuses in-flight items and creates a fresh plan on
   assert.equal(second.createdCount, 0, "in-flight items are reused, not recreated");
   assert.equal(second.reusedCount, 2);
   assert.notEqual(second.planId, first.planId, "a fresh plan (re-approval) each run");
+  assert.equal(second.plan.planDigest, second.planDigest);
 });

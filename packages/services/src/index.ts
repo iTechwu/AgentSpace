@@ -666,6 +666,7 @@ export {
   versionSatisfies,
   type SkillRolloutTargetScope,
   type SkillRolloutPlan,
+  type SkillRolloutPersistedPlan,
   type SkillRolloutClosureEntry,
   type SkillRolloutSkippedDependency,
   type SkillRolloutItem,

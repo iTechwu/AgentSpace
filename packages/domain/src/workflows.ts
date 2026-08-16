@@ -277,8 +277,9 @@ function validateWorkflowIterationGroupConfig(
  * Compiles every `iteration_group` node into a statically-unrolled DAG the
  * current executor can run: `maxRounds` copies of the body, the round gate
  * feeding the next round's entry, and the final gate feeding an `approval`
- * (overLimit=approval) or ending at the gate (overLimit=fail). Early-exit when
- * the gate passes mid-loop is left to the future runtime loop executor.
+ * (overLimit=approval) or ending at the gate (overLimit=fail). The coordinator
+ * applies the `__iterationGate` marker after a gate completes to skip remaining
+ * rounds when the blocking field reaches zero.
  */
 export function compileWorkflowIterationGroups(graph: WorkflowGraphDefinition): WorkflowGraphDefinition {
   const nodes: WorkflowNodeDefinition[] = [];

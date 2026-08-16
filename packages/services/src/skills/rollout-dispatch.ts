@@ -6,6 +6,7 @@ import {
   computeSkillRolloutTargetRuntimesSync,
   finalizeSkillRolloutPlanSync,
   planSkillRollout,
+  type SkillRolloutPersistedPlan,
   type SkillRolloutTargetScope,
 } from "./rollout.ts";
 import { createSkillInstallationPlanSync } from "./installations.ts";
@@ -13,6 +14,8 @@ import { createSkillInstallationPlanSync } from "./installations.ts";
 export interface SkillRolloutDispatchResult {
   planId: string;
   planDigest: string;
+  /** The exact planner output bound to the persisted approval record. */
+  plan: SkillRolloutPersistedPlan;
   totalItems: number;
   requiredCount: number;
   createdCount: number;
@@ -68,6 +71,7 @@ export function installSkillRolloutSync(input: {
     return {
       planId: planRecord.id,
       planDigest: plan.planDigest,
+      plan: { ...plan, planId: planRecord.id },
       totalItems: plan.items.length,
       requiredCount: plan.requiredCount,
       createdCount: 0,
@@ -108,6 +112,7 @@ export function installSkillRolloutSync(input: {
   return {
     planId: planRecord.id,
     planDigest: plan.planDigest,
+    plan: { ...plan, planId: planRecord.id },
     totalItems: plan.items.length,
     requiredCount: plan.requiredCount,
     createdCount: createdInstallations.length,

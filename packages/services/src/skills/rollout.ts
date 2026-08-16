@@ -62,6 +62,11 @@ export interface SkillRolloutPlan {
   skipped: SkillRolloutSkippedDependency[];
 }
 
+/** Planner output after it has been persisted as an approval-scoped record. */
+export interface SkillRolloutPersistedPlan extends SkillRolloutPlan {
+  planId: string;
+}
+
 /* ------------------------------------------------------------------ */
 /* Version matching (minimal SemVer: exact, ^, ~, *)                   */
 /* ------------------------------------------------------------------ */
