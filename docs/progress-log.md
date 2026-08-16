@@ -214,6 +214,13 @@
 - **迁移路径（若触发，已验证可行）**：`tx` 调用点是机械可提取源——codemod 将每对 `(zh, en)` 提取为字典条目（key 用 zh 串 slug 化），`tx` 签名不变、内部改查字典 → **调用面零改动**；`presentation.ts` 映射表天然就是字典片段；协作时字典导出 XLIFF/CSV。
 - **触发条件**：产品决定上线第 3 种语言，或引入翻译平台（Crowdin 等）协作。在此之前不投入。
 
+### 3.5-8 `pollRemoteTasks` 轮询请求放大 —— ✅ 完成
+
+- **改动**（`9fd0836`）：操作队列 claim（app/MCP/skill/service/mount 五连级联）加空闲背压——级联全空后按 `operationClaimIntervalMs`（默认 15s，±20% 抖动）跳过后续级联，认领成功立即重置；**任务 claim 保持每 tick 一次**（用户延迟零回归）。空闲稳态请求量 6/tick/runtime → 1/tick。
+- **配置**：新 `--operation-claim-interval` flag / `DOFE_AGENT_OPERATION_CLAIM_INTERVAL` env（下限 1s），relaunch 参数与 help 同步；默认值常量收敛 `state.ts`。
+- **验证**：remote-daemon 35/35（新增背压 interval 解析 4 分支 + activity map 用例）、install-remote-daemon-script 9/9、daemon `pnpm types` 干净。
+- **不做合并端点的原因**：五队列响应形态/执行流各异，服务端合并 claim 需新 API + 兼容面；daemon 侧背压零 API 改动即达同等降噪。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |

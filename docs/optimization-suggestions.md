@@ -132,7 +132,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 5. **【P1】sandbox 抽象决策收口** ⏳：Cube `exec()` 未实现（`CUBE_EXEC_NOT_READY`，"TODO 46"）；`connectSandbox()` 当前无调用方，`Sandbox` 接口未被执行路径真正接线。要么完成 Cube envd/E2B 数据面，要么移除实验开关与 README 承诺，避免「看似可选实则不可用」的抽象。
 6. **【P2】构建/版本漂移** 🟡：esbuild `target` 与 engines 不一致；`remote-daemon.ts` 硬编码 `dofe/agent-runtime-${provider}:latest`（生产应锁 digest）；4 个默认模型名硬编码在 `provider-runtime.ts`。
 7. **【P2】测试路径与产物不对齐** ⏳：单测跑 TS 源码，`dist/`（esbuild 产物，含 CJS banner 注入兼容）不被单测覆盖，仅靠 e2e。建议加一个最小 smoke test 直接加载 `dist/*.js`。
-8. **【P2】轮询请求放大** ⏳：`pollRemoteTasks` 每 3s 每 runtime 最多 6 次 claim 请求，可合并为单一 claim 端点或加 jitter/背压。
+8. **【P2】轮询请求放大** ✅（9fd0836）：操作队列 claim 空闲背压（默认 15s ±20% 抖动，认领即重置），任务 claim 每 tick 不变；空闲稳态 6→1 请求/tick/runtime，零 API 改动。
 
 > 亮点（值得保留）：结构化错误类 + 错误码贯穿（`provider.*`/`harness.*`/`skill_runner.*`/`mcp.*`）、fail-closed 贯穿、逐 chunk 输出脱敏、Skill Runner Docker + iptables egress 双层强制、e2e docker 测试用 `DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1` 门禁自动 skip。
 
