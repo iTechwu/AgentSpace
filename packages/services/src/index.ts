@@ -674,6 +674,7 @@ export {
 } from "./skills/rollout.ts";
 export {
   installSkillRolloutSync,
+  SkillRolloutDispatchError,
   type SkillRolloutDispatchResult,
 } from "./skills/rollout-dispatch.ts";
 export {

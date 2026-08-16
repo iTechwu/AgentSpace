@@ -28,6 +28,26 @@ export interface SkillRolloutDispatchResult {
   }>;
 }
 
+/** Recoverable context for a partially dispatched rollout. */
+export class SkillRolloutDispatchError extends Error {
+  readonly planId: string;
+  readonly planDigest: string;
+  readonly createdInstallations: SkillRolloutDispatchResult["createdInstallations"];
+
+  constructor(input: {
+    planId: string;
+    planDigest: string;
+    createdInstallations: SkillRolloutDispatchResult["createdInstallations"];
+    cause?: unknown;
+  }) {
+    super(`Skill rollout dispatch failed for plan "${input.planId}".`, { cause: input.cause });
+    this.name = "SkillRolloutDispatchError";
+    this.planId = input.planId;
+    this.planDigest = input.planDigest;
+    this.createdInstallations = input.createdInstallations;
+  }
+}
+
 /**
  * G1 orchestration loop: one operation installs a root skill and its full
  * dependency closure onto the target runtimes.
@@ -87,27 +107,43 @@ export function installSkillRolloutSync(input: {
 
   const createdInstallations: SkillRolloutDispatchResult["createdInstallations"] = [];
   let reusedCount = 0;
-  for (const item of plan.items) {
-    if (item.state !== "pending") {
-      reusedCount += 1;
-      continue;
+  try {
+    for (const item of plan.items) {
+      if (item.state !== "pending") {
+        reusedCount += 1;
+        continue;
+      }
+      const installation = createSkillInstallationPlanSync({
+        workspaceId,
+        runtimeId: item.runtimeId,
+        artifactDigest: item.artifactDigest,
+        rolloutPlanId: planRecord.id,
+        requestedByUserId: input.requestedByUserId,
+      });
+      createdInstallations.push({
+        runtimeId: item.runtimeId,
+        artifactDigest: item.artifactDigest,
+        installationId: installation.id,
+        revision: installation.revision,
+      });
     }
-    const installation = createSkillInstallationPlanSync({
-      workspaceId,
-      runtimeId: item.runtimeId,
-      artifactDigest: item.artifactDigest,
-      rolloutPlanId: planRecord.id,
-      requestedByUserId: input.requestedByUserId,
-    });
-    createdInstallations.push({
-      runtimeId: item.runtimeId,
-      artifactDigest: item.artifactDigest,
-      installationId: installation.id,
-      revision: installation.revision,
+  } catch (error) {
+    throw new SkillRolloutDispatchError({
+      planId: planRecord.id,
+      planDigest: plan.planDigest,
+      createdInstallations,
+      cause: error,
     });
   }
 
-  finalizeSkillRolloutPlanSync(planRecord.id, workspaceId);
+  if (!finalizeSkillRolloutPlanSync(planRecord.id, workspaceId)) {
+    throw new SkillRolloutDispatchError({
+      planId: planRecord.id,
+      planDigest: plan.planDigest,
+      createdInstallations,
+      cause: new Error("Rollout plan could not be consumed after dispatch."),
+    });
+  }
 
   return {
     planId: planRecord.id,

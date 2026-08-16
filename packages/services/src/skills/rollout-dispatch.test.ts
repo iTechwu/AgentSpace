@@ -4,6 +4,7 @@ import { getDatabase, randomLikeId, readSkillRolloutPlanSync } from "@dofe-agent
 import {
   buildAndPersistSkillArtifactSync,
   installSkillRolloutSync,
+  SkillRolloutDispatchError,
   resetWorkspaceStateSync,
   setAttachmentStorageClientForTests,
 } from "../index.ts";
@@ -77,6 +78,24 @@ test("installSkillRolloutSync dispatches root + closure in one operation and con
   const plan = readSkillRolloutPlanSync(result.planId, "default");
   assert.equal(plan?.decision, "approved");
   assert.equal(typeof plan?.consumedAt, "string", "plan consumed after dispatch");
+});
+
+test("SkillRolloutDispatchError preserves reconcile context", () => {
+  const error = new SkillRolloutDispatchError({
+    planId: "plan-1",
+    planDigest: "digest-1",
+    createdInstallations: [{
+      runtimeId: "runtime-1",
+      artifactDigest: "artifact-1",
+      installationId: "installation-1",
+      revision: "v1",
+    }],
+    cause: new Error("child failed"),
+  });
+  assert.equal(error.name, "SkillRolloutDispatchError");
+  assert.equal(error.planId, "plan-1");
+  assert.equal(error.planDigest, "digest-1");
+  assert.equal(error.createdInstallations.length, 1);
 });
 
 test("installSkillRolloutSync reuses in-flight items and creates a fresh plan on re-run", () => {
