@@ -141,13 +141,21 @@
 - `4,878 行 → 190 行编排门面 + 15 个关注点模块`：629 条 DDL 按迁移阶段机械切分为 `postgres-schema/statements/01-11`（严格源顺序展开拼接，切分前后语句数组 sha256 完全一致 `b1bccc45267a3c7b`）；版本/锁常量、history 回填、计数器自愈、post-commit 在线索引各成模块。对外导出面不变。
 - 遗留（HEAD 存量，与拆分无关）：`postgres.test.ts` / `postgres-schema-version-guard.test.ts` / `database-schema-lock.test.ts` 三处仍锚 schema 版本 116/117（实际已到 120），均属 deferred 测试集，待随版本锚定机制一并修。
 
+### 3.2-3 消除双重行映射 —— ✅ 完成
+
+- **根因**：同步层 SQL 有 1,180 处不带引号的 `AS camelCase` 输出别名，PG 对不带引号标识符做小写折叠（`workspaceId` → `workspaceid`），无下划线的小写键机械 snake→camel 规则救不回，只能靠 worker 内 404 条 `NORMALIZED_ROW_KEY_ALIASES` 人工表恢复 —— 新别名漏登记即静默读 null（双重维护点，曾两次踩坑）。
+- **步骤 1（cec15928）**：1,180 处别名全部加引号（`AS "camelCase"`），PG 直接保留大小写，读侧拼写与人工表恢复结果完全一致；新增 `postgres-alias-drift-guard.test.ts` 源码扫描守卫（任何未引号 camelCase 别名即失败），入 db 默认测试门（308 default-owned）。顺带修掉 skill-drafts 写 cutover flag-off 用例借用共享库残留行的存量 flake（改自播种夹具）。
+- **步骤 2**：删除 `database.ts` worker 源里的 404 条人工别名表（文件 1,432 → 1,008 行），`normalizeRowKey` 收敛为纯机械 snake→camel 单路径；task-queue 规避注释同步更新。
+- **步骤 2 验证期补修（同根因两个变体）**：① 同语句内别名已引号化、但 `ORDER BY/GROUP BY/DISTINCT ON/USING` 后仍用裸 camelCase 引用 —— 折叠后与保留大小写的引号别名不匹配，直接报 `column does not exist`（db `skill-artifacts.ts` UNION 的 `ORDER BY skillId`、`mcp-center.ts` 子查询外层 `ORDER BY displayName`）；守卫已扩展覆盖该模式。② codemod 首轮只扫了 db 包与 2 个 services 源文件，**services 测试文件**里同样经 sync worker 发 SQL 的裸别名漏网（`connections.test.ts` 的 `AS keyVersion`、`capability-workflow.test.ts` 的 `AS metadataJson`），读侧得 undefined；已补引号并全仓扫描（api/web/apps 无残留）。顺带修复 coordinator.ts 双引号串内引号注入导致的 TS 解析错误（改模板字面量）。回归：db 全环绿、services 默认 69 文件全环 exit 0、db `pnpm types` 干净。
+- **新发现（未修，见下表 3.2-7）**：db `pretest` 的 `prisma:verify:pilot` 在 HEAD 存量红 —— pilot schema 与真实库 drift 70+ 条（attachment PK 变复合键、7 张表 jsonb/默认值滞后等），堵住整个 db 默认测试门，需按域重新对齐 pilot schema。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
-| 3.2-3 | 消除双重行映射（`AS` 别名 + worker 别名表漂移） |
 | 3.2-4 | 拆分 `external-integrations.ts`(2,576)/`types.ts`(2,219)/`mcp-center.ts`(1,467) |
 | 3.2-5 | 类型安全加固（Kysely 等轻量 typed query builder） |
+| 3.2-7 | pilot schema 重同步：`prisma:verify:pilot` 存量红（70+ 条 drift：attachment 复合主键/jsonb 列/默认值滞后），堵 db pretest 门 |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
 | 3.3-5 | 手写 `.d.ts` 孪生去重（`lark-cli.ts`/`.d.ts` 26 导出人工同步） |
 | 3.3-6 | `preloaded-skill-sources.ts` 176KB 内联字符串外置 |
