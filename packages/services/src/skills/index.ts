@@ -249,8 +249,10 @@ export {
 
 export {
   installSkillRolloutSync,
+  reconcileSkillRolloutPlanSync,
   SkillRolloutDispatchError,
   type SkillRolloutDispatchResult,
+  type SkillRolloutReconcileResult,
 } from "./rollout-dispatch.ts";
 
 export {

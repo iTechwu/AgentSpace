@@ -246,6 +246,28 @@ export const contentSkillServiceStatements: string[] = [
         ON skill_rollout_plan(workspace_id, plan_digest, created_at DESC)
     `,
     `
+      CREATE TABLE IF NOT EXISTS skill_rollout_reconcile_item (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        plan_id TEXT NOT NULL REFERENCES skill_rollout_plan(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL,
+        artifact_digest TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'created', 'failed')),
+        installation_id TEXT,
+        revision TEXT,
+        error_code TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(plan_id, runtime_id, artifact_digest)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_rollout_reconcile_plan_status
+        ON skill_rollout_reconcile_item(plan_id, status, updated_at DESC)
+    `,
+    `
       ALTER TABLE skill_installation
         ADD COLUMN IF NOT EXISTS rollout_plan_id TEXT
           REFERENCES skill_rollout_plan(id) ON DELETE SET NULL
@@ -499,4 +521,3 @@ export const contentSkillServiceStatements: string[] = [
         WHERE released_at IS NULL
     `,
 ];
-

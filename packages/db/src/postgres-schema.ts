@@ -115,6 +115,8 @@ export const POSTGRES_TABLE_NAMES = [
   "skill_install_approval",
   "skill_installation_component",
   "skill_runner_invocation",
+  "skill_rollout_plan",
+  "skill_rollout_reconcile_item",
   "workspace_git_credential",
   "pager_alert_state",
   "skill_draft",

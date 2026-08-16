@@ -1,6 +1,11 @@
 import {
   createSkillRolloutPlanSync,
   decideSkillRolloutPlanSync,
+  getDatabase,
+  initializeSkillRolloutReconcileItemsSync,
+  listSkillRolloutReconcileItemsSync,
+  markSkillRolloutReconcileItemSync,
+  readSkillRolloutPlanSync,
 } from "@dofe-agent/db";
 import {
   computeSkillRolloutTargetRuntimesSync,
@@ -28,6 +33,15 @@ export interface SkillRolloutDispatchResult {
   }>;
 }
 
+export interface SkillRolloutReconcileResult {
+  planId: string;
+  planDigest: string;
+  createdInstallations: SkillRolloutDispatchResult["createdInstallations"];
+  reusedCount: number;
+  items: ReturnType<typeof listSkillRolloutReconcileItemsSync>;
+  consumed: boolean;
+}
+
 /** Recoverable context for a partially dispatched rollout. */
 export class SkillRolloutDispatchError extends Error {
   readonly planId: string;
@@ -46,6 +60,83 @@ export class SkillRolloutDispatchError extends Error {
     this.planDigest = input.planDigest;
     this.createdInstallations = input.createdInstallations;
   }
+}
+
+/** Re-enters a pending/failed plan and records every item transition durably. */
+export function reconcileSkillRolloutPlanSync(input: {
+  planId: string;
+  workspaceId?: string;
+  requestedByUserId?: string;
+}): SkillRolloutReconcileResult {
+  const workspaceId = input.workspaceId ?? "default";
+  const planRecord = readSkillRolloutPlanSync(input.planId, workspaceId);
+  if (!planRecord) throw new Error("skill_rollout_plan_not_found");
+  if (planRecord.decision !== "approved") throw new Error("skill_rollout_plan_not_approved");
+  let items = listSkillRolloutReconcileItemsSync(input.planId, workspaceId);
+  if (items.length === 0) throw new Error("skill_rollout_reconcile_items_missing");
+  const createdInstallations: SkillRolloutDispatchResult["createdInstallations"] = [];
+  const reusedCount = items.filter((item) => item.status === "created").length;
+
+  for (const item of items) {
+    if (item.status === "created") continue;
+    try {
+      const runtime = getDatabase().prepare(
+        `SELECT workspace_id AS "workspaceId", status FROM agent_runtime WHERE id = ?`,
+      ).get(item.runtimeId) as { workspaceId?: string; status?: string } | undefined;
+      if (!runtime || runtime.workspaceId !== workspaceId) {
+        throw new Error(`runtime_not_found:${item.runtimeId}`);
+      }
+      if (runtime.status !== "online") {
+        throw new Error(`runtime_not_online:${item.runtimeId}`);
+      }
+      const installation = createSkillInstallationPlanSync({
+        workspaceId,
+        runtimeId: item.runtimeId,
+        artifactDigest: item.artifactDigest,
+        rolloutPlanId: input.planId,
+        requestedByUserId: input.requestedByUserId,
+      });
+      markSkillRolloutReconcileItemSync({
+        id: item.id,
+        workspaceId,
+        status: "created",
+        installationId: installation.id,
+        revision: installation.revision,
+      });
+      createdInstallations.push({
+        runtimeId: item.runtimeId,
+        artifactDigest: item.artifactDigest,
+        installationId: installation.id,
+        revision: installation.revision,
+      });
+    } catch (error) {
+      const errorCode = error instanceof Error ? error.message : "skill_rollout_reconcile_failed";
+      markSkillRolloutReconcileItemSync({ id: item.id, workspaceId, status: "failed", errorCode });
+      throw new SkillRolloutDispatchError({
+        planId: input.planId,
+        planDigest: planRecord.planDigest,
+        createdInstallations,
+        cause: error,
+      });
+    }
+  }
+
+  items = listSkillRolloutReconcileItemsSync(input.planId, workspaceId);
+  const finalized = items.length > 0 && items.every((item) => item.status === "created")
+    && finalizeSkillRolloutPlanSync(input.planId, workspaceId);
+  // Another worker may consume the same plan between our read and finalize.
+  // Re-read the row so concurrent idempotent retries converge on success.
+  const consumed = items.length > 0 && items.every((item) => item.status === "created")
+    && (Boolean(planRecord.consumedAt) || finalized || Boolean(readSkillRolloutPlanSync(input.planId, workspaceId)?.consumedAt));
+  if (!consumed) {
+    throw new SkillRolloutDispatchError({
+      planId: input.planId,
+      planDigest: planRecord.planDigest,
+      createdInstallations,
+      cause: new Error("Rollout plan could not be consumed after reconcile."),
+    });
+  }
+  return { planId: input.planId, planDigest: planRecord.planDigest, createdInstallations, reusedCount, items, consumed };
 }
 
 /**
@@ -86,6 +177,16 @@ export function installSkillRolloutSync(input: {
     targetRuntimesJson: JSON.stringify(targetRuntimes),
     riskSummaryJson: JSON.stringify(plan.risks),
   });
+  initializeSkillRolloutReconcileItemsSync({
+    workspaceId,
+    planId: planRecord.id,
+    items: plan.items.map((item) => ({
+      runtimeId: item.runtimeId,
+      artifactDigest: item.artifactDigest,
+      status: item.state === "pending" ? "pending" : "created",
+      revision: item.state === "pending" ? undefined : item.revision,
+    })),
+  });
 
   if (!approve) {
     return {
@@ -105,54 +206,24 @@ export function installSkillRolloutSync(input: {
     throw new Error("Rollout plan 无法批准（可能已决定或不存在）。");
   }
 
-  const createdInstallations: SkillRolloutDispatchResult["createdInstallations"] = [];
-  let reusedCount = 0;
   try {
-    for (const item of plan.items) {
-      if (item.state !== "pending") {
-        reusedCount += 1;
-        continue;
-      }
-      const installation = createSkillInstallationPlanSync({
-        workspaceId,
-        runtimeId: item.runtimeId,
-        artifactDigest: item.artifactDigest,
-        rolloutPlanId: planRecord.id,
-        requestedByUserId: input.requestedByUserId,
-      });
-      createdInstallations.push({
-        runtimeId: item.runtimeId,
-        artifactDigest: item.artifactDigest,
-        installationId: installation.id,
-        revision: installation.revision,
-      });
-    }
+    const reconciled = reconcileSkillRolloutPlanSync({
+      planId: planRecord.id,
+      workspaceId,
+      requestedByUserId: input.requestedByUserId,
+    });
+    return {
+      planId: planRecord.id,
+      planDigest: plan.planDigest,
+      plan: { ...plan, planId: planRecord.id },
+      totalItems: plan.items.length,
+      requiredCount: plan.requiredCount,
+      createdCount: reconciled.createdInstallations.length,
+      reusedCount: reconciled.reusedCount,
+      createdInstallations: reconciled.createdInstallations,
+    };
   } catch (error) {
-    throw new SkillRolloutDispatchError({
-      planId: planRecord.id,
-      planDigest: plan.planDigest,
-      createdInstallations,
-      cause: error,
-    });
+    if (error instanceof SkillRolloutDispatchError) throw error;
+    throw new SkillRolloutDispatchError({ planId: planRecord.id, planDigest: plan.planDigest, createdInstallations: [], cause: error });
   }
-
-  if (!finalizeSkillRolloutPlanSync(planRecord.id, workspaceId)) {
-    throw new SkillRolloutDispatchError({
-      planId: planRecord.id,
-      planDigest: plan.planDigest,
-      createdInstallations,
-      cause: new Error("Rollout plan could not be consumed after dispatch."),
-    });
-  }
-
-  return {
-    planId: planRecord.id,
-    planDigest: plan.planDigest,
-    plan: { ...plan, planId: planRecord.id },
-    totalItems: plan.items.length,
-    requiredCount: plan.requiredCount,
-    createdCount: createdInstallations.length,
-    reusedCount,
-    createdInstallations,
-  };
 }

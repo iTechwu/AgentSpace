@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
 import test, { before, beforeEach } from "node:test";
-import { getDatabase, randomLikeId, readSkillRolloutPlanSync } from "@dofe-agent/db";
+import {
+  decideSkillRolloutPlanSync,
+  getDatabase,
+  listSkillRolloutReconcileItemsSync,
+  randomLikeId,
+  readSkillRolloutPlanSync,
+} from "@dofe-agent/db";
 import {
   buildAndPersistSkillArtifactSync,
   installSkillRolloutSync,
+  reconcileSkillRolloutPlanSync,
   SkillRolloutDispatchError,
   resetWorkspaceStateSync,
   setAttachmentStorageClientForTests,
@@ -121,4 +128,37 @@ test("installSkillRolloutSync reuses in-flight items and creates a fresh plan on
   assert.equal(second.reusedCount, 2);
   assert.notEqual(second.planId, first.planId, "a fresh plan (re-approval) each run");
   assert.equal(second.plan.planDigest, second.planDigest);
+});
+
+test("reconcile persists a failed item and retries it to a consumed plan", () => {
+  const runtimeId = createRuntime();
+  const root = buildArtifact({ name: "reconcile-root", coordinate: "github:owner/repo/skills/reconcile-root" });
+  const pending = installSkillRolloutSync({
+    rootArtifactDigest: root.digest,
+    targetScope: { kind: "runtimes", runtimeIds: [runtimeId] },
+    approve: false,
+  });
+  assert.equal(decideSkillRolloutPlanSync(pending.planId, "default", "approved"), true);
+  getDatabase().prepare("UPDATE agent_runtime SET status = 'offline' WHERE id = ?").run(runtimeId);
+
+  assert.throws(
+    () => reconcileSkillRolloutPlanSync({ planId: pending.planId }),
+    (error: unknown) => error instanceof SkillRolloutDispatchError,
+  );
+  const failed = listSkillRolloutReconcileItemsSync(pending.planId, "default");
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0]?.status, "failed");
+  assert.equal(failed[0]?.attemptCount, 1);
+
+  getDatabase().prepare("UPDATE agent_runtime SET status = 'online' WHERE id = ?").run(runtimeId);
+  const retried = reconcileSkillRolloutPlanSync({ planId: pending.planId });
+  assert.equal(retried.consumed, true);
+  assert.equal(retried.items[0]?.status, "created");
+  assert.equal(retried.items[0]?.attemptCount, 2);
+  assert.equal(typeof readSkillRolloutPlanSync(pending.planId, "default")?.consumedAt, "string");
+
+  const repeated = reconcileSkillRolloutPlanSync({ planId: pending.planId });
+  assert.equal(repeated.consumed, true);
+  assert.equal(repeated.createdInstallations.length, 0);
+  assert.equal(repeated.reusedCount, 1);
 });

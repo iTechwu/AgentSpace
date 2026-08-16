@@ -1235,6 +1235,12 @@ export {
   consumeSkillRolloutPlanSync,
   type CreateSkillRolloutPlanInput,
 } from "./skill-rollout-plans.ts";
+export {
+  initializeSkillRolloutReconcileItemsSync,
+  listSkillRolloutReconcileItemsSync,
+  markSkillRolloutReconcileItemSync,
+  type InitializeSkillRolloutReconcileItemsInput,
+} from "./skill-rollout-reconcile.ts";
 export type {
   StoredSkillInstallationRecord,
   StoredSkillInstallationComponentRecord,
@@ -1243,6 +1249,7 @@ export type {
   SkillInstallApprovalRecord,
   SkillInstallApprovalRiskItem,
   SkillRolloutPlanRecord,
+  SkillRolloutReconcileItemRecord,
   SkillRunnerInvocationRecord,
   WorkspaceGitCredentialRecord,
   PagerAlertStateRecord,

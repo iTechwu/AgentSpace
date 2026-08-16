@@ -213,6 +213,21 @@ export interface SkillRolloutPlanRecord {
   consumedAt?: string;
 }
 
+export interface SkillRolloutReconcileItemRecord {
+  id: string;
+  workspaceId: string;
+  planId: string;
+  runtimeId: string;
+  artifactDigest: string;
+  status: "pending" | "created" | "failed";
+  installationId?: string;
+  revision?: string;
+  errorCode?: string;
+  attemptCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SkillUpgradeApprovalRecord {
   id: string;
   workspaceId: string;
