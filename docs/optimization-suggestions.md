@@ -108,7 +108,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串** ✅：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
 7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）** ⏳：继续按域拆子路径（`/workflows`、`/skills`…），收窄 web/daemon 的 200+ 处 import。
 8. **【P2】测试门覆盖不均** 🟡：门内只含 runtime-maintenance/skills/mcp-center/skill-services/openmontage/workflows/attachments；`permissions`、`employees`、`documents`、`messages`、`knowledge` 等核心域无自动测试门，建议把 verify 脚本的 COVERED_PREFIXES 扩到这些域。
-9. **【P3】供应链** ⏳：`xlsx` 依赖是 CDN tarball URL（`cdn.sheetjs.com`）非 registry 包，建议评估锁定与镜像策略。
+9. **【P3】供应链** ✅（vendored file: + integrity 锁定）：`xlsx` 依赖是 CDN tarball URL（`cdn.sheetjs.com`）非 registry 包，建议评估锁定与镜像策略。
 
 ### 3.4 Web 前端（apps/web，Next.js 16）
 

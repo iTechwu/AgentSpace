@@ -181,12 +181,17 @@
 - **加载方式**：运行时 `readFileSync`（服务端专用包）—— tsc/declaration 不解析整份 JSON，dist-types 不引用数据文件，无 import-attributes 兼容面。
 - **验证**：冒烟 3 entries 加载、SKILL.md 内容完整（1631/13167/7848B）、finder 命中「金融分析代理」；services `pnpm types` 与 web `pnpm typecheck` 干净。
 
+### 3.3-9 `xlsx` CDN tarball 供应链锁定 —— ✅ 完成
+
+- **缺口**：SheetJS 0.20.x 只经自有 CDN 分发（npm registry 停留在 0.18.5），services 依赖为 `https://cdn.sheetjs.com/...tgz` URL 形态；实测 pnpm 对 URL tarball 依赖**不记录 integrity**（`--lockfile-only` 重生成后 lockfile 仍无 hash），每次 `pnpm install` 都重新信任 CDN 当下返回的字节。
+- **修复**：tarball 一次性下载入仓 `packages/services/vendor/xlsx-0.20.3.tgz`（2.3MB，sha512 记录于 `vendor/README.md`），依赖改 `file:vendor/xlsx-0.20.3.tgz`；lockfile 现固定 `integrity: sha512-...`，install 不再触网，构建可离线复现。README 含升级与校验步骤。
+- **验证**：xlsx 0.20.3 运行时导入与写入 OK、`parse-file.test.ts` 6/6、services `pnpm types` 干净。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
-| 3.3-9 | `xlsx` CDN tarball 供应链锁定 |
 | 3.4-3 | 拆分 `channels-page-client.tsx`（3,925 行） |
 | 3.4-5 | 评估部分静态渲染（全站 `force-dynamic`） |
 | 3.4-6 | i18n 无 key 体系迁移 |
