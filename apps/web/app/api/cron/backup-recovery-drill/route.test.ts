@@ -5,7 +5,7 @@ const db = vi.hoisted(() => ({
 }));
 const services = vi.hoisted(() => ({
   runBackupRestoreDrillRunSync: vi.fn(),
-  notifyWorkspaceAdminsSync: vi.fn(),
+  notifyWorkspaceAdminsAsync: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/db", () => db);
@@ -76,7 +76,7 @@ describe("backup-recovery drill cron route", () => {
     expect(services.runBackupRestoreDrillRunSync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: "ws-2", trigger: "cron" }),
     );
-    expect(services.notifyWorkspaceAdminsSync).not.toHaveBeenCalled();
+    expect(services.notifyWorkspaceAdminsAsync).not.toHaveBeenCalled();
   });
 
   it("returns 503 and notifies admins when any workspace fails", async () => {
@@ -90,7 +90,7 @@ describe("backup-recovery drill cron route", () => {
       headers: { authorization: "Bearer expected-secret" },
     }));
     expect(response.status).toBe(503);
-    expect(services.notifyWorkspaceAdminsSync).toHaveBeenCalledWith(
+    expect(services.notifyWorkspaceAdminsAsync).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: "ws-2", resourceType: "data_protection" }),
     );
   });

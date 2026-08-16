@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockArchiveNotificationSync,
-  mockMarkNotificationReadSync,
+  mockArchiveNotificationAsync,
+  mockMarkNotificationReadAsync,
   mockReadWorkspaceStateSync,
   mockRequireCurrentWorkspaceContext,
   mockRevalidateWorkspacePaths,
   mockUpdateTaskStatusSync,
 } = vi.hoisted(() => ({
-  mockArchiveNotificationSync: vi.fn(),
-  mockMarkNotificationReadSync: vi.fn(),
+  mockArchiveNotificationAsync: vi.fn(),
+  mockMarkNotificationReadAsync: vi.fn(),
   mockReadWorkspaceStateSync: vi.fn(),
   mockRequireCurrentWorkspaceContext: vi.fn(),
   mockRevalidateWorkspacePaths: vi.fn(),
@@ -17,8 +17,8 @@ const {
 }));
 
 vi.mock("@dofe-agent/services", () => ({
-  archiveNotificationSync: mockArchiveNotificationSync,
-  markNotificationReadSync: mockMarkNotificationReadSync,
+  archiveNotificationAsync: mockArchiveNotificationAsync,
+  markNotificationReadAsync: mockMarkNotificationReadAsync,
   readWorkspaceStateSync: mockReadWorkspaceStateSync,
   sameValue: (left: string, right: string) => left.toLocaleLowerCase() === right.toLocaleLowerCase(),
   updateTaskStatusSync: mockUpdateTaskStatusSync,
@@ -40,15 +40,15 @@ import {
 
 describe("inbox actions", () => {
   beforeEach(() => {
-    mockArchiveNotificationSync.mockReset();
-    mockMarkNotificationReadSync.mockReset();
+    mockArchiveNotificationAsync.mockReset();
+    mockMarkNotificationReadAsync.mockReset();
     mockReadWorkspaceStateSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockReset();
     mockRevalidateWorkspacePaths.mockReset();
     mockUpdateTaskStatusSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext());
-    mockMarkNotificationReadSync.mockReturnValue({ id: "notification-1" });
-    mockArchiveNotificationSync.mockReturnValue({ id: "notification-1" });
+    mockMarkNotificationReadAsync.mockResolvedValue({ id: "notification-1" });
+    mockArchiveNotificationAsync.mockResolvedValue({ id: "notification-1" });
   });
 
   it("returns a targeted invalidation hint when updating task status", async () => {
@@ -73,7 +73,7 @@ describe("inbox actions", () => {
   it("returns a targeted invalidation hint when marking notifications read", async () => {
     const result = await markInboxNotificationReadAction("notification:notification-1");
 
-    expect(mockMarkNotificationReadSync).toHaveBeenCalledWith({
+    expect(mockMarkNotificationReadAsync).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       notificationId: "notification-1",
       recipient: {
@@ -91,7 +91,7 @@ describe("inbox actions", () => {
   it("returns a targeted invalidation hint when archiving notifications", async () => {
     const result = await archiveInboxNotificationAction("notification-1");
 
-    expect(mockArchiveNotificationSync).toHaveBeenCalledWith({
+    expect(mockArchiveNotificationAsync).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       notificationId: "notification-1",
       recipient: {
