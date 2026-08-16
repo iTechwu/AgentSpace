@@ -40,7 +40,7 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // 原型 + Prisma 真接入) into the db default test command via the regex rule
 // above. Reviewed and confirmed all 8 belong in default coverage; deferred set
 // shrinks to 179.
-const EXPECTED_DEFERRED_DIGEST = "7cdb31934b457c4a14ab5ce2798e0138ae5ce98f14c35dc922a8bfa6ef8f5f54";
+const EXPECTED_DEFERRED_DIGEST = "13cc97faa1008240abec1ee267a4d4b86d004b6d6d2832d264d21ff107cc71d9";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
