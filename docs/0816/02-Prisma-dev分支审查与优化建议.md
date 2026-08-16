@@ -74,14 +74,15 @@ affected rows、错误类别、幂等、并发和事件顺序对照后，才允�
 `last-known-good` flag 配置，发生 mismatch、fallback 或容量异常时自动生成回滚建议（最终
 动作仍由发布系统确认）。
 
-### P2：Raw SQL 已参数化，但缺少持续策略门禁
+### P2（已部分完成）：Raw SQL 已参数化并增加 Unsafe 门禁
 
 `packages/db/src/prisma` 当前约有 15 处 `$queryRaw/$executeRaw`，分布在 8 个文件；未发现
-`$queryRawUnsafe/$executeRawUnsafe`。现状没有问题的直接证据，但随着复杂域迁移，参数化、
-返回类型、事务和超时约束容易被新代码绕过。
+`$queryRawUnsafe/$executeRawUnsafe`。现已增加
+`packages/db/scripts/verify-prisma-raw-sql.mjs`，并接入 `packages/db/package.json` 的
+`pretest`，后续新增 Unsafe API 会直接阻断 DB 测试门。
 
-建议：增加 lint/CI 规则禁止 Unsafe API；要求每个 raw query 旁有用途和索引说明，返回值有
-显式类型，写入必须说明事务/幂等语义，并增加 SQL 审计清单和慢查询回归测试。
+剩余建议：继续要求每个 raw query 旁有用途和索引说明，返回值有显式类型，写入说明事务/
+幂等语义，并增加 SQL 审计清单和慢查询回归测试。
 
 ## 3. 推荐落地顺序
 
