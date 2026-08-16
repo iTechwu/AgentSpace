@@ -2,14 +2,14 @@ import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import type { SkillRunnerInvocationRecord } from "./types.ts";
 
 const INVOCATION_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, task_id AS taskId, runtime_id AS runtimeId,
-  installation_id AS installationId, skill_id AS skillId, skill_name AS skillName,
-  artifact_digest AS artifactDigest, revision,
-  entrypoint_id AS entrypointId, entrypoint_key AS entrypointKey,
-  entrypoint_path AS entrypointPath, entrypoint_runtime AS entrypointRuntime,
-  actor_id AS actorId, actor_type AS actorType,
-  result_code AS resultCode, timed_out AS timedOut, duration_ms AS durationMs,
-  safe_summary AS safeSummary, event_id AS eventId, created_at AS createdAt`;
+  id, workspace_id AS "workspaceId", task_id AS "taskId", runtime_id AS "runtimeId",
+  installation_id AS "installationId", skill_id AS "skillId", skill_name AS "skillName",
+  artifact_digest AS "artifactDigest", revision,
+  entrypoint_id AS "entrypointId", entrypoint_key AS "entrypointKey",
+  entrypoint_path AS "entrypointPath", entrypoint_runtime AS "entrypointRuntime",
+  actor_id AS "actorId", actor_type AS "actorType",
+  result_code AS "resultCode", timed_out AS "timedOut", duration_ms AS "durationMs",
+  safe_summary AS "safeSummary", event_id AS "eventId", created_at AS "createdAt"`;
 
 export interface RecordSkillRunnerInvocationInput {
   workspaceId?: string;

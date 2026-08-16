@@ -2,10 +2,10 @@ import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import type { SkillUpgradeApprovalRecord } from "./types.ts";
 
 const APPROVAL_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, skill_id AS skillId,
-  from_digest AS fromDigest, to_digest AS toDigest, diff_hash AS diffHash,
-  policy_version AS policyVersion, decision, reason,
-  actor_user_id AS actorUserId, created_at AS createdAt, consumed_at AS consumedAt`;
+  id, workspace_id AS "workspaceId", skill_id AS "skillId",
+  from_digest AS "fromDigest", to_digest AS "toDigest", diff_hash AS "diffHash",
+  policy_version AS "policyVersion", decision, reason,
+  actor_user_id AS "actorUserId", created_at AS "createdAt", consumed_at AS "consumedAt"`;
 
 export interface CreateSkillUpgradeApprovalInput {
   workspaceId?: string;

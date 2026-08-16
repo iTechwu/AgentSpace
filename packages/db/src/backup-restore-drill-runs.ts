@@ -16,13 +16,13 @@ export interface CreateBackupRestoreDrillRunInput {
 }
 
 const DRILL_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, drill_type AS drillType, trigger,
-  status, started_at AS startedAt, finished_at AS finishedAt,
-  sample_count AS sampleCount, success_count AS successCount, failure_count AS failureCount,
-  result_json AS resultJson, error_message AS errorMessage,
-  restore_point_at AS restorePointAt, source_snapshot AS sourceSnapshot,
-  restore_environment AS restoreEnvironment, restore_duration_ms AS restoreDurationMs,
-  created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", drill_type AS "drillType", trigger,
+  status, started_at AS "startedAt", finished_at AS "finishedAt",
+  sample_count AS "sampleCount", success_count AS "successCount", failure_count AS "failureCount",
+  result_json AS "resultJson", error_message AS "errorMessage",
+  restore_point_at AS "restorePointAt", source_snapshot AS "sourceSnapshot",
+  restore_environment AS "restoreEnvironment", restore_duration_ms AS "restoreDurationMs",
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 export function createBackupRestoreDrillRunSync(
   input: CreateBackupRestoreDrillRunInput,

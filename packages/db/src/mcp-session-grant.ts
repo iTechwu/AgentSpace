@@ -30,7 +30,7 @@ export interface McpTaskAuditAuthorizationRecord {
 }
 
 // Keep the raw snake_case column names: the worker's normalizeRowKey converts
-// them to camelCase (task_id → taskId), while an `AS taskId` alias would come
+// them to camelCase (task_id → taskId), while an `AS "taskId"` alias would come
 // back lower-cased (taskid) and miss the alias map, breaking the mapper.
 const MCP_TASK_SESSION_GRANT_COLUMNS = `SELECT
   task_id, workspace_id, runtime_id, attempt_id, encrypted_bundle_json, expires_at, created_at`;

@@ -2,12 +2,12 @@ import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID, withTransaction } from
 import type { ManagedSkillServiceOperationRecord } from "./types.ts";
 
 const OPERATION_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, runtime_id AS runtimeId, service_id AS serviceId,
-  installation_id AS installationId, operation, status,
-  error_code AS errorCode, error_message AS errorMessage,
-  claimed_at AS claimedAt, completed_at AS completedAt,
-  lease_expires_at, claim_generation AS claimGeneration, replaces_service_id,
-  created_at AS createdAt`;
+  id, workspace_id AS "workspaceId", runtime_id AS "runtimeId", service_id AS "serviceId",
+  installation_id AS "installationId", operation, status,
+  error_code AS "errorCode", error_message AS "errorMessage",
+  claimed_at AS "claimedAt", completed_at AS "completedAt",
+  lease_expires_at, claim_generation AS "claimGeneration", replaces_service_id,
+  created_at AS "createdAt"`;
 
 /** Lease duration for a claimed managed skill service operation. */
 export const SKILL_SERVICE_OPERATION_LEASE_SECONDS = 120;

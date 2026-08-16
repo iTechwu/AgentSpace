@@ -1243,7 +1243,7 @@ function assertRemoteSnapshotMatches(
 function readWorkspaceIdForTaskQueueSync(taskQueueId: string): string | null {
   const db = getDatabase();
   const row = db.prepare(
-    "SELECT workspace_id AS workspaceId FROM agent_task_queue WHERE id = ?",
+    `SELECT workspace_id AS "workspaceId" FROM agent_task_queue WHERE id = ?`,
   ).get(taskQueueId) as { workspaceId?: string } | undefined;
 
   return typeof row?.workspaceId === "string" ? row.workspaceId : null;

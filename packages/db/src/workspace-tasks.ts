@@ -7,12 +7,12 @@ export function listStoredTasksSync(workspaceId = DEFAULT_WORKSPACE_ID): TaskRec
     `SELECT
       id,
       title,
-      channel_name AS channelName,
+      channel_name AS "channelName",
       assignee,
       priority,
       status,
-      sort_order AS sortOrder,
-      labels_json AS labelsJson
+      sort_order AS "sortOrder",
+      labels_json AS "labelsJson"
      FROM workspace_task
      WHERE workspace_id = ?
      ORDER BY COALESCE(sort_order, 0) ASC, updated_at DESC`,

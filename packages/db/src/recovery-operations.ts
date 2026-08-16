@@ -25,16 +25,16 @@ export interface CreateRecoveryOperationInput {
 /* ------------------------------------------------------------------ */
 
 const RECOVERY_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, employee_id AS employeeId, employee_name AS employeeName,
-  from_generation AS fromGeneration, to_generation AS toGeneration, phase,
-  target_revision_id AS targetRevisionId, requested_by_user_id AS requestedByUserId,
-  error_code AS errorCode, error_message AS errorMessage, context_json AS contextJson,
-  provisioning_task_id AS provisioningTaskId, mount_operation_id AS mountOperationId,
-  health_checked_at AS healthCheckedAt, approval_state AS approvalState,
-  approved_by_user_id AS approvedByUserId, approved_at AS approvedAt,
-  required_approvals AS requiredApprovals, approval_count AS approvalCount, approvers_json AS approversJson,
-  actor_user_id AS actorUserId,
-  created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", employee_id AS "employeeId", employee_name AS "employeeName",
+  from_generation AS "fromGeneration", to_generation AS "toGeneration", phase,
+  target_revision_id AS "targetRevisionId", requested_by_user_id AS "requestedByUserId",
+  error_code AS "errorCode", error_message AS "errorMessage", context_json AS "contextJson",
+  provisioning_task_id AS "provisioningTaskId", mount_operation_id AS "mountOperationId",
+  health_checked_at AS "healthCheckedAt", approval_state AS "approvalState",
+  approved_by_user_id AS "approvedByUserId", approved_at AS "approvedAt",
+  required_approvals AS "requiredApprovals", approval_count AS "approvalCount", approvers_json AS "approversJson",
+  actor_user_id AS "actorUserId",
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 /* ------------------------------------------------------------------ */
 /* Operations                                                          */
@@ -157,7 +157,7 @@ export function claimRecoveryOperationsForWorkerSync(input?: {
     params.push(...excludedIds);
     params.push(limit);
     const rows = db.prepare(
-      `SELECT id, workspace_id AS workspaceId
+      `SELECT id, workspace_id AS "workspaceId"
        FROM employee_recovery_operation
        WHERE phase NOT IN ('completed', 'failed')
          AND (approval_state IS NULL OR approval_state IN ('not_required', 'approved'))
@@ -356,7 +356,7 @@ export function completeRecoveryActivationSync(input: {
       throw new Error(`Runtime "${input.runtimeId}" does not exist in workspace ${workspaceId}.`);
     }
     const workspace = db.prepare(
-      `SELECT head_revision_id AS headRevisionId FROM employee_persistent_workspace
+      `SELECT head_revision_id AS "headRevisionId" FROM employee_persistent_workspace
        WHERE workspace_id = ? AND employee_id = ?`,
     ).get(workspaceId, operation.employeeId) as { headRevisionId?: string | null } | undefined;
     if (workspace?.headRevisionId !== input.expectedHeadRevisionId) {

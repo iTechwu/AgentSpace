@@ -89,6 +89,7 @@ function isDefaultOwned(file) {
   if (new Set([
     "packages/db/src/employee-data-legal-holds.test.ts",
     "packages/db/src/openmontage-jobs.test.ts",
+    "packages/db/src/postgres-alias-drift-guard.test.ts",
     "packages/db/src/skill-runner-invocations.test.ts",
     "packages/db/src/skill-service-operations.test.ts",
     "packages/db/src/skill-services.test.ts",

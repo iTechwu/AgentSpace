@@ -2,10 +2,10 @@ import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import type { PagerAlertStateRecord } from "./types.ts";
 
 const STATE_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, alert_key AS alertKey, code,
-  employee_name AS employeeName, metric, severity, status,
-  first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt,
-  occurrences, last_escalated_at AS lastEscalatedAt, cleared_at AS clearedAt`;
+  id, workspace_id AS "workspaceId", alert_key AS "alertKey", code,
+  employee_name AS "employeeName", metric, severity, status,
+  first_seen_at AS "firstSeenAt", last_seen_at AS "lastSeenAt",
+  occurrences, last_escalated_at AS "lastEscalatedAt", cleared_at AS "clearedAt"`;
 
 export interface UpsertPagerAlertStateInput {
   workspaceId?: string;

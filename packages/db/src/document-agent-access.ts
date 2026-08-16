@@ -96,16 +96,16 @@ export function readDocumentAgentAccessSync(input: {
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      document_id AS documentId,
-      subject_type AS subjectType,
-      subject_id AS subjectId,
+      workspace_id AS "workspaceId",
+      document_id AS "documentId",
+      subject_type AS "subjectType",
+      subject_id AS "subjectId",
       role,
       scope,
-      granted_by_user_id AS grantedByUserId,
-      created_at AS createdAt,
-      updated_at AS updatedAt,
-      revoked_at AS revokedAt
+      granted_by_user_id AS "grantedByUserId",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      revoked_at AS "revokedAt"
      FROM document_agent_access
      WHERE workspace_id = ?
        AND document_id = ?
@@ -144,16 +144,16 @@ export function listDocumentAgentAccessSync(input: {
   const rows = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      document_id AS documentId,
-      subject_type AS subjectType,
-      subject_id AS subjectId,
+      workspace_id AS "workspaceId",
+      document_id AS "documentId",
+      subject_type AS "subjectType",
+      subject_id AS "subjectId",
       role,
       scope,
-      granted_by_user_id AS grantedByUserId,
-      created_at AS createdAt,
-      updated_at AS updatedAt,
-      revoked_at AS revokedAt
+      granted_by_user_id AS "grantedByUserId",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      revoked_at AS "revokedAt"
      FROM document_agent_access
      WHERE ${where.join(" AND ")}
      ORDER BY updated_at DESC, created_at DESC, id ASC`,
@@ -373,22 +373,22 @@ export function listDocumentPermissionRequestsSync(input: {
   const rows = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      document_id AS documentId,
-      external_provider AS externalProvider,
-      external_file_id AS externalFileId,
-      external_url AS externalUrl,
-      requested_role AS requestedRole,
-      requested_by_agent_name AS requestedByAgentName,
-      requested_for_channel_name AS requestedForChannelName,
-      triggered_by_user_id AS triggeredByUserId,
+      workspace_id AS "workspaceId",
+      document_id AS "documentId",
+      external_provider AS "externalProvider",
+      external_file_id AS "externalFileId",
+      external_url AS "externalUrl",
+      requested_role AS "requestedRole",
+      requested_by_agent_name AS "requestedByAgentName",
+      requested_for_channel_name AS "requestedForChannelName",
+      triggered_by_user_id AS "triggeredByUserId",
       reason,
       status,
-      decided_by_user_id AS decidedByUserId,
-      decision_note AS decisionNote,
-      source_task_id AS sourceTaskId,
-      created_at AS createdAt,
-      decided_at AS decidedAt
+      decided_by_user_id AS "decidedByUserId",
+      decision_note AS "decisionNote",
+      source_task_id AS "sourceTaskId",
+      created_at AS "createdAt",
+      decided_at AS "decidedAt"
      FROM document_permission_request
      WHERE ${where.join(" AND ")}
      ORDER BY created_at DESC, id ASC`,
@@ -403,22 +403,22 @@ export function readDocumentPermissionRequestSync(requestId: string): DocumentPe
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      document_id AS documentId,
-      external_provider AS externalProvider,
-      external_file_id AS externalFileId,
-      external_url AS externalUrl,
-      requested_role AS requestedRole,
-      requested_by_agent_name AS requestedByAgentName,
-      requested_for_channel_name AS requestedForChannelName,
-      triggered_by_user_id AS triggeredByUserId,
+      workspace_id AS "workspaceId",
+      document_id AS "documentId",
+      external_provider AS "externalProvider",
+      external_file_id AS "externalFileId",
+      external_url AS "externalUrl",
+      requested_role AS "requestedRole",
+      requested_by_agent_name AS "requestedByAgentName",
+      requested_for_channel_name AS "requestedForChannelName",
+      triggered_by_user_id AS "triggeredByUserId",
       reason,
       status,
-      decided_by_user_id AS decidedByUserId,
-      decision_note AS decisionNote,
-      source_task_id AS sourceTaskId,
-      created_at AS createdAt,
-      decided_at AS decidedAt
+      decided_by_user_id AS "decidedByUserId",
+      decision_note AS "decisionNote",
+      source_task_id AS "sourceTaskId",
+      created_at AS "createdAt",
+      decided_at AS "decidedAt"
      FROM document_permission_request
      WHERE id = ?
      LIMIT 1`,

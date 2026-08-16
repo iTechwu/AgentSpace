@@ -40,14 +40,14 @@ export function registerDaemonRuntimesSync(input: {
       .prepare(
         `SELECT
           id,
-          workspace_id AS workspaceId,
-          daemon_key AS daemonKey,
-          device_name AS deviceName,
+          workspace_id AS "workspaceId",
+          daemon_key AS "daemonKey",
+          device_name AS "deviceName",
           status,
-          metadata_json AS metadataJson,
-          last_heartbeat_at AS lastHeartbeatAt,
-          created_at AS createdAt,
-          updated_at AS updatedAt
+          metadata_json AS "metadataJson",
+          last_heartbeat_at AS "lastHeartbeatAt",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
         FROM daemon_connection
         WHERE daemon_key = ?`,
       )
@@ -112,7 +112,7 @@ export function registerDaemonRuntimesSync(input: {
         .prepare(
           `SELECT
             id,
-            created_at AS createdAt
+            created_at AS "createdAt"
           FROM agent_runtime
           WHERE workspace_id = ?
             AND daemon_connection_id = ?
@@ -227,7 +227,7 @@ function bindDaemonTokenToConnectionSync(input: {
 }): void {
   const db = getDatabase();
   const token = db.prepare(
-    `SELECT id, daemon_connection_id AS daemonConnectionId
+    `SELECT id, daemon_connection_id AS "daemonConnectionId"
      FROM daemon_api_token
      WHERE id = ? AND workspace_id = ? AND status = 'active'`,
   ).get(input.daemonTokenId, input.workspaceId) as { id: string; daemonConnectionId: string | null } | undefined;
@@ -324,7 +324,7 @@ export function heartbeatDaemonSync(daemonKey: string, options?: {
       }
 
       const row = db.prepare(
-        `SELECT metadata_json AS metadataJson
+        `SELECT metadata_json AS "metadataJson"
          FROM agent_runtime
          WHERE ${selectors.join(" AND ")}
          LIMIT 1`,
@@ -413,18 +413,18 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_connection_id AS daemonConnectionId,
+        workspace_id AS "workspaceId",
+        daemon_connection_id AS "daemonConnectionId",
         provider,
-        provider_account_id AS providerAccountId,
+        provider_account_id AS "providerAccountId",
         name,
         version,
         status,
-        device_info AS deviceInfo,
-        metadata_json AS metadataJson,
-        connected_at AS connectedAt,
-        last_heartbeat_at AS lastHeartbeatAt,
-        last_error AS lastError,
+        device_info AS "deviceInfo",
+        metadata_json AS "metadataJson",
+        connected_at AS "connectedAt",
+        last_heartbeat_at AS "lastHeartbeatAt",
+        last_error AS "lastError",
         runtime_type,
         protocols_json,
         default_model,
@@ -435,8 +435,8 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
         provisioning_task_id,
         managed_at,
         allow_new_employee_sharing,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM agent_runtime
       WHERE id = ?`,
     )
@@ -450,18 +450,18 @@ export function listManagedAgentRuntimesSync(workspaceId: string): AgentRuntimeR
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_connection_id AS daemonConnectionId,
+        workspace_id AS "workspaceId",
+        daemon_connection_id AS "daemonConnectionId",
         provider,
-        provider_account_id AS providerAccountId,
+        provider_account_id AS "providerAccountId",
         name,
         version,
         status,
-        device_info AS deviceInfo,
-        metadata_json AS metadataJson,
-        connected_at AS connectedAt,
-        last_heartbeat_at AS lastHeartbeatAt,
-        last_error AS lastError,
+        device_info AS "deviceInfo",
+        metadata_json AS "metadataJson",
+        connected_at AS "connectedAt",
+        last_heartbeat_at AS "lastHeartbeatAt",
+        last_error AS "lastError",
         protocols_json,
         default_model,
         provisioning_state,
@@ -471,8 +471,8 @@ export function listManagedAgentRuntimesSync(workspaceId: string): AgentRuntimeR
         provisioning_task_id,
         managed_at,
         allow_new_employee_sharing,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
        FROM agent_runtime
        WHERE workspace_id = ? AND managed_credential_id IS NOT NULL
        ORDER BY created_at DESC`,
@@ -693,14 +693,14 @@ export function listDaemonSnapshotsSync(workspaceId?: string): RegisteredDaemonS
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_key AS daemonKey,
-        device_name AS deviceName,
+        workspace_id AS "workspaceId",
+        daemon_key AS "daemonKey",
+        device_name AS "deviceName",
         status,
-        metadata_json AS metadataJson,
-        last_heartbeat_at AS lastHeartbeatAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        metadata_json AS "metadataJson",
+        last_heartbeat_at AS "lastHeartbeatAt",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM daemon_connection
       ${hasWorkspaceId ? "WHERE workspace_id = ?" : ""}
       ORDER BY created_at ASC`,
@@ -710,20 +710,20 @@ export function listDaemonSnapshotsSync(workspaceId?: string): RegisteredDaemonS
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_connection_id AS daemonConnectionId,
+        workspace_id AS "workspaceId",
+        daemon_connection_id AS "daemonConnectionId",
         provider,
-        provider_account_id AS providerAccountId,
+        provider_account_id AS "providerAccountId",
         name,
         version,
         status,
-        device_info AS deviceInfo,
-        metadata_json AS metadataJson,
-        connected_at AS connectedAt,
-        last_heartbeat_at AS lastHeartbeatAt,
-        last_error AS lastError,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        device_info AS "deviceInfo",
+        metadata_json AS "metadataJson",
+        connected_at AS "connectedAt",
+        last_heartbeat_at AS "lastHeartbeatAt",
+        last_error AS "lastError",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM agent_runtime
       ${hasWorkspaceId ? "WHERE workspace_id = ?" : ""}
       ORDER BY daemon_connection_id ASC, provider ASC`,
@@ -764,7 +764,7 @@ export function markStaleDaemonsOfflineSync(options?: {
   const cutoffIso = new Date(cutoff).toISOString();
   const candidates = db
     .prepare(
-      `SELECT daemon_key AS daemonKey, last_heartbeat_at AS lastHeartbeatAt
+      `SELECT daemon_key AS "daemonKey", last_heartbeat_at AS "lastHeartbeatAt"
        FROM daemon_connection
        WHERE status = 'online'
          ${typeof workspaceId === "string" ? "AND workspace_id = ?" : ""}`,
@@ -849,14 +849,14 @@ function readDaemonConnectionRow(db: ReturnType<typeof getDatabase>, daemonKey: 
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_key AS daemonKey,
-        device_name AS deviceName,
+        workspace_id AS "workspaceId",
+        daemon_key AS "daemonKey",
+        device_name AS "deviceName",
         status,
-        metadata_json AS metadataJson,
-        last_heartbeat_at AS lastHeartbeatAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        metadata_json AS "metadataJson",
+        last_heartbeat_at AS "lastHeartbeatAt",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM daemon_connection
       WHERE daemon_key = ?`,
     )
@@ -871,18 +871,18 @@ function listDaemonRuntimesSync(daemonConnectionId: string): AgentRuntimeRecord[
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_connection_id AS daemonConnectionId,
+        workspace_id AS "workspaceId",
+        daemon_connection_id AS "daemonConnectionId",
         provider,
-        provider_account_id AS providerAccountId,
+        provider_account_id AS "providerAccountId",
         name,
         version,
         status,
-        device_info AS deviceInfo,
-        metadata_json AS metadataJson,
-        connected_at AS connectedAt,
-        last_heartbeat_at AS lastHeartbeatAt,
-        last_error AS lastError,
+        device_info AS "deviceInfo",
+        metadata_json AS "metadataJson",
+        connected_at AS "connectedAt",
+        last_heartbeat_at AS "lastHeartbeatAt",
+        last_error AS "lastError",
         runtime_type,
         protocols_json,
         default_model,
@@ -893,8 +893,8 @@ function listDaemonRuntimesSync(daemonConnectionId: string): AgentRuntimeRecord[
         provisioning_task_id,
         managed_at,
         allow_new_employee_sharing,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM agent_runtime
       WHERE daemon_connection_id = ?
       ORDER BY provider ASC`,

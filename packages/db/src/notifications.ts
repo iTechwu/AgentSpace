@@ -299,25 +299,25 @@ function readWorkspaceNotificationForRecipientSync(
 function workspaceNotificationSelectSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    recipient_type AS recipientType,
-    recipient_id AS recipientId,
-    actor_type AS actorType,
-    actor_id AS actorId,
+    workspace_id AS "workspaceId",
+    recipient_type AS "recipientType",
+    recipient_id AS "recipientId",
+    actor_type AS "actorType",
+    actor_id AS "actorId",
     type,
-    resource_type AS resourceType,
-    resource_id AS resourceId,
-    channel_name AS channelName,
+    resource_type AS "resourceType",
+    resource_id AS "resourceId",
+    channel_name AS "channelName",
     title,
     body,
-    action_href AS actionHref,
+    action_href AS "actionHref",
     severity,
     status,
-    dedupe_key AS dedupeKey,
-    metadata_json AS metadataJson,
-    created_at AS createdAt,
-    read_at AS readAt,
-    archived_at AS archivedAt
+    dedupe_key AS "dedupeKey",
+    metadata_json AS "metadataJson",
+    created_at AS "createdAt",
+    read_at AS "readAt",
+    archived_at AS "archivedAt"
    FROM workspace_notification`;
 }
 

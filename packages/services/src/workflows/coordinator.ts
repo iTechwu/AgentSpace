@@ -130,7 +130,7 @@ export function completeWorkflowNodeSync(input: CompleteWorkflowNodeInput): Work
     if (!nodeRun) throw new Error("workflow_node_run_not_found");
     if (nodeRun.status === "succeeded" || nodeRun.status === "failed" || nodeRun.status === "cancelled") return run;
     if (nodeRun.taskQueueId !== input.taskQueueId) throw new Error("workflow_task_queue_mismatch");
-    const taskWorkspace = db.prepare("SELECT workspace_id AS workspaceId FROM agent_task_queue WHERE id = ?")
+    const taskWorkspace = db.prepare("SELECT workspace_id AS "workspaceId" FROM agent_task_queue WHERE id = ?")
       .get(input.taskQueueId) as { workspaceId?: string } | undefined;
     if (taskWorkspace?.workspaceId !== input.workspaceId) throw new Error("workflow_cross_workspace_reference");
     const updated = transitionWorkflowNodeRunSync({

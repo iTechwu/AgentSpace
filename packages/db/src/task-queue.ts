@@ -151,32 +151,32 @@ export function listQueuedTasksSync(options?: {
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        COALESCE(employee_id, agent_id) AS employeeId,
-        COALESCE(employee_name, agent_id) AS employeeName,
-        agent_id AS agentId,
-        runtime_id AS runtimeId,
+        workspace_id AS "workspaceId",
+        COALESCE(employee_id, agent_id) AS "employeeId",
+        COALESCE(employee_name, agent_id) AS "employeeName",
+        agent_id AS "agentId",
+        runtime_id AS "runtimeId",
         runtime_credential_id AS "runtimeCredentialId",
-        router_session_id AS routerSessionId,
-        issue_id AS issueId,
-        trigger_type AS triggerType,
+        router_session_id AS "routerSessionId",
+        issue_id AS "issueId",
+        trigger_type AS "triggerType",
         priority,
         status,
-        input_json AS inputJson,
-        requested_by_user_id AS requestedByUserId,
-        requested_by_display_name AS requestedByDisplayName,
-        result_json AS resultJson,
-        error_text AS errorText,
-        session_id AS sessionId,
-        work_dir AS workDir,
-        binding_generation AS bindingGeneration,
-        queued_at AS queuedAt,
-        claimed_at AS claimedAt,
-        started_at AS startedAt,
-        finished_at AS finishedAt,
-        mcp_session_claimed_at AS mcpSessionClaimedAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        input_json AS "inputJson",
+        requested_by_user_id AS "requestedByUserId",
+        requested_by_display_name AS "requestedByDisplayName",
+        result_json AS "resultJson",
+        error_text AS "errorText",
+        session_id AS "sessionId",
+        work_dir AS "workDir",
+        binding_generation AS "bindingGeneration",
+        queued_at AS "queuedAt",
+        claimed_at AS "claimedAt",
+        started_at AS "startedAt",
+        finished_at AS "finishedAt",
+        mcp_session_claimed_at AS "mcpSessionClaimedAt",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM agent_task_queue
       ${whereClause}
       ORDER BY created_at ASC, id ASC`,
@@ -235,32 +235,32 @@ export function readQueuedTaskSync(taskId: string): QueuedTaskRecord | null {
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        COALESCE(employee_id, agent_id) AS employeeId,
-        COALESCE(employee_name, agent_id) AS employeeName,
-        agent_id AS agentId,
-        runtime_id AS runtimeId,
+        workspace_id AS "workspaceId",
+        COALESCE(employee_id, agent_id) AS "employeeId",
+        COALESCE(employee_name, agent_id) AS "employeeName",
+        agent_id AS "agentId",
+        runtime_id AS "runtimeId",
         runtime_credential_id AS "runtimeCredentialId",
-        router_session_id AS routerSessionId,
-        issue_id AS issueId,
-        trigger_type AS triggerType,
+        router_session_id AS "routerSessionId",
+        issue_id AS "issueId",
+        trigger_type AS "triggerType",
         priority,
         status,
-        input_json AS inputJson,
-        requested_by_user_id AS requestedByUserId,
-        requested_by_display_name AS requestedByDisplayName,
-        result_json AS resultJson,
-        error_text AS errorText,
-        session_id AS sessionId,
-        work_dir AS workDir,
-        binding_generation AS bindingGeneration,
-        queued_at AS queuedAt,
-        claimed_at AS claimedAt,
-        started_at AS startedAt,
-        finished_at AS finishedAt,
-        mcp_session_claimed_at AS mcpSessionClaimedAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        input_json AS "inputJson",
+        requested_by_user_id AS "requestedByUserId",
+        requested_by_display_name AS "requestedByDisplayName",
+        result_json AS "resultJson",
+        error_text AS "errorText",
+        session_id AS "sessionId",
+        work_dir AS "workDir",
+        binding_generation AS "bindingGeneration",
+        queued_at AS "queuedAt",
+        claimed_at AS "claimedAt",
+        started_at AS "startedAt",
+        finished_at AS "finishedAt",
+        mcp_session_claimed_at AS "mcpSessionClaimedAt",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM agent_task_queue
       WHERE id = ?`,
     )
@@ -294,7 +294,7 @@ export function readMcpTaskSessionClaimedSync(taskId: string): string | null {
 }
 
 export function readTaskSkillExecutionSnapshotSync(taskId: string): TaskSkillExecutionSnapshot | null {
-  // Select the raw snake_case column (no `AS camelCase` alias): Postgres
+  // Select the raw snake_case column (no `AS "camelCase"` alias): Postgres
   // lowercases unquoted aliases, and NORMALIZED_ROW_KEY_ALIASES has no entry for
   // the lowered form, so an alias would read back as undefined. The underscore
   // key is converted to `skillExecutionSnapshotJson` by normalizeRowKey.
@@ -1043,8 +1043,8 @@ function selectQueuedTaskForRuntime(
 ): Record<string, unknown> | undefined {
   return db
     .prepare(
-      `SELECT queue.id, COALESCE(queue.employee_id, queue.agent_id) AS employeeId,
-              queue.agent_id AS agentId, queue.workspace_id AS workspaceId,
+      `SELECT queue.id, COALESCE(queue.employee_id, queue.agent_id) AS "employeeId",
+              queue.agent_id AS "agentId", queue.workspace_id AS "workspaceId",
               runtime.managed_credential_id AS "runtimeCredentialId"
        FROM agent_task_queue queue
        JOIN agent_runtime runtime ON runtime.id = queue.runtime_id

@@ -2,11 +2,11 @@ import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import type { WorkspaceGitCredentialRecord } from "./types.ts";
 
 const CREDENTIAL_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, host, credential_type AS credentialType,
-  reference_name AS referenceName, encrypted_secret AS encryptedSecret,
-  fingerprint, status, created_by_user_id AS createdByUserId,
-  created_at AS createdAt, updated_at AS updatedAt,
-  rotated_at AS rotatedAt, revoked_at AS revokedAt`;
+  id, workspace_id AS "workspaceId", host, credential_type AS "credentialType",
+  reference_name AS "referenceName", encrypted_secret AS "encryptedSecret",
+  fingerprint, status, created_by_user_id AS "createdByUserId",
+  created_at AS "createdAt", updated_at AS "updatedAt",
+  rotated_at AS "rotatedAt", revoked_at AS "revokedAt"`;
 
 export interface UpsertWorkspaceGitCredentialInput {
   workspaceId?: string;

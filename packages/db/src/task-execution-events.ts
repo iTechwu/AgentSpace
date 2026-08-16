@@ -148,19 +148,19 @@ export function listTaskExecutionEventsSync(
   const rows = limitPerTask === null ? db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      task_id AS taskId,
-      channel_name AS channelName,
-      agent_id AS agentId,
-      runtime_id AS runtimeId,
-      run_id AS runId,
+      workspace_id AS "workspaceId",
+      task_id AS "taskId",
+      channel_name AS "channelName",
+      agent_id AS "agentId",
+      runtime_id AS "runtimeId",
+      run_id AS "runId",
       type,
       title,
       summary,
       severity,
       status,
-      data_json AS dataJson,
-      created_at AS createdAt
+      data_json AS "dataJson",
+      created_at AS "createdAt"
      FROM task_execution_event
      ${whereClause}
      ORDER BY created_at ${order}, id ${tieOrder}
@@ -235,19 +235,19 @@ function readTaskExecutionEventSync(eventId: string): TaskExecutionEventRecord |
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      task_id AS taskId,
-      channel_name AS channelName,
-      agent_id AS agentId,
-      runtime_id AS runtimeId,
-      run_id AS runId,
+      workspace_id AS "workspaceId",
+      task_id AS "taskId",
+      channel_name AS "channelName",
+      agent_id AS "agentId",
+      runtime_id AS "runtimeId",
+      run_id AS "runId",
       type,
       title,
       summary,
       severity,
       status,
-      data_json AS dataJson,
-      created_at AS createdAt
+      data_json AS "dataJson",
+      created_at AS "createdAt"
      FROM task_execution_event
      WHERE id = ?`,
   ).get(eventId) as Record<string, unknown> | undefined;

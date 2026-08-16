@@ -543,12 +543,12 @@ export function readMcpConnectionSecretsSync(connectionId: string, workspaceId =
   }
   const rows = getDatabase().prepare(
     `SELECT
-      connection_id AS connectionId,
-      field_name AS fieldName,
-      encrypted_value AS encryptedValue,
-      key_version AS keyVersion,
-      rotated_at AS rotatedAt,
-      rotated_by_user_id AS rotatedByUserId
+      connection_id AS "connectionId",
+      field_name AS "fieldName",
+      encrypted_value AS "encryptedValue",
+      key_version AS "keyVersion",
+      rotated_at AS "rotatedAt",
+      rotated_by_user_id AS "rotatedByUserId"
      FROM runtime_mcp_secret WHERE connection_id = ?`,
   ).all(connectionId) as Array<Record<string, unknown>>;
   return rows.map(mapRuntimeMcpSecretRecord).filter((r): r is RuntimeMcpSecretRecord => r !== null);
@@ -1143,52 +1143,52 @@ export function deleteMcpToolAuditsBeforeSync(cutoff: string): number {
 /* ------------------------------------------------------------------ */
 
 const MCP_CATALOG_ITEM_FIELDS = `
-  id, workspace_id AS workspaceId, source, slug, version, category, transport,
-  display_name AS displayName, description,
-  allowed_hosts_json AS allowedHostsJson,
-  configuration_schema_json AS configurationSchemaJson,
-  declared_tools_json AS declaredToolsJson,
-  default_approved_tools_json AS defaultApprovedToolsJson,
-  secret_fields_json AS secretFieldsJson,
-  required_runtime_capabilities_json AS requiredRuntimeCapabilitiesJson,
-  data_domains_json AS dataDomainsJson,
-  risk, endpoint_template AS endpointTemplate, documentation_url AS documentationUrl,
-  required_runtime_app_json AS requiredRuntimeAppJson,
-  synced_at AS syncedAt, created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", source, slug, version, category, transport,
+  display_name AS "displayName", description,
+  allowed_hosts_json AS "allowedHostsJson",
+  configuration_schema_json AS "configurationSchemaJson",
+  declared_tools_json AS "declaredToolsJson",
+  default_approved_tools_json AS "defaultApprovedToolsJson",
+  secret_fields_json AS "secretFieldsJson",
+  required_runtime_capabilities_json AS "requiredRuntimeCapabilitiesJson",
+  data_domains_json AS "dataDomainsJson",
+  risk, endpoint_template AS "endpointTemplate", documentation_url AS "documentationUrl",
+  required_runtime_app_json AS "requiredRuntimeAppJson",
+  synced_at AS "syncedAt", created_at AS "createdAt", updated_at AS "updatedAt"`;
 const MCP_CATALOG_ITEM_COLUMNS = `SELECT ${MCP_CATALOG_ITEM_FIELDS}`;
 
 const MCP_CONNECTION_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, runtime_id AS runtimeId, catalog_item_id AS catalogItemId,
-  status, approved_tools_json AS approvedToolsJson, endpoint,
-  non_secret_params_json AS nonSecretParamsJson, endpoint_fingerprint AS endpointFingerprint,
-  last_verified_at AS lastVerifiedAt, next_health_check_at AS nextHealthCheckAt,
-  health_check_consecutive_failures AS healthCheckConsecutiveFailures,
-  last_status AS lastStatus, last_error_code AS lastErrorCode, last_error_message AS lastErrorMessage,
-  created_by_user_id AS createdByUserId, created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", runtime_id AS "runtimeId", catalog_item_id AS "catalogItemId",
+  status, approved_tools_json AS "approvedToolsJson", endpoint,
+  non_secret_params_json AS "nonSecretParamsJson", endpoint_fingerprint AS "endpointFingerprint",
+  last_verified_at AS "lastVerifiedAt", next_health_check_at AS "nextHealthCheckAt",
+  health_check_consecutive_failures AS "healthCheckConsecutiveFailures",
+  last_status AS "lastStatus", last_error_code AS "lastErrorCode", last_error_message AS "lastErrorMessage",
+  created_by_user_id AS "createdByUserId", created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 const MCP_DISCOVERY_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, connection_id AS connectionId,
-  protocol_version AS protocolVersion, tools_metadata_json AS toolsMetadataJson,
-  tools_fingerprint AS toolsFingerprint, discovered_at AS discoveredAt,
-  verification_latency_ms AS verificationLatencyMs`;
+  id, workspace_id AS "workspaceId", connection_id AS "connectionId",
+  protocol_version AS "protocolVersion", tools_metadata_json AS "toolsMetadataJson",
+  tools_fingerprint AS "toolsFingerprint", discovered_at AS "discoveredAt",
+  verification_latency_ms AS "verificationLatencyMs"`;
 
 const MCP_OPERATION_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, runtime_id AS runtimeId, connection_id AS connectionId,
-  operation, source, status, stage, failed_stage AS failedStage, stage_updated_at AS stageUpdatedAt,
-  request_snapshot_json AS requestSnapshotJson,
-  safe_stdout_tail AS safeStdoutTail, safe_stderr_tail AS safeStderrTail,
-  error_code AS errorCode, error_message AS errorMessage,
-  requested_by_user_id AS requestedByUserId,
-  created_at AS createdAt, started_at AS startedAt, completed_at AS completedAt`;
+  id, workspace_id AS "workspaceId", runtime_id AS "runtimeId", connection_id AS "connectionId",
+  operation, source, status, stage, failed_stage AS "failedStage", stage_updated_at AS "stageUpdatedAt",
+  request_snapshot_json AS "requestSnapshotJson",
+  safe_stdout_tail AS "safeStdoutTail", safe_stderr_tail AS "safeStderrTail",
+  error_code AS "errorCode", error_message AS "errorMessage",
+  requested_by_user_id AS "requestedByUserId",
+  created_at AS "createdAt", started_at AS "startedAt", completed_at AS "completedAt"`;
 
 const MCP_TOOL_AUDIT_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, connection_id AS connectionId, task_id AS taskId,
-  tool_name AS toolName, outcome, latency_ms AS latencyMs, safe_summary AS safeSummary,
-  event_id AS eventId,
-  (SELECT data_json ->> 'actorType' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS actorType,
-  (SELECT data_json ->> 'actorId' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS actorId,
-  (SELECT data_json ->> 'runtimeId' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS runtimeId,
-  created_at AS createdAt`;
+  id, workspace_id AS "workspaceId", connection_id AS "connectionId", task_id AS "taskId",
+  tool_name AS "toolName", outcome, latency_ms AS "latencyMs", safe_summary AS "safeSummary",
+  event_id AS "eventId",
+  (SELECT data_json ->> 'actorType' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS "actorType",
+  (SELECT data_json ->> 'actorId' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS "actorId",
+  (SELECT data_json ->> 'runtimeId' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS "runtimeId",
+  created_at AS "createdAt"`;
 
 function mapMcpCatalogItemRecord(value: Record<string, unknown>): McpCatalogItemRecord | null {
   if (

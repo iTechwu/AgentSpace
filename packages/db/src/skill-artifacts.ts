@@ -43,17 +43,17 @@ export interface CreateSkillArtifactInput {
 /* ------------------------------------------------------------------ */
 
 const SKILL_ARTIFACT_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, digest, skill_id AS skillId, name, version,
-  manifest_version AS manifestVersion, manifest_json AS manifestJson,
-  source_type AS sourceType, source_url AS sourceUrl, coordinate,
-  provenance_json AS provenanceJson, file_count AS fileCount,
-  total_size_bytes AS totalSizeBytes, legacy_incomplete AS legacyIncomplete,
-  created_at AS createdAt`;
+  id, workspace_id AS "workspaceId", digest, skill_id AS "skillId", name, version,
+  manifest_version AS "manifestVersion", manifest_json AS "manifestJson",
+  source_type AS "sourceType", source_url AS "sourceUrl", coordinate,
+  provenance_json AS "provenanceJson", file_count AS "fileCount",
+  total_size_bytes AS "totalSizeBytes", legacy_incomplete AS "legacyIncomplete",
+  created_at AS "createdAt"`;
 
 const SKILL_ARTIFACT_FILE_COLUMNS = `SELECT
-  id, artifact_id AS artifactId, workspace_id AS workspaceId, path, sha256,
-  size_bytes AS sizeBytes, media_type AS mediaType, mode, is_text AS isText,
-  created_at AS createdAt`;
+  id, artifact_id AS "artifactId", workspace_id AS "workspaceId", path, sha256,
+  size_bytes AS "sizeBytes", media_type AS "mediaType", mode, is_text AS "isText",
+  created_at AS "createdAt"`;
 
 /* ------------------------------------------------------------------ */
 /* Create (idempotent by digest)                                       */
@@ -288,10 +288,10 @@ export function listSkillIdsForArtifactDigestSync(
 ): string[] {
   const normalizedDigest = digest.trim().toLowerCase();
   const rows = getDatabase().prepare(
-    `SELECT skill_id AS skillId FROM skill_artifact_binding
+    `SELECT skill_id AS "skillId" FROM skill_artifact_binding
      WHERE workspace_id = ? AND artifact_digest = ?
      UNION
-     SELECT skill_id AS skillId FROM skill_artifact
+     SELECT skill_id AS "skillId" FROM skill_artifact
      WHERE workspace_id = ? AND digest = ? AND skill_id IS NOT NULL
      ORDER BY skillId ASC`,
   ).all(workspaceId, normalizedDigest, workspaceId, normalizedDigest) as Array<Record<string, unknown>>;
@@ -303,7 +303,7 @@ export function listSkillIdsForArtifactDigestSync(
 /** Idempotently migrates legacy artifact.skill_id ownership into the binding table. */
 export function backfillLegacySkillArtifactBindingsSync(workspaceId = DEFAULT_WORKSPACE_ID): number {
   const rows = getDatabase().prepare(
-    `SELECT skill_id AS skillId, digest FROM skill_artifact
+    `SELECT skill_id AS "skillId", digest FROM skill_artifact
      WHERE workspace_id = ? AND skill_id IS NOT NULL`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
   let created = 0;

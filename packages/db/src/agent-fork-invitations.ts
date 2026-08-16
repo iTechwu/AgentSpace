@@ -202,18 +202,18 @@ function readPendingAgentForkInvitationSync(
 function agentForkInvitationSelectSql(whereClause: string): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    source_agent_name AS sourceAgentName,
-    target_user_id AS targetUserId,
+    workspace_id AS "workspaceId",
+    source_agent_name AS "sourceAgentName",
+    target_user_id AS "targetUserId",
     status,
-    options_json AS optionsJson,
-    created_by_user_id AS createdByUserId,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    accepted_at AS acceptedAt,
-    revoked_at AS revokedAt,
-    accepted_agent_name AS acceptedAgentName,
-    accepted_runtime_id AS acceptedRuntimeId
+    options_json AS "optionsJson",
+    created_by_user_id AS "createdByUserId",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt",
+    accepted_at AS "acceptedAt",
+    revoked_at AS "revokedAt",
+    accepted_agent_name AS "acceptedAgentName",
+    accepted_runtime_id AS "acceptedRuntimeId"
    FROM agent_fork_invitation
    WHERE ${whereClause}`;
 }
@@ -221,11 +221,11 @@ function agentForkInvitationSelectSql(whereClause: string): string {
 function agentForkSnapshotSelectSql(whereClause: string): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    invitation_id AS invitationId,
-    source_agent_name AS sourceAgentName,
-    snapshot_json AS snapshotJson,
-    created_at AS createdAt
+    workspace_id AS "workspaceId",
+    invitation_id AS "invitationId",
+    source_agent_name AS "sourceAgentName",
+    snapshot_json AS "snapshotJson",
+    created_at AS "createdAt"
    FROM agent_fork_snapshot
    WHERE ${whereClause}`;
 }

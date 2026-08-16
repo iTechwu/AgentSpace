@@ -17,14 +17,14 @@ export function listStoredWorkspaceSkillsSync(workspaceId = DEFAULT_WORKSPACE_ID
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
+        workspace_id AS "workspaceId",
         name,
         description,
-        source_type AS sourceType,
-        source_url AS sourceUrl,
-        config_json AS configJson,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+        source_type AS "sourceType",
+        source_url AS "sourceUrl",
+        config_json AS "configJson",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM skill
       WHERE workspace_id = ?
       ORDER BY LOWER(name) ASC, name ASC`,
@@ -34,11 +34,11 @@ export function listStoredWorkspaceSkillsSync(workspaceId = DEFAULT_WORKSPACE_ID
     .prepare(
       `SELECT
         sf.id,
-        sf.skill_id AS skillId,
+        sf.skill_id AS "skillId",
         sf.path,
         sf.content,
-        sf.created_at AS createdAt,
-        sf.updated_at AS updatedAt
+        sf.created_at AS "createdAt",
+        sf.updated_at AS "updatedAt"
       FROM skill_file sf
       JOIN skill s ON s.id = sf.skill_id
       WHERE s.workspace_id = ?
@@ -90,14 +90,14 @@ export function listStoredAgentSkillAssignmentsSync(workspaceId = DEFAULT_WORKSP
   const rows = db
     .prepare(
       `SELECT
-        workspace_id AS workspaceId,
-        ${hasAgentIdColumn ? "agent_id" : "NULL"} AS agentId,
-        employee_id AS employeeId,
-        employee_name AS employeeName,
-        skill_id AS skillId,
+        workspace_id AS "workspaceId",
+        ${hasAgentIdColumn ? "agent_id" : "NULL"} AS "agentId",
+        employee_id AS "employeeId",
+        employee_name AS "employeeName",
+        skill_id AS "skillId",
         skill_artifact_digest AS skillartifactdigest,
         rollout_pin AS rolloutpin,
-        created_at AS createdAt
+        created_at AS "createdAt"
       FROM agent_skill
       WHERE workspace_id = ?
       ORDER BY LOWER(employee_name) ASC, employee_name ASC, skill_id ASC`,
@@ -181,14 +181,14 @@ export function listStoredSkillImportEventsSync(
   const rows = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      skill_id AS skillId,
-      skill_name AS skillName,
-      source_type AS sourceType,
-      source_url AS sourceUrl,
-      import_mode AS importMode,
-      metadata_json AS metadataJson,
-      imported_at AS importedAt
+      workspace_id AS "workspaceId",
+      skill_id AS "skillId",
+      skill_name AS "skillName",
+      source_type AS "sourceType",
+      source_url AS "sourceUrl",
+      import_mode AS "importMode",
+      metadata_json AS "metadataJson",
+      imported_at AS "importedAt"
      FROM skill_import_event
      WHERE workspace_id = ?
      ORDER BY imported_at DESC, id DESC

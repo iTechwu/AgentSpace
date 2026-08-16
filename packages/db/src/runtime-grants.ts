@@ -81,15 +81,15 @@ export function listRuntimeGrantsSync(workspaceId = DEFAULT_WORKSPACE_ID): Works
   const rows = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      runtime_id AS runtimeId,
-      user_id AS userId,
+      workspace_id AS "workspaceId",
+      runtime_id AS "runtimeId",
+      user_id AS "userId",
       permission,
       status,
-      granted_by_user_id AS grantedByUserId,
-      created_at AS createdAt,
-      updated_at AS updatedAt,
-      revoked_at AS revokedAt
+      granted_by_user_id AS "grantedByUserId",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      revoked_at AS "revokedAt"
      FROM workspace_runtime_grant
      WHERE workspace_id = ?
      ORDER BY created_at ASC, id ASC`,
@@ -136,15 +136,15 @@ function readRuntimeGrantSync(
   const row = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      runtime_id AS runtimeId,
-      user_id AS userId,
+      workspace_id AS "workspaceId",
+      runtime_id AS "runtimeId",
+      user_id AS "userId",
       permission,
       status,
-      granted_by_user_id AS grantedByUserId,
-      created_at AS createdAt,
-      updated_at AS updatedAt,
-      revoked_at AS revokedAt
+      granted_by_user_id AS "grantedByUserId",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      revoked_at AS "revokedAt"
      FROM workspace_runtime_grant
      WHERE workspace_id = ? AND runtime_id = ? AND user_id = ? AND permission = 'use'`,
   ).get(workspaceId, runtimeId, userId) as Record<string, unknown> | undefined;

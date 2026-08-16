@@ -12,11 +12,11 @@ export function listStoredKnowledgeAssignmentPoliciesSync(
   const db = getDatabase();
   const rows = db.prepare(
     `SELECT
-       workspace_id AS workspaceId,
-       knowledge_page_id AS knowledgePageId,
-       assignment_mode AS assignmentMode,
-       updated_at AS updatedAt,
-       updated_by AS updatedBy
+       workspace_id AS "workspaceId",
+       knowledge_page_id AS "knowledgePageId",
+       assignment_mode AS "assignmentMode",
+       updated_at AS "updatedAt",
+       updated_by AS "updatedBy"
      FROM knowledge_page_assignment_policy
      WHERE workspace_id = ?
      ORDER BY updated_at DESC, knowledge_page_id ASC`,
@@ -90,13 +90,13 @@ export function listStoredAgentKnowledgePageAssignmentsSync(
   const db = getDatabase();
   const rows = db.prepare(
     `SELECT
-       workspace_id AS workspaceId,
-       agent_id AS agentId,
-       employee_id AS employeeId,
-       employee_name AS employeeName,
-       knowledge_page_id AS knowledgePageId,
-       created_at AS createdAt,
-       created_by AS createdBy
+       workspace_id AS "workspaceId",
+       agent_id AS "agentId",
+       employee_id AS "employeeId",
+       employee_name AS "employeeName",
+       knowledge_page_id AS "knowledgePageId",
+       created_at AS "createdAt",
+       created_by AS "createdBy"
      FROM agent_knowledge_page
      WHERE workspace_id = ?
      ORDER BY LOWER(employee_name) ASC, employee_name ASC, created_at ASC, knowledge_page_id ASC`,

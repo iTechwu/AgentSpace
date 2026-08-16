@@ -6,6 +6,8 @@ import {
   deleteSkillDraftSync,
   readSkillDraftSync,
 } from "../skill-drafts.ts";
+import { createStoredWorkspaceSkillSync } from "../skills.ts";
+import { createWorkspaceSync, hardDeleteWorkspaceSync } from "../workspaces.ts";
 import { setDofePrismaClientForTests, disconnectDofePrismaClient } from "./prisma-client.ts";
 import {
   deleteSkillDraftPrismaCutover,
@@ -64,46 +66,40 @@ function makeMockPrisma(
 
 test("upsertSkillDraftPrismaCutover uses sync fallback when flag is disabled", async () => {
   resetFlags();
-  // skill_draft 有 FK 到 skill 表：借用测试库已 seed 的 skill 行。
-  const seeded = await readAnySeededSkill();
-  assert.ok(seeded, "test DB must seed at least one skill row");
-  const skillId = seeded!;
-  const metrics: SkillDraftWritePrismaCutoverMetric[] = [];
-  const record = await upsertSkillDraftPrismaCutover(
-    { skillId, draftJson: "{\"name\":\"flag-off\"}", updatedByUserId: "user-mock" },
-    (metric) => metrics.push(metric),
+  // skill_draft 有 FK 到 skill 表：自播种一次性 workspace + skill 夹具，
+  // 不依赖共享测试库的残留行（空库时借用会 flake）。
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const workspaceId = `skill-draft-write-fixture-${suffix}`;
+  const skillId = `skill-draft-write-skill-${suffix}`;
+  createWorkspaceSync({
+    id: workspaceId,
+    slug: workspaceId,
+    name: "SkillDraftWrite Fixture",
+    createdBy: "fixture",
+  });
+  const now = new Date().toISOString();
+  createStoredWorkspaceSkillSync(
+    { id: skillId, name: "Fixture Skill", description: "flag-off fixture", files: [], createdAt: now, updatedAt: now },
+    workspaceId,
   );
-  // sync 读回经 worker-thread JSON roundtrip 会重排空格，比较解析结果。
-  assert.deepEqual(JSON.parse(record.draftJson), { name: "flag-off" });
-  // Verify the row landed in the DB via the sync path (independent read).
-  const fromDb = readSkillDraftSync(skillId);
-  assert.ok(fromDb);
-  assert.equal(fromDb!.updatedByUserId, "user-mock");
-  assert.equal(metrics.length, 0);
-  deleteSkillDraftSync(skillId);
-});
-
-async function readAnySeededSkill(): Promise<string | undefined> {
-  const { Client } = await import("pg");
-  const url =
-    process.env.DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE ||
-    process.env.DOFE_AGENT_TEST_DATABASE_URL ||
-    process.env.SELF_HOSTED_DATABASE_URL ||
-    process.env.DATABASE_URL;
-  if (!url) return undefined;
-  const client = new Client({ connectionString: url });
   try {
-    await client.connect();
-    const result = await client.query<{ id: string }>(
-      "SELECT id FROM skill ORDER BY created_at LIMIT 1",
+    const metrics: SkillDraftWritePrismaCutoverMetric[] = [];
+    const record = await upsertSkillDraftPrismaCutover(
+      { skillId, draftJson: "{\"name\":\"flag-off\"}", updatedByUserId: "user-mock" },
+      (metric) => metrics.push(metric),
     );
-    return result.rows[0]?.id;
-  } catch {
-    return undefined;
+    // sync 读回经 worker-thread JSON roundtrip 会重排空格，比较解析结果。
+    assert.deepEqual(JSON.parse(record.draftJson), { name: "flag-off" });
+    // Verify the row landed in the DB via the sync path (independent read).
+    const fromDb = readSkillDraftSync(skillId);
+    assert.ok(fromDb);
+    assert.equal(fromDb!.updatedByUserId, "user-mock");
+    assert.equal(metrics.length, 0);
+    deleteSkillDraftSync(skillId);
   } finally {
-    await client.end().catch(() => undefined);
+    hardDeleteWorkspaceSync(workspaceId);
   }
-}
+});
 
 test("upsertSkillDraftPrismaCutover uses Prisma primary when flag is on", async () => {
   resetFlags();

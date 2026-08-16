@@ -61,16 +61,16 @@ export function listDaemonApiTokensSync(workspaceId = DEFAULT_WORKSPACE_ID): Dae
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_connection_id AS daemonConnectionId,
+        workspace_id AS "workspaceId",
+        daemon_connection_id AS "daemonConnectionId",
         label,
-        token_hash AS tokenHash,
+        token_hash AS "tokenHash",
         purpose,
         status,
-        created_by AS createdBy,
-        last_used_at AS lastUsedAt,
-        created_at AS createdAt,
-        revoked_at AS revokedAt
+        created_by AS "createdBy",
+        last_used_at AS "lastUsedAt",
+        created_at AS "createdAt",
+        revoked_at AS "revokedAt"
       FROM daemon_api_token
       WHERE workspace_id = ?
       ORDER BY created_at DESC`,
@@ -88,16 +88,16 @@ export function readDaemonApiTokenSync(id: string): DaemonApiTokenRecord | null 
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_connection_id AS daemonConnectionId,
+        workspace_id AS "workspaceId",
+        daemon_connection_id AS "daemonConnectionId",
         label,
-        token_hash AS tokenHash,
+        token_hash AS "tokenHash",
         purpose,
         status,
-        created_by AS createdBy,
-        last_used_at AS lastUsedAt,
-        created_at AS createdAt,
-        revoked_at AS revokedAt
+        created_by AS "createdBy",
+        last_used_at AS "lastUsedAt",
+        created_at AS "createdAt",
+        revoked_at AS "revokedAt"
       FROM daemon_api_token
       WHERE id = ?`,
     )
@@ -116,16 +116,16 @@ export function validateDaemonApiTokenSync(token: string): DaemonApiTokenRecord 
     .prepare(
       `SELECT
         id,
-        workspace_id AS workspaceId,
-        daemon_connection_id AS daemonConnectionId,
+        workspace_id AS "workspaceId",
+        daemon_connection_id AS "daemonConnectionId",
         label,
-        token_hash AS tokenHash,
+        token_hash AS "tokenHash",
         purpose,
         status,
-        created_by AS createdBy,
-        last_used_at AS lastUsedAt,
-        created_at AS createdAt,
-        revoked_at AS revokedAt
+        created_by AS "createdBy",
+        last_used_at AS "lastUsedAt",
+        created_at AS "createdAt",
+        revoked_at AS "revokedAt"
       FROM daemon_api_token
       WHERE token_hash = ?`,
     )

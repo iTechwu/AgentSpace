@@ -255,17 +255,17 @@ export function readEmployeeRuntimeBindingSync(
   const row = db
     .prepare(
       `SELECT
-        erb.workspace_id AS workspaceId,
-        erb.employee_id AS employeeId,
-        erb.employee_name AS employeeName,
-        erb.runtime_id AS runtimeId,
+        erb.workspace_id AS "workspaceId",
+        erb.employee_id AS "employeeId",
+        erb.employee_name AS "employeeName",
+        erb.runtime_id AS "runtimeId",
         ar.provider AS provider,
-        ar.name AS runtimeName,
+        ar.name AS "runtimeName",
         erb.status AS status,
         erb.generation AS generation,
-        erb.desired_provider AS desiredProvider,
-        erb.created_at AS boundAt,
-        erb.updated_at AS updatedAt
+        erb.desired_provider AS "desiredProvider",
+        erb.created_at AS "boundAt",
+        erb.updated_at AS "updatedAt"
       FROM employee_runtime_binding erb
       JOIN agent_runtime ar ON ar.id = erb.runtime_id
       WHERE erb.workspace_id = ? AND erb.employee_id = ?`,
@@ -280,17 +280,17 @@ export function listEmployeeRuntimeBindingsSync(workspaceId = DEFAULT_WORKSPACE_
   const rows = db
     .prepare(
       `SELECT
-        erb.workspace_id AS workspaceId,
-        erb.employee_id AS employeeId,
-        erb.employee_name AS employeeName,
-        erb.runtime_id AS runtimeId,
+        erb.workspace_id AS "workspaceId",
+        erb.employee_id AS "employeeId",
+        erb.employee_name AS "employeeName",
+        erb.runtime_id AS "runtimeId",
         ar.provider AS provider,
-        ar.name AS runtimeName,
+        ar.name AS "runtimeName",
         erb.status AS status,
         erb.generation AS generation,
-        erb.desired_provider AS desiredProvider,
-        erb.created_at AS boundAt,
-        erb.updated_at AS updatedAt
+        erb.desired_provider AS "desiredProvider",
+        erb.created_at AS "boundAt",
+        erb.updated_at AS "updatedAt"
       FROM employee_runtime_binding erb
       JOIN agent_runtime ar ON ar.id = erb.runtime_id
       WHERE erb.workspace_id = ?

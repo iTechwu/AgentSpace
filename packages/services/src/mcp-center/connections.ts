@@ -933,8 +933,8 @@ export function rotateMcpEncryptionKeySync(input: { workspaceId?: string } = {})
   withTransaction(db, () => {
     const workspaceClause = input.workspaceId ? "WHERE connection.workspace_id = ?" : "";
     const secretRows = db.prepare(
-      `SELECT secret.connection_id AS connectionId, secret.field_name AS fieldName,
-              secret.encrypted_value AS encryptedValue, secret.key_version AS keyVersion
+      `SELECT secret.connection_id AS "connectionId", secret.field_name AS "fieldName",
+              secret.encrypted_value AS "encryptedValue", secret.key_version AS "keyVersion"
        FROM runtime_mcp_secret secret
        JOIN runtime_mcp_connection connection ON connection.id = secret.connection_id
        ${workspaceClause}`,

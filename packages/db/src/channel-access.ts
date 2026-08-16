@@ -86,14 +86,14 @@ export function readChannelParticipantSync(
   const row = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      channel_name AS channelName,
-      user_id AS userId,
+      workspace_id AS "workspaceId",
+      channel_name AS "channelName",
+      user_id AS "userId",
       status,
-      added_by AS addedBy,
-      joined_at AS joinedAt,
-      removed_at AS removedAt,
-      updated_at AS updatedAt
+      added_by AS "addedBy",
+      joined_at AS "joinedAt",
+      removed_at AS "removedAt",
+      updated_at AS "updatedAt"
      FROM channel_participant
      WHERE workspace_id = ? AND channel_name = ? AND user_id = ?
        AND (? = 1 OR status = 'active')`,
@@ -121,14 +121,14 @@ export function listChannelParticipantsSync(
   const rows = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      channel_name AS channelName,
-      user_id AS userId,
+      workspace_id AS "workspaceId",
+      channel_name AS "channelName",
+      user_id AS "userId",
       status,
-      added_by AS addedBy,
-      joined_at AS joinedAt,
-      removed_at AS removedAt,
-      updated_at AS updatedAt
+      added_by AS "addedBy",
+      joined_at AS "joinedAt",
+      removed_at AS "removedAt",
+      updated_at AS "updatedAt"
      FROM channel_participant
      WHERE ${conditions.join(" AND ")}
      ORDER BY joined_at ASC, user_id ASC`,
@@ -147,14 +147,14 @@ export function listChannelParticipantsForUserSync(
   const rows = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      channel_name AS channelName,
-      user_id AS userId,
+      workspace_id AS "workspaceId",
+      channel_name AS "channelName",
+      user_id AS "userId",
       status,
-      added_by AS addedBy,
-      joined_at AS joinedAt,
-      removed_at AS removedAt,
-      updated_at AS updatedAt
+      added_by AS "addedBy",
+      joined_at AS "joinedAt",
+      removed_at AS "removedAt",
+      updated_at AS "updatedAt"
      FROM channel_participant
      WHERE workspace_id = ? AND user_id = ?
        AND status IN (${statuses.map(() => "?").join(", ")})
@@ -182,14 +182,14 @@ export function listWorkspaceChannelParticipantsSync(
   const rows = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      channel_name AS channelName,
-      user_id AS userId,
+      workspace_id AS "workspaceId",
+      channel_name AS "channelName",
+      user_id AS "userId",
       status,
-      added_by AS addedBy,
-      joined_at AS joinedAt,
-      removed_at AS removedAt,
-      updated_at AS updatedAt
+      added_by AS "addedBy",
+      joined_at AS "joinedAt",
+      removed_at AS "removedAt",
+      updated_at AS "updatedAt"
      FROM channel_participant
      WHERE ${conditions.join(" AND ")}
      ORDER BY channel_name ASC, joined_at ASC, user_id ASC`,
@@ -559,13 +559,13 @@ function expireInvitationIfNeeded(record: StoredChannelInvitationRecord | null):
 function channelAccessRequestSelectSql(whereClause: string): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    channel_name AS channelName,
-    user_id AS userId,
+    workspace_id AS "workspaceId",
+    channel_name AS "channelName",
+    user_id AS "userId",
     status,
-    requested_at AS requestedAt,
-    resolved_at AS resolvedAt,
-    resolved_by AS resolvedBy,
+    requested_at AS "requestedAt",
+    resolved_at AS "resolvedAt",
+    resolved_by AS "resolvedBy",
     note
    FROM channel_access_request
    WHERE ${whereClause}`;
@@ -574,16 +574,16 @@ function channelAccessRequestSelectSql(whereClause: string): string {
 function channelInvitationSelectSql(whereClause: string): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    channel_name AS channelName,
-    invitee_user_id AS inviteeUserId,
-    invitee_email AS inviteeEmail,
-    invited_by AS invitedBy,
+    workspace_id AS "workspaceId",
+    channel_name AS "channelName",
+    invitee_user_id AS "inviteeUserId",
+    invitee_email AS "inviteeEmail",
+    invited_by AS "invitedBy",
     status,
-    created_at AS createdAt,
-    expires_at AS expiresAt,
-    responded_at AS respondedAt,
-    responded_by AS respondedBy
+    created_at AS "createdAt",
+    expires_at AS "expiresAt",
+    responded_at AS "respondedAt",
+    responded_by AS "respondedBy"
    FROM channel_invitation
    WHERE ${whereClause}`;
 }

@@ -36,27 +36,27 @@ export interface UpsertSkillServiceCatalogInput {
 }
 
 const SKILL_SERVICE_CATALOG_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, slug, template_version AS templateVersion,
-  deployment_type AS deploymentType, image_digest AS imageDigest, protocol, scope,
-  resources_json AS resourcesJson, health_json AS healthJson, network_json AS networkJson,
-  config_schema_version AS configSchemaVersion, config_schema_json AS configSchemaJson,
-  secret_fields_json AS secretFieldsJson, external_dependencies_json AS externalDependenciesJson,
-  rollback_class AS rollbackClass, template_digest AS templateDigest,
+  id, workspace_id AS "workspaceId", slug, template_version AS "templateVersion",
+  deployment_type AS "deploymentType", image_digest AS "imageDigest", protocol, scope,
+  resources_json AS "resourcesJson", health_json AS "healthJson", network_json AS "networkJson",
+  config_schema_version AS "configSchemaVersion", config_schema_json AS "configSchemaJson",
+  secret_fields_json AS "secretFieldsJson", external_dependencies_json AS "externalDependenciesJson",
+  rollback_class AS "rollbackClass", template_digest AS "templateDigest",
   sbom_digest, run_as_non_root, read_only_rootfs, cap_drop_json,
   signature_key_pem, signature_required, risk,
-  created_at AS createdAt, updated_at AS updatedAt`;
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 const MANAGED_SKILL_SERVICE_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, runtime_id AS runtimeId, catalog_id AS catalogId,
-  status, network_identity AS networkIdentity, resource_profile_json AS resourceProfileJson,
-  last_health AS lastHealth, last_health_at AS lastHealthAt,
-  rollout_revision AS rolloutRevision, unreferenced_since, created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", runtime_id AS "runtimeId", catalog_id AS "catalogId",
+  status, network_identity AS "networkIdentity", resource_profile_json AS "resourceProfileJson",
+  last_health AS "lastHealth", last_health_at AS "lastHealthAt",
+  rollout_revision AS "rolloutRevision", unreferenced_since, created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 const SKILL_SERVICE_BINDING_COLUMNS = `SELECT
-  installation_id AS installationId, service_id AS serviceId,
-  catalog_template_version AS catalogTemplateVersion, service_image_digest AS serviceImageDigest,
-  endpoint_ref AS endpointRef, health_revision AS healthRevision,
-  config_schema_version AS configSchemaVersion, created_at AS createdAt`;
+  installation_id AS "installationId", service_id AS "serviceId",
+  catalog_template_version AS "catalogTemplateVersion", service_image_digest AS "serviceImageDigest",
+  endpoint_ref AS "endpointRef", health_revision AS "healthRevision",
+  config_schema_version AS "configSchemaVersion", created_at AS "createdAt"`;
 
 export function upsertSkillServiceCatalogSync(input: UpsertSkillServiceCatalogInput): StoredSkillServiceCatalogRecord {
   const db = getDatabase();

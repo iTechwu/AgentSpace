@@ -592,8 +592,8 @@ export function claimManagedProvisioningStageSync(
 
   return withTransaction(db, () => {
     const daemon = db.prepare(
-      `SELECT workspace_id AS workspaceId, device_name AS deviceName, status AS "daemonStatus",
-              last_heartbeat_at AS lastHeartbeatAt, metadata_json AS metadataJson
+      `SELECT workspace_id AS "workspaceId", device_name AS "deviceName", status AS "daemonStatus",
+              last_heartbeat_at AS "lastHeartbeatAt", metadata_json AS "metadataJson"
        FROM daemon_connection WHERE id = ?`,
     ).get(input.daemonConnectionId) as {
       workspaceId?: unknown;

@@ -2,11 +2,11 @@ import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import type { SkillInstallApprovalRecord, SkillInstallApprovalRiskItem } from "./types.ts";
 
 const APPROVAL_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, skill_id AS skillId,
-  artifact_digest AS artifactDigest, release_lock_digest AS releaseLockDigest,
-  policy_version AS policyVersion, risk_decision_digest AS riskDecisionDigest,
-  decision, risk_items_json AS riskItemsJson, reason,
-  actor_user_id AS actorUserId, created_at AS createdAt, consumed_at AS consumedAt`;
+  id, workspace_id AS "workspaceId", skill_id AS "skillId",
+  artifact_digest AS "artifactDigest", release_lock_digest AS "releaseLockDigest",
+  policy_version AS "policyVersion", risk_decision_digest AS "riskDecisionDigest",
+  decision, risk_items_json AS "riskItemsJson", reason,
+  actor_user_id AS "actorUserId", created_at AS "createdAt", consumed_at AS "consumedAt"`;
 
 export interface CreateSkillInstallApprovalInput {
   workspaceId?: string;

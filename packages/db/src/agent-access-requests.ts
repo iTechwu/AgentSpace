@@ -252,19 +252,19 @@ function readPendingDuplicateAgentAccessRequestSync(input: {
 function agentAccessRequestSelectSql(whereClause: string): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    source_agent_name AS sourceAgentName,
-    requester_user_id AS requesterUserId,
-    request_type AS requestType,
-    target_channel_name AS targetChannelName,
+    workspace_id AS "workspaceId",
+    source_agent_name AS "sourceAgentName",
+    requester_user_id AS "requesterUserId",
+    request_type AS "requestType",
+    target_channel_name AS "targetChannelName",
     status,
     reason,
-    resolver_user_id AS resolverUserId,
-    resolved_at AS resolvedAt,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    fork_invitation_id AS forkInvitationId,
-    audit_data_json AS auditDataJson
+    resolver_user_id AS "resolverUserId",
+    resolved_at AS "resolvedAt",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt",
+    fork_invitation_id AS "forkInvitationId",
+    audit_data_json AS "auditDataJson"
    FROM agent_access_request
    WHERE ${whereClause}`;
 }

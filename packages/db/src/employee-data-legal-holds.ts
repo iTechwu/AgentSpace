@@ -20,12 +20,12 @@ export interface CreateEmployeeDataLegalHoldInput {
 }
 
 const HOLD_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, employee_id AS employeeId,
-  resource_type AS resourceType, resource_id AS resourceId, reason,
-  case_reference AS caseReference,
-  created_by_user_id AS createdByUserId, created_by_display_name AS createdByDisplayName,
-  created_at AS createdAt, expires_at AS expiresAt, released_at AS releasedAt,
-  released_by_user_id AS releasedByUserId, release_reason AS releaseReason`;
+  id, workspace_id AS "workspaceId", employee_id AS "employeeId",
+  resource_type AS "resourceType", resource_id AS "resourceId", reason,
+  case_reference AS "caseReference",
+  created_by_user_id AS "createdByUserId", created_by_display_name AS "createdByDisplayName",
+  created_at AS "createdAt", expires_at AS "expiresAt", released_at AS "releasedAt",
+  released_by_user_id AS "releasedByUserId", release_reason AS "releaseReason"`;
 
 export function createEmployeeDataLegalHoldSync(
   input: CreateEmployeeDataLegalHoldInput,

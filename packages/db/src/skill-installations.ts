@@ -49,29 +49,29 @@ export interface CreateSkillInstallationOperationInput {
 /* ------------------------------------------------------------------ */
 
 const SKILL_INSTALLATION_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, runtime_id AS runtimeId,
-  artifact_digest AS artifactDigest, status, resolved_lock_json AS resolvedLockJson,
-  prepared_path AS preparedPath, prepared_digest AS preparedDigest, health,
-  previous_ready_revision AS previousReadyRevision,
-  previous_ready_artifact_digest AS previousReadyArtifactDigest,
-  rollout_plan_id AS rolloutPlanId,
-  revision, installed_at AS installedAt, verified_at AS verifiedAt,
-  created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", runtime_id AS "runtimeId",
+  artifact_digest AS "artifactDigest", status, resolved_lock_json AS "resolvedLockJson",
+  prepared_path AS "preparedPath", prepared_digest AS "preparedDigest", health,
+  previous_ready_revision AS "previousReadyRevision",
+  previous_ready_artifact_digest AS "previousReadyArtifactDigest",
+  rollout_plan_id AS "rolloutPlanId",
+  revision, installed_at AS "installedAt", verified_at AS "verifiedAt",
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 const SKILL_INSTALLATION_COMPONENT_COLUMNS = `SELECT
-  id, installation_id AS installationId, kind, key, status,
-  error_code AS errorCode, error_message AS errorMessage,
-  last_operation_id AS lastOperationId, verified_at AS verifiedAt,
-  updated_at AS updatedAt`;
+  id, installation_id AS "installationId", kind, key, status,
+  error_code AS "errorCode", error_message AS "errorMessage",
+  last_operation_id AS "lastOperationId", verified_at AS "verifiedAt",
+  updated_at AS "updatedAt"`;
 
 const SKILL_INSTALLATION_OPERATION_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, runtime_id AS runtimeId,
-  installation_id AS installationId, operation, status,
-  request_snapshot_json AS requestSnapshotJson, safe_result_json AS safeResultJson,
-  error_code AS errorCode, error_message AS errorMessage,
-  claimed_at AS claimedAt, completed_at AS completedAt,
-  lease_expires_at, claim_generation AS claimGeneration,
-  requested_by_user_id AS requestedByUserId, created_at AS createdAt`;
+  id, workspace_id AS "workspaceId", runtime_id AS "runtimeId",
+  installation_id AS "installationId", operation, status,
+  request_snapshot_json AS "requestSnapshotJson", safe_result_json AS "safeResultJson",
+  error_code AS "errorCode", error_message AS "errorMessage",
+  claimed_at AS "claimedAt", completed_at AS "completedAt",
+  lease_expires_at, claim_generation AS "claimGeneration",
+  requested_by_user_id AS "requestedByUserId", created_at AS "createdAt"`;
 
 /* ------------------------------------------------------------------ */
 /* Installations                                                       */
@@ -306,7 +306,7 @@ export function listInstallableRuntimesForWorkspaceSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): InstallableRuntimeRow[] {
   const rows = getDatabase().prepare(
-    `SELECT id, name, provider, status, provisioning_state AS provisioningState
+    `SELECT id, name, provider, status, provisioning_state AS "provisioningState"
      FROM agent_runtime WHERE workspace_id = ? ORDER BY name ASC`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
   return rows

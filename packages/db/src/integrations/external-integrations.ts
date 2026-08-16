@@ -1930,189 +1930,189 @@ function requireExternalDataOperationRun(input: { workspaceId: string; runId: st
 function selectExternalIntegrationSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
+    workspace_id AS "workspaceId",
     provider,
-    display_name AS displayName,
+    display_name AS "displayName",
     status,
-    transport_mode AS transportMode,
-    agent_id AS agentId,
-    app_id AS appId,
-    tenant_key AS tenantKey,
-    encrypted_credentials_json AS encryptedCredentialsJson,
-    config_json AS configJson,
-    capabilities_json AS capabilitiesJson,
-    scopes_json AS scopesJson,
-    created_by_user_id AS createdByUserId,
-    updated_by_user_id AS updatedByUserId,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    disabled_at AS disabledAt,
-    last_health_status AS lastHealthStatus,
-    last_health_checked_at AS lastHealthCheckedAt,
-    last_error AS lastError
+    transport_mode AS "transportMode",
+    agent_id AS "agentId",
+    app_id AS "appId",
+    tenant_key AS "tenantKey",
+    encrypted_credentials_json AS "encryptedCredentialsJson",
+    config_json AS "configJson",
+    capabilities_json AS "capabilitiesJson",
+    scopes_json AS "scopesJson",
+    created_by_user_id AS "createdByUserId",
+    updated_by_user_id AS "updatedByUserId",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt",
+    disabled_at AS "disabledAt",
+    last_health_status AS "lastHealthStatus",
+    last_health_checked_at AS "lastHealthCheckedAt",
+    last_error AS "lastError"
    FROM external_integration`;
 }
 
 function selectExternalUserBindingSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    integration_id AS integrationId,
-    user_id AS userId,
-    external_user_id AS externalUserId,
-    external_union_id AS externalUnionId,
-    external_open_id AS externalOpenId,
-    external_email AS externalEmail,
-    display_name AS displayName,
+    workspace_id AS "workspaceId",
+    integration_id AS "integrationId",
+    user_id AS "userId",
+    external_user_id AS "externalUserId",
+    external_union_id AS "externalUnionId",
+    external_open_id AS "externalOpenId",
+    external_email AS "externalEmail",
+    display_name AS "displayName",
     status,
-    metadata_json AS metadataJson,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    last_seen_at AS lastSeenAt
+    metadata_json AS "metadataJson",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt",
+    last_seen_at AS "lastSeenAt"
    FROM external_user_binding`;
 }
 
 function selectExternalChannelBindingSql(alias = "external_channel_binding"): string {
   return `SELECT
     ${alias}.id,
-    ${alias}.workspace_id AS workspaceId,
-    ${alias}.integration_id AS integrationId,
-    ${alias}.channel_name AS channelName,
-    ${alias}.external_chat_id AS externalChatId,
-    ${alias}.external_chat_type AS externalChatType,
-    ${alias}.external_chat_name AS externalChatName,
+    ${alias}.workspace_id AS "workspaceId",
+    ${alias}.integration_id AS "integrationId",
+    ${alias}.channel_name AS "channelName",
+    ${alias}.external_chat_id AS "externalChatId",
+    ${alias}.external_chat_type AS "externalChatType",
+    ${alias}.external_chat_name AS "externalChatName",
     ${alias}.status,
-    ${alias}.sync_mode AS syncMode,
-    ${alias}.metadata_json AS metadataJson,
-    ${alias}.created_by_user_id AS createdByUserId,
-    ${alias}.created_at AS createdAt,
-    ${alias}.updated_at AS updatedAt,
-    ${alias}.disabled_at AS disabledAt
+    ${alias}.sync_mode AS "syncMode",
+    ${alias}.metadata_json AS "metadataJson",
+    ${alias}.created_by_user_id AS "createdByUserId",
+    ${alias}.created_at AS "createdAt",
+    ${alias}.updated_at AS "updatedAt",
+    ${alias}.disabled_at AS "disabledAt"
    FROM external_channel_binding ${alias}`;
 }
 
 function selectExternalResourceBindingSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    integration_id AS integrationId,
-    provider_resource_type AS providerResourceType,
-    provider_resource_token AS providerResourceToken,
-    provider_resource_url AS providerResourceUrl,
-    dofe_agent_resource_type AS dofeAgentResourceType,
-    dofe_agent_resource_id AS dofeAgentResourceId,
-    channel_name AS channelName,
-    display_name AS displayName,
+    workspace_id AS "workspaceId",
+    integration_id AS "integrationId",
+    provider_resource_type AS "providerResourceType",
+    provider_resource_token AS "providerResourceToken",
+    provider_resource_url AS "providerResourceUrl",
+    dofe_agent_resource_type AS "dofeAgentResourceType",
+    dofe_agent_resource_id AS "dofeAgentResourceId",
+    channel_name AS "channelName",
+    display_name AS "displayName",
     status,
-    permissions_json AS permissionsJson,
-    metadata_json AS metadataJson,
-    created_by_user_id AS createdByUserId,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    archived_at AS archivedAt
+    permissions_json AS "permissionsJson",
+    metadata_json AS "metadataJson",
+    created_by_user_id AS "createdByUserId",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt",
+    archived_at AS "archivedAt"
    FROM external_resource_binding`;
 }
 
 function selectExternalMessageMappingSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    integration_id AS integrationId,
-    channel_binding_id AS channelBindingId,
+    workspace_id AS "workspaceId",
+    integration_id AS "integrationId",
+    channel_binding_id AS "channelBindingId",
     direction,
-    external_message_id AS externalMessageId,
-    external_thread_id AS externalThreadId,
-    external_sender_id AS externalSenderId,
-    external_event_id AS externalEventId,
-    dofe_agent_message_id AS dofeAgentMessageId,
-    task_queue_id AS taskQueueId,
-    router_session_id AS routerSessionId,
-    metadata_json AS metadataJson,
-    created_at AS createdAt
+    external_message_id AS "externalMessageId",
+    external_thread_id AS "externalThreadId",
+    external_sender_id AS "externalSenderId",
+    external_event_id AS "externalEventId",
+    dofe_agent_message_id AS "dofeAgentMessageId",
+    task_queue_id AS "taskQueueId",
+    router_session_id AS "routerSessionId",
+    metadata_json AS "metadataJson",
+    created_at AS "createdAt"
    FROM external_message_mapping`;
 }
 
 function selectExternalThreadBindingSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    integration_id AS integrationId,
-    channel_binding_id AS channelBindingId,
+    workspace_id AS "workspaceId",
+    integration_id AS "integrationId",
+    channel_binding_id AS "channelBindingId",
     provider,
-    tenant_key AS tenantKey,
-    external_chat_id AS externalChatId,
-    external_thread_id AS externalThreadId,
-    channel_name AS channelName,
-    agent_id AS agentId,
-    task_queue_id AS taskQueueId,
-    dofe_agent_message_id AS dofeAgentMessageId,
+    tenant_key AS "tenantKey",
+    external_chat_id AS "externalChatId",
+    external_thread_id AS "externalThreadId",
+    channel_name AS "channelName",
+    agent_id AS "agentId",
+    task_queue_id AS "taskQueueId",
+    dofe_agent_message_id AS "dofeAgentMessageId",
     status,
-    metadata_json AS metadataJson,
-    last_message_at AS lastMessageAt,
-    created_at AS createdAt,
-    updated_at AS updatedAt
+    metadata_json AS "metadataJson",
+    last_message_at AS "lastMessageAt",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt"
    FROM external_thread_binding`;
 }
 
 function selectExternalMessageOutboxSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    integration_id AS integrationId,
-    channel_binding_id AS channelBindingId,
-    target_external_chat_id AS targetExternalChatId,
-    target_external_thread_id AS targetExternalThreadId,
-    dofe_agent_message_id AS dofeAgentMessageId,
-    payload_json AS payloadJson,
-    metadata_json AS metadataJson,
+    workspace_id AS "workspaceId",
+    integration_id AS "integrationId",
+    channel_binding_id AS "channelBindingId",
+    target_external_chat_id AS "targetExternalChatId",
+    target_external_thread_id AS "targetExternalThreadId",
+    dofe_agent_message_id AS "dofeAgentMessageId",
+    payload_json AS "payloadJson",
+    metadata_json AS "metadataJson",
     status,
     attempts,
-    next_attempt_at AS nextAttemptAt,
-    locked_at AS lockedAt,
-    locked_by AS lockedBy,
-    last_error AS lastError,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    sent_at AS sentAt
+    next_attempt_at AS "nextAttemptAt",
+    locked_at AS "lockedAt",
+    locked_by AS "lockedBy",
+    last_error AS "lastError",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt",
+    sent_at AS "sentAt"
    FROM external_message_outbox`;
 }
 
 function selectExternalDataOperationRunSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    integration_id AS integrationId,
-    resource_binding_id AS resourceBindingId,
-    operation_type AS operationType,
-    provider_resource_type AS providerResourceType,
-    provider_resource_token AS providerResourceToken,
-    actor_type AS actorType,
-    actor_id AS actorId,
+    workspace_id AS "workspaceId",
+    integration_id AS "integrationId",
+    resource_binding_id AS "resourceBindingId",
+    operation_type AS "operationType",
+    provider_resource_type AS "providerResourceType",
+    provider_resource_token AS "providerResourceToken",
+    actor_type AS "actorType",
+    actor_id AS "actorId",
     status,
-    request_json AS requestJson,
-    result_json AS resultJson,
-    error_code AS errorCode,
-    error_message AS errorMessage,
-    started_at AS startedAt,
-    finished_at AS finishedAt,
-    created_at AS createdAt,
-    updated_at AS updatedAt
+    request_json AS "requestJson",
+    result_json AS "resultJson",
+    error_code AS "errorCode",
+    error_message AS "errorMessage",
+    started_at AS "startedAt",
+    finished_at AS "finishedAt",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt"
    FROM external_data_operation_run`;
 }
 
 function selectExternalIntegrationEventSql(): string {
   return `SELECT
     id,
-    workspace_id AS workspaceId,
-    integration_id AS integrationId,
+    workspace_id AS "workspaceId",
+    integration_id AS "integrationId",
     provider,
-    external_event_id AS externalEventId,
-    event_type AS eventType,
+    external_event_id AS "externalEventId",
+    event_type AS "eventType",
     status,
-    payload_json AS payloadJson,
-    error_message AS errorMessage,
-    received_at AS receivedAt,
-    processed_at AS processedAt
+    payload_json AS "payloadJson",
+    error_message AS "errorMessage",
+    received_at AS "receivedAt",
+    processed_at AS "processedAt"
    FROM external_integration_event`;
 }
 

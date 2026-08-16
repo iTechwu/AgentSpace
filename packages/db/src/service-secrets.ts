@@ -2,8 +2,8 @@ import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from
 import type { StoredWorkspaceServiceSecretRecord } from "./types.ts";
 
 const SERVICE_SECRET_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, service_catalog_id, name,
-  encrypted_value, created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", service_catalog_id, name,
+  encrypted_value, created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 export function upsertWorkspaceServiceSecretSync(input: {
   workspaceId?: string;

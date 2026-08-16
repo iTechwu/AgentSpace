@@ -39,13 +39,13 @@ export interface CreateWorkspaceMountOperationInput {
 }
 
 const MOUNT_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, runtime_id AS runtimeId,
-  employee_id AS employeeId, employee_name AS employeeName,
-  head_revision_id AS headRevisionId, status, claimed_at AS claimedAt, completed_at AS completedAt,
-  lease_expires_at AS leaseExpiresAt, claim_generation AS claimGeneration,
-  error_code AS errorCode, error_message AS errorMessage,
-  materialized_files AS materializedFiles, mounted_path AS mountedPath,
-  created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", runtime_id AS "runtimeId",
+  employee_id AS "employeeId", employee_name AS "employeeName",
+  head_revision_id AS "headRevisionId", status, claimed_at AS "claimedAt", completed_at AS "completedAt",
+  lease_expires_at AS "leaseExpiresAt", claim_generation AS "claimGeneration",
+  error_code AS "errorCode", error_message AS "errorMessage",
+  materialized_files AS "materializedFiles", mounted_path AS "mountedPath",
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 export function createWorkspaceMountOperationSync(
   input: CreateWorkspaceMountOperationInput,

@@ -24,15 +24,15 @@ export interface UpsertContentBlobInput {
 
 const CONTENT_BLOB_COLUMNS = `SELECT
   sha256,
-  workspace_id AS workspaceId,
-  storage_provider AS storageProvider,
-  storage_bucket AS storageBucket,
-  storage_region AS storageRegion,
-  storage_endpoint AS storageEndpoint,
-  storage_key AS storageKey,
-  size_bytes AS sizeBytes,
-  media_type AS mediaType,
-  created_at AS createdAt`;
+  workspace_id AS "workspaceId",
+  storage_provider AS "storageProvider",
+  storage_bucket AS "storageBucket",
+  storage_region AS "storageRegion",
+  storage_endpoint AS "storageEndpoint",
+  storage_key AS "storageKey",
+  size_bytes AS "sizeBytes",
+  media_type AS "mediaType",
+  created_at AS "createdAt"`;
 
 /**
  * Idempotent insert: a (workspace_id, sha256) pair maps to exactly one blob.

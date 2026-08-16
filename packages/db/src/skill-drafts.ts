@@ -45,8 +45,8 @@ export function readSkillDraftSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): SkillDraftRecord | null {
   const row = getDatabase().prepare(
-    `SELECT workspace_id AS workspaceId, skill_id AS skillId,
-            draft_json AS draftJson, updated_by_user_id AS updatedByUserId, updated_at AS updatedAt
+    `SELECT workspace_id AS "workspaceId", skill_id AS "skillId",
+            draft_json AS "draftJson", updated_by_user_id AS "updatedByUserId", updated_at AS "updatedAt"
      FROM skill_draft WHERE workspace_id = ? AND skill_id = ?`,
   ).get(workspaceId, skillId) as Record<string, unknown> | undefined;
   if (!row) {
@@ -73,7 +73,7 @@ export function deleteSkillDraftSync(
 
 export function listSkillDraftSkillIdsSync(workspaceId = DEFAULT_WORKSPACE_ID): string[] {
   const rows = getDatabase().prepare(
-    `SELECT skill_id AS skillId FROM skill_draft WHERE workspace_id = ? ORDER BY updated_at DESC`,
+    `SELECT skill_id AS "skillId" FROM skill_draft WHERE workspace_id = ? ORDER BY updated_at DESC`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
   return rows.map((row) => row.skillId ?? row.skillid).filter((id): id is string => typeof id === "string");
 }

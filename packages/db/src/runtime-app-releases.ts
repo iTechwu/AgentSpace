@@ -81,8 +81,8 @@ export function readWorkspaceRuntimeAppPackageBySlugSync(
   slug: string,
 ): WorkspaceRuntimeAppPackageRecord | null {
   const row = getDatabase().prepare(
-    `SELECT id, workspace_id AS workspaceId, slug, display_name AS displayName, description,
-            category, homepage, created_by_user_id AS createdByUserId, created_at AS createdAt
+    `SELECT id, workspace_id AS "workspaceId", slug, display_name AS "displayName", description,
+            category, homepage, created_by_user_id AS "createdByUserId", created_at AS "createdAt"
      FROM runtime_app_package WHERE workspace_id = ? AND slug = ?`,
   ).get(workspaceId, slug) as Record<string, unknown> | undefined;
   return row ? mapPackage(row) : null;
@@ -120,12 +120,12 @@ export function listWorkspaceRuntimeAppReleasesSync(
 }
 
 const RELEASE_SELECT = `SELECT
-  r.id, r.workspace_id AS workspaceId, r.package_id AS packageId, p.slug AS packageSlug,
-  p.display_name AS displayName, p.description, p.category, p.homepage,
-  r.version, r.artifact_kind AS artifactKind, r.artifact_name AS artifactName,
-  r.artifact_url AS artifactUrl, r.artifact_integrity AS artifactIntegrity,
-  r.entry_point AS entryPoint, r.manifest_json AS manifestJson, r.risk,
-  r.created_by_user_id AS createdByUserId, r.created_at AS createdAt, r.yanked_at AS yankedAt
+  r.id, r.workspace_id AS "workspaceId", r.package_id AS "packageId", p.slug AS "packageSlug",
+  p.display_name AS "displayName", p.description, p.category, p.homepage,
+  r.version, r.artifact_kind AS "artifactKind", r.artifact_name AS "artifactName",
+  r.artifact_url AS "artifactUrl", r.artifact_integrity AS "artifactIntegrity",
+  r.entry_point AS "entryPoint", r.manifest_json AS "manifestJson", r.risk,
+  r.created_by_user_id AS "createdByUserId", r.created_at AS "createdAt", r.yanked_at AS "yankedAt"
  FROM runtime_app_release r
  JOIN runtime_app_package p ON p.id = r.package_id`;
 

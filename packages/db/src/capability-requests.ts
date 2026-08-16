@@ -71,22 +71,22 @@ export interface ListCapabilityRequestsOptions {
 }
 
 const SELECT_FIELDS = `
-  id, workspace_id AS workspaceId, requested_by_user_id AS requestedByUserId,
-  decided_by_user_id AS decidedByUserId, runtime_id AS runtimeId,
-  package_kind AS packageKind, package_source AS packageSource, package_slug AS packageSlug,
-  package_display_name AS packageDisplayName, deployment_mode AS deploymentMode,
-  requested_action AS requestedAction, priority, message, status,
-  decision_reason AS decisionReason,
-  last_error_code AS lastErrorCode, last_error_message AS lastErrorMessage,
-  linked_runtime_app_operation_id AS linkedRuntimeAppOperationId,
-  linked_runtime_installed_app_id AS linkedRuntimeInstalledAppId,
-  linked_mcp_connection_id AS linkedMcpConnectionId,
-  linked_runtime_provisioning_task_id AS linkedRuntimeProvisioningTaskId,
-  linked_knowledge_page_id AS linkedKnowledgePageId,
-  release_id AS releaseId,
-  metadata_json AS metadataJson,
-  created_at AS createdAt, updated_at AS updatedAt,
-  decided_at AS decidedAt, completed_at AS completedAt
+  id, workspace_id AS "workspaceId", requested_by_user_id AS "requestedByUserId",
+  decided_by_user_id AS "decidedByUserId", runtime_id AS "runtimeId",
+  package_kind AS "packageKind", package_source AS "packageSource", package_slug AS "packageSlug",
+  package_display_name AS "packageDisplayName", deployment_mode AS "deploymentMode",
+  requested_action AS "requestedAction", priority, message, status,
+  decision_reason AS "decisionReason",
+  last_error_code AS "lastErrorCode", last_error_message AS "lastErrorMessage",
+  linked_runtime_app_operation_id AS "linkedRuntimeAppOperationId",
+  linked_runtime_installed_app_id AS "linkedRuntimeInstalledAppId",
+  linked_mcp_connection_id AS "linkedMcpConnectionId",
+  linked_runtime_provisioning_task_id AS "linkedRuntimeProvisioningTaskId",
+  linked_knowledge_page_id AS "linkedKnowledgePageId",
+  release_id AS "releaseId",
+  metadata_json AS "metadataJson",
+  created_at AS "createdAt", updated_at AS "updatedAt",
+  decided_at AS "decidedAt", completed_at AS "completedAt"
 `;
 
 export type CapabilityRequestCreateOutcome = "created" | "reopened" | "in_flight";

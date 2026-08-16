@@ -7,12 +7,12 @@ export function listWorkspaceRuntimeDisplayNamesSync(
   const db = getDatabase();
   const rows = db.prepare(
     `SELECT
-      workspace_id AS workspaceId,
-      runtime_id AS runtimeId,
-      display_name AS displayName,
-      updated_by_user_id AS updatedByUserId,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      workspace_id AS "workspaceId",
+      runtime_id AS "runtimeId",
+      display_name AS "displayName",
+      updated_by_user_id AS "updatedByUserId",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM workspace_runtime_display_name
      WHERE workspace_id = ?
      ORDER BY created_at ASC, runtime_id ASC`,
@@ -77,12 +77,12 @@ function readWorkspaceRuntimeDisplayNameSync(
   const db = getDatabase();
   const row = db.prepare(
     `SELECT
-      workspace_id AS workspaceId,
-      runtime_id AS runtimeId,
-      display_name AS displayName,
-      updated_by_user_id AS updatedByUserId,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      workspace_id AS "workspaceId",
+      runtime_id AS "runtimeId",
+      display_name AS "displayName",
+      updated_by_user_id AS "updatedByUserId",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM workspace_runtime_display_name
      WHERE workspace_id = ? AND runtime_id = ?`,
   ).get(workspaceId, runtimeId) as Record<string, unknown> | undefined;

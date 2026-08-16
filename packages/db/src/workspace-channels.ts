@@ -8,9 +8,9 @@ export function listStoredChannelsSync(workspaceId = DEFAULT_WORKSPACE_ID): Chan
       id,
       name,
       kind,
-      human_member_names_json AS humanMemberNamesJson,
-      human_member_count AS humanMemberCount,
-      employee_names_json AS employeeNamesJson
+      human_member_names_json AS "humanMemberNamesJson",
+      human_member_count AS "humanMemberCount",
+      employee_names_json AS "employeeNamesJson"
      FROM workspace_channel
      WHERE workspace_id = ?
      ORDER BY LOWER(name) ASC, name ASC`,

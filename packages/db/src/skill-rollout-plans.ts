@@ -2,11 +2,11 @@ import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import type { SkillRolloutPlanRecord } from "./types.ts";
 
 const PLAN_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, root_artifact_digest AS rootArtifactDigest,
-  plan_digest AS planDigest, policy_version AS policyVersion,
-  closure_json AS closureJson, target_runtimes_json AS targetRuntimesJson,
-  risk_summary_json AS riskSummaryJson, decision,
-  actor_user_id AS actorUserId, created_at AS createdAt, consumed_at AS consumedAt`;
+  id, workspace_id AS "workspaceId", root_artifact_digest AS "rootArtifactDigest",
+  plan_digest AS "planDigest", policy_version AS "policyVersion",
+  closure_json AS "closureJson", target_runtimes_json AS "targetRuntimesJson",
+  risk_summary_json AS "riskSummaryJson", decision,
+  actor_user_id AS "actorUserId", created_at AS "createdAt", consumed_at AS "consumedAt"`;
 
 export interface CreateSkillRolloutPlanInput {
   workspaceId?: string;

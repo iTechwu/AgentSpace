@@ -44,13 +44,13 @@ export function readUserSync(userId: string): StoredUserRecord | null {
   const row = db.prepare(
     `SELECT
       id,
-      display_name AS displayName,
-      avatar_url AS avatarUrl,
-      primary_email AS primaryEmail,
+      display_name AS "displayName",
+      avatar_url AS "avatarUrl",
+      primary_email AS "primaryEmail",
       is_admin AS "isAdmin",
-      created_at AS createdAt,
-      updated_at AS updatedAt,
-      last_login_at AS lastLoginAt
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      last_login_at AS "lastLoginAt"
      FROM users
      WHERE id = ?`,
   ).get(userId) as Record<string, unknown> | undefined;
@@ -68,13 +68,13 @@ export function readUserByEmailSync(email: string): StoredUserRecord | null {
   const row = db.prepare(
     `SELECT
       id,
-      display_name AS displayName,
-      avatar_url AS avatarUrl,
-      primary_email AS primaryEmail,
+      display_name AS "displayName",
+      avatar_url AS "avatarUrl",
+      primary_email AS "primaryEmail",
       is_admin AS "isAdmin",
-      created_at AS createdAt,
-      updated_at AS updatedAt,
-      last_login_at AS lastLoginAt
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      last_login_at AS "lastLoginAt"
      FROM users
      WHERE primary_email = ?`,
   ).get(normalizedEmail) as Record<string, unknown> | undefined;
@@ -139,14 +139,14 @@ export function readAuthIdentityByProviderSubjectSync(
   const row = db.prepare(
     `SELECT
       id,
-      user_id AS userId,
+      user_id AS "userId",
       provider,
-      provider_subject AS providerSubject,
+      provider_subject AS "providerSubject",
       email,
-      email_verified AS emailVerified,
-      profile_json AS profileJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      email_verified AS "emailVerified",
+      profile_json AS "profileJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM auth_identity
      WHERE provider = ? AND provider_subject = ?`,
   ).get(provider, normalizedProviderSubject) as Record<string, unknown> | undefined;
@@ -167,14 +167,14 @@ export function readAuthIdentityForUserSync(
   const row = db.prepare(
     `SELECT
       id,
-      user_id AS userId,
+      user_id AS "userId",
       provider,
-      provider_subject AS providerSubject,
+      provider_subject AS "providerSubject",
       email,
-      email_verified AS emailVerified,
-      profile_json AS profileJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      email_verified AS "emailVerified",
+      profile_json AS "profileJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM auth_identity
      WHERE user_id = ? AND provider = ?
      ORDER BY created_at ASC
@@ -260,14 +260,14 @@ export function readSessionByTokenHashSync(tokenHash: string): StoredSessionReco
   const row = db.prepare(
     `SELECT
       id,
-      user_id AS userId,
-      token_hash AS tokenHash,
-      expires_at AS expiresAt,
-      last_seen_at AS lastSeenAt,
-      created_at AS createdAt,
-      ip_address AS ipAddress,
-      user_agent AS userAgent,
-      revoked_at AS revokedAt
+      user_id AS "userId",
+      token_hash AS "tokenHash",
+      expires_at AS "expiresAt",
+      last_seen_at AS "lastSeenAt",
+      created_at AS "createdAt",
+      ip_address AS "ipAddress",
+      user_agent AS "userAgent",
+      revoked_at AS "revokedAt"
      FROM session
      WHERE token_hash = ?`,
   ).get(tokenHash) as Record<string, unknown> | undefined;
@@ -295,14 +295,14 @@ export function listSessionsForUserSync(userId: string): StoredSessionRecord[] {
   const rows = db.prepare(
     `SELECT
       id,
-      user_id AS userId,
-      token_hash AS tokenHash,
-      expires_at AS expiresAt,
-      last_seen_at AS lastSeenAt,
-      created_at AS createdAt,
-      ip_address AS ipAddress,
-      user_agent AS userAgent,
-      revoked_at AS revokedAt
+      user_id AS "userId",
+      token_hash AS "tokenHash",
+      expires_at AS "expiresAt",
+      last_seen_at AS "lastSeenAt",
+      created_at AS "createdAt",
+      ip_address AS "ipAddress",
+      user_agent AS "userAgent",
+      revoked_at AS "revokedAt"
      FROM session
      WHERE user_id = ?
      ORDER BY created_at DESC, id DESC`,
@@ -358,9 +358,9 @@ export function listWorkspaceMemberUsersSync(workspaceId: string): WorkspaceMemb
   const db = getDatabase();
   const rows = db.prepare(
     `SELECT
-      u.id AS userId,
-      u.display_name AS displayName,
-      u.primary_email AS primaryEmail,
+      u.id AS "userId",
+      u.display_name AS "displayName",
+      u.primary_email AS "primaryEmail",
       wm.role
      FROM workspace_membership wm
      JOIN users u ON u.id = wm.user_id
@@ -395,14 +395,14 @@ function readAuthIdentitySync(identityId: string): StoredAuthIdentityRecord | nu
   const row = db.prepare(
     `SELECT
       id,
-      user_id AS userId,
+      user_id AS "userId",
       provider,
-      provider_subject AS providerSubject,
+      provider_subject AS "providerSubject",
       email,
-      email_verified AS emailVerified,
-      profile_json AS profileJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      email_verified AS "emailVerified",
+      profile_json AS "profileJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM auth_identity
      WHERE id = ?`,
   ).get(identityId) as Record<string, unknown> | undefined;

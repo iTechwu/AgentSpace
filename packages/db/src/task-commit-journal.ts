@@ -24,11 +24,11 @@ export interface UpsertTaskCommitJournalInput {
 /* ------------------------------------------------------------------ */
 
 const JOURNAL_COLUMNS = `SELECT
-  task_id AS taskId, workspace_id AS workspaceId, employee_id AS employeeId,
-  employee_name AS employeeName, workspace_revision_id AS workspaceRevisionId,
-  artifact_ids_json AS artifactIdsJson, commit_state AS commitState, attempt,
-  error_code AS errorCode, error_message AS errorMessage,
-  created_at AS createdAt, updated_at AS updatedAt`;
+  task_id AS "taskId", workspace_id AS "workspaceId", employee_id AS "employeeId",
+  employee_name AS "employeeName", workspace_revision_id AS "workspaceRevisionId",
+  artifact_ids_json AS "artifactIdsJson", commit_state AS "commitState", attempt,
+  error_code AS "errorCode", error_message AS "errorMessage",
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 /* ------------------------------------------------------------------ */
 /* Upsert (idempotent, one row per task)                               */
@@ -36,7 +36,7 @@ const JOURNAL_COLUMNS = `SELECT
 
 export function upsertTaskCommitJournalSync(input: UpsertTaskCommitJournalInput): TaskCommitJournalRecord {
   const db = getDatabase();
-  const taskRow = db.prepare("SELECT workspace_id AS workspaceId FROM agent_task_queue WHERE id = ?").get(input.taskId) as { workspaceId?: unknown } | undefined;
+  const taskRow = db.prepare(`SELECT workspace_id AS "workspaceId" FROM agent_task_queue WHERE id = ?`).get(input.taskId) as { workspaceId?: unknown } | undefined;
   if (typeof taskRow?.workspaceId !== "string") throw new Error("task_commit_task_not_found");
   if (input.workspaceId !== undefined && input.workspaceId !== taskRow.workspaceId) {
     throw new Error("task_commit_workspace_mismatch");

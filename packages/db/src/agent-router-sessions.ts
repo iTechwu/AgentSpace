@@ -166,20 +166,20 @@ export function readAgentRouterSessionSync(id: string): AgentRouterSessionRecord
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      agent_id AS agentId,
-      conversation_key AS conversationKey,
-      source_type AS sourceType,
+      workspace_id AS "workspaceId",
+      agent_id AS "agentId",
+      conversation_key AS "conversationKey",
+      source_type AS "sourceType",
       status,
       title,
       summary,
-      memory_summary AS memorySummary,
-      model_override AS modelOverride,
-      model_override_source AS modelOverrideSource,
-      model_override_set_at AS modelOverrideSetAt,
-      created_at AS createdAt,
-      updated_at AS updatedAt,
-      closed_at AS closedAt
+      memory_summary AS "memorySummary",
+      model_override AS "modelOverride",
+      model_override_source AS "modelOverrideSource",
+      model_override_set_at AS "modelOverrideSetAt",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      closed_at AS "closedAt"
      FROM agent_router_session
      WHERE id = ?`,
   ).get(id) as Record<string, unknown> | undefined;
@@ -209,20 +209,20 @@ export function listAgentRouterSessionsSync(options: {
   const rows = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      agent_id AS agentId,
-      conversation_key AS conversationKey,
-      source_type AS sourceType,
+      workspace_id AS "workspaceId",
+      agent_id AS "agentId",
+      conversation_key AS "conversationKey",
+      source_type AS "sourceType",
       status,
       title,
       summary,
-      memory_summary AS memorySummary,
-      model_override AS modelOverride,
-      model_override_source AS modelOverrideSource,
-      model_override_set_at AS modelOverrideSetAt,
-      created_at AS createdAt,
-      updated_at AS updatedAt,
-      closed_at AS closedAt
+      memory_summary AS "memorySummary",
+      model_override AS "modelOverride",
+      model_override_source AS "modelOverrideSource",
+      model_override_set_at AS "modelOverrideSetAt",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      closed_at AS "closedAt"
      FROM agent_router_session
      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY updated_at DESC, id DESC
@@ -308,7 +308,7 @@ export function upsertAgentRouterProviderSessionSync(input: {
   }
 
   const existing = db.prepare(
-    `SELECT id, created_at AS createdAt
+    `SELECT id, created_at AS "createdAt"
      FROM agent_router_provider_session
      WHERE workspace_id = ? AND router_session_id = ? AND runtime_id = ? AND provider = ?
      LIMIT 1`,
@@ -398,17 +398,17 @@ export function readAgentRouterProviderSessionSync(id: string): AgentRouterProvi
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      router_session_id AS routerSessionId,
-      runtime_id AS runtimeId,
+      workspace_id AS "workspaceId",
+      router_session_id AS "routerSessionId",
+      runtime_id AS "runtimeId",
       provider,
-      provider_session_id AS providerSessionId,
+      provider_session_id AS "providerSessionId",
       status,
-      last_used_at AS lastUsedAt,
-      last_error AS lastError,
-      metadata_json AS metadataJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      last_used_at AS "lastUsedAt",
+      last_error AS "lastError",
+      metadata_json AS "metadataJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM agent_router_provider_session
      WHERE id = ?`,
   ).get(id) as Record<string, unknown> | undefined;
@@ -425,17 +425,17 @@ export function findActiveProviderSessionForRouterSync(input: {
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      router_session_id AS routerSessionId,
-      runtime_id AS runtimeId,
+      workspace_id AS "workspaceId",
+      router_session_id AS "routerSessionId",
+      runtime_id AS "runtimeId",
       provider,
-      provider_session_id AS providerSessionId,
+      provider_session_id AS "providerSessionId",
       status,
-      last_used_at AS lastUsedAt,
-      last_error AS lastError,
-      metadata_json AS metadataJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      last_used_at AS "lastUsedAt",
+      last_error AS "lastError",
+      metadata_json AS "metadataJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM agent_router_provider_session
      WHERE workspace_id = ?
        AND router_session_id = ?
@@ -475,17 +475,17 @@ export function listAgentRouterProviderSessionsSync(options: {
   const rows = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      router_session_id AS routerSessionId,
-      runtime_id AS runtimeId,
+      workspace_id AS "workspaceId",
+      router_session_id AS "routerSessionId",
+      runtime_id AS "runtimeId",
       provider,
-      provider_session_id AS providerSessionId,
+      provider_session_id AS "providerSessionId",
       status,
-      last_used_at AS lastUsedAt,
-      last_error AS lastError,
-      metadata_json AS metadataJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      last_used_at AS "lastUsedAt",
+      last_error AS "lastError",
+      metadata_json AS "metadataJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM agent_router_provider_session
      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY updated_at DESC, id DESC`,
@@ -550,20 +550,20 @@ export function readAgentTaskAttemptSync(id: string): AgentTaskAttemptRecord | n
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      task_queue_id AS taskQueueId,
-      router_session_id AS routerSessionId,
-      runtime_id AS runtimeId,
+      workspace_id AS "workspaceId",
+      task_queue_id AS "taskQueueId",
+      router_session_id AS "routerSessionId",
+      runtime_id AS "runtimeId",
       provider,
-      provider_session_id AS providerSessionId,
+      provider_session_id AS "providerSessionId",
       status,
-      started_at AS startedAt,
-      finished_at AS finishedAt,
-      error_text AS errorText,
-      handoff_snapshot_id AS handoffSnapshotId,
-      metadata_json AS metadataJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      started_at AS "startedAt",
+      finished_at AS "finishedAt",
+      error_text AS "errorText",
+      handoff_snapshot_id AS "handoffSnapshotId",
+      metadata_json AS "metadataJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM agent_task_attempt
      WHERE id = ?`,
   ).get(id) as Record<string, unknown> | undefined;
@@ -574,20 +574,20 @@ export function readLatestAgentTaskAttemptForTaskSync(taskQueueId: string): Agen
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      task_queue_id AS taskQueueId,
-      router_session_id AS routerSessionId,
-      runtime_id AS runtimeId,
+      workspace_id AS "workspaceId",
+      task_queue_id AS "taskQueueId",
+      router_session_id AS "routerSessionId",
+      runtime_id AS "runtimeId",
       provider,
-      provider_session_id AS providerSessionId,
+      provider_session_id AS "providerSessionId",
       status,
-      started_at AS startedAt,
-      finished_at AS finishedAt,
-      error_text AS errorText,
-      handoff_snapshot_id AS handoffSnapshotId,
-      metadata_json AS metadataJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      started_at AS "startedAt",
+      finished_at AS "finishedAt",
+      error_text AS "errorText",
+      handoff_snapshot_id AS "handoffSnapshotId",
+      metadata_json AS "metadataJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM agent_task_attempt
      WHERE task_queue_id = ?
      ORDER BY created_at DESC, id DESC
@@ -619,20 +619,20 @@ export function listAgentTaskAttemptsSync(options: {
   const rows = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      task_queue_id AS taskQueueId,
-      router_session_id AS routerSessionId,
-      runtime_id AS runtimeId,
+      workspace_id AS "workspaceId",
+      task_queue_id AS "taskQueueId",
+      router_session_id AS "routerSessionId",
+      runtime_id AS "runtimeId",
       provider,
-      provider_session_id AS providerSessionId,
+      provider_session_id AS "providerSessionId",
       status,
-      started_at AS startedAt,
-      finished_at AS finishedAt,
-      error_text AS errorText,
-      handoff_snapshot_id AS handoffSnapshotId,
-      metadata_json AS metadataJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+      started_at AS "startedAt",
+      finished_at AS "finishedAt",
+      error_text AS "errorText",
+      handoff_snapshot_id AS "handoffSnapshotId",
+      metadata_json AS "metadataJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
      FROM agent_task_attempt
      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY created_at ASC, id ASC
@@ -740,18 +740,18 @@ export function readAgentRouterEventSync(id: string): AgentRouterEventRecord | n
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      router_session_id AS routerSessionId,
-      task_queue_id AS taskQueueId,
-      attempt_id AS attemptId,
+      workspace_id AS "workspaceId",
+      router_session_id AS "routerSessionId",
+      task_queue_id AS "taskQueueId",
+      attempt_id AS "attemptId",
       type,
-      actor_type AS actorType,
-      actor_id AS actorId,
-      runtime_id AS runtimeId,
+      actor_type AS "actorType",
+      actor_id AS "actorId",
+      runtime_id AS "runtimeId",
       provider,
       summary,
-      data_json AS dataJson,
-      created_at AS createdAt
+      data_json AS "dataJson",
+      created_at AS "createdAt"
      FROM agent_router_event
      WHERE id = ?`,
   ).get(id) as Record<string, unknown> | undefined;
@@ -783,18 +783,18 @@ export function listAgentRouterEventsSync(options: {
   const rows = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      router_session_id AS routerSessionId,
-      task_queue_id AS taskQueueId,
-      attempt_id AS attemptId,
+      workspace_id AS "workspaceId",
+      router_session_id AS "routerSessionId",
+      task_queue_id AS "taskQueueId",
+      attempt_id AS "attemptId",
       type,
-      actor_type AS actorType,
-      actor_id AS actorId,
-      runtime_id AS runtimeId,
+      actor_type AS "actorType",
+      actor_id AS "actorId",
+      runtime_id AS "runtimeId",
       provider,
       summary,
-      data_json AS dataJson,
-      created_at AS createdAt
+      data_json AS "dataJson",
+      created_at AS "createdAt"
      FROM agent_router_event
      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY created_at ${order}, id ${order}
@@ -846,13 +846,13 @@ export function readAgentRouterContextSnapshotSync(id: string): AgentRouterConte
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      router_session_id AS routerSessionId,
-      task_queue_id AS taskQueueId,
-      snapshot_type AS snapshotType,
-      content_markdown AS contentMarkdown,
-      source_event_ids_json AS sourceEventIdsJson,
-      created_at AS createdAt
+      workspace_id AS "workspaceId",
+      router_session_id AS "routerSessionId",
+      task_queue_id AS "taskQueueId",
+      snapshot_type AS "snapshotType",
+      content_markdown AS "contentMarkdown",
+      source_event_ids_json AS "sourceEventIdsJson",
+      created_at AS "createdAt"
      FROM agent_router_context_snapshot
      WHERE id = ?`,
   ).get(id) as Record<string, unknown> | undefined;
@@ -874,13 +874,13 @@ export function readLatestAgentRouterContextSnapshotSync(input: {
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      router_session_id AS routerSessionId,
-      task_queue_id AS taskQueueId,
-      snapshot_type AS snapshotType,
-      content_markdown AS contentMarkdown,
-      source_event_ids_json AS sourceEventIdsJson,
-      created_at AS createdAt
+      workspace_id AS "workspaceId",
+      router_session_id AS "routerSessionId",
+      task_queue_id AS "taskQueueId",
+      snapshot_type AS "snapshotType",
+      content_markdown AS "contentMarkdown",
+      source_event_ids_json AS "sourceEventIdsJson",
+      created_at AS "createdAt"
      FROM agent_router_context_snapshot
      WHERE ${where.join(" AND ")}
      ORDER BY created_at DESC, id DESC

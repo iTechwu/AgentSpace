@@ -162,20 +162,20 @@ export function listRuntimeAppCatalogItemsSync(options?: {
     `SELECT
       source,
       name,
-      display_name AS displayName,
+      display_name AS "displayName",
       description,
       version,
       category,
-      entry_point AS entryPoint,
-      install_strategy AS installStrategy,
-      install_cmd AS installCmd,
-      uninstall_cmd AS uninstallCmd,
-      update_cmd AS updateCmd,
-      skill_md AS skillMd,
-      requires_text AS requiresText,
+      entry_point AS "entryPoint",
+      install_strategy AS "installStrategy",
+      install_cmd AS "installCmd",
+      uninstall_cmd AS "uninstallCmd",
+      update_cmd AS "updateCmd",
+      skill_md AS "skillMd",
+      requires_text AS "requiresText",
       homepage,
-      registry_json AS registryJson,
-      synced_at AS syncedAt
+      registry_json AS "registryJson",
+      synced_at AS "syncedAt"
      FROM runtime_app_catalog_item
      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY category ASC, display_name ASC, source ASC, name ASC
@@ -193,20 +193,20 @@ export function readRuntimeAppCatalogItemSync(
     `SELECT
       source,
       name,
-      display_name AS displayName,
+      display_name AS "displayName",
       description,
       version,
       category,
-      entry_point AS entryPoint,
-      install_strategy AS installStrategy,
-      install_cmd AS installCmd,
-      uninstall_cmd AS uninstallCmd,
-      update_cmd AS updateCmd,
-      skill_md AS skillMd,
-      requires_text AS requiresText,
+      entry_point AS "entryPoint",
+      install_strategy AS "installStrategy",
+      install_cmd AS "installCmd",
+      uninstall_cmd AS "uninstallCmd",
+      update_cmd AS "updateCmd",
+      skill_md AS "skillMd",
+      requires_text AS "requiresText",
       homepage,
-      registry_json AS registryJson,
-      synced_at AS syncedAt
+      registry_json AS "registryJson",
+      synced_at AS "syncedAt"
      FROM runtime_app_catalog_item
      WHERE source = ? AND name = ?`,
   ).get(source, name.trim()) as Record<string, unknown> | undefined;
@@ -219,7 +219,7 @@ export function readRuntimeAppCatalogHealthSync(): {
   stale: boolean;
 } {
   const row = getDatabase().prepare(
-    `SELECT COUNT(*)::int AS itemCount, MAX(synced_at) AS lastSyncedAt
+    `SELECT COUNT(*)::int AS "itemCount", MAX(synced_at) AS "lastSyncedAt"
      FROM runtime_app_catalog_item`,
   ).get() as Record<string, unknown> | undefined;
   const itemCount = typeof row?.itemCount === "number" ? row.itemCount : 0;
@@ -252,22 +252,22 @@ export function listRuntimeInstalledAppsSync(options: {
   const rows = db.prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      runtime_id AS runtimeId,
+      workspace_id AS "workspaceId",
+      runtime_id AS "runtimeId",
       source,
       name,
-      display_name AS displayName,
+      display_name AS "displayName",
       version,
-      entry_point AS entryPoint,
+      entry_point AS "entryPoint",
       status,
-      install_strategy AS installStrategy,
+      install_strategy AS "installStrategy",
       enabled,
-      installed_by_user_id AS installedByUserId,
-      installed_at AS installedAt,
-      updated_at AS updatedAt,
-      last_checked_at AS lastCheckedAt,
-      last_error AS lastError,
-      metadata_json AS metadataJson
+      installed_by_user_id AS "installedByUserId",
+      installed_at AS "installedAt",
+      updated_at AS "updatedAt",
+      last_checked_at AS "lastCheckedAt",
+      last_error AS "lastError",
+      metadata_json AS "metadataJson"
      FROM runtime_installed_app
      WHERE ${where.join(" AND ")}
      ORDER BY display_name ASC, name ASC`,
@@ -285,22 +285,22 @@ export function readRuntimeInstalledAppSync(input: {
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      runtime_id AS runtimeId,
+      workspace_id AS "workspaceId",
+      runtime_id AS "runtimeId",
       source,
       name,
-      display_name AS displayName,
+      display_name AS "displayName",
       version,
-      entry_point AS entryPoint,
+      entry_point AS "entryPoint",
       status,
-      install_strategy AS installStrategy,
+      install_strategy AS "installStrategy",
       enabled,
-      installed_by_user_id AS installedByUserId,
-      installed_at AS installedAt,
-      updated_at AS updatedAt,
-      last_checked_at AS lastCheckedAt,
-      last_error AS lastError,
-      metadata_json AS metadataJson
+      installed_by_user_id AS "installedByUserId",
+      installed_at AS "installedAt",
+      updated_at AS "updatedAt",
+      last_checked_at AS "lastCheckedAt",
+      last_error AS "lastError",
+      metadata_json AS "metadataJson"
      FROM runtime_installed_app
      WHERE workspace_id = ? AND runtime_id = ? AND source = ? AND name = ?`,
   ).get(workspaceId, input.runtimeId, input.source, input.name.trim()) as Record<string, unknown> | undefined;
@@ -356,24 +356,24 @@ export function readRuntimeAppOperationSync(
   const row = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      runtime_id AS runtimeId,
-      app_source AS appSource,
-      app_name AS appName,
+      workspace_id AS "workspaceId",
+      runtime_id AS "runtimeId",
+      app_source AS "appSource",
+      app_name AS "appName",
       operation,
       status,
       stage,
-      failed_stage AS failedStage,
-      stage_updated_at AS stageUpdatedAt,
-      requested_by_user_id AS requestedByUserId,
-      command_plan_json AS commandPlanJson,
-      safe_stdout_tail AS safeStdoutTail,
-      safe_stderr_tail AS safeStderrTail,
-      error_code AS errorCode,
-      error_message AS errorMessage,
-      created_at AS createdAt,
-      started_at AS startedAt,
-      completed_at AS completedAt
+      failed_stage AS "failedStage",
+      stage_updated_at AS "stageUpdatedAt",
+      requested_by_user_id AS "requestedByUserId",
+      command_plan_json AS "commandPlanJson",
+      safe_stdout_tail AS "safeStdoutTail",
+      safe_stderr_tail AS "safeStderrTail",
+      error_code AS "errorCode",
+      error_message AS "errorMessage",
+      created_at AS "createdAt",
+      started_at AS "startedAt",
+      completed_at AS "completedAt"
      FROM runtime_app_operation
      WHERE id = ? AND workspace_id = ?`,
   ).get(operationId, workspaceId) as Record<string, unknown> | undefined;
@@ -401,24 +401,24 @@ export function listRuntimeAppOperationsSync(options: {
   const rows = getDatabase().prepare(
     `SELECT
       id,
-      workspace_id AS workspaceId,
-      runtime_id AS runtimeId,
-      app_source AS appSource,
-      app_name AS appName,
+      workspace_id AS "workspaceId",
+      runtime_id AS "runtimeId",
+      app_source AS "appSource",
+      app_name AS "appName",
       operation,
       status,
       stage,
-      failed_stage AS failedStage,
-      stage_updated_at AS stageUpdatedAt,
-      requested_by_user_id AS requestedByUserId,
-      command_plan_json AS commandPlanJson,
-      safe_stdout_tail AS safeStdoutTail,
-      safe_stderr_tail AS safeStderrTail,
-      error_code AS errorCode,
-      error_message AS errorMessage,
-      created_at AS createdAt,
-      started_at AS startedAt,
-      completed_at AS completedAt
+      failed_stage AS "failedStage",
+      stage_updated_at AS "stageUpdatedAt",
+      requested_by_user_id AS "requestedByUserId",
+      command_plan_json AS "commandPlanJson",
+      safe_stdout_tail AS "safeStdoutTail",
+      safe_stderr_tail AS "safeStderrTail",
+      error_code AS "errorCode",
+      error_message AS "errorMessage",
+      created_at AS "createdAt",
+      started_at AS "startedAt",
+      completed_at AS "completedAt"
      FROM runtime_app_operation
      WHERE ${where.join(" AND ")}
      ORDER BY created_at DESC
@@ -693,12 +693,12 @@ export function upsertRuntimeAppSkillBindingSync(input: {
   ).run(workspaceId, input.runtimeAppId, input.skillId, input.source, input.name.trim(), now);
   const row = db.prepare(
     `SELECT
-      workspace_id AS workspaceId,
-      runtime_app_id AS runtimeAppId,
-      skill_id AS skillId,
+      workspace_id AS "workspaceId",
+      runtime_app_id AS "runtimeAppId",
+      skill_id AS "skillId",
       source,
       name,
-      created_at AS createdAt
+      created_at AS "createdAt"
      FROM runtime_app_skill_binding
      WHERE workspace_id = ? AND runtime_app_id = ? AND skill_id = ?`,
   ).get(workspaceId, input.runtimeAppId, input.skillId) as Record<string, unknown> | undefined;
@@ -712,12 +712,12 @@ export function upsertRuntimeAppSkillBindingSync(input: {
 export function listRuntimeAppSkillBindingsSync(workspaceId = DEFAULT_WORKSPACE_ID): RuntimeAppSkillBindingRecord[] {
   const rows = getDatabase().prepare(
     `SELECT
-      workspace_id AS workspaceId,
-      runtime_app_id AS runtimeAppId,
-      skill_id AS skillId,
+      workspace_id AS "workspaceId",
+      runtime_app_id AS "runtimeAppId",
+      skill_id AS "skillId",
       source,
       name,
-      created_at AS createdAt
+      created_at AS "createdAt"
      FROM runtime_app_skill_binding
      WHERE workspace_id = ?
      ORDER BY created_at DESC`,

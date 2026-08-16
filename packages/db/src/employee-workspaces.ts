@@ -48,25 +48,25 @@ export interface PublishEmployeeArtifactInput {
 /* ------------------------------------------------------------------ */
 
 const WORKSPACE_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, employee_id AS employeeId, employee_name AS employeeName,
-  head_revision_id AS headRevisionId, storage_ref AS storageRef,
-  retention_policy_json AS retentionPolicyJson, storage_health AS storageHealth,
-  last_snapshot_at AS lastSnapshotAt, created_at AS createdAt, updated_at AS updatedAt`;
+  id, workspace_id AS "workspaceId", employee_id AS "employeeId", employee_name AS "employeeName",
+  head_revision_id AS "headRevisionId", storage_ref AS "storageRef",
+  retention_policy_json AS "retentionPolicyJson", storage_health AS "storageHealth",
+  last_snapshot_at AS "lastSnapshotAt", created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 const REVISION_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, workspace_id_ref AS workspaceIdRef,
-  employee_id AS employeeId, employee_name AS employeeName,
-  parent_revision_id AS parentRevisionId, manifest_digest AS manifestDigest,
-  manifest_json AS manifestJson, source_task_id AS sourceTaskId, status,
-  source_kind AS sourceKind, restored_from_revision_id AS restoredFromRevisionId,
-  created_by AS createdBy, created_at AS createdAt`;
+  id, workspace_id AS "workspaceId", workspace_id_ref AS "workspaceIdRef",
+  employee_id AS "employeeId", employee_name AS "employeeName",
+  parent_revision_id AS "parentRevisionId", manifest_digest AS "manifestDigest",
+  manifest_json AS "manifestJson", source_task_id AS "sourceTaskId", status,
+  source_kind AS "sourceKind", restored_from_revision_id AS "restoredFromRevisionId",
+  created_by AS "createdBy", created_at AS "createdAt"`;
 
 const ARTIFACT_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, workspace_id_ref AS workspaceIdRef,
-  employee_id AS employeeId, employee_name AS employeeName,
-  content_digest AS contentDigest, media_type AS mediaType,
-  file_name AS fileName, size_bytes AS sizeBytes, source_task_id AS sourceTaskId,
-  published_at AS publishedAt, deleted_at AS deletedAt`;
+  id, workspace_id AS "workspaceId", workspace_id_ref AS "workspaceIdRef",
+  employee_id AS "employeeId", employee_name AS "employeeName",
+  content_digest AS "contentDigest", media_type AS "mediaType",
+  file_name AS "fileName", size_bytes AS "sizeBytes", source_task_id AS "sourceTaskId",
+  published_at AS "publishedAt", deleted_at AS "deletedAt"`;
 
 /* ------------------------------------------------------------------ */
 /* Employee ID resolution                                              */
@@ -569,7 +569,7 @@ export function hardDeleteExpiredSoftDeletedArtifactsSync(
   const employeeFilter = employeeId ? "AND artifact.employee_id = ?" : "";
   const params = employeeId ? [workspaceId, deletedBefore, employeeId] : [workspaceId, deletedBefore];
   const rows = db.prepare(
-    `SELECT artifact.id, artifact.content_digest AS contentDigest,
+    `SELECT artifact.id, artifact.content_digest AS "contentDigest",
        EXISTS (
          SELECT 1 FROM employee_data_legal_hold hold
           WHERE hold.workspace_id = artifact.workspace_id
