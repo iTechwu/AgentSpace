@@ -1,8 +1,8 @@
 # 120. Feishu Agent Bot Native Experience
 
-> 更新时间：2026-07-25
+> 更新时间：2026-08-17（文档清理：收拢 Phase 6 门槛加固流水账，完整演进见 git log）
 > 状态：Phase 0-5 已完成；Phase 6 真实飞书租户 Smoke / E2E 待执行
-> 关联：`TODO/119-feishu-message-transport-adapter.md`、`TODO/84-integration-adapter-contract.md`、`TODO/80-unified-permission-management.md`、`TODO/85-agent-action-permission-policy.md`、`TODO/113-agent-mention-self-addressing.md`
+> 关联：TODO 119（飞书 Message/Data Plane Adapter，已实现）、TODO 84（集成 Adapter Contract，backlog）、TODO 80（统一权限管理，已完成）、TODO 85（权限 Policy 与审批联动，backlog）、TODO 113（Agent mention 自寻址，历史条目）——关联文档已不在仓库，见 [TODO/README.md](./README.md) 历史索引
 > 适用范围：Feishu/Lark bot identity、Agent external identity、Feishu group/channel auto provisioning、external guest policy、AgentSpace channel governance
 
 ## 一句话结论
@@ -573,7 +573,7 @@ apps/cli/src/commands/integrations/feishu.ts
 新增命令草案：
 
 ```bash
-agent-space integrations feishu bind-agent-bot \
+dofe-agent integrations feishu bind-agent-bot \
   --workspace-id <id> \
   --agent <agent-id-or-name> \
   --env-file scripts/feishu/.env \
@@ -581,19 +581,19 @@ agent-space integrations feishu bind-agent-bot \
   --app-secret-env FEISHU_APP_SECRET \
   --json
 
-agent-space integrations feishu agent-bot-readiness \
+dofe-agent integrations feishu agent-bot-readiness \
   --workspace-id <id> \
   --agent <agent-id-or-name> \
   --strict \
   --json
 
-agent-space integrations feishu auto-provision-policy \
+dofe-agent integrations feishu auto-provision-policy \
   --workspace-id <id> \
   --unbound-user-mode reply_on_mention \
   --guest-permission-profile channel_context_only \
   --json
 
-agent-space integrations feishu channel-bindings \
+dofe-agent integrations feishu channel-bindings \
   --workspace-id <id> \
   --json
 ```
@@ -689,7 +689,7 @@ Feishu Base table -> AgentSpace data_table
 
 ## 实施阶段
 
-> 当前进展（2026-06-27）：Phase 1-5 的勾选表示本地代码路径和自动化测试已覆盖；不代表真实飞书租户验收完成。最终完成仍以 Phase 6 的 disposable tenant/apps live smoke 和 final evidence gate 为准。
+> 当前进展（2026-06-27 首记，2026-08-17 收拢）：Phase 1-5 的勾选表示本地代码路径和自动化测试已覆盖；不代表真实飞书租户验收完成。最终完成仍以 Phase 6 的 disposable tenant/apps live smoke 和 final evidence gate 为准。
 >
 > 主要证据位置：
 >
@@ -697,53 +697,18 @@ Feishu Base table -> AgentSpace data_table
 > - Native routing / auto-provision / thread collaboration / loop guard：`packages/services/src/integrations/providers/feishu/inbound.ts`、`channel-auto-provisioning.ts`、`thread-bindings.ts`、`agent-bot-routing.ts`。
 > - External guest / data-plane governance / evidence：`external-guests.ts`、`data-plane.ts`、`apps/cli/src/commands/integrations/feishu.ts`。
 > - Regression tests：`packages/services/src/integrations/providers/feishu/__tests__/inbound.test.ts`、`agent-bot-bindings.test.ts`、`data-plane*.test.ts`、`outbound*.test.ts`、`apps/cli/src/commands/integrations.test.ts`、`apps/web/features/agents/agents-page-client.test.tsx`、`apps/web/features/integrations/feishu/feishu-*.test.ts`、`packages/services/src/permissions/permissions.test.ts`。
-> - 本地回归验证（2026-06-27）：`npm run typecheck`、Feishu service tests、`scripts/feishu/smoke.test.ts`、targeted web Feishu/agent settings Vitest、CLI integrations test 均已通过；web Vitest 使用显式 `AGENT_SPACE_TEST_DATABASE_URL=postgres://localhost/agent_space_test` 覆盖，避免读取应用库配置。Feishu Postgres DB 集成测试已固定为 `npm run test:feishu:db`，命令会创建临时 Neon `e2e-*` 分支，串行运行 agent-bot / inbound / data-plane / outbound / WebSocket worker DB 用例并在结束后删除分支，避免误用生产库或不同文件间 fixture 互相干扰。
-> - Phase 6 前置检查（2026-06-27）：`.env` / `.env copy` / `scripts/feishu/.env` 均未提供 Feishu live smoke 变量；`npm run smoke:feishu -- --env-file .env --check-env --json` 和 `.env copy` 检查均报告 15 个 OpenAPI strict-live 必填项缺失，且 `todo120NativeSmoke` 单独提示第二个 agent bot 的 `FEISHU_SECOND_AGENT_APP_ID` / `FEISHU_SECOND_AGENT_APP_SECRET` 未配置。`smoke-plan --workspace-id default --app-url https://feishu-e2e.hire-an-agent.online --json` 可生成清单，但当前 workspace 无 Feishu integration，仍停在 `credential_encryption_key_missing` / `integration_missing` / `second_agent_bot_missing` 等真实前置条件。
-> - Phase 6 native smoke 门槛已加固：`scripts/feishu/smoke.ts` 支持 `--require-todo120-native`，`smoke-plan` 生成的 check-env / strict-live 命令默认带该开关；缺少第二个 agent bot env、第二个 app id 与主 `FEISHU_APP_ID` 相同、或第二个 app secret 与主 `FEISHU_APP_SECRET` 相同，TODO120 native smoke check-env / strict-live 会在触网前失败；strict-live artifact 会写入安全的 `todo120NativeSmoke` readiness 摘要、第二 app id hash 和主 app/tenant hash，`--verify-evidence` 与 AgentSpace final evidence gate 都会拒绝未以 TODO120 native 模式生成、缺少 app identity hash、缺少第二 app id hash、第二 app id hash 不匹配本地同群第二 agent bot binding、app/tenant hash 不匹配当前 Feishu integration，或当前 integration 未保存 tenantKey 但 artifact 带 tenant hash 的 artifact，并在 JSON `summary` 里暴露 TODO120 native ready / required / configured / second-app-hash-present 计数，避免单 bot / 无关 app / 未绑定租户 OpenAPI smoke 被误当成 Phase 6 完成或现场无法判断失败原因。
-> - AgentSpace `smoke-plan` 的第二 bot 判定已收紧：必须有两个 Phase 6-ready agent-scoped Feishu bot bindings，且 agentId 不同、Feishu app id 不同、active、有 app credentials、health 已检查且非 error、bot scopes 完整、无 unresolved outbox failure；否则同群复用和 thread collaboration live steps 保持 blocked。
-> - AgentSpace `smoke-plan --integration <id>` 已避免误收窄 Phase 6 第二 bot 判定：主 checklist、命令和 final evidence 仍使用指定 integration，但多 agent bot readiness 会扫描同一 workspace 的所有 Feishu agent bot bindings，确保同群复用 / thread collaboration 不会因为选择 data-plane integration 而误报缺少第二个 bot。
-> - AgentSpace final evidence gate 已补 workspace-wide 同群聚合：`evidence --require native/all --integration <id>` 保留指定 integration 的明细和 OpenAPI callback route proof；其中 native 严格判定会按同一个 safe chat reference 聚合同一 workspace 内多个 Feishu agent bot bindings 的 redacted evidence counters，且 scoped gate 要求 selected integration 参与该同群证据；`all` 的 bot / guest-policy / data-plane / worker / failure 仍要求同一个 anchor integration 自身满足，且必须提供 redacted strict-live OpenAPI artifact，JSON 可用 `summary.scopedAllSatisfied` 区分 selected integration 的本地 all gate 与 workspace-wide native/data-plane 汇总，最终 `strictSatisfied` 还会叠加 OpenAPI artifact 缺失、过期、callback fingerprint 不匹配、app/tenant hash 不匹配或未充分脱敏等校验。这避免真实“每个 agent 一个 bot”后第二 bot 的 channel reuse / thread collaboration 证据被 `--integration` 过滤掉，同时避免不同飞书群/租户、无关 bot group、无关 data-plane integration、无关 OpenAPI app artifact 或纯本地 DB 证据被拼接误判为 Phase 6 通过。
-> - AgentSpace final evidence gate 已补 TODO120 双 bot active identity 硬门槛：workspace-wide native 聚合不仅要求同一 safe chat reference，还必须在该 chat 证据中看到至少两个 active、agent-scoped Feishu bot bindings，且 integration id、AgentSpace agentId、Feishu appId 均不同；显式 tenantKey 也不能互相冲突。单个 active bot binding 里伪造 `linkedFromBotBindingId` / collaborator metadata，或复用同一个 Feishu app 绑定多个 agent，都不能让 `evidence --require native/all` 通过。
-> - AgentSpace final evidence gate 已补 artifact anchor 匹配：未带 `--integration` 的 `evidence --require all` 不再接受“任意 active Feishu app”的 OpenAPI / bot-added artifact；artifact app/tenant hash 必须匹配实际满足 bot、guest-policy、data-plane、worker/failure non-native all gate 且参与同群 native gate 的 anchor integration。避免用第二个 bot 的 live artifact 拼接第一个 bot 的本地治理证据，或用无关 active app artifact 误放行 Phase 6。
-> - AgentSpace final evidence gate 已补 OpenAPI callback proof anchor 匹配：未带 `--integration` 的 `evidence --require all` 会把 strict-live artifact 的 callback fingerprint 绑定到 app/tenant hash 已匹配的同一个 anchor integration；不能用主 bot 的 app identity 搭配第二个 bot 或无关 integration 的 callback proof 拼接通过。
-> - AgentSpace final evidence gate 已补 bot-added artifact 同群匹配：真实 `im.chat.member.bot.added_v1` payload artifact 的 safe chat reference 必须能匹配本地 native gate 使用的同一个 Feishu group safe reference，且必须与 artifact app/tenant hash 已匹配的同一个 anchor integration 绑定；兼容 `chat <hash>`、`chat:<hash>`、纯短 hash、`ref_<hash>` 等历史安全引用格式并按 hash 前缀比较，避免同 app 在另一个飞书群的进群样本，或主 bot app identity 搭配另一个 anchor 群的 chat sample，被拿来证明当前群的自动建群 / 多 bot 同群验收。
-> - AgentSpace final evidence gate 已补跨 artifact anchor 一致性：当 workspace 同时存在多个可通过的 Feishu anchor integration 时，OpenAPI strict-live artifact 与 bot-added payload artifact 必须匹配同一个 anchor integration；不能用 A bot 的 OpenAPI data-plane / callback smoke 搭配 B bot 的 bot-added 群事件样本拼接通过最终 `--require all`。
-> - AgentSpace final evidence gate 已补同 app 多 tenant identity proof 匹配：OpenAPI / bot-added artifact 会先按 app hash 缩小候选，再按 tenant hash / tenant 缺省状态选择完整匹配的 anchor integration；同一个 Feishu app hash 同时存在于多个 tenant 时，不会被候选列表里的第一个 tenant 误判为 mismatch，也不会跨 tenant 复用 callback/chat proof。
-> - AgentSpace final evidence gate 已补 active agent-scoped binding 前置条件：本地 bot/native/guest-policy/data-plane/worker/failure 证据必须归属于 active 且带 `agentId` 的 Feishu agent bot binding，且 OpenAPI / bot-added artifact 的 app/tenant proof 只会匹配 active integration；workspace-level integration、disabled / archived binding 的历史证据或 artifact hash 不能让 Phase 6 通过。
-> - AgentSpace `smoke-plan` 已同步 active binding 前置条件：workspace 只有 disabled / archived Feishu binding 时，env 模板准备、绑定、凭据、scope、health、smoke env、chat/user 绑定、Doc/Sheet/Base 资源绑定、auto-provision、本地 readiness gate 和 final evidence 步骤都会保持 blocked / pending，并暴露 `integration_not_active`，避免现场把旧记录当成可用 bot。
-> - AgentSpace `smoke-plan` 已同步 agent-scoped anchor 前置条件：主 bot/data-plane/worker readiness、callback URL、smoke-env、chat/user/resource binding、failure 和 final evidence 命令只会选择 active 且带 `agentId` 的 Feishu agent bot binding；active workspace-level integration 会暴露 `active_agent_bot_integration_missing`，显式选择 workspace-level `--integration` 会暴露 `selected_integration_not_agent_bot`，避免 TODO119 时代的 workspace bot 被误当成 TODO120 每 agent 一个 bot 的 Phase 6 anchor。
-> - AgentSpace `smoke-plan` 已补可读文本输出和 JSON 顶层 `blockers` 摘要：不带 `--json` 时会直接列出当前阻塞原因、首个阻塞步骤、下一步动作、前几个 next steps 和关键 smoke/evidence 命令；`--json` 会按 smoke step 执行顺序聚合 `credential_encryption_key_missing`、`integration_missing`、`second_agent_bot_*` 等问题，输出影响步骤数、首个阻塞步骤和下一步动作，避免管理员只能在几十个 live steps 里手动捞阻塞原因。
-> - AgentSpace `evidence` 已补可读文本输出：不带 `--json` 时会显示 workspace gate 是否通过、OpenAPI strict-live artifact / bot-added payload artifact 是否存在和有效、每个 integration 的 gate/issue 摘要，以及去重后的 remediation 命令；避免最终 `evidence --require all` 失败时只看到 `[object Object]` 或必须手工解析 JSON。
-> - AgentSpace `evidence` 已补 report-level setup remediation：当 workspace 还没有可用 Feishu agent bot integration，只有 workspace-level / disabled / archived binding，`--integration` 指向不存在的 binding，或选中的 binding 不是 active agent bot 时，JSON / 可读输出会显式暴露 `integration_missing` / `active_integration_missing` / `active_agent_bot_integration_missing` / `selected_integration_missing` / `selected_integration_not_active` / `selected_integration_not_agent_bot`，回显 selected integration，并优先给出 `smoke-plan` 与 `bind-agent-bot` 下一步命令；每个 integration evidence item 也会显示 `status`，避免管理员直接跑 final evidence 时只看到 OpenAPI / bot-added artifact 缺失，或把 workspace-level / disabled / archived 旧 binding 当成可用证据来源。
-> - Settings / Agent Settings 的 Feishu setup guide 已同步可读排障默认值：复制 `Smoke Plan` / `Final evidence` 命令时默认不再强制 `--json`，直接展示 CLI 的 blockers / gate / artifact / remediation 摘要；需要机器可读输出时再按 UI note 追加 `--json`。
-> - Agent Settings 的 Feishu Bot 入门表单已用测试锁住默认最小配置：初始只显示 `App ID` / `App Secret`，`Transport`、`Tenant Key`、Verification Token、事件订阅和 Docs/Sheets/Base scopes 保持在“自定义高级功能”折叠区；绑定命令和最终 evidence 命令也默认使用 CLI 可读输出，避免新用户一开始就被 `--json` 或高级字段淹没。
-> - CLI `create` / `bind-agent-bot` / `agent-channel-access` 的 `nextCommands.smokePlan` 与 `finalEvidence` 已同步可读排障默认值，`smoke-plan` 里展示的最终 AgentSpace evidence 命令、CLI help 示例和 `scripts/feishu/README.md` 手动 smoke 示例也不再默认追加 `--json`；health/readiness/OpenAPI verifier 这类机器消费命令仍保留 JSON 输出。
-> - AgentSpace `smoke-plan` 已显式加入 `create_disposable_feishu_apps` 步骤：Phase 6 前会要求管理员先在飞书开放平台创建 Codex Bot + HermesAgent Bot 两个 disposable custom apps、订阅必需事件、授权 bot 和 Docs/Sheets/Base scopes 并安装/发布，再分别绑定到不同 AgentSpace agent；只有两个 distinct app / distinct agent 的 Phase 6-ready binding 都存在时该步骤才会 done。
-> - AgentSpace `smoke-env` 已同步 active binding 前置条件：直接生成 env 模板时只会从 active Feishu binding 读取 App ID、Tenant Key 和 callback integration id；如果筛选结果只有 disabled / archived binding，会输出 `selected_integration_not_active` 并保留占位符，避免把旧 bot 写进 Phase 6 live smoke env。
-> - CLI create / bind-agent-bot / 前端 Feishu setup guide 已同步 Phase 6 native smoke：Settings / Agent Settings 展示的 `check-env` 和 strict live smoke 命令默认带 `--require-todo120-native`，CLI `nextCommands` 与前端 guide 都直接给出 health/readiness/smoke/final evidence、agent-channel-access no-reply smoke 以及第二个 agent bot 的 `bind-agent-bot --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET` 命令，避免用户只跑单 bot OpenAPI smoke。
-> - CLI help / integrations help 已同步 Phase 6 final evidence gate：`evidence --require` 明确列出 `bot|native|guest-policy|data-plane|worker|failure|all`，readiness / smoke-plan 仍只声明其实际支持的 `bot|data-plane|worker`，避免现场误跑窄门禁或误以为 smoke-plan 支持 evidence-only gate。
-> - `smoke-env` / `scripts/feishu/env.example` 模板已明确可选 `FEISHU_TENANT_KEY` 会参与 strict-live artifact 的 hash 匹配，第二个 Feishu app env 只负责提供凭据，仍必须用 `bind-agent-bot --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET` 在 AgentSpace 里创建第二个 agent bot binding 后，同群复用 / thread collaboration smoke 才可能通过。
-> - Settings / Agent Settings 的 Feishu setup guide 已在“绑定第二个 Agent Bot”命令旁显示同样说明，并提示第二个 bot 通过 Phase 6-ready 前最终 `evidence --require all` 会保持 blocked，避免管理员在前端只复制二号 app env 或只运行 OpenAPI smoke，而忘记创建第二个 AgentSpace agent bot binding。
-> - `smoke-plan` 的最终 AgentSpace evidence step 已与 TODO120 native all gate 对齐：即使单个 bot / data-plane readiness 已通过，只要还没有两个 Phase 6-ready agent bot bindings，`verify_agentspace_live_evidence` 仍保持 blocked 并暴露 `second_agent_bot_*` issues，避免单 bot 现场 smoke 被当成最终验收。
-> - Final evidence gate 已补 thread collaboration card 关联校验：active thread binding 的 `botBindingId` 必须等于当前 agent bot integration id，且已发送的 collaboration card 必须匹配同一 agent/bot、同一 safe chat/thread reference 和同一 collaborator agent/bot binding ids；thread binding / continuation mapping / collaboration card metadata 的任意字段也会统一拒绝 raw Feishu chat/thread/user/resource id 或 OpenAPI token，避免把不同 bot、不同 thread、孤立卡片或泄漏原始标识的证据拼接成 Phase 6 通过。
-> - Phase 6 真实 bot-added payload 采样已补安全离线校验入口，并接入 CLI create / bind-agent-bot `nextCommands`、`smoke-plan`、Settings / Agent Settings setup guide 与最终 evidence gate：`npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json` 会复用 AgentSpace bot-added detector / chat descriptor resolver，并只输出/写入 event type、字段来源、app/tenant hash、payload hash、reference、长度和布尔值；`evidence --require all --integration <id>` 会把 artifact 的 app hash / 已配置 tenant hash 与当前 Feishu integration 匹配，未识别为 bot-added、无法解析 chat descriptor、未脱敏、缺失 artifact、来自无关 app/tenant，或当前 integration 未保存 tenantKey 但 artifact 带 tenant hash 时都会失败，避免人工用 raw Feishu callback 判断覆盖情况时泄露 `oc_` / `ou_` / `om_` / 群名或误用无关 Feishu app 样本。
-> - Phase 6 evidence 新鲜度门槛已加固：OpenAPI strict-live evidence 与 bot-added payload evidence 都必须带 `generatedAt` 且在 24 小时内生成；bot-added raw callback 本身还必须带 24 小时内的 Feishu `create_time` / `createTime`，避免把旧进群事件重新生成新 artifact 后混入当前验收；AgentSpace final evidence gate 现在也只计入 24 小时内的本地 DB evidence rows（events / message mappings / outbox / channel bindings / thread bindings / data operations），避免用今天的 OpenAPI artifact 拼接几天前的 AgentSpace 治理证据；`scripts/feishu/smoke.ts --verify-evidence` 和 AgentSpace final evidence gate 都会拒绝缺失、格式无效、时间戳过远未来或过期 artifact，并在 JSON summary / 可读 evidence 输出中暴露 freshness，其中 `localEvidenceFreshRows` / `localEvidenceStaleRows` 表示 scoped integration，`workspaceLocalEvidenceFreshRows` / `workspaceLocalEvidenceStaleRows` 表示 workspace-wide native evidence；`smoke-plan` 和 Settings / Agent Settings setup guide 的 evidence gates 也同步标出 `fresh_24h_agentspace_local_evidence_rows` / `fresh_24h_*`，避免拿几天前的 OpenAPI/data-plane 或进群事件样本拼接当前 AgentSpace DB 证据。
-> - `smoke-plan` / evidence remediation 已补 external guest policy 切换与恢复命令：`reply_on_mention`、`reply_all`、`require_identity`、`ignore` live steps 会输出对应 `auto-provision-policy` 命令，并保留 `require-identity-for writes,approvals,private_resources,runtime_sensitive_tools`；临时 `reply_all` / `require_identity` / `ignore` 步骤会在说明里给出恢复到默认 `reply_on_mention + channel_context_only` 的命令，方便 Phase 6 验证未绑定用户低权限试用、要求绑定身份、关闭回复和未 @bot 忽略后恢复现场。
-> - `smoke-plan` / Settings / Agent Settings 已补 agent/channel policy disabled 切换命令：`live_agent_channel_policy_disabled` 会优先选 Phase 6-ready agent bot 的 AgentSpace agent，输出 `agent-channel-access --access disabled`，并在说明里给出 `--access enabled` 恢复命令，避免把 workspace/data-plane integration 错当成 agent 权限目标；final evidence gate 也会拒绝带 raw Feishu chat/thread/user id 的 policy-denied no-reply / bot reply evidence，auto-provision channel metadata 也必须只保留 safe chat reference、`botBindingId` 匹配当前 channel binding 的 integration，且任意 metadata 字段都不能泄露 raw Feishu id/token。
-> - `smoke-plan` / evidence remediation 已补 bound user direct mention 审计要求：`live_agent_bot_direct_mention` 会要求从已绑定飞书用户直接 @具体 agent bot，并验证 `actorType=user`、`actorUserId`、安全审计引用、agentId、botBindingId、task 和 message evidence，避免只证明路由成功却漏掉“真实 user actor 和审计”的 Phase 6 验收点；final evidence gate 也会拒绝缺 `actorUserId` 或残留 raw Feishu `open_id` / `union_id` 的 bound user mention。
-> - `smoke-plan` / evidence remediation 已补 external guest 低权限直连验收要求：`live_external_guest_agent_bot_mention` 会要求未绑定飞书用户直接 @具体 agent bot，并验证 `actorType=external_guest`、`permissionProfile=channel_context_only`、无 `userId/actorUserId`、task/message dispatch、安全审计引用、不创建真实 workspace member、`botBindingId` 匹配当前 mapping integration，且 inbound metadata 任意字段都不能泄露 raw Feishu chat/thread/user/resource id，避免只证明“有回复”却漏掉 guest 最小权限模型。
-> - 入站 mapping 已记录安全布尔值 `agentSpaceCommandUsed`，final evidence 的 native direct mention / bound user mention / external guest mention / policy-denied no-reply / guest-policy evidence 都会拒绝 `agentSpaceCommandUsed=true`、`routeCommandUsed=true`、`slashCommandUsed=true` 或安全文本摘要含 `/agent` 的证据；避免把命令式 `/agent ...` 路由伪装成“普通用户直接 @具体 agent bot”的 TODO120 原生体验。
-> - External guest dispatch 已改为纯消息/task actor：`Feishu Guest` 不再写入 workspace `humanMembers` 或 channel `humanMemberNames`；入站 mapping、identity-binding notice 和 Docs/Sheets/Base data-plane governance context 会写入安全布尔值 `workspaceMemberCreated=false`，final evidence 的 native / guest-policy / data-plane external guest 证据都要求该标记，避免未绑定飞书用户被本地状态或证据误升格为真实 workspace member。
-> - Final evidence gate 已补 external guest permission profile 精确校验：direct mention / `reply_on_mention` allow / `reply_all` dispatch 证据必须是 `channel_context_only`，`require_identity` 和 `ignore` 证据必须是 `none`，避免用 `channel_readonly` 或其他非默认 profile 误证明 Phase 6 的低权限试用/关闭回复模型。
-> - Final evidence gate 已补 data-plane external guest profile 校验：guest-readable Doc/Sheet/Base read 必须是 `permissionProfile=channel_context_only` 且 `externalGuestResourceAccess=guest_readable_current_channel`，写拒绝证据只接受 `permissionProfile=none` 或 `channel_context_only` 的 external_guest governance，避免用更宽的 guest profile 误证明“低权限读、拒绝写”。
-> - Final evidence gate 已补 data-plane 成功读写安全上下文校验：普通读、runtime manifest 读、approved write、user actor、external guest read/write-deny 都必须归属于当前 agent bot binding，并带 `resourceReference` / `resourceIdRedacted=true`，且 governance context 任意字段与 result summary 均无 raw chat/thread/resource token 或 OpenAPI id；bot reply 的 sent outbox metadata 和 native action policy metadata 也必须只保留 safe resource reference，避免无关 bot、明文资源 token 或泄漏 OpenAPI id 的 result/action 被拼进 Docs / Sheets / Base 治理验收。
-> - Final evidence gate 已补 identity-binding notice 安全上下文校验：sent notice 必须匹配同一 integration/channel/source thread/agent/bot，metadata 要带 safe `externalGuestReference`、`permissionProfile=none`，且不能含 raw Feishu `open_id` / `union_id` / provider user id 或 raw target/chat/thread id（含 snake_case 字段），避免用泛化卡片或泄漏用户/位置标识的 outbox 误证明“要求绑定身份”。
-> - Final evidence gate 已补 processed inbound safe-summary 校验：`processed_inbound_with_safe_summary` 必须带 message/chat/thread/sender safe references，且不仅拒绝 camelCase raw message/chat/thread/sender ids，也会拒绝 `message_id` / `chat_id` / `thread_id` / `open_id` / `union_id` / `user_id`，以及 payload 任意字段里的 raw Feishu id/resource token/OpenAPI id，避免真实飞书 payload 字段形态或 debug 字段混入 summary 后仍被算作安全入站证据。
-> - Final evidence gate 已补 approval card action 安全摘要校验：`processed_approval_card_action_with_governance_context` 除了要求 `tokenStored=false` / `rawActionPayloadStored=false`，还会拒绝 action 摘要或 event payload 任意字段中实际残留的 token、raw/action payload、raw Feishu actor id、raw resource token 或 OpenAPI id，避免只靠布尔标记误证明“审批卡片治理链路安全”。
-> - Final evidence gate 已补 failed outbox failure visibility 校验：失败 outbox 必须属于当前 agent bot binding，带 safe `externalChatReference`，且 metadata 任意字段都不能含 raw external/target chat/thread/resource id、OpenAPI token 或 secret-like 值，`lastError` 也不能残留 raw Feishu id/resource token/secret，避免无关 bot 或泄漏目标 id 的失败行被算作“失败可见且可归因”。
-> - Final evidence gate 已补 failed data operation failure visibility 校验：失败数据操作必须属于当前 agent bot binding，带 `resourceReference` / `resourceIdRedacted=true` 的安全资源上下文，且不能在 governance context、result summary 或 `errorMessage` 中残留 raw chat/thread/resource token / OpenAPI id，避免无关 bot 或泄漏资源 token 的失败行被算作“失败可见且可归因”。
-> - `smoke-plan` / evidence remediation 已补 data-plane 读取治理验收细节：Doc / Sheet / Base 读取步骤都会要求 active resource binding、Feishu governance context、agentId、botBindingId、actor provenance、安全资源引用和无 raw resource token，避免只证明 OpenAPI 读成功或 safe summary，却漏掉 AgentSpace resource policy 约束。
-> - `smoke-plan` / evidence remediation 已补 data-plane 写入验收细节：Doc / Sheet / Base 写入步骤都会要求 approved AgentSpace operation、`approvalId`、SHA-256 `payloadHash`、active resource binding、安全 Feishu write result；Base 更新还会明确验证 Feishu Base write evidence 和 AgentSpace data table sync，避免只证明读预览或同步而漏掉 payload hash / approval 链路。
+> - 本地回归（2026-06-27）：typecheck、Feishu service tests、smoke harness、targeted web/CLI tests 均通过；Postgres DB 集成测试固定为 `test:feishu:db`（临时 Neon `e2e-*` 分支，串行运行并在结束后删除）。
+> - Phase 6 前置检查（2026-06-27）：本地 env 均未提供 live smoke 变量；15 个 OpenAPI strict-live 必填项缺失，第二 agent bot 的 `FEISHU_SECOND_AGENT_APP_ID` / `FEISHU_SECOND_AGENT_APP_SECRET` 未配置；`smoke-plan` 可生成清单但 workspace 仍停在 `credential_encryption_key_missing` / `integration_missing` / `second_agent_bot_missing` 等真实前置条件。
+>
+> Phase 6 门槛加固（2026-06 至 07 多轮迭代）已收口为以下不变式，逐轮加固的完整记录见 git log（`scripts/feishu/smoke.ts`、`apps/cli/src/commands/integrations/feishu.ts`、`packages/services/src/integrations/providers/feishu/`）：
+>
+> 1. Native smoke 必须 `--require-todo120-native`：需要两个 distinct app / distinct agent 的 Phase 6-ready active agent bot binding，单 bot、复用 app/secret、workspace-level 或 disabled/archived 旧 binding 都会在触网前或 evidence gate 失败。
+> 2. Final evidence gate 的 anchor 一致性：OpenAPI strict-live artifact 与 bot-added payload artifact 的 app/tenant hash 必须匹配同一个 active anchor integration；同群 native 聚合必须看到两个 active agent-scoped binding；跨 artifact / 跨租户 / 无关 app 拼接均拒绝。
+> 3. 证据脱敏：所有 evidence / metadata / summary 字段不得残留 raw Feishu chat/thread/user/resource id 或 OpenAPI token（camelCase 与 snake_case 均拒绝），只允许 safe reference + hash。
+> 4. 证据新鲜度：OpenAPI / bot-added artifact 与本地 DB evidence rows 均只计入 24 小时内生成的记录。
+> 5. Guest 语义精确性：external guest dispatch 不创建真实 workspace member（`workspaceMemberCreated=false`）、permission profile 按场景精确匹配（`channel_context_only` / `none`）、`/agent` 命令式路由不算原生体验（`agentSpaceCommandUsed=true` 拒绝）。
+> 6. Data-plane 治理：读 / 写证据必须带 active resource binding + governance context（agentId + botBindingId + actor provenance），写必须 `approvalId` + SHA-256 `payloadHash`，guest 只能读 guest-readable 的当前 channel 资源。
+> 7. 可读排障：`smoke-plan` / `evidence` 不带 `--json` 时输出 blockers / gate / artifact / remediation 摘要；CLI `nextCommands` 与 Settings / Agent Settings setup guide 同步。
 
 ### Phase 0：产品语义收口
 

@@ -1,8 +1,8 @@
 # 121. Slack Message Transport + Agent Experience
 
-> 更新时间：2026-07-04
+> 更新时间：2026-08-17（文档清理：修正 DofeAgent 命名漂移；Slack 仍未实施）
 > 状态：规划中，承接 Feishu provider 合并后扩展第二个外部 IM provider
-> 关联：`TODO/84-integration-adapter-contract.md`、`TODO/85-agent-action-permission-policy.md`、`TODO/119-feishu-message-transport-adapter.md`、`TODO/120-feishu-agent-bot-native-experience.md`、`TODO/80-unified-permission-management.md`
+> 关联：TODO 84（集成 Adapter Contract，backlog）、TODO 85（权限 Policy 与审批联动，backlog）、TODO 119（飞书 Adapter，已实现）、[TODO/120](./120-feishu-agent-bot-native-experience.md)（飞书 Bot 原生体验，Phase 6 待执行）、TODO 80（统一权限管理，已完成）——无链接条目的文档已不在仓库，见 [TODO/README.md](./README.md) 历史索引
 > 适用范围：Slack app / bot 接入、Events API、Socket Mode、OAuth v2、message transport adapter、外部身份/频道/线程映射、outbox 回写、Agent 调度、权限治理、审计、健康检查、smoke/evidence
 
 ## 一句话结论
@@ -596,15 +596,15 @@ scripts/slack/smoke.ts
 命令草案：
 
 ```text
-agent-space integrations slack create --workspace-id <id> --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET [--app-level-token-env SLACK_APP_TOKEN] [--json]
-agent-space integrations slack bind-channel --workspace-id <id> --integration <id> --channel <agent-space-channel> --slack-channel <C...|G...|D...> [--json]
-agent-space integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
-agent-space integrations slack worker --workspace-id <id> [--integration <id>] [--once] [--dry-run] [--drain-outbox] [--json]
-agent-space integrations slack health-check --workspace-id <id> --integration <id> [--strict] [--json]
-agent-space integrations slack readiness --workspace-id <id> [--integration <id>] [--strict] [--json]
-agent-space integrations slack smoke-plan --workspace-id <id> --integration <id> --app-url <url> [--json]
-agent-space integrations slack smoke-env --workspace-id <id> --integration <id> --app-url <url> [--json]
-agent-space integrations slack outbox drain --workspace-id <id> [--integration <id>] [--json]
+dofe-agent integrations slack create --workspace-id <id> --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET [--app-level-token-env SLACK_APP_TOKEN] [--json]
+dofe-agent integrations slack bind-channel --workspace-id <id> --integration <id> --channel <agent-space-channel> --slack-channel <C...|G...|D...> [--json]
+dofe-agent integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
+dofe-agent integrations slack worker --workspace-id <id> [--integration <id>] [--once] [--dry-run] [--drain-outbox] [--json]
+dofe-agent integrations slack health-check --workspace-id <id> --integration <id> [--strict] [--json]
+dofe-agent integrations slack readiness --workspace-id <id> [--integration <id>] [--strict] [--json]
+dofe-agent integrations slack smoke-plan --workspace-id <id> --integration <id> --app-url <url> [--json]
+dofe-agent integrations slack smoke-env --workspace-id <id> --integration <id> --app-url <url> [--json]
+dofe-agent integrations slack outbox drain --workspace-id <id> [--integration <id>] [--json]
 ```
 
 ### Web settings
@@ -647,8 +647,8 @@ apps/web/features/integrations/slack/*
 新增：
 
 ```text
-deploy/systemd/agentspace-slack-worker.service
-deploy/systemd/agentspace-slack-worker.env.example
+deploy/systemd/dofe-agent-slack-worker.service
+deploy/systemd/dofe-agent-slack-worker.env.example
 deploy/slack-worker/docker-compose.yml
 deploy/slack-worker/slack-worker.env.example
 ```
