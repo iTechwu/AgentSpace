@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -32,3 +32,13 @@ await build({
   target: "node25",
   sourcemap: false,
 });
+
+// 3.5-7：services 的 preloaded-skill-sources.ts 在模块顶层按
+// import.meta.dirname 运行时读取同目录 JSON（3.3-6 有意外置，避免 tsc/
+// web bundle 内联）。bundle 后该路径解析为 dist/，必须把数据文件一并
+// 拷入，否则 dist/dofe-agent.js（tgz 部署到 provider 容器的入口）在
+// import 时即 ENOENT 崩溃。dist-smoke.test.ts 守卫此契约。
+copyFileSync(
+  resolve(rootDir, "..", "services", "src", "agent-templates", "preloaded-skill-sources.json"),
+  resolve(outDir, "preloaded-skill-sources.json"),
+);
