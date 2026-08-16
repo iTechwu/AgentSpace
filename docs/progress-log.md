@@ -175,12 +175,17 @@
 - **删除依据**：仓内导入一律显式 `.ts` 扩展名（tsc 从不读取同级 `.d.ts` 孪生）；对外类型出口由 `dist-types`（git-ignored，`pnpm types` 再生）统一产出，天然单源。
 - **回归**：services `pnpm types` 干净、`lark-cli.test.ts` 11/11、web `pnpm typecheck` 干净。
 
+### 3.3-6 `preloaded-skill-sources.ts` 内联字符串外置 —— ✅ 完成
+
+- **改动**：176KB 内联字符串（146 行巨型模块，diff 全是转义内容）外置为同目录 `preloaded-skill-sources.json`（3 skill / 19 文件，逐键缩进）；模块收敛为 46 行类型 + 查找门面，常量与 `findPreloadedAgentTemplateSkillSource` 导入面零改动。
+- **加载方式**：运行时 `readFileSync`（服务端专用包）—— tsc/declaration 不解析整份 JSON，dist-types 不引用数据文件，无 import-attributes 兼容面。
+- **验证**：冒烟 3 entries 加载、SKILL.md 内容完整（1631/13167/7848B）、finder 命中「金融分析代理」；services `pnpm types` 与 web `pnpm typecheck` 干净。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
-| 3.3-6 | `preloaded-skill-sources.ts` 176KB 内联字符串外置 |
 | 3.3-9 | `xlsx` CDN tarball 供应链锁定 |
 | 3.4-3 | 拆分 `channels-page-client.tsx`（3,925 行） |
 | 3.4-5 | 评估部分静态渲染（全站 `force-dynamic`） |
