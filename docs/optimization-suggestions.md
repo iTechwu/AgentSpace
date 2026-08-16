@@ -58,7 +58,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ |
 | P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ |
 | P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏸ |
-| P1 | 巨型文件拆分 | 仅剩 cli feishu/evidence.ts 3,885 行（feishu.ts 10,597 行 e4ba456、daemon.ts 2,233 行 03a3d8d、web data.ts 3,694 行 b032931、services skills/import.ts 2,305 行 7242b7e 已拆） | 中 | 🟡 |
+| P1 | 巨型文件拆分 | 全部完成：feishu.ts 10,597 行 e4ba456、daemon.ts 2,233 行 03a3d8d、web data.ts 3,694 行 b032931、services skills/import.ts 2,305 行 7242b7e、feishu/evidence.ts 3,885 行 ee1ee98 | 中 | ✅ |
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | ✅ |
 | P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | ✅ |
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ✅ |
@@ -140,7 +140,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 
 1. **【P0】测试 CI 缺失** ⏸：`deploy-production.yml` 在 push 到 `main` 时自动部署，但**只跑 preflight + build + Skill Runner egress 门禁，不跑任何单元/集成测试**；`.github/workflows` 下没有独立测试 CI。「失败禁止发布」目前只靠发布者自觉执行 `docs/0814/release-preflight-checklist.md`。**建议**：加一个 `ci.yml`（`pnpm install --frozen-lockfile` + `turbo run test --concurrency=2`，需预置测试库 URL），把 `pretest` 的两个门禁（verify-test-inventory、audit-node-engines）变成机器强制。
 2. **【P0】11k 行 `integrations.test.ts` + 844 行 `daemon.test.ts` 不在默认测试列表** ⏳：被 verify-test-inventory 的 "deferred 冻结" 掩盖了「没跑」的事实。要么并入默认 glob，要么明确降级为集成测试目录并在 CI 单独 job 跑（带 env guard）。
-3. **【P1】巨型文件：`apps/cli/src/commands/integrations/feishu.ts` 达 10,597 行（全仓最大单文件）** ✅（e4ba456）：声明级重组拆为 `integrations/feishu/` 下 12 个域模块（types/command/create/agent-bot/bindings/data-operations/readiness/evidence/smoke-env/smoke-plan/cli-shared/worker），原文件收敛为 barrel、72 个公共导出零改动再导出；tsc 0 错误 + integrations.test.ts 182/182。`daemon.ts` 2,233 行亦已拆为 `commands/daemon/` 6 域模块（03a3d8d）。CLI 侧巨型文件清零，剩余大文件见总览行。
+3. **【P1】巨型文件：`apps/cli/src/commands/integrations/feishu.ts` 达 10,597 行（全仓最大单文件）** ✅（e4ba456）：声明级重组拆为 `integrations/feishu/` 下 12 个域模块（types/command/create/agent-bot/bindings/data-operations/readiness/evidence/smoke-env/smoke-plan/cli-shared/worker），原文件收敛为 barrel、72 个公共导出零改动再导出；tsc 0 错误 + integrations.test.ts 182/182。`daemon.ts` 2,233 行亦已拆为 `commands/daemon/` 6 域模块（03a3d8d）。末代产物 `feishu/evidence.ts`（3,885 行 / 137 声明）再拆为 `feishu/evidence/` 8 域模块（ee1ee98，tsc 0 错误 + 182/182）——全仓 >1500 行非测试源码至此清零。
 4. **【P1】CLI 测试脚本与 verify-test-inventory 的 default-owned 集不一致** ✅（3feec450）：补记 `task-completion-outbox`/`task-completion-token-usage` 入 apps/cli default-owned 集，重冻结 digest；核对发现 round 6 注释「179 文件」为笔误（实为 187），已勘误。
 5. **【P1】`runtime-maintenance.mjs` 用容器内自旋轮询** ⏳：每 30s 打 3 个 HTTP cron 端点，异常只打日志无退避/告警。建议改为内置定时器或接外部 cron + 指标。
 6. **【P2】多套 env 模板漂移风险** ✅（4041898）：audit-env-templates.mjs 入 pretest —— 自动发现 11 模板/186 键，键名规范+单文件重复+跨模板近重复三类强制；4 对合法共存入豁免表。不做生成器（模板注释即部署文档）。

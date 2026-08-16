@@ -316,6 +316,12 @@
 - **拆分**（`7242b7e`）：`packages/services/src/skills/import.ts`（2,305 行）拆为 `skills/import/` 下 11 个域模块——`types`、`import-api`（4 个公共入口）、`persist`（持久化与提交）、`importers`（存储/本地/GitHub/GitLab/skills.sh/ClawHub 各源导入器）、`source-parsers`、`local-zip`、`naming`、`github-refs`、`fetch-github`、`fetch-gitlab`、`http-shared`（响应限额与编解码）。原文件收敛为 12 行 barrel，13 个公共导出零改动（`src/index.ts` 与 `import.test.ts`）。
 - **验证**：tsc `--noEmit` 0 错误；import.test.ts 43/43、installations 32/32、legacy-migration 12/12、dependencies 8/8、git-credentials 5/5、export 1/1。巨型文件总览剩最后一个非测试源文件 `apps/cli/src/commands/integrations/feishu/evidence.ts`（3,885 行，3.6-3 拆分的证据域产物）。
 
+### 3.6-3 补充 cli `feishu/evidence.ts` 拆分 —— ✅ 完成（巨型文件清零）
+
+- **拆分**（`ee1ee98`）：`apps/cli/src/commands/integrations/feishu/evidence.ts`（3,885 行 / 137 声明，3.6-3 拆分产出的证据域）再拆为 `feishu/evidence/` 下 8 个域模块——`report`（报告装配+新鲜度+格式化+锚点对账，595 行）、`core`（buildFeishuIntegrationEvidence+操作/治理计数谓词，873 行）、`issues`（buildFeishuEvidenceIssues+整改规格映射，538 行）、`interactions`（回复/机器人/策略/身份绑定/自动开通/话题协作谓词，739 行）、`failures`（失败 outbox 与数据操作原文上下文守卫，168 行）、`smoke`（OpenAPI 冒烟与 bot-added 载荷核验，533 行）、`proofs`（脱敏守卫+期望证明+哈希/读取助手，295 行）、`satisfaction`（工作区满足度+安全引用比对+终态判定，319 行）。原文件收敛为 14 行显式 re-export barrel（含 `export type` 分组），导出面不变。
+- **验证**：`tsc -p tsconfig.json --noEmit` 0 错误；integrations.test.ts 182/182。**全仓 >1500 行非测试源码至此全部拆完**（feishu.ts / daemon.ts / data.ts / skills-import.ts / evidence.ts 五连），巨型文件总览行翻 ✅。
+- **过程坑**：导入区 `type X`（无别名内联类型）需单独解析，否则 65 个 TS2304；barrel 对 type/interface 声明必须 `export type`（isolatedModules 下 3 个 TS1205）。
+
 ### 3.6-4 CLI 测试脚本与 verify-test-inventory 双维护对齐 —— ✅ 完成
 
 - **对齐**（`3feec450`）：cli 包默认测试脚本一直显式执行 `src/lib/task-completion-outbox.test.ts` 与 `src/lib/task-completion-token-usage.test.ts`（5 文件清单），但 verify-test-inventory 的 default-owned 集只记了其余 3 个——两个文件被错记为 deferred。补入 apps/cli 显式 Set，重冻结 deferred digest（`23fdb8fd`→`4c1efe6e`）。
