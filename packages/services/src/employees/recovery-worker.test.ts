@@ -254,10 +254,18 @@ test("approving a pending operation unblocks the worker", () => {
   advanceRecoverableOperationsSync({ workspaceId: "default", limit: 10 });
   assert.equal(listRecoveryOperationsSync({ workspaceId: "default", employeeName: "Alice", limit: 1 })[0]?.phase, "allocate");
 
+  // 0696451d 起恢复操作默认双人审批（requiredApprovals ?? 2）：
+  // 第一位管理员批准后仍为 pending，第二位批准后才解锁。
   approveRecoveryOperationSync({
     operationId: created.id,
     workspaceId: "default",
     approvedByUserId: "admin-1",
+  });
+  assert.equal(readRecoveryOperationSync(created.id, "default")?.approvalState, "pending");
+  approveRecoveryOperationSync({
+    operationId: created.id,
+    workspaceId: "default",
+    approvedByUserId: "admin-2",
   });
   assert.equal(readRecoveryOperationSync(created.id, "default")?.approvalState, "approved");
 

@@ -46,7 +46,11 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // default-owned 集漏记（3.6-4 双维护不一致）。补记归位，消除「脚本跑而
 // inventory 记 deferred」的矛盾。（核对说明：round 6 注释中的「179」为
 // 笔误/漂移，上一版 digest 23fdb8fd 实际对应 187 个文件；本版 187-2=185。）
-const EXPECTED_DEFERRED_DIGEST = "4c1efe6e22ab320980f0b34df49df72eef6b5ff3d434576e1c733ef0bbc8bcdd";
+// Re-frozen 2026-08-17 (round 8, 169-file set): promoted
+// packages/services/src/{documents,employees,knowledge}/*.test.ts (16 files)
+// into the services default test command (3.3-8 收尾). Deferred set 185-16=170
+// (三域 16 文件中 1 个先前已由其他规则覆盖，实际移出 15)。
+const EXPECTED_DEFERRED_DIGEST = "b2791e887e406fa5b5fbb76d1b81812dc8517d562d01cec70ea0d3aa1fc58a6a";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -113,6 +117,11 @@ function isDefaultOwned(file) {
     "packages/services/src/messages/",
     "packages/services/src/notifications/",
     "packages/services/src/channel-access/",
+    // 3.3-8 收尾：documents/employees/knowledge 三域纳入 services 默认测试
+    // 脚本（glob src/{documents,employees,knowledge}/*.test.ts）。
+    "packages/services/src/documents/",
+    "packages/services/src/employees/",
+    "packages/services/src/knowledge/",
   ]) {
     if (file.startsWith(prefix) && !file.slice(prefix.length).includes("/") && file.endsWith(".test.ts")) {
       return true;
