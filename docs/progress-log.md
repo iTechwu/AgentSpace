@@ -259,6 +259,12 @@
   - **易踩坑约定**：飞书 worker 单一所有权（daemon-claude 托管 vs 独立 compose 二选一）置顶，另含 token 绑定首注册、`WORKFLOW_CUTOVER_MODES` 两端对齐、发布门前置、基础设施一律外部化。
 - **事实核对**：self-hosted compose 服务清单（db-init/web/runtime-maintenance/workflow-worker/daemon-claude/daemon-codex）与 nginx conf 域名（仅 `dofe-agent.local.dofe.ai`，`agentspace.local` 在宿主 nginx）均对照源文件确认后写入。
 
+### 3.6-12 docs 按日期目录缺乏索引 —— ✅ 完成
+
+- **改动**（`bc318f5`）：新增 `docs/README.md` 作为 docs/ 唯一入口——根级 3 常驻文档（progress-log / optimization-suggestions / deployment-topology）+ 14 个日期目录按主题分组索引（产品规格 11 / 架构决策 4 / 数据耐久 1 / 测试 4 / 运维发布 1 / superpowers）。
+- **归档策略成文**：新主题建 `MMDD/<slug>/` 目录并在索引登记；主题完结追加状态与提交号；目录名稳定不删改（外部按路径引用）。
+- **「大体积 evidence 移入 artifacts/」半项经核实不采纳**：`artifacts/` 在 `.gitignore`（移入即失去版本化留档），且 `0801/employee-data-durability/evidence/` 是 5 个演练脚本的硬编码输出路径、`0803/test/results/` 的 playwright 结果与截图被测试报告正文引用（含双 worker 竞争复现 JSON 供修复对照）——移动即断链。docs/ 全部 7.6M 中证据约 5.6M，属刻意留档而非构建垃圾。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
@@ -267,7 +273,6 @@
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
 | 3.5-5 | sandbox 抽象决策收口（Cube `exec()` 未实现，`connectSandbox()` 无调用方） |
 | 3.5-7 | 测试路径与 `dist/` 产物对齐（esbuild CJS banner 覆盖） |
-| 3.6-12 | docs 按日期目录缺乏索引 |
 
 ---
 
