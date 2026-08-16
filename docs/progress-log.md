@@ -102,11 +102,11 @@
 - `a7c252eb`：`messages` / `notifications` / `channel-access` 三个测试包纳入 services 默认测试脚本与 inventory default-owned；messages 14 项受 managed_runtime 夹具约束的用例以 `MANAGED_RUNTIME_AVAILABLE=1` env 门控跳过。
 - 剩余：`employees`、`documents`、`knowledge` 等待办；飞书 24 个测试文件仍游离（3.3-4）。
 
-### 3.6-3 / 3.6-4 CLI 巨型文件与测试脚本 —— 🟡 feishu.ts 已拆分，其余待办
+### 3.6-3 / 3.6-4 CLI 巨型文件与测试脚本 —— 🟡 feishu.ts 已拆分、脚本/inventory 已对齐，daemon.ts 待拆
 
 - `apps/cli/src/commands/integrations/feishu.ts` 10,597 行已拆分（见下文 P2 §3.6-3）。
+- CLI 测试脚本与 verify-test-inventory 的 default-owned 集已对齐（见下文 P2 §3.6-4）。
 - `daemon.ts` 2,222 行：未拆分。
-- CLI 测试脚本（5 文件）与 verify-test-inventory default-owned 集（3 个+deploy）不一致：未处理。
 
 ### 3.6-5 runtime-maintenance 自旋轮询 —— ⏳ 待办
 
@@ -302,6 +302,12 @@
 - **验证**：apps/cli `tsc --noEmit` 0 错误；`integrations.test.ts` 182/182 通过（该文件 11k 行，仍按 3.6-2 决策排除在默认测试脚本外，作为手动验证跑）。
 
 其余 P2 待办表至此清空。
+
+### 3.6-4 CLI 测试脚本与 verify-test-inventory 双维护对齐 —— ✅ 完成
+
+- **对齐**（`3feec450`）：cli 包默认测试脚本一直显式执行 `src/lib/task-completion-outbox.test.ts` 与 `src/lib/task-completion-token-usage.test.ts`（5 文件清单），但 verify-test-inventory 的 default-owned 集只记了其余 3 个——两个文件被错记为 deferred。补入 apps/cli 显式 Set，重冻结 deferred digest（`23fdb8fd`→`4c1efe6e`）。
+- **核对发现**：round 6 注释中的「179 文件」为笔误——上版 digest 实际对应 187 个 deferred 文件（HEAD 版脚本对当前树实测 307 owned / 187 deferred），本轮 187-2=185，已在 round 7 注释中记录该勘误。
+- **验证**：verify-test-inventory 通过（309 owned / 185 deferred）；apps/cli 默认测试 24/24。
 
 ---
 
