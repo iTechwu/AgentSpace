@@ -7,9 +7,12 @@ import {
   listWorkflowRunEventsSync,
   materializeWorkflowNodeRunsSync,
   publishWorkflowVersionSync,
+  readWorkflowNodeRunSync,
   readWorkflowRunSync,
   transitionWorkflowNodeRunSync,
 } from "@dofe-agent/db";
+import { compileWorkflowIterationGroups } from "@dofe-agent/domain";
+import { buildNovelProductionWorkflowGraph } from "./novel-production-template.ts";
 import { completeWorkflowApprovalNodeSync, completeWorkflowNodeSync, failWorkflowNodeSync } from "./coordinator.ts";
 import { startQueuedTaskWithWorkflowSync } from "./completion.ts";
 import { pauseWorkflowRunSync, resumeWorkflowRunSync } from "./retries.ts";
@@ -413,3 +416,55 @@ function cleanup(workspaceId: string): void {
   db.prepare("DELETE FROM agent_runtime WHERE workspace_id = ?").run(workspaceId);
   db.prepare("DELETE FROM workspace WHERE id = ?").run(workspaceId);
 }
+
+test("iteration_group early-exit skips remaining rounds and auto-approves on pass", { skip: !hasTestDatabase }, () => {
+  const graph = compileWorkflowIterationGroups(buildNovelProductionWorkflowGraph({ coordinatorEmployeeId: "emp-coord", maxRounds: 2 }));
+  const graphJson = JSON.stringify(graph);
+  const seed = seedWorkspace(graphJson, graph.nodes.length);
+  try {
+    const run = createWorkflowRunSync({
+      workspaceId: seed.workspaceId,
+      workflowId: seed.workflowId,
+      versionId: seed.versionId,
+      triggerType: "manual",
+      triggerKey: `coordinator:iteration-${seed.workspaceId}`,
+      inputJson: "{}",
+    });
+    const nodeRuns = materializeWorkflowNodeRunsSync({
+      workspaceId: seed.workspaceId,
+      runId: run.id,
+      nodes: graph.nodes.map((node) => ({ nodeId: node.id, nodeType: node.type, employeeId: node.employeeId })),
+    });
+    const byNodeId = new Map(nodeRuns.map((node) => [node.nodeId, node]));
+
+    const gateRun = byNodeId.get("convergence.consistency-r1");
+    assert.ok(gateRun, "round-1 gate node exists");
+    const taskId = seedQueuedTask(seed.workspaceId, `${seed.workspaceId}-gate`);
+    transitionWorkflowNodeRunSync({
+      workspaceId: seed.workspaceId,
+      nodeRunId: gateRun.id,
+      from: ["pending"],
+      to: "queued",
+      taskQueueId: taskId,
+    });
+
+    completeWorkflowNodeSync({
+      workspaceId: seed.workspaceId,
+      nodeRunId: gateRun.id,
+      taskQueueId: taskId,
+      output: { blockingCount: 0, qualityReportDigest: "qr-1" },
+    });
+
+    for (const id of ["convergence.art-r2", "convergence.script-r2", "convergence.merge-r2", "convergence.consistency-r2"]) {
+      const nr = byNodeId.get(id);
+      assert.ok(nr, `${id} node exists`);
+      assert.equal(readWorkflowNodeRunSync(nr.id, seed.workspaceId)?.status, "skipped", `${id} should be skipped`);
+    }
+    const approval = byNodeId.get("convergence.over-limit-approval");
+    assert.equal(readWorkflowNodeRunSync(approval!.id, seed.workspaceId)?.status, "succeeded", "approval auto-approved");
+    const storyboard = byNodeId.get("storyboard");
+    assert.equal(readWorkflowNodeRunSync(storyboard!.id, seed.workspaceId)?.status, "ready", "storyboard advanced");
+  } finally {
+    getDatabase().exec(`DELETE FROM workspace WHERE id = '${seed.workspaceId}'`);
+  }
+});

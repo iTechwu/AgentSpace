@@ -37,6 +37,87 @@ export interface CompleteWorkflowNodeInput {
   now?: string;
 }
 
+/**
+ * Iteration-group early exit: when a compiled quality-gate node completes with
+ * `blockingField === 0` (converged), skip the remaining rounds and auto-approve
+ * the over-limit approval — no human decision is needed once the loop converges.
+ * Static unrolling (no marker) keeps running all rounds; this hook is a no-op
+ * for every non-iteration-group node.
+ */
+function applyIterationGroupEarlyExit(input: {
+  workspaceId: string;
+  run: WorkflowRunRecord;
+  completedNodeId: string;
+  completedOutput: Record<string, unknown>;
+  now: string;
+}): void {
+  const version = readWorkflowVersionSync(input.run.versionId, input.workspaceId);
+  if (!version) return;
+  let graph: WorkflowGraphDefinition;
+  try {
+    graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
+  } catch {
+    return;
+  }
+  const nodeDef = graph.nodes.find((node) => node.id === input.completedNodeId);
+  const gate = (nodeDef?.config as Record<string, unknown> | undefined)?.__iterationGate as
+    | { blockingField?: unknown; skipRoundNodeIds?: unknown; approvalNodeId?: unknown }
+    | undefined;
+  if (!gate || typeof gate.blockingField !== "string") return;
+
+  const blocking = input.completedOutput[gate.blockingField];
+  if (typeof blocking !== "number" || blocking !== 0) return; // not converged
+
+  const runByNodeId = new Map(
+    listWorkflowNodeRunsSync(input.workspaceId, input.run.id).map((node) => [node.nodeId, node]),
+  );
+
+  const skipRoundNodeIds = Array.isArray(gate.skipRoundNodeIds)
+    ? gate.skipRoundNodeIds.filter((id): id is string => typeof id === "string")
+    : [];
+  for (const nodeId of skipRoundNodeIds) {
+    const nodeRun = runByNodeId.get(nodeId);
+    if (!nodeRun || !["pending", "ready", "queued"].includes(nodeRun.status)) continue;
+    transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: nodeRun.id,
+      from: [nodeRun.status],
+      to: "skipped",
+      errorCode: "workflow_iteration_group_converged",
+      finishedAt: input.now,
+      now: input.now,
+    });
+    runByNodeId.set(nodeId, { ...nodeRun, status: "skipped" });
+  }
+
+  if (typeof gate.approvalNodeId === "string") {
+    const approvalRun = runByNodeId.get(gate.approvalNodeId);
+    if (approvalRun && approvalRun.status === "pending") {
+      const approved = transitionWorkflowNodeRunSync({
+        workspaceId: input.workspaceId,
+        nodeRunId: approvalRun.id,
+        from: ["pending"],
+        to: "succeeded",
+        outputJson: JSON.stringify({ autoApproved: true, reason: "iteration_group_converged" }),
+        finishedAt: input.now,
+        now: input.now,
+      });
+      if (approved) {
+        appendWorkflowRunEventSync({
+          workspaceId: input.workspaceId,
+          runId: input.run.id,
+          nodeRunId: approved.id,
+          type: "node.succeeded",
+          actorType: "coordinator",
+          dataJson: JSON.stringify({ autoApproved: true, reason: "iteration_group_converged" }),
+          now: input.now,
+        });
+        advanceDownstream({ workspaceId: input.workspaceId, run: input.run, completed: approved, now: input.now });
+      }
+    }
+  }
+}
+
 export function completeWorkflowNodeSync(input: CompleteWorkflowNodeInput): WorkflowRunRecord {
   const db = getDatabase();
   const now = input.now ?? new Date().toISOString();
@@ -64,6 +145,7 @@ export function completeWorkflowNodeSync(input: CompleteWorkflowNodeInput): Work
     });
     if (!updated) return readWorkflowRunSync(run.id, input.workspaceId)!;
     appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: nodeRun.id, type: "node.succeeded", actorType: "daemon", dataJson: JSON.stringify({ taskQueueId: input.taskQueueId }), now });
+    applyIterationGroupEarlyExit({ workspaceId: input.workspaceId, run, completedNodeId: updated.nodeId, completedOutput: input.output, now });
     advanceDownstream({ workspaceId: input.workspaceId, run, completed: updated, now });
     return finalizeRunIfTerminal(input.workspaceId, run, now);
   });

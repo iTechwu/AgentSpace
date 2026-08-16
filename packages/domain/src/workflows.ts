@@ -300,19 +300,23 @@ export function compileWorkflowIterationGroups(graph: WorkflowGraphDefinition): 
 
     const roundEntryIds: string[] = [];
     const roundGateIds: string[] = [];
+    const roundNodeIds: string[][] = [];
     for (let round = 1; round <= config.maxRounds; round += 1) {
       const suffix = `-r${round}`;
       const idMap = new Map<string, string>();
+      const thisRoundNodeIds: string[] = [];
       for (const bodyNode of body.nodes) {
         const newId = `${node.id}.${bodyNode.id}${suffix}`;
         idMap.set(bodyNode.id, newId);
-        nodes.push({ ...bodyNode, id: newId });
+        thisRoundNodeIds.push(newId);
+        nodes.push({ ...bodyNode, id: newId, config: { ...bodyNode.config } });
       }
       for (const bodyEdge of body.edges) {
         edges.push({ source: idMap.get(bodyEdge.source)!, target: idMap.get(bodyEdge.target)! });
       }
       roundEntryIds.push(idMap.get(entryNodeId)!);
       roundGateIds.push(idMap.get(gateNodeId)!);
+      roundNodeIds.push(thisRoundNodeIds);
     }
 
     // Round r gate -> round r+1 entry (block -> next round).
@@ -320,9 +324,10 @@ export function compileWorkflowIterationGroups(graph: WorkflowGraphDefinition): 
       edges.push({ source: roundGateIds[round - 1]!, target: roundEntryIds[round]! });
     }
 
+    let approvalId: string | undefined;
     let exitId: string;
     if (config.overLimit === "approval") {
-      const approvalId = `${node.id}.over-limit-approval`;
+      approvalId = `${node.id}.over-limit-approval`;
       nodes.push({ id: approvalId, type: "approval", config: config.overLimitApproval ?? {} });
       edges.push({ source: roundGateIds[roundGateIds.length - 1]!, target: approvalId });
       exitId = approvalId;
@@ -330,6 +335,25 @@ export function compileWorkflowIterationGroups(graph: WorkflowGraphDefinition): 
       exitId = roundGateIds[roundGateIds.length - 1]!;
     }
     unrolled.set(node.id, { entry: roundEntryIds[0]!, exit: exitId });
+
+    // Early-exit marker (approval mode only): when a gate passes, the runtime
+    // coordinator skips the remaining rounds and auto-approves the over-limit
+    // approval (converged -> no human decision). "fail" mode keeps static
+    // unrolling without early exit.
+    if (approvalId) {
+      for (let round = 1; round <= config.maxRounds; round += 1) {
+        const gateNode = nodes.find((candidate) => candidate.id === roundGateIds[round - 1]!);
+        if (!gateNode) continue;
+        gateNode.config = {
+          ...gateNode.config,
+          __iterationGate: {
+            blockingField: config.qualityGate.blockingField,
+            skipRoundNodeIds: roundNodeIds.slice(round).flat(),
+            approvalNodeId: approvalId,
+          },
+        };
+      }
+    }
   }
 
   // Remap external edges through the unrolled entry/exit points.
