@@ -272,13 +272,19 @@
 - **修复**：`scripts/build.mjs` 在 build 后把 `preloaded-skill-sources.json` 拷入 `dist/`（`files` 含 dist，tgz 随包发布）；dofe-agent/cli/index 三个引用 bundle 全部恢复 `--version` 可启动。冒烟测试永久守卫此契约。
 - **验证**：dist 冒烟 4/4；daemon 全套 242 测试 0 fail（13 个 e2e 门控 skip）；typecheck:daemon 通过；pretest 三段链通过（inventory digest 同步 186→187）。
 
+### 3.5-5 sandbox 抽象决策收口 —— ✅ 完成（移除未完成的 Cube provider）
+
+- **决策**（`bbc935f`，P1）：cube/ 自仓库初始化后零迭代，exec() 数据面（envd/E2B，TODO 46）落地起未实现——旧版双开关（`SANDBOX_PROVIDER=cube` + `CUBE_ENABLE_EXPERIMENTAL=true`）打开只会**真实创建云沙箱后 exec 必抛 NOT_READY**，纯成本零能力；且无任何 env 模板/README 承诺该能力。按优化项给出的两个方向中可行的「移除」收口，恢复时从 git 历史取回。
+- **改动**：删除 `packages/sandbox/src/cube/`（client/config/sandbox + 2 测试，-1,019 行）；`connectSandbox` 收口 local-only——显式 `local` 之外的 provider（含 legacy `SANDBOX_PROVIDER` env 名）一律 fail-closed 报错，绝不落到半可用实现；`SANDBOX_PROVIDER_ENV` 常量移入 factory。
+- **条目前提修正**：「`connectSandbox()` 无调用方」已过时——`provider-runtime.ts` 两条执行路径（:1509/:1748）一直在用，`Sandbox`/`LocalSandbox`/`ExecController` 是热路径类型，全部保留未动。
+- **验证**：sandbox 4/4、daemon 242 全过（13 e2e skip）、`typecheck:deps`/`typecheck:daemon` 零错误、inventory 默认集 308→306（删除 2 个默认集文件，deferred digest 不变）。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
-| 3.5-5 | sandbox 抽象决策收口（Cube `exec()` 未实现，`connectSandbox()` 无调用方） |
 
 ---
 
