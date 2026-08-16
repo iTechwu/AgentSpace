@@ -44,6 +44,7 @@ export {
   listNotificationsForRecipientAsync,
   markNotificationReadAsync,
   markNotificationReadSync,
+  notifyWorkspaceAdminsAsync,
   notifyWorkspaceAdminsSync,
   postNotificationChannelMessageSync,
   type CreateWorkspaceNotificationInput,

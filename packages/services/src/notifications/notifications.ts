@@ -2,6 +2,7 @@ import {
   archiveWorkspaceNotificationPrismaCutover,
   archiveWorkspaceNotificationSync,
   countUnreadWorkspaceNotificationsSync,
+  createWorkspaceNotificationPrismaCutover,
   createWorkspaceNotificationSync,
   createWorkspaceNotificationsSync,
   listWorkspaceMemberUsersSync,
@@ -187,4 +188,45 @@ export function notifyWorkspaceAdminsSync(input: {
       metadata: input.metadata,
     })),
   );
+}
+
+/**
+ * Prisma 写 cutover：逐条走 createWorkspaceNotificationPrismaCutover
+ * （flag OFF 自动落回 sync，行为与 notifyWorkspaceAdminsSync 一致；
+ * 部分失败语义同 sync 的 map——先写的行已落库，抛错中断剩余）。
+ */
+export async function notifyWorkspaceAdminsAsync(input: {
+  workspaceId: string;
+  title: string;
+  body: string;
+  type: string;
+  severity: WorkspaceNotificationSeverity;
+  resourceType?: WorkspaceNotificationResourceType;
+  resourceId?: string;
+  actionHref?: string;
+  dedupeKey?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<WorkspaceNotificationRecord[]> {
+  const admins = listWorkspaceMemberUsersSync(input.workspaceId).filter(
+    (member) => member.role === "owner" || member.role === "admin",
+  );
+  if (admins.length === 0) {
+    return [];
+  }
+  return Promise.all(admins.map((admin) => createWorkspaceNotificationPrismaCutover({
+    workspaceId: input.workspaceId,
+    recipientType: "human",
+    recipientId: admin.userId,
+    actorType: "system",
+    actorId: "system",
+    type: input.type,
+    title: input.title,
+    body: input.body,
+    severity: input.severity,
+    resourceType: input.resourceType ?? "workspace",
+    resourceId: input.resourceId,
+    actionHref: input.actionHref,
+    dedupeKey: input.dedupeKey ? `${input.dedupeKey}:${admin.userId}` : undefined,
+    metadata: input.metadata,
+  })));
 }

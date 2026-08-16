@@ -1,5 +1,5 @@
 import { listWorkspacesSync } from "@dofe-agent/db";
-import { runBackupRestoreDrillRunSync, notifyWorkspaceAdminsSync } from "@dofe-agent/services";
+import { runBackupRestoreDrillRunSync, notifyWorkspaceAdminsAsync } from "@dofe-agent/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,12 +23,12 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const workspaces = listWorkspacesSync();
-  const runs = workspaces.map((workspace) => {
+  const runs = await Promise.all(workspaces.map(async (workspace) => {
     const workspaceId = workspace.id;
     const run = runBackupRestoreDrillRunSync({ workspaceId, trigger: "cron", sampleLimit: 5 });
 
     if (run.status === "failed") {
-      notifyWorkspaceAdminsSync({
+      await notifyWorkspaceAdminsAsync({
         workspaceId,
         title: "备份恢复演练失败",
         body: run.errorMessage ?? "备份/恢复演练未通过，请检查数据保护状态。",
@@ -42,7 +42,7 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     return { workspaceId, workspaceName: workspace.name, ok: run.status === "completed", run };
-  });
+  }));
 
   const anyFailure = runs.some((result) => !result.ok);
   return Response.json(
