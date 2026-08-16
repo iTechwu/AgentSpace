@@ -265,6 +265,13 @@
 - **归档策略成文**：新主题建 `MMDD/<slug>/` 目录并在索引登记；主题完结追加状态与提交号；目录名稳定不删改（外部按路径引用）。
 - **「大体积 evidence 移入 artifacts/」半项经核实不采纳**：`artifacts/` 在 `.gitignore`（移入即失去版本化留档），且 `0801/employee-data-durability/evidence/` 是 5 个演练脚本的硬编码输出路径、`0803/test/results/` 的 playwright 结果与截图被测试报告正文引用（含双 worker 竞争复现 JSON 供修复对照）——移动即断链。docs/ 全部 7.6M 中证据约 5.6M，属刻意留档而非构建垃圾。
 
+### 3.5-7 测试路径与 `dist/` 产物对齐 —— ✅ 完成（dist 冒烟入测试门）
+
+- **改动**（`f3e623b`）：新增 `packages/daemon/src/dist-smoke.test.ts` 并入包测试清单：每次先 `esbuild` 重建（亚秒级）再加载全部 6 个 dist 入口（dofe-agent / cli / agent-router / index / daemon-client / agent-router/index），断言导出面与 `--version` 行为——bundle 图可求值、CJS banner 的 require/__filename/__dirname 注入不冲突、入口 isMain 守卫在测试进程下不触发。
+- **首跑即抓到真实缺口**：`services` 的 `preloaded-skill-sources.ts` 在模块顶层按 `import.meta.dirname` 运行时读同目录 JSON（3.3-6 有意外置），bundle 后路径解析到 `dist/` 而数据文件不随产物输出——`dist/dofe-agent.js` 正是 tgz 部署到 provider 容器的入口（`Dockerfile.provider-runtime` 的 `/usr/local/bin/dofe-agent`），import 即 ENOENT。线上容器未崩仅因现有镜像早于 4c648b38；**下次构建 provider-runtime 镜像必然崩溃**。
+- **修复**：`scripts/build.mjs` 在 build 后把 `preloaded-skill-sources.json` 拷入 `dist/`（`files` 含 dist，tgz 随包发布）；dofe-agent/cli/index 三个引用 bundle 全部恢复 `--version` 可启动。冒烟测试永久守卫此契约。
+- **验证**：dist 冒烟 4/4；daemon 全套 242 测试 0 fail（13 个 e2e 门控 skip）；typecheck:daemon 通过；pretest 三段链通过（inventory digest 同步 186→187）。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
@@ -272,7 +279,6 @@
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
 | 3.5-5 | sandbox 抽象决策收口（Cube `exec()` 未实现，`connectSandbox()` 无调用方） |
-| 3.5-7 | 测试路径与 `dist/` 产物对齐（esbuild CJS banner 覆盖） |
 
 ---
 
