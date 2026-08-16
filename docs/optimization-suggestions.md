@@ -148,7 +148,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 8. **【P2】`audit-node-engines.mjs` 从 `.pnpm` 目录「借用」semver** ✅（8562ee4）：根 devDependencies 显式声明 `semver ^7.8.5`，脚本删 loadSemver 兜底改顶层 ESM import；测试夹具不再 symlink 借用。
 9. **【P2】两个 bin wrapper（cli/mcp-egress-proxy）都是 `spawnSync` 子进程再执行** ✅（e0e46c9）：wrapper 顶层 `import` 入口 main 后调用（Node ≥23.6 类型剥离默认开启）；proxy 入口 main 改 export + isMain 守卫，Docker dist 直跑语义不变。顺带修复 3.5-8 遗漏的 CLI DaemonConfig 新字段。
 10. **【P2】`apps/workflow-worker` 的 `types` 依赖 `apps/web/node_modules/.bin/tsc`** ✅（847a069）：根 devDependencies 显式声明 `typescript ^5.9.3`，9 处跨包相对路径借用（web/cli 宿主）全部改裸 `tsc`，pnpm run 的 PATH 逐级解析到根实例。
-11. **【P2】部署物分散** ⏳：systemd + self-hosted Compose + staging + daemon 并存，升级/回滚说明散落各 README，建议出一份统一的「部署拓扑 + 组件所有权」文档（飞书 worker 由 daemon-claude 托管、不可与独立 feishu-worker 同跑这一约定易被遗漏）。
+11. **【P2】部署物分散** ✅（9030a87）：新增 `docs/deployment-topology.md`——7 部署面 + 组件清单 + 所有权矩阵 + 易踩坑约定（飞书 worker 单一所有权置顶），操作细节仍指向各 README。
 12. **【P2】docs 按日期目录缺乏索引** ⏳：`docs/0724 ~ 0814` 无根索引文件，且日期目录里混入 playwright 产物/截图等构建产物类文件。建议加 `docs/README.md`（主题索引 + 归档策略），大体积 evidence 移入 artifacts/。
 
 > 亮点（值得保留）：mcp-egress-proxy 的纵深安全（Ed25519 短期 lease + JTI 防重放 + policy digest 校验 + pinned DNS + 私网段拦截 + OAuth broker + 脱敏审计）是教科书级实现；`verify-test-inventory` 的冻结摘要机制有效防测试漂移；docs 诚实标注未关闭门禁（NO-GO/自述非自动）非常健康。
