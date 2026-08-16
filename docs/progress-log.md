@@ -193,12 +193,19 @@
 - **附带修复**：全量 vitest 暴露 3 个与拆分无关的滞留失败 —— `c46775bc` Prisma cutover 将 `markNotificationRead/archiveNotification/notifyWorkspaceAdmins` 改名 `*Async` 后，`inbox/actions.test.ts` 与 `cron/backup-recovery-drill/route.test.ts` 的 `vi.mock` 仍导出旧名。已补齐并改 `mockResolvedValue`（d105c02）。
 - **验证**：web `pnpm typecheck` 0 错误；channels 44/44、workspace-frame 35/35；修复后全量 vitest 144 文件 1,155 用例全绿。
 
+### 3.4-5 评估部分静态渲染 —— ✅ 完成（结论：保持 `force-dynamic`）
+
+- **盘点**：34/34 个 page.tsx 均声明 `force-dynamic`（全仓含 API route 共 120 处）。逐页核对：`/w/*` 全部经 `getWorkspacePageContext → cookies()` 会话门控；`/platform`、`/platform/audit`、`/channel-invite` 经 `getCurrentUser()`；`/` 与 `/auth/error` 读 `searchParams`。
+- **结论 1（路由级 `revalidate`/SSG 不可行）**：所有页面读 cookies 或 searchParams，任一访问都强制请求期渲染；且会话门控数据进共享 ISR 缓存存在跨用户泄漏风险——不是「低个性化」问题而是结构不可用。
+- **结论 2（降载目标已被现有架构承担）**：客户端导航零请求由自研 WorkspaceModuleCache + TTL（3.4-7 `readTtl*Cache`）+ 失效事件体系承担；首屏由 SSR 数据 seed 直出（文档标注保留亮点）。
+- **结论 3（升级路径为 `cacheComponents`，暂不启用）**：Next 16.3 的 cacheComponents（组件级 PPR 谱系）会**替代**全部 `dynamic`/`revalidate` 段配置（全仓 120 处声明迁移）；本站外壳本身高度个性化（工作区名/计数器/用户身份），静态壳占比趋近于零；唯一候选 `/platform/audit` 为低流量管理页。无实测 SSR 吞吐/TTFB 瓶颈数据前收益不抵迁移风险。
+- **重启条件**：出现 SSR 吞吐/TTFB 实测瓶颈，或新增真正无会话公共页面（营销/登录改版）时，再评估 `cacheComponents` 增量接入。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
-| 3.4-5 | 评估部分静态渲染（全站 `force-dynamic`） |
 | 3.4-6 | i18n 无 key 体系迁移 |
 | 3.4-8 | 统一 34 个 page.tsx 样板 |
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |

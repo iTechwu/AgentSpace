@@ -116,7 +116,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 2. **【P1】代码分割** 🟡：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施），并同批处理 `agent-detail.tsx`/`conversation-shell.tsx`/`knowledge-page-client.tsx` 等超大客户端页的文件内拆分。
 3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）** ✅（f06b5af）：拆为 2,091 行主组件 + 7 个域模块（shared/model/hooks/icons/modals/views/header）。
 4. **【P2】关闭 `next.config.mjs` 的 `typescript.ignoreBuildErrors`** ✅：原为 `true` 时构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 不跑 typecheck）。应改为 `false` 让 `next build` 恢复类型检查，`prebuild` 继续提供更早的依赖与 Web 类型检查。
-5. **【P2】评估部分静态渲染** ⏳：全站 `force-dynamic`，但 `/platform`、设置只读 section、模板库等低个性化数据可评估 `revalidate` 或客户端缓存降载。
+5. **【P2】评估部分静态渲染** ✅（评估完成，结论保持 force-dynamic）：34/34 页面经 cookies/searchParams 会话门控，路由级 revalidate/SSG 结构不可用且有跨用户缓存泄漏风险；降载已由 WorkspaceModuleCache TTL 承担；升级路径 cacheComponents 需迁 120 处段配置，无实测瓶颈不启用。
 6. **【P2】i18n 无 key 体系** ⏳：`tx(zh, en)` 内联双语 + `presentation.ts` 集中翻译，无字典/key 校验，翻译散落 90+ 调用点。>2 种语言或翻译平台协作时需迁移。
 7. **【P2】清理 "loadtest" 命名** ✅：`readLoadtest*Cache` 三处是通用 TTL 缓存（`LOADTEST_MODE` 开关），命名与实际功能脱节，重命名为 `readTtl*Cache` 语义。
 8. **【P2】统一 34 个 page.tsx 样板** ⏳：重复 `getWorkspacePageContext → loadWorkspaceModuleDataWithMeta → WorkspaceInitialModuleData → *PageClient` 四步，可收敛为 `renderWorkspaceModule()` 辅助或生成器。
