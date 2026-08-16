@@ -169,12 +169,17 @@
 - **替代落地**：`postgres-sql-column-guard.test.ts`（已入测试门）—— 以 `postgres-schema/statements/` DDL 为唯一事实源（解析 CREATE TABLE + ALTER ADD/DROP COLUMN，跨行/单行形态，125 张表），静态扫描 `src/` 全部手写 SQL（模板字符串 + 测试文件双引号串，剥离 `${}` 插值）：限定引用 `table.column` 与 `INSERT INTO` 列清单逐列校验，typo 以 file:line 报告。零运行时依赖，负例注入验证可捕获。
 - **现状扫描结果**：存量 SQL 无此类 typo（此前担心的引用均为解析器缺口而非真 bug）。与 3.2-3 的别名引号守卫互补：一个管别名大小写折叠，一个管列名存在性。
 
+### 3.3-5 手写 `.d.ts` 孪生去重 —— ✅ 完成（删除孪生，单源 dist-types）
+
+- **定性**：`lark-cli.d.ts` 与 `integrations/core/*.d.ts`(9) 并非人工维护的孪生，而是 2026-07 旧 dist-types 构建产物的手工拷贝被误提交。漂移已实际发生：lark-cli 孪生 interface 全为空壳（成员丢失），outbox 孪生落后再生版 1 行。
+- **删除依据**：仓内导入一律显式 `.ts` 扩展名（tsc 从不读取同级 `.d.ts` 孪生）；对外类型出口由 `dist-types`（git-ignored，`pnpm types` 再生）统一产出，天然单源。
+- **回归**：services `pnpm types` 干净、`lark-cli.test.ts` 11/11、web `pnpm typecheck` 干净。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
-| 3.3-5 | 手写 `.d.ts` 孪生去重（`lark-cli.ts`/`.d.ts` 26 导出人工同步） |
 | 3.3-6 | `preloaded-skill-sources.ts` 176KB 内联字符串外置 |
 | 3.3-9 | `xlsx` CDN tarball 供应链锁定 |
 | 3.4-3 | 拆分 `channels-page-client.tsx`（3,925 行） |
