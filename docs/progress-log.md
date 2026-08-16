@@ -201,6 +201,12 @@
 - **结论 3（升级路径为 `cacheComponents`，暂不启用）**：Next 16.3 的 cacheComponents（组件级 PPR 谱系）会**替代**全部 `dynamic`/`revalidate` 段配置（全仓 120 处声明迁移）；本站外壳本身高度个性化（工作区名/计数器/用户身份），静态壳占比趋近于零；唯一候选 `/platform/audit` 为低流量管理页。无实测 SSR 吞吐/TTFB 瓶颈数据前收益不抵迁移风险。
 - **重启条件**：出现 SSR 吞吐/TTFB 实测瓶颈，或新增真正无会话公共页面（营销/登录改版）时，再评估 `cacheComponents` 增量接入。
 
+### 3.4-8 统一 page.tsx 样板 —— ✅ 完成（13/34 页收敛）
+
+- **改动**：新增 `app/w/[workspaceSlug]/_lib/render-workspace-module.tsx` 封装「getWorkspacePageContext → loadWorkspaceModuleDataWithMeta → WorkspaceInitialModuleData → *PageClient」四步；13 个标准形态页收敛为单次调用（8 个无 viewer：automations/calendar/costs/org-chart/performance/skills/tables/templates；5 个 withViewer：approvals/inbox/knowledge/market/task-board），25-34 行 → 16 行，净删 119 行。
+- **不收敛范围**：带 searchParams / 自定义 loader options 的 im、settings、contacts、agents 及重定向页/详情页保持原样 —— 它们的样板差异不是纯样板而是页面逻辑。
+- **验证**：逐页 diff 对齐 render props（typecheck 抓出 automations 需补 workspaceId/workspaceSlug）；web `pnpm typecheck` 0 错误、全量 vitest 1,155/1,155。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |

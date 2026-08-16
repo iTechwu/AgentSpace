@@ -119,7 +119,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 5. **【P2】评估部分静态渲染** ✅（评估完成，结论保持 force-dynamic）：34/34 页面经 cookies/searchParams 会话门控，路由级 revalidate/SSG 结构不可用且有跨用户缓存泄漏风险；降载已由 WorkspaceModuleCache TTL 承担；升级路径 cacheComponents 需迁 120 处段配置，无实测瓶颈不启用。
 6. **【P2】i18n 无 key 体系** ⏳：`tx(zh, en)` 内联双语 + `presentation.ts` 集中翻译，无字典/key 校验，翻译散落 90+ 调用点。>2 种语言或翻译平台协作时需迁移。
 7. **【P2】清理 "loadtest" 命名** ✅：`readLoadtest*Cache` 三处是通用 TTL 缓存（`LOADTEST_MODE` 开关），命名与实际功能脱节，重命名为 `readTtl*Cache` 语义。
-8. **【P2】统一 34 个 page.tsx 样板** ⏳：重复 `getWorkspacePageContext → loadWorkspaceModuleDataWithMeta → WorkspaceInitialModuleData → *PageClient` 四步，可收敛为 `renderWorkspaceModule()` 辅助或生成器。
+8. **【P2】统一 34 个 page.tsx 样板** ✅（d249529）：`_lib/render-workspace-module.tsx` 落地；13 个标准形态页收敛为单次调用（净删 119 行），带 searchParams/loader options 的 im/settings/contacts/agents 保持原样。
 
 > 亮点（值得保留）：服务端薄页 + 客户端胖壳 + 自研 `WorkspaceModuleCache`/失效事件体系，SSR 数据 seed 进客户端缓存实现「首屏零额外请求」；`any`/TODO/console.log 全零。
 
