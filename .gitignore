@@ -26,7 +26,9 @@ dofe-agent-daemon-*.tgz
 findings.md
 progress.md
 task_plan.md
-data/
+# 运行时数据目录（锚定根与 apps/web，避免误伤 features/dashboard/data/ 源码目录）
+/data/
+apps/web/data/
 runtime-output/
 agent-output.json
 artifacts/
