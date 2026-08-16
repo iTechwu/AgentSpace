@@ -106,7 +106,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 4. **【P1】飞书 24 个测试文件游离于测试门之外** ✅：23 个文件（12,145 行）全部纳入 services 默认测试门——19 个纯单测文件（154 测试）实跑，5 个 `*-db.test.ts`（55 测试）维持 `DOFE_AGENT_FEISHU_*_DB_TESTS=1` env 门控 skip；`verify-test-coverage.mjs` 前缀同步收编，未来新增文件不再游离。顺手修复纳门时暴露的 dev 预存回归：skill-draft Prisma 写入 jsonb 双重编码致读回 null（prisma-write-cutovers 在 HEAD 即失败）。
 5. **【P2】手写 `.d.ts` 孪生去重** ✅（删孪生，dist-types 单源）：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
 6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串** ✅：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
-7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）** ⏳：继续按域拆子路径（`/workflows`、`/skills`…），收窄 web/daemon 的 200+ 处 import。
+7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）** 🟡（1253fd31 拆分完成）：143 条 re-export 按域拆至 19 个域 barrel（`src/<domain>/index.ts`），根入口收敛为 22 行 `export *` 域聚合；package.json exports 新增 19 个域子路径（`@dofe-agent/services/<domain>`）。导出面不变（五端 typecheck 全 0 错 + services 测试门/cli 24/integrations 182/web vitest 124 全过）。**剩余**：web/daemon 的 200+ 处根导入迁移至域子路径（增量进行）。
 8. **【P2】测试门覆盖不均** ✅（52f49d7c 收尾）：`permissions`/`document-permissions`/`messages`/`notifications`/`channel-access`/`documents`/`employees`/`knowledge` 及飞书 23 文件均已纳入 services 默认测试脚本与 verify 门禁；services 门内 107 文件。纳门即暴露并修复 recovery-worker 双人审批断言漂移。
 9. **【P3】供应链** ✅（vendored file: + integrity 锁定）：`xlsx` 依赖是 CDN tarball URL（`cdn.sheetjs.com`）非 registry 包，建议评估锁定与镜像策略。
 

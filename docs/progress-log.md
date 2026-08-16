@@ -328,6 +328,15 @@
 - **核对发现**：round 6 注释中的「179 文件」为笔误——上版 digest 实际对应 187 个 deferred 文件（HEAD 版脚本对当前树实测 307 owned / 187 deferred），本轮 187-2=185，已在 round 7 注释中记录该勘误。
 - **验证**：verify-test-inventory 通过（309 owned / 185 deferred）；apps/cli 默认测试 24/24。
 
+### 3.3-7 services `index.ts` 巨型 barrel 域化拆分 —— ✅ 完成（导入迁移待做）
+
+- **拆分**（`1253fd31`）：`packages/services/src/index.ts`（1,614 行 / 143 条 re-export / 1,277 符号）按源目录归入 19 个域 barrel——`workflows`(19 源)、`skills`(36，含 skill-services/clihub)、`employees`(8)、`workspace`(7，含 shared/notifications)、`mcp-center`(5)、`models`(5)、`runtime`(10，含 runtime-access/health/maintenance/provisioning/config/observability)、`integrations`(2)、`openmontage`(5)、`capabilities`(3)、`channels`(3，含 channel-access/contacts)、`messaging`(3，messages/chat/realtime)、`tasks`(3，含 approvals/task-execution-events)、`collaboration`(4)、`knowledge`(4，含 knowledge-proposals)、`documents`(3，含 document-parsing)、`content`(9，materials/attachments/templates/tables/search/context)、`finance`(4)、`operations`(10，policies/agent-*/automations/schedules/permissions/document-permissions)。语句原文搬运、仅调整相对路径；3 条 `@dofe-agent/db` 包级 re-export 按语义归 content/runtime/openmontage。
+- **根入口**收敛为 22 行 `export *` 域聚合——此前担心的 web 解析器 `export *` 不可靠仅限 web 内部别名 barrel，包级链路五端 typecheck 实证可用。
+- **子路径**：package.json exports 新增 19 个域入口（`@dofe-agent/services/<domain>` → `src/<domain>/index.ts`），存量 storage/mcp-center 叶子子路径不动。
+- **验证**：services（types 重建后）+ web + cli + workflow-worker + mcp-egress-proxy typecheck 全 0 错；services 默认测试门全过（注：与 cli 测试并发跑会因共享真实 PG 状态互相踩，须顺序执行）；cli 24/24、integrations 182/182、web dashboard vitest 15 文件 124/124。
+- **剩余**：web/daemon 200+ 处 `@dofe-agent/services` 根导入迁移至域子路径，增量进行；`export type {}` 语句在首轮解析器中曾被漏掉（漏 3 条即级联 web 侧 TS2724/TS7006），已修。
+- **过程坑**：用户并发提交给根 barrel 追加了包级 re-export，拆分基线须取当前 HEAD 而非历史认知。
+
 ---
 
 ## 测试与 CI/CD（专项，⏸ 本轮排除）
