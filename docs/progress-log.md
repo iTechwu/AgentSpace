@@ -131,12 +131,20 @@
 - `0a8e2acc`：esbuild `target: node20` 改为 `node25`，与 `engines.node ^25.9.0` 对齐，避免为 Node 25 原生支持的特性做下兼容编译。
 - 剩余：`remote-daemon.ts` 硬编码 `:latest` 镜像 tag 锁 digest、`provider-runtime.ts` 硬编码 4 个默认模型名。
 
+### 3.2-1 DB 异步池化 —— ⏸ 已被 Prisma Phase 2 取代
+
+- 原建议：为 sync worker-thread DB 层另建 `pg.Pool` 异步平行路径，按域渐进切换。
+- 评估结论：**不再单独立项**。「生产访问走异步连接池」这一目标已由 3.3-7/3.2-6 的 Prisma 双 runner 切流承接（PrismaPg adapter 即连接池层），再建 pg.Pool 会引入第三条 DB 访问路径，与「全生产访问收敛到 Prisma、删除 worker-thread/直连 pg」的终态相反。剩余的异步化需求（task enqueue、notifications create 深层 sync 链）随编排层迁移在 Phase 2 框架内解决。
+
+### 3.2-2 拆分 postgres-schema.ts —— ✅ 完成
+
+- `4,878 行 → 190 行编排门面 + 15 个关注点模块`：629 条 DDL 按迁移阶段机械切分为 `postgres-schema/statements/01-11`（严格源顺序展开拼接，切分前后语句数组 sha256 完全一致 `b1bccc45267a3c7b`）；版本/锁常量、history 回填、计数器自愈、post-commit 在线索引各成模块。对外导出面不变。
+- 遗留（HEAD 存量，与拆分无关）：`postgres.test.ts` / `postgres-schema-version-guard.test.ts` / `database-schema-lock.test.ts` 三处仍锚 schema 版本 116/117（实际已到 120），均属 deferred 测试集，待随版本锚定机制一并修。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
-| 3.2-1 | DB 异步池化（`pg.Pool` 平行路径，最大结构债，需按域渐进） |
-| 3.2-2 | 拆分 `postgres-schema.ts`（4,838 行） |
 | 3.2-3 | 消除双重行映射（`AS` 别名 + worker 别名表漂移） |
 | 3.2-4 | 拆分 `external-integrations.ts`(2,576)/`types.ts`(2,219)/`mcp-center.ts`(1,467) |
 | 3.2-5 | 类型安全加固（Kysely 等轻量 typed query builder） |
