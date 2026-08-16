@@ -311,6 +311,11 @@
 - **方法**：与 feishu.ts 相同的声明级重组；额外逐项保真 import 别名（`原名 as 正文名` 方向）、type-only import、内联 `type` 标记（首轮脚本踩坑：别名取错端 + type-only 被重组为 value import，导致 strip-types 运行时报 ESM 链接错误）。
 - **验证**：tsc `--noEmit` 0 错误；`daemon.test.ts` 19 pass / 3 fail 与 HEAD 完全一致（stash 对比确认 3 个 TOS 附件用例为预存失败，缺 TOS 环境）；CLI 默认测试 24/24。
 
+### 3.6-3 补充 services `skills/import.ts` 拆分 —— ✅ 完成
+
+- **拆分**（`7242b7e`）：`packages/services/src/skills/import.ts`（2,305 行）拆为 `skills/import/` 下 11 个域模块——`types`、`import-api`（4 个公共入口）、`persist`（持久化与提交）、`importers`（存储/本地/GitHub/GitLab/skills.sh/ClawHub 各源导入器）、`source-parsers`、`local-zip`、`naming`、`github-refs`、`fetch-github`、`fetch-gitlab`、`http-shared`（响应限额与编解码）。原文件收敛为 12 行 barrel，13 个公共导出零改动（`src/index.ts` 与 `import.test.ts`）。
+- **验证**：tsc `--noEmit` 0 错误；import.test.ts 43/43、installations 32/32、legacy-migration 12/12、dependencies 8/8、git-credentials 5/5、export 1/1。巨型文件总览剩最后一个非测试源文件 `apps/cli/src/commands/integrations/feishu/evidence.ts`（3,885 行，3.6-3 拆分的证据域产物）。
+
 ### 3.6-4 CLI 测试脚本与 verify-test-inventory 双维护对齐 —— ✅ 完成
 
 - **对齐**（`3feec450`）：cli 包默认测试脚本一直显式执行 `src/lib/task-completion-outbox.test.ts` 与 `src/lib/task-completion-token-usage.test.ts`（5 文件清单），但 verify-test-inventory 的 default-owned 集只记了其余 3 个——两个文件被错记为 deferred。补入 apps/cli 显式 Set，重冻结 deferred digest（`23fdb8fd`→`4c1efe6e`）。
