@@ -1,9 +1,12 @@
 "use client";
 
+// 会话外壳组件（3.4-2 拆分后仅保留组件本体）：
+// 线程数据模型/纯函数在 ./conversation-thread，滚动锚点在 ./conversation-scroll-anchors。
+// 公共导入面保持不变——外部仍从本模块导入类型与 orderConversationMessages。
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChatComposer, ChatEmptyState, ChatHeader, ConversationListRow, ConversationMessageBubble } from "@/features/chat/chat-primitives";
-import type { MessageAcknowledgement, MessageAttachment, MessageMention } from "@/shared/types/workspace";
 import { applyMentionSelection, findDraftMentionQuery } from "@dofe-agent/domain";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { translateSystemSpeaker } from "@/features/i18n/presentation";
@@ -13,112 +16,50 @@ import { useResizablePane } from "@/shared/lib/use-resizable-pane";
 import { PaneResizeHandle } from "@/shared/ui/pane-resize-handle";
 import type { GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
 import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
-import type { ExecutionTimelineItem } from "@/features/chat/task-execution-timeline";
+import type {
+  ConversationComposerRuntime,
+  ConversationListItem,
+  ConversationMentionCandidate,
+  ConversationSlashCommand,
+  ConversationThreadMessage,
+  OptimisticConversationMessage,
+  QueuedConversationMessage,
+  SelectedComposerReference,
+} from "@/features/chat/conversation-thread";
+import {
+  buildComposerSlashCommands,
+  buildReplyMentionPrefix,
+  findDraftSlashQuery,
+  hasServerMessageCopy,
+  isOwnHumanMessage,
+  orderConversationMessages,
+  policyForSlashCommand,
+  replaceDraftRange,
+  resolveSubmittedSlashCommand,
+} from "@/features/chat/conversation-thread";
+import type { ConversationScrollAnchor } from "@/features/chat/conversation-scroll-anchors";
+import {
+  buildConversationScrollAnchor,
+  pruneConversationScrollAnchors,
+  readConversationScrollAnchors,
+  restoreConversationScrollAnchor,
+  writeConversationScrollAnchors,
+} from "@/features/chat/conversation-scroll-anchors";
 
-export interface ConversationListItem {
-  id: string;
-  title: string;
-  subtitle: string;
-  meta: string;
-  avatar: string;
-  avatarId?: string;
-  avatarName?: string;
-  avatarVariant?: GeneratedAvatarVariant;
-  dateLabel?: string;
-  unread?: boolean;
-}
-
-export interface ConversationThreadMessage {
-  id: string;
-  speaker: string;
-  role: "human" | "agent";
-  content: string;
-  code?: string;
-  data?: Record<string, string>;
-  /** Raw runtime thinking/tool detail retained for process-message fallback rendering. */
-  executionDetail?: string;
-  timestamp: string;
-  status: "pending" | "completed" | "error";
-  attachments?: MessageAttachment[];
-  mentions?: MessageMention[];
-  acknowledgements?: MessageAcknowledgement[];
-  kind?: "message" | "process";
-  processType?: string;
-  tool?: string;
-  /** Structured execution timeline for a task-bound process group (replaces flat process cards). */
-  execution?: ExecutionTimelineItem[];
-  executionRunning?: boolean;
-  /** Agent reply that belongs to an execution group; rendered attached to the timeline card. */
-  executionGrouped?: boolean;
-  pinned?: boolean;
-  pinnedAt?: string;
-  replyToMessageId?: string;
-  deliveryStatus?: "sending" | "sent" | "failed";
-}
-
-interface OptimisticConversationMessage extends ConversationThreadMessage {
-  conversationId: string;
-  serverMessageIdsAtSubmission: string[];
-}
-
-export function orderConversationMessages(messages: ConversationThreadMessage[]): ConversationThreadMessage[] {
-  const hasActiveAgentMessages = messages.some((message) => getConversationMessageActivityPriority(message) > 0);
-  if (!hasActiveAgentMessages) {
-    return messages;
-  }
-
-  // Process records remain in their audit order; the live agent reply stays visible at the end.
-  return [...messages].sort(
-    (left, right) => getConversationMessageActivityPriority(left) - getConversationMessageActivityPriority(right),
-  );
-}
-
-export interface ConversationMentionCandidate {
-  id: string;
-  label: string;
-  subtitle: string;
-  inChannel: boolean;
-  kind?: "agent" | "human" | "file" | "skill";
-  sourceId?: string;
-}
-
-export interface ConversationComposerRuntime {
-  employeeId: string;
-  employeeLabel: string;
-  provider: "claude" | "codex";
-  executionPolicy?: EmployeeExecutionPolicy;
-  requiresMentionForCommands?: boolean;
-}
-
-export interface ConversationSlashCommand {
-  id: string;
-  command: string;
-  label: string;
-  description: string;
-  action: "model" | "resume" | "clear" | "permissions" | "claude-plan" | "claude-auto" | "codex-review";
-}
-
-interface SelectedComposerReference {
-  id: string;
-  label: string;
-  kind: "file" | "skill";
-  sourceId: string;
-}
+export { orderConversationMessages } from "@/features/chat/conversation-thread";
+export type {
+  ConversationComposerRuntime,
+  ConversationListItem,
+  ConversationMentionCandidate,
+  ConversationSlashCommand,
+  ConversationThreadMessage,
+} from "@/features/chat/conversation-thread";
 
 type PendingFile = {
   id: string;
   file: File;
   label: string;
 };
-
-interface QueuedConversationMessage {
-  id: string;
-  content: string;
-  replyToMessageId?: string;
-  createdAt: string;
-  referenceAttachmentIds?: string[];
-  referenceSkillIds?: string[];
-}
 
 export function ConversationShell({
   listKicker,
@@ -1270,321 +1211,4 @@ export function ConversationShell({
       ) : null}
     </section>
   );
-}
-
-interface ConversationScrollAnchor {
-  messageId?: string;
-  messageOffsetTop?: number;
-  scrollTop: number;
-  scrollHeight: number;
-  clientHeight: number;
-  distanceFromBottom: number;
-  stickToBottom: boolean;
-  updatedAt: number;
-}
-
-const CONVERSATION_SCROLL_ANCHOR_LIMIT = 40;
-
-function buildConversationScrollAnchor(
-  viewport: HTMLDivElement,
-  stickToBottom: boolean,
-): ConversationScrollAnchor {
-  const firstVisibleMessage = findFirstVisibleConversationMessage(viewport);
-  return {
-    messageId: firstVisibleMessage?.messageId,
-    messageOffsetTop: firstVisibleMessage?.offsetTop,
-    scrollTop: viewport.scrollTop,
-    scrollHeight: viewport.scrollHeight,
-    clientHeight: viewport.clientHeight,
-    distanceFromBottom: Math.max(0, viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight),
-    stickToBottom,
-    updatedAt: Date.now(),
-  };
-}
-
-function restoreConversationScrollAnchor(
-  viewport: HTMLDivElement,
-  anchor: ConversationScrollAnchor | undefined,
-): boolean {
-  if (!anchor) {
-    return false;
-  }
-
-  if (anchor.stickToBottom) {
-    viewport.scrollTop = viewport.scrollHeight;
-    return true;
-  }
-
-  if (anchor.messageId && typeof anchor.messageOffsetTop === "number") {
-    const anchoredMessage = Array.from(
-      viewport.querySelectorAll<HTMLElement>("[data-conversation-message-id]"),
-    ).find((element) => element.dataset.conversationMessageId === anchor.messageId);
-    if (
-      anchoredMessage &&
-      (anchoredMessage.offsetTop > 0 || anchoredMessage.offsetHeight > 0)
-    ) {
-      viewport.scrollTop = Math.max(0, anchoredMessage.offsetTop - anchor.messageOffsetTop);
-      return true;
-    }
-  }
-
-  if (viewport.scrollHeight > viewport.clientHeight) {
-    viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight - anchor.distanceFromBottom);
-    return true;
-  }
-
-  viewport.scrollTop = anchor.scrollTop;
-  return true;
-}
-
-function findFirstVisibleConversationMessage(
-  viewport: HTMLDivElement,
-): { messageId: string; offsetTop: number } | null {
-  for (const element of viewport.querySelectorAll<HTMLElement>("[data-conversation-message-id]")) {
-    if (element.offsetTop === 0 && element.offsetHeight === 0) {
-      continue;
-    }
-    if (element.offsetTop + element.offsetHeight >= viewport.scrollTop) {
-      return {
-        messageId: element.dataset.conversationMessageId ?? "",
-        offsetTop: element.offsetTop - viewport.scrollTop,
-      };
-    }
-  }
-  return null;
-}
-
-function readConversationScrollAnchors(storageKey?: string): Record<string, ConversationScrollAnchor> {
-  if (!storageKey || typeof window === "undefined") {
-    return {};
-  }
-  const raw = window.sessionStorage.getItem(storageKey);
-  if (!raw) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-
-    const anchors: Record<string, ConversationScrollAnchor> = {};
-    for (const [threadId, value] of Object.entries(parsed)) {
-      if (isConversationScrollAnchor(value)) {
-        anchors[threadId] = value;
-      }
-    }
-    return pruneConversationScrollAnchors(anchors);
-  } catch {
-    window.sessionStorage.removeItem(storageKey);
-    return {};
-  }
-}
-
-function writeConversationScrollAnchors(
-  storageKey: string,
-  anchors: Record<string, ConversationScrollAnchor>,
-): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  if (Object.keys(anchors).length === 0) {
-    window.sessionStorage.removeItem(storageKey);
-    return;
-  }
-  window.sessionStorage.setItem(storageKey, JSON.stringify(anchors));
-}
-
-function pruneConversationScrollAnchors(
-  anchors: Record<string, ConversationScrollAnchor>,
-): Record<string, ConversationScrollAnchor> {
-  const entries = Object.entries(anchors)
-    .filter(([, anchor]) => isConversationScrollAnchor(anchor))
-    .sort(([, left], [, right]) => right.updatedAt - left.updatedAt)
-    .slice(0, CONVERSATION_SCROLL_ANCHOR_LIMIT);
-  return Object.fromEntries(entries);
-}
-
-function isConversationScrollAnchor(value: unknown): value is ConversationScrollAnchor {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as Partial<ConversationScrollAnchor>;
-  return (
-    typeof candidate.scrollTop === "number" &&
-    typeof candidate.scrollHeight === "number" &&
-    typeof candidate.clientHeight === "number" &&
-    typeof candidate.distanceFromBottom === "number" &&
-    typeof candidate.stickToBottom === "boolean" &&
-    typeof candidate.updatedAt === "number"
-  );
-}
-
-function isOwnHumanMessage(
-  message: ConversationThreadMessage,
-  currentUserDisplayName?: string,
-): boolean {
-  if (message.role !== "human") {
-    return false;
-  }
-  const normalizedCurrentUser = currentUserDisplayName?.trim();
-  if (!normalizedCurrentUser) {
-    return true;
-  }
-  const speaker = message.speaker.trim();
-  return (
-    speaker.localeCompare(normalizedCurrentUser, "zh-CN", { sensitivity: "base" }) === 0 ||
-    speaker === "你" ||
-    speaker.localeCompare("You", "en-US", { sensitivity: "base" }) === 0
-  );
-}
-
-function hasServerMessageCopy(
-  optimisticMessage: OptimisticConversationMessage,
-  serverMessages: ConversationThreadMessage[],
-): boolean {
-  const existingMessageIds = new Set(optimisticMessage.serverMessageIdsAtSubmission);
-  return serverMessages.some((serverMessage) => (
-    !existingMessageIds.has(serverMessage.id) &&
-    serverMessage.role === "human" &&
-    serverMessage.content === optimisticMessage.content &&
-    serverMessage.replyToMessageId === optimisticMessage.replyToMessageId
-  ));
-}
-
-function getConversationMessageActivityPriority(message: ConversationThreadMessage): number {
-  if (message.role !== "agent" || message.status !== "pending") {
-    return 0;
-  }
-  return message.kind === "process" ? 1 : 2;
-}
-
-function buildReplyMentionPrefix(
-  message: ConversationThreadMessage,
-): string | null {
-  if (message.role !== "agent") {
-    return null;
-  }
-
-  const trimmed = message.speaker.trim();
-  if (!trimmed) {
-    return null;
-  }
-  return `@${trimmed} `;
-}
-
-function findDraftSlashQuery(draft: string, caretIndex: number): { start: number; query: string } | null {
-  const prefix = draft.slice(0, Math.max(0, Math.min(caretIndex, draft.length)));
-  const match = /(^|\s)\/([^\s/]*)$/.exec(prefix);
-  if (!match) {
-    return null;
-  }
-  const slashOffset = match[1]?.length ?? 0;
-  return {
-    start: match.index + slashOffset,
-    query: match[2] ?? "",
-  };
-}
-
-function replaceDraftRange(
-  draft: string,
-  start: number,
-  end: number,
-  replacement: string,
-): { value: string; caretIndex: number } {
-  const value = `${draft.slice(0, start)}${replacement}${draft.slice(end)}`;
-  return { value, caretIndex: start + replacement.length };
-}
-
-function buildComposerSlashCommands(
-  provider: ConversationComposerRuntime["provider"] | undefined,
-  tx: (zh: string, en: string) => string,
-): ConversationSlashCommand[] {
-  const commands: ConversationSlashCommand[] = [
-    {
-      id: "model",
-      command: "/model",
-      label: tx("切换模型", "Switch model"),
-      description: tx("为当前会话选择模型", "Choose a model for this conversation"),
-      action: "model",
-    },
-  ];
-  if (provider) {
-    commands.push({
-      id: "resume",
-      command: "/resume",
-      label: tx("继续会话", "Resume session"),
-      description: tx("沿用当前运行时会话继续处理", "Continue with the current runtime session"),
-      action: "resume",
-    });
-    commands.push({
-      id: "permissions",
-      command: "/permissions",
-      label: tx("执行权限", "Execution permissions"),
-      description: tx("调整后续任务的工具与文件访问级别", "Adjust tool and file access for future tasks"),
-      action: "permissions",
-    });
-  }
-  if (provider === "claude") {
-    commands.push(
-      {
-        id: "plan",
-        command: "/plan",
-        label: tx("Plan 模式", "Plan mode"),
-        description: tx("仅规划，不直接修改文件", "Plan without directly editing files"),
-        action: "claude-plan",
-      },
-      {
-        id: "auto",
-        command: "/auto",
-        label: tx("Auto 模式", "Auto mode"),
-        description: tx("由 Claude Code 自动处理权限", "Let Claude Code handle permissions automatically"),
-        action: "claude-auto",
-      },
-    );
-  }
-  if (provider === "codex") {
-    commands.push({
-      id: "review",
-      command: "/review",
-      label: tx("需要时审批", "Ask when needed"),
-      description: tx("切换为 Codex 帮我审批模式", "Switch Codex to ask-me-when-needed mode"),
-      action: "codex-review",
-    });
-  }
-  commands.push({
-    id: "clear",
-    command: "/clear",
-    label: tx("清空输入", "Clear composer"),
-    description: tx("移除当前草稿与引用", "Remove the current draft and references"),
-    action: "clear",
-  });
-  return commands;
-}
-
-function resolveSubmittedSlashCommand(
-  draft: string,
-  provider: ConversationComposerRuntime["provider"] | undefined,
-  tx: (zh: string, en: string) => string,
-): ConversationSlashCommand | undefined {
-  const commandToken = draft.trim().split(/\s+/, 1)[0]?.toLocaleLowerCase("zh-CN");
-  if (!commandToken?.startsWith("/")) {
-    return undefined;
-  }
-  return buildComposerSlashCommands(provider, tx).find(
-    (command) => command.command.toLocaleLowerCase("zh-CN") === commandToken,
-  );
-}
-
-function policyForSlashCommand(action: ConversationSlashCommand["action"]): EmployeeExecutionPolicy | undefined {
-  if (action === "claude-plan") {
-    return { claudePermissionMode: "plan" };
-  }
-  if (action === "claude-auto") {
-    return { claudePermissionMode: "auto" };
-  }
-  if (action === "codex-review") {
-    return { codexApprovalPolicy: "on-request", codexSandboxMode: "workspace-write" };
-  }
-  return undefined;
 }
