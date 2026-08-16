@@ -79,7 +79,11 @@ export function buildNovelProductionWorkflowGraph(
         config: {
           maxRounds,
           body: convergenceBody,
-          qualityGate: { nodeId: "consistency", blockingField: "blockingCount" },
+          qualityGate: {
+            nodeId: "consistency",
+            blockingField: "blockingCount",
+            qualityReportField: "qualityReportDigest",
+          },
           overLimit: "approval",
           overLimitApproval: input.approvalChannelName
             ? { employeeId: approver, channelName: input.approvalChannelName }

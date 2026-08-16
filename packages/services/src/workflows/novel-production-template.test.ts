@@ -10,10 +10,15 @@ test("novel-production template is valid and expresses convergence as a single i
 
   const convergence = graph.nodes.find((node) => node.id === "convergence");
   assert.equal(convergence?.type, "iteration_group");
-  const config = convergence?.config as { maxRounds?: number; qualityGate?: { nodeId?: string; blockingField?: string }; overLimit?: string };
+  const config = convergence?.config as {
+    maxRounds?: number;
+    qualityGate?: { nodeId?: string; blockingField?: string; qualityReportField?: string };
+    overLimit?: string;
+  };
   assert.equal(config.maxRounds, 2);
   assert.equal(config.qualityGate?.nodeId, "consistency");
   assert.equal(config.qualityGate?.blockingField, "blockingCount");
+  assert.equal(config.qualityGate?.qualityReportField, "qualityReportDigest");
   assert.equal(config.overLimit, "approval");
 });
 

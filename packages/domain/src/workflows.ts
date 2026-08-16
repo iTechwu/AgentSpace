@@ -70,6 +70,8 @@ export interface WorkflowIterationGroupConfig {
     nodeId: string;
     /** The output field whose zero value means "all gates pass". */
     blockingField: string;
+    /** The output field containing the persisted quality report digest. */
+    qualityReportField: string;
   };
   overLimit: "approval" | "fail";
   /** Approver config used when overLimit === "approval" (compiled into an approval node). */
@@ -255,9 +257,19 @@ function validateWorkflowIterationGroupConfig(
     invalid();
   }
 
-  const qualityGate = config.qualityGate as { nodeId?: unknown; blockingField?: unknown } | undefined;
+  const qualityGate = config.qualityGate as {
+    nodeId?: unknown;
+    blockingField?: unknown;
+    qualityReportField?: unknown;
+  } | undefined;
   const body = config.body as WorkflowGraphDefinition | undefined;
-  if (!qualityGate || typeof qualityGate.nodeId !== "string" || typeof qualityGate.blockingField !== "string") {
+  if (!qualityGate
+    || typeof qualityGate.nodeId !== "string"
+    || qualityGate.nodeId.trim() === ""
+    || typeof qualityGate.blockingField !== "string"
+    || qualityGate.blockingField.trim() === ""
+    || typeof qualityGate.qualityReportField !== "string"
+    || qualityGate.qualityReportField.trim() === "") {
     invalid();
   } else if (!body || !Array.isArray(body.nodes) || !Array.isArray(body.edges)
     || !body.nodes.some((candidate) => candidate?.id === qualityGate.nodeId)) {
@@ -349,6 +361,7 @@ export function compileWorkflowIterationGroups(graph: WorkflowGraphDefinition): 
           ...gateNode.config,
           __iterationGate: {
             blockingField: config.qualityGate.blockingField,
+            qualityReportField: config.qualityGate.qualityReportField,
             skipRoundNodeIds: roundNodeIds.slice(round).flat(),
             approvalNodeId: approvalId,
           },

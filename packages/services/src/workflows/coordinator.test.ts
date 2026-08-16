@@ -4,8 +4,20 @@ import {
   collectWorkflowDescendantNodeIds,
   completeWorkflowNodeSync,
   decideWorkflowDownstreamTransition,
+  isIterationGroupGateOutputPassing,
   resolveWorkflowRunTerminalStatus,
 } from "./coordinator.ts";
+
+test("iteration-group gate requires a zero blocking count and a quality report digest", () => {
+  const gate = { blockingField: "blockingCount", qualityReportField: "qualityReportDigest" };
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0, qualityReportDigest: "qr-1" }, gate), true);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0, qualityReportDigest: "  " }, gate), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0 }, gate), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 1, qualityReportDigest: "qr-1" }, gate), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: -1, qualityReportDigest: "qr-1" }, gate), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0.5, qualityReportDigest: "qr-1" }, gate), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: "0", qualityReportDigest: "qr-1" }, gate), false);
+});
 
 test("failed joins identify every downstream node that must be skipped", () => {
   assert.deepEqual(collectWorkflowDescendantNodeIds({

@@ -39,11 +39,25 @@ export interface CompleteWorkflowNodeInput {
 
 /**
  * Iteration-group early exit: when a compiled quality-gate node completes with
- * `blockingField === 0` (converged), skip the remaining rounds and auto-approve
- * the over-limit approval — no human decision is needed once the loop converges.
+ * a zero blocking count and a non-empty persisted quality-report digest,
+ * skip the remaining rounds and auto-approve the over-limit approval. Missing
+ * or malformed gate output fails closed and leaves the static rounds running.
  * Static unrolling (no marker) keeps running all rounds; this hook is a no-op
  * for every non-iteration-group node.
  */
+export function isIterationGroupGateOutputPassing(
+  output: Record<string, unknown>,
+  gate: { blockingField: string; qualityReportField: string },
+): boolean {
+  const blocking = output[gate.blockingField];
+  const qualityReportDigest = output[gate.qualityReportField];
+  return Number.isInteger(blocking)
+    && typeof blocking === "number"
+    && blocking === 0
+    && typeof qualityReportDigest === "string"
+    && qualityReportDigest.trim() !== "";
+}
+
 function applyIterationGroupEarlyExit(input: {
   workspaceId: string;
   run: WorkflowRunRecord;
@@ -61,12 +75,20 @@ function applyIterationGroupEarlyExit(input: {
   }
   const nodeDef = graph.nodes.find((node) => node.id === input.completedNodeId);
   const gate = (nodeDef?.config as Record<string, unknown> | undefined)?.__iterationGate as
-    | { blockingField?: unknown; skipRoundNodeIds?: unknown; approvalNodeId?: unknown }
+    | {
+      blockingField?: unknown;
+      qualityReportField?: unknown;
+      skipRoundNodeIds?: unknown;
+      approvalNodeId?: unknown;
+    }
     | undefined;
-  if (!gate || typeof gate.blockingField !== "string") return;
-
-  const blocking = input.completedOutput[gate.blockingField];
-  if (typeof blocking !== "number" || blocking !== 0) return; // not converged
+  if (!gate
+    || typeof gate.blockingField !== "string"
+    || typeof gate.qualityReportField !== "string"
+    || !isIterationGroupGateOutputPassing(input.completedOutput, {
+      blockingField: gate.blockingField,
+      qualityReportField: gate.qualityReportField,
+    })) return;
 
   const runByNodeId = new Map(
     listWorkflowNodeRunsSync(input.workspaceId, input.run.id).map((node) => [node.nodeId, node]),
