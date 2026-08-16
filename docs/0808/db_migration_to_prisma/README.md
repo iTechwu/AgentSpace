@@ -86,7 +86,7 @@ Prisma Client 是异步 API。当前同步 worker 适配层若直接替换，所
 ```text
 packages/db
 ├── prisma/
-│   ├── schema.prisma          # 规范化后的 120 个左右 model
+│   ├── schema.prisma          # 规范化后的 120 个左右 model（PascalCase model + camelCase field + @map/@@map）
 │   └── migrations/             # baseline + 后续可审查迁移
 ├── generated/prisma/           # 生成代码，不手写
 ├── src/prisma/
@@ -108,7 +108,7 @@ packages/db
 ### 3.2 Schema 设计原则
 
 1. 先以真实 PostgreSQL 为基线：用 `prisma db pull` 生成候选 schema，再人工核对 `@@map`、`@map`、复合唯一键、部分索引和删除动作。
-2. 保留数据库 snake_case 名称，通过 Prisma model/field 的 `@@map/@map` 与现有表兼容；不要为“好看”改物理表名。
+2. 当前 Phase 2 schema 已改用 PascalCase model + camelCase field，通过 `@map`/`@@map` 映射到物理 snake_case 表/列；Prisma 返回 camelCase 字段，异步 Repository 的 mapper 主要做保真转换（Date/JSON/string）而无需 snake→camel。`prisma db pull` 会还原为 snake_case-native，重跑后需重新应用 codemod。
 3. 日期列优先映射为 `DateTime`，BigInt/sequence 列按实际范围选择 `BigInt`；在 Repository DTO 层继续转换为当前对外的 string/number，避免一次性破坏 API。
 4. JSONB 映射为 `Json`，但对敏感凭据、事件 payload 和外部协议继续在边界层做 schema/脱敏校验。
 5. 将 278 个外键按业务域分组补齐 relation 名称和 `onDelete` 行为；不能仅依赖 introspection 的默认推断。
@@ -123,7 +123,7 @@ packages/db
 实施项：
 
 - 选择一套脱敏的测试 PostgreSQL，记录表/列/索引/外键/trigger 数量、行数和关键约束。
-- 安装 `prisma` CLI、`@prisma/client`、`@prisma/adapter-pg`（版本以实施时官方兼容矩阵为准）。仓库镜像当前使用 Node 25.9，而 Prisma 最新官方要求只列出 Node 20.19、22.12、24.x；推荐先把应用运行时固定到 Node 24 LTS，并单独完成兼容回归。
+- 安装 `prisma` CLI、`@prisma/client`、`@prisma/adapter-pg`（版本以实施时官方兼容矩阵为准）。应用运行时和 Docker 基础镜像统一使用 Node 25.9；升级 Prisma 时继续核对其 Node.js engine 约束。
 - 执行 `prisma db pull` 生成初稿；禁止直接把初稿提交为最终 schema。
 - 建立 schema lint：model/field 映射、禁止删除/改类型、`Json`/`BigInt` 显式审查、未识别 trigger/index 清单。
 - 为当前 116 版做 baseline migration：生成 `0_init`，人工补回 trigger/function/特殊索引，然后只在测试库 `migrate resolve --applied 0_init`。
@@ -290,7 +290,7 @@ packages/db
 - **DTO 稳定优先：** Prisma 生成类型不直接穿透 domain/services/web，继续由 `packages/db` 映射为现有 `Stored*Record`。
 - **迁移历史分离：** `_prisma_migrations` 记录 Prisma migration；`app_metadata.schema_version` 保留应用滚动兼容语义。
 - **连接池显式治理：** Prisma Client 单例、按进程设置 pool max/timeouts；Web、workflow worker、daemon 分别压测后定值。
-- **Node 版本先行：** 当前仓库/镜像使用 Node 25.9；Prisma 最新官方系统要求未列出 Node 25。推荐先固定 Node 24 LTS，再引入 Prisma，避免把 ORM 迁移与不受支持的奇数 Node 版本绑定。
+- **Node 版本统一：** 应用基础镜像和本地工具链统一使用 Node 25.9；依赖升级时通过 engine、类型检查和构建测试持续验证兼容性。
 
 ## 10. 不在本次迁移范围内
 
