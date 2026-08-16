@@ -22,6 +22,7 @@ import type {
   DspCapability,
   DspEntrypoint,
   DspNetworkEgress,
+  DspRuntimeRequirements,
   DspServiceRef,
   SkillSkillDependency,
 } from "@dofe-agent/domain";
@@ -49,6 +50,7 @@ export interface SkillArtifactManifest {
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
   network?: DspNetworkEgress;
+  runtimeRequirements?: DspRuntimeRequirements;
   source?: { type?: string; url?: string };
 }
 
@@ -186,6 +188,7 @@ export interface BuildAndPersistSkillArtifactInput {
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
   network?: DspNetworkEgress;
+  runtimeRequirements?: DspRuntimeRequirements;
   manifestSchemaVersion?: number;
   /**
    * Marks the artifact as a best-effort legacy reconstruction (binary/unreadable
@@ -248,6 +251,7 @@ export function buildAndPersistSkillArtifactSync(
     ...(input.services ? { services: input.services } : {}),
     ...(input.entrypoints ? { entrypoints: input.entrypoints } : {}),
     ...(input.network ? { network: input.network } : {}),
+    ...(input.runtimeRequirements ? { runtimeRequirements: input.runtimeRequirements } : {}),
     source: { type: input.sourceType, url: input.sourceUrl },
   };
   const digest = computeArtifactDigest(manifest, manifestFiles.map((file) => file.sha256));

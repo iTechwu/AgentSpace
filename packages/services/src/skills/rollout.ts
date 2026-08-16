@@ -50,6 +50,21 @@ export interface SkillRolloutRiskSummary {
   riskItems: Array<{ category: string; key: string }>;
 }
 
+export interface SkillRolloutRuntimeRequirements {
+  gpu: boolean;
+  egress: boolean;
+  mcp: string[];
+  cli: string[];
+}
+
+export interface RuntimeCapabilitySnapshot {
+  schemaVersion: 1;
+  gpu: boolean;
+  egress: boolean;
+  mcp: string[];
+  cli: string[];
+}
+
 export interface SkillRolloutPlan {
   planDigest: string;
   root: { artifactDigest: string; coordinate?: string };
@@ -224,6 +239,7 @@ function parseSkillDependencies(manifestJson: string): SkillSkillDependency[] {
 export function computeSkillRolloutTargetRuntimesSync(
   scope: SkillRolloutTargetScope,
   workspaceId = "default",
+  requirements?: SkillRolloutRuntimeRequirements,
 ): string[] {
   if (scope.kind === "runtimes") {
     return [...new Set(scope.runtimeIds)];
@@ -253,9 +269,14 @@ export function computeSkillRolloutTargetRuntimesSync(
     return computeSkillRolloutTargetRuntimesSync({ kind: "employees", employeeIds }, workspaceId);
   }
   const rows = getDatabase().prepare(
-    `SELECT id FROM agent_runtime WHERE workspace_id = ? AND status = 'online' ORDER BY id ASC`,
-  ).all(workspaceId) as Array<{ id: string }>;
-  return rows.map((row) => row.id);
+    `SELECT id, metadata_json AS "metadataJson"
+       FROM agent_runtime
+      WHERE workspace_id = ? AND status = 'online'
+      ORDER BY id ASC`,
+  ).all(workspaceId) as Array<{ id: string; metadataJson: string }>;
+  return rows
+    .filter((row) => !requirements || isRuntimeCompatibleWithRequirements(row.metadataJson, requirements))
+    .map((row) => row.id);
 }
 
 /**
@@ -267,6 +288,7 @@ export function computeSkillRolloutTargetRuntimesSync(
 export function resolveSkillRolloutRootRuntimeIdsSync(
   scope: SkillRolloutTargetScope,
   workspaceId = "default",
+  requirements?: SkillRolloutRuntimeRequirements,
 ): string[] {
   if (scope.kind === "runtimes") {
     return [...new Set(scope.runtimeIds)];
@@ -293,9 +315,66 @@ export function resolveSkillRolloutRootRuntimeIdsSync(
     return resolveSkillRolloutRootRuntimeIdsSync({ kind: "employees", employeeIds: [coordinatorEmployeeId] }, workspaceId);
   }
   const rows = getDatabase().prepare(
-    `SELECT id FROM agent_runtime WHERE workspace_id = ? AND status = 'online' ORDER BY id ASC`,
-  ).all(workspaceId) as Array<{ id: string }>;
-  return rows.map((row) => row.id);
+    `SELECT id, metadata_json AS "metadataJson"
+       FROM agent_runtime
+      WHERE workspace_id = ? AND status = 'online'
+      ORDER BY id ASC`,
+  ).all(workspaceId) as Array<{ id: string; metadataJson: string }>;
+  return rows
+    .filter((row) => !requirements || isRuntimeCompatibleWithRequirements(row.metadataJson, requirements))
+    .map((row) => row.id);
+}
+
+export function deriveSkillRolloutRuntimeRequirementsSync(
+  workspaceId: string,
+  artifactDigests: string[],
+): SkillRolloutRuntimeRequirements {
+  const requirements: SkillRolloutRuntimeRequirements = { gpu: false, egress: false, mcp: [], cli: [] };
+  const mcp = new Set<string>();
+  const cli = new Set<string>();
+  for (const digest of artifactDigests) {
+    const artifact = readSkillArtifactByDigestSync(digest, workspaceId);
+    if (!artifact) continue;
+    try {
+      const manifest = JSON.parse(artifact.manifestJson) as {
+        network?: unknown;
+        runtimeRequirements?: { gpu?: unknown };
+        capabilities?: Array<{ kind?: unknown; catalogSlug?: unknown }>;
+      };
+      requirements.egress ||= manifest.network !== undefined;
+      requirements.gpu ||= manifest.runtimeRequirements?.gpu === true;
+      for (const capability of manifest.capabilities ?? []) {
+        if (typeof capability.catalogSlug !== "string" || capability.catalogSlug.trim() === "") continue;
+        if (capability.kind === "mcp") mcp.add(capability.catalogSlug.trim());
+        if (capability.kind === "cli") cli.add(capability.catalogSlug.trim());
+      }
+    } catch {
+      // Invalid manifests are rejected by artifact import; ignore legacy rows here.
+    }
+  }
+  requirements.mcp = [...mcp].sort();
+  requirements.cli = [...cli].sort();
+  return requirements;
+}
+
+export function isRuntimeCompatibleWithRequirements(
+  metadataJson: string,
+  requirements: SkillRolloutRuntimeRequirements,
+): boolean {
+  const hasRequirements = requirements.gpu || requirements.egress || requirements.mcp.length > 0 || requirements.cli.length > 0;
+  if (!hasRequirements) return true;
+  try {
+    const parsed = JSON.parse(metadataJson) as { runtimeCapabilities?: Partial<RuntimeCapabilitySnapshot> };
+    const capabilities = parsed.runtimeCapabilities;
+    if (!capabilities || capabilities.schemaVersion !== 1) return false;
+    if (requirements.gpu && capabilities.gpu !== true) return false;
+    if (requirements.egress && capabilities.egress !== true) return false;
+    const mcp = new Set(Array.isArray(capabilities.mcp) ? capabilities.mcp.filter((value): value is string => typeof value === "string") : []);
+    const cli = new Set(Array.isArray(capabilities.cli) ? capabilities.cli.filter((value): value is string => typeof value === "string") : []);
+    return requirements.mcp.every((slug) => mcp.has(slug)) && requirements.cli.every((slug) => cli.has(slug));
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -511,8 +590,15 @@ export function planSkillRollout(input: {
     rootArtifactDigest: input.rootArtifactDigest,
     dependencyMode: input.dependencyMode,
   });
-  const targetRuntimes = computeSkillRolloutTargetRuntimesSync(input.targetScope, workspaceId);
-  const rootRuntimeIds = resolveSkillRolloutRootRuntimeIdsSync(input.targetScope, workspaceId);
+  const runtimeRequirements = deriveSkillRolloutRuntimeRequirementsSync(
+    workspaceId,
+    collectClosureArtifactDigests(input.rootArtifactDigest, closure),
+  );
+  const targetRuntimes = computeSkillRolloutTargetRuntimesSync(input.targetScope, workspaceId, runtimeRequirements);
+  if (input.targetScope.kind === "all-compatible" && targetRuntimes.length === 0) {
+    throw new Error("skill_rollout_no_compatible_runtime: no online Runtime satisfies the Skill capability requirements.");
+  }
+  const rootRuntimeIds = resolveSkillRolloutRootRuntimeIdsSync(input.targetScope, workspaceId, runtimeRequirements);
   const items = computeSkillRolloutItemsSync({
     workspaceId,
     rootArtifactDigest: input.rootArtifactDigest,

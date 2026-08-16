@@ -36,6 +36,8 @@ export interface DspManifest {
    * is granted a network other than `none`.
    */
   network?: DspNetworkEgress;
+  /** Versioned Runtime capability requirements used by all-compatible rollout. */
+  runtimeRequirements?: DspRuntimeRequirements;
 }
 
 /**
@@ -46,6 +48,10 @@ export interface DspManifest {
 export interface DspNetworkEgress {
   /** Hostnames the skill may contact; empty/absent under a present `network` = unrestricted. */
   egressAllowlist?: string[];
+}
+
+export interface DspRuntimeRequirements {
+  gpu?: boolean;
 }
 
 export interface DspArtifactMeta {

@@ -6,6 +6,7 @@ import {
   computeSkillRolloutItemsSync,
   computeSkillRolloutPlanDigestSync,
   computeSkillRolloutTargetRuntimesSync,
+  isRuntimeCompatibleWithRequirements,
   lockSkillDependencyDigestSync,
   planSkillRollout,
   resetWorkspaceStateSync,
@@ -28,13 +29,13 @@ beforeEach(() => {
   testTosStorage.clear();
 });
 
-function createRuntime(): string {
+function createRuntime(metadata: Record<string, unknown> = {}): string {
   const id = `rt-${randomLikeId()}`;
   const now = new Date().toISOString();
   getDatabase().prepare(
-    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
-     VALUES (?, 'default', 'test-provider', ?, 'online', ?, ?)`,
-  ).run(id, `Runtime ${id}`, now, now);
+    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, metadata_json, created_at, updated_at)
+     VALUES (?, 'default', 'test-provider', ?, 'online', ?, ?, ?)`,
+  ).run(id, `Runtime ${id}`, JSON.stringify(metadata), now, now);
   return id;
 }
 
@@ -42,6 +43,8 @@ function buildArtifact(input: {
   name: string;
   version?: string;
   coordinate?: string;
+  network?: { egressAllowlist?: string[] };
+  runtimeRequirements?: { gpu?: boolean };
   skillDependencies?: Array<{ coordinate: string; version: string; placement: "same_runtime" | "workflow"; required?: boolean }>;
 }) {
   return buildAndPersistSkillArtifactSync({
@@ -55,6 +58,8 @@ name: ${input.name}
     sourceType: "github",
     sourceUrl: "https://github.com/owner/repo",
     coordinate: input.coordinate,
+    ...(input.network ? { network: input.network } : {}),
+    ...(input.runtimeRequirements ? { runtimeRequirements: input.runtimeRequirements } : {}),
     ...(input.skillDependencies ? { skillDependencies: input.skillDependencies } : {}),
   });
 }
@@ -124,6 +129,50 @@ test("computeSkillRolloutTargetRuntimesSync returns the runtime scope unchanged"
   assert.deepEqual(
     computeSkillRolloutTargetRuntimesSync({ kind: "runtimes", runtimeIds: [r1, r2, r1] }, "default"),
     [r1, r2],
+  );
+});
+
+test("all-compatible filters Runtime metadata capabilities and fails closed", () => {
+  const requirements = {
+    gpu: true,
+    egress: true,
+    mcp: ["catalog-mcp"],
+    cli: ["catalog-cli"],
+  };
+  assert.equal(isRuntimeCompatibleWithRequirements(JSON.stringify({
+    runtimeCapabilities: { schemaVersion: 1, gpu: true, egress: true, mcp: ["catalog-mcp"], cli: ["catalog-cli"] },
+  }), requirements), true);
+  assert.equal(isRuntimeCompatibleWithRequirements(JSON.stringify({
+    runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: true, mcp: ["catalog-mcp"], cli: ["catalog-cli"] },
+  }), requirements), false);
+  assert.equal(isRuntimeCompatibleWithRequirements("{}", requirements), false);
+});
+
+test("planSkillRollout filters all-compatible targets from manifest requirements", () => {
+  const compatible = createRuntime({
+    runtimeCapabilities: { schemaVersion: 1, gpu: true, egress: true, mcp: [], cli: [] },
+  });
+  createRuntime({ runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: true, mcp: [], cli: [] } });
+  const root = buildArtifact({
+    name: "gpu-egress-root",
+    coordinate: "github:owner/repo/skills/gpu-egress-root",
+    network: { egressAllowlist: ["api.example.com"] },
+    runtimeRequirements: { gpu: true },
+  });
+  const plan = planSkillRollout({ rootArtifactDigest: root.digest, targetScope: { kind: "all-compatible" } });
+  assert.deepEqual(plan.items.map((item) => item.runtimeId), [compatible]);
+});
+
+test("all-compatible rejects a plan when no Runtime satisfies requirements", () => {
+  createRuntime({ runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: false, mcp: [], cli: [] } });
+  const root = buildArtifact({
+    name: "gpu-root",
+    coordinate: "github:owner/repo/skills/gpu-root",
+    runtimeRequirements: { gpu: true },
+  });
+  assert.throws(
+    () => planSkillRollout({ rootArtifactDigest: root.digest, targetScope: { kind: "all-compatible" } }),
+    /skill_rollout_no_compatible_runtime/,
   );
 });
 

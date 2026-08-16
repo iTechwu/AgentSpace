@@ -119,6 +119,13 @@ export const dspManifestJsonSchema = {
         },
       },
     },
+    runtimeRequirements: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        gpu: { type: "boolean" },
+      },
+    },
   },
 } as const;
 

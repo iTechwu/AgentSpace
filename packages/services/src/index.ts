@@ -658,6 +658,8 @@ export {
   lockSkillDependencyDigestSync,
   computeSkillRolloutTargetRuntimesSync,
   resolveSkillRolloutRootRuntimeIdsSync,
+  deriveSkillRolloutRuntimeRequirementsSync,
+  isRuntimeCompatibleWithRequirements,
   computeSkillRolloutItemsSync,
   aggregateSkillRolloutRiskSync,
   computeSkillRolloutPlanDigestSync,
@@ -671,6 +673,8 @@ export {
   type SkillRolloutSkippedDependency,
   type SkillRolloutItem,
   type SkillRolloutRiskSummary,
+  type SkillRolloutRuntimeRequirements,
+  type RuntimeCapabilitySnapshot,
 } from "./skills/rollout.ts";
 export {
   installSkillRolloutSync,
