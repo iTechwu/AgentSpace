@@ -56,30 +56,36 @@ export function parseSkillArtifactRevision(value: unknown): SkillArtifactRevisio
 
 export function parseQualityReport(value: unknown): QualityReport | null {
   if (!isRecord(value)) return null;
-  if (typeof value.schemaVersion !== "number" || value.schemaVersion < 1) return null;
+  if (!isPositiveInteger(value.schemaVersion)) return null;
   const subject = value.subject;
   if (!isRecord(subject)) return null;
   if (
     typeof subject.artifactId !== "string"
+    || subject.artifactId.trim() === ""
     || typeof subject.revision !== "string"
+    || subject.revision.trim() === ""
     || typeof subject.digest !== "string"
+    || subject.digest.trim() === ""
   ) return null;
   if (!Array.isArray(value.checks)) return null;
   const checks: QualityReportCheck[] = [];
+  const checkIds = new Set<string>();
   for (const check of value.checks) {
     if (!isRecord(check)) return null;
     if (typeof check.id !== "string" || check.id.trim() === "") return null;
+    if (checkIds.has(check.id)) return null;
     if (check.status !== "pass" && check.status !== "block") return null;
     if (check.detail !== undefined && typeof check.detail !== "string") return null;
+    checkIds.add(check.id);
     checks.push({
       id: check.id,
       status: check.status,
       ...(typeof check.detail === "string" && check.detail !== "" ? { detail: check.detail } : {}),
     });
   }
-  if (typeof value.blockingCount !== "number" || value.blockingCount < 0) return null;
-  if (typeof value.maxRounds !== "number" || value.maxRounds < 1) return null;
-  if (typeof value.round !== "number" || value.round < 1) return null;
+  if (!isNonNegativeInteger(value.blockingCount)) return null;
+  if (!isPositiveInteger(value.maxRounds)) return null;
+  if (!isPositiveInteger(value.round) || value.round > value.maxRounds) return null;
   return {
     schemaVersion: value.schemaVersion,
     subject: {
@@ -106,4 +112,12 @@ export function isQualityReportPassing(report: QualityReport): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }

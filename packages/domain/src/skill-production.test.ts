@@ -48,8 +48,12 @@ test("parseQualityReport accepts a valid report and rejects malformed input", ()
 
   assert.equal(parseQualityReport(null), null);
   assert.equal(parseQualityReport({ schemaVersion: 1, subject: {}, checks: [], blockingCount: 0, maxRounds: 3, round: 1 }), null, "subject missing fields");
+  assert.equal(parseQualityReport({ schemaVersion: 1, subject: { artifactId: " ", revision: "r1", digest: "d" }, checks: [], blockingCount: 0, maxRounds: 3, round: 1 }), null, "blank subject artifact");
   assert.equal(parseQualityReport({ schemaVersion: 1, subject: { artifactId: "s", revision: "r1", digest: "d" }, checks: [{ id: "x", status: "unknown" }], blockingCount: 0, maxRounds: 3, round: 1 }), null, "invalid check status");
+  assert.equal(parseQualityReport({ schemaVersion: 1, subject: { artifactId: "s", revision: "r1", digest: "d" }, checks: [{ id: "x", status: "pass" }, { id: "x", status: "pass" }], blockingCount: 0, maxRounds: 3, round: 1 }), null, "duplicate check id");
   assert.equal(parseQualityReport({ schemaVersion: 1, subject: { artifactId: "s", revision: "r1", digest: "d" }, checks: [], blockingCount: -1, maxRounds: 3, round: 1 }), null, "negative blockingCount");
+  assert.equal(parseQualityReport({ schemaVersion: 1, subject: { artifactId: "s", revision: "r1", digest: "d" }, checks: [], blockingCount: 0.5, maxRounds: 3, round: 1 }), null, "fractional blockingCount");
+  assert.equal(parseQualityReport({ schemaVersion: 1, subject: { artifactId: "s", revision: "r1", digest: "d" }, checks: [], blockingCount: 0, maxRounds: 3, round: 4 }), null, "round exceeds maxRounds");
 });
 
 test("isQualityReportPassing is fail-closed and consistent", () => {
