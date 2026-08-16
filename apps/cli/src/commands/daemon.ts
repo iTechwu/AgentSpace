@@ -145,6 +145,8 @@ export { clearTaskOutputArtifacts, loadTaskOutputEnvelope } from "../lib/daemon-
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_TASK_POLL_INTERVAL_MS = 3_000;
+// 与 daemon 侧 state.ts 的 DEFAULT_OPERATION_CLAIM_INTERVAL_MS 保持一致。
+const DEFAULT_OPERATION_CLAIM_INTERVAL_MS = 15_000;
 const DEFAULT_OFFLINE_PRUNE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_LOG_LINES = 50;
 export async function runDaemonCommand(
@@ -483,6 +485,7 @@ async function runRemoteDaemonForeground(config: DaemonConfig): Promise<number> 
     runtimeName: config.runtimeName,
     heartbeatIntervalMs: config.heartbeatIntervalMs,
     taskPollIntervalMs: config.taskPollIntervalMs,
+    operationClaimIntervalMs: config.operationClaimIntervalMs,
     taskTimeoutMs: config.taskTimeoutMs,
     serverUrl: config.serverUrl,
     daemonToken: config.daemonToken,
@@ -685,6 +688,7 @@ interface DaemonConfig {
   workspaceId?: string;
   heartbeatIntervalMs: number;
   taskPollIntervalMs: number;
+  operationClaimIntervalMs: number;
   taskTimeoutMs: number;
   manageFeishuWorker: boolean;
   serverUrl?: string;
@@ -707,6 +711,13 @@ export function buildDaemonConfig(flags: Record<string, string | boolean>): Daem
       Number(getStringFlag(flags, "heartbeat-interval") ?? DEFAULT_HEARTBEAT_INTERVAL_MS),
     ),
     taskPollIntervalMs: DEFAULT_TASK_POLL_INTERVAL_MS,
+    operationClaimIntervalMs: Math.max(
+      1_000,
+      Number(
+        process.env.DOFE_AGENT_OPERATION_CLAIM_INTERVAL
+          ?? DEFAULT_OPERATION_CLAIM_INTERVAL_MS,
+      ),
+    ),
     taskTimeoutMs: Math.max(
       1_000,
       Number(

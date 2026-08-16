@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { readMcpEgressLeaseVerificationKey } from "@dofe-agent/services/mcp-center/egress";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressMetrics } from "./metrics.ts";
@@ -6,7 +7,7 @@ import { ConsoleMcpEgressAuditSink } from "./audit.ts";
 import { SingleReplicaJtiReplayGuard } from "./jti-replay-guard.ts";
 import { OAuthInjector } from "./oauth-injector.ts";
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const port = Number(process.env.MCP_EGRESS_PROXY_PORT ?? "8080");
   const host = process.env.MCP_EGRESS_PROXY_HOST ?? "0.0.0.0";
   const leaseVerificationKey = readMcpEgressLeaseVerificationKey();
@@ -63,7 +64,13 @@ async function main(): Promise<void> {
   process.on("SIGINT", shutdown);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+// 3.6-9：直接执行时自启；被 bin wrapper import 时由 wrapper 调用 main
+// （argv[1] 是 wrapper 路径，不等于本模块 URL，守卫为 false）。
+const isMain = process.argv[1] ? pathToFileURL(process.argv[1]).href === import.meta.url : false;
+
+if (isMain) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
