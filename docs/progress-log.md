@@ -60,11 +60,12 @@
 - 第一阶段 `683f2d9e`：按「类型层 / 视图构建层 / 装配层」切开——`data.ts` 3,533 行（43 个引用方零改动）、`data-types.ts` 973 行、`dashboard-view-builders.ts` 1,410 行，依赖单向 `data.ts → view-builders → data-types`。
 - 第二阶段 `ad4de69e`：`dashboard-view-builders.ts` 按领域拆为 `builders/` 九个子模块（`channel-documents` / `channel-files` / `channel-view` / `document-changesets` / `feishu-summary` / `knowledge-view` / `task-queue` / `text` / `workspace-members`），原文件收敛为 65 行 facade。
 
-### 3.4-2 Web 代码分割 —— 🟡 部分完成
+### 3.4-2 Web 代码分割 —— ✅ 完成
 
 - `32a1bb8a`：`WorkspaceModuleHost` 17 个页面客户端全部改 `next/dynamic` 按模块懒加载（路由 page.tsx 仍静态导入保证 SSR 直出），全量 vitest 144 文件 / 1,153 用例通过。
 - knowledge-page-client 四件套拆分（`2a86a772` + `95349d52` + `a9ada12a` + `cce1b274`）：1,580→1,114 行，子组件移出独立文件——`parse-task-panel.tsx`、`assignment-panel.tsx`、`document-page-viewer.tsx`、`knowledge-tree-node.tsx`。
-- 剩余：`agent-detail.tsx`(1,657) / `conversation-shell.tsx`(1,590) 文件内拆分 ⏳（`channels-page-client.tsx` 3,925 行已拆，见 3.4-3）。
+- `conversation-shell.tsx` 拆分（`139c9859`）：1,590→1,214 行组件本体 + `conversation-thread.ts` 275 行（线程类型与纯函数：排序/乐观消息匹配/slash 命令构造）+ `conversation-scroll-anchors.ts` 150 行（滚动锚点持久化与恢复）；公共导入面不变（12 个引用方零改动）。
+- `agent-detail.tsx` 拆分（`9cbb98f6`）：1,657→1,296 行主组件 + `agent-detail-helpers.ts` 291 行（20 个纯格式化/解析函数）+ `agent-runtime-capabilities.tsx` 51 行 + `knowledge-picker-modal.tsx` 67 行；`AgentDetail`/`AgentDetailTab` 导出面不变（2 个引用方零改动）。
 
 ### 3.4-7 readTtl*Cache 重命名 —— ✅ 完成
 
@@ -297,7 +298,6 @@
 
 | 条目 | 主题 |
 | --- | --- |
-| 3.4-2 残余 | apps/web `agent-detail.tsx` 1,657 行 / `conversation-shell.tsx` 1,590 行超大客户端页拆分 |
 | 3.6-3 | apps/cli `feishu.ts` 10,597 行巨型文件拆分 |
 
 ---

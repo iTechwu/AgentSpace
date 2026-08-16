@@ -59,7 +59,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ |
 | P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏸ |
 | P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 |
-| P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 |
+| P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | ✅ |
 | P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | ✅ |
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ✅ |
 | P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ |
@@ -113,7 +113,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 ### 3.4 Web 前端（apps/web，Next.js 16）
 
 1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）** ✅：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。
-2. **【P1】代码分割** 🟡：`WorkspaceModuleHost` 静态导入全部 17 个模块客户端页，首包必然含 3925 行的 IM 页。用 `next/dynamic` 按模块懒加载（已有 `WorkspacePageLoading` 基础设施），并同批处理 `agent-detail.tsx`/`conversation-shell.tsx`/`knowledge-page-client.tsx` 等超大客户端页的文件内拆分。
+2. **【P1】代码分割** ✅：`WorkspaceModuleHost` 17 个模块客户端页全部 `next/dynamic` 懒加载（32a1bb8a）；超大客户端页文件内拆分全部完成——`channels-page-client.tsx`（f06b5af）、`knowledge-page-client.tsx` 四件套（2a86a772 等 4 提交）、`conversation-shell.tsx` 1,590→1,214+275+150（139c9859，公共导入面不变）、`agent-detail.tsx` 1,657→1,296+291+51+67（9cbb98f6，纯函数与 2 个子组件移出）。
 3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）** ✅（f06b5af）：拆为 2,091 行主组件 + 7 个域模块（shared/model/hooks/icons/modals/views/header）。
 4. **【P2】关闭 `next.config.mjs` 的 `typescript.ignoreBuildErrors`** ✅：原为 `true` 时构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 不跑 typecheck）。应改为 `false` 让 `next build` 恢复类型检查，`prebuild` 继续提供更早的依赖与 Web 类型检查。
 5. **【P2】评估部分静态渲染** ✅（评估完成，结论保持 force-dynamic）：34/34 页面经 cookies/searchParams 会话门控，路由级 revalidate/SSG 结构不可用且有跨用户缓存泄漏风险；降载已由 WorkspaceModuleCache TTL 承担；升级路径 cacheComponents 需迁 120 处段配置，无实测瓶颈不启用。
