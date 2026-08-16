@@ -9,18 +9,8 @@ import test from "node:test";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const scriptPath = path.join(__dirname, "audit-node-engines.mjs");
 
-// 审计依赖 node_modules/.pnpm 里的 semver 做范围判断；夹具仓库没有装依赖，
-// 从本仓库借用同一份（symlink 整个 .pnpm/<semver@x> 目录）。
-function linkSemverInto(fixtureRoot) {
-  const pnpmDir = path.join(__dirname, "..", "node_modules", ".pnpm");
-  const semverEntry = fs.readdirSync(pnpmDir).find((e) => /^semver@\d/.test(e));
-  assert.ok(semverEntry, "repo node_modules/.pnpm 中找不到 semver，请先 pnpm install");
-  const target = path.join(pnpmDir, semverEntry);
-  const dest = path.join(fixtureRoot, "node_modules", ".pnpm", semverEntry);
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.symlinkSync(target, dest, "dir");
-}
-
+// 3.6-8：脚本经根 devDependencies 显式依赖 semver（ESM import 按脚本自身
+// 位置解析），夹具仓库无需再 symlink 借用。
 /** 构造最小夹具仓库：根 manifest + pnpm-workspace.yaml + 可选 workspace 包。 */
 function makeFixture({ rootEngines = "^25.9.0", workspaces = [] }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "engines-audit-"));
@@ -30,6 +20,8 @@ function makeFixture({ rootEngines = "^25.9.0", workspaces = [] }) {
     engines: { node: rootEngines },
   }, null, 2));
   fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "packages:\n  - \"packages/*\"\n");
+  // 空 .pnpm：依赖扫描目录必须存在（此前由 semver symlink 顺带创建）。
+  fs.mkdirSync(path.join(root, "node_modules", ".pnpm"), { recursive: true });
   for (const ws of workspaces) {
     fs.mkdirSync(path.join(root, "packages", ws.name), { recursive: true });
     fs.writeFileSync(path.join(root, "packages", ws.name, "package.json"), JSON.stringify({
@@ -38,7 +30,6 @@ function makeFixture({ rootEngines = "^25.9.0", workspaces = [] }) {
       ...(ws.engines === undefined ? {} : { engines: { node: ws.engines } }),
     }, null, 2));
   }
-  linkSemverInto(root);
   return root;
 }
 

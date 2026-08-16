@@ -23,8 +23,10 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+// 3.6-8：semver 改为根 devDependencies 显式声明（此前从 .pnpm 目录
+// 「借用」——依赖树形态变化即断，且不参与 lockfile 锁定）。
+import semver from "semver";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // --root 允许测试在夹具仓库上运行审计；默认为脚本所在仓库根。
@@ -42,30 +44,6 @@ function targetNodeVersion() {
   const idx = process.argv.indexOf("--node");
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
   return process.versions.node;
-}
-
-/** 从 .pnpm 里借用一份 semver，避免给仓库新增依赖。 */
-function loadSemver() {
-  const pnpmDir = path.join(repoRoot, "node_modules", ".pnpm");
-  const entries = fs.existsSync(pnpmDir)
-    ? fs.readdirSync(pnpmDir).filter((e) => /^semver@\d/.test(e))
-    : [];
-  entries.sort((a, b) => {
-    const va = a.slice("semver@".length).split(".").map(Number);
-    const vb = b.slice("semver@".length).split(".").map(Number);
-    return (vb[0] - va[0]) || (vb[1] - va[1]) || (vb[2] - va[2]);
-  });
-  for (const entry of entries) {
-    const pkg = path.join(pnpmDir, entry, "node_modules", "semver", "package.json");
-    if (fs.existsSync(pkg)) {
-      try {
-        return createRequire(pkg)("semver");
-      } catch {
-        // 尝试下一份
-      }
-    }
-  }
-  throw new Error("无法从 node_modules/.pnpm 加载 semver；请先 pnpm install");
 }
 
 /** 递归收集 .pnpm/<entry>/node_modules 下全部 package.json。 */
@@ -144,7 +122,6 @@ function collectWorkspaceManifests() {
 }
 
 const target = targetNodeVersion();
-const semver = loadSemver();
 
 // 第一层：仓库自身 manifest（根 + 全部 workspace 包）。缺失 engines.node
 // 声明、范围不覆盖目标版本、范围无法解析、glob 未命中，全部视为违规并
