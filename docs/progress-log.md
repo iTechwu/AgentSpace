@@ -238,6 +238,13 @@
 - **测试夹具跟进**：`linkSemverInto`（symlink 借用 `.pnpm/semver@x`）随之移除；夹具改为创建空 `node_modules/.pnpm` 目录——依赖扫描目录的存在性此前由 symlink 顺带保证，删除后 `readdirSync` 直接抛错（首次运行即被 8 用例中的全绿用例抓出）。
 - **验证**：真实仓库审计通过（11 manifest / 869 唯一包 / jsdom 唯一已知例外）；测试 8/8；三段 pretest 链通过。
 
+### 3.6-9 bin wrapper `spawnSync` 子进程开销 —— ✅ 完成
+
+- **改动**（`e0e46c9`）：`apps/cli/bin/dofe-agent.js` 与 `apps/mcp-egress-proxy/bin/dofe-mcp-egress-proxy.js` 不再 `spawnSync` 子进程传 `--experimental-strip-types`，改为顶层 `import { main }` 后调用（Node ≥23.6 类型剥离默认开启，engines 锁 `^25.9.0`），与 `packages/daemon/bin` 既有模式对齐。每次调用省一层进程开销。
+- **proxy 入口跟进**：`main` 改 export + `isMain` 守卫（`argv[1]` URL 比对 `import.meta.url`）——直接执行（Docker ENTRYPOINT 跑 `dist/index.js`）仍自启，被 wrapper import 时由 wrapper 显式调用，不重复执行。esbuild 打包后 dist 冒烟确认自启正常。
+- **顺带修复 3.5-8 遗漏**：CLI `DaemonConfig` 补 `operationClaimIntervalMs` 字段（`DOFE_AGENT_OPERATION_CLAIM_INTERVAL` env 可覆盖，默认 15s 与 daemon 侧 `state.ts` 一致）——此前 `typecheck:cli` 报 TS2345。
+- **验证**：CLI `doctor`/`daemon status`/未知子命令退出码 0/0/1；proxy wrapper 与 dist 缺 key 错误路径均 exit 1；proxy 48 测试通过；CLI + daemon typecheck 通过。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
@@ -246,7 +253,6 @@
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
 | 3.5-5 | sandbox 抽象决策收口（Cube `exec()` 未实现，`connectSandbox()` 无调用方） |
 | 3.5-7 | 测试路径与 `dist/` 产物对齐（esbuild CJS banner 覆盖） |
-| 3.6-9 | bin wrapper `spawnSync` 子进程开销 |
 | 3.6-10 | `workflow-worker` types 依赖 `apps/web` 的 tsc |
 | 3.6-11 | 部署物分散（统一部署拓扑 + 组件所有权文档） |
 | 3.6-12 | docs 按日期目录缺乏索引 |

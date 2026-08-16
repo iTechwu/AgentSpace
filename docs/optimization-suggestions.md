@@ -146,7 +146,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 6. **【P2】多套 env 模板漂移风险** ✅（4041898）：audit-env-templates.mjs 入 pretest —— 自动发现 11 模板/186 键，键名规范+单文件重复+跨模板近重复三类强制；4 对合法共存入豁免表。不做生成器（模板注释即部署文档）。
 7. **【P2】`dev-daemons.sh` 硬编码本机绝对路径** ✅（b72a144）：REPO 自定位、NODE_BIN 取交互 PATH，workspace/daemon 身份等 5 项支持 DOFE_AGENT_DEV_* env 覆盖（本机默认值保留）。
 8. **【P2】`audit-node-engines.mjs` 从 `.pnpm` 目录「借用」semver** ✅（8562ee4）：根 devDependencies 显式声明 `semver ^7.8.5`，脚本删 loadSemver 兜底改顶层 ESM import；测试夹具不再 symlink 借用。
-9. **【P2】两个 bin wrapper（cli/mcp-egress-proxy）都是 `spawnSync` 子进程再执行** ⏳：每次调用多一层进程开销，可直接 `import` 后调 main。
+9. **【P2】两个 bin wrapper（cli/mcp-egress-proxy）都是 `spawnSync` 子进程再执行** ✅（e0e46c9）：wrapper 顶层 `import` 入口 main 后调用（Node ≥23.6 类型剥离默认开启）；proxy 入口 main 改 export + isMain 守卫，Docker dist 直跑语义不变。顺带修复 3.5-8 遗漏的 CLI DaemonConfig 新字段。
 10. **【P2】`apps/workflow-worker` 的 `types` 依赖 `apps/web/node_modules/.bin/tsc`** ⏳：monorepo 内多个包用相对路径指向 web 的 tsc，web 是事实上的 tsc 宿主。应在根/共享包显式依赖 typescript。
 11. **【P2】部署物分散** ⏳：systemd + self-hosted Compose + staging + daemon 并存，升级/回滚说明散落各 README，建议出一份统一的「部署拓扑 + 组件所有权」文档（飞书 worker 由 daemon-claude 托管、不可与独立 feishu-worker 同跑这一约定易被遗漏）。
 12. **【P2】docs 按日期目录缺乏索引** ⏳：`docs/0724 ~ 0814` 无根索引文件，且日期目录里混入 playwright 产物/截图等构建产物类文件。建议加 `docs/README.md`（主题索引 + 归档策略），大体积 evidence 移入 artifacts/。
