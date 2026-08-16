@@ -20,18 +20,24 @@
 # The CLI auto-loads <repo>/.env (DB url, Feishu credential key).
 set -euo pipefail
 
-REPO="/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai"
-NODE_BIN="/Users/techwu/.local/opt/node-v24.9.0-darwin-arm64/bin/node"
+# 3.6-7：全部机器相关值改为 env 覆盖 + 自定位默认值，脚本可在任意克隆上直接运行。
+# 仓库与 node 从环境推导（node 取交互 PATH——daemon 依赖交互 PATH 探测 provider CLI）；
+# 工作区与 daemon 身份保留本机 dev 值作默认，换环境时用下列 env 覆盖。
+REPO="${DOFE_AGENT_DEV_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+NODE_BIN="${DOFE_AGENT_DEV_NODE_BIN:-$(command -v node)}"
 CLI="$REPO/apps/cli/src/index.ts"
-WORKSPACE_ID="sso-team-c8c8d97ffcb845311387e967"
+WORKSPACE_ID="${DOFE_AGENT_DEV_WORKSPACE_ID:-sso-team-c8c8d97ffcb845311387e967}"
+DAEMON_ID="${DOFE_AGENT_DEV_DAEMON_ID:-yootun-local-20260725}"
+DEVICE_NAME="${DOFE_AGENT_DEV_DEVICE_NAME:-Yootun Local}"
+RUNTIME_NAME="${DOFE_AGENT_DEV_RUNTIME_NAME:-Yootun Local Runtime}"
 PID_FILE="$REPO/data/daemon/dev-daemon.pid"
 LOG_FILE="$REPO/data/daemon/daemon.log"
-LOCAL_RUNTIME_PROVIDERS="claude,codex"
+LOCAL_RUNTIME_PROVIDERS="${DOFE_AGENT_DEV_PROVIDERS:-claude,codex}"
 
 cmd_for_unit() {
   case "${1:-}" in
     local-daemon)
-      echo "DOFE_AGENT_RUNTIME_PROVIDER=$LOCAL_RUNTIME_PROVIDERS DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS=$LOCAL_RUNTIME_PROVIDERS $NODE_BIN --experimental-strip-types $CLI daemon start --foreground --mode local --daemon-id yootun-local-20260725 --device-name Yootun\ Local --runtime-name Yootun\ Local\ Runtime --heartbeat-interval 15000 --task-timeout 43200000 --workspace-id $WORKSPACE_ID"
+      echo "DOFE_AGENT_RUNTIME_PROVIDER=$LOCAL_RUNTIME_PROVIDERS DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS=$LOCAL_RUNTIME_PROVIDERS $NODE_BIN --experimental-strip-types $CLI daemon start --foreground --mode local --daemon-id $DAEMON_ID --device-name $(printf '%q' "$DEVICE_NAME") --runtime-name $(printf '%q' "$RUNTIME_NAME") --heartbeat-interval 15000 --task-timeout 43200000 --workspace-id $WORKSPACE_ID"
       ;;
     feishu-worker)
       echo "$NODE_BIN --experimental-strip-types $CLI integrations feishu worker --workspace-id $WORKSPACE_ID"
@@ -44,8 +50,8 @@ run_unit() {
   cd "$REPO"
   case "${1:-}" in
     local-daemon) exec env DOFE_AGENT_RUNTIME_PROVIDER="$LOCAL_RUNTIME_PROVIDERS" DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS="$LOCAL_RUNTIME_PROVIDERS" "$NODE_BIN" --experimental-strip-types "$CLI" daemon start \
-        --foreground --mode local --daemon-id yootun-local-20260725 \
-        --device-name "Yootun Local" --runtime-name "Yootun Local Runtime" \
+        --foreground --mode local --daemon-id "$DAEMON_ID" \
+        --device-name "$DEVICE_NAME" --runtime-name "$RUNTIME_NAME" \
         --heartbeat-interval 15000 --task-timeout 43200000 --workspace-id "$WORKSPACE_ID" ;;
     feishu-worker) exec "$NODE_BIN" --experimental-strip-types "$CLI" integrations feishu worker --workspace-id "$WORKSPACE_ID" ;;
     *) echo "unknown unit: ${1:-}" >&2; exit 2 ;;
@@ -61,8 +67,8 @@ do_start() {
   mkdir -p "$(dirname "$LOG_FILE")"
   # nohup + disown: survives terminal close; inherits the interactive environment.
   nohup env DOFE_AGENT_RUNTIME_PROVIDER="$LOCAL_RUNTIME_PROVIDERS" DOFE_AGENT_REQUIRED_RUNTIME_PROVIDERS="$LOCAL_RUNTIME_PROVIDERS" "$NODE_BIN" --experimental-strip-types "$CLI" daemon start \
-      --foreground --mode local --daemon-id yootun-local-20260725 \
-      --device-name "Yootun Local" --runtime-name "Yootun Local Runtime" \
+      --foreground --mode local --daemon-id "$DAEMON_ID" \
+      --device-name "$DEVICE_NAME" --runtime-name "$RUNTIME_NAME" \
       --heartbeat-interval 15000 --task-timeout 43200000 --workspace-id "$WORKSPACE_ID" \
       >> "$LOG_FILE" 2>&1 &
   local pid=$!
