@@ -151,6 +151,48 @@ test("heartbeat can refresh runtime provider health metadata", () => {
   assert.equal(metadata.providerHealth?.error?.code, "provider.profile_missing");
 });
 
+test("runtime capability metadata is normalized and validated at registration", () => {
+  registerDaemonRuntimesSync({
+    daemonKey: "capability-contract",
+    deviceName: "Build Box",
+    workspaceId: "default",
+    runtimes: [{
+      provider: "codex",
+      name: "Remote Agent · Codex",
+      metadata: {
+        runtimeCapabilities: {
+          schemaVersion: 1,
+          gpu: true,
+          egress: true,
+          mcp: ["catalog-b", "catalog-a"],
+          cli: [],
+        },
+      },
+    }],
+  });
+  const runtime = readDaemonSnapshotSync("capability-contract").runtimes[0]!;
+  assert.deepEqual(JSON.parse(runtime.metadataJson).runtimeCapabilities, {
+    schemaVersion: 1,
+    gpu: true,
+    egress: true,
+    mcp: ["catalog-a", "catalog-b"],
+    cli: [],
+  });
+
+  assert.throws(() => registerDaemonRuntimesSync({
+    daemonKey: "invalid-capability-contract",
+    deviceName: "Build Box",
+    workspaceId: "default",
+    runtimes: [{
+      provider: "codex",
+      name: "Remote Agent · Codex",
+      metadata: {
+        runtimeCapabilities: { schemaVersion: 1, gpu: true, egress: true, mcp: [""], cli: [] },
+      },
+    }],
+  }), /runtime\.capabilities_invalid/);
+});
+
 test("heartbeat only marks the runtimes it reports as online", () => {
   registerDaemonRuntimesSync({
     daemonKey: "filtered-runtime-heartbeat",

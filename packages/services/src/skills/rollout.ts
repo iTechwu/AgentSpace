@@ -8,7 +8,7 @@ import {
   readSkillArtifactsByCoordinateSync,
   readWorkflowVersionSync,
 } from "@dofe-agent/db";
-import type { SkillSkillDependency } from "@dofe-agent/domain";
+import { parseRuntimeCapabilitySnapshot, type SkillSkillDependency } from "@dofe-agent/domain";
 import { stableStringify } from "./package/package-digest.ts";
 import { buildSkillInstallRiskItemsSync } from "./install-approval.ts";
 
@@ -57,13 +57,7 @@ export interface SkillRolloutRuntimeRequirements {
   cli: string[];
 }
 
-export interface RuntimeCapabilitySnapshot {
-  schemaVersion: 1;
-  gpu: boolean;
-  egress: boolean;
-  mcp: string[];
-  cli: string[];
-}
+export type { RuntimeCapabilitySnapshot } from "@dofe-agent/domain";
 
 export interface SkillRolloutPlan {
   planDigest: string;
@@ -364,13 +358,13 @@ export function isRuntimeCompatibleWithRequirements(
   const hasRequirements = requirements.gpu || requirements.egress || requirements.mcp.length > 0 || requirements.cli.length > 0;
   if (!hasRequirements) return true;
   try {
-    const parsed = JSON.parse(metadataJson) as { runtimeCapabilities?: Partial<RuntimeCapabilitySnapshot> };
-    const capabilities = parsed.runtimeCapabilities;
-    if (!capabilities || capabilities.schemaVersion !== 1) return false;
-    if (requirements.gpu && capabilities.gpu !== true) return false;
-    if (requirements.egress && capabilities.egress !== true) return false;
-    const mcp = new Set(Array.isArray(capabilities.mcp) ? capabilities.mcp.filter((value): value is string => typeof value === "string") : []);
-    const cli = new Set(Array.isArray(capabilities.cli) ? capabilities.cli.filter((value): value is string => typeof value === "string") : []);
+    const parsed = JSON.parse(metadataJson) as { runtimeCapabilities?: unknown };
+    const capabilities = parseRuntimeCapabilitySnapshot(parsed.runtimeCapabilities);
+    if (!capabilities) return false;
+    if (requirements.gpu && !capabilities.gpu) return false;
+    if (requirements.egress && !capabilities.egress) return false;
+    const mcp = new Set(capabilities.mcp);
+    const cli = new Set(capabilities.cli);
     return requirements.mcp.every((slug) => mcp.has(slug)) && requirements.cli.every((slug) => cli.has(slug));
   } catch {
     return false;

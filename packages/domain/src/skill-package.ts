@@ -54,6 +54,39 @@ export interface DspRuntimeRequirements {
   gpu?: boolean;
 }
 
+export interface RuntimeCapabilitySnapshot {
+  schemaVersion: 1;
+  gpu: boolean;
+  egress: boolean;
+  mcp: string[];
+  cli: string[];
+}
+
+/** Parses the versioned Runtime metadata consumed by all-compatible rollout. */
+export function parseRuntimeCapabilitySnapshot(value: unknown): RuntimeCapabilitySnapshot | null {
+  if (!isRecord(value) || value.schemaVersion !== 1) return null;
+  if (typeof value.gpu !== "boolean" || typeof value.egress !== "boolean") return null;
+  if (!isStringArray(value.mcp) || !isStringArray(value.cli)) return null;
+  const mcp = normalizeCapabilitySlugs(value.mcp);
+  const cli = normalizeCapabilitySlugs(value.cli);
+  if (!mcp || !cli) return null;
+  return { schemaVersion: 1, gpu: value.gpu, egress: value.egress, mcp, cli };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function normalizeCapabilitySlugs(value: string[]): string[] | null {
+  const normalized = value.map((item) => item.trim()).filter(Boolean);
+  if (normalized.length !== value.length || new Set(normalized).size !== normalized.length) return null;
+  return [...new Set(normalized)].sort();
+}
+
 export interface DspArtifactMeta {
   name: string;
   /** SemVer release label for human communication; execution uses digest. */

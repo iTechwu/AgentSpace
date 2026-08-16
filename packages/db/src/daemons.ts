@@ -1,4 +1,4 @@
-import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
+import { isDaemonProvider, parseRuntimeCapabilitySnapshot, type DaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, withTransaction, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import { assertActiveProviderAccountSync, fulfillRuntimeProvisionRequestsForDaemonTokenSync } from "./provider-accounts.ts";
 import { requeueProvisioningStagesForOfflineDaemonSync } from "./runtime-provisioning-tasks.ts";
@@ -133,7 +133,7 @@ export function registerDaemonRuntimesSync(input: {
             provider: provider as RuntimeRegistrationInput["provider"],
           });
       const deviceInfo = runtime.deviceInfo?.trim() ?? deviceName;
-      const metadataJson = JSON.stringify(runtime.metadata ?? {});
+      const metadataJson = JSON.stringify(normalizeRuntimeMetadata(runtime.metadata));
 
       db.prepare(
         `INSERT INTO agent_runtime (
@@ -330,12 +330,13 @@ export function heartbeatDaemonSync(daemonKey: string, options?: {
          LIMIT 1`,
       ).get(...params) as Record<string, unknown> | undefined;
       const existingMetadata = parseMetadataJson(row?.metadataJson);
+      const mergedMetadata = normalizeRuntimeMetadata({ ...existingMetadata, ...runtime.metadata });
       db.prepare(
         `UPDATE agent_runtime
          SET metadata_json = ?,
              updated_at = ?
          WHERE ${selectors.join(" AND ")}`,
-      ).run(JSON.stringify({ ...existingMetadata, ...runtime.metadata }), now, ...params);
+      ).run(JSON.stringify(mergedMetadata), now, ...params);
     }
   });
 
@@ -352,6 +353,15 @@ function parseMetadataJson(value: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function normalizeRuntimeMetadata(metadata?: Record<string, unknown>): Record<string, unknown> {
+  const normalized = { ...(metadata ?? {}) };
+  if (normalized.runtimeCapabilities === undefined) return normalized;
+  const capabilities = parseRuntimeCapabilitySnapshot(normalized.runtimeCapabilities);
+  if (!capabilities) throw new Error("runtime.capabilities_invalid");
+  normalized.runtimeCapabilities = capabilities;
+  return normalized;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
