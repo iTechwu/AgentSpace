@@ -232,19 +232,20 @@
 - **改动**（`b72a144`）：`REPO` 改为脚本自定位（`dirname` 推导）；`NODE_BIN` 取交互 PATH 的 `node`（daemon 依赖交互 PATH 探测 provider CLI，注释已说明）；workspace id、daemon id、device/runtime 名称、providers 五项保留本机 dev 默认值并全部支持 `DOFE_AGENT_DEV_*` env 覆盖。任意克隆可直接运行。
 - **验证**：`bash -n` + `cmd`（自定位路径、`%q` 转义、env 覆盖 `ws-test` 均生效）+ `status` 冒烟。
 
+### 3.6-8 `audit-node-engines.mjs` 借用 `.pnpm` 的 semver —— ✅ 完成
+
+- **改动**（`8562ee4`）：根 `package.json` devDependencies 显式声明 `semver ^7.8.5`（进 lockfile 锁定）；脚本删除 `createRequire` + `loadSemver()` 兜底加载（约 25 行），改为顶层 `import semver from "semver"`（ESM 按脚本自身位置解析到仓库根 node_modules）。
+- **测试夹具跟进**：`linkSemverInto`（symlink 借用 `.pnpm/semver@x`）随之移除；夹具改为创建空 `node_modules/.pnpm` 目录——依赖扫描目录的存在性此前由 symlink 顺带保证，删除后 `readdirSync` 直接抛错（首次运行即被 8 用例中的全绿用例抓出）。
+- **验证**：真实仓库审计通过（11 manifest / 869 唯一包 / jsdom 唯一已知例外）；测试 8/8；三段 pretest 链通过。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
-| 3.4-8 | 统一 34 个 page.tsx 样板 |
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
 | 3.5-5 | sandbox 抽象决策收口（Cube `exec()` 未实现，`connectSandbox()` 无调用方） |
 | 3.5-7 | 测试路径与 `dist/` 产物对齐（esbuild CJS banner 覆盖） |
-| 3.5-8 | `pollRemoteTasks` 轮询请求放大（每 3s × 6 次 claim） |
-| 3.6-6 | 多套 env 模板漂移（单一 schema 源） |
-| 3.6-7 | `dev-daemons.sh` 硬编码本机绝对路径 |
-| 3.6-8 | `audit-node-engines.mjs` 借用 `.pnpm` 的 semver |
 | 3.6-9 | bin wrapper `spawnSync` 子进程开销 |
 | 3.6-10 | `workflow-worker` types 依赖 `apps/web` 的 tsc |
 | 3.6-11 | 部署物分散（统一部署拓扑 + 组件所有权文档） |
