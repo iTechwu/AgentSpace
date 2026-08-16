@@ -44,6 +44,82 @@
     "./mcp-center/security": {
       "types": "./dist-types/mcp-center/security.d.ts",
       "default": "./src/mcp-center/security.ts"
+    },
+    "./workflows": {
+      "types": "./dist-types/workflows/index.d.ts",
+      "default": "./src/workflows/index.ts"
+    },
+    "./skills": {
+      "types": "./dist-types/skills/index.d.ts",
+      "default": "./src/skills/index.ts"
+    },
+    "./employees": {
+      "types": "./dist-types/employees/index.d.ts",
+      "default": "./src/employees/index.ts"
+    },
+    "./workspace": {
+      "types": "./dist-types/workspace/index.d.ts",
+      "default": "./src/workspace/index.ts"
+    },
+    "./mcp-center": {
+      "types": "./dist-types/mcp-center/index.d.ts",
+      "default": "./src/mcp-center/index.ts"
+    },
+    "./models": {
+      "types": "./dist-types/models/index.d.ts",
+      "default": "./src/models/index.ts"
+    },
+    "./runtime": {
+      "types": "./dist-types/runtime/index.d.ts",
+      "default": "./src/runtime/index.ts"
+    },
+    "./integrations": {
+      "types": "./dist-types/integrations/index.d.ts",
+      "default": "./src/integrations/index.ts"
+    },
+    "./openmontage": {
+      "types": "./dist-types/openmontage/index.d.ts",
+      "default": "./src/openmontage/index.ts"
+    },
+    "./capabilities": {
+      "types": "./dist-types/capabilities/index.d.ts",
+      "default": "./src/capabilities/index.ts"
+    },
+    "./channels": {
+      "types": "./dist-types/channels/index.d.ts",
+      "default": "./src/channels/index.ts"
+    },
+    "./messaging": {
+      "types": "./dist-types/messaging/index.d.ts",
+      "default": "./src/messaging/index.ts"
+    },
+    "./tasks": {
+      "types": "./dist-types/tasks/index.d.ts",
+      "default": "./src/tasks/index.ts"
+    },
+    "./collaboration": {
+      "types": "./dist-types/collaboration/index.d.ts",
+      "default": "./src/collaboration/index.ts"
+    },
+    "./knowledge": {
+      "types": "./dist-types/knowledge/index.d.ts",
+      "default": "./src/knowledge/index.ts"
+    },
+    "./documents": {
+      "types": "./dist-types/documents/index.d.ts",
+      "default": "./src/documents/index.ts"
+    },
+    "./content": {
+      "types": "./dist-types/content/index.d.ts",
+      "default": "./src/content/index.ts"
+    },
+    "./finance": {
+      "types": "./dist-types/finance/index.d.ts",
+      "default": "./src/finance/index.ts"
+    },
+    "./operations": {
+      "types": "./dist-types/operations/index.d.ts",
+      "default": "./src/operations/index.ts"
     }
   },
   "engines": {
