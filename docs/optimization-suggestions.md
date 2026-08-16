@@ -90,10 +90,10 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 **这是全系统最大的结构性技术债**：services+daemon 共 220 个文件 import `@dofe-agent/db`，services 非测试代码中有 **3,020 处 `*Sync` 调用**。任何异步化/池化改造都会波及这 3000+ 调用点。
 
 1. **【P1·大】引入 `pg.Pool` 异步平行路径** ⏳：当前单连接全串行、每查询主线程阻塞一次（worker 往返 + Atomics 轮询）。建议新增 `async getDatabaseAsync()` 平行 API，让新代码与热路径（`token-usage`、`task-queue`、`mcp-center`）逐步迁移；同步门面保留给存量调用。同时为 worker 协议加查询延迟/队列深度指标。
-2. **【P1】拆分 `postgres-schema.ts`（4,838 行）** ⏳：119 张表 + 幂等 DDL 流 + 版本号 + 回填/在线索引全在一个文件。按领域（workflow/mcp/skill/token-usage/employee…）拆成多个语句数组，用有序版本化组合器拼装，保持幂等与版本号语义。
-3. **【P1】消除双重行映射** ⏳：部分 SQL 用显式 `AS workspaceId`，部分用全小写别名（如 `skillartifactdigest`）依赖 worker 的 400+ 条别名表兜底。两种风格并存易漂移。建议以 schema 列名为唯一事实源，统一生成 camelCase 映射。
-4. **【P2】巨型业务模块拆分** ⏳：`external-integrations.ts`(2,576)、`types.ts`(2,219，106 interface 可按模块拆后 re-export)、`mcp-center.ts`(1,467)。
-5. **【P2】类型安全加固** ⏳：可评估 Kysely 之类轻量 typed query builder 做列名编译期校验，降低手写 SQL 与 `types.ts` 的漂移风险（无需完整 ORM）。
+2. **【P1】拆分 `postgres-schema.ts`（4,838 行）** ✅：119 张表 + 幂等 DDL 流 + 版本号 + 回填/在线索引全在一个文件。按领域（workflow/mcp/skill/token-usage/employee…）拆成多个语句数组，用有序版本化组合器拼装，保持幂等与版本号语义。
+3. **【P1】消除双重行映射** ✅：部分 SQL 用显式 `AS workspaceId`，部分用全小写别名（如 `skillartifactdigest`）依赖 worker 的 400+ 条别名表兜底。两种风格并存易漂移。建议以 schema 列名为唯一事实源，统一生成 camelCase 映射。
+4. **【P2】巨型业务模块拆分** ✅：`external-integrations.ts`(2,576)、`types.ts`(2,219，106 interface 可按模块拆后 re-export)、`mcp-center.ts`(1,467)。
+5. **【P2】类型安全加固** ✅（决策不引入，落为零依赖列名守卫）：可评估 Kysely 之类轻量 typed query builder 做列名编译期校验，降低手写 SQL 与 `types.ts` 的漂移风险（无需完整 ORM）。
 6. **【战略】Prisma 迁移已有详细方案** 🟡：`docs/0808/db_migration_to_prisma/README.md` 给出了 A→B 渐进路线（A=Prisma 只负责 schema/迁移；B=Prisma Client 与 SQL 并存按域替换），明确不建议一次性全量 Prisma Client 化。**建议**：坚持 A→B，`FOR UPDATE SKIP LOCKED`、触发器、advisory lock、在线 DDL 等高风险 SQL 继续保留原生实现。落地进度见 [progress-log.md](progress-log.md)。
 
 > 亮点（值得保留）：手写幂等 DDL + advisory lock 迁移协议 + 前向版本守卫 + `CREATE INDEX CONCURRENTLY` 后台构建 + 测试库 URL 守卫，是一套成熟的「SQLite 无缝演进到 PostgreSQL」工具链。

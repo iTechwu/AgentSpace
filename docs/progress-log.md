@@ -163,11 +163,16 @@
 - **mcp-center.ts（1,467 → 72 行 barrel + 7 文件）**：26 个私有导出下沉 `mcp-center/mcp-center-internal.ts`（列片段/行映射/类型守卫，无环）；6 个域模块 catalog(8 fn)/connections(7)/secrets(4)/discovery(2)/operations(11)/tool-audits(3) 各持 input interface，域私有 helper（writeMcpCatalogItemSync/claimDueHealthCheckOperationSync/defaultConnectionStatusForFailedOperation）随域内聚不外泄。
 - **验证**：db `pnpm types` 干净、db 全测试环 exit 0（含 mcp-center 10/10）、services `pnpm types` 干净。提交：996d281a / 82bde242 / d8192384。
 
+### 3.2-5 类型安全加固 —— ✅ 完成（决策：不引入 Kysely）
+
+- **决策**：不引入 Kysely 等 typed query builder。三个理由：① Kysely 是纯异步 API，套不进 worker_thread 同步层（`*Sync` 门面 3,020 处调用无法受益）；② Prisma Phase 2 正在逐域替换该层，Prisma Client 本身就是 typed query builder，再加第二个 builder 是反向投资；③ 双 builder 并存期维护面翻倍。
+- **替代落地**：`postgres-sql-column-guard.test.ts`（已入测试门）—— 以 `postgres-schema/statements/` DDL 为唯一事实源（解析 CREATE TABLE + ALTER ADD/DROP COLUMN，跨行/单行形态，125 张表），静态扫描 `src/` 全部手写 SQL（模板字符串 + 测试文件双引号串，剥离 `${}` 插值）：限定引用 `table.column` 与 `INSERT INTO` 列清单逐列校验，typo 以 file:line 报告。零运行时依赖，负例注入验证可捕获。
+- **现状扫描结果**：存量 SQL 无此类 typo（此前担心的引用均为解析器缺口而非真 bug）。与 3.2-3 的别名引号守卫互补：一个管别名大小写折叠，一个管列名存在性。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
-| 3.2-5 | 类型安全加固（Kysely 等轻量 typed query builder） |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
 | 3.3-5 | 手写 `.d.ts` 孪生去重（`lark-cli.ts`/`.d.ts` 26 导出人工同步） |
 | 3.3-6 | `preloaded-skill-sources.ts` 176KB 内联字符串外置 |
