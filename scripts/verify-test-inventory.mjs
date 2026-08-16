@@ -40,7 +40,13 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // 原型 + Prisma 真接入) into the db default test command via the regex rule
 // above. Reviewed and confirmed all 8 belong in default coverage; deferred set
 // shrinks to 179.
-const EXPECTED_DEFERRED_DIGEST = "23fdb8fd6bba05062896d23fbbb10fc28c8d15d0b619b9865b195650105b091d";
+// Re-frozen 2026-08-17 (round 7, 185-file set): promoted
+// apps/cli/src/lib/{task-completion-outbox,task-completion-token-usage}.test.ts —
+// 两者一直在 cli 包默认测试脚本中显式执行（5 文件清单），但 inventory 的
+// default-owned 集漏记（3.6-4 双维护不一致）。补记归位，消除「脚本跑而
+// inventory 记 deferred」的矛盾。（核对说明：round 6 注释中的「179」为
+// 笔误/漂移，上一版 digest 23fdb8fd 实际对应 187 个文件；本版 187-2=185。）
+const EXPECTED_DEFERRED_DIGEST = "4c1efe6e22ab320980f0b34df49df72eef6b5ff3d434576e1c733ef0bbc8bcdd";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -133,6 +139,10 @@ function isDefaultOwned(file) {
     "apps/cli/src/commands/output.test.ts",
     "apps/cli/src/lib/daemon-client.test.ts",
     "apps/cli/src/lib/daemon-task-context.test.ts",
+    // cli 包默认测试脚本还显式执行以下两个文件（见 apps/cli/package.json），
+    // 2026-08-17 补记以消除脚本/inventory 双维护不一致（3.6-4）。
+    "apps/cli/src/lib/task-completion-outbox.test.ts",
+    "apps/cli/src/lib/task-completion-token-usage.test.ts",
     "deploy/self-hosted/managed-runtime-release-gates.test.mjs",
   ]).has(file)) return true;
 
