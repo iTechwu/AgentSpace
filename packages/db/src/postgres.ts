@@ -398,8 +398,8 @@ export async function migrateSqliteToPostgres(
               `INSERT INTO app_metadata (key, value)
                VALUES ('schema_version', $1)
                ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
-               WHERE EXCLUDED.value ~ '^\d+$'
-                 AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
+               WHERE EXCLUDED.value ~ '^\\d+$'
+                 AND (app_metadata.value !~ '^\\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
               [POSTGRES_SCHEMA_VERSION],
             );
           }
@@ -559,8 +559,8 @@ export async function migratePostgresToPostgres(
             `INSERT INTO app_metadata (key, value)
              VALUES ('schema_version', $1)
              ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
-             WHERE EXCLUDED.value ~ '^\d+$'
-               AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
+             WHERE EXCLUDED.value ~ '^\\d+$'
+               AND (app_metadata.value !~ '^\\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
             [POSTGRES_SCHEMA_VERSION],
           );
         }

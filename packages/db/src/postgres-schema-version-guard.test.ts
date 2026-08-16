@@ -18,6 +18,8 @@ import {
 } from "./postgres-schema.ts";
 import { resolvePostgresDatabaseUrl } from "./postgres-config.ts";
 
+const newerSchemaVersion = `${Number.parseInt(POSTGRES_SCHEMA_VERSION, 10) + 1}`;
+
 /**
  * 单元 3 测试：DB 级单调版本守卫（#1）。
  * 针对真实 PG（agent_space_test），验证：
@@ -57,8 +59,9 @@ after(() => {
   resetDatabaseForTests();
 });
 
-test("POSTGRES_SCHEMA_VERSION 为 116，使「117」对实例而言确属更新", () => {
-  assert.equal(POSTGRES_SCHEMA_VERSION, "116");
+test("POSTGRES_SCHEMA_VERSION 是当前迁移实例版本，下一版本对实例而言确属更新", () => {
+  assert.match(POSTGRES_SCHEMA_VERSION, /^\d+$/);
+  assert.equal(Number.parseInt(newerSchemaVersion, 10), Number.parseInt(POSTGRES_SCHEMA_VERSION, 10) + 1);
 });
 
 test("DB 触发器拒绝把 schema_version 降级（check_violation）", () => {
@@ -100,8 +103,8 @@ test("无旧行的 INSERT 放行（DELETE 后重建不触发单调检查）", ()
   try {
     db.prepare("DELETE FROM app_metadata WHERE key = 'schema_version'").run();
     // INSERT 时 OLD IS NULL，触发器直接 RETURN NEW，不应用单调约束。
-    db.prepare("INSERT INTO app_metadata (key, value) VALUES ('schema_version', '116')").run();
-    assert.equal(readVersion(), "116");
+    db.prepare("INSERT INTO app_metadata (key, value) VALUES ('schema_version', ?)").run(POSTGRES_SCHEMA_VERSION);
+    assert.equal(readVersion(), POSTGRES_SCHEMA_VERSION);
   } finally {
     db.exec("ROLLBACK");
   }
@@ -126,11 +129,11 @@ test("ensurePostgresSchema 跳过比实例更新的库（前向守卫：不降�
   // 若前向守卫生效 → ensurePostgresSchema 直接返回，语句不跑 → 触发器保持删除态；
   // 若未生效 → 语句会重建触发器。借此可观测「是否真正跳过」。
   db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
-  db.prepare("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'").run();
+  db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(newerSchemaVersion);
   assert.equal(triggerExists(), false, "前置：探针已摘除触发器");
   try {
     const status = await ensurePostgresSchema({});
-    assert.equal(status.schemaVersion, "117", "不得降级比实例更新的库");
+    assert.equal(status.schemaVersion, newerSchemaVersion, "不得降级比实例更新的库");
     assert.equal(triggerExists(), false, "前向守卫应跳过语句，不得重建触发器");
   } finally {
     // 复原：先摘触发器（确保写回更低版本不被拦），再写回原版本，最后重建触发器。
@@ -158,7 +161,7 @@ test("ensurePostgresSchema 锁内复检版本，消除 TOCTOU（取锁后才检�
   // 探针：摘掉单调触发器，方便自由改写版本观测「是否重跑语句」。
   db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
   // 起始版本=116（实例版本）→ 旧实现的锁外检查会判定「不更新」并放行进入取锁；新实现取锁后复检。
-  db.prepare("UPDATE app_metadata SET value = '116' WHERE key = 'schema_version'").run();
+  db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(POSTGRES_SCHEMA_VERSION);
   assert.equal(triggerExists(), false, "前置：探针触发器已摘除");
 
   const url = resolvePostgresDatabaseUrl();
@@ -177,13 +180,13 @@ test("ensurePostgresSchema 锁内复检版本，消除 TOCTOU（取锁后才检�
       // 让 ensurePostgresSchema 先进入等锁（此时锁外旧检查已读过 116）。
       await new Promise((resolve) => setTimeout(resolve, 300));
       // 在等锁窗口把版本抬到 117（> 实例 116）。
-      await bumper.query("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'");
+      await bumper.query("UPDATE app_metadata SET value = $1 WHERE key = 'schema_version'", [newerSchemaVersion]);
       // 释放锁，让 ensurePostgresSchema 取锁后做锁内复检。
       for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
         await blocker.query("SELECT pg_advisory_unlock($1)", [lockId]);
       }
       const status = await ensurePromise;
-      assert.equal(status.schemaVersion, "117", "锁内复检发现版本更新 → 不得降级");
+      assert.equal(status.schemaVersion, newerSchemaVersion, "锁内复检发现版本更新 → 不得降级");
       assert.equal(triggerExists(), false, "锁内复检跳过语句，不得重建探针触发器");
     } finally {
       await bumper.end();
@@ -217,7 +220,7 @@ test("ensurePostgresConcurrentIndexes 跳过比实例更新的库（前向守卫
   // 若前向守卫生效 → ensurePostgresConcurrentIndexes 直接返回，不跑维护 → flag 保持删除态；
   // 若未生效 → runBackgroundMaintenance 末尾会把 flag 置 'true'。借此观测「是否真正跳过」。
   db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
-  db.prepare("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'").run();
+  db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(newerSchemaVersion);
   db.prepare("DELETE FROM app_metadata WHERE key = 'schema_116_history_backfill_complete'").run();
   try {
     await ensurePostgresConcurrentIndexes({});
@@ -254,7 +257,7 @@ test("ensurePostgresConcurrentIndexes 锁内复检版本，消除 TOCTOU（取�
   // 探针：摘触发器 + 起始版本=116（实例版本）+ 删除回填 flag。
   // 旧实现的锁外检查会读 116 判定「不更新」放行进入取锁；新实现取后台锁 117 后复检。
   db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
-  db.prepare("UPDATE app_metadata SET value = '116' WHERE key = 'schema_version'").run();
+  db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(POSTGRES_SCHEMA_VERSION);
   db.prepare("DELETE FROM app_metadata WHERE key = 'schema_116_history_backfill_complete'").run();
 
   const url = resolvePostgresDatabaseUrl();
@@ -271,7 +274,7 @@ test("ensurePostgresConcurrentIndexes 锁内复检版本，消除 TOCTOU（取�
       // 让后台维护先进入等锁（此时锁外旧检查已读过 116）。
       await new Promise((resolve) => setTimeout(resolve, 300));
       // 在等锁窗口把版本抬到 117（> 实例 116）。
-      await bumper.query("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'");
+      await bumper.query("UPDATE app_metadata SET value = $1 WHERE key = 'schema_version'", [newerSchemaVersion]);
       // 释放 117，让后台维护取锁后做锁内复检。
       await blocker.query("SELECT pg_advisory_unlock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
       await ensurePromise;
@@ -343,17 +346,18 @@ test("ensurePostgresConcurrentIndexes 不竞争 schema 迁移锁 [115,116]（冷
 
 /**
  * Round 4（统一串行边界）：CLI 迁移入口 ensurePostgresSchema 经 withSchemaMigrationLock 先取后台维护锁
- * 117、再取迁移锁 [115,116]。117 被占时必须阻塞，不得绕过 117 直接取 [115,116]——这正是迁移 DDL 与
- * 后台维护 DDL 共享 117 边界、滚动升级不并发的保证。与上一用例（后台维护不竞争 [115,116]）从两侧
- * 守护同一契约。本库 schema 已为 116，ensurePostgresSchema 会进入取锁→跑幂等语句路径，故阻塞可观测。
- */
-test("ensurePostgresSchema 先取 117 再取 [115,116]（117 被占时 CLI 迁移阻塞）", async () => {
+ * POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID、再取迁移锁 [115,116]。后台维护锁被占时必须阻塞，不得绕过
+ * 维护边界直接取 [115,116]——这正是迁移 DDL 与
+ * 后台维护 DDL 共享边界、滚动升级不并发的保证。与上一用例（后台维护不竞争 [115,116]）从两侧
+ * 守护同一契约。ensurePostgresSchema 会进入取锁→跑幂等语句路径，故阻塞可观测。
+*/
+test("ensurePostgresSchema 先取后台维护锁再取 [115,116]（锁被占时 CLI 迁移阻塞）", async () => {
   const url = resolvePostgresDatabaseUrl();
   const blocker = new Client({ connectionString: url });
   await blocker.connect();
   let blockerHoldsLock = true;
   try {
-    // blocker 占住后台维护锁 117 → ensurePostgresSchema（经 withSchemaMigrationLock 先取 117）应阻塞等锁。
+    // blocker 占住后台维护锁 → ensurePostgresSchema（经 withSchemaMigrationLock 先取维护锁）应阻塞等锁。
     await blocker.query("SELECT pg_advisory_lock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
 
     const ensurePromise = ensurePostgresSchema({});
@@ -366,10 +370,10 @@ test("ensurePostgresSchema 先取 117 再取 [115,116]（117 被占时 CLI 迁�
     assert.equal(
       observed,
       "pending",
-      "117 被占时 ensurePostgresSchema 必须阻塞，不得绕过 117 直接取 [115,116]",
+      "后台维护锁被占时 ensurePostgresSchema 必须阻塞，不得绕过维护边界直接取 [115,116]",
     );
 
-    // 释放 117 → ensurePostgresSchema 取到 117 → 再取 [115,116] → 跑幂等语句并返回。
+    // 释放维护锁 → ensurePostgresSchema 取锁 → 再取 [115,116] → 跑幂等语句并返回。
     await blocker.query("SELECT pg_advisory_unlock($1)", [POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID]);
     blockerHoldsLock = false;
     const status = await ensurePromise;
@@ -403,7 +407,7 @@ test("migrateSqliteToPostgres 目标库版本更高时报告 skipped_incompatibl
   try {
     // 探针：摘触发器 + 抬版本到 117（> 实例 116），令锁内前向守卫触发。
     db.exec("DROP TRIGGER IF EXISTS app_metadata_schema_version_monotonic ON app_metadata");
-    db.prepare("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'").run();
+    db.prepare("UPDATE app_metadata SET value = ? WHERE key = 'schema_version'").run(newerSchemaVersion);
 
     const report = await migrateSqliteToPostgres({
       databaseUrl: resolvePostgresDatabaseUrl(),

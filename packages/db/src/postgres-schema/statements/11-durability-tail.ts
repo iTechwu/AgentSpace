@@ -844,8 +844,7 @@ export const durabilityTailStatements: string[] = [
       INSERT INTO app_metadata (key, value)
       VALUES ('schema_version', '${POSTGRES_SCHEMA_VERSION}')
       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
-      WHERE EXCLUDED.value ~ '^\d+$'
-        AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)
+      WHERE EXCLUDED.value ~ '^\\d+$'
+        AND (app_metadata.value !~ '^\\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)
     `,
 ];
-
