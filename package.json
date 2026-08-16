@@ -17,10 +17,10 @@
     "cli": "node --experimental-strip-types apps/cli/src/index.ts",
     "daemon:pack": "pnpm --filter dofe-agent-daemon pack",
     "setup": "pnpm install --frozen-lockfile",
-    "typecheck:deps": "pnpm --filter @dofe-agent/db run prisma:generate && ./apps/web/node_modules/.bin/tsc -p ./packages/domain/tsconfig.types.json --incremental false && ./apps/web/node_modules/.bin/tsc -p ./packages/db/tsconfig.types.json --incremental false && ./apps/web/node_modules/.bin/tsc -p ./packages/services/tsconfig.types.json --incremental false && ./apps/web/node_modules/.bin/tsc -p ./packages/sandbox/tsconfig.types.json --incremental false && ./apps/web/node_modules/.bin/tsc -p ./packages/daemon/tsconfig.types.json --incremental false",
-    "typecheck:web:only": "./apps/web/node_modules/.bin/next typegen ./apps/web && ./apps/web/node_modules/.bin/tsc -p ./apps/web/tsconfig.typecheck.json --noEmit",
+    "typecheck:deps": "pnpm --filter @dofe-agent/db run prisma:generate && tsc -p ./packages/domain/tsconfig.types.json --incremental false && tsc -p ./packages/db/tsconfig.types.json --incremental false && tsc -p ./packages/services/tsconfig.types.json --incremental false && tsc -p ./packages/sandbox/tsconfig.types.json --incremental false && tsc -p ./packages/daemon/tsconfig.types.json --incremental false",
+    "typecheck:web:only": "./apps/web/node_modules/.bin/next typegen ./apps/web && tsc -p ./apps/web/tsconfig.typecheck.json --noEmit",
     "typecheck:cli": "pnpm --filter @dofe-agent/cli run typecheck",
-    "typecheck:daemon": "./apps/cli/node_modules/.bin/tsc -p ./packages/daemon/tsconfig.json --noEmit",
+    "typecheck:daemon": "tsc -p ./packages/daemon/tsconfig.json --noEmit",
     "db:pg:status": "node --experimental-strip-types packages/db/src/postgres-cli.ts status",
     "db:pg:init": "node --experimental-strip-types packages/db/src/postgres-cli.ts init",
     "db:pg:migrate": "node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-sqlite",
@@ -48,7 +48,8 @@
   },
   "devDependencies": {
     "semver": "^7.8.5",
-    "turbo": "^2.10.9"
+    "turbo": "^2.10.9",
+    "typescript": "^5.9.3"
   },
   "pnpm": {
     "overrides": {

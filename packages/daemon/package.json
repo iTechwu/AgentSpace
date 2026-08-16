@@ -35,8 +35,8 @@
   },
   "scripts": {
     "test": "sh -c 'node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/agent-router/capabilities.test.ts src/daemon-client.test.ts src/managed-node-image-contract.test.ts src/resumable-transfer.test.ts src/runtime-apps.test.ts src/skill-install/*.test.ts src/skill-service/*.test.ts src/skill-environment.test.ts src/skill-runner*.test.ts src/task-context-skill-env.test.ts' --",
-    "pretypes": "pnpm --dir ../domain run types && pnpm --dir ../db run types && pnpm --dir ../services run types && ../../apps/web/node_modules/.bin/tsc -p ../sandbox/tsconfig.types.json --incremental false",
-    "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false",
+    "pretypes": "pnpm --dir ../domain run types && pnpm --dir ../db run types && pnpm --dir ../services run types && tsc -p ../sandbox/tsconfig.types.json --incremental false",
+    "types": "tsc -p tsconfig.types.json --incremental false",
     "build": "node ./scripts/build.mjs",
     "prepack": "pnpm run types && pnpm run build",
     "dofe-agent-daemon": "node ./bin/dofe-agent-daemon.js"

@@ -24,7 +24,7 @@
     "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
     "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
     "prisma:verify:pilot": "node --experimental-strip-types src/prisma-schema-drift.ts",
-    "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false",
+    "types": "tsc -p tsconfig.types.json --incremental false",
     "postgres": "node --experimental-strip-types ./src/postgres-cli.ts",
     "postgres:status": "node --experimental-strip-types ./src/postgres-cli.ts status",
     "postgres:init": "node --experimental-strip-types ./src/postgres-cli.ts init",
