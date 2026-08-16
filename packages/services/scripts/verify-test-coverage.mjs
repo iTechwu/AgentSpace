@@ -6,9 +6,11 @@
 // directories MUST be executed by that script; if a glob misses it, this guard
 // fails the run before any test executes.
 //
-// Test files outside the claimed directories (e.g. Feishu integration suites)
-// are intentionally not run by the services test script; they are reported so
-// coverage scope stays visible, but do not fail the gate.
+// Test files outside the claimed directories are intentionally not run by the
+// services test script; they are reported so coverage scope stays visible, but
+// do not fail the gate. Feishu integration suites (3.3-4) ARE covered: the
+// non-DB files run as unit tests, and the *-db.test.ts files self-skip unless
+// their DOFE_AGENT_FEISHU_*_DB_TESTS=1 env gates are set (CI opt-in).
 
 import { readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -18,7 +20,7 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Every *.test.ts under one of these prefixes must be matched by a glob in the
 // `test` script in package.json.
-const COVERED_PREFIXES = ["src/runtime-maintenance", "src/skills", "src/mcp-center", "src/skill-services", "src/workflows", "src/permissions", "src/document-permissions"];
+const COVERED_PREFIXES = ["src/runtime-maintenance", "src/skills", "src/mcp-center", "src/skill-services", "src/workflows", "src/permissions", "src/document-permissions", "src/integrations/providers/feishu/__tests__"];
 // The exact globs used by the `test` script. Keep in sync with package.json.
 const COVERED_GLOBS = [
   "src/runtime-maintenance/*.test.ts",
@@ -29,6 +31,7 @@ const COVERED_GLOBS = [
   "src/workflows/*.test.ts",
   "src/permissions/*.test.ts",
   "src/document-permissions/*.test.ts",
+  "src/integrations/providers/feishu/__tests__/*.test.ts",
 ];
 
 function globToRegex(glob) {
