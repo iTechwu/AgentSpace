@@ -61,7 +61,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P1 | 巨型文件拆分 | permissions/data.ts/postgres-schema 等 10+ 个 >1500 行文件 | 中 | 🟡 |
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | 🟡 |
 | P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | ✅ |
-| P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ⏳ |
+| P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ✅ |
 | P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ |
 | P2 | i18n 无 key | `tx(zh, en)` 内联双语无字典校验 | 中 | ⏳ |
 | P2 | 构建/版本漂移 | esbuild `target` 与 engines 不一致、版本号硬编码 | 低 | 🟡 |
@@ -103,7 +103,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 1. **【P1】拆分 `permissions.ts`（2,439 行，全包最大）** ✅：把 17+ 种数据源聚合为权限树/中心视图。`capabilities` 域已示范正确做法（facade + 4 个单职责子模块），照此拆分「数据源聚合 / 树构建 / 诊断」。
 2. **【P1】拆分 `runtime-provisioning.ts`（2,258 行）** ✅：7 阶段供给状态机，按「阶段机 / 命令构建 / 凭证恢复」分文件。
 3. **【P1】打破模块循环依赖** ✅：已核实的两个环 `messages → automations → workflows → messages` 与 `documents → notifications → messages → documents`。建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。
-4. **【P1】飞书 24 个测试文件游离于测试门之外** ⏳：`src/integrations/...`（含全包最大测试 `inbound.test.ts` 2,406 行、`data-plane.test.ts` 2,239 行）不在 `package.json` 的 test glob 内，`verify-test-coverage.mjs` 注释为 "intentional"。**8,000+ 行测试形同虚设**——要么纳入门禁（纯单测无需外部环境），要么给独立 CI 任务。
+4. **【P1】飞书 24 个测试文件游离于测试门之外** ✅：23 个文件（12,145 行）全部纳入 services 默认测试门——19 个纯单测文件（154 测试）实跑，5 个 `*-db.test.ts`（55 测试）维持 `DOFE_AGENT_FEISHU_*_DB_TESTS=1` env 门控 skip；`verify-test-coverage.mjs` 前缀同步收编，未来新增文件不再游离。顺手修复纳门时暴露的 dev 预存回归：skill-draft Prisma 写入 jsonb 双重编码致读回 null（prisma-write-cutovers 在 HEAD 即失败）。
 5. **【P2】手写 `.d.ts` 孪生去重** ✅（删孪生，dist-types 单源）：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
 6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串** ✅：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
 7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）** ⏳：继续按域拆子路径（`/workflows`、`/skills`…），收窄 web/daemon 的 200+ 处 import。

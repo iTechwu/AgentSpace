@@ -287,18 +287,25 @@
 - **验证**：三轮均过 daemon `tsc --noEmit` + 全套 242 测试（229 pass/13 e2e skip，含 dist-smoke 重建 bundle 断言新模块图可打包）+ dist 构建 + apps/cli typecheck；聚焦测试 35/35、22/22、49/49。
 - 关联余量：§3.6 构建漂移提到的「4 个默认模型名硬编码」现位于 `provider-runtime/catalog.ts`，条目仍 🟡。
 
+### 3.3-4 飞书测试纳入测试门 —— ✅ 完成（含 1 个 dev 预存回归修复）
+
+- **纳门**（`8a990c2`）：services `package.json` test 循环新增 `src/integrations/providers/feishu/__tests__/*.test.ts` 全部 23 个文件（12,145 行）——19 个纯单测文件 154 个测试实跑；5 个 `*-db.test.ts`（inbound/data-plane/outbound/websocket-worker/agent-bot-bindings，55 个测试）维持各自 `DOFE_AGENT_FEISHU_*_DB_TESTS=1` env 门控 skip，CI 可选开。`verify-test-coverage.mjs` 的 COVERED_PREFIXES/GLOBS 同步收编该目录（覆盖 69→92 文件），未来新增文件不再游离。
+- **顺手修复 dev 预存回归**（`c02fd360`）：纳门后跑全门暴露 `prisma-write-cutovers.test.ts` 在 HEAD 即失败（stash 复现确认与本改动无关）——`upsertSkillDraftPrisma` 把 draftJson 字符串直接赋给 Prisma `Json` 字段产生 jsonb 双重编码，与 sync 路径（单层）不一致，读回 `parseDraftSnapshot` 形状校验失败返回 null。对齐 audit-log/notifications 既有「写入前 JSON.parse」惯例修复；db 侧既有测试用 mock client 回显，真实 jsonb 往返从未被覆盖（mock 盲区）。
+- **验证**：23 文件单跑 154 pass + 55 env-gated skip；修复后 services 全门 916 tests / 847 pass / 0 fail / 69 skip；db 侧 5/5、`db types` 通过。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
-| 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
+| 3.4-2 残余 | apps/web `agent-detail.tsx` 1,657 行 / `conversation-shell.tsx` 1,590 行超大客户端页拆分 |
+| 3.6-3 | apps/cli `feishu.ts` 10,597 行巨型文件拆分 |
 
 ---
 
 ## 测试与 CI/CD（专项，⏸ 本轮排除）
 
-> 按决策，本轮优化明确排除测试 CI 专项。§3.6-1（ci.yml 流水线）、§3.6-2（`integrations.test.ts` 11k 行 + `daemon.test.ts` 844 行入默认列表）、§3.3-4（飞书测试入内）整体保持待办。
-> 已推进的子项：`permissions`/`document-permissions`/`prisma` 测试纳入默认门禁（见 3.3-8）。
+> 按决策，本轮优化明确排除测试 CI 专项。§3.6-1（ci.yml 流水线）、§3.6-2（`integrations.test.ts` 11k 行 + `daemon.test.ts` 844 行入默认列表）整体保持待办。§3.3-4（飞书测试入内）已完成，见上文。
+> 已推进的子项：`permissions`/`document-permissions`/`prisma` 测试纳入默认门禁（见 3.3-8）；飞书 23 个测试文件纳入默认门禁（见 3.3-4）。
 
 ---
 
