@@ -221,6 +221,12 @@
 - **验证**：remote-daemon 35/35（新增背压 interval 解析 4 分支 + activity map 用例）、install-remote-daemon-script 9/9、daemon `pnpm types` 干净。
 - **不做合并端点的原因**：五队列响应形态/执行流各异，服务端合并 claim 需新 API + 兼容面；daemon 侧背压零 API 改动即达同等降噪。
 
+### 3.6-6 env 模板漂移审计 —— ✅ 完成（一致性下限，非生成器）
+
+- **改动**（`4041898`）：新增 `scripts/audit-env-templates.mjs` 并接入根 `pretest`（随 `pnpm test` 机器强制）：自动发现全部 git 跟踪 env 模板（11 个 / 186 键，新增模板自动纳入）、键名规范 `^[A-Z][A-Z0-9_]*$`、单模板重复键、跨模板编辑距离 ≤2 近重复（疑似 typo）三类检查；`KNOWN_NEAR_DUPLICATE_PAIRS` 登记经代码确认的 4 对合法共存。配 7 用例测试（`audit-env-templates.test.mjs`），deferred digest 同步。
+- **不做单一 schema 源生成器**：各模板注释即部署文档，生成会牺牲；机器强制一致性下限先落地，生成器留待模板数量继续增长时再评估。
+- **验证**：三段 pretest 链全通过；审计首次运行即扫出 4 对近重复并逐一代码核实为合法（豁免表注明出处）。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
