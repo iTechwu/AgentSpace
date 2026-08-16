@@ -95,12 +95,13 @@
 
 **当前进度**：原 12 文件大 SCC 已消除；当前仅剩一个 type-only、运行时无害的飞书双节点环（`agent-bot-bindings↔external-guests`）。cut 3（附件 GC 语义上移）仍是分层优化项，但已不再阻塞消环目标。
 
-### 3.3-8 / 测试门覆盖 —— 🟡 部分完成
+### 3.3-8 / 测试门覆盖 —— ✅ 完成
 
 - `707e80a5`：`permissions`、`document-permissions` 纳入 services 默认测试脚本与 `verify-test-coverage.mjs` 的 COVERED_PREFIXES；daemon 默认测试纳入 `daemon-client.test.ts`。
 - `a74f362c`：`packages/db/src/prisma/*.test.ts` 纳入 db 默认测试脚本与 `verify-test-inventory.mjs` 门禁。（注：本提交号现合并为 `f8e0f6d4`，squash 后 read-cutover.ts + .test.ts 与默认门禁同提交落地。）
 - `a7c252eb`：`messages` / `notifications` / `channel-access` 三个测试包纳入 services 默认测试脚本与 inventory default-owned；messages 14 项受 managed_runtime 夹具约束的用例以 `MANAGED_RUNTIME_AVAILABLE=1` env 门控跳过。
-- 剩余：`employees`、`documents`、`knowledge` 等待办；飞书 24 个测试文件仍游离（3.3-4）。
+- `52f49d7c`（收尾）：`documents` / `employees` / `knowledge` 三域 16 个测试文件纳入 services 默认测试脚本与 inventory default-owned（deferred 185→170）。**顺带修复预存失败**：`recovery-worker.test.ts`「审批解锁 worker」用例未跟上 `0696451d` 的恢复操作双人审批设计（`requiredApprovals` 默认 2），补第二位管理员审批断言——该测试从未进 CI 故未暴露，纳门即暴露。注意 `src/knowledge` 前缀须带斜杠（`src/knowledge/`），否则误吞 `knowledge-proposals`。验证：services 全门 954 pass / 0 fail。
+- 飞书 24 个测试文件的纳门见 3.3-4（已完成）。
 
 ### 3.6-3 / 3.6-4 CLI 巨型文件与测试脚本 —— ✅ CLI 侧完成
 
