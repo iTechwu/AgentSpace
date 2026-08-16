@@ -1,8 +1,8 @@
 "use server";
 
 import {
-  archiveNotificationSync,
-  markNotificationReadSync,
+  archiveNotificationAsync,
+  markNotificationReadAsync,
   readWorkspaceStateSync,
   sameValue,
   updateTaskStatusSync,
@@ -36,11 +36,11 @@ export async function updateInboxTaskStatusAction(taskId: string, status: TaskSt
 export async function markInboxNotificationReadAction(notificationId: string): Promise<ActionToastResult<void>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   const normalizedNotificationId = normalizeNotificationId(notificationId);
-  const updated = mutateOwnedInboxNotification({
+  const updated = await mutateOwnedInboxNotification({
     workspaceId: workspaceContext.currentWorkspace.id,
     notificationId: normalizedNotificationId,
     currentUserId: workspaceContext.currentUser.id,
-    mutate: markNotificationReadSync,
+    mutate: markNotificationReadAsync,
   });
   if (!updated) {
     throw new Error("notification.not_found");
@@ -56,11 +56,11 @@ export async function markInboxNotificationReadAction(notificationId: string): P
 export async function archiveInboxNotificationAction(notificationId: string): Promise<ActionToastResult<void>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   const normalizedNotificationId = normalizeNotificationId(notificationId);
-  const updated = mutateOwnedInboxNotification({
+  const updated = await mutateOwnedInboxNotification({
     workspaceId: workspaceContext.currentWorkspace.id,
     notificationId: normalizedNotificationId,
     currentUserId: workspaceContext.currentUser.id,
-    mutate: archiveNotificationSync,
+    mutate: archiveNotificationAsync,
   });
   if (!updated) {
     throw new Error("notification.not_found");
@@ -81,7 +81,7 @@ function normalizeNotificationId(value: string): string {
   return normalized;
 }
 
-function mutateOwnedInboxNotification(input: {
+async function mutateOwnedInboxNotification(input: {
   workspaceId: string;
   notificationId: string;
   currentUserId: string;
@@ -89,9 +89,9 @@ function mutateOwnedInboxNotification(input: {
     workspaceId: string;
     notificationId: string;
     recipient: WorkspaceNotificationRecipient;
-  }) => unknown;
-}): unknown {
-  const humanResult = input.mutate({
+  }) => Promise<unknown>;
+}): Promise<unknown> {
+  const humanResult = await input.mutate({
     workspaceId: input.workspaceId,
     notificationId: input.notificationId,
     recipient: {
@@ -107,7 +107,7 @@ function mutateOwnedInboxNotification(input: {
     .filter((employee) => typeof employee.ownerUserId === "string" && sameValue(employee.ownerUserId, input.currentUserId))
     .map((employee) => employee.name);
   for (const agentName of ownedAgentNames) {
-    const agentResult = input.mutate({
+    const agentResult = await input.mutate({
       workspaceId: input.workspaceId,
       notificationId: input.notificationId,
       recipient: {

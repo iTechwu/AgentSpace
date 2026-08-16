@@ -2,6 +2,7 @@ import {
   approveDocumentPermissionRequestSync as approveStoredDocumentPermissionRequestSync,
   cancelDocumentPermissionRequestSync as cancelStoredDocumentPermissionRequestSync,
   createDocumentPermissionRequestSync as createStoredDocumentPermissionRequestSync,
+  grantDocumentAgentAccessPrismaCutover,
   grantDocumentAgentAccessSync as grantStoredDocumentAgentAccessSync,
   linkDocumentPermissionRequestDocumentSync,
   listDocumentAgentAccessSync as listStoredDocumentAgentAccessSync,
@@ -11,6 +12,7 @@ import {
   readWorkspaceMembershipSync,
   readUserSync,
   rejectDocumentPermissionRequestSync as rejectStoredDocumentPermissionRequestSync,
+  revokeDocumentAgentAccessPrismaCutover,
   revokeDocumentAgentAccessSync as revokeStoredDocumentAgentAccessSync,
   type DocumentAgentAccessRecord,
   type DocumentPermissionRequestExternalProvider,
@@ -87,6 +89,36 @@ export function grantDocumentAgentAccessSync(input: {
     role: input.role,
     grantedByUserId: input.grantedByUserId,
   });
+  return runGrantSideEffects(input, grant);
+}
+
+/** Prisma 写 cutover：flag OFF 走 sync fallback，行为与 sync 变体一致。 */
+export async function grantDocumentAgentAccessAsync(input: {
+  workspaceId: string;
+  documentId: string;
+  agentName: string;
+  role: AgentAssignableDocumentAccessRole;
+  grantedByUserId: string;
+}): Promise<DocumentAgentAccessRecord> {
+  assertAgentAssignableRole(input.role);
+  assertDocumentExists(input.workspaceId, input.documentId);
+  const grant = await grantDocumentAgentAccessPrismaCutover({
+    workspaceId: input.workspaceId,
+    documentId: input.documentId,
+    subjectId: input.agentName,
+    role: input.role,
+    grantedByUserId: input.grantedByUserId,
+  });
+  return runGrantSideEffects(input, grant);
+}
+
+function runGrantSideEffects(input: {
+  workspaceId: string;
+  documentId: string;
+  agentName: string;
+  role: AgentAssignableDocumentAccessRole;
+  grantedByUserId: string;
+}, grant: DocumentAgentAccessRecord): DocumentAgentAccessRecord {
   const { document } = readChannelDocumentSync(input.documentId, input.workspaceId);
   const agentOwner = resolveAgentOwnerUser(input.workspaceId, input.agentName);
   const granter = readUserSync(input.grantedByUserId);
@@ -164,6 +196,30 @@ export function revokeDocumentAgentAccessSync(input: {
     documentId: input.documentId,
     subjectId: input.agentName,
   });
+  runRevokeSideEffects(input, revoked);
+  return revoked;
+}
+
+/** Prisma 写 cutover：flag OFF 走 sync fallback，行为与 sync 变体一致。 */
+export async function revokeDocumentAgentAccessAsync(input: {
+  workspaceId: string;
+  documentId: string;
+  agentName: string;
+}): Promise<DocumentAgentAccessRecord | null> {
+  const revoked = await revokeDocumentAgentAccessPrismaCutover({
+    workspaceId: input.workspaceId,
+    documentId: input.documentId,
+    subjectId: input.agentName,
+  });
+  runRevokeSideEffects(input, revoked);
+  return revoked;
+}
+
+function runRevokeSideEffects(input: {
+  workspaceId: string;
+  documentId: string;
+  agentName: string;
+}, revoked: DocumentAgentAccessRecord | null): void {
   if (revoked) {
     const document = tryReadChannelDocument(input.workspaceId, input.documentId);
     tryRecordWorkspaceAuditEventSync({
@@ -177,7 +233,6 @@ export function revokeDocumentAgentAccessSync(input: {
       },
     });
   }
-  return revoked;
 }
 
 export function listDocumentAgentAccessSync(input: {

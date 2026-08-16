@@ -1,4 +1,5 @@
 import {
+  archiveWorkspaceNotificationPrismaCutover,
   archiveWorkspaceNotificationSync,
   countUnreadWorkspaceNotificationsSync,
   createWorkspaceNotificationSync,
@@ -6,6 +7,7 @@ import {
   listWorkspaceMemberUsersSync,
   listWorkspaceNotificationsForRecipientSync,
   listWorkspaceNotificationsPrismaCutover,
+  markWorkspaceNotificationReadPrismaCutover,
   markWorkspaceNotificationReadSync,
   type CreateWorkspaceNotificationInput,
   type WorkspaceNotificationRecipient,
@@ -67,12 +69,30 @@ export function markNotificationReadSync(input: {
   return markWorkspaceNotificationReadSync(input);
 }
 
+/** Prisma 写 cutover：flag OFF 走 sync fallback，行为与 sync 变体一致。 */
+export function markNotificationReadAsync(input: {
+  workspaceId: string;
+  notificationId: string;
+  recipient: WorkspaceNotificationRecipient;
+}): Promise<WorkspaceNotificationRecord | null> {
+  return markWorkspaceNotificationReadPrismaCutover(input);
+}
+
 export function archiveNotificationSync(input: {
   workspaceId: string;
   notificationId: string;
   recipient: WorkspaceNotificationRecipient;
 }): WorkspaceNotificationRecord | null {
   return archiveWorkspaceNotificationSync(input);
+}
+
+/** Prisma 写 cutover：flag OFF 走 sync fallback，行为与 sync 变体一致。 */
+export function archiveNotificationAsync(input: {
+  workspaceId: string;
+  notificationId: string;
+  recipient: WorkspaceNotificationRecipient;
+}): Promise<WorkspaceNotificationRecord | null> {
+  return archiveWorkspaceNotificationPrismaCutover(input);
 }
 
 export function countUnreadNotificationsSync(input: {

@@ -704,6 +704,14 @@ export {
   type ListNotificationsPrismaCutoverMetric,
 } from "./prisma/notifications-prisma-cutover.ts";
 export {
+  createWorkspaceNotificationPrismaCutover,
+  markWorkspaceNotificationReadPrismaCutover,
+  archiveWorkspaceNotificationPrismaCutover,
+  type CreateWorkspaceNotificationPrismaCutoverMetric,
+  type NotificationStatusInput,
+  type UpdateNotificationStatusPrismaCutoverMetric,
+} from "./prisma/notifications-prisma-write.ts";
+export {
   listTaskExecutionEventsPrismaCutover,
   type ListTaskExecutionEventsPrismaCutoverMetric,
 } from "./prisma/task-execution-events-prisma-cutover.ts";
@@ -731,6 +739,13 @@ export {
   listDocumentAgentAccessPrismaCutover,
   type ListDocumentAgentAccessPrismaCutoverMetric,
 } from "./prisma/document-agent-access-prisma-cutover.ts";
+export {
+  grantDocumentAgentAccessPrismaCutover,
+  revokeDocumentAgentAccessPrismaCutover,
+  type DocumentAgentAccessWritePrismaCutoverMetric,
+  type GrantDocumentAgentAccessInput,
+  type RevokeDocumentAgentAccessInput,
+} from "./prisma/document-agent-access-prisma-write.ts";
 export {
   listDocumentPermissionRequestsPrismaCutover,
   type ListDocumentPermissionRequestsPrismaCutoverMetric,
@@ -1167,6 +1182,12 @@ export {
   type SkillDraftSnapshot,
   type SkillDraftRecord,
 } from "./skill-drafts.ts";
+export {
+  upsertSkillDraftPrismaCutover,
+  deleteSkillDraftPrismaCutover,
+  type SkillDraftWritePrismaCutoverMetric,
+  type UpsertSkillDraftInput,
+} from "./prisma/skill-drafts-prisma-write.ts";
 export {
   upsertPagerAlertStateSync,
   markPagerAlertClearedSync,

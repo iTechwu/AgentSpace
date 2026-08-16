@@ -1,6 +1,8 @@
 import {
+  deleteSkillDraftPrismaCutover,
   deleteSkillDraftSync as deleteStoredSkillDraftSync,
   readSkillDraftSync as readStoredSkillDraftSync,
+  upsertSkillDraftPrismaCutover,
   upsertSkillDraftSync,
   type SkillDraftSnapshot,
 } from "@dofe-agent/db";
@@ -34,6 +36,42 @@ export function saveSkillDraftSync(input: {
   files: Array<{ path: string; content: string }>;
   actorUserId?: string;
 }): SkillDraftView {
+  const { snapshot, draftJson } = buildDraftSnapshot(input);
+  const record = upsertSkillDraftSync({
+    workspaceId: input.workspaceId,
+    skillId: input.skillId,
+    draftJson,
+    updatedByUserId: input.actorUserId,
+  });
+  recordSkillDraftSavedAudit(input.workspaceId, input.skillId, input.actorUserId);
+  return { ...snapshot, updatedAt: record.updatedAt };
+}
+
+/** Prisma 写 cutover：flag OFF 走 sync fallback，行为与 sync 变体一致。 */
+export async function saveSkillDraftAsync(input: {
+  workspaceId: string;
+  skillId: string;
+  name: string;
+  description?: string;
+  files: Array<{ path: string; content: string }>;
+  actorUserId?: string;
+}): Promise<SkillDraftView> {
+  const { snapshot, draftJson } = buildDraftSnapshot(input);
+  const record = await upsertSkillDraftPrismaCutover({
+    workspaceId: input.workspaceId,
+    skillId: input.skillId,
+    draftJson,
+    updatedByUserId: input.actorUserId,
+  });
+  recordSkillDraftSavedAudit(input.workspaceId, input.skillId, input.actorUserId);
+  return { ...snapshot, updatedAt: record.updatedAt };
+}
+
+function buildDraftSnapshot(input: {
+  name: string;
+  description?: string;
+  files: Array<{ path: string; content: string }>;
+}): { snapshot: SkillDraftSnapshot; draftJson: string } {
   const name = input.name.trim();
   if (!name) {
     throw new Error("Skill draft name is required.");
@@ -46,25 +84,22 @@ export function saveSkillDraftSync(input: {
     description: input.description?.trim() ?? "",
     files: input.files.map((file) => ({ path: file.path, content: file.content })),
   };
-  const record = upsertSkillDraftSync({
-    workspaceId: input.workspaceId,
-    skillId: input.skillId,
-    draftJson: JSON.stringify(snapshot),
-    updatedByUserId: input.actorUserId,
-  });
+  return { snapshot, draftJson: JSON.stringify(snapshot) };
+}
+
+function recordSkillDraftSavedAudit(workspaceId: string, skillId: string, actorUserId?: string): void {
   tryRecordWorkspaceAuditEventSync({
-    workspaceId: input.workspaceId,
+    workspaceId,
     title: "Skill draft saved",
-    note: `Draft for skill "${input.skillId}" was saved.`,
+    note: `Draft for skill "${skillId}" was saved.`,
     code: "workspace.skill_draft_saved",
     data: {
       actorType: "session_user",
-      actorUserId: input.actorUserId,
+      actorUserId,
       resourceType: "skill",
-      resourceId: input.skillId,
+      resourceId: skillId,
     },
   });
-  return { ...snapshot, updatedAt: record.updatedAt };
 }
 
 export function readSkillDraftSync(input: {
@@ -90,7 +125,29 @@ export function publishSkillDraftSync(input: {
   actorUserId?: string;
   actorDisplayName?: string;
 }): SkillDraftView {
-  const record = readStoredSkillDraftSync(input.skillId, input.workspaceId);
+  const { snapshot, updatedAt } = readDraftForPublish(input.workspaceId, input.skillId);
+  applyDraftSnapshotToLiveSkill(input.workspaceId, input.skillId, snapshot);
+  deleteStoredSkillDraftSync(input.skillId, input.workspaceId);
+  recordSkillDraftPublishedAudit(input.workspaceId, input.skillId, input.actorUserId, input.actorDisplayName);
+  return { ...snapshot, updatedAt };
+}
+
+/** Prisma 写 cutover（草稿清除一步）：flag OFF 走 sync fallback，行为与 sync 变体一致。 */
+export async function publishSkillDraftAsync(input: {
+  workspaceId: string;
+  skillId: string;
+  actorUserId?: string;
+  actorDisplayName?: string;
+}): Promise<SkillDraftView> {
+  const { snapshot, updatedAt } = readDraftForPublish(input.workspaceId, input.skillId);
+  applyDraftSnapshotToLiveSkill(input.workspaceId, input.skillId, snapshot);
+  await deleteSkillDraftPrismaCutover({ workspaceId: input.workspaceId, skillId: input.skillId });
+  recordSkillDraftPublishedAudit(input.workspaceId, input.skillId, input.actorUserId, input.actorDisplayName);
+  return { ...snapshot, updatedAt };
+}
+
+function readDraftForPublish(workspaceId: string, skillId: string): { snapshot: SkillDraftSnapshot; updatedAt: string } {
+  const record = readStoredSkillDraftSync(skillId, workspaceId);
   if (!record) {
     throw new Error("没有可发布的草稿。");
   }
@@ -98,44 +155,57 @@ export function publishSkillDraftSync(input: {
   if (!snapshot) {
     throw new Error("草稿内容不可读。");
   }
-  const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
+  if (!readWorkspaceSkillSync(skillId, workspaceId)) {
+    throw new Error("Skill 不存在。");
+  }
+  return { snapshot, updatedAt: record.updatedAt };
+}
+
+function applyDraftSnapshotToLiveSkill(workspaceId: string, skillId: string, snapshot: SkillDraftSnapshot): void {
+  const skill = readWorkspaceSkillSync(skillId, workspaceId);
   if (!skill) {
     throw new Error("Skill 不存在。");
   }
   updateWorkspaceSkillSync({
-    skillId: input.skillId,
+    skillId,
     name: snapshot.name,
     description: snapshot.description,
-  }, input.workspaceId);
+  }, workspaceId);
   const existingByPath = new Map(skill.files.map((file) => [file.path, file]));
   const draftPaths = new Set(snapshot.files.map((file) => file.path));
   for (const file of snapshot.files) {
     upsertWorkspaceSkillFileSync({
-      skillId: input.skillId,
+      skillId,
       fileId: existingByPath.get(file.path)?.id,
       path: file.path,
       content: file.content,
-    }, input.workspaceId);
+    }, workspaceId);
   }
   for (const [path, file] of existingByPath) {
     if (!draftPaths.has(path) && path !== "SKILL.md") {
-      deleteWorkspaceSkillFileSync(input.skillId, file.id, input.workspaceId);
+      deleteWorkspaceSkillFileSync(skillId, file.id, workspaceId);
     }
   }
-  deleteStoredSkillDraftSync(input.skillId, input.workspaceId);
+}
+
+function recordSkillDraftPublishedAudit(
+  workspaceId: string,
+  skillId: string,
+  actorUserId?: string,
+  actorDisplayName?: string,
+): void {
   tryRecordWorkspaceAuditEventSync({
-    workspaceId: input.workspaceId,
+    workspaceId,
     title: "Skill draft published",
-    note: `Draft for skill "${input.skillId}" was published${input.actorDisplayName ? ` by ${input.actorDisplayName}` : ""}.`,
+    note: `Draft for skill "${skillId}" was published${actorDisplayName ? ` by ${actorDisplayName}` : ""}.`,
     code: "workspace.skill_draft_published",
     data: {
       actorType: "session_user",
-      actorUserId: input.actorUserId,
+      actorUserId,
       resourceType: "skill",
-      resourceId: input.skillId,
+      resourceId: skillId,
     },
   });
-  return { ...snapshot, updatedAt: record.updatedAt };
 }
 
 export function discardSkillDraftSync(input: {
@@ -143,6 +213,14 @@ export function discardSkillDraftSync(input: {
   skillId: string;
 }): boolean {
   return deleteStoredSkillDraftSync(input.skillId, input.workspaceId);
+}
+
+/** Prisma 写 cutover：flag OFF 走 sync fallback，行为与 sync 变体一致。 */
+export async function discardSkillDraftAsync(input: {
+  workspaceId: string;
+  skillId: string;
+}): Promise<boolean> {
+  return deleteSkillDraftPrismaCutover({ workspaceId: input.workspaceId, skillId: input.skillId });
 }
 
 function parseDraftSnapshot(json: string): SkillDraftSnapshot | null {

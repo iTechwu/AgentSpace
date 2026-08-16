@@ -3,11 +3,11 @@
 import {
   approveAgentAccessRequestForActorSync,
   approveDocumentPermissionRequestSync,
-  grantDocumentAgentAccessSync,
+  grantDocumentAgentAccessAsync,
   removeWorkspaceMemberFromChannelForActorSync,
   rejectAgentAccessRequestForActorSync,
   rejectDocumentPermissionRequestSync,
-  revokeDocumentAgentAccessSync,
+  revokeDocumentAgentAccessAsync,
   tryRecordWorkspaceAuditEventSync,
 } from "@dofe-agent/services";
 import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
@@ -230,7 +230,7 @@ export async function permissionsGrantDocumentAgentAccessAction(input: {
   role: "viewer" | "editor" | "forwarder";
 }): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
-  await grantDocumentAgentAccessSync({
+  await grantDocumentAgentAccessAsync({
     workspaceId: workspaceContext.currentWorkspace.id,
     documentId: input.documentId,
     agentName: input.agentName,
@@ -245,7 +245,7 @@ export async function permissionsRevokeDocumentAgentAccessAction(input: {
   agentName: string;
 }): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
-  await revokeDocumentAgentAccessSync({
+  await revokeDocumentAgentAccessAsync({
     workspaceId: workspaceContext.currentWorkspace.id,
     documentId: input.documentId,
     agentName: input.agentName,

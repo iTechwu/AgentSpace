@@ -1,11 +1,11 @@
 "use server";
 
 import {
-  discardSkillDraftSync,
+  discardSkillDraftAsync,
   hasSkillDraftSync,
-  publishSkillDraftSync,
+  publishSkillDraftAsync,
   readSkillDraftSync,
-  saveSkillDraftSync,
+  saveSkillDraftAsync,
   type SkillDraftView,
 } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
@@ -27,7 +27,7 @@ export async function saveSkillDraftAction(input: {
 }): Promise<ActionToastResult<SkillDraftView>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
-  const view = saveSkillDraftSync({
+  const view = await saveSkillDraftAsync({
     workspaceId: workspaceContext.currentWorkspace.id,
     skillId: input.skillId.trim(),
     name: input.name,
@@ -69,7 +69,7 @@ export async function publishSkillDraftAction(input: {
 }): Promise<ActionToastResult<SkillDraftView>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
-  const view = publishSkillDraftSync({
+  const view = await publishSkillDraftAsync({
     workspaceId: workspaceContext.currentWorkspace.id,
     skillId: input.skillId.trim(),
     actorUserId: workspaceContext.currentUser.id,
@@ -87,7 +87,7 @@ export async function discardSkillDraftAction(input: {
 }): Promise<ActionToastResult<{ discarded: boolean }>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
-  const discarded = discardSkillDraftSync({
+  const discarded = await discardSkillDraftAsync({
     workspaceId: workspaceContext.currentWorkspace.id,
     skillId: input.skillId.trim(),
   });

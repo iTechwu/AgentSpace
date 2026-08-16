@@ -35,12 +35,14 @@ export {
   tryRecordWorkspaceAuditEventSync,
 } from "./shared/audit.ts";
 export {
+  archiveNotificationAsync,
   archiveNotificationSync,
   countUnreadNotificationsSync,
   createNotificationSync,
   createNotificationsSync,
   listNotificationsForRecipientSync,
   listNotificationsForRecipientAsync,
+  markNotificationReadAsync,
   markNotificationReadSync,
   notifyWorkspaceAdminsSync,
   postNotificationChannelMessageSync,
@@ -312,10 +314,13 @@ export {
 } from "./skills/system-dependency-catalog.ts";
 export {
   saveSkillDraftSync,
+  saveSkillDraftAsync,
   readSkillDraftSync,
   hasSkillDraftSync,
   publishSkillDraftSync,
+  publishSkillDraftAsync,
   discardSkillDraftSync,
+  discardSkillDraftAsync,
   type SkillDraftView,
 } from "./skills/drafts.ts";
 export {
@@ -1411,6 +1416,7 @@ export {
   assertAgentDocumentActionAllowedSync,
   cancelDocumentPermissionRequestSync,
   createDocumentPermissionRequestSync,
+  grantDocumentAgentAccessAsync,
   grantDocumentAgentAccessSync,
   listDocumentAgentAccessSync,
   listDocumentPermissionRequestsSync,
@@ -1418,6 +1424,7 @@ export {
   rejectDocumentPermissionRequestSync,
   resolveAgentDocumentContextSync,
   resolveAgentDocumentRejectionContextSync,
+  revokeDocumentAgentAccessAsync,
   revokeDocumentAgentAccessSync,
   type AgentDocumentContext,
   type DocumentAgentAccessRecord,
