@@ -41,7 +41,8 @@ export interface FileEntry {
   modifiedAt: string;
 }
 
-export type SandboxProvider = "local" | "cube";
+// 3.5-5：cube 分支已移除，直到远端 exec 数据面真正落地（见 factory.ts）。
+export type SandboxProvider = "local";
 
 export interface SandboxConnectOptions {
   runtimeId: string;

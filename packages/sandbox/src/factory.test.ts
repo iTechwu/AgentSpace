@@ -3,15 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { connectSandbox } from "./factory.ts";
-import { CubeSandbox } from "./cube/cube-sandbox.ts";
-import {
-  CUBE_EXPERIMENTAL_ENABLE_ENV,
-  LEGACY_CUBE_API_KEY_ENV,
-  LEGACY_CUBE_API_URL_ENV,
-  LEGACY_CUBE_TEMPLATE_ID_ENV,
-  LEGACY_SANDBOX_PROVIDER_ENV,
-} from "./cube/cube-config.ts";
+import { LEGACY_SANDBOX_PROVIDER_ENV, SANDBOX_PROVIDER_ENV, connectSandbox } from "./factory.ts";
 import { LocalSandbox } from "./local/local-sandbox.ts";
 
 test("connectSandbox defaults to the local provider", async () => {
@@ -31,78 +23,38 @@ test("connectSandbox defaults to the local provider", async () => {
   }
 });
 
-test("connectSandbox provisions a Cube sandbox when the provider env is cube", async () => {
-  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-sandbox-cube-"));
-  const requests: Array<{ url: string; method: string; body: string }> = [];
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    const method = init?.method ?? "GET";
-    const body = typeof init?.body === "string" ? init.body : "";
-    requests.push({ url, method, body });
-
-    if (method === "POST" && url === "http://cube.test/sandboxes") {
-      return new Response(JSON.stringify({
-        templateID: "tpl-demo",
-        sandboxID: "sbx-demo",
-        clientID: "client-demo",
-        envdVersion: "test",
-        domain: "cube.app",
-      }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    if (method === "POST" && url === "http://cube.test/sandboxes/sbx-demo/snapshots") {
-      return new Response(JSON.stringify({
-        snapshotID: "snap-demo",
-        names: ["runtime-cube"],
-      }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    if (method === "POST" && url === "http://cube.test/sandboxes/sbx-demo/pause") {
-      return new Response(null, { status: 204 });
-    }
-
-    if (method === "DELETE" && url === "http://cube.test/sandboxes/sbx-demo") {
-      return new Response(null, { status: 204 });
-    }
-
-    throw new Error(`Unexpected fetch: ${method} ${url}`);
-  }) as typeof fetch;
+test("connectSandbox accepts an explicit local provider via env", async () => {
+  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-sandbox-explicit-"));
 
   try {
-    const sandbox = await connectSandbox({
-      runtimeId: "runtime-cube",
-      workDir,
-      env: {
-        [LEGACY_SANDBOX_PROVIDER_ENV]: "cube",
-        [CUBE_EXPERIMENTAL_ENABLE_ENV]: "true",
-        [LEGACY_CUBE_API_URL_ENV]: "http://cube.test",
-        [LEGACY_CUBE_API_KEY_ENV]: "dummy",
-        [LEGACY_CUBE_TEMPLATE_ID_ENV]: "tpl-demo",
-      },
-    });
-
-    assert.ok(sandbox instanceof CubeSandbox);
-    assert.equal(sandbox.status, "active");
-    assert.match(requests[0]?.body ?? "", /"templateID":"tpl-demo"/);
-
-    const snapshotId = await sandbox.snapshot();
-    assert.equal(snapshotId, "snap-demo");
-
-    await sandbox.stop();
-    assert.equal(sandbox.status, "hibernated");
-
-    await sandbox.destroy();
-    assert.equal(sandbox.status, "stopped");
+    for (const envName of [SANDBOX_PROVIDER_ENV, LEGACY_SANDBOX_PROVIDER_ENV]) {
+      const sandbox = await connectSandbox({
+        runtimeId: "runtime-explicit",
+        workDir,
+        env: { [envName]: "local" },
+      });
+      assert.ok(sandbox instanceof LocalSandbox);
+    }
   } finally {
-    globalThis.fetch = originalFetch;
+    await rm(workDir, { recursive: true, force: true });
+  }
+});
+
+// 3.5-5：cube 分支移除后 fail-closed——非 local provider 立即报错，
+// 绝不落到半可用实现（旧版双开关打开会真实创建云沙箱后 exec 必抛）。
+test("connectSandbox rejects non-local providers instead of falling back", async () => {
+  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-sandbox-reject-"));
+
+  try {
+    await assert.rejects(
+      () => connectSandbox({ runtimeId: "runtime-cube", workDir, env: { [SANDBOX_PROVIDER_ENV]: "cube" } }),
+      /Unsupported sandbox provider "cube". Only "local"/,
+    );
+    await assert.rejects(
+      () => connectSandbox({ runtimeId: "runtime-e2b", workDir, provider: "e2b" as never }),
+      /Unsupported sandbox provider "e2b"/,
+    );
+  } finally {
     await rm(workDir, { recursive: true, force: true });
   }
 });
