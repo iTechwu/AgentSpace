@@ -245,6 +245,12 @@
 - **顺带修复 3.5-8 遗漏**：CLI `DaemonConfig` 补 `operationClaimIntervalMs` 字段（`DOFE_AGENT_OPERATION_CLAIM_INTERVAL` env 可覆盖，默认 15s 与 daemon 侧 `state.ts` 一致）——此前 `typecheck:cli` 报 TS2345。
 - **验证**：CLI `doctor`/`daemon status`/未知子命令退出码 0/0/1；proxy wrapper 与 dist 缺 key 错误路径均 exit 1；proxy 48 测试通过；CLI + daemon typecheck 通过。
 
+### 3.6-10 `workflow-worker` types 依赖 `apps/web` 的 tsc —— ✅ 完成
+
+- **改动**（`847a069`）：根 `package.json` devDependencies 显式声明 `typescript ^5.9.3`（与 web/db/cli/workflow-worker 既有声明同版本，pnpm 去重同一实例）；根 `typecheck:deps`（5 处）/`typecheck:web:only`/`typecheck:daemon`（cli 宿主）、`packages/{domain,db,services,daemon}` `types`/`pretypes`、`apps/{mcp-egress-proxy,workflow-worker}` `types` 共 9 处 `node_modules/.bin/tsc` 相对路径借用全部改为裸 `tsc`——pnpm run 将包级→根级 `node_modules/.bin` 依次加入 PATH，自身未声明 typescript 的包（domain/services/sandbox/daemon/mcp-egress-proxy）解析到根实例。
+- **web 的 `./apps/web/node_modules/.bin/next typegen` 保留**：next 是 web 自身声明依赖，非借用。
+- **验证**：`typecheck:deps`、`typecheck:daemon`、daemon `pretypes` 全链（domain→db→services→sandbox→daemon）、mcp-egress-proxy 与 workflow-worker `types` 全部通过，无 error TS。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
@@ -253,7 +259,6 @@
 | 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
 | 3.5-5 | sandbox 抽象决策收口（Cube `exec()` 未实现，`connectSandbox()` 无调用方） |
 | 3.5-7 | 测试路径与 `dist/` 产物对齐（esbuild CJS banner 覆盖） |
-| 3.6-10 | `workflow-worker` types 依赖 `apps/web` 的 tsc |
 | 3.6-11 | 部署物分散（统一部署拓扑 + 组件所有权文档） |
 | 3.6-12 | docs 按日期目录缺乏索引 |
 
