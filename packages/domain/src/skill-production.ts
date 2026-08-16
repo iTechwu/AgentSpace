@@ -36,6 +36,14 @@ export interface QualityReport {
   round: number;
 }
 
+/** Binds a complete quality report to the digest and Workspace that produced it. */
+export interface QualityReportArtifactEnvelope {
+  kind: "quality-report";
+  digest: string;
+  workspaceId: string;
+  report: QualityReport;
+}
+
 export function parseSkillArtifactRevision(value: unknown): SkillArtifactRevision | null {
   if (!isRecord(value)) return null;
   if (typeof value.artifactId !== "string" || value.artifactId.trim() === "") return null;
@@ -97,6 +105,25 @@ export function parseQualityReport(value: unknown): QualityReport | null {
     blockingCount: value.blockingCount,
     maxRounds: value.maxRounds,
     round: value.round,
+  };
+}
+
+export function parseQualityReportArtifactEnvelope(
+  value: unknown,
+  expectedDigest: string,
+  expectedWorkspaceId: string,
+): QualityReportArtifactEnvelope | null {
+  if (!isRecord(value)
+    || value.kind !== "quality-report"
+    || value.digest !== expectedDigest
+    || value.workspaceId !== expectedWorkspaceId) return null;
+  const report = parseQualityReport(value.report);
+  if (!report) return null;
+  return {
+    kind: "quality-report",
+    digest: expectedDigest,
+    workspaceId: expectedWorkspaceId,
+    report,
   };
 }
 

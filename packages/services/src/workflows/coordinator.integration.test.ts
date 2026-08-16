@@ -453,6 +453,12 @@ test("iteration_group early-exit skips remaining rounds and auto-approves on pas
       nodeRunId: gateRun.id,
       taskQueueId: taskId,
       output: { blockingCount: 0, qualityReportDigest: "qr-1" },
+      artifactManifest: [{
+        kind: "quality-report",
+        digest: "qr-1",
+        workspaceId: seed.workspaceId,
+        report: { schemaVersion: 1, subject: { artifactId: "script", revision: "r1", digest: "artifact-1" }, checks: [], blockingCount: 0, maxRounds: 2, round: 1 },
+      }],
     });
 
     for (const id of ["convergence.art-r2", "convergence.script-r2", "convergence.merge-r2", "convergence.consistency-r2"]) {

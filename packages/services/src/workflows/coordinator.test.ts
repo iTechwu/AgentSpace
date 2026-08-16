@@ -10,13 +10,20 @@ import {
 
 test("iteration-group gate requires a zero blocking count and a quality report digest", () => {
   const gate = { blockingField: "blockingCount", qualityReportField: "qualityReportDigest" };
-  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0, qualityReportDigest: "qr-1" }, gate), true);
-  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0, qualityReportDigest: "  " }, gate), false);
-  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0 }, gate), false);
-  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 1, qualityReportDigest: "qr-1" }, gate), false);
-  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: -1, qualityReportDigest: "qr-1" }, gate), false);
-  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0.5, qualityReportDigest: "qr-1" }, gate), false);
-  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: "0", qualityReportDigest: "qr-1" }, gate), false);
+  const manifest = [{
+    kind: "quality-report",
+    digest: "qr-1",
+    workspaceId: "default",
+    report: { schemaVersion: 1, subject: { artifactId: "script", revision: "r1", digest: "artifact-1" }, checks: [], blockingCount: 0, maxRounds: 2, round: 1 },
+  }];
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0, qualityReportDigest: "qr-1" }, gate, manifest, "default"), true);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0, qualityReportDigest: "  " }, gate, manifest, "default"), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0 }, gate, manifest, "default"), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 1, qualityReportDigest: "qr-1" }, gate, manifest, "default"), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: -1, qualityReportDigest: "qr-1" }, gate, manifest, "default"), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0.5, qualityReportDigest: "qr-1" }, gate, manifest, "default"), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: "0", qualityReportDigest: "qr-1" }, gate, manifest, "default"), false);
+  assert.equal(isIterationGroupGateOutputPassing({ blockingCount: 0, qualityReportDigest: "qr-1" }, gate, [], "default"), false);
 });
 
 test("failed joins identify every downstream node that must be skipped", () => {

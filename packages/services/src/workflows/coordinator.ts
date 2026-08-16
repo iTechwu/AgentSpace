@@ -20,7 +20,11 @@ import {
   type WorkflowNodeRunRecord,
   type WorkflowRunRecord,
 } from "@dofe-agent/db";
-import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
+import {
+  isQualityReportPassing,
+  parseQualityReportArtifactEnvelope,
+  type WorkflowGraphDefinition,
+} from "@dofe-agent/domain";
 import { listApprovalsSync, reviewApprovalSync } from "../approvals/approvals.ts";
 import {
   buildWorkflowNodeRuntimeContext,
@@ -48,14 +52,19 @@ export interface CompleteWorkflowNodeInput {
 export function isIterationGroupGateOutputPassing(
   output: Record<string, unknown>,
   gate: { blockingField: string; qualityReportField: string },
+  artifactManifest: unknown[],
+  workspaceId: string,
 ): boolean {
   const blocking = output[gate.blockingField];
   const qualityReportDigest = output[gate.qualityReportField];
-  return Number.isInteger(blocking)
-    && typeof blocking === "number"
-    && blocking === 0
-    && typeof qualityReportDigest === "string"
-    && qualityReportDigest.trim() !== "";
+  if (!Number.isInteger(blocking) || typeof blocking !== "number" || blocking < 0) return false;
+  if (typeof qualityReportDigest !== "string" || qualityReportDigest.trim() === "") return false;
+  const qualityReportArtifact = artifactManifest
+    .map((entry) => parseQualityReportArtifactEnvelope(entry, qualityReportDigest, workspaceId))
+    .find((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+  if (!qualityReportArtifact) return false;
+  return qualityReportArtifact.report.blockingCount === blocking
+    && isQualityReportPassing(qualityReportArtifact.report);
 }
 
 function applyIterationGroupEarlyExit(input: {
@@ -63,6 +72,7 @@ function applyIterationGroupEarlyExit(input: {
   run: WorkflowRunRecord;
   completedNodeId: string;
   completedOutput: Record<string, unknown>;
+  completedArtifactManifest: unknown[];
   now: string;
 }): void {
   const version = readWorkflowVersionSync(input.run.versionId, input.workspaceId);
@@ -88,7 +98,7 @@ function applyIterationGroupEarlyExit(input: {
     || !isIterationGroupGateOutputPassing(input.completedOutput, {
       blockingField: gate.blockingField,
       qualityReportField: gate.qualityReportField,
-    })) return;
+    }, input.completedArtifactManifest, input.workspaceId)) return;
 
   const runByNodeId = new Map(
     listWorkflowNodeRunsSync(input.workspaceId, input.run.id).map((node) => [node.nodeId, node]),
@@ -167,7 +177,14 @@ export function completeWorkflowNodeSync(input: CompleteWorkflowNodeInput): Work
     });
     if (!updated) return readWorkflowRunSync(run.id, input.workspaceId)!;
     appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: nodeRun.id, type: "node.succeeded", actorType: "daemon", dataJson: JSON.stringify({ taskQueueId: input.taskQueueId }), now });
-    applyIterationGroupEarlyExit({ workspaceId: input.workspaceId, run, completedNodeId: updated.nodeId, completedOutput: input.output, now });
+    applyIterationGroupEarlyExit({
+      workspaceId: input.workspaceId,
+      run,
+      completedNodeId: updated.nodeId,
+      completedOutput: input.output,
+      completedArtifactManifest: input.artifactManifest ?? [],
+      now,
+    });
     advanceDownstream({ workspaceId: input.workspaceId, run, completed: updated, now });
     return finalizeRunIfTerminal(input.workspaceId, run, now);
   });

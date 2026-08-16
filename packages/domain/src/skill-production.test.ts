@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   isQualityReportPassing,
   parseQualityReport,
+  parseQualityReportArtifactEnvelope,
   parseSkillArtifactRevision,
 } from "./skill-production.ts";
 
@@ -61,4 +62,18 @@ test("isQualityReportPassing is fail-closed and consistent", () => {
   assert.equal(isQualityReportPassing({ schemaVersion: 1, subject: { artifactId: "s", revision: "r1", digest: "d" }, checks: [{ id: "x", status: "block" }], blockingCount: 1, maxRounds: 3, round: 1 }), false);
   // Declared blockingCount disagrees with the checks (0 declared, 1 actual block) → fail-closed.
   assert.equal(isQualityReportPassing({ schemaVersion: 1, subject: { artifactId: "s", revision: "r1", digest: "d" }, checks: [{ id: "x", status: "block" }], blockingCount: 0, maxRounds: 3, round: 1 }), false);
+});
+
+test("parseQualityReportArtifactEnvelope binds digest and workspace to a complete report", () => {
+  const report = { schemaVersion: 1, subject: { artifactId: "script", revision: "r2", digest: "artifact-digest" }, checks: [], blockingCount: 0, maxRounds: 2, round: 1 };
+  const envelope = parseQualityReportArtifactEnvelope({
+    kind: "quality-report",
+    digest: "qr-1",
+    workspaceId: "workspace-1",
+    report,
+  }, "qr-1", "workspace-1");
+  assert.deepEqual(envelope?.report, report);
+  assert.equal(parseQualityReportArtifactEnvelope({ kind: "quality-report", digest: "qr-2", workspaceId: "workspace-1", report }, "qr-1", "workspace-1"), null);
+  assert.equal(parseQualityReportArtifactEnvelope({ kind: "quality-report", digest: "qr-1", workspaceId: "workspace-2", report }, "qr-1", "workspace-1"), null);
+  assert.equal(parseQualityReportArtifactEnvelope({ kind: "quality-report", digest: "qr-1", workspaceId: "workspace-1", report: { ...report, blockingCount: -1 } }, "qr-1", "workspace-1"), null);
 });
