@@ -728,7 +728,7 @@ test("managed_stdio MCP dispatches a dependency CLI install first (P0)", () => {
   assert.equal(depOp?.appName, depName, "dependency op must use the real CLI catalog identity");
   assert.equal(depOp?.appSource, "clihub_public", "dependency op must use the real CLI catalog source");
   const requestRow = getDatabase()
-    .prepare("SELECT metadata_json AS metadataJson FROM capability_request WHERE id = ?")
+    .prepare("SELECT metadata_json AS \"metadataJson\" FROM capability_request WHERE id = ?")
     .get(submitted.capabilityRequest.id) as { metadataJson?: string };
   const metadata = JSON.parse(requestRow?.metadataJson ?? "{}") as Record<string, unknown>;
   assert.ok(metadata.mcpPendingConnect, "dependency dispatch must mark mcpPendingConnect so convergence does not stamp terminal");

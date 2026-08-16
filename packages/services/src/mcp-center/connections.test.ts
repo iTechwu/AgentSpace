@@ -1377,7 +1377,7 @@ test("rotateMcpEncryptionKeySync re-encrypts secrets and active grants atomicall
 
   assert.deepEqual(result, { rotatedSecrets: 1, rotatedSessionGrants: 1, keyVersion: "mcp2" });
   const secret = getDatabase().prepare(
-    "SELECT encrypted_value AS encryptedValue, key_version AS keyVersion FROM runtime_mcp_secret WHERE connection_id = ?",
+    "SELECT encrypted_value AS \"encryptedValue\", key_version AS \"keyVersion\" FROM runtime_mcp_secret WHERE connection_id = ?",
   ).get(connection.id) as { encryptedValue: string; keyVersion: string };
   const grant = getDatabase().prepare(
     "SELECT encrypted_bundle_json FROM mcp_task_session_grant WHERE task_id = 'rotation-task'",
