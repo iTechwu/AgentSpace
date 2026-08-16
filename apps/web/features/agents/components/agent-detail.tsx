@@ -1,5 +1,7 @@
+// AgentDetail 组件本体（3.4-2 拆分后）：纯函数移至 ./agent-detail-helpers，
+// Runtime 能力面板移至 ./agent-runtime-capabilities，知识选择弹窗移至 ./knowledge-picker-modal。
+
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
@@ -9,18 +11,41 @@ import { DataProtectionStatusPanel } from "@/features/agents/components/data-pro
 import { ExecutionEngineSelect, resolveExecutionEngineValue } from "@/features/agents/components/execution-engine-select";
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
 import { isDaemonProvider } from "@dofe-agent/domain";
-import { SkillPickerModal, type SkillPickerRequirementStatus } from "@/features/agents/components/skill-picker-modal";
+import { SkillPickerModal } from "@/features/agents/components/skill-picker-modal";
 import { SkillRequirementsModal } from "@/features/skills/components/skill-requirements-modal";
 import { FeishuAgentBotAgentSettingsPanel } from "@/features/integrations/feishu/feishu-agent-bot-agent-settings-panel";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 import { InstructionMarkdown } from "@/features/agents/components/instruction-markdown";
-import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import { AgentRuntimeCapabilities } from "@/features/agents/components/agent-runtime-capabilities";
+import { KnowledgePickerModal } from "@/features/agents/components/knowledge-picker-modal";
+import {
+  agentDocumentRoleTone,
+  codexPolicyFromSelection,
+  codexPolicySelection,
+  dependencyStatusTone,
+  documentRequestStatusTone,
+  formatAgentDocumentRole,
+  formatAgentTimestamp,
+  formatDependencyStatus,
+  formatDocumentRequestStatus,
+  formatProviderError,
+  formatProviderUsability,
+  formatSkillPickerRequirementStatus,
+  formatSkillRequirementStatus,
+  hasInstallRequirements,
+  isLikelyAuthError,
+  providerUsabilityStatusTone,
+  renderWorkAreaLocation,
+  skillRequirementStatusTone,
+  translateContinuationMode,
+  translateSkillSourceLabel,
+} from "@/features/agents/components/agent-detail-helpers";
 import {
   toneForStatus,
   translateManagementStatus,
   translateQueueValue,
 } from "@/features/agents/lib/translate";
-import type { AgentsPageData, RouterExecutionView, WorkspaceAgentRecord } from "@/features/dashboard/data";
+import type { AgentsPageData, WorkspaceAgentRecord } from "@/features/dashboard/data";
 import type { EmployeeExecutionPolicy, WorkspaceSkill } from "@dofe-agent/domain/workspace";
 
 export type AgentDetailTab = "instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings" | "data-protection";
@@ -1269,389 +1294,3 @@ export function AgentDetail({
   );
 }
 
-function AgentRuntimeCapabilities({
-  capabilities,
-  runtimeManagementHref,
-  runtimeName,
-}: {
-  capabilities: WorkspaceAgentRecord["runtimeCapabilities"];
-  runtimeManagementHref?: string;
-  runtimeName: string;
-}) {
-  const { tx } = useLanguage();
-  const cliApps = capabilities?.cliApps ?? [];
-  const mcpServices = capabilities?.mcpServices ?? [];
-  return (
-    <section className="agent-runtime-capabilities" aria-label={tx("AI 员工 Runtime 能力", "AI employee runtime capabilities")}>
-      <div className="agent-runtime-capabilities__heading">
-        <div>
-          <span>{tx("随执行引擎实时继承", "Inherited live from runtime")}</span>
-          <h4>{tx("可用 CLI 与 MCP", "Available CLI and MCP")}</h4>
-          <small>{runtimeName}</small>
-        </div>
-        <div className="agent-runtime-capabilities__heading-meta">
-          <span>{tx(`${cliApps.length} 个 CLI · ${mcpServices.length} 个 MCP`, `${cliApps.length} CLI · ${mcpServices.length} MCP`)}</span>
-          {runtimeManagementHref ? <Link href={runtimeManagementHref}>{tx("管理 Runtime 能力", "Manage runtime capabilities")}</Link> : null}
-        </div>
-      </div>
-      <div className="agent-runtime-capabilities__columns">
-        <section aria-labelledby="agent-runtime-cli-title">
-          <div className="agent-runtime-capabilities__column-heading"><AppIcon name="terminal" /><strong id="agent-runtime-cli-title">CLI</strong><span>{cliApps.length}</span></div>
-          {cliApps.length > 0 ? (
-            <ul>{cliApps.map((app) => <li key={`${app.source}:${app.name}`}><span><strong>{app.displayName}</strong><small>{app.entryPoint || app.name} · {app.version || tx("版本未知", "unknown version")}</small></span><span className="status-chip status-chip--positive">{tx("已安装", "Installed")}</span></li>)}</ul>
-          ) : <p>{tx("绑定的 Runtime 暂无 CLI 应用。", "The bound runtime has no CLI apps.")}</p>}
-        </section>
-        <section aria-labelledby="agent-runtime-mcp-title">
-          <div className="agent-runtime-capabilities__column-heading"><AppIcon name="containers" /><strong id="agent-runtime-mcp-title">MCP</strong><span>{mcpServices.length}</span></div>
-          {mcpServices.length > 0 ? (
-            <ul>{mcpServices.map((service) => <li key={service.id}><span><strong>{service.catalogDisplayName}</strong><small>{service.transport} · {service.approvedToolCount} {tx("个已授权工具", "approved tools")}</small></span><span className="status-chip status-chip--positive">{tx("已连接", "Connected")}</span></li>)}</ul>
-          ) : <p>{tx("绑定的 Runtime 暂无 MCP 连接。", "The bound runtime has no MCP connections.")}</p>}
-        </section>
-      </div>
-      <p className="agent-runtime-capabilities__note">{tx("这里展示 Runtime 的实时能力，不会为 AI 员工复制安装。变更 Runtime 能力后，本列表会自动更新。", "This is a live view of runtime capabilities; capabilities are not copied to the employee.")}</p>
-    </section>
-  );
-}
-
-function codexPolicySelection(policy: EmployeeExecutionPolicy | undefined): "inherit" | "untrusted" | "on-request" | "full-access" {
-  if (!policy?.codexApprovalPolicy && !policy?.codexSandboxMode) {
-    return "inherit";
-  }
-  if (policy?.codexSandboxMode === "danger-full-access" || policy?.codexApprovalPolicy === "never") {
-    return "full-access";
-  }
-  return policy?.codexApprovalPolicy === "on-request" ? "on-request" : "untrusted";
-}
-
-function codexPolicyFromSelection(value: string): EmployeeExecutionPolicy | undefined {
-  if (value === "inherit") {
-    return undefined;
-  }
-  if (value === "full-access") {
-    return { codexApprovalPolicy: "never", codexSandboxMode: "danger-full-access" };
-  }
-  return {
-    codexApprovalPolicy: value === "on-request" ? "on-request" : "untrusted",
-    codexSandboxMode: "workspace-write",
-  };
-}
-
-function hasInstallRequirements(configJson: string | undefined): boolean {
-  try {
-    const requirements = (JSON.parse(configJson ?? "{}") as { requirements?: unknown }).requirements;
-    return Array.isArray(requirements) && requirements.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function skillRequirementPreview(configJson: string | undefined): { requiredCount: number; providers: string[] } {
-  try {
-    const requirements = (JSON.parse(configJson ?? "{}") as { requirements?: unknown }).requirements;
-    if (!Array.isArray(requirements)) {
-      return { requiredCount: 0, providers: [] };
-    }
-    const items = requirements.filter((item): item is { kind?: string; value?: string } => (
-      Boolean(item) && typeof item === "object" && !Array.isArray(item)
-    ));
-    return {
-      requiredCount: items.filter((item) => item.kind === "config" || item.kind === "secret").length,
-      providers: items.filter((item) => item.kind === "provider").map((item) => item.value ?? "").filter(Boolean),
-    };
-  } catch {
-    return { requiredCount: 0, providers: [] };
-  }
-}
-
-function formatSkillPickerRequirementStatus(
-  skill: WorkspaceSkill,
-  boundProvider: string | undefined,
-  tx: (zh: string, en: string) => string,
-): SkillPickerRequirementStatus | undefined {
-  const { requiredCount, providers } = skillRequirementPreview(skill.configJson);
-  if (providers.length > 0 && boundProvider && !providers.includes(boundProvider)) {
-    return { tone: "danger", label: tx("运行环境不兼容", "Runtime incompatible") };
-  }
-  if (requiredCount === 0) {
-    return { tone: "positive", label: tx("就绪，可安装", "Ready to install") };
-  }
-  return { tone: "warning", label: tx(`需配置 ${requiredCount} 项`, `Needs ${requiredCount} item(s) configured`) };
-}
-
-const AUTH_ERROR_PATTERN = /(^|\W)(auth|unauthor|forbidden|401|403|token|secret|api[_-]?key|credential|expired|invalid[_ ]?key)(\W|$)/i;
-function isLikelyAuthError(errorText: string | undefined): boolean {
-  return Boolean(errorText) && AUTH_ERROR_PATTERN.test(errorText ?? "");
-}
-
-function skillRequirementStatusTone(
-  status: WorkspaceAgentRecord["skillRequirements"][string]["status"],
-): "positive" | "warning" | "danger" {
-  if (status === "ready") return "positive";
-  if (status === "runtime_incompatible") return "danger";
-  return "warning";
-}
-
-function dependencyStatusTone(
-  status: WorkspaceAgentRecord["skillRequirements"][string]["dependencyInstallStatus"],
-): "positive" | "warning" | "danger" {
-  if (status === "ok") return "positive";
-  if (status === "failed") return "danger";
-  return "warning";
-}
-
-function formatDependencyStatus(
-  status: WorkspaceAgentRecord["skillRequirements"][string]["dependencyInstallStatus"],
-  tx: (zh: string, en: string) => string,
-): string | null {
-  if (!status) return null;
-  switch (status) {
-    case "ok":
-      return null; // ready deps don't need a chip
-    case "failed":
-      return tx("依赖安装失败", "Dependency install failed");
-    case "installing":
-      return tx("依赖安装中", "Installing dependencies");
-    case "pending":
-      return tx("依赖待安装", "Dependencies pending install");
-    case "waiting_runtime":
-      return tx("等待执行引擎后安装依赖", "Dependencies install after runtime bind");
-    default:
-      return null;
-  }
-}
-
-function formatSkillRequirementStatus(
-  summary: WorkspaceAgentRecord["skillRequirements"][string],
-  tx: (zh: string, en: string) => string,
-): string {
-  if (summary.status === "expired") {
-    const added = summary.upgradeAddedKeys?.length ?? 1;
-    const removed = summary.upgradeRemovedKeys?.length ?? 0;
-    return removed > 0
-      ? tx(`已过期 · 新增 ${added} 项、移除 ${removed} 项要求`, `Expired · ${added} added, ${removed} removed`)
-      : tx(`已过期 · 新增 ${added} 项要求`, `Expired · ${added} new requirement(s)`);
-  }
-  if (summary.status === "awaiting_validation") {
-    return tx("等待验证 · Runtime 离线", "Awaiting validation · runtime offline");
-  }
-  if (summary.status === "runtime_incompatible") {
-    return tx("Runtime 不兼容", "Runtime incompatible");
-  }
-  if (summary.status === "needs_configuration") {
-    if (summary.configuredCount >= summary.requiredCount) {
-      return tx("安装检查未通过", "Installation check incomplete");
-    }
-    return tx(
-      `需配置 · ${summary.configuredCount}/${summary.requiredCount} 环境变量`,
-      `Needs configuration · ${summary.configuredCount}/${summary.requiredCount} environment variables`,
-    );
-  }
-  if (summary.requiredCount === 0) {
-    return tx("已就绪", "Ready");
-  }
-  return tx(
-    `已就绪 · ${summary.configuredCount}/${summary.requiredCount} 环境变量`,
-    `Ready · ${summary.configuredCount}/${summary.requiredCount} environment variables`,
-  );
-}
-
-function KnowledgePickerModal({
-  pages,
-  pending,
-  onCancel,
-  onSelect,
-}: {
-  readonly pages: NonNullable<WorkspaceAgentRecord["knowledge"]>["assignablePages"];
-  readonly pending: boolean;
-  readonly onCancel: () => void;
-  readonly onSelect: (pageId: string) => void;
-}) {
-  const { tx } = useLanguage();
-  const [query, setQuery] = useState("");
-  const filteredPages = pages.filter((page) => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
-    if (!normalizedQuery) {
-      return true;
-    }
-    const haystack = `${page.title} ${page.tags.join(" ")}`.toLocaleLowerCase("zh-CN");
-    return haystack.includes(normalizedQuery);
-  });
-
-  return (
-    <div className="knowledge-modal-overlay" onClick={onCancel}>
-      <div className="knowledge-modal" onClick={(event) => event.stopPropagation()}>
-        <h3>{tx("添加知识", "Add knowledge")}</h3>
-        <input
-          className="knowledge-modal__input"
-          onChange={(event) => setQuery(event.currentTarget.value)}
-          placeholder={tx("搜索知识页", "Search knowledge pages")}
-          value={query}
-        />
-        <div className="knowledge-import-list">
-          {filteredPages.map((page) => (
-            <button
-              className="knowledge-import-item"
-              disabled={pending}
-              key={page.id}
-              onClick={() => onSelect(page.id)}
-              type="button"
-            >
-              <strong>{page.title}</strong>
-              <span>{page.tags.length > 0 ? page.tags.join(", ") : tx("无标签", "No tags")}</span>
-            </button>
-          ))}
-          {filteredPages.length === 0 ? (
-            <div className="knowledge-viewer__meta">
-              {tx("没有匹配知识页。", "No matching knowledge pages.")}
-            </div>
-          ) : null}
-        </div>
-        <div className="knowledge-modal__footer">
-          <button className="knowledge-btn knowledge-btn--ghost" onClick={onCancel} type="button">
-            {tx("关闭", "Close")}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function translateSkillSourceLabel(
-  skill: WorkspaceAgentRecord["skills"][number],
-  tx: (zh: string, en: string) => string,
-): string {
-  if (skill.sourceType === "builtin") {
-    return tx("系统默认技能", "System default skill");
-  }
-  if (skill.sourceType === "github") {
-    return tx("来自 GitHub 导入", "Imported from GitHub");
-  }
-  if (skill.sourceType === "gitlab") {
-    return tx("来自 GitLab 导入", "Imported from GitLab");
-  }
-  if (skill.sourceType === "skills.sh") {
-    return tx("来自 skills.sh 导入", "Imported from skills.sh");
-  }
-  if (skill.sourceType === "clawhub") {
-    return tx("来自 ClawHub 导入", "Imported from ClawHub");
-  }
-  if (skill.sourceType === "local") {
-    return tx("来自本地导入", "Imported from local files");
-  }
-  return tx("手动创建", "Created manually");
-}
-
-function formatProviderUsability(
-  health: NonNullable<WorkspaceAgentRecord["boundProviderHealth"]>,
-  tx: (zh: string, en: string) => string,
-): string {
-  if (health.providerUsable === "usable") {
-    return health.providerHealth === "degraded" ? tx("降级可用", "Degraded") : tx("可用", "Available");
-  }
-  if (health.providerUsable === "unusable") {
-    return tx("不可用", "Unavailable");
-  }
-  return tx("未验证", "Unverified");
-}
-
-function providerUsabilityStatusTone(
-  health: NonNullable<WorkspaceAgentRecord["boundProviderHealth"]>,
-): "positive" | "warning" | "danger" | "neutral" {
-  if (health.providerUsable === "usable") {
-    return health.providerHealth === "degraded" ? "warning" : "positive";
-  }
-  if (health.providerUsable === "unusable") {
-    return "danger";
-  }
-  return "neutral";
-}
-
-function formatProviderError(health: NonNullable<WorkspaceAgentRecord["boundProviderHealth"]>): string {
-  return [
-    health.lastProviderErrorCode,
-    health.lastProviderErrorMessage ?? health.providerHealthReason,
-  ].filter(Boolean).join(" · ");
-}
-
-function formatAgentDocumentRole(
-  role: "viewer" | "editor" | "forwarder",
-  tx: (zh: string, en: string) => string,
-): string {
-  if (role === "forwarder") {
-    return tx("可转发", "Forwarder");
-  }
-  if (role === "editor") {
-    return tx("可编辑", "Editor");
-  }
-  return tx("可查看", "Viewer");
-}
-
-function agentDocumentRoleTone(role: "viewer" | "editor" | "forwarder"): "positive" | "warning" | "danger" | "neutral" {
-  if (role === "forwarder") {
-    return "positive";
-  }
-  if (role === "editor") {
-    return "warning";
-  }
-  return "neutral";
-}
-
-function formatDocumentRequestStatus(
-  status: "pending" | "approved" | "rejected" | "cancelled",
-  tx: (zh: string, en: string) => string,
-): string {
-  if (status === "pending") {
-    return tx("待审批", "Pending");
-  }
-  if (status === "approved") {
-    return tx("已批准", "Approved");
-  }
-  if (status === "rejected") {
-    return tx("已拒绝", "Rejected");
-  }
-  return tx("已取消", "Cancelled");
-}
-
-function documentRequestStatusTone(
-  status: "pending" | "approved" | "rejected" | "cancelled",
-): "positive" | "warning" | "danger" | "neutral" {
-  if (status === "approved") {
-    return "positive";
-  }
-  if (status === "pending") {
-    return "warning";
-  }
-  if (status === "rejected") {
-    return "danger";
-  }
-  return "neutral";
-}
-
-function formatAgentTimestamp(value: string): string {
-  return formatCompactTimestamp(value, { emptyFallback: value });
-}
-
-function translateContinuationMode(
-  mode: RouterExecutionView["continuationMode"],
-  tx: (zh: string, en: string) => string,
-): string {
-  if (mode === "same_provider_resume") return tx("同 provider 续跑", "Same-provider resume");
-  if (mode === "fallback") return tx("Fallback 冷重建", "Fallback cold rebuild");
-  return tx("平台上下文冷重建", "Platform cold rebuild");
-}
-
-function renderWorkAreaLocation(
-  area: {
-    workDir?: string;
-    workDirAccess?: "local" | "remote";
-    workDirHostLabel?: string;
-  },
-  tx: (zh: string, en: string) => string,
-): string {
-  if (area.workDirAccess === "remote") {
-    const hostLabel = area.workDirHostLabel ?? tx("远程宿主", "Remote host");
-    return tx(`远程执行工作区: ${hostLabel} · 路径仅供诊断`, `Remote execution workspace: ${hostLabel} · path shown for diagnostics only`);
-  }
-
-  return tx(`执行工作区: ${area.workDir ?? tx("未返回", "Unavailable")}`, `Execution workspace: ${area.workDir ?? tx("未返回", "Unavailable")}`);
-}
