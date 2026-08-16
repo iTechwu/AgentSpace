@@ -4,7 +4,7 @@ import { compileWorkflowIterationGroups, validateWorkflowGraph } from "@dofe-age
 import { buildNovelProductionWorkflowGraph } from "./novel-production-template.ts";
 
 test("novel-production template is valid and expresses convergence as a single iteration_group", () => {
-  const graph = buildNovelProductionWorkflowGraph({ coordinatorEmployeeId: "emp-coord" });
+  const graph = buildNovelProductionWorkflowGraph({ coordinatorEmployeeId: "emp-coord", approvalChannelName: "approvals" });
   const result = validateWorkflowGraph(graph);
   assert.deepEqual(result.errors, []);
 
@@ -20,6 +20,10 @@ test("novel-production template is valid and expresses convergence as a single i
   assert.equal(config.qualityGate?.blockingField, "blockingCount");
   assert.equal(config.qualityGate?.qualityReportField, "qualityReportDigest");
   assert.equal(config.overLimit, "approval");
+  assert.deepEqual((convergence?.config as { overLimitApproval?: unknown }).overLimitApproval, {
+    employeeId: "emp-coord",
+    channelName: "approvals",
+  });
 });
 
 test("compileWorkflowIterationGroups unrolls the convergence group into an acyclic DAG with approval", () => {
@@ -27,6 +31,7 @@ test("compileWorkflowIterationGroups unrolls the convergence group into an acycl
     coordinatorEmployeeId: "emp-coord",
     artistEmployeeId: "emp-artist",
     scriptEmployeeId: "emp-script",
+    approvalChannelName: "approvals",
   });
   const compiled = compileWorkflowIterationGroups(graph);
   const result = validateWorkflowGraph(compiled);
@@ -41,4 +46,11 @@ test("compileWorkflowIterationGroups unrolls the convergence group into an acycl
 
   const artNode = compiled.nodes.find((node) => node.id === "convergence.art-r1");
   assert.equal(artNode?.employeeId, "emp-artist");
+});
+
+test("novel-production template rejects a blank approval channel", () => {
+  assert.throws(
+    () => buildNovelProductionWorkflowGraph({ coordinatorEmployeeId: "emp-coord", approvalChannelName: "  " }),
+    /novel_production_approval_channel_required/,
+  );
 });

@@ -418,7 +418,7 @@ function cleanup(workspaceId: string): void {
 }
 
 test("iteration_group early-exit skips remaining rounds and auto-approves on pass", { skip: !hasTestDatabase }, () => {
-  const graph = compileWorkflowIterationGroups(buildNovelProductionWorkflowGraph({ coordinatorEmployeeId: "emp-coord", maxRounds: 2 }));
+  const graph = compileWorkflowIterationGroups(buildNovelProductionWorkflowGraph({ coordinatorEmployeeId: "emp-coord", approvalChannelName: "approvals", maxRounds: 2 }));
   const graphJson = JSON.stringify(graph);
   const seed = seedWorkspace(graphJson, graph.nodes.length);
   try {

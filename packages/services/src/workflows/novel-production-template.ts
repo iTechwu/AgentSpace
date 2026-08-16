@@ -21,8 +21,8 @@ export interface NovelProductionTemplateInput {
   consistencyEmployeeId?: string;
   /** Approver employee for the over-limit approval gate (defaults to coordinator). */
   approverEmployeeId?: string;
-  /** Channel the approver belongs to (required at publish time). */
-  approvalChannelName?: string;
+  /** Channel the approver belongs to; required because publish validation resolves it. */
+  approvalChannelName: string;
   /** Bounded convergence rounds (defaults to 2). */
   maxRounds?: number;
 }
@@ -41,6 +41,10 @@ export function buildNovelProductionWorkflowGraph(
   const script = input.scriptEmployeeId ?? coordinator;
   const consistency = input.consistencyEmployeeId ?? coordinator;
   const approver = input.approverEmployeeId ?? coordinator;
+  const approvalChannelName = input.approvalChannelName.trim();
+  if (!approvalChannelName) {
+    throw new Error("novel_production_approval_channel_required");
+  }
   const maxRounds = input.maxRounds ?? 2;
 
   const productionOutput = ["artifactDigest", "revision"];
@@ -85,9 +89,7 @@ export function buildNovelProductionWorkflowGraph(
             qualityReportField: "qualityReportDigest",
           },
           overLimit: "approval",
-          overLimitApproval: input.approvalChannelName
-            ? { employeeId: approver, channelName: input.approvalChannelName }
-            : { employeeId: approver },
+          overLimitApproval: { employeeId: approver, channelName: approvalChannelName },
         },
       },
       { id: "storyboard", type: "employee_task", employeeId: coordinator, config: { requiredSkillIds: [NOVEL_PRODUCTION_SKILL_IDS.storyboard], outputFields: ["artifactDigest", "batchManifestDigest"] } },
