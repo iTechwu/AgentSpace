@@ -293,7 +293,7 @@ export function listSkillIdsForArtifactDigestSync(
      UNION
      SELECT skill_id AS "skillId" FROM skill_artifact
      WHERE workspace_id = ? AND digest = ? AND skill_id IS NOT NULL
-     ORDER BY skillId ASC`,
+     ORDER BY "skillId" ASC`,
   ).all(workspaceId, normalizedDigest, workspaceId, normalizedDigest) as Array<Record<string, unknown>>;
   return rows
     .map((row) => row.skillId ?? row.skillid)

@@ -316,7 +316,7 @@ export function listMcpCatalogItemsSync(options: { workspaceId?: string; limit?:
        WHERE workspace_id = ?
        ORDER BY slug, created_at DESC, version DESC
      ) latest
-     ORDER BY displayName ASC LIMIT ${limit}`,
+     ORDER BY "displayName" ASC LIMIT ${limit}`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
   return rows.map(mapMcpCatalogItemRecord).filter((r): r is McpCatalogItemRecord => r !== null);
 }

@@ -294,10 +294,10 @@ export function readMcpTaskSessionClaimedSync(taskId: string): string | null {
 }
 
 export function readTaskSkillExecutionSnapshotSync(taskId: string): TaskSkillExecutionSnapshot | null {
-  // Select the raw snake_case column (no `AS "camelCase"` alias): Postgres
-  // lowercases unquoted aliases, and NORMALIZED_ROW_KEY_ALIASES has no entry for
-  // the lowered form, so an alias would read back as undefined. The underscore
-  // key is converted to `skillExecutionSnapshotJson` by normalizeRowKey.
+  // Select the raw snake_case column; normalizeRowKey converts the underscore
+  // key to `skillExecutionSnapshotJson` mechanically. (A quoted
+  // `AS "skillExecutionSnapshotJson"` alias is the equivalent alternative —
+  // unquoted aliases used to fold to lowercase with no recovery path.)
   const row = getDatabase().prepare(
     `SELECT skill_execution_snapshot_json
      FROM agent_task_queue WHERE id = ?`,
