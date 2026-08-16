@@ -147,7 +147,14 @@
 - **步骤 1（cec15928）**：1,180 处别名全部加引号（`AS "camelCase"`），PG 直接保留大小写，读侧拼写与人工表恢复结果完全一致；新增 `postgres-alias-drift-guard.test.ts` 源码扫描守卫（任何未引号 camelCase 别名即失败），入 db 默认测试门（308 default-owned）。顺带修掉 skill-drafts 写 cutover flag-off 用例借用共享库残留行的存量 flake（改自播种夹具）。
 - **步骤 2**：删除 `database.ts` worker 源里的 404 条人工别名表（文件 1,432 → 1,008 行），`normalizeRowKey` 收敛为纯机械 snake→camel 单路径；task-queue 规避注释同步更新。
 - **步骤 2 验证期补修（同根因两个变体）**：① 同语句内别名已引号化、但 `ORDER BY/GROUP BY/DISTINCT ON/USING` 后仍用裸 camelCase 引用 —— 折叠后与保留大小写的引号别名不匹配，直接报 `column does not exist`（db `skill-artifacts.ts` UNION 的 `ORDER BY skillId`、`mcp-center.ts` 子查询外层 `ORDER BY displayName`）；守卫已扩展覆盖该模式。② codemod 首轮只扫了 db 包与 2 个 services 源文件，**services 测试文件**里同样经 sync worker 发 SQL 的裸别名漏网（`connections.test.ts` 的 `AS keyVersion`、`capability-workflow.test.ts` 的 `AS metadataJson`），读侧得 undefined；已补引号并全仓扫描（api/web/apps 无残留）。顺带修复 coordinator.ts 双引号串内引号注入导致的 TS 解析错误（改模板字面量）。回归：db 全环绿、services 默认 69 文件全环 exit 0、db `pnpm types` 干净。
-- **新发现（未修，见下表 3.2-7）**：db `pretest` 的 `prisma:verify:pilot` 在 HEAD 存量红 —— pilot schema 与真实库 drift 70+ 条（attachment PK 变复合键、7 张表 jsonb/默认值滞后等），堵住整个 db 默认测试门，需按域重新对齐 pilot schema。
+- **新发现（当日已修，见 3.2-7）**：db `pretest` 的 `prisma:verify:pilot` 在 HEAD 存量红 —— pilot schema 与真实库 drift 70+ 条（attachment PK 变复合键、7 张表 jsonb/默认值滞后等），堵住整个 db 默认测试门，已按域重新对齐 pilot schema。
+
+### 3.2-7 pilot schema 重同步 —— ✅ 完成
+
+- **根因**：pilot `schema.prisma` 的 10 个模型（77 条 drift）与真实库结构脱节。其中 Attachment 模型是重灾区 —— 虚构了 `content_digest`/`note`/`upload_id`/`deleted_at`/`deleted_by_*`/`updated_at` 列（疑似与 EAD 域 `employee_artifact` 的列混淆）、单列主键（真库为 `(workspace_id, id)` 复合键）、`source_message_time` 声明为 Timestamptz（真库为 TEXT）、`size_bytes` 声明 Int?（真库 BIGINT NOT NULL DEFAULT 0）。
+- **修复**：按真库 information_schema 逐模型对齐（比较器为单向 Prisma→DB 校验，default 只查有无）：① jsonb 列全部 `String`→`Json`（skill_service_catalog×7、skill.config_json、skill_draft.draft_json、workflow 定义/运行/版本/触发器/节点全家 ×11）；② 库默认值补齐 `@default`（状态列、jsonb '{}'/'[]'、cap_drop_json `["ALL"]` 等）；③ attachment 重写为复合主键 + 真实列（`sha256` 映射 `contentDigest`、补 `kind` 列）；④ `workflow_run.current_sequence` BigInt→Int（真库 integer），补 `history_sequence` BigInt；⑤ `skill.source_type`/`config_json` 去 nullable（真库 NOT NULL），补 `active_artifact_digest`；⑥ `workflow_definition.createdBy` 补 `@map("created_by")`。
+- **连带修复**：draft_json Json 化后 `skill-drafts-prisma-write.ts` 的行映射接口放宽为 JsonValue 并统一字符串化，保持 `SkillDraftRecord.draftJson: string` 契约不变。
+- **验证**：`prisma:verify:pilot` 0 drift（25 模型全匹配）、`prisma generate` 通过（真实 Prisma 解析器接受全部 @default/复合主键）、db `pnpm types` 干净、**db `pnpm test` 全链 exit 0（pretest 门解除，默认测试环恢复可用）**。
 
 ### 其余 P2 待办（未启动）
 
@@ -155,7 +162,6 @@
 | --- | --- |
 | 3.2-4 | 拆分 `external-integrations.ts`(2,576)/`types.ts`(2,219)/`mcp-center.ts`(1,467) |
 | 3.2-5 | 类型安全加固（Kysely 等轻量 typed query builder） |
-| 3.2-7 | pilot schema 重同步：`prisma:verify:pilot` 存量红（70+ 条 drift：attachment 复合主键/jsonb 列/默认值滞后），堵 db pretest 门 |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
 | 3.3-5 | 手写 `.d.ts` 孪生去重（`lark-cli.ts`/`.d.ts` 26 导出人工同步） |
 | 3.3-6 | `preloaded-skill-sources.ts` 176KB 内联字符串外置 |
