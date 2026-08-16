@@ -133,7 +133,7 @@ export function registerDaemonRuntimesSync(input: {
             provider: provider as RuntimeRegistrationInput["provider"],
           });
       const deviceInfo = runtime.deviceInfo?.trim() ?? deviceName;
-      const metadataJson = JSON.stringify(normalizeRuntimeMetadata(runtime.metadata));
+      const metadataJson = JSON.stringify(normalizeRuntimeMetadata(runtime.metadata, { daemonKey, observedAt: now }));
 
       db.prepare(
         `INSERT INTO agent_runtime (
@@ -330,7 +330,7 @@ export function heartbeatDaemonSync(daemonKey: string, options?: {
          LIMIT 1`,
       ).get(...params) as Record<string, unknown> | undefined;
       const existingMetadata = parseMetadataJson(row?.metadataJson);
-      const mergedMetadata = normalizeRuntimeMetadata({ ...existingMetadata, ...runtime.metadata });
+      const mergedMetadata = normalizeRuntimeMetadata({ ...existingMetadata, ...runtime.metadata }, { daemonKey, observedAt: now });
       db.prepare(
         `UPDATE agent_runtime
          SET metadata_json = ?,
@@ -355,11 +355,16 @@ function parseMetadataJson(value: unknown): Record<string, unknown> {
   }
 }
 
-function normalizeRuntimeMetadata(metadata?: Record<string, unknown>): Record<string, unknown> {
+function normalizeRuntimeMetadata(metadata: Record<string, unknown> | undefined, source: { daemonKey: string; observedAt: string }): Record<string, unknown> {
   const normalized = { ...(metadata ?? {}) };
   if (normalized.runtimeCapabilities === undefined) return normalized;
-  const capabilities = parseRuntimeCapabilitySnapshot(normalized.runtimeCapabilities);
+  const rawCapabilities = isRecord(normalized.runtimeCapabilities) ? normalized.runtimeCapabilities : undefined;
+  const capabilities = parseRuntimeCapabilitySnapshot({
+    ...rawCapabilities,
+    source: rawCapabilities?.source ?? { kind: "daemon_probe", daemonKey: source.daemonKey, observedAt: source.observedAt },
+  });
   if (!capabilities) throw new Error("runtime.capabilities_invalid");
+  if (capabilities.source.daemonKey !== source.daemonKey) throw new Error("runtime.capabilities_source_mismatch");
   normalized.runtimeCapabilities = capabilities;
   return normalized;
 }

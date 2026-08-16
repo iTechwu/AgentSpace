@@ -54,12 +54,19 @@ export interface DspRuntimeRequirements {
   gpu?: boolean;
 }
 
+export interface RuntimeCapabilitySource {
+  kind: "daemon_probe";
+  daemonKey: string;
+  observedAt: string;
+}
+
 export interface RuntimeCapabilitySnapshot {
   schemaVersion: 1;
   gpu: boolean;
   egress: boolean;
   mcp: string[];
   cli: string[];
+  source: RuntimeCapabilitySource;
 }
 
 /** Parses the versioned Runtime metadata consumed by all-compatible rollout. */
@@ -70,7 +77,17 @@ export function parseRuntimeCapabilitySnapshot(value: unknown): RuntimeCapabilit
   const mcp = normalizeCapabilitySlugs(value.mcp);
   const cli = normalizeCapabilitySlugs(value.cli);
   if (!mcp || !cli) return null;
-  return { schemaVersion: 1, gpu: value.gpu, egress: value.egress, mcp, cli };
+  const source = parseRuntimeCapabilitySource(value.source);
+  if (!source) return null;
+  return { schemaVersion: 1, gpu: value.gpu, egress: value.egress, mcp, cli, source };
+}
+
+function parseRuntimeCapabilitySource(value: unknown): RuntimeCapabilitySource | null {
+  if (!isRecord(value) || value.kind !== "daemon_probe" || typeof value.daemonKey !== "string" || !value.daemonKey.trim()) return null;
+  if (typeof value.observedAt !== "string" || !value.observedAt.trim()) return null;
+  const observedAt = new Date(value.observedAt);
+  if (!Number.isFinite(observedAt.getTime())) return null;
+  return { kind: "daemon_probe", daemonKey: value.daemonKey.trim(), observedAt: observedAt.toISOString() };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

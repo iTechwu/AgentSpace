@@ -177,6 +177,7 @@ test("runtime capability metadata is normalized and validated at registration", 
     egress: true,
     mcp: ["catalog-a", "catalog-b"],
     cli: [],
+    source: { kind: "daemon_probe", daemonKey: "capability-contract", observedAt: JSON.parse(runtime.metadataJson).runtimeCapabilities.source.observedAt },
   });
 
   assert.throws(() => registerDaemonRuntimesSync({
@@ -191,6 +192,22 @@ test("runtime capability metadata is normalized and validated at registration", 
       },
     }],
   }), /runtime\.capabilities_invalid/);
+
+  assert.throws(() => registerDaemonRuntimesSync({
+    daemonKey: "source-mismatch",
+    deviceName: "Build Box",
+    workspaceId: "default",
+    runtimes: [{
+      provider: "codex",
+      name: "Remote Agent · Codex",
+      metadata: {
+        runtimeCapabilities: {
+          schemaVersion: 1, gpu: true, egress: true, mcp: [], cli: [],
+          source: { kind: "daemon_probe", daemonKey: "other-daemon", observedAt: "2026-08-17T08:00:00Z" },
+        },
+      },
+    }],
+  }), /runtime\.capabilities_source_mismatch/);
 });
 
 test("heartbeat only marks the runtimes it reports as online", () => {

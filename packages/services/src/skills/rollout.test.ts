@@ -140,19 +140,19 @@ test("all-compatible filters Runtime metadata capabilities and fails closed", ()
     cli: ["catalog-cli"],
   };
   assert.equal(isRuntimeCompatibleWithRequirements(JSON.stringify({
-    runtimeCapabilities: { schemaVersion: 1, gpu: true, egress: true, mcp: ["catalog-mcp"], cli: ["catalog-cli"] },
+    runtimeCapabilities: { schemaVersion: 1, gpu: true, egress: true, mcp: ["catalog-mcp"], cli: ["catalog-cli"], source: { kind: "daemon_probe", daemonKey: "daemon-test", observedAt: "2026-08-17T08:00:00Z" } },
   }), requirements), true);
   assert.equal(isRuntimeCompatibleWithRequirements(JSON.stringify({
-    runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: true, mcp: ["catalog-mcp"], cli: ["catalog-cli"] },
+    runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: true, mcp: ["catalog-mcp"], cli: ["catalog-cli"], source: { kind: "daemon_probe", daemonKey: "daemon-test", observedAt: "2026-08-17T08:00:00Z" } },
   }), requirements), false);
   assert.equal(isRuntimeCompatibleWithRequirements("{}", requirements), false);
 });
 
 test("planSkillRollout filters all-compatible targets from manifest requirements", () => {
   const compatible = createRuntime({
-    runtimeCapabilities: { schemaVersion: 1, gpu: true, egress: true, mcp: [], cli: [] },
+    runtimeCapabilities: { schemaVersion: 1, gpu: true, egress: true, mcp: [], cli: [], source: { kind: "daemon_probe", daemonKey: "daemon-test", observedAt: "2026-08-17T08:00:00Z" } },
   });
-  createRuntime({ runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: true, mcp: [], cli: [] } });
+  createRuntime({ runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: true, mcp: [], cli: [], source: { kind: "daemon_probe", daemonKey: "daemon-test", observedAt: "2026-08-17T08:00:00Z" } } });
   const root = buildArtifact({
     name: "gpu-egress-root",
     coordinate: "github:owner/repo/skills/gpu-egress-root",
@@ -164,7 +164,7 @@ test("planSkillRollout filters all-compatible targets from manifest requirements
 });
 
 test("all-compatible rejects a plan when no Runtime satisfies requirements", () => {
-  createRuntime({ runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: false, mcp: [], cli: [] } });
+  createRuntime({ runtimeCapabilities: { schemaVersion: 1, gpu: false, egress: false, mcp: [], cli: [], source: { kind: "daemon_probe", daemonKey: "daemon-test", observedAt: "2026-08-17T08:00:00Z" } } });
   const root = buildArtifact({
     name: "gpu-root",
     coordinate: "github:owner/repo/skills/gpu-root",
