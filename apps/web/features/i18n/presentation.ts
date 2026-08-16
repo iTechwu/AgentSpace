@@ -163,6 +163,7 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_channel_not_found: ["所选频道不存在或不在当前工作空间内", "The selected channel does not exist in this workspace"],
     workflow_approval_risk_invalid: ["审批风险等级无效，请重新选择", "The approval risk level is invalid. Choose again"],
     workflow_approval_reviewer_not_ready: ["指定的审批人不在当前工作空间内", "The selected reviewer is not a member of this workspace"],
+    workflow_iteration_group_invalid: ["迭代组配置无效（轮数、质量门或循环体）", "The iteration group is invalid (rounds, quality gate, or loop body)"],
   };
   const label = code ? labels[code as WorkflowErrorCode] : undefined;
   return label ? tx(label[0], label[1]) : tx("工作流操作未完成，请稍后重试", "The workflow operation did not complete. Try again later");
