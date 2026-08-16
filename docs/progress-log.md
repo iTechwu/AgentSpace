@@ -279,12 +279,19 @@
 - **条目前提修正**：「`connectSandbox()` 无调用方」已过时——`provider-runtime.ts` 两条执行路径（:1509/:1748）一直在用，`Sandbox`/`LocalSandbox`/`ExecController` 是热路径类型，全部保留未动。
 - **验证**：sandbox 4/4、daemon 242 全过（13 e2e skip）、`typecheck:deps`/`typecheck:daemon` 零错误、inventory 默认集 308→306（删除 2 个默认集文件，deferred digest 不变）。
 
+### 3.5-4 拆分大文件 —— 🟡 部分完成（provider-runtime.ts 余量）
+
+- **remote-daemon.ts**（`fc3bbe0`）：2,178 行单文件拆为 `remote-daemon/` 12 个模块（activity/errors/queue/config/usage/mcp/heartbeat/operations/task-execution/poll/command/internal，最大 574 行），原文件降为 41 行 barrel——显式重导出全部原有公共符号（6 类型 + 24 值），内部符号不外露；外部 import（workers/cli/index `export *`/测试）零改动。模块按 DAG 分层（leaf→config→mcp→heartbeat/operations/task-execution→poll→command），无值级环；workers 对 barrel 的 `type RemoteDaemonConfig` 为类型导入，编译后擦除。
+- **task-context.ts**（`2cbad3cc`）：1,544 行拆为 `task-context/` 7 个模块（payload/notifications/materialize/skills/prompt-lines/prompt/prepare，最大 369 行），原文件降为 27 行 barrel 重导出 18 个公共符号。prepare.ts 保留主编排全序（durable head 物化→附件→skills 快照→知识/频道文档→prompt 组装），prompt-lines/prompt 按渲染层职责分层。
+- **验证**：两轮均过 daemon `tsc --noEmit` + dist-types 构建 + 全套 242 测试（229 pass/13 e2e skip，含 dist-smoke 重建 bundle 断言新模块图可打包）+ apps/cli typecheck；聚焦测试文件 35/35、22/22。
+- **余量**：同条目还有 `provider-runtime.ts`(1,820 行，88 个顶层声明) 未拆，条目保持 🟡；连同其中「4 个默认模型名硬编码」（见 §3.6 构建漂移）留待下一批。
+
 ### 其余 P2 待办（未启动）
 
 | 条目 | 主题 |
 | --- | --- |
 | 3.3-4 | 飞书 24 个测试文件游离于测试门之外 |
-| 3.5-4 | 拆分 `remote-daemon.ts`(2,138)/`task-context.ts`(1,544) |
+| 3.5-4 | 拆分 `provider-runtime.ts`(1,820) —— remote-daemon/task-context 已完成（见上） |
 
 ---
 
