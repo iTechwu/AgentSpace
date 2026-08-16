@@ -40,7 +40,7 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // 原型 + Prisma 真接入) into the db default test command via the regex rule
 // above. Reviewed and confirmed all 8 belong in default coverage; deferred set
 // shrinks to 179.
-const EXPECTED_DEFERRED_DIGEST = "b95ff63482e91d2c190a26e4f70599aed468a6befa02f46d1a95766d50457d00";
+const EXPECTED_DEFERRED_DIGEST = "7cdb31934b457c4a14ab5ce2798e0138ae5ce98f14c35dc922a8bfa6ef8f5f54";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -114,6 +114,7 @@ function isDefaultOwned(file) {
 
   if (new Set([
     "packages/services/src/prisma-read-cutovers.test.ts",
+    "packages/services/src/prisma-write-cutovers.test.ts",
     "packages/services/src/shared/audit.test.ts",
   ]).has(file)) return true;
 
