@@ -48,15 +48,17 @@ pool max、连接超时、空闲超时、statement timeout 和 `application_name
 剩余建议：启动时打印脱敏后的有效配置，采集 active/waiting/timeout 指标，并在 Web、worker、
 daemon 三种并发模型下分别做容量基线。未完成这些运行证据前，不应把本项标记为完整生产验收。
 
-### P1：切流开关分散，缺少集中注册和发布护栏
+### P1（基础门禁已完成）：切流开关集中注册，仍需发布系统联动
 
 当前源码中约有 **57 个 read flag 文件、56 个 shadow flag 文件和 8 个 write flag 文件**，
-各域直接读取 `process.env.<DOMAIN>_PRISMA_*`。这种模式容易出现拼写错误、read/shadow
-不同步、多个高风险域同时开启以及回滚后仍有旧实例持有开关。
+各域仍直接读取 `process.env.<DOMAIN>_PRISMA_*`。本轮新增
+`packages/db/src/prisma/cutover-flags.ts`，以 typed registry 登记 23 个域的 read、shadow
+和 write 能力，并在 Prisma Client 初始化时拒绝未知 flag、非法值、未注册 write 以及
+shadow 未开启对应 read 的组合；拼写错误和 read/shadow 不同步现在会 fail-closed。
 
-建议：建立集中式 flag registry：域名、读/写能力、依赖、当前阶段、允许的最大并发开启数、
-kill switch 和 owner 都是 typed metadata；启动时拒绝未知 flag，发布脚本按 registry 生成
-环境模板，切流审计记录 flag 版本和实例版本。
+剩余建议：继续把依赖、允许的最大并发开启数、kill switch、owner 和 flag 版本纳入 registry，
+由发布脚本生成环境模板并写入切流审计；当前实现解决的是进程边界配置错误，不替代发布系统的
+多域并发护栏和回滚编排。
 
 ### P2：写路径覆盖仍不完整，跨域编排边界没有退出条件
 
@@ -90,6 +92,6 @@ affected rows、错误类别、幂等、并发和事件顺序对照后，才允�
 
 ## 3. 推荐落地顺序
 
-先完成全量 schema/invariant drift gate、角色化连接池配置和集中 flag registry，再继续扩展
+先完成全量 schema/invariant drift gate、角色化连接池运行容量证据和 shadow SLO，再继续扩展
 写路径；同时补齐 shadow 指标聚合与自动回滚证据。不要因为 pilot drift 通过就提前删除 legacy
 路径或一次开启多个新域。

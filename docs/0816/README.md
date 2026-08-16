@@ -17,5 +17,5 @@
 0815 的核心代码修复已经大体落地，Runtime capability 的注册/心跳解析、校验和规范化
 也已补齐；但仍不能宣称完整发布验收。剩余门槛包括真实 Runtime 能力来源证明与跨环境验收、
 失败 reconcile 持久化状态机、完整质量报告运行时绑定，以及 PostgreSQL 全量 invariant gate。
-Prisma 审查文档中的容量、集中 flag registry、shadow SLO 和剩余写路径建议仍需按
+Prisma 审查文档中的连接池容量、shadow SLO、全量 invariant gate 和剩余写路径建议仍需按
 `03-实施清单与验收矩阵.md` 排期推进。

@@ -1,6 +1,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { resolvePostgresDatabaseUrl } from "../postgres-config.ts";
+import { assertPrismaCutoverFlagsValid } from "./cutover-flags.ts";
 
 let sharedClient: PrismaClient | null = null;
 let injectedClient: PrismaClient | null = null;
@@ -36,6 +37,7 @@ export interface RegisterDofePrismaShutdownHooksOptions {
 }
 
 export function getDofePrismaClient(): PrismaClient {
+  assertPrismaCutoverFlagsValid();
   if (injectedClient) {
     return injectedClient;
   }

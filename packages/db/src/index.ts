@@ -352,6 +352,12 @@ export {
   disconnectDofePrismaClient,
   registerDofePrismaShutdownHooks,
 } from "./prisma/prisma-client.ts";
+export {
+  PRISMA_CUTOVER_FLAG_REGISTRY,
+  assertPrismaCutoverFlagsValid,
+  type PrismaCutoverFlagKind,
+  type PrismaCutoverFlagSpec,
+} from "./prisma/cutover-flags.ts";
 
 // Database
 export {
