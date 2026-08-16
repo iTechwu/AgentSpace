@@ -34,16 +34,15 @@ SQL 的共同边界。
 两者都应在 CI 的 schema/migration 变更时执行；若暂时不能全量实现，命令必须继续叫
 `pilot`，进度文档不得把它描述为全库 drift gate。
 
-### P1：Prisma Client 没有显式连接池、超时和进程角色配置
+### P1（已部分落地）：Prisma Client 的连接池与运行容量仍需验收
 
-`packages/db/src/prisma/prisma-client.ts:21-30` 只创建共享 `PrismaPg` adapter 和 UTC
-连接串，没有 Web/worker/daemon 的 pool max、连接超时、statement timeout、应用名或饱和指标。
-这与 `docs/0808/db_migration_to_prisma/README.md:102-106` 的容量要求不一致，扩大读域开关
-后可能出现连接池争用、慢查询堆积和优雅退出不完整。
+已在 `packages/db/src/prisma/prisma-client.ts:21-80` 增加按 `web/worker/daemon` 角色解析的
+pool max、连接超时、空闲超时、statement timeout 和 `application_name`，并在
+`prisma-client-config.test.ts` 覆盖默认值、非法值和上下界。该实现补齐了配置边界，
+但还没有证明真实 Web/worker/daemon 并发下的连接池容量和饱和行为。
 
-建议：按进程角色定义 typed 配置（pool max、connect timeout、statement timeout、idle timeout、
-`application_name`），启动时打印脱敏后的有效配置，并采集 active/waiting/timeout 指标；在
-Web、worker、daemon 三种并发模型下分别做容量基线。
+剩余建议：启动时打印脱敏后的有效配置，采集 active/waiting/timeout 指标，并在 Web、worker、
+daemon 三种并发模型下分别做容量基线。未完成这些运行证据前，不应把本项标记为完整生产验收。
 
 ### P1：切流开关分散，缺少集中注册和发布护栏
 

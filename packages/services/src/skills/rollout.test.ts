@@ -4,6 +4,7 @@ import { getDatabase, randomLikeId } from "@dofe-agent/db";
 import {
   buildAndPersistSkillArtifactSync,
   computeSkillRolloutItemsSync,
+  computeSkillRolloutPlanDigestSync,
   computeSkillRolloutTargetRuntimesSync,
   lockSkillDependencyDigestSync,
   planSkillRollout,
@@ -201,6 +202,38 @@ test("planSkillRollout records skipped optional deps in required-only mode", () 
   assert.equal(plan.skipped.length, 1);
   assert.equal(plan.skipped[0]?.coordinate, "github:owner/repo/skills/optional-dep");
   assert.equal(plan.items.length, 1, "root only (optional dep excluded)");
+});
+
+test("plan digest binds dependency parent placement anchors", () => {
+  const risks = { totalRiskItems: 0, artifactsWithRisk: [], riskItems: [] };
+  const base = {
+    rootArtifactDigest: "root",
+    targetRuntimes: ["runtime-1"],
+    risks,
+  };
+  const first = computeSkillRolloutPlanDigestSync({
+    ...base,
+    closure: [{
+      coordinate: "github:owner/repo/skills/dep",
+      artifactDigest: "dep",
+      requestedVersion: "^1.0.0",
+      placement: "same_runtime",
+      required: true,
+      parentArtifactDigest: "root-a",
+    }],
+  });
+  const second = computeSkillRolloutPlanDigestSync({
+    ...base,
+    closure: [{
+      coordinate: "github:owner/repo/skills/dep",
+      artifactDigest: "dep",
+      requestedVersion: "^1.0.0",
+      placement: "same_runtime",
+      required: true,
+      parentArtifactDigest: "root-b",
+    }],
+  });
+  assert.notEqual(first, second, "parent anchor changes must invalidate the approved digest");
 });
 
 test("resolveSkillDependencyClosureSync rejects conflicting version ranges for the same coordinate", () => {

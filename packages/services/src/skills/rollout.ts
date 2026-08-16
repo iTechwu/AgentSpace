@@ -429,6 +429,7 @@ export function computeSkillRolloutPlanDigestSync(input: {
         requestedVersion: entry.requestedVersion,
         placement: entry.placement,
         required: entry.required,
+        parentArtifactDigest: entry.parentArtifactDigest ?? null,
       }))
       .sort((left, right) => left.coordinate.localeCompare(right.coordinate)),
     targetRuntimes: [...input.targetRuntimes].sort(),
