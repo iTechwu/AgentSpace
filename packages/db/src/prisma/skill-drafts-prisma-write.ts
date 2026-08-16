@@ -3,7 +3,7 @@
 // （复合主键 @@id([workspaceId, skillId])，Prisma upsert 可表达）。
 // cutover 走 buildDomainWriteCutover：primary 抛错 fail closed 不重写。
 
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { DEFAULT_WORKSPACE_ID } from "../database.ts";
 import {
   deleteSkillDraftSync,
@@ -44,17 +44,21 @@ export async function upsertSkillDraftPrisma(
   const prisma = client ?? getDofePrismaClient();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const updatedByUserId = input.updatedByUserId?.trim() || null;
+  // draft_json 列为 jsonb：直接把字符串赋给 Json 字段会按 JSON 字符串标量
+  // 二次编码，与 sync 路径（text→jsonb 单层对象）不一致，读回 parse 即失败
+  // （audit-log/notifications 的 Prisma 写面同款 parse 惯例）。
+  const draftJsonValue = toInputJsonValue(input.draftJson);
   const row = await prisma.skillDraft.upsert({
     where: { workspaceId_skillId: { workspaceId, skillId: input.skillId } },
     create: {
       workspaceId,
       skillId: input.skillId,
-      draftJson: input.draftJson,
+      draftJson: draftJsonValue,
       updatedByUserId,
       updatedAt: new Date(),
     },
     update: {
-      draftJson: input.draftJson,
+      draftJson: draftJsonValue,
       updatedByUserId,
       updatedAt: new Date(),
     },
@@ -151,4 +155,13 @@ function mapRowToRecord(row: PrismaSkillDraftRow): SkillDraftRecord {
   };
   if (row.updatedByUserId !== null) record.updatedByUserId = row.updatedByUserId;
   return record;
+}
+
+/** parse 失败（极端非 JSON 输入）时原样存字符串，不放大失败。 */
+function toInputJsonValue(value: string): Prisma.InputJsonValue {
+  try {
+    return JSON.parse(value) as Prisma.InputJsonValue;
+  } catch {
+    return value;
+  }
 }
