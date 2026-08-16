@@ -75,15 +75,16 @@ shadow 未开启对应 read 的组合；拼写错误和 read/shadow 不同步现
 把 task enqueue、outbox、workflow lease 作为独立高风险批次；只有完成 legacy/Prisma
 affected rows、错误类别、幂等、并发和事件顺序对照后，才允许关闭旧路径。
 
-### P2：shadow 观测是日志采样，没有持久化 SLO 或自动回滚
+### P2（已部分完成）：shadow 观测已有进程内 SLO 聚合，仍缺持久化和自动回滚
 
-`packages/db/src/prisma/cutover-observability.ts:28-57` 对异常全量记录、正常 primary 默认
-只采样 1%，并脱敏错误文本；这解决了日志噪声和泄露问题，但没有按域聚合 mismatch/fallback
-率、P95、连接池等待、P2034/deadlock，也没有在窗口超阈值时自动关 flag。
+`packages/db/src/prisma/cutover-observability.ts` 对异常全量记录、正常 primary 默认只采样 1%，
+并脱敏错误文本。本轮新增有界的 `PrismaCutoverSloWindow`：采样决策前记录完整调用结果，按域计算
+mismatch/fallback/error 比率与 P95，并根据调用方提供的阈值生成 rollback reasons；快照可携带
+当前 flag version 和 last-known-good flag version。相关 SLO、采样与 cutover runner 测试共 16 项通过。
 
-建议：把 `prisma.cutover` 事件接入可聚合指标，定义每域窗口阈值和 burn-rate 告警；维护
-`last-known-good` flag 配置，发生 mismatch、fallback 或容量异常时自动生成回滚建议（最终
-动作仍由发布系统确认）。
+剩余建议：把进程内窗口写入集中指标/时序存储，定义每域时间窗口、burn-rate 告警和统一阈值；
+将 rollback reasons 交给发布系统生成回滚建议并关联 `last-known-good` 配置。当前实现不会自动
+修改 flag，也不会跨实例合并，因此仍不能作为生产级自动回滚闭环。
 
 ### P2（已部分完成）：Raw SQL 已参数化并增加 Unsafe 门禁
 

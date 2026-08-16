@@ -358,6 +358,15 @@ export {
   type PrismaCutoverFlagKind,
   type PrismaCutoverFlagSpec,
 } from "./prisma/cutover-flags.ts";
+export {
+  readPrismaCutoverSloSnapshots,
+  type PrismaCutoverMetricContext,
+} from "./prisma/cutover-observability.ts";
+export {
+  PrismaCutoverSloWindow,
+  type PrismaCutoverSloSnapshot,
+  type PrismaCutoverSloThresholds,
+} from "./prisma/cutover-slo.ts";
 
 // Database
 export {

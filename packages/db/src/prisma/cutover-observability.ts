@@ -1,5 +1,10 @@
 import type { DomainWriteCutoverMetric } from "./cutover-runner.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
+import {
+  PrismaCutoverSloWindow,
+  type PrismaCutoverSloSnapshot,
+  type PrismaCutoverSloThresholds,
+} from "./cutover-slo.ts";
 
 export interface PrismaCutoverMetricContext {
   domain: string;
@@ -10,9 +15,11 @@ interface PrismaCutoverMetricOptions {
   env?: NodeJS.ProcessEnv;
   random?: () => number;
   logger?: Pick<Console, "info" | "warn">;
+  sloWindow?: PrismaCutoverSloWindow;
 }
 
 type CutoverMetric = ReadCutoverMetric | DomainWriteCutoverMetric;
+const sharedSloWindow = new PrismaCutoverSloWindow();
 
 export function createPrismaCutoverMetricSink(
   context: PrismaCutoverMetricContext,
@@ -27,6 +34,7 @@ export function emitPrismaCutoverMetric(
 ): void {
   const env = options.env ?? process.env;
   if (env.PRISMA_CUTOVER_METRICS_ENABLED !== "1") return;
+  (options.sloWindow ?? sharedSloWindow).record(context, metric);
 
   const abnormal = metric.source === "fallback" || metric.mismatch === 1 || metric.error !== undefined;
   if (!abnormal && (options.random ?? Math.random)() >= readSuccessSampleRate(env)) return;
@@ -49,6 +57,18 @@ export function emitPrismaCutoverMetric(
   const line = JSON.stringify(record);
   if (abnormal) logger.warn(line);
   else logger.info(line);
+}
+
+export function readPrismaCutoverSloSnapshots(input: {
+  thresholds: PrismaCutoverSloThresholds;
+  flagVersion?: string;
+  lastKnownGoodFlagVersion?: string;
+}): PrismaCutoverSloSnapshot[] {
+  return sharedSloWindow.snapshots(input);
+}
+
+export function resetPrismaCutoverSloWindowForTests(): void {
+  sharedSloWindow.reset();
 }
 
 function readSuccessSampleRate(env: NodeJS.ProcessEnv): number {
