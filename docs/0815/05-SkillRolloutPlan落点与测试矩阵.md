@@ -222,7 +222,7 @@ RETURNING id;
 | T11 | 同上 | planDigest 稳定 | 闭包/runtimes 顺序无关，digest 一致 |
 | T12 | 同上 | required-only / include-optional | 可选依赖按模式纳入或跳过 |
 | T13 | `packages/db/src/skill-rollout-plans.test.ts`（新） | create/read/approve/consume | 全生命周期状态正确 |
-| T14 | 同上 | `UNIQUE(workspace_id, plan_digest)` | 重复创建幂等返回已有 |
+| T14 | `skill_rollout_plan` + planner | 非唯一 + 最新未消费计划查询 + `consumedAt` 防重放 | 同 digest 可重新审批且历史可追溯；最新未消费计划查询稳定 |
 | T15 | 同上 | consume 一次性 | 第二次 consume 返回 false |
 | T16 | `packages/db/src/skill-installations.test.ts` | 并发 `createSkillInstallationSync` | 恰一行、无唯一键错误、幂等返回同一记录 |
 | T17 | `packages/services/src/skills/installations.test.ts` | `rolloutPlanId` 有效 | installation 引用 plan、不再消费单 installation 审批 |
