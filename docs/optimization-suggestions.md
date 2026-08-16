@@ -58,7 +58,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ |
 | P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ |
 | P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏸ |
-| P1 | 巨型文件拆分 | 剩余 >1500 行非测试源文件：web data.ts 3,694 / services skills/import.ts 2,305 / cli feishu/evidence.ts 3,885（feishu.ts 10,597 行 e4ba456、daemon.ts 2,233 行 03a3d8d 已拆） | 中 | 🟡 |
+| P1 | 巨型文件拆分 | 剩余 >1500 行非测试源文件：services skills/import.ts 2,305 / cli feishu/evidence.ts 3,885（feishu.ts 10,597 行 e4ba456、daemon.ts 2,233 行 03a3d8d、web data.ts 3,694 行 b032931 已拆） | 中 | 🟡 |
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | ✅ |
 | P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | ✅ |
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ✅ |

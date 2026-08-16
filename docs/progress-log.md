@@ -59,6 +59,7 @@
 
 - 第一阶段 `683f2d9e`：按「类型层 / 视图构建层 / 装配层」切开——`data.ts` 3,533 行（43 个引用方零改动）、`data-types.ts` 973 行、`dashboard-view-builders.ts` 1,410 行，依赖单向 `data.ts → view-builders → data-types`。
 - 第二阶段 `ad4de69e`：`dashboard-view-builders.ts` 按领域拆为 `builders/` 九个子模块（`channel-documents` / `channel-files` / `channel-view` / `document-changesets` / `feishu-summary` / `knowledge-view` / `task-queue` / `text` / `workspace-members`），原文件收敛为 65 行 facade。
+- 第三阶段（`b032931c` + `6592aa6f`）：`data.ts` 装配层本体（此时已增至 3,694 行）再拆为 `data/` 下 13 个域模块——`cached`（cache 读取器与常量）、`channels`（477 行）、`inbox`/`inbox-items`、`agents`（852 行）、`runtime-views`、`skills`、`agent-record`（564 行）、`task-board`、`org-chart`、`cost`、`knowledge`、`misc-pages`（performance/data-tables/automations/calendar/templates）。原文件收敛为 88 行 barrel（42 个原 export 按域 re-export + data-types 57 类型显式 re-export + approvals 转发），57 个引用方零改动。**踩坑两则**：① barrel 相对路径须为 `./data-types`（barrel 仍在 dashboard/ 下，写 `../` 触发 TS2307 且被 TS7006 连锁掩盖）；② `export *` 在该解析配置下不可靠，须显式 type re-export；③ 根 `.gitignore` 的无锚定 `data/` 规则误吞 `features/dashboard/data/`，首提交漏 13 个模块文件，`6592aa6f` 改锚定（`/data/` + `apps/web/data/`）补交。验证：web typecheck 0 新增错误；dashboard vitest 15 文件 124 用例 + 引用方域 19 文件 130 用例全过；inventory/engines 门通过。
 
 ### 3.4-2 Web 代码分割 —— ✅ 完成
 
