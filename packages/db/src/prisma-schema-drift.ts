@@ -72,6 +72,46 @@ try {
       ORDER BY relation.relname, index_record.indexrelid`,
     [tableNames],
   );
+  const foreignKeys = await client.query<{
+    table_name: string;
+    column_names: string[];
+    referenced_table: string;
+    referenced_column_names: string[];
+    on_delete: string;
+  }>(
+    `SELECT relation.relname AS table_name,
+            array_agg(local_attribute.attname::text ORDER BY local_key.ordinality) AS column_names,
+            referenced_relation.relname AS referenced_table,
+            array_agg(referenced_attribute.attname::text ORDER BY local_key.ordinality) AS referenced_column_names,
+            CASE constraint_record.confdeltype
+              WHEN 'c' THEN 'Cascade'
+              WHEN 'n' THEN 'SetNull'
+              WHEN 'd' THEN 'SetDefault'
+              WHEN 'r' THEN 'Restrict'
+              ELSE 'NoAction'
+            END AS on_delete
+       FROM pg_constraint AS constraint_record
+       JOIN pg_class AS relation ON relation.oid = constraint_record.conrelid
+       JOIN pg_class AS referenced_relation ON referenced_relation.oid = constraint_record.confrelid
+       JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+       JOIN LATERAL unnest(constraint_record.conkey)
+         WITH ORDINALITY AS local_key(attnum, ordinality) ON true
+       JOIN LATERAL unnest(constraint_record.confkey)
+         WITH ORDINALITY AS referenced_key(attnum, ordinality)
+         ON referenced_key.ordinality = local_key.ordinality
+       JOIN pg_attribute AS local_attribute
+         ON local_attribute.attrelid = relation.oid
+        AND local_attribute.attnum = local_key.attnum
+       JOIN pg_attribute AS referenced_attribute
+         ON referenced_attribute.attrelid = referenced_relation.oid
+        AND referenced_attribute.attnum = referenced_key.attnum
+      WHERE constraint_record.contype = 'f'
+        AND namespace.nspname = current_schema()
+        AND relation.relname = ANY($1::text[])
+      GROUP BY constraint_record.oid, relation.relname, referenced_relation.relname, constraint_record.confdeltype
+      ORDER BY relation.relname, constraint_record.oid`,
+    [tableNames],
+  );
   const snapshot: PostgresSchemaSnapshot = {
     columns: columns.rows.map((column) => ({
       tableName: column.table_name,
@@ -85,6 +125,13 @@ try {
       tableName: row.table_name,
       columns: row.column_names,
       unique: row.is_unique,
+    })),
+    foreignKeys: foreignKeys.rows.map((row) => ({
+      tableName: row.table_name,
+      columns: row.column_names,
+      referencedTable: row.referenced_table,
+      referencedColumns: row.referenced_column_names,
+      onDelete: row.on_delete,
     })),
   };
   const drift = comparePrismaSchemaContract(contract, snapshot);

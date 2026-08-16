@@ -12,11 +12,19 @@ export interface PrismaIndexContract {
   unique: boolean;
 }
 
+export interface PrismaForeignKeyContract {
+  columns: string[];
+  referencedTable: string;
+  referencedColumns: string[];
+  onDelete: string;
+}
+
 export interface PrismaModelContract {
   name: string;
   tableName: string;
   columns: PrismaColumnContract[];
   indexes: PrismaIndexContract[];
+  foreignKeys: PrismaForeignKeyContract[];
 }
 
 export interface PrismaSchemaContract {
@@ -37,6 +45,7 @@ export interface PostgresSchemaSnapshot {
     columns: string[];
     unique: boolean;
   }>;
+  foreignKeys?: Array<PrismaForeignKeyContract & { tableName: string }>;
 }
 
 const SCALAR_TYPES = new Set([
@@ -58,6 +67,7 @@ export function parsePrismaSchemaContract(source: string): PrismaSchemaContract 
     return match?.[1] ? [match[1]] : [];
   }));
   const models: PrismaModelContract[] = [];
+  const modelBlocks = new Map<string, string[]>();
   for (let index = 0; index < lines.length; index += 1) {
     const start = lines[index]!.trim().match(/^model\s+(\w+)\s*\{$/);
     if (!start?.[1]) continue;
@@ -67,6 +77,30 @@ export function parsePrismaSchemaContract(source: string): PrismaSchemaContract 
       block.push(lines[index]!);
     }
     models.push(parseModel(name, block, modelNames));
+    modelBlocks.set(name, block);
+  }
+  const modelByName = new Map(models.map((model) => [model.name, model]));
+  for (const model of models) {
+    const block = modelBlocks.get(model.name) ?? [];
+    const localColumns = new Map(model.columns.map((column) => [column.fieldName, column.columnName]));
+    for (const rawLine of block) {
+      const relation = rawLine.trim().match(/^(\w+)\s+(\w+)(?:\[\])?\??\s+.*@relation\(([^)]*)\)/);
+      if (!relation?.[2] || !relation[3]) continue;
+      const fields = relation[3].match(/fields:\s*\[([^\]]+)\]/)?.[1]
+        ?.split(",").map((value) => localColumns.get(value.trim())).filter((value): value is string => Boolean(value));
+      const target = modelByName.get(relation[2]);
+      const references = relation[3].match(/references:\s*\[([^\]]+)\]/)?.[1]
+        ?.split(",").map((value) => target?.columns.find((column) => column.fieldName === value.trim())?.columnName)
+        .filter((value): value is string => Boolean(value));
+      if (!target || !fields?.length || !references?.length || fields.length !== references.length) continue;
+      const onDelete = relation[3].match(/onDelete:\s*(\w+)/)?.[1] ?? "NoAction";
+      model.foreignKeys.push({
+        columns: fields,
+        referencedTable: target.tableName,
+        referencedColumns: references,
+        onDelete,
+      });
+    }
   }
   return { models };
 }
@@ -122,7 +156,7 @@ function parseModel(
       indexes.push({ columns: columnsForIndex, unique: composite[1] === "unique" });
     }
   }
-  return { name, tableName, columns, indexes };
+  return { name, tableName, columns, indexes, foreignKeys: [] };
 }
 
 export function comparePrismaSchemaContract(
@@ -169,6 +203,15 @@ export function comparePrismaSchemaContract(
       const key = `${expectedIndex.unique ? "unique" : "index"}:${expectedIndex.columns.join(",")}`;
       if (!actualIndexes.includes(key)) {
         drift.push(`${model.tableName}: missing ${key}`);
+      }
+    }
+    const actualForeignKeys = (snapshot.foreignKeys ?? [])
+      .filter((foreignKey) => foreignKey.tableName === model.tableName)
+      .map((foreignKey) => `${foreignKey.columns.join(",")}->${foreignKey.referencedTable}(${foreignKey.referencedColumns.join(",")}):${foreignKey.onDelete}`);
+    for (const expectedForeignKey of model.foreignKeys) {
+      const key = `${expectedForeignKey.columns.join(",")}->${expectedForeignKey.referencedTable}(${expectedForeignKey.referencedColumns.join(",")}):${expectedForeignKey.onDelete}`;
+      if (!actualForeignKeys.includes(key)) {
+        drift.push(`${model.tableName}: missing foreign key ${key}`);
       }
     }
   }

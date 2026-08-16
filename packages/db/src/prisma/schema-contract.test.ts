@@ -31,6 +31,12 @@ test("Prisma schema contract captures mapped columns and composite primary keys"
       { fieldName: "note", columnName: "note", prismaType: "String", required: false, hasDefault: true, primary: false },
     ],
     indexes: [],
+    foreignKeys: [{
+      columns: ["employee_id"],
+      referencedTable: "runtime",
+      referencedColumns: ["id"],
+      onDelete: "NoAction",
+    }],
   });
 });
 
@@ -101,4 +107,51 @@ test("schema comparison reports missing unique and regular indexes", () => {
     indexes: [],
   });
   assert.deepEqual(drift, ["membership: missing unique:workspace_id,user_id"]);
+});
+
+test("Prisma schema contract captures relation fields and onDelete", () => {
+  const contract = parsePrismaSchemaContract(`
+    model Binding {
+      id String @id
+      runtimeId String @map("runtime_id")
+      runtime Runtime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
+      @@map("binding")
+    }
+    model Runtime {
+      id String @id
+      @@map("runtime")
+    }
+  `);
+  assert.deepEqual(contract.models[0]?.foreignKeys, [{
+    columns: ["runtime_id"],
+    referencedTable: "runtime",
+    referencedColumns: ["id"],
+    onDelete: "Cascade",
+  }]);
+});
+
+test("schema comparison reports missing foreign-key actions", () => {
+  const contract = parsePrismaSchemaContract(`
+    model Binding {
+      id String @id
+      runtimeId String @map("runtime_id")
+      runtime Runtime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
+      @@map("binding")
+    }
+    model Runtime {
+      id String @id
+      @@map("runtime")
+    }
+  `);
+  const drift = comparePrismaSchemaContract(contract, {
+    columns: [
+      { tableName: "binding", columnName: "id", dataType: "text", nullable: false, hasDefault: false },
+      { tableName: "binding", columnName: "runtime_id", dataType: "text", nullable: false, hasDefault: false },
+      { tableName: "runtime", columnName: "id", dataType: "text", nullable: false, hasDefault: false },
+    ],
+    primaryKeys: new Map([["binding", ["id"]], ["runtime", ["id"]]]),
+    indexes: [],
+    foreignKeys: [],
+  });
+  assert.deepEqual(drift, ["binding: missing foreign key runtime_id->runtime(id):Cascade"]);
 });
