@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 export const DEFAULT_TASK_POLL_INTERVAL_MS = 3_000;
+/** 3.5-8：运维操作队列（app/MCP/skill/service/mount claim）的最小轮询间隔。 */
+export const DEFAULT_OPERATION_CLAIM_INTERVAL_MS = 15_000;
 export const DEFAULT_LOG_LINES = 50;
 export const DEFAULT_STATE_DIR_NAME = ".dofe-agent-daemon";
 

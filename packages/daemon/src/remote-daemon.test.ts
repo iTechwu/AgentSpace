@@ -11,6 +11,7 @@ import {
   claimRemoteQueue,
   classifyRemoteLoopError,
   createRemoteGatewayUsageReporter,
+  createRemoteRuntimeActivity,
   mergeRemoteGatewayUsages,
   reconcileRemoteRuntimesWithHeartbeat,
   restoreManagedRuntimesFromHeartbeat,
@@ -297,6 +298,37 @@ test("managed stdio MCP rejects shell syntax and reserved environment variables"
     nonSecretParams: { PATH: "/untrusted" },
     secrets: {},
   }, { stateDir: "/tmp/dofe-test", managedNode: false }, { id: "runtime-1", provider: "codex" }), /environment_invalid/);
+});
+
+test("buildRemoteDaemonConfig resolves the operation claim backpressure interval", () => {
+  const defaults = buildRemoteDaemonConfig({}, {
+    environment: { HOME: "/tmp/daemon-home" },
+  });
+  assert.equal(defaults.operationClaimIntervalMs, 15_000);
+
+  const fromEnv = buildRemoteDaemonConfig({}, {
+    environment: { HOME: "/tmp/daemon-home", DOFE_AGENT_OPERATION_CLAIM_INTERVAL: "30000" },
+  });
+  assert.equal(fromEnv.operationClaimIntervalMs, 30_000);
+
+  const fromFlag = buildRemoteDaemonConfig(
+    { "operation-claim-interval": "45000" },
+    { environment: { HOME: "/tmp/daemon-home", DOFE_AGENT_OPERATION_CLAIM_INTERVAL: "30000" } },
+  );
+  assert.equal(fromFlag.operationClaimIntervalMs, 45_000);
+
+  const floored = buildRemoteDaemonConfig(
+    { "operation-claim-interval": "10" },
+    { environment: { HOME: "/tmp/daemon-home" } },
+  );
+  assert.equal(floored.operationClaimIntervalMs, 1_000);
+});
+
+test("remote runtime activity tracks per-runtime operation claim backpressure", () => {
+  const activity = createRemoteRuntimeActivity();
+  assert.ok(activity.nextOperationClaimAt instanceof Map);
+  activity.nextOperationClaimAt.set("runtime-1", Date.now() + 10_000);
+  assert.equal(activity.nextOperationClaimAt.get("runtime-1")! > Date.now(), true);
 });
 
 test("buildRemoteDaemonRelaunchCommand reuses the installed daemon bin without strip-types", () => {

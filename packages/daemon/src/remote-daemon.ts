@@ -50,6 +50,7 @@ import {
   cleanupStalePidFile,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_LOG_LINES,
+  DEFAULT_OPERATION_CLAIM_INTERVAL_MS,
   DEFAULT_TASK_POLL_INTERVAL_MS,
   getDaemonLogFilePath,
   getDaemonPidFilePath,
@@ -93,6 +94,8 @@ export interface RemoteDaemonConfig {
   runtimeName: string;
   heartbeatIntervalMs: number;
   taskPollIntervalMs: number;
+  /** 3.5-8：同一 runtime 两次操作队列 claim 级联的最小间隔（空闲背压）。 */
+  operationClaimIntervalMs: number;
   taskTimeoutMs: number;
   serverUrl?: string;
   daemonToken?: string;
@@ -103,12 +106,15 @@ export interface RemoteDaemonConfig {
 export interface RemoteRuntimeActivity {
   exclusiveRuntimes: Set<string>;
   taskCounts: Map<string, number>;
+  /** 3.5-8：runtime → 下一次允许进入操作队列 claim 级联的时间戳（epoch ms）。 */
+  nextOperationClaimAt: Map<string, number>;
 }
 
 export function createRemoteRuntimeActivity(): RemoteRuntimeActivity {
   return {
     exclusiveRuntimes: new Set<string>(),
     taskCounts: new Map<string, number>(),
+    nextOperationClaimAt: new Map<string, number>(),
   };
 }
 
@@ -636,6 +642,14 @@ export function buildRemoteDaemonConfig(
           ?? DEFAULT_TASK_POLL_INTERVAL_MS,
       ),
     ),
+    operationClaimIntervalMs: Math.max(
+      1_000,
+      Number(
+        getStringFlag(flags, "operation-claim-interval")
+          ?? environment.DOFE_AGENT_OPERATION_CLAIM_INTERVAL
+          ?? DEFAULT_OPERATION_CLAIM_INTERVAL_MS,
+      ),
+    ),
     taskTimeoutMs: Math.max(
       1_000,
       Number(
@@ -655,7 +669,7 @@ export function printRemoteDaemonHelp(): void {
   console.log(`dofe-agent-daemon
 
 Usage:
-  dofe-agent-daemon start [--foreground] [--managed-node] [--server-url <url>] [--daemon-token <token>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--poll-interval <ms>] [--task-timeout <ms>] [--state-dir <dir>]
+  dofe-agent-daemon start [--foreground] [--managed-node] [--server-url <url>] [--daemon-token <token>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--poll-interval <ms>] [--operation-claim-interval <ms>] [--task-timeout <ms>] [--state-dir <dir>]
   dofe-agent-daemon stop [--state-dir <dir>]
   dofe-agent-daemon status [--json] [--state-dir <dir>]
   dofe-agent-daemon logs [--lines <n>] [--follow] [--state-dir <dir>]
@@ -671,6 +685,7 @@ Environment:
   DOFE_AGENT_DAEMON_STATE_DIR
   DOFE_AGENT_HEARTBEAT_INTERVAL
   DOFE_AGENT_TASK_POLL_INTERVAL
+  DOFE_AGENT_OPERATION_CLAIM_INTERVAL
   DOFE_AGENT_TASK_TIMEOUT_MS
   MCP_CODEX_EXPERIMENTAL_ENABLED
 
@@ -751,6 +766,8 @@ export function buildRemoteDaemonRelaunchCommand(
     String(config.heartbeatIntervalMs),
     "--poll-interval",
     String(config.taskPollIntervalMs),
+    "--operation-claim-interval",
+    String(config.operationClaimIntervalMs),
     "--task-timeout",
     String(config.taskTimeoutMs),
   ];
@@ -879,19 +896,28 @@ async function pollRemoteTasks(
   credentialResolver: ManagedCredentialResolver,
   mcpAuditOutbox: McpAuditOutbox,
 ): Promise<void> {
+  const now = Date.now();
   for (const runtime of runtimes) {
     if (activity.exclusiveRuntimes.has(runtime.id)) {
       continue;
     }
     try {
       const hasActiveTasks = (activity.taskCounts.get(runtime.id) ?? 0) > 0;
-      if (!hasActiveTasks) {
+      // 3.5-8：操作队列（app/MCP/skill/service/mount）是低频运维信号，
+      // 空闲轮询全部扑空后按 operationClaimIntervalMs 背压；任务 claim
+      // 保持每 tick 一次不变（用户可感知延迟）。任一操作被认领即清零背压，
+      // 让批量操作（如连续 skill 安装）不被节流。
+      const operationClaimEligible = !hasActiveTasks
+        && (activity.nextOperationClaimAt.get(runtime.id) ?? 0) <= now;
+      if (operationClaimEligible) {
+        let claimedOperation = false;
         const appOperation = await claimRemoteQueue({
           runtimeId: runtime.id,
           queue: "runtime app operation",
           claim: () => client.claimRuntimeAppOperation(runtime.id),
         });
         if (appOperation?.operation) {
+          claimedOperation = true;
           reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
           void executeRemoteRuntimeAppOperation(client, config, runtime, appOperation.operation)
             .catch((error) => {
@@ -910,6 +936,7 @@ async function pollRemoteTasks(
           claim: () => client.claimMcpConnectionOperation(runtime.id),
         });
         if (mcpOperation?.operation) {
+          claimedOperation = true;
           reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
           void executeMcpConnectionOperation(client, mcpOperation.operation, {
             resolveConnection: (connection) => attachManagedMcpConnection(connection, config, runtime),
@@ -930,6 +957,7 @@ async function pollRemoteTasks(
           claim: () => client.claimSkillInstallationOperation(runtime.id),
         });
         if (skillOperation?.operation) {
+          claimedOperation = true;
           reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
           void executeRemoteSkillInstallationOperation(client, config, skillOperation.operation)
             .catch((error) => {
@@ -948,6 +976,7 @@ async function pollRemoteTasks(
           claim: () => client.claimSkillServiceOperation(runtime.id),
         });
         if (serviceOperation?.operation) {
+          claimedOperation = true;
           reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
           void executeRemoteSkillServiceOperation(client, config, serviceOperation.operation)
             .catch((error) => {
@@ -966,6 +995,7 @@ async function pollRemoteTasks(
           claim: () => client.claimWorkspaceMountOperation(runtime.id),
         });
         if (mountOperation?.operation) {
+          claimedOperation = true;
           reserveRemoteRuntimeExclusiveSlot(activity, runtime.id);
           void executeWorkspaceMountOperation(client, config, mountOperation.operation)
             .catch((error) => {
@@ -976,6 +1006,16 @@ async function pollRemoteTasks(
               releaseRemoteRuntimeExclusiveSlot(activity, runtime.id);
             });
           continue;
+        }
+
+        if (!claimedOperation) {
+          // 级联全空：背压下一次操作 claim；±20% 抖动去同步多 runtime 波峰。
+          // 认领成功的分支已 continue，天然重置为立即再查。
+          const jitter = 0.8 + Math.random() * 0.4;
+          activity.nextOperationClaimAt.set(
+            runtime.id,
+            now + config.operationClaimIntervalMs * jitter,
+          );
         }
       }
 
