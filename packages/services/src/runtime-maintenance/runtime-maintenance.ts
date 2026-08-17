@@ -176,14 +176,14 @@ export async function runRuntimeMaintenanceAsync(
   }
   const ok = stagesSucceeded && evidence.status === "succeeded";
   const status = ok ? "succeeded" : "partial_failure";
-  if (!ok) {
-    const alerts = buildRuntimeMaintenanceFailureAlerts(runId, stages, evidence);
-    await sendExternalPagerAlert({
-      alerts,
-      checkedAt: new Date().toISOString(),
-      recoveryCodes: RUNTIME_MAINTENANCE_ALERT_CODES,
-    });
-  }
+  const alerts = ok ? [] : buildRuntimeMaintenanceFailureAlerts(runId, stages, evidence);
+  // Reconcile on successful runs too: an empty alert set is what lets the
+  // pager emit recovery and retire a state created by a previous failed run.
+  await sendExternalPagerAlert({
+    alerts,
+    checkedAt: new Date().toISOString(),
+    recoveryCodes: RUNTIME_MAINTENANCE_ALERT_CODES,
+  });
   return { ok, status, runId, evidence, stages };
 }
 

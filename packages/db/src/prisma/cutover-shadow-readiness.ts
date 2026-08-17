@@ -219,8 +219,9 @@ function isPrismaCutoverSloSnapshot(value: unknown): value is PrismaCutoverSloSn
     if (!isRate(value[field])) return false;
   }
   if (!isNonNegativeNumber(value.p95DurationMs) || !isNonNegativeNumber(value.burnRate)) return false;
-  // linkConflictRate 为 2026-08 新增的可选字段：历史快照没有它，存在时校验即可。
+  // 新增的比例字段均保持可选以兼容历史快照，存在时必须落在 [0,1]。
   if (value.linkConflictRate !== undefined && !isRate(value.linkConflictRate)) return false;
+  if (value.eventOrderDriftRate !== undefined && !isRate(value.eventOrderDriftRate)) return false;
   if (typeof value.rollbackRecommended !== "boolean" || !Array.isArray(value.rollbackReasons)) return false;
   if (!value.rollbackReasons.every((reason) => typeof reason === "string" && ROLLBACK_REASONS.has(reason))) return false;
   for (const field of ["flagVersion", "lastKnownGoodFlagVersion", "instanceId", "windowStart", "windowEnd"] as const) {

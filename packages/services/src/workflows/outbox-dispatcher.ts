@@ -27,6 +27,7 @@ export interface WorkflowOutboxDispatchResult {
   dispatchedTaskIds: string[];
   failedOutboxIds: string[];
   leaseConflictOutboxIds: string[];
+  eventOrderDriftCount: number;
 }
 
 export const WORKFLOW_OUTBOX_MAX_ATTEMPTS = 8;
@@ -45,6 +46,7 @@ export function dispatchWorkflowOutboxBatchSync(input: {
     dispatchedTaskIds: [],
     failedOutboxIds: [],
     leaseConflictOutboxIds: [],
+    eventOrderDriftCount: 0,
   };
   for (const item of items) {
     try {
@@ -121,6 +123,7 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
     dispatchedTaskIds: [],
     failedOutboxIds: [],
     leaseConflictOutboxIds: [],
+    eventOrderDriftCount: 0,
   };
   for (const item of items) {
     try {
@@ -145,6 +148,7 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
           atomicOutbox: true,
         });
         if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
+        result.eventOrderDriftCount += dispatched.eventOrderDriftCount ?? 0;
       } else if (item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") {
         if (typeof payload.runId !== "string") throw new Error("workflow_outbox_payload_invalid");
         await fanOutWorkflowRunOutboxPrisma({
@@ -202,6 +206,7 @@ export function dispatchWorkflowOutboxBatchAuto(input: {
           summarizeResult: (result) => ({
             sampleCount: result.publishedOutboxIds.length + result.failedOutboxIds.length,
             errorCount: result.failedOutboxIds.length,
+            eventOrderDriftCount: result.eventOrderDriftCount,
           }),
         },
       )

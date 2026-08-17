@@ -38,23 +38,18 @@ export async function GET(request: Request): Promise<Response> {
   });
 
   const anyError = perWorkspace.some((result) => !result.ok);
-  if (anyError) {
-    // Fire external paging webhook for every workspace that has error alerts.
-    // Failures are logged but do not change the HTTP response so the Cron stays
-    // healthy enough to retry on the next cycle.
-    await Promise.all(
-      perWorkspace.map((result) =>
-        result.ok
-          ? Promise.resolve()
-          : sendExternalPagerAlert({
-              workspaceId: result.workspaceId,
-              alerts: result.alerts,
-              checkedAt,
-              recoveryCodes: DATA_PROTECTION_ALERT_CODES,
-            }),
-      ),
-    );
-  }
+  // Run pager state reconciliation for every workspace on every cycle. Healthy
+  // workspaces pass an empty alert set so previously active alerts can emit a
+  // recovery and be cleared; restricting this to error cycles leaves recovery
+  // state active forever after the workspace becomes healthy.
+  await Promise.all(
+    perWorkspace.map((result) => sendExternalPagerAlert({
+      workspaceId: result.workspaceId,
+      alerts: result.alerts,
+      checkedAt,
+      recoveryCodes: DATA_PROTECTION_ALERT_CODES,
+    })),
+  );
 
   return Response.json(
     {

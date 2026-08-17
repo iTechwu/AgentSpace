@@ -6,6 +6,7 @@ const db = vi.hoisted(() => ({
 const services = vi.hoisted(() => ({
   evaluateDataProtectionHealthSync: vi.fn(),
   sendExternalPagerAlert: vi.fn(),
+  DATA_PROTECTION_ALERT_CODES: ["workspace_head_age"],
 }));
 
 vi.mock("@dofe-agent/db", () => db);
@@ -70,7 +71,11 @@ describe("data-protection health cron route", () => {
     expect(response.status).toBe(200);
     expect(services.evaluateDataProtectionHealthSync).toHaveBeenCalledWith({ workspaceId: "default" });
     expect(services.evaluateDataProtectionHealthSync).toHaveBeenCalledWith({ workspaceId: "ws-2" });
-    expect(services.sendExternalPagerAlert).not.toHaveBeenCalled();
+    expect(services.sendExternalPagerAlert).toHaveBeenCalledTimes(2);
+    expect(services.sendExternalPagerAlert).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "default",
+      alerts: [],
+    }));
     const body = (await response.json()) as { workspaceCount: number; workspaces: Array<{ workspaceId: string }> };
     expect(body.workspaceCount).toBe(2);
     expect(body.workspaces.map((w) => w.workspaceId)).toEqual(["default", "ws-2"]);
@@ -92,7 +97,7 @@ describe("data-protection health cron route", () => {
       headers: { authorization: "Bearer expected-secret" },
     }));
     expect(response.status).toBe(503);
-    expect(services.sendExternalPagerAlert).toHaveBeenCalledTimes(1);
+    expect(services.sendExternalPagerAlert).toHaveBeenCalledTimes(2);
     expect(services.sendExternalPagerAlert).toHaveBeenCalledWith(expect.objectContaining({
       workspaceId: "ws-2",
       alerts: [expect.objectContaining({ severity: "error" })],

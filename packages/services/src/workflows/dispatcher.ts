@@ -31,6 +31,7 @@ export interface DispatchWorkflowNodeResult {
   nodeRunId: string;
   taskQueueId?: string;
   status: string;
+  eventOrderDriftCount?: number;
 }
 
 export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {
@@ -132,7 +133,12 @@ export async function dispatchReadyWorkflowNodePrisma(input: DispatchWorkflowNod
   const result = input.atomicOutbox && input.outbox
     ? await dispatchWorkflowNodeFromOutboxPrisma({ ...prismaInput, outbox: input.outbox })
     : await dispatchWorkflowNodePrisma(prismaInput);
-  return { nodeRunId: result.nodeRunId, taskQueueId: result.taskQueueId, status: result.status };
+  return {
+    nodeRunId: result.nodeRunId,
+    taskQueueId: result.taskQueueId,
+    status: result.status,
+    ...(result.eventOrderDriftCount !== undefined ? { eventOrderDriftCount: result.eventOrderDriftCount } : {}),
+  };
 }
 
 function dispatchReadyWorkflowNodeInTransactionSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {

@@ -246,6 +246,9 @@ export function aggregatePrismaCutoverSloSnapshots(
     const linkConflictRate = sampleCount === 0
       ? 0
       : rows.reduce((sum, row) => sum + (row.linkConflictRate ?? 0) * row.sampleCount, 0) / sampleCount;
+    const eventOrderDriftRate = sampleCount === 0
+      ? 0
+      : rows.reduce((sum, row) => sum + (row.eventOrderDriftRate ?? 0) * row.sampleCount, 0) / sampleCount;
     const p95DurationMs = Math.max(0, ...rows.map((row) => row.p95DurationMs));
     const rates = {
       mismatchRate: weighted("mismatchRate"),
@@ -255,6 +258,7 @@ export function aggregatePrismaCutoverSloSnapshots(
       deadlockRate: weighted("deadlockRate"),
       p2034Rate: weighted("p2034Rate"),
       linkConflictRate,
+      eventOrderDriftRate,
     };
     // 提供 thresholds 时对聚合 rate 重跑阈值判定：直接并集实例级 reason 会漏报
     // （各实例不足最小样本、合计已超阈值）和误报（单个小实例异常）（复审 P1）。
@@ -277,6 +281,7 @@ export function aggregatePrismaCutoverSloSnapshots(
       deadlockRate: rates.deadlockRate,
       p2034Rate: rates.p2034Rate,
       linkConflictRate,
+      eventOrderDriftRate,
       burnRate: verdict.burnRate,
       rollbackRecommended: verdict.rollbackRecommended,
       rollbackReasons: verdict.rollbackReasons,

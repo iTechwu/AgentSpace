@@ -32,12 +32,33 @@ test("cutover SLO window aggregates domain rates, P95, and rollback reasons", ()
     deadlockRate: 0,
     p2034Rate: 0,
     linkConflictRate: 0,
+    eventOrderDriftRate: 0,
     burnRate: 1.25,
     rollbackRecommended: true,
     rollbackReasons: ["mismatch_rate", "fallback_rate", "error_rate", "p95_duration"],
     flagVersion: "flags-v2",
     lastKnownGoodFlagVersion: "flags-v1",
   }]);
+});
+
+test("cutover SLO detects router/queue event order drift", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, durationMs: 10, eventOrderDriftCount: 1,
+  });
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, durationMs: 10,
+  });
+  const [snapshot] = window.snapshots({
+    thresholds: {
+      ...thresholds,
+      minimumSamples: 2,
+      maximumEventOrderDriftRate: 0.2,
+    },
+  });
+  assert.equal(snapshot?.eventOrderDriftRate, 0.5);
+  assert.ok(snapshot?.rollbackReasons.includes("event_order_drift"));
+  assert.equal(snapshot?.rollbackRecommended, true);
 });
 
 test("cutover SLO window is bounded and waits for its minimum sample count", () => {
