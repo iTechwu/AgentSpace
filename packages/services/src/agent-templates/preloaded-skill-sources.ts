@@ -2,11 +2,12 @@
 // Update by refreshing the source clones and regenerating the JSON data; do not hand-edit skill contents here.
 //
 // 3.3-6：技能内容数据体外置为同目录 preloaded-skill-sources.json（173KB），
-// 本模块保留类型与查找门面（导入面不变）。运行时 readFileSync 加载 ——
-// 服务端专用包，且避免 tsc/declaration 解析整份 JSON 与膨胀 bundle。
+// 本模块保留类型与查找门面（导入面不变）。
+// 加载方式：静态 JSON import（node strip-types 与 Turbopack 均原生支持）。
+// 此前用 readFileSync(join(import.meta.dirname, ...))，但 Turbopack 产物不定义
+// import.meta.dirname，next build 在 page-data 收集阶段即抛 ERR_INVALID_ARG_TYPE。
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import preloadedSkillSourcesJson from "./preloaded-skill-sources.json" with { type: "json" };
 
 export interface PreloadedAgentTemplateSkillSourceFile {
   path: string;
@@ -25,9 +26,9 @@ export interface PreloadedAgentTemplateSkillSource {
   files: PreloadedAgentTemplateSkillSourceFile[];
 }
 
-export const PRELOADED_AGENT_TEMPLATE_SKILL_SOURCES: PreloadedAgentTemplateSkillSource[] = JSON.parse(
-  readFileSync(join(import.meta.dirname, "preloaded-skill-sources.json"), "utf8"),
-);
+// JSON import 的字面量类型会被拓宽（sourceType: string），此处断言收窄——数据为生成物，受控。
+export const PRELOADED_AGENT_TEMPLATE_SKILL_SOURCES =
+  preloadedSkillSourcesJson as PreloadedAgentTemplateSkillSource[];
 
 export function findPreloadedAgentTemplateSkillSource(input: {
   key: string;
