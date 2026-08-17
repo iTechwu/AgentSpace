@@ -128,25 +128,52 @@ export function listPersistedPrismaCutoverSloSnapshotsSync(input?: {
   createdTo?: string;
 }): PersistedPrismaCutoverSloSnapshot[] {
   const workspaceId = input?.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  return listAuditLogsSync(workspaceId, {
-    code: PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
-    limit: Math.min(Math.max(input?.limit ?? 500, 1), 500),
-  }).flatMap((row) => {
-    try {
-      const parsed = JSON.parse(row.dataJson) as Partial<PersistedPrismaCutoverSloSnapshot>;
+  // 分页读取：跨实例或多域在 15 分钟窗口内很容易超过旧硬上限 500；
+  // 用 (created_at, id) 游标翻页，同毫秒写入不重不漏。防御上限截断时
+  // 按已读数据返回（聚合结果偏 fail-closed）。
+  const pageSize = Math.min(Math.max(input?.limit ?? 5_000, 1), 10_000);
+  const MAXIMUM_SNAPSHOT_ROWS = 200_000;
+  const snapshots: PersistedPrismaCutoverSloSnapshot[] = [];
+  let cursorCreatedAt: string | Date = new Date(0).toISOString();
+  let cursorId = "";
+  for (;;) {
+    const rows = getDatabase().prepare(
+      `SELECT id, created_at AS "createdAt", data_json AS "dataJson"
+         FROM audit_log
+        WHERE workspace_id = ? AND code = ?
+          AND (created_at, id) > (?, ?)
+        ORDER BY created_at ASC, id ASC
+        LIMIT ?`,
+    ).all(
+      workspaceId,
+      PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+      cursorCreatedAt,
+      cursorId,
+      pageSize,
+    ) as Array<{ id: string; createdAt: string | Date; dataJson: unknown }>;
+    for (const row of rows) {
+      cursorCreatedAt = row.createdAt;
+      cursorId = row.id;
+      let parsed: Partial<PersistedPrismaCutoverSloSnapshot>;
+      try {
+        parsed = typeof row.dataJson === "string" ? JSON.parse(row.dataJson) : (row.dataJson as Partial<PersistedPrismaCutoverSloSnapshot>);
+      } catch {
+        continue;
+      }
       if (
         typeof parsed.domain !== "string" ||
         typeof parsed.sampleCount !== "number" ||
         typeof parsed.instanceId !== "string" ||
         typeof parsed.windowEnd !== "string"
-      ) return [];
-      if (input?.createdFrom && parsed.windowEnd < input.createdFrom) return [];
-      if (input?.createdTo && parsed.windowEnd > input.createdTo) return [];
-      return [{ ...parsed, workspaceId } as PersistedPrismaCutoverSloSnapshot];
-    } catch {
-      return [];
+      ) continue;
+      if (input?.createdFrom && parsed.windowEnd < input.createdFrom) continue;
+      if (input?.createdTo && parsed.windowEnd > input.createdTo) continue;
+      snapshots.push({ ...parsed, workspaceId } as PersistedPrismaCutoverSloSnapshot);
     }
-  });
+    if (rows.length < pageSize) break;
+    if (snapshots.length >= MAXIMUM_SNAPSHOT_ROWS) break;
+  }
+  return snapshots;
 }
 
 /** Weighted aggregation across snapshots written by different instances. */
