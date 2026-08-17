@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test, { after, before } from "node:test";
 import { getDatabase, resetDatabaseForTests } from "../database.ts";
 import { createWorkspaceSync } from "../workspaces.ts";
+import { PrismaCutoverSloWindow } from "./cutover-slo.ts";
+import { flushPrismaCutoverSloSnapshotsSync } from "./cutover-observability.ts";
+
+let testWorkspaceId = "";
 import {
   aggregatePrismaCutoverSloSnapshots,
   listPersistedPrismaCutoverSloSnapshotsSync,
@@ -21,6 +25,7 @@ test("SLO snapshot persists centrally with retry-safe idempotency and pager stat
   const db = getDatabase();
   const workspaceId = (db.prepare("SELECT id FROM workspace ORDER BY id LIMIT 1").get() as { id: string } | undefined)?.id
     ?? createWorkspaceSync({ id: "slo-store-test", slug: "slo-store-test", name: "SLO store test", createdBy: "test" }).id;
+  testWorkspaceId = workspaceId;
   db.prepare("DELETE FROM audit_log WHERE code = ? AND workspace_id = ?").run(PRISMA_CUTOVER_SLO_SNAPSHOT_CODE, workspaceId);
   db.prepare("DELETE FROM pager_alert_state WHERE alert_key = ? AND workspace_id = ?").run("prisma-cutover-slo:test-domain", workspaceId);
   const snapshot = {
@@ -40,13 +45,13 @@ test("SLO snapshot persists centrally with retry-safe idempotency and pager stat
   };
   persistPrismaCutoverSloSnapshotsSync({
     instanceId: "instance-a",
-    workspaceId,
+    workspaceId: testWorkspaceId,
     now: "2026-08-17T00:00:00.000Z",
     snapshots: [snapshot],
   });
   persistPrismaCutoverSloSnapshotsSync({
     instanceId: "instance-a",
-    workspaceId,
+    workspaceId: testWorkspaceId,
     now: "2026-08-17T00:00:00.000Z",
     snapshots: [snapshot],
   });
@@ -93,4 +98,33 @@ test("cross-instance SLO aggregation is sample-weighted", () => {
   assert.equal(snapshot?.mismatchRate, 0.25);
   assert.equal(snapshot?.p95DurationMs, 20);
   assert.equal(snapshot?.rollbackRecommended, true);
+});
+
+test("scheduled flush persists and resets the bounded window by default", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "flush-domain" }, { source: "primary", mismatch: 0, durationMs: 12 });
+  const persisted = flushPrismaCutoverSloSnapshotsSync({
+    sloWindow: window,
+    instanceId: "instance-flush",
+    workspaceId: testWorkspaceId,
+    now: "2026-08-17T00:01:00.000Z",
+    thresholds: {
+      minimumSamples: 1,
+      maximumMismatchRate: 1,
+      maximumFallbackRate: 1,
+      maximumErrorRate: 1,
+      maximumP95DurationMs: 1000,
+    },
+  });
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]?.domain, "flush-domain");
+  assert.deepEqual(window.snapshots({
+    thresholds: {
+      minimumSamples: 1,
+      maximumMismatchRate: 1,
+      maximumFallbackRate: 1,
+      maximumErrorRate: 1,
+      maximumP95DurationMs: 1000,
+    },
+  }), []);
 });

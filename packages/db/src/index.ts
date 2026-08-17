@@ -359,6 +359,7 @@ export {
   type PrismaCutoverFlagSpec,
 } from "./prisma/cutover-flags.ts";
 export {
+  flushPrismaCutoverSloSnapshotsSync,
   readPrismaCutoverSloSnapshots,
   type PrismaCutoverMetricContext,
 } from "./prisma/cutover-observability.ts";
