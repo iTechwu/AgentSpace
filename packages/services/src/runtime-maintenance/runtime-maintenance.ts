@@ -20,6 +20,7 @@ import {
   requeueExpiredSkillInstallationOperationLeasesSync,
   flushPrismaCutoverSloSnapshotsSync,
   type PrismaCutoverSloThresholds,
+  archivePrismaCutoverSloSnapshotsToFileSync,
 } from "@dofe-agent/db";
 import { sendPrismaCutoverSloPagerAlert } from "../observability/prisma-cutover-slo-pager.ts";
 
@@ -48,6 +49,7 @@ export interface RuntimeMaintenanceResult {
     legacySkillMigration?: RuntimeMaintenanceStageResult;
     sloFlush?: RuntimeMaintenanceStageResult;
     sloPager?: RuntimeMaintenanceStageResult;
+    sloArchive?: RuntimeMaintenanceStageResult;
   };
 }
 
@@ -78,6 +80,8 @@ export interface RuntimeMaintenanceDependencies {
   flushSlo?: () => unknown;
   /** Pages on the centrally aggregated SLO window and emits recoveries. */
   pageSlo?: () => Promise<unknown>;
+  /** Archives and prunes expired central SLO ledger snapshots. */
+  archiveSlo?: () => unknown;
 }
 
 export const defaultDependencies: RuntimeMaintenanceDependencies = {
@@ -99,6 +103,11 @@ export const defaultDependencies: RuntimeMaintenanceDependencies = {
   migrateLegacySkills: () => migrateAllWorkspaceLegacySkillsSync(),
   flushSlo: () => flushPrismaCutoverSloSnapshotsSync(readSloFlushInputFromEnv()),
   pageSlo: () => sendPrismaCutoverSloPagerAlert(readSloPagerInputFromEnv()),
+  archiveSlo: () => archivePrismaCutoverSloSnapshotsToFileSync({
+    archiveDir: process.env.PRISMA_CUTOVER_SLO_ARCHIVE_DIR,
+    workspaceId: process.env.PRISMA_CUTOVER_SLO_WORKSPACE_ID?.trim() || "default",
+    retentionDays: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_RETENTION_DAYS, 30, 1, 3_650),
+  }),
 };
 
 export async function runRuntimeMaintenanceAsync(
@@ -138,6 +147,7 @@ export async function runRuntimeMaintenanceAsync(
     ...(dependencies.migrateLegacySkills ? [["legacySkillMigration", dependencies.migrateLegacySkills] as const] : []),
     ...(dependencies.flushSlo ? [["sloFlush", dependencies.flushSlo] as const] : []),
     ...(dependencies.pageSlo ? [["sloPager", dependencies.pageSlo] as const] : []),
+    ...(dependencies.archiveSlo ? [["sloArchive", dependencies.archiveSlo] as const] : []),
   ];
   for (const [name, operation] of operations) {
     stages[name] = leaseHealthy

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test, { after, before } from "node:test";
 import { getDatabase, resetDatabaseForTests } from "../database.ts";
 import { createWorkspaceSync } from "../workspaces.ts";
@@ -8,6 +11,7 @@ import { flushPrismaCutoverSloSnapshotsSync } from "./cutover-observability.ts";
 let testWorkspaceId = "";
 import {
   aggregatePrismaCutoverSloSnapshots,
+  archivePrismaCutoverSloSnapshotsToFileSync,
   listPersistedPrismaCutoverSloSnapshotsSync,
   persistPrismaCutoverSloSnapshotsSync,
   PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
@@ -98,6 +102,50 @@ test("cross-instance SLO aggregation is sample-weighted", () => {
   assert.equal(snapshot?.mismatchRate, 0.25);
   assert.equal(snapshot?.p95DurationMs, 20);
   assert.equal(snapshot?.rollbackRecommended, true);
+});
+
+test("SLO retention archives before pruning expired ledger rows", () => {
+  const oldSnapshot = {
+    domain: "retention-domain",
+    sampleCount: 1,
+    mismatchRate: 0,
+    fallbackRate: 0,
+    errorRate: 0,
+    p95DurationMs: 1,
+    deadlockRate: 0,
+    p2034Rate: 0,
+    burnRate: 0,
+    rollbackRecommended: false,
+    rollbackReasons: [] as const,
+  };
+  persistPrismaCutoverSloSnapshotsSync({
+    workspaceId: testWorkspaceId,
+    instanceId: "retention-instance",
+    now: "2026-08-15T00:00:00.000Z",
+    snapshots: [oldSnapshot],
+  });
+  const archiveDir = mkdtempSync(join(tmpdir(), "dofe-slo-archive-"));
+  try {
+    const result = archivePrismaCutoverSloSnapshotsToFileSync({
+      archiveDir,
+      workspaceId: testWorkspaceId,
+      retentionDays: 1,
+      now: "2026-08-17T00:00:00.000Z",
+    });
+    assert.equal(result.status, "archived");
+    assert.equal(result.selected, 1);
+    assert.equal(result.deleted, 1);
+    assert.ok(result.archiveFile && existsSync(result.archiveFile));
+    assert.match(readFileSync(result.archiveFile!, "utf8"), /retention-domain/);
+    assert.equal(
+      getDatabase().prepare(
+        "SELECT COUNT(*) AS count FROM audit_log WHERE code = ? AND data_json ->> 'instanceId' = ? AND data_json ->> 'domain' = ?",
+      ).get(PRISMA_CUTOVER_SLO_SNAPSHOT_CODE, "retention-instance", "retention-domain")?.count,
+      0,
+    );
+  } finally {
+    rmSync(archiveDir, { recursive: true, force: true });
+  }
 });
 
 test("scheduled flush persists and resets the bounded window by default", () => {

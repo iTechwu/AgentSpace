@@ -364,12 +364,14 @@ export {
   type PrismaCutoverMetricContext,
 } from "./prisma/cutover-observability.ts";
 export {
+  archivePrismaCutoverSloSnapshotsToFileSync,
   aggregatePrismaCutoverSloSnapshots,
   listPersistedPrismaCutoverSloSnapshotsSync,
   persistPrismaCutoverSloSnapshotsSync,
   PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
   type PersistPrismaCutoverSloSnapshotsInput,
   type PersistedPrismaCutoverSloSnapshot,
+  type PrismaCutoverSloArchiveResult,
 } from "./prisma/cutover-slo-store.ts";
 export {
   publishPrismaCutoverRollbackSync,

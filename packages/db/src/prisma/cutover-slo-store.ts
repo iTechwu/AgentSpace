@@ -1,4 +1,7 @@
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import {
+  deleteAuditLogsByIdsSync,
   listAuditLogsSync,
   recordAuditLogSync,
 } from "../audit-log.ts";
@@ -21,6 +24,55 @@ export interface PersistPrismaCutoverSloSnapshotsInput {
 export interface PersistedPrismaCutoverSloSnapshot extends PrismaCutoverSloSnapshot {
   workspaceId: string;
   persistedAt: string;
+}
+
+export interface PrismaCutoverSloArchiveResult {
+  status: "archived" | "skipped";
+  archiveFile?: string;
+  selected: number;
+  deleted: number;
+  cutoff: string;
+}
+
+/**
+ * Archives and prunes old SLO ledger rows. The append is completed before any
+ * delete, so an unavailable archive path preserves the immutable audit rows.
+ * Deployments should point archiveDir at durable object-storage sync storage.
+ */
+export function archivePrismaCutoverSloSnapshotsToFileSync(input: {
+  archiveDir?: string;
+  workspaceId?: string;
+  retentionDays?: number;
+  maxRows?: number;
+  now?: string;
+}): PrismaCutoverSloArchiveResult {
+  const retentionDays = Math.min(Math.max(Math.trunc(input.retentionDays ?? 30), 1), 3_650);
+  const now = input.now ?? new Date().toISOString();
+  const cutoff = new Date(Date.parse(now) - retentionDays * 86_400_000).toISOString();
+  const selected = listAuditLogsSync(input.workspaceId, {
+    code: PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+    limit: Math.min(Math.max(Math.trunc(input.maxRows ?? 1_000), 1), 10_000),
+  }).filter((row) => {
+    try {
+      const data = JSON.parse(row.dataJson) as { windowEnd?: unknown };
+      return typeof data.windowEnd === "string" ? data.windowEnd <= cutoff : row.createdAt <= cutoff;
+    } catch {
+      return row.createdAt <= cutoff;
+    }
+  });
+  if (selected.length === 0) return { status: "skipped", selected: 0, deleted: 0, cutoff };
+  const archiveDir = input.archiveDir?.trim();
+  if (!archiveDir) return { status: "skipped", selected: selected.length, deleted: 0, cutoff };
+  mkdirSync(archiveDir, { recursive: true });
+  const month = cutoff.slice(0, 7);
+  const archiveFile = join(archiveDir, `prisma-cutover-slo-${month}.jsonl`);
+  appendFileSync(
+    archiveFile,
+    selected.map((row) => JSON.stringify({ archivedAt: now, audit: row })).join("\n") + "\n",
+    { encoding: "utf8" },
+  );
+  const deleted = deleteAuditLogsByIdsSync({ workspaceId: input.workspaceId, ids: selected.map((row) => row.id) });
+  return { status: "archived", archiveFile, selected: selected.length, deleted, cutoff };
 }
 
 /**

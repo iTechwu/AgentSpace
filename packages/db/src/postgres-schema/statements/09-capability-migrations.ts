@@ -673,6 +673,10 @@ export const capabilityMigrationStatements: string[] = [
         ON audit_log(workspace_id, created_at DESC, source_index DESC)
     `,
     `
+      CREATE INDEX IF NOT EXISTS idx_audit_log_code_created
+        ON audit_log(workspace_id, code, created_at DESC)
+    `,
+    `
       CREATE INDEX IF NOT EXISTS idx_external_integration_workspace_provider
         ON external_integration(workspace_id, provider, status, updated_at DESC)
     `,
@@ -745,4 +749,3 @@ export const capabilityMigrationStatements: string[] = [
     `,
     // ----- Employee data durability (EAD-001 .. EAD-005) -----
 ];
-

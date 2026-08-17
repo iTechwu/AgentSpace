@@ -157,6 +157,18 @@ export function listAuditLogsSync(
   return rows.map(mapAuditLog);
 }
 
+/** Deletes only explicitly selected audit rows after an archive sink confirms persistence. */
+export function deleteAuditLogsByIdsSync(input: { workspaceId?: string; ids: readonly string[] }): number {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const ids = [...new Set(input.ids.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return 0;
+  const db = getDatabase();
+  const placeholders = ids.map(() => "?").join(", ");
+  return db.prepare(
+    `DELETE FROM audit_log WHERE workspace_id = ? AND id IN (${placeholders})`,
+  ).run(workspaceId, ...ids).changes;
+}
+
 type RawAuditLog = {
   id: string;
   workspace_id: string;
