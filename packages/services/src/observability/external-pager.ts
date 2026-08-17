@@ -112,13 +112,13 @@ export async function sendExternalPagerAlert(options: {
   // store is unavailable.
   const recoveryScope = new Set(options.recoveryCodes);
   const recovered: PagerAlertPayload["recovered"] = [];
-  const pendingClearKeys: string[] = [];
+  const pendingClears: Array<{ alertKey: string; occurrences: number }> = [];
   try {
     for (const state of listActivePagerAlertStatesSync(workspaceId)) {
       if (!recoveryScope.has(state.code) || currentKeys.has(state.alertKey)) {
         continue;
       }
-      pendingClearKeys.push(state.alertKey);
+      pendingClears.push({ alertKey: state.alertKey, occurrences: state.occurrences });
       recovered.push({
         code: state.code,
         employeeName: state.employeeName,
@@ -197,8 +197,12 @@ export async function sendExternalPagerAlert(options: {
     // cleared states can be retired. Best-effort: a state-store failure here
     // only means a duplicate recovery notice on the next cycle.
     try {
-      for (const key of pendingClearKeys) {
-        markPagerAlertClearedSync({ workspaceId, alertKey: key });
+      for (const pending of pendingClears) {
+        markPagerAlertClearedSync({
+          workspaceId,
+          alertKey: pending.alertKey,
+          expectedOccurrences: pending.occurrences,
+        });
       }
     } catch {
       // State store unavailable — recovery may be re-sent next cycle.
