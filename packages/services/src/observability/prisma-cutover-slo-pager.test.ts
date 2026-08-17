@@ -132,6 +132,19 @@ test("stable per-domain key survives burn-rate changes; recovery fires once when
     assert.equal(payloads.at(-1)?.recovered.length, 0, "no recovery while the domain is still alerting");
     assert.equal(payloads.at(-1)?.alerts[0]?.occurrences, 2, "two persisted windows count as two observations");
 
+    // A retry of the latest persisted window after pager delivery must remain
+    // idempotent even though pager metadata has a richer JSON shape.
+    persistPrismaCutoverSloSnapshotsSync({
+      workspaceId,
+      instanceId: "pager-instance",
+      now: "2026-08-17T01:04:00.000Z",
+      snapshots: [snapshot(5, 0.5, "2026-08-17T01:04:00.000Z")],
+    });
+    const state = db.prepare(
+      "SELECT occurrences FROM pager_alert_state WHERE workspace_id = ? AND alert_key = ?",
+    ).get(workspaceId, "prisma-cutover-slo:pager-domain") as { occurrences?: number } | undefined;
+    assert.equal(state?.occurrences, 2, "replaying a paged window must not increment occurrences");
+
     // Window slides past both snapshots → domain healthy → exactly one recovery.
     const recovered = await sendPrismaCutoverSloPagerAlert({
       workspaceId,

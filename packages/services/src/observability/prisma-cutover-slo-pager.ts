@@ -46,6 +46,7 @@ export async function sendPrismaCutoverSloPagerAlert(options: {
       alertKey: `prisma-cutover-slo:${snapshot.domain}`,
       metric: JSON.stringify({
         domain: snapshot.domain,
+        windowEnd: snapshot.windowEnd,
         burnRate: snapshot.burnRate,
         deadlockRate: snapshot.deadlockRate,
         p2034Rate: snapshot.p2034Rate,

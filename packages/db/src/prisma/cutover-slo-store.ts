@@ -317,6 +317,7 @@ function syncSloAlertState(snapshot: PersistedPrismaCutoverSloSnapshot): void {
   // 告警集合与历史活跃状态，统一发出 recovery 并清理。
   if (snapshot.rollbackRecommended || reasons.length > 0) {
     const existing = readPagerAlertStateByKeySync(alertKey, snapshot.workspaceId);
+    const existingWindowEnd = readSloAlertWindowEnd(existing?.metric);
     upsertPagerAlertStateSync({
       workspaceId: snapshot.workspaceId,
       alertKey,
@@ -326,7 +327,17 @@ function syncSloAlertState(snapshot: PersistedPrismaCutoverSloSnapshot): void {
       now: snapshot.persistedAt,
       // Idempotent retries reuse the same windowEnd and must not escalate;
       // each distinct persisted window is one new SLO observation.
-      incrementOccurrence: existing?.status !== "active" || existing.metric !== metric,
+      incrementOccurrence: existing?.status !== "active" || existingWindowEnd !== snapshot.windowEnd,
     });
+  }
+}
+
+function readSloAlertWindowEnd(metric: string | undefined): string | undefined {
+  if (!metric) return undefined;
+  try {
+    const parsed = JSON.parse(metric) as { windowEnd?: unknown };
+    return typeof parsed.windowEnd === "string" ? parsed.windowEnd : undefined;
+  } catch {
+    return undefined;
   }
 }
