@@ -14,7 +14,7 @@ import {
   transitionWorkflowNodeRunSync,
   withTransaction,
   isWorkflowDispatcherPrismaWriteEnabled,
-  type EventOrderObservation,
+  type WorkflowDispatchObservability,
 } from "@dofe-agent/db";
 import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
 import { dispatchReadyWorkflowNodePrisma, dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
@@ -28,7 +28,7 @@ export interface WorkflowOutboxDispatchResult {
   dispatchedTaskIds: string[];
   failedOutboxIds: string[];
   leaseConflictOutboxIds: string[];
-  observability?: { eventOrder: EventOrderObservation };
+  observability?: WorkflowDispatchObservability;
 }
 
 export const WORKFLOW_OUTBOX_MAX_ATTEMPTS = 8;
