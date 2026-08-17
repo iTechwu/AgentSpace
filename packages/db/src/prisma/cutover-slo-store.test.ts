@@ -69,6 +69,35 @@ test("SLO snapshot persists centrally with retry-safe idempotency and pager stat
   );
 });
 
+test("SLO snapshot rolls back audit row when pager state fails", () => {
+  const db = getDatabase();
+  const workspaceId = testWorkspaceId;
+  db.prepare("DELETE FROM audit_log WHERE code = ? AND workspace_id = ?").run(PRISMA_CUTOVER_SLO_SNAPSHOT_CODE, workspaceId);
+  const domain = "rollback-domain";
+  const snapshot = {
+    domain,
+    sampleCount: 1,
+    mismatchRate: 0,
+    fallbackRate: 0,
+    errorRate: 0,
+    p95DurationMs: 1,
+    deadlockRate: 0,
+    p2034Rate: 0,
+    burnRate: 0,
+    rollbackRecommended: false,
+    rollbackReasons: [] as const,
+  };
+  assert.throws(() => persistPrismaCutoverSloSnapshotsSync({
+    instanceId: "instance-rollback",
+    workspaceId,
+    now: "2026-08-17T00:10:00.000Z",
+    snapshots: [snapshot],
+    syncAlertState: () => { throw new Error("pager state unavailable"); },
+  }), /pager state unavailable/);
+  const rows = listPersistedPrismaCutoverSloSnapshotsSync({ workspaceId, limit: 10 }).filter((row) => row.domain === domain);
+  assert.equal(rows.length, 0, "audit row must be rolled back when alert state fails");
+});
+
 test("cross-instance SLO aggregation is sample-weighted", () => {
   const [snapshot] = aggregatePrismaCutoverSloSnapshots([
     {

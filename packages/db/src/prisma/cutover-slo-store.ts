@@ -9,7 +9,7 @@ import {
   markPagerAlertClearedSync,
   upsertPagerAlertStateSync,
 } from "../pager-alert-state.ts";
-import { DEFAULT_WORKSPACE_ID } from "../database.ts";
+import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "../database.ts";
 import type { PrismaCutoverSloSnapshot } from "./cutover-slo.ts";
 
 export const PRISMA_CUTOVER_SLO_SNAPSHOT_CODE = "prisma.cutover.slo.snapshot";
@@ -19,6 +19,8 @@ export interface PersistPrismaCutoverSloSnapshotsInput {
   instanceId: string;
   workspaceId?: string;
   now?: string;
+  /** 测试注入：自定义 alert 状态同步；缺省写入真实 pager state。 */
+  syncAlertState?: (snapshot: PersistedPrismaCutoverSloSnapshot) => void;
 }
 
 export interface PersistedPrismaCutoverSloSnapshot extends PrismaCutoverSloSnapshot {
@@ -79,6 +81,10 @@ export function archivePrismaCutoverSloSnapshotsToFileSync(input: {
  * Writes one immutable snapshot per domain/window to the central PostgreSQL
  * audit ledger. The idempotency key makes retries safe across instances while
  * keeping the existing schema migration contract (no ad-hoc table creation).
+ *
+ * 整个 per-snapshot 落账（audit row + pager state）包在同一事务内：
+ * pager state 更新失败时 audit row 一起回滚，避免外部已计数而窗口未清空
+ * 导致的下一周期重复落账（复审 P1）。
  */
 export function persistPrismaCutoverSloSnapshotsSync(
   input: PersistPrismaCutoverSloSnapshotsInput,
@@ -87,6 +93,7 @@ export function persistPrismaCutoverSloSnapshotsSync(
   const instanceId = input.instanceId.trim();
   if (!instanceId) throw new Error("instanceId is required for SLO persistence.");
   const persistedAt = input.now ?? new Date().toISOString();
+  const syncAlert = input.syncAlertState ?? syncSloAlertState;
   return input.snapshots.map((snapshot) => {
     const windowEnd = snapshot.windowEnd ?? persistedAt;
     const windowStart = snapshot.windowStart ?? windowEnd;
@@ -98,16 +105,18 @@ export function persistPrismaCutoverSloSnapshotsSync(
       workspaceId,
       persistedAt,
     };
-    recordAuditLogSync({
-      workspaceId,
-      idempotencyKey: `${PRISMA_CUTOVER_SLO_SNAPSHOT_CODE}:${instanceId}:${snapshot.domain}:${windowEnd}`,
-      title: "Prisma cutover SLO snapshot",
-      note: `${snapshot.domain} SLO snapshot from ${instanceId}`,
-      code: PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
-      source: "platform_admin",
-      data: { ...persisted } as Record<string, unknown>,
+    withTransaction(getDatabase(), () => {
+      recordAuditLogSync({
+        workspaceId,
+        idempotencyKey: `${PRISMA_CUTOVER_SLO_SNAPSHOT_CODE}:${instanceId}:${snapshot.domain}:${windowEnd}`,
+        title: "Prisma cutover SLO snapshot",
+        note: `${snapshot.domain} SLO snapshot from ${instanceId}`,
+        code: PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+        source: "platform_admin",
+        data: { ...persisted } as Record<string, unknown>,
+      });
+      syncAlert(persisted);
     });
-    syncSloAlertState(persisted);
     return persisted;
   });
 }
