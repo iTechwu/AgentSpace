@@ -363,6 +363,20 @@ export {
   type PrismaCutoverMetricContext,
 } from "./prisma/cutover-observability.ts";
 export {
+  aggregatePrismaCutoverSloSnapshots,
+  listPersistedPrismaCutoverSloSnapshotsSync,
+  persistPrismaCutoverSloSnapshotsSync,
+  PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+  type PersistPrismaCutoverSloSnapshotsInput,
+  type PersistedPrismaCutoverSloSnapshot,
+} from "./prisma/cutover-slo-store.ts";
+export {
+  publishPrismaCutoverRollbackSync,
+  type PrismaCutoverRollbackPublication,
+  type PrismaCutoverRollbackPublisher,
+  type PrismaCutoverRollbackRequest,
+} from "./prisma/cutover-rollback.ts";
+export {
   PrismaCutoverSloWindow,
   type PrismaCutoverSloSnapshot,
   type PrismaCutoverSloThresholds,

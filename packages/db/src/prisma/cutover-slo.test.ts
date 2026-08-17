@@ -28,6 +28,9 @@ test("cutover SLO window aggregates domain rates, P95, and rollback reasons", ()
     fallbackRate: 0.25,
     errorRate: 0.25,
     p95DurationMs: 200,
+    deadlockRate: 0,
+    p2034Rate: 0,
+    burnRate: 1.25,
     rollbackRecommended: true,
     rollbackReasons: ["mismatch_rate", "fallback_rate", "error_rate", "p95_duration"],
     flagVersion: "flags-v2",
@@ -45,4 +48,22 @@ test("cutover SLO window is bounded and waits for its minimum sample count", () 
   assert.equal(snapshot?.sampleCount, 2);
   assert.equal(snapshot?.mismatchRate, 0);
   assert.equal(snapshot?.rollbackRecommended, false);
+});
+
+test("cutover SLO classifies deadlock/P2034 and exposes burn-rate alerts", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "task-queue" }, { source: "primary", mismatch: 0, durationMs: 10, error: "deadlock detected (40P01)" });
+  window.record({ domain: "task-queue" }, { source: "primary", mismatch: 0, durationMs: 10, error: "P2034: could not serialize access" });
+  const [snapshot] = window.snapshots({
+    thresholds: {
+      ...thresholds,
+      minimumSamples: 2,
+      maximumDeadlockRate: 0,
+      maximumP2034Rate: 0,
+    },
+  });
+  assert.equal(snapshot?.deadlockRate, 0.5);
+  assert.equal(snapshot?.p2034Rate, 0.5);
+  assert.equal(snapshot?.burnRate, 5);
+  assert.deepEqual(snapshot?.rollbackReasons, ["error_rate", "deadlock_rate", "p2034_rate"]);
 });
