@@ -217,6 +217,12 @@
 - **不收敛范围**：带 searchParams / 自定义 loader options 的 im、settings、contacts、agents 及重定向页/详情页保持原样 —— 它们的样板差异不是纯样板而是页面逻辑。
 - **验证**：逐页 diff 对齐 render props（typecheck 抓出 automations 需补 workspaceId/workspaceSlug）；web `pnpm typecheck` 0 错误、全量 vitest 1,155/1,155。
 
+### 3.4-5 补充 / 零 SSG 全动态渲染 —— ✅ 完成（2985a652）
+
+- **全量盘点 34 个 page.tsx**：28 个工作区页（`/w/[slug]/*` + legacy，鉴权布局每请求做会话+工作区解析+壳数据装配）、2 个 platform 管理页、channel-invite（逐邀请内容）、根页（读 cookies 决定重定向/落地）——33/34 的动态性是 SSO 登录态 + 多租户工作区产品形态的**固有要求**，SSG/ISR 无适用面；显式 `force-dynamic` 优于隐式。
+- **唯一可静态化页面 `/auth/error`** 已转静态预渲染（2985a652）：移除 force-dynamic，code/error 查询参数改客户端 `useSearchParams` 读取（Next 16 要求外包 Suspense，fallback 直接渲染无码错误壳）。收益：SSO 故障场景的错误页不依赖服务器渲染健康度，直接命中预渲染 HTML。
+- **验证**：`next build` 路由表 `○ /auth/error (Static)`；产物 `auth/error.html` 8.9KB 含完整错误文案；typecheck 零错误。
+
 ### 3.4-6 i18n 无 key 体系评估 —— ✅ 完成（结论：保持现状，记录迁移路径）
 
 - **现状盘点**：`LanguageProvider`（localStorage 持久化 zh/en）+ `tx(zh, en)` 内联三元；4,263 个 `tx(` 调用点 / 103 文件；`presentation.ts`（620 行）集中 ~20 个 `translate*(value, tx)` 枚举标签映射，测试齐全。

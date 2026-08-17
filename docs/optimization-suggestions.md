@@ -62,7 +62,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | ✅ |
 | P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | ✅ |
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ✅ |
-| P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ |
+| P2 | 零 SSG 全动态渲染 | 全量盘点：33/34 页为鉴权/多租户固有动态（保持）；/auth/error 转静态预渲染（2985a652） | 中 | ✅ |
 | P2 | i18n 无 key | 保持内联（评估见 §3.4-6），新增静态扫描校验贴错文案（ecd7b8ef） | 中 | ✅ |
 | P2 | 构建/版本漂移 | esbuild `target` 与 engines 不一致、版本号硬编码 | 低 | ✅ |
 | P2 | sandbox 抽象虚置 | Cube `exec()` 未实现，`connectSandbox()` 无调用方 | 中 | ✅ |
