@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runWorkflowWorkerTick, type WorkflowWorkerServices } from "./worker.ts";
+import { maybeFlushWorkflowWorkerSloSync, runWorkflowWorkerTick, type WorkflowWorkerSloFlushState, type WorkflowWorkerServices } from "./worker.ts";
 import type { WorkflowApprovalExpiryFailure, WorkflowOutboxDispatchResult, WorkflowRecoveryResult, WorkflowSchedulerTickResult } from "@dofe-agent/services/workflows";
 
 // 构造完整 WorkflowSchedulerTickResult，避免在 Worker 边界丢失服务层契约字段。
@@ -116,4 +116,39 @@ test("worker tick reports invalid clock in schedulerFailures and skips outbox/re
   const result = await runWorkflowWorkerTick({ workerId: "w1", batchSize: 20, now: "not-a-valid-date", services });
   assert.deepEqual(calls, ["scheduler"]);
   assert.deepEqual(result, { scheduled: 0, schedulerFailures: 1, dispatched: 0, recovered: 0 });
+});
+
+test("worker SLO flush throttles by interval and threads windowStart from last flush", () => {
+  // worker 进程的 SLO 窗口必须由 worker 自己落账（Web/maintenance cron 刷不到本进程样本）；
+  // 节流窗口内重复调用不落账，跨窗口调用以 lastFlushAtMs 作为 windowStart。
+  const flushes: Array<{ instanceId: string; windowStart?: string; now: string }> = [];
+  const flush = (input: { instanceId: string; windowStart?: string; now: string }): number => {
+    flushes.push(input);
+    return 1;
+  };
+  const state: WorkflowWorkerSloFlushState = {};
+
+  const first = maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_000_000, flushIntervalMs: 60_000, flush });
+  const throttled = maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_030_000, flushIntervalMs: 60_000, flush });
+  const second = maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_070_000, flushIntervalMs: 60_000, flush });
+
+  assert.equal(first, 1);
+  assert.equal(throttled, 0);
+  assert.equal(second, 1);
+  assert.equal(flushes.length, 2);
+  assert.equal(flushes[0]?.windowStart, undefined);
+  assert.equal(flushes[0]?.instanceId, "workflow-worker-w1");
+  assert.equal(flushes[1]?.windowStart, new Date(1_000_000).toISOString());
+  assert.equal(flushes[1]?.now, new Date(1_070_000).toISOString());
+});
+
+test("worker SLO flush failure still advances the throttle state", () => {
+  // 落账失败不重试风暴：状态推进，下一周期再试；窗口内样本留给下一次 flush。
+  const state: WorkflowWorkerSloFlushState = {};
+  let failures = 0;
+  const failingFlush = (): number => { failures += 1; throw new Error("ledger unavailable"); };
+  assert.throws(() => maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_000_000, flushIntervalMs: 60_000, flush: failingFlush }));
+  // 节流窗口内不重复落账。
+  maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_010_000, flushIntervalMs: 60_000, flush: failingFlush });
+  assert.equal(failures, 1);
 });

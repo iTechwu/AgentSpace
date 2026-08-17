@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { retryPrismaTransaction } from "@dofe-agent/db";
 import { observeWorkflowPrismaWrite } from "./prisma-cutover-metrics.ts";
 
 test("workflow Prisma write metrics never claim an unexecuted shadow comparison", async () => {
@@ -21,6 +22,10 @@ test("workflow Prisma write metrics never claim an unexecuted shadow comparison"
     shadowCompared: 0,
     durationMs: 25,
     fallbackInvoked: 0,
+    sampleCount: 1,
+    errorCount: 0,
+    deadlockCount: 0,
+    p2034Count: 0,
   }]);
 });
 
@@ -37,4 +42,71 @@ test("workflow Prisma write metrics preserve transaction errors for SLO classifi
 
   assert.equal(metrics[0]?.shadowCompared, 0);
   assert.equal(metrics[0]?.error, "P2034: could not serialize access");
+  assert.equal(metrics[0]?.errorCount, 1);
+  assert.equal(metrics[0]?.sampleCount, 1);
+});
+
+test("batch summaries carry structured item failures into the SLO sample", async () => {
+  const metrics: Array<Record<string, unknown>> = [];
+  await observeWorkflowPrismaWrite(
+    { domain: "workflow-dispatcher", operation: "outbox.batch" },
+    async () => ({
+      publishedOutboxIds: ["a", "b", "c"],
+      failedOutboxIds: ["d"],
+      leaseConflictOutboxIds: ["e"],
+    }),
+    {
+      emitMetric: (_context, metric) => metrics.push(metric),
+      now: () => 100,
+      summarizeResult: (result: { publishedOutboxIds: string[]; failedOutboxIds: string[] }) => ({
+        sampleCount: result.publishedOutboxIds.length + result.failedOutboxIds.length,
+        errorCount: result.failedOutboxIds.length,
+      }),
+    },
+  );
+
+  assert.equal(metrics[0]?.sampleCount, 4);
+  assert.equal(metrics[0]?.errorCount, 1);
+  assert.equal(metrics[0]?.error, undefined);
+});
+
+test("successfully retried transaction conflicts surface as p2034/deadlock counts", async () => {
+  const metrics: Array<Record<string, unknown>> = [];
+  let attempts = 0;
+  const result = await observeWorkflowPrismaWrite(
+    { domain: "workflow-dispatcher", operation: "outbox.batch" },
+    () => retryPrismaTransaction(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        // 首试 P2034 冲突，重试后成功：外部只见成功，冲突只经观察者上报。
+        throw Object.assign(new Error("Transaction failed due to a write conflict or a deadlock. Please retry your transaction."), { code: "P2034" });
+      }
+      return "retried-ok";
+    }, { scope: "workflow-dispatcher", maxAttempts: 2, baseDelayMs: 0 }),
+    { emitMetric: (_context, metric) => metrics.push(metric), now: () => 100 },
+  );
+
+  assert.equal(result, "retried-ok");
+  // 第一次尝试冲突 → 观察者记一次 serialization；最终结果成功但不再是“无冲突”样本。
+  assert.equal(metrics[0]?.p2034Count, 1);
+  assert.equal(metrics[0]?.deadlockCount, 0);
+  assert.equal(metrics[0]?.errorCount, 0);
+});
+
+test("deadlock retries attribute to the observed domain only", async () => {
+  const metrics: Array<Record<string, unknown>> = [];
+  await observeWorkflowPrismaWrite(
+    { domain: "workflow-materialization", operation: "scheduler.tick" },
+    async () => {
+      // 别的域（coordinator）发生的冲突不得混入本域样本。
+      await retryPrismaTransaction(async () => {
+        throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+      }, { scope: "workflow-coordinator", maxAttempts: 2, baseDelayMs: 0 }).catch(() => undefined);
+      return "ok";
+    },
+    { emitMetric: (_context, metric) => metrics.push(metric), now: () => 100 },
+  );
+
+  assert.equal(metrics[0]?.deadlockCount, 0);
+  assert.equal(metrics[0]?.p2034Count, 0);
 });

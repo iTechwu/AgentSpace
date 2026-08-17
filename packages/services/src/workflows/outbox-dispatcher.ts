@@ -196,6 +196,14 @@ export function dispatchWorkflowOutboxBatchAuto(input: {
     ? observeWorkflowPrismaWrite(
         { domain: "workflow-dispatcher", operation: "outbox.batch" },
         () => dispatchWorkflowOutboxBatchPrisma(input),
+        // 批次摘要：发布+失败条目计入分母（租约冲突未尝试写不计入），
+        // 失败条目计入分子，批内结构化失败不再被记成成功样本。
+        {
+          summarizeResult: (result) => ({
+            sampleCount: result.publishedOutboxIds.length + result.failedOutboxIds.length,
+            errorCount: result.failedOutboxIds.length,
+          }),
+        },
       )
     : dispatchWorkflowOutboxBatchSync(input);
 }

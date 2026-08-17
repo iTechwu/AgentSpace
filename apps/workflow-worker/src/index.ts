@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { pathToFileURL } from "node:url";
-import { runWorkflowWorkerTick } from "./worker.ts";
+import { maybeFlushWorkflowWorkerSloSync, runWorkflowWorkerTick, type WorkflowWorkerSloFlushState } from "./worker.ts";
 
 export async function runWorkflowWorker(): Promise<void> {
   const pollMs = readBoundedInteger("WORKFLOW_WORKER_POLL_MS", 1000, 100, 60_000);
   const batchSize = readBoundedInteger("WORKFLOW_WORKER_BATCH_SIZE", 20, 1, 100);
   const tickTimeoutMs = readBoundedInteger("WORKFLOW_WORKER_TICK_TIMEOUT_MS", 30_000, 1000, 300_000);
   const workerId = `${hostname()}:${process.pid}:${randomUUID()}`;
+  // SLO 窗口节流落账状态：worker 进程的指标样本由本进程自行 flush 到集中 ledger。
+  const sloFlushState: WorkflowWorkerSloFlushState = {};
   let stopping = false;
   const stop = () => { stopping = true; };
   process.once("SIGTERM", stop);
@@ -20,11 +22,26 @@ export async function runWorkflowWorker(): Promise<void> {
       } catch (error) {
         console.error(JSON.stringify({ level: "error", event: "workflow_worker_tick_failed", workerId, message: error instanceof Error ? error.message : String(error) }));
       }
+      flushSloWindowBestEffort(workerId, sloFlushState);
       if (!stopping) await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
   } finally {
     process.off("SIGTERM", stop);
     process.off("SIGINT", stop);
+  }
+}
+
+function flushSloWindowBestEffort(workerId: string, state: WorkflowWorkerSloFlushState): void {
+  try {
+    maybeFlushWorkflowWorkerSloSync({ workerId, state, nowMs: Date.now() });
+  } catch (error) {
+    // SLO 落账失败不阻断工作循环；样本保留在窗口内，下个周期重试。
+    console.error(JSON.stringify({
+      level: "error",
+      event: "workflow_worker_slo_flush_failed",
+      workerId,
+      message: error instanceof Error ? error.message : String(error),
+    }));
   }
 }
 

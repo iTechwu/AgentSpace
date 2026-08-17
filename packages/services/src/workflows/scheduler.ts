@@ -54,6 +54,20 @@ export async function tickWorkflowSchedulerAuto(input: {
     ? observeWorkflowPrismaWrite(
         { domain: "workflow-materialization", operation: "scheduler.tick" },
         () => tickWorkflowSchedulerPrisma(input),
+        // 批次摘要：claimed 触发器为分母；物化失败、审批限时单条失败、
+        // 整轮扫描失败与非法时钟计入分子（分母不足时以分子兜底，避免 0 除稀释）。
+        {
+          summarizeResult: (result) => {
+            const errorCount = result.failedTriggerIds.length
+              + result.expiredApprovalFailures.length
+              + (result.approvalScanFailure ? 1 : 0)
+              + (result.invalidClock ? 1 : 0);
+            return {
+              sampleCount: Math.max(result.claimedTriggerIds.length, errorCount),
+              errorCount,
+            };
+          },
+        },
       )
     : tickWorkflowSchedulerSync(input);
 }

@@ -136,6 +136,12 @@ export {
 } from "./outbox-dispatcher.ts";
 
 export {
+  flushWorkflowWorkerPrismaCutoverSloSync,
+  observeWorkflowPrismaWrite,
+  type WorkflowPrismaBatchSummary,
+} from "./prisma-cutover-metrics.ts";
+
+export {
   planLegacyMigration,
   applyLegacyMigrationSync,
   type LegacyMigrationAction,

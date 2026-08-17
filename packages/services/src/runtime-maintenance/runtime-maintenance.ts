@@ -211,7 +211,8 @@ function readSloPagerInputFromEnv(): {
   };
 }
 
-function readSloThresholdsFromEnv(): PrismaCutoverSloThresholds {
+/** SLO 阈值统一读入口：maintenance flush 与 workflow worker 进程内 flush 共用。 */
+export function readSloThresholdsFromEnv(): PrismaCutoverSloThresholds {
   return {
     minimumSamples: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_MINIMUM_SAMPLES, 10, 1, 100_000),
     maximumMismatchRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_MISMATCH_RATE, 0.01),

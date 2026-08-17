@@ -1,4 +1,4 @@
-import { dispatchWorkflowOutboxBatchAuto, recoverStaleWorkflowWorkSync, tickWorkflowSchedulerAuto, type WorkflowOutboxDispatchResult, type WorkflowRecoveryResult, type WorkflowSchedulerTickResult } from "@dofe-agent/services/workflows";
+import { dispatchWorkflowOutboxBatchAuto, flushWorkflowWorkerPrismaCutoverSloSync, recoverStaleWorkflowWorkSync, tickWorkflowSchedulerAuto, type WorkflowOutboxDispatchResult, type WorkflowRecoveryResult, type WorkflowSchedulerTickResult } from "@dofe-agent/services/workflows";
 
 export interface WorkflowWorkerServices {
   // 直接复用服务层结果契约（scheduler/outbox/recovery），避免在 Worker 边界把它们弱化为
@@ -43,6 +43,39 @@ export async function runWorkflowWorkerTick(input: {
     dispatched: dispatched.dispatchedTaskIds.length,
     recovered: recovered.readyNodeRunIds.length + recovered.retriedNodeRunIds.length + recovered.failedNodeRunIds.length + recovered.requeuedReadyNodeRunIds.length,
   };
+}
+
+export interface WorkflowWorkerSloFlushState {
+  /** 上次 flush 的 epoch 毫秒；undefined 表示本进程尚未 flush 过。 */
+  lastFlushAtMs?: number;
+}
+
+const DEFAULT_SLO_FLUSH_INTERVAL_MS = 60_000;
+
+/**
+ * worker 进程内 SLO 窗口节流落账：指标样本累积在本进程 sharedSloWindow，
+ * Web/maintenance cron 的 flush 刷不到 worker 进程；由 worker 循环按
+ * flushIntervalMs 调用本函数，把窗口写入集中 audit ledger。
+ * windowStart 取上次 flush 时刻，保证单窗口跨度不超过 flush 周期。
+ */
+export function maybeFlushWorkflowWorkerSloSync(input: {
+  workerId: string;
+  state: WorkflowWorkerSloFlushState;
+  nowMs: number;
+  flushIntervalMs?: number;
+  flush?: (flushInput: { instanceId: string; windowStart?: string; now: string }) => number;
+}): number {
+  const intervalMs = Math.min(
+    Math.max(Math.trunc(input.flushIntervalMs ?? DEFAULT_SLO_FLUSH_INTERVAL_MS), 5_000),
+    3_600_000,
+  );
+  const lastFlushAtMs = input.state.lastFlushAtMs;
+  if (lastFlushAtMs !== undefined && input.nowMs - lastFlushAtMs < intervalMs) return 0;
+  const windowStart = lastFlushAtMs !== undefined ? new Date(lastFlushAtMs).toISOString() : undefined;
+  const now = new Date(input.nowMs).toISOString();
+  input.state.lastFlushAtMs = input.nowMs;
+  const flush = input.flush ?? flushWorkflowWorkerPrismaCutoverSloSync;
+  return flush({ instanceId: `workflow-worker-${input.workerId}`, windowStart, now });
 }
 
 // schedulerFailures 是告警出口（后端设计文档:119）：触发器物化失败、审批限时扫描单条失败、
