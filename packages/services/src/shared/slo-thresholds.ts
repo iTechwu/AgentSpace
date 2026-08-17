@@ -30,5 +30,6 @@ export function readSloThresholdsFromEnv(): PrismaCutoverSloThresholds {
     maximumP95DurationMs: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_MAX_P95_MS, 2_000, 0, 600_000),
     maximumDeadlockRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_DEADLOCK_RATE, 0.001),
     maximumP2034Rate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_P2034_RATE, 0.001),
+    maximumLinkConflictRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_LINK_CONFLICT_RATE, 0.001),
   };
 }

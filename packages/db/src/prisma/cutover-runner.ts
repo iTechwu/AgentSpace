@@ -47,6 +47,8 @@ export interface DomainWriteCutoverMetric extends ReadCutoverMetric {
   deadlockCount?: number;
   /** 批次内序列化冲突（P2034/40001）数（含成功重试），缺省由 error 消息推导。 */
   p2034Count?: number;
+  /** 批次内 CAS link 冲突（workflow_node_queue_link_conflict）数，缺省由 error 消息推导。 */
+  linkConflictCount?: number;
 }
 
 export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutoverMetric = DomainWriteCutoverMetric>(

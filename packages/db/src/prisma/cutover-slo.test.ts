@@ -31,6 +31,7 @@ test("cutover SLO window aggregates domain rates, P95, and rollback reasons", ()
     p95DurationMs: 200,
     deadlockRate: 0,
     p2034Rate: 0,
+    linkConflictRate: 0,
     burnRate: 1.25,
     rollbackRecommended: true,
     rollbackReasons: ["mismatch_rate", "fallback_rate", "error_rate", "p95_duration"],
@@ -137,6 +138,37 @@ test("cutover SLO window drops empty batches so idle polls never inflate samples
     sampleCount: 0, errorCount: 0,
   });
   assert.deepEqual(window.snapshots({ thresholds }), []);
+});
+
+test("cutover SLO counts CAS link conflicts from error messages and flags link_conflict_spike", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "workflow-dispatcher" }, { source: "primary", mismatch: 0, durationMs: 10, error: "workflow_node_queue_link_conflict" });
+  window.record({ domain: "workflow-dispatcher" }, { source: "primary", mismatch: 0, durationMs: 10 });
+  const [snapshot] = window.snapshots({
+    thresholds: {
+      ...thresholds,
+      minimumSamples: 2,
+      maximumLinkConflictRate: 0.2,
+    },
+  });
+  assert.equal(snapshot?.linkConflictRate, 0.5);
+  assert.ok(snapshot?.rollbackReasons.includes("link_conflict_spike"));
+  assert.ok(snapshot?.rollbackRecommended);
+});
+
+test("cutover SLO honors declared batch linkConflictCount and stays silent without a threshold", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, shadowCompared: 0, durationMs: 100, fallbackInvoked: 0,
+    sampleCount: 50, linkConflictCount: 5,
+  });
+  const [withoutThreshold] = window.snapshots({ thresholds: { ...thresholds, minimumSamples: 1 } });
+  assert.equal(withoutThreshold?.linkConflictRate, 0.1);
+  assert.ok(!withoutThreshold?.rollbackReasons.includes("link_conflict_spike"), "未配置阈值时不判定");
+  const [withThreshold] = window.snapshots({
+    thresholds: { ...thresholds, minimumSamples: 1, maximumLinkConflictRate: 0.05 },
+  });
+  assert.ok(withThreshold?.rollbackReasons.includes("link_conflict_spike"));
 });
 
 test("cutover SLO window still records an empty-declared batch that carries failures", () => {

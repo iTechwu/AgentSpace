@@ -11,6 +11,8 @@ export interface PrismaCutoverSloThresholds {
   maximumP95DurationMs: number;
   maximumDeadlockRate?: number;
   maximumP2034Rate?: number;
+  /** CAS link 冲突率上限（workflow_node_queue_link_conflict），对应 link_conflict_spike。 */
+  maximumLinkConflictRate?: number;
 }
 
 export interface PrismaCutoverSloSnapshot {
@@ -23,8 +25,15 @@ export interface PrismaCutoverSloSnapshot {
   p95DurationMs: number;
   deadlockRate: number;
   p2034Rate: number;
+  /** CAS link 冲突率。可选：2026-08 前持久化的历史快照没有该字段。 */
+  linkConflictRate?: number;
   burnRate: number;
   rollbackRecommended: boolean;
+  /**
+   * event_order_drift 仅有类型声明：写路径尚无 shadow 事件序列对照基础设施
+   * （runDomainWriteCutover 无 compare 通道），采集依赖 shadow 写对照落地后补齐，
+   * 本次修复有意延后（复审 P2 记录）。
+   */
   rollbackReasons: Array<
     | "mismatch_rate"
     | "fallback_rate"
@@ -51,6 +60,7 @@ interface CutoverSloSample {
   errorCount: number;
   deadlockCount: number;
   p2034Count: number;
+  linkConflictCount: number;
   durationMs: number;
 }
 
@@ -61,7 +71,7 @@ function normalizedSampleWeight(metric: CutoverMetric): number {
   const fields = metric as unknown as Record<string, unknown>;
   const declared = Number(fields.sampleCount);
   let weight = Number.isFinite(declared) && declared > 0 ? declared : 1;
-  for (const field of ["errorCount", "deadlockCount", "p2034Count"] as const) {
+  for (const field of ["errorCount", "deadlockCount", "p2034Count", "linkConflictCount"] as const) {
     const count = Number(fields[field]);
     if (Number.isFinite(count) && count > 0) weight = Math.max(weight, count);
   }
@@ -80,7 +90,7 @@ function isEmptyBatchMetric(metric: CutoverMetric): boolean {
   if (!Number.isFinite(declared) || declared > 0) return false;
   if (metric.error !== undefined || metric.fallbackFailed === 1 || metric.mismatch === 1) return false;
   if (metric.source === "fallback") return false;
-  for (const field of ["errorCount", "deadlockCount", "p2034Count"] as const) {
+  for (const field of ["errorCount", "deadlockCount", "p2034Count", "linkConflictCount"] as const) {
     const count = Number(fields[field]);
     if (Number.isFinite(count) && count > 0) return false;
   }
@@ -108,7 +118,7 @@ export class PrismaCutoverSloWindow {
     if (isEmptyBatchMetric(metric)) return;
     const samples = this.samplesByDomain.get(domain) ?? [];
     const weight = normalizedSampleWeight(metric);
-    const declared = metric as Partial<Pick<DomainWriteCutoverMetric, "errorCount" | "deadlockCount" | "p2034Count">>;
+    const declared = metric as Partial<Pick<DomainWriteCutoverMetric, "errorCount" | "deadlockCount" | "p2034Count" | "linkConflictCount">>;
     const errorDerived = metric.error !== undefined || metric.fallbackFailed === 1 ? weight : 0;
     samples.push({
       sampleCount: weight,
@@ -124,6 +134,9 @@ export class PrismaCutoverSloWindow {
       p2034Count: declared.p2034Count !== undefined
         ? normalizedCount(declared.p2034Count, weight)
         : isP2034Error(metric.error) ? weight : 0,
+      linkConflictCount: declared.linkConflictCount !== undefined
+        ? normalizedCount(declared.linkConflictCount, weight)
+        : isLinkConflictError(metric.error) ? weight : 0,
       durationMs: Math.max(0, metric.durationMs),
     });
     if (samples.length > this.maximumSamplesPerDomain) {
@@ -163,6 +176,7 @@ export interface CutoverSloRates {
   p95DurationMs: number;
   deadlockRate: number;
   p2034Rate: number;
+  linkConflictRate?: number;
 }
 
 export interface CutoverSloRollbackVerdict {
@@ -189,6 +203,7 @@ export function evaluateCutoverSloRollback(
     ratio(rates.errorRate, thresholds.maximumErrorRate),
     ratio(rates.deadlockRate, thresholds.maximumDeadlockRate),
     ratio(rates.p2034Rate, thresholds.maximumP2034Rate),
+    ratio(rates.linkConflictRate ?? 0, thresholds.maximumLinkConflictRate),
   ];
   const burnRate = Math.max(0, ...thresholdRatios);
   const rollbackReasons: PrismaCutoverSloSnapshot["rollbackReasons"] = [];
@@ -202,6 +217,12 @@ export function evaluateCutoverSloRollback(
     }
     if (thresholds.maximumP2034Rate !== undefined && rates.p2034Rate > thresholds.maximumP2034Rate) {
       rollbackReasons.push("p2034_rate");
+    }
+    if (
+      thresholds.maximumLinkConflictRate !== undefined &&
+      (rates.linkConflictRate ?? 0) > thresholds.maximumLinkConflictRate
+    ) {
+      rollbackReasons.push("link_conflict_spike");
     }
   }
   return { burnRate, rollbackReasons, rollbackRecommended: rollbackReasons.length > 0 };
@@ -228,9 +249,10 @@ function summarizeDomain(
   const errorRate = rate(count((sample) => sample.errorCount), sampleCount);
   const deadlockRate = rate(count((sample) => sample.deadlockCount), sampleCount);
   const p2034Rate = rate(count((sample) => sample.p2034Count), sampleCount);
+  const linkConflictRate = rate(count((sample) => sample.linkConflictCount), sampleCount);
   const p95DurationMs = percentile95(samples.map((sample) => ({ value: sample.durationMs, weight: sample.sampleCount })));
   const verdict = evaluateCutoverSloRollback(
-    { mismatchRate, fallbackRate, errorRate, p95DurationMs, deadlockRate, p2034Rate },
+    { mismatchRate, fallbackRate, errorRate, p95DurationMs, deadlockRate, p2034Rate, linkConflictRate },
     sampleCount,
     input.thresholds,
   );
@@ -244,6 +266,7 @@ function summarizeDomain(
     p95DurationMs,
     deadlockRate,
     p2034Rate,
+    linkConflictRate,
     burnRate: verdict.burnRate,
     rollbackRecommended: verdict.rollbackRecommended,
     rollbackReasons: verdict.rollbackReasons,
@@ -288,6 +311,10 @@ function isP2034Error(error: string | undefined): boolean {
   return typeof error === "string" && /P2034|could not serialize|40001/i.test(error);
 }
 
+function isLinkConflictError(error: string | undefined): boolean {
+  return typeof error === "string" && error.includes("workflow_node_queue_link_conflict");
+}
+
 function validateThresholds(thresholds: PrismaCutoverSloThresholds): void {
   if (!Number.isSafeInteger(thresholds.minimumSamples) || thresholds.minimumSamples < 1) {
     throw new Error("minimumSamples must be a positive integer.");
@@ -305,6 +332,7 @@ function validateThresholds(thresholds: PrismaCutoverSloThresholds): void {
   for (const [name, value] of [
     ["maximumDeadlockRate", thresholds.maximumDeadlockRate],
     ["maximumP2034Rate", thresholds.maximumP2034Rate],
+    ["maximumLinkConflictRate", thresholds.maximumLinkConflictRate],
   ] as const) {
     if (value !== undefined && (!Number.isFinite(value) || value < 0 || value > 1)) {
       throw new Error(`${name} must be between 0 and 1.`);

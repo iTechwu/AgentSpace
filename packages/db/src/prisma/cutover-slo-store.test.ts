@@ -240,6 +240,53 @@ test("aggregation with thresholds re-evaluates: a single small bad instance does
   assert.deepEqual(snapshot?.rollbackReasons, []);
 });
 
+test("aggregation weights linkConflictRate and flags link_conflict_spike on re-evaluation", () => {
+  const [snapshot] = aggregatePrismaCutoverSloSnapshots(
+    [
+      {
+        domain: "workflow-dispatcher",
+        sampleCount: 10,
+        mismatchRate: 0,
+        fallbackRate: 0,
+        errorRate: 0,
+        p95DurationMs: 10,
+        deadlockRate: 0,
+        p2034Rate: 0,
+        linkConflictRate: 0.5,
+        burnRate: 0,
+        rollbackRecommended: false,
+        rollbackReasons: [],
+      },
+      // 历史快照没有 linkConflictRate 字段，按 0 参与加权。
+      {
+        domain: "workflow-dispatcher",
+        sampleCount: 30,
+        mismatchRate: 0,
+        fallbackRate: 0,
+        errorRate: 0,
+        p95DurationMs: 10,
+        deadlockRate: 0,
+        p2034Rate: 0,
+        burnRate: 0,
+        rollbackRecommended: false,
+        rollbackReasons: [],
+      },
+    ],
+    {
+      thresholds: {
+        minimumSamples: 10,
+        maximumMismatchRate: 1,
+        maximumFallbackRate: 1,
+        maximumErrorRate: 1,
+        maximumP95DurationMs: 1000,
+        maximumLinkConflictRate: 0.1,
+      },
+    },
+  );
+  assert.equal(snapshot?.linkConflictRate, 0.125);
+  assert.deepEqual(snapshot?.rollbackReasons, ["link_conflict_spike"]);
+});
+
 test("retention archive reaches expired rows even when newer rows exceed the old 500-row window", () => {
   const db = getDatabase();
   const workspaceId = (db.prepare("SELECT id FROM workspace WHERE id = 'slo-archive-flood'").get() as { id: string } | undefined)?.id
