@@ -50,7 +50,13 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // packages/services/src/{documents,employees,knowledge}/*.test.ts (16 files)
 // into the services default test command (3.3-8 收尾). Deferred set 185-16=170
 // (三域 16 文件中 1 个先前已由其他规则覆盖，实际移出 15)。
-const EXPECTED_DEFERRED_DIGEST = "b2791e887e406fa5b5fbb76d1b81812dc8517d562d01cec70ea0d3aa1fc58a6a";
+// Re-frozen 2026-08-17 (round 9, 171-file set): promoted
+// apps/cli/src/commands/{integrations,daemon}.test.ts into the cli default
+// test script (3.6-2). Prereq fixes: daemon-task-output.ts 改指 daemon src
+// （dist 内联 services 附件存储代码，测试 mock 注入对 dist 副本失效）；
+// daemon-task-context.test.ts 注入内存 TOS 夹具（此前 reset 会按 --env-file
+// 真实 TOS 配置发起远端删除，本地 403）。Deferred 173-2=171。
+const EXPECTED_DEFERRED_DIGEST = "4b69d47f45c69f77af7a767c2ef62244daf0ab9e0697c71122e21199ebf0f96f";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -152,6 +158,13 @@ function isDefaultOwned(file) {
     // 2026-08-17 补记以消除脚本/inventory 双维护不一致（3.6-4）。
     "apps/cli/src/lib/task-completion-outbox.test.ts",
     "apps/cli/src/lib/task-completion-token-usage.test.ts",
+    // 3.6-2（2026-08-17）：integrations/daemon 两个大文件入 cli 默认脚本。
+    // 前置修复：dofe-agent-daemon dist 内联 services 附件存储代码导致
+    // setAttachmentStorageClientForTests 对 loadTaskOutputEnvelope 失效
+    // （daemon-task-output.ts 改指 daemon src，同仓库既有惯例）；
+    // daemon-task-context.test.ts 补注入内存 TOS 夹具，消除真实远端删除。
+    "apps/cli/src/commands/integrations.test.ts",
+    "apps/cli/src/commands/daemon.test.ts",
     "deploy/self-hosted/managed-runtime-release-gates.test.mjs",
   ]).has(file)) return true;
 

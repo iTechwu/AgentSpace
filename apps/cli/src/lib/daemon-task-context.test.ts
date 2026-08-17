@@ -27,12 +27,19 @@ import {
   resolveAgentSkills,
 } from "./daemon-task-context.ts";
 import { parseTaskInputJson, resolveConversationThreadId } from "../../../../packages/daemon/src/task-context.ts";
+import { setAttachmentStorageClientForTests } from "@dofe-agent/services/content";
+import { createTestTosAttachmentStorage } from "../../../../packages/services/src/testing/tos-attachment-storage.ts";
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-task-context-"));
+const testTosStorage = createTestTosAttachmentStorage();
 
 before(() => {
+  // 复用 services 测试夹具：resetWorkspaceStateSync 会按存储桶删除附件对象，
+  // 不注入内存客户端时会携带 --env-file 的真实 TOS 配置发起远端删除（本地 403）。
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTosStorage.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   const packagesLink = join(tempRoot, "packages");
