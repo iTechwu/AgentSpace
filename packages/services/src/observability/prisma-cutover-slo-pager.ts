@@ -30,6 +30,8 @@ export async function sendPrismaCutoverSloPagerAlert(options: {
   const createdFrom = new Date(Date.parse(checkedAt) - windowSeconds * 1000).toISOString();
   const snapshots = aggregatePrismaCutoverSloSnapshots(
     listPersistedPrismaCutoverSloSnapshotsSync({ workspaceId, limit: options.limit, createdFrom, createdTo: checkedAt }),
+    // 跨实例汇总后必须用聚合 rate 重新判定阈值，而不是并集实例级 reason。
+    { thresholds: options.thresholds },
   );
   const alerts = snapshots
     .filter((snapshot) => snapshot.sampleCount >= options.thresholds.minimumSamples)

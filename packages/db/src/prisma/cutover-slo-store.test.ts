@@ -165,6 +165,81 @@ test("cross-instance SLO aggregation is sample-weighted", () => {
   assert.equal(snapshot?.rollbackRecommended, true);
 });
 
+test("aggregation with thresholds re-evaluates: combined samples alert even when each instance is below minimumSamples", () => {
+  const thresholds = {
+    minimumSamples: 10,
+    maximumMismatchRate: 0.1,
+    maximumFallbackRate: 1,
+    maximumErrorRate: 1,
+    maximumP95DurationMs: 1000,
+  };
+  const instance = (sampleCount: number, mismatchRate: number) => ({
+    domain: "orders",
+    sampleCount,
+    mismatchRate,
+    fallbackRate: 0,
+    errorRate: 0,
+    p95DurationMs: 10,
+    deadlockRate: 0,
+    p2034Rate: 0,
+    burnRate: 0,
+    // 实例级各自不足 minimumSamples，实例级判定均为健康。
+    rollbackRecommended: false,
+    rollbackReasons: [],
+  });
+  const [snapshot] = aggregatePrismaCutoverSloSnapshots(
+    [instance(6, 0.5), instance(6, 0.5)],
+    { thresholds },
+  );
+  assert.equal(snapshot?.sampleCount, 12);
+  assert.equal(snapshot?.rollbackRecommended, true, "聚合样本达标后按聚合 rate 重新判定");
+  assert.deepEqual(snapshot?.rollbackReasons, ["mismatch_rate"]);
+});
+
+test("aggregation with thresholds re-evaluates: a single small bad instance does not false-positive the aggregate", () => {
+  const thresholds = {
+    minimumSamples: 10,
+    maximumMismatchRate: 0.1,
+    maximumFallbackRate: 1,
+    maximumErrorRate: 1,
+    maximumP95DurationMs: 1000,
+  };
+  const [snapshot] = aggregatePrismaCutoverSloSnapshots(
+    [
+      {
+        domain: "orders",
+        sampleCount: 1,
+        mismatchRate: 1,
+        fallbackRate: 0,
+        errorRate: 0,
+        p95DurationMs: 10,
+        deadlockRate: 0,
+        p2034Rate: 0,
+        burnRate: 10,
+        rollbackRecommended: true,
+        rollbackReasons: ["mismatch_rate" as const],
+      },
+      {
+        domain: "orders",
+        sampleCount: 99,
+        mismatchRate: 0,
+        fallbackRate: 0,
+        errorRate: 0,
+        p95DurationMs: 10,
+        deadlockRate: 0,
+        p2034Rate: 0,
+        burnRate: 0,
+        rollbackRecommended: false,
+        rollbackReasons: [],
+      },
+    ],
+    { thresholds },
+  );
+  assert.equal(snapshot?.mismatchRate, 0.01);
+  assert.equal(snapshot?.rollbackRecommended, false, "聚合 mismatchRate 未超阈值，单个小实例异常不应误报");
+  assert.deepEqual(snapshot?.rollbackReasons, []);
+});
+
 test("SLO retention archives before pruning expired ledger rows", () => {
   const oldSnapshot = {
     domain: "retention-domain",

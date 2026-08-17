@@ -10,7 +10,7 @@ import {
   upsertPagerAlertStateSync,
 } from "../pager-alert-state.ts";
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "../database.ts";
-import type { PrismaCutoverSloSnapshot } from "./cutover-slo.ts";
+import { evaluateCutoverSloRollback, type PrismaCutoverSloSnapshot, type PrismaCutoverSloThresholds } from "./cutover-slo.ts";
 
 export const PRISMA_CUTOVER_SLO_SNAPSHOT_CODE = "prisma.cutover.slo.snapshot";
 
@@ -179,6 +179,7 @@ export function listPersistedPrismaCutoverSloSnapshotsSync(input?: {
 /** Weighted aggregation across snapshots written by different instances. */
 export function aggregatePrismaCutoverSloSnapshots(
   snapshots: readonly PrismaCutoverSloSnapshot[],
+  options?: { thresholds?: PrismaCutoverSloThresholds },
 ): PrismaCutoverSloSnapshot[] {
   const byDomain = new Map<string, PrismaCutoverSloSnapshot[]>();
   for (const snapshot of snapshots) {
@@ -194,21 +195,37 @@ export function aggregatePrismaCutoverSloSnapshots(
       ? 0
       : rows.reduce((sum, row) => sum + (row.shadowComparisonRate ?? 0) * row.sampleCount, 0) / sampleCount;
     const p95DurationMs = Math.max(0, ...rows.map((row) => row.p95DurationMs));
-    const burnRate = Math.max(0, ...rows.map((row) => row.burnRate));
-    const rollbackReasons = [...new Set(rows.flatMap((row) => row.rollbackReasons))] as PrismaCutoverSloSnapshot["rollbackReasons"];
-    return {
-      domain,
-      sampleCount,
+    const rates = {
       mismatchRate: weighted("mismatchRate"),
-      shadowComparisonRate,
       fallbackRate: weighted("fallbackRate"),
       errorRate: weighted("errorRate"),
       p95DurationMs,
       deadlockRate: weighted("deadlockRate"),
       p2034Rate: weighted("p2034Rate"),
-      burnRate,
-      rollbackRecommended: rows.some((row) => row.rollbackRecommended),
-      rollbackReasons,
+    };
+    // 提供 thresholds 时对聚合 rate 重跑阈值判定：直接并集实例级 reason 会漏报
+    // （各实例不足最小样本、合计已超阈值）和误报（单个小实例异常）（复审 P1）。
+    // 缺省保持实例级并集，兼容 shadow-readiness 等只读历史判定结果的调用方。
+    const verdict = options?.thresholds
+      ? evaluateCutoverSloRollback(rates, sampleCount, options.thresholds)
+      : {
+          burnRate: Math.max(0, ...rows.map((row) => row.burnRate)),
+          rollbackRecommended: rows.some((row) => row.rollbackRecommended),
+          rollbackReasons: [...new Set(rows.flatMap((row) => row.rollbackReasons))] as PrismaCutoverSloSnapshot["rollbackReasons"],
+        };
+    return {
+      domain,
+      sampleCount,
+      mismatchRate: rates.mismatchRate,
+      shadowComparisonRate,
+      fallbackRate: rates.fallbackRate,
+      errorRate: rates.errorRate,
+      p95DurationMs,
+      deadlockRate: rates.deadlockRate,
+      p2034Rate: rates.p2034Rate,
+      burnRate: verdict.burnRate,
+      rollbackRecommended: verdict.rollbackRecommended,
+      rollbackReasons: verdict.rollbackReasons,
       flagVersion: rows.find((row) => row.flagVersion)?.flagVersion,
       lastKnownGoodFlagVersion: rows.find((row) => row.lastKnownGoodFlagVersion)?.lastKnownGoodFlagVersion,
       windowStart: rows.map((row) => row.windowStart).filter(Boolean).sort()[0],

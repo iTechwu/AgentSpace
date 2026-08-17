@@ -156,6 +156,57 @@ export class PrismaCutoverSloWindow {
   }
 }
 
+export interface CutoverSloRates {
+  mismatchRate: number;
+  fallbackRate: number;
+  errorRate: number;
+  p95DurationMs: number;
+  deadlockRate: number;
+  p2034Rate: number;
+}
+
+export interface CutoverSloRollbackVerdict {
+  burnRate: number;
+  rollbackReasons: PrismaCutoverSloSnapshot["rollbackReasons"];
+  rollbackRecommended: boolean;
+}
+
+/**
+ * 阈值判定：burn rate 取各 rate/阈值比的最大值，样本量达标后逐项生成回滚原因。
+ * summarizeDomain（单实例窗口）与 aggregatePrismaCutoverSloSnapshots（跨实例
+ * 汇总）共用本函数——汇总后必须用聚合 rate 重新判定，不能直接并集实例级
+ * reason，否则多实例各自不足最小样本、合计超阈值时会漏报，单个小实例异常
+ * 也会造成汇总误报（复审 P1）。
+ */
+export function evaluateCutoverSloRollback(
+  rates: CutoverSloRates,
+  sampleCount: number,
+  thresholds: PrismaCutoverSloThresholds,
+): CutoverSloRollbackVerdict {
+  const thresholdRatios = [
+    ratio(rates.mismatchRate, thresholds.maximumMismatchRate),
+    ratio(rates.fallbackRate, thresholds.maximumFallbackRate),
+    ratio(rates.errorRate, thresholds.maximumErrorRate),
+    ratio(rates.deadlockRate, thresholds.maximumDeadlockRate),
+    ratio(rates.p2034Rate, thresholds.maximumP2034Rate),
+  ];
+  const burnRate = Math.max(0, ...thresholdRatios);
+  const rollbackReasons: PrismaCutoverSloSnapshot["rollbackReasons"] = [];
+  if (sampleCount >= thresholds.minimumSamples) {
+    if (rates.mismatchRate > thresholds.maximumMismatchRate) rollbackReasons.push("mismatch_rate");
+    if (rates.fallbackRate > thresholds.maximumFallbackRate) rollbackReasons.push("fallback_rate");
+    if (rates.errorRate > thresholds.maximumErrorRate) rollbackReasons.push("error_rate");
+    if (rates.p95DurationMs > thresholds.maximumP95DurationMs) rollbackReasons.push("p95_duration");
+    if (thresholds.maximumDeadlockRate !== undefined && rates.deadlockRate > thresholds.maximumDeadlockRate) {
+      rollbackReasons.push("deadlock_rate");
+    }
+    if (thresholds.maximumP2034Rate !== undefined && rates.p2034Rate > thresholds.maximumP2034Rate) {
+      rollbackReasons.push("p2034_rate");
+    }
+  }
+  return { burnRate, rollbackReasons, rollbackRecommended: rollbackReasons.length > 0 };
+}
+
 function summarizeDomain(
   domain: string,
   samples: CutoverSloSample[],
@@ -178,27 +229,11 @@ function summarizeDomain(
   const deadlockRate = rate(count((sample) => sample.deadlockCount), sampleCount);
   const p2034Rate = rate(count((sample) => sample.p2034Count), sampleCount);
   const p95DurationMs = percentile95(samples.map((sample) => ({ value: sample.durationMs, weight: sample.sampleCount })));
-  const rollbackReasons: PrismaCutoverSloSnapshot["rollbackReasons"] = [];
-  const thresholdRatios = [
-    ratio(mismatchRate, input.thresholds.maximumMismatchRate),
-    ratio(fallbackRate, input.thresholds.maximumFallbackRate),
-    ratio(errorRate, input.thresholds.maximumErrorRate),
-    ratio(deadlockRate, input.thresholds.maximumDeadlockRate),
-    ratio(p2034Rate, input.thresholds.maximumP2034Rate),
-  ];
-  const burnRate = Math.max(0, ...thresholdRatios);
-  if (sampleCount >= input.thresholds.minimumSamples) {
-    if (mismatchRate > input.thresholds.maximumMismatchRate) rollbackReasons.push("mismatch_rate");
-    if (fallbackRate > input.thresholds.maximumFallbackRate) rollbackReasons.push("fallback_rate");
-    if (errorRate > input.thresholds.maximumErrorRate) rollbackReasons.push("error_rate");
-    if (p95DurationMs > input.thresholds.maximumP95DurationMs) rollbackReasons.push("p95_duration");
-    if (input.thresholds.maximumDeadlockRate !== undefined && deadlockRate > input.thresholds.maximumDeadlockRate) {
-      rollbackReasons.push("deadlock_rate");
-    }
-    if (input.thresholds.maximumP2034Rate !== undefined && p2034Rate > input.thresholds.maximumP2034Rate) {
-      rollbackReasons.push("p2034_rate");
-    }
-  }
+  const verdict = evaluateCutoverSloRollback(
+    { mismatchRate, fallbackRate, errorRate, p95DurationMs, deadlockRate, p2034Rate },
+    sampleCount,
+    input.thresholds,
+  );
   const snapshot: PrismaCutoverSloSnapshot = {
     domain,
     sampleCount,
@@ -209,9 +244,9 @@ function summarizeDomain(
     p95DurationMs,
     deadlockRate,
     p2034Rate,
-    burnRate,
-    rollbackRecommended: rollbackReasons.length > 0,
-    rollbackReasons,
+    burnRate: verdict.burnRate,
+    rollbackRecommended: verdict.rollbackRecommended,
+    rollbackReasons: verdict.rollbackReasons,
     flagVersion: input.flagVersion?.trim() || undefined,
     lastKnownGoodFlagVersion: input.lastKnownGoodFlagVersion?.trim() || undefined,
   };
