@@ -4,7 +4,7 @@ import {
   runWithPrismaTransactionRetryCapture,
   type PrismaTransactionRetryEvent,
 } from "@dofe-agent/db";
-import { readSloThresholdsFromEnv } from "../runtime-maintenance/runtime-maintenance.ts";
+import { readSloThresholdsFromEnv } from "../shared/slo-thresholds.ts";
 
 /** Record a Prisma workflow write without claiming that a shadow comparison ran. */
 export async function observeWorkflowPrismaWrite<T>(

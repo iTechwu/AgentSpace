@@ -24,6 +24,7 @@ import {
 } from "@dofe-agent/db";
 import { sendPrismaCutoverSloPagerAlert } from "../observability/prisma-cutover-slo-pager.ts";
 import { publishPrismaCutoverRollbacksFromEnv } from "../observability/prisma-cutover-rollback-publisher.ts";
+import { readSloThresholdsFromEnv } from "../shared/slo-thresholds.ts";
 
 export interface RuntimeMaintenanceStageResult {
   status: "succeeded" | "failed";
@@ -211,19 +212,6 @@ function readSloPagerInputFromEnv(): {
   };
 }
 
-/** SLO 阈值统一读入口：maintenance flush 与 workflow worker 进程内 flush 共用。 */
-export function readSloThresholdsFromEnv(): PrismaCutoverSloThresholds {
-  return {
-    minimumSamples: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_MINIMUM_SAMPLES, 10, 1, 100_000),
-    maximumMismatchRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_MISMATCH_RATE, 0.01),
-    maximumFallbackRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_FALLBACK_RATE, 0.05),
-    maximumErrorRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_ERROR_RATE, 0.01),
-    maximumP95DurationMs: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_MAX_P95_MS, 2_000, 0, 600_000),
-    maximumDeadlockRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_DEADLOCK_RATE, 0.001),
-    maximumP2034Rate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_P2034_RATE, 0.001),
-  };
-}
-
 function readSloInstanceIdFromEnv(): string {
   const configured = process.env.PRISMA_CUTOVER_SLO_INSTANCE_ID?.trim();
   if (configured) return configured;
@@ -236,12 +224,6 @@ function readBoundedNumber(value: string | undefined, fallback: number, minimum:
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(maximum, Math.max(minimum, Math.trunc(parsed)));
-}
-
-function readRate(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(1, Math.max(0, parsed));
 }
 
 function buildRuntimeMaintenanceFailureAlerts(
