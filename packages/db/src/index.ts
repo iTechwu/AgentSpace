@@ -410,10 +410,12 @@ export {
 } from "./prisma/cutover-shadow-readiness.ts";
 export {
   advanceWorkflowTriggerPrisma,
+  advanceWorkflowTriggerWithOutcomePrisma,
   claimDueWorkflowTriggersPrisma,
   isWorkflowTriggersPrismaWriteEnabled,
   listWorkflowTriggersForWorkflowPrisma,
   type ClaimWorkflowTriggersPrismaInput,
+  type AdvanceWorkflowTriggerWithOutcomePrismaInput,
   type ListWorkflowTriggersPrismaInput,
 } from "./prisma/workflow-triggers-prisma.ts";
 export {

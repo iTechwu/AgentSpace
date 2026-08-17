@@ -1,5 +1,6 @@
 import {
   advanceWorkflowTriggerPrisma,
+  advanceWorkflowTriggerWithOutcomePrisma,
   advanceWorkflowTriggerSync,
   claimDueWorkflowTriggersPrisma,
   claimDueWorkflowTriggersSync,
@@ -489,7 +490,7 @@ async function releaseTriggerPrisma(
   lastFireAt?: string,
   outcome?: WorkflowSchedulerOutcome,
 ): Promise<void> {
-  const advanced = await advanceWorkflowTriggerPrisma({
+  const advanceInput = {
     id: trigger.id,
     workspaceId: trigger.workspaceId,
     workerId,
@@ -497,8 +498,17 @@ async function releaseTriggerPrisma(
     lastFireAt,
     status,
     now,
+  };
+  if (!outcome) {
+    await advanceWorkflowTriggerPrisma(advanceInput);
+    return;
+  }
+  await advanceWorkflowTriggerWithOutcomePrisma({
+    ...advanceInput,
+    workflowId: trigger.workflowId,
+    misfirePolicy: trigger.misfirePolicy,
+    outcome,
   });
-  if (advanced && outcome) recordSchedulerOutcome(trigger, now, outcome);
 }
 
 function createInvalidClockResult(): WorkflowSchedulerTickResult {

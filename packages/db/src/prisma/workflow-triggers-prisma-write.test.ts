@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { advanceWorkflowTriggerPrisma, claimDueWorkflowTriggersPrisma } from "./workflow-triggers-prisma.ts";
+import {
+  advanceWorkflowTriggerPrisma,
+  advanceWorkflowTriggerWithOutcomePrisma,
+  claimDueWorkflowTriggersPrisma,
+} from "./workflow-triggers-prisma.ts";
 
 const trigger = {
   id: "trigger-1",
@@ -61,4 +65,39 @@ test("Prisma trigger advance returns null when the lease owner changed", async (
     now: "2026-08-17T00:02:00.000Z",
   }, client as never);
   assert.equal(result, null);
+});
+
+test("Prisma trigger advance and scheduler audit share one transaction", async () => {
+  let isolationLevel: unknown;
+  const tx = {
+    workflowTrigger: {
+      updateMany: async () => ({ count: 1 }),
+      findUnique: async () => ({ ...trigger, leaseOwner: null, leaseExpiresAt: null }),
+    },
+    auditLog: {
+      create: async ({ data }: { data: { code: string } }) => {
+        assert.equal(data.code, "workflow.trigger.invalid");
+      },
+    },
+  };
+  const client = {
+    $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>, options: unknown) => {
+      isolationLevel = options;
+      return callback(tx);
+    },
+  };
+  const result = await advanceWorkflowTriggerWithOutcomePrisma({
+    id: "trigger-1",
+    workspaceId: "workspace-1",
+    workflowId: "workflow-1",
+    workerId: "worker-1",
+    nextFireAt: null,
+    status: "paused",
+    now: "2026-08-17T00:02:00.000Z",
+    misfirePolicy: "skip",
+    outcome: { code: "workflow.trigger.invalid", reasonCode: "workflow_schedule_invalid" },
+  }, client as never);
+
+  assert.equal(result?.leaseOwner, undefined);
+  assert.deepEqual(isolationLevel, { isolationLevel: "Serializable" });
 });

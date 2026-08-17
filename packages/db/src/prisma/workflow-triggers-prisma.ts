@@ -2,13 +2,15 @@
 // 同款双 runner 模式，pg 原型仅作迁移期 fallback。
 // 复用 prisma-client.ts 共享单例。
 
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
+import { randomLikeId } from "../database.ts";
 import {
   disconnectDofePrismaClient,
   getDofePrismaClient,
   setDofePrismaClientForTests,
 } from "./prisma-client.ts";
 import type { WorkflowTriggerRecord } from "../types.ts";
+import { retryPrismaTransaction } from "./transaction-retry.ts";
 
 const VALID_TYPES = new Set(["manual", "schedule", "event"]);
 const VALID_MISFIRE_POLICIES = new Set(["skip", "fire_once"]);
@@ -142,6 +144,66 @@ export async function advanceWorkflowTriggerPrisma(input: {
   if (result.count !== 1) return null;
   const row = await prisma.workflowTrigger.findUnique({ where: { id: input.id } });
   return row ? mapPrismaRow(row as unknown as PrismaWorkflowTrigger) : null;
+}
+
+export interface AdvanceWorkflowTriggerWithOutcomePrismaInput {
+  id: string;
+  workspaceId: string;
+  workflowId: string;
+  workerId: string;
+  nextFireAt?: string | null;
+  lastFireAt?: string | null;
+  status?: string;
+  now: string;
+  misfirePolicy: string;
+  outcome: {
+    code: string;
+    reasonCode: string;
+    scheduledAt?: string;
+  };
+}
+
+/** Release a trigger lease and append its scheduler outcome in one transaction. */
+export async function advanceWorkflowTriggerWithOutcomePrisma(
+  input: AdvanceWorkflowTriggerWithOutcomePrismaInput,
+  client?: PrismaClient,
+): Promise<WorkflowTriggerRecord | null> {
+  const prisma = client ?? getDofePrismaClient();
+  const now = new Date(input.now);
+  return retryPrismaTransaction(() => prisma.$transaction(async (tx) => {
+    const result = await tx.workflowTrigger.updateMany({
+      where: { id: input.id, workspaceId: input.workspaceId, leaseOwner: input.workerId },
+      data: {
+        nextFireAt: input.nextFireAt ? new Date(input.nextFireAt) : null,
+        lastFireAt: input.lastFireAt ? new Date(input.lastFireAt) : undefined,
+        status: input.status,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        updatedAt: now,
+      },
+    });
+    if (result.count !== 1) return null;
+    await tx.auditLog.create({
+      data: {
+        id: `audit-${randomLikeId()}`,
+        workspaceId: input.workspaceId,
+        title: "Workflow trigger outcome",
+        note: input.outcome.reasonCode,
+        code: input.outcome.code,
+        dataJson: {
+          workflowId: input.workflowId,
+          triggerId: input.id,
+          scheduledAt: input.outcome.scheduledAt ?? input.lastFireAt ?? null,
+          policy: input.misfirePolicy,
+          reasonCode: input.outcome.reasonCode,
+          occurredAt: input.now,
+        },
+        createdAt: now,
+      },
+    });
+    const row = await tx.workflowTrigger.findUnique({ where: { id: input.id } });
+    return row ? mapPrismaRow(row as unknown as PrismaWorkflowTrigger) : null;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
 }
 
 export { setDofePrismaClientForTests as setWorkflowTriggersPrismaClientForTests };
