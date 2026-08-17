@@ -394,6 +394,12 @@ export {
   type PrismaTransactionRetryOptions,
 } from "./prisma/transaction-retry.ts";
 export {
+  assessPersistedPrismaCutoverShadowReadinessSync,
+  assessPrismaCutoverShadowReadiness,
+  type PrismaCutoverShadowReadinessReport,
+  type PrismaShadowReadinessReason,
+} from "./prisma/cutover-shadow-readiness.ts";
+export {
   advanceWorkflowTriggerPrisma,
   claimDueWorkflowTriggersPrisma,
   isWorkflowTriggersPrismaWriteEnabled,

@@ -11,6 +11,7 @@ import {
 } from "./postgres.ts";
 import { collectPrismaPoolCapacityEvidence } from "./prisma/pool-capacity-evidence.ts";
 import { runPrismaPoolCapacityLoadTest } from "./prisma/pool-capacity-loadtest.ts";
+import { assessPersistedPrismaCutoverShadowReadinessSync } from "./prisma/cutover-shadow-readiness.ts";
 
 interface ParsedArgs {
   positionals: string[];
@@ -68,6 +69,24 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "prisma-shadow-readiness") {
+    const domain = getStringFlag(flags, "domain")?.trim();
+    if (!domain) throw new Error("prisma_shadow_readiness.domain_required");
+    const report = assessPersistedPrismaCutoverShadowReadinessSync({
+      domain,
+      workspaceId: getStringFlag(flags, "workspace-id"),
+      now: getStringFlag(flags, "now"),
+      requiredWindowDays: getNumberFlag(flags, "window-days"),
+      maximumGapSeconds: getNumberFlag(flags, "maximum-gap-seconds"),
+      minimumSamples: getNumberFlag(flags, "minimum-samples"),
+      maximumDeadlockRate: getNumberFlag(flags, "maximum-deadlock-rate"),
+      maximumP2034Rate: getNumberFlag(flags, "maximum-p2034-rate"),
+    });
+    writeOutput(report, true);
+    if (!report.ready) process.exitCode = 2;
+    return;
+  }
+
   if (command === "migrate-from-sqlite") {
     const report = await migrateSqliteToPostgres({
       databaseUrl,
@@ -117,6 +136,7 @@ function printHelp(): void {
   node --experimental-strip-types packages/db/src/postgres-cli.ts init --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-evidence --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-loadtest --database-url <isolated-test-postgres-url> --role <web|worker|daemon> [--concurrency <n>] [--hold-ms <n>] [--connection-timeout-ms <n>] [--statement-timeout-ms <n>] [--json]
+  node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-shadow-readiness --domain <domain> [--workspace-id <id>] [--window-days <n>] [--maximum-gap-seconds <n>] [--minimum-samples <n>] [--maximum-deadlock-rate <rate>] [--maximum-p2034-rate <rate>] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-sqlite [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-postgres --source-database-url <postgres-url> [--target-database-url <postgres-url>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts cutover-plan [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--json]
