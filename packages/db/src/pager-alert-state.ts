@@ -23,12 +23,21 @@ export function upsertPagerAlertStateSync(input: UpsertPagerAlertStateInput): Pa
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = input.now ?? new Date().toISOString();
   const existing = readPagerAlertStateByKeySync(input.alertKey, workspaceId);
-  if (existing) {
+  if (existing?.status === "active") {
     db.prepare(
       `UPDATE pager_alert_state
        SET severity = ?, status = 'active', last_seen_at = ?, occurrences = occurrences + 1, cleared_at = NULL
        WHERE id = ? AND workspace_id = ?`,
     ).run(input.severity, now, existing.id, workspaceId);
+    return readPagerAlertStateSync(existing.id, workspaceId)!;
+  }
+  if (existing?.status === "cleared") {
+    db.prepare(
+      `UPDATE pager_alert_state
+       SET severity = ?, status = 'active', first_seen_at = ?, last_seen_at = ?,
+           occurrences = 1, last_escalated_at = NULL, cleared_at = NULL
+       WHERE id = ? AND workspace_id = ?`,
+    ).run(input.severity, now, now, existing.id, workspaceId);
     return readPagerAlertStateSync(existing.id, workspaceId)!;
   }
   const id = `pa-${randomLikeId()}`;

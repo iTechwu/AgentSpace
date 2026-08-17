@@ -208,6 +208,18 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
       recoveryCodes: ["recovery.failed", "other.ok"],
     });
     assert.equal(again.recoveredCount, 0, "recovery was consumed once on the previous dispatch");
+
+    // A later incident starts a fresh escalation window instead of inheriting
+    // the previous incident's occurrence count.
+    await sendExternalPagerAlert({
+      workspaceId: "default",
+      alerts: [alert],
+      checkedAt: now,
+      config,
+      recoveryCodes: ["recovery.failed", "other.ok"],
+    });
+    assert.equal(payloads.at(-1)?.alerts[0]?.occurrences, 1);
+    assert.equal(payloads.at(-1)?.alerts[0]?.escalated, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
