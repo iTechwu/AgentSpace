@@ -171,12 +171,17 @@ export function listPersistedPrismaCutoverSloSnapshotsSync(input?: {
 }): PersistedPrismaCutoverSloSnapshot[] {
   const workspaceId = input?.workspaceId ?? DEFAULT_WORKSPACE_ID;
   // 分页读取：跨实例或多域在 15 分钟窗口内很容易超过旧硬上限 500；
-  // 用 (created_at, id) 游标翻页，同毫秒写入不重不漏。防御上限截断时
-  // 按已读数据返回（聚合结果偏 fail-closed）。
+  // 用 (created_at, id) 游标翻页，同毫秒写入不重不漏。
+  // createdFrom 下推 SQL：windowEnd <= created_at（真实落账时间）恒成立，
+  // 因此 windowEnd >= createdFrom 的行必然满足 created_at >= createdFrom，
+  // 短窗口查询不再从 epoch 扫描全部历史快照（复审 P2）。createdTo 不下推——
+  // 迟到的 flush created_at 可能超过 createdTo 而 windowEnd 仍在窗口内。
+  // MAXIMUM_SNAPSHOT_ROWS 按扫描行数计数，真正限制单次查询的扫描量。
   const pageSize = Math.min(Math.max(input?.limit ?? 5_000, 1), 10_000);
   const MAXIMUM_SNAPSHOT_ROWS = 200_000;
   const snapshots: PersistedPrismaCutoverSloSnapshot[] = [];
-  let cursorCreatedAt: string | Date = new Date(0).toISOString();
+  let scanned = 0;
+  let cursorCreatedAt: string | Date = input?.createdFrom ?? new Date(0).toISOString();
   let cursorId = "";
   for (;;) {
     const rows = getDatabase().prepare(
@@ -193,6 +198,7 @@ export function listPersistedPrismaCutoverSloSnapshotsSync(input?: {
       cursorId,
       pageSize,
     ) as Array<{ id: string; createdAt: string | Date; dataJson: unknown }>;
+    scanned += rows.length;
     for (const row of rows) {
       cursorCreatedAt = row.createdAt;
       cursorId = row.id;
@@ -213,7 +219,7 @@ export function listPersistedPrismaCutoverSloSnapshotsSync(input?: {
       snapshots.push({ ...parsed, workspaceId } as PersistedPrismaCutoverSloSnapshot);
     }
     if (rows.length < pageSize) break;
-    if (snapshots.length >= MAXIMUM_SNAPSHOT_ROWS) break;
+    if (scanned >= MAXIMUM_SNAPSHOT_ROWS) break;
   }
   return snapshots;
 }
