@@ -80,7 +80,7 @@ export async function runPrismaPoolCapacityLoadTest(
     const operations = Array.from({ length: concurrency }, async () => {
       const operationStartedAt = Date.now();
       try {
-        await client.$queryRaw(Prisma.sql`SELECT pg_sleep(${holdMs / 1000})`);
+        await client.$queryRaw(Prisma.sql`WITH pause AS (SELECT pg_sleep(${holdMs / 1000})) SELECT 1::integer AS completed FROM pause`);
         durations.push(Date.now() - operationStartedAt);
       } catch (error) {
         if (isConnectionTimeoutError(error)) connectionTimedOut += 1;
@@ -207,7 +207,9 @@ async function measureInflightDisconnect(
   const adapter = new PrismaPg({ connectionString: databaseUrl, ...config });
   const probe = new PrismaClient({ adapter });
   const probeHoldMs = Math.min(1_000, Math.max(100, holdMs));
-  const query = (async () => probe.$queryRaw(Prisma.sql`SELECT pg_sleep(${probeHoldMs / 1000})`))();
+  const query = (async () => probe.$queryRaw(
+    Prisma.sql`WITH pause AS (SELECT pg_sleep(${probeHoldMs / 1000})) SELECT 1::integer AS completed FROM pause`,
+  ))();
   await waitForInflightQueries(probeHoldMs);
   const startedAt = Date.now();
   const disconnect = probe.$disconnect();
