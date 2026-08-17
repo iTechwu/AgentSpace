@@ -63,6 +63,8 @@ export function persistPrismaCutoverSloSnapshotsSync(
 export function listPersistedPrismaCutoverSloSnapshotsSync(input?: {
   workspaceId?: string;
   limit?: number;
+  createdFrom?: string;
+  createdTo?: string;
 }): PersistedPrismaCutoverSloSnapshot[] {
   const workspaceId = input?.workspaceId ?? DEFAULT_WORKSPACE_ID;
   return listAuditLogsSync(workspaceId, {
@@ -77,6 +79,8 @@ export function listPersistedPrismaCutoverSloSnapshotsSync(input?: {
         typeof parsed.instanceId !== "string" ||
         typeof parsed.windowEnd !== "string"
       ) return [];
+      if (input?.createdFrom && parsed.windowEnd < input.createdFrom) return [];
+      if (input?.createdTo && parsed.windowEnd > input.createdTo) return [];
       return [{ ...parsed, workspaceId } as PersistedPrismaCutoverSloSnapshot];
     } catch {
       return [];

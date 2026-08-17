@@ -15,12 +15,18 @@ export async function sendPrismaCutoverSloPagerAlert(options: {
   workspaceId?: string;
   checkedAt?: string;
   limit?: number;
+  windowSeconds?: number;
   config?: ExternalPagerConfig;
 }): Promise<{ sent: boolean; reason?: string; escalatedCount?: number; recoveredCount?: number }> {
   const workspaceId = options.workspaceId ?? "default";
   const checkedAt = options.checkedAt ?? new Date().toISOString();
+  const windowSeconds = options.windowSeconds ?? 15 * 60;
+  if (!Number.isSafeInteger(windowSeconds) || windowSeconds < 1) {
+    throw new Error("windowSeconds must be a positive integer.");
+  }
+  const createdFrom = new Date(Date.parse(checkedAt) - windowSeconds * 1000).toISOString();
   const snapshots = aggregatePrismaCutoverSloSnapshots(
-    listPersistedPrismaCutoverSloSnapshotsSync({ workspaceId, limit: options.limit }),
+    listPersistedPrismaCutoverSloSnapshotsSync({ workspaceId, limit: options.limit, createdFrom, createdTo: checkedAt }),
   );
   const alerts = snapshots
     .filter((snapshot) => snapshot.sampleCount >= options.thresholds.minimumSamples)

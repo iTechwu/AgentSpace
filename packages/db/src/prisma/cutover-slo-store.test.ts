@@ -128,3 +128,30 @@ test("scheduled flush persists and resets the bounded window by default", () => 
     },
   }), []);
 });
+
+test("central snapshot listing supports a bounded persistence window", () => {
+  persistPrismaCutoverSloSnapshotsSync({
+    workspaceId: testWorkspaceId,
+    instanceId: "old-instance",
+    now: "2026-08-16T23:00:00.000Z",
+    snapshots: [{
+      domain: "old-domain",
+      sampleCount: 1,
+      mismatchRate: 0,
+      fallbackRate: 0,
+      errorRate: 0,
+      p95DurationMs: 1,
+      deadlockRate: 0,
+      p2034Rate: 0,
+      burnRate: 0,
+      rollbackRecommended: false,
+      rollbackReasons: [],
+    }],
+  });
+  const recent = listPersistedPrismaCutoverSloSnapshotsSync({
+    workspaceId: testWorkspaceId,
+    createdFrom: "2026-08-17T00:00:00.000Z",
+    createdTo: "2026-08-17T01:00:00.000Z",
+  });
+  assert.equal(recent.some((snapshot) => snapshot.domain === "old-domain"), false);
+});
