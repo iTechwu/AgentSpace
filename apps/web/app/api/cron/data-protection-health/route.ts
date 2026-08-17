@@ -1,5 +1,5 @@
 import { listWorkspacesSync } from "@dofe-agent/db";
-import { evaluateDataProtectionHealthSync } from "@dofe-agent/services/employees";
+import { evaluateDataProtectionHealthSync, DATA_PROTECTION_ALERT_CODES } from "@dofe-agent/services/employees";
 import { sendExternalPagerAlert } from "@dofe-agent/services/runtime";
 
 export const runtime = "nodejs";
@@ -50,6 +50,7 @@ export async function GET(request: Request): Promise<Response> {
               workspaceId: result.workspaceId,
               alerts: result.alerts,
               checkedAt,
+              recoveryCodes: DATA_PROTECTION_ALERT_CODES,
             }),
       ),
     );

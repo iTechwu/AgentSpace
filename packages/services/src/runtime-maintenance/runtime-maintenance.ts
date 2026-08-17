@@ -178,10 +178,24 @@ export async function runRuntimeMaintenanceAsync(
   const status = ok ? "succeeded" : "partial_failure";
   if (!ok) {
     const alerts = buildRuntimeMaintenanceFailureAlerts(runId, stages, evidence);
-    await sendExternalPagerAlert({ alerts, checkedAt: new Date().toISOString() });
+    await sendExternalPagerAlert({
+      alerts,
+      checkedAt: new Date().toISOString(),
+      recoveryCodes: RUNTIME_MAINTENANCE_ALERT_CODES,
+    });
   }
   return { ok, status, runId, evidence, stages };
 }
+
+/**
+ * 维护任务失败告警的全部 code：pager recovery 检测的作用域。
+ * 限定后 SLO pager 等相邻告警域的活跃状态不会被本域误清（复审 P0）。
+ */
+const RUNTIME_MAINTENANCE_ALERT_CODES = [
+  "runtime_maintenance_stage_failed",
+  "runtime_maintenance_persistence_failed",
+  "runtime_maintenance_unknown_failure",
+] as const;
 
 function readSloFlushInputFromEnv(): {
   thresholds: PrismaCutoverSloThresholds;

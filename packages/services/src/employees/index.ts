@@ -53,6 +53,7 @@ export {
   evaluateDataProtectionHealthSync,
   runBackupRestoreDrillSync,
   runBackupRestoreDrillRunSync,
+  DATA_PROTECTION_ALERT_CODES,
   type DataProtectionHealthResult,
   type DataProtectionAlert,
   type DataProtectionAlertSeverity,

@@ -71,3 +71,80 @@ test("scheduled SLO pager flush sends the centrally aggregated burn-rate alert",
     globalThis.fetch = originalFetch;
   }
 });
+
+test("stable per-domain key survives burn-rate changes; recovery fires once when the domain turns healthy", async () => {
+  const thresholds = {
+    minimumSamples: 1,
+    maximumMismatchRate: 0.1,
+    maximumFallbackRate: 1,
+    maximumErrorRate: 1,
+    maximumP95DurationMs: 1000,
+  };
+  const snapshot = (burnRate: number, mismatchRate: number, windowEnd: string) => ({
+    domain: "pager-domain",
+    sampleCount: 10,
+    mismatchRate,
+    fallbackRate: 0,
+    errorRate: 0,
+    p95DurationMs: 10,
+    deadlockRate: 0,
+    p2034Rate: 0,
+    burnRate,
+    rollbackRecommended: true,
+    rollbackReasons: ["mismatch_rate" as const],
+  });
+  persistPrismaCutoverSloSnapshotsSync({
+    workspaceId,
+    instanceId: "pager-instance",
+    now: "2026-08-17T01:02:00.000Z",
+    snapshots: [snapshot(2, 0.2, "2026-08-17T01:02:00.000Z")],
+  });
+  persistPrismaCutoverSloSnapshotsSync({
+    workspaceId,
+    instanceId: "pager-instance",
+    now: "2026-08-17T01:04:00.000Z",
+    snapshots: [snapshot(5, 0.5, "2026-08-17T01:04:00.000Z")],
+  });
+
+  const payloads: Array<{ alerts: unknown[]; recovered: Array<{ code: string }> }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    payloads.push(JSON.parse(init?.body as string));
+    return new Response("ok", { status: 200 });
+  };
+  const config = { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["warning", "error"]) };
+  try {
+    // burn rate changed between flushes (2 → 5): the same stable key must keep
+    // the alert active — no spurious recovery alongside the new alert.
+    const alerting = await sendPrismaCutoverSloPagerAlert({
+      workspaceId,
+      checkedAt: "2026-08-17T01:05:00.000Z",
+      thresholds,
+      config,
+    });
+    assert.equal(alerting.sent, true);
+    assert.equal(payloads.at(-1)?.recovered.length, 0, "no recovery while the domain is still alerting");
+
+    // Window slides past both snapshots → domain healthy → exactly one recovery.
+    const recovered = await sendPrismaCutoverSloPagerAlert({
+      workspaceId,
+      checkedAt: "2026-08-17T02:00:00.000Z",
+      thresholds,
+      config,
+    });
+    assert.equal(recovered.sent, true);
+    assert.equal(recovered.recoveredCount, 1);
+    assert.equal(payloads.at(-1)?.recovered[0]?.code, "prisma.cutover.slo.burn_rate");
+
+    // Next healthy cycle: state already cleared, no duplicate recovery.
+    const quiet = await sendPrismaCutoverSloPagerAlert({
+      workspaceId,
+      checkedAt: "2026-08-17T03:00:00.000Z",
+      thresholds,
+      config,
+    });
+    assert.equal(quiet.sent, false, "recovery already consumed; nothing left to dispatch");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

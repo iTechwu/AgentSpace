@@ -29,6 +29,7 @@ test("sendExternalPagerAlert returns false when no webhook is configured", async
     alerts: [{ code: "x", severity: "error", message: "boom" }],
     checkedAt: "2026-08-03T00:00:00Z",
     config: { severityFilter: new Set(["error"]) },
+    recoveryCodes: ["x"],
   });
   assert.equal(result.sent, false);
 });
@@ -41,6 +42,7 @@ test("sendExternalPagerAlert skips alerts outside the severity filter", async ()
       webhookUrl: "https://pager.example/hook",
       severityFilter: new Set(["error"]),
     },
+    recoveryCodes: ["x"],
   });
   assert.equal(result.sent, false);
   assert.ok(result.reason?.includes("severity filter"));
@@ -67,6 +69,7 @@ test("sendExternalPagerAlert posts deduplicated error alerts", async () => {
         token: "tok",
         severityFilter: new Set(["error", "warning"]),
       },
+      recoveryCodes: ["a", "b"],
     });
     assert.equal(result.sent, true);
     const payload = posted as { source: string; workspaceId: string; alerts: unknown[] };
@@ -86,6 +89,7 @@ test("sendExternalPagerAlert surfaces HTTP errors as reason", async () => {
       alerts: [{ code: "a", severity: "error", message: "boom" }],
       checkedAt: "2026-08-03T00:00:00Z",
       config: { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error"]) },
+      recoveryCodes: ["a"],
     });
     assert.equal(result.sent, false);
     assert.ok(result.reason?.includes("500"));
@@ -120,13 +124,13 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
     };
 
     // Two occurrences → no escalation yet.
-    await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config });
-    const second = await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config });
+    await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
+    const second = await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
     assert.equal(second.escalatedCount, 0);
     assert.equal(payloads[1]?.alerts[0]?.escalated, false);
 
     // Third occurrence → escalates to critical.
-    const third = await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config });
+    const third = await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
     assert.equal(third.escalatedCount, 1);
     assert.equal(payloads[2]?.alerts[0]?.severity, "critical");
     assert.match(payloads[2]?.alerts[0]?.message as string, /ESCALATED/);
@@ -137,6 +141,7 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
       alerts: [{ code: "other.ok", severity: "info", message: "ok" }],
       checkedAt: now,
       config: { ...config, severityFilter: new Set(["error", "info"]) },
+      recoveryCodes: ["recovery.failed", "other.ok"],
     });
     assert.equal(recovered.recoveredCount, 1);
     const lastPayload = payloads[payloads.length - 1]!;
@@ -149,9 +154,156 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
       alerts: [{ code: "other.ok", severity: "info", message: "ok" }],
       checkedAt: now,
       config: { ...config, severityFilter: new Set(["error", "info"]) },
+      recoveryCodes: ["recovery.failed", "other.ok"],
     });
     assert.equal(again.recoveredCount, 0, "recovery was consumed once on the previous dispatch");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("recovery detection never clears active states from other alert domains", async () => {
+  const { getDatabase, upsertPagerAlertStateSync, readPagerAlertStateByKeySync } = await import("@dofe-agent/db");
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES ('ws-scope', 'ws-scope', 'Scope test', '', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  ).run(now, now);
+  db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run("ws-scope");
+
+  // A foreign-domain alert (e.g. data-protection) is active in the same workspace.
+  upsertPagerAlertStateSync({
+    workspaceId: "ws-scope",
+    alertKey: "workspace_head_age:_:workspace_head_age",
+    code: "workspace_head_age",
+    severity: "warning",
+    now,
+  });
+
+  const payloads: Array<{ recovered: Array<{ code: string }> }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    payloads.push(JSON.parse(init?.body as string));
+    return new Response("ok", { status: 200 });
+  };
+  try {
+    // SLO-style caller with zero alerts forces recovery detection — it must not
+    // touch the data-protection state.
+    const result = await sendExternalPagerAlert({
+      workspaceId: "ws-scope",
+      alerts: [],
+      checkedAt: now,
+      config: { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error"]) },
+      forceRecovery: true,
+      recoveryCodes: ["prisma.cutover.slo.burn_rate"],
+    });
+    assert.equal(result.sent, false, "no in-scope recovery and no alerts → nothing dispatched");
+    const foreign = readPagerAlertStateByKeySync("workspace_head_age:_:workspace_head_age", "ws-scope");
+    assert.equal(foreign?.status, "active", "foreign-domain state stays active");
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run("ws-scope");
+  }
+});
+
+test("failed webhook delivery keeps recovery state active and re-sends next cycle", async () => {
+  const { getDatabase, upsertPagerAlertStateSync, readPagerAlertStateByKeySync } = await import("@dofe-agent/db");
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES ('ws-retry', 'ws-retry', 'Retry test', '', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  ).run(now, now);
+  db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run("ws-retry");
+
+  upsertPagerAlertStateSync({
+    workspaceId: "ws-retry",
+    alertKey: "flaky.key",
+    code: "flaky.alert",
+    severity: "error",
+    now,
+  });
+
+  const payloads: Array<{ recovered: Array<{ code: string }> }> = [];
+  const originalFetch = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (_url, init) => {
+    payloads.push(JSON.parse(init?.body as string));
+    return fail ? new Response("bad", { status: 500 }) : new Response("ok", { status: 200 });
+  };
+  const config = { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error"]) };
+  try {
+    const failed = await sendExternalPagerAlert({
+      workspaceId: "ws-retry",
+      alerts: [],
+      checkedAt: now,
+      config,
+      forceRecovery: true,
+      recoveryCodes: ["flaky.alert"],
+    });
+    assert.equal(failed.sent, false);
+    assert.equal(readPagerAlertStateByKeySync("flaky.key", "ws-retry")?.status, "active", "state stays active after failed delivery");
+
+    fail = false;
+    const retried = await sendExternalPagerAlert({
+      workspaceId: "ws-retry",
+      alerts: [],
+      checkedAt: now,
+      config,
+      forceRecovery: true,
+      recoveryCodes: ["flaky.alert"],
+    });
+    assert.equal(retried.sent, true);
+    assert.equal(retried.recoveredCount, 1, "recovery is re-sent on the next cycle");
+    assert.equal(payloads[1]?.recovered[0]?.code, "flaky.alert");
+    assert.equal(readPagerAlertStateByKeySync("flaky.key", "ws-retry")?.status, "cleared", "state cleared after successful delivery");
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run("ws-retry");
+  }
+});
+
+test("alertKey override keeps a stable dedup key when the metric payload changes", async () => {
+  const { getDatabase, readPagerAlertStateByKeySync } = await import("@dofe-agent/db");
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES ('ws-key', 'ws-key', 'Key test', '', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  ).run(now, now);
+  db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run("ws-key");
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("ok", { status: 200 });
+  const config = { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error", "warning"]) };
+  try {
+    for (const burnRate of [1.5, 2.5]) {
+      await sendExternalPagerAlert({
+        workspaceId: "ws-key",
+        alerts: [{
+          code: "prisma.cutover.slo.burn_rate",
+          severity: "warning",
+          message: "burn",
+          alertKey: "prisma-cutover-slo:orders",
+          metric: JSON.stringify({ domain: "orders", burnRate }),
+          value: burnRate,
+        }],
+        checkedAt: now,
+        config,
+        recoveryCodes: ["prisma.cutover.slo.burn_rate"],
+      });
+    }
+    const state = readPagerAlertStateByKeySync("prisma-cutover-slo:orders", "ws-key");
+    assert.equal(state?.occurrences, 2, "same alertKey accumulates occurrences despite changing metric JSON");
+    const { listActivePagerAlertStatesSync } = await import("@dofe-agent/db");
+    assert.equal(
+      listActivePagerAlertStatesSync("ws-key").length,
+      1,
+      "no derived-key state was created alongside the stable key",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run("ws-key");
   }
 });

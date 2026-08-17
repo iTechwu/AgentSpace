@@ -26,6 +26,21 @@ import { readRetentionPolicy } from "./lifecycle-maintenance.ts";
 
 export type DataProtectionAlertSeverity = "info" | "warning" | "error";
 
+/**
+ * 本模块可能发出的全部告警 code。pager 的 recovery 检测以此为作用域——
+ * 只清理这些 code 的活跃状态，避免误清 SLO / 维护任务等其他告警域（复审 P0）。
+ * 新增告警 code 时必须同步加入此列表。
+ */
+export const DATA_PROTECTION_ALERT_CODES = [
+  "employee_data_retention_quota_exceeded",
+  "workspace_head_age",
+  "skill_artifact_incomplete",
+  "skill_artifact_verification_failure",
+  "runtime_recovery_failed",
+  "runtime_recovery_slow",
+  "task_commit_reconciliation_backlog",
+] as const;
+
 export interface DataProtectionAlert {
   code: string;
   severity: DataProtectionAlertSeverity;

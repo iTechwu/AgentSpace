@@ -24,6 +24,13 @@ export interface ExternalPagerConfig {
   escalateAfter?: number;
 }
 
+/**
+ * Alert accepted by the pager. `alertKey` overrides the derived
+ * code:employee:metric key so callers with rich metric payloads (e.g. the SLO
+ * pager embeds a JSON detail blob) can keep a stable dedup/recovery key.
+ */
+export type PagerAlert = DataProtectionAlert & { alertKey?: string };
+
 export interface PagerAlertPayload {
   source: "dofe-agent-data-protection";
   checkedAt: string;
@@ -72,12 +79,18 @@ export function readExternalPagerConfigFromEnv(env: NodeJS.ProcessEnv = process.
  * recovery counts. Never throws; errors are returned as a string reason.
  */
 export async function sendExternalPagerAlert(options: {
-  alerts: DataProtectionAlert[];
+  alerts: PagerAlert[];
   workspaceId?: string;
   checkedAt: string;
   config?: ExternalPagerConfig;
   /** 强制执行 recovery 检测：用于 SLO 等“无告警即全清”的场景，避免被 severity filter 提前返回跳过。 */
   forceRecovery?: boolean;
+  /**
+   * recovery 检测的告警域（state.code 集合）。必填：不同调用方共享同一张
+   * pager_alert_state 表，不限定域时 SLO pager 的“无告警即恢复”会把数据保护、
+   * 维护任务等其他域的活跃告警一并误清（复审 P0）。
+   */
+  recoveryCodes: readonly string[];
 }): Promise<{ sent: boolean; reason?: string; escalatedCount?: number; recoveredCount?: number }> {
   const config = options.config ?? readExternalPagerConfigFromEnv();
   const workspaceId = options.workspaceId ?? "default";
@@ -92,17 +105,22 @@ export async function sendExternalPagerAlert(options: {
   }
   const currentKeys = new Set(options.alerts.map(alertKey));
 
-  // Recovery: any previously-active state not present in the current alert set
-  // has cleared → include it as a recovery notification and clear its state.
+  // Recovery: any previously-active state in this caller's alert domain that is
+  // not present in the current alert set has cleared → include it as a recovery
+  // notification. States are only marked cleared AFTER the webhook delivery
+  // succeeds; on failure they stay active and the recovery is re-sent on the
+  // next cycle (复审 P1：发送前清除会在 webhook 失败时永久丢失 recovery)。
   // State tracking is best-effort: paging must never fail because the state
   // store is unavailable.
+  const recoveryScope = new Set(options.recoveryCodes);
   const recovered: PagerAlertPayload["recovered"] = [];
+  const pendingClearKeys: string[] = [];
   try {
     for (const state of listActivePagerAlertStatesSync(workspaceId)) {
-      if (currentKeys.has(state.alertKey)) {
+      if (!recoveryScope.has(state.code) || currentKeys.has(state.alertKey)) {
         continue;
       }
-      markPagerAlertClearedSync({ workspaceId, alertKey: state.alertKey });
+      pendingClearKeys.push(state.alertKey);
       recovered.push({
         code: state.code,
         employeeName: state.employeeName,
@@ -177,6 +195,16 @@ export async function sendExternalPagerAlert(options: {
     if (!response.ok) {
       return { sent: false, reason: `Pager webhook returned ${response.status} ${response.statusText}.`, recoveredCount: recovered.length };
     }
+    // Delivery succeeded — the recovery notices are now consumed, so the
+    // cleared states can be retired. Best-effort: a state-store failure here
+    // only means a duplicate recovery notice on the next cycle.
+    try {
+      for (const key of pendingClearKeys) {
+        markPagerAlertClearedSync({ workspaceId, alertKey: key });
+      }
+    } catch {
+      // State store unavailable — recovery may be re-sent next cycle.
+    }
     return {
       sent: true,
       escalatedCount: payloadAlerts.filter((alert) => alert.escalated).length,
@@ -187,11 +215,11 @@ export async function sendExternalPagerAlert(options: {
   }
 }
 
-function alertKey(alert: DataProtectionAlert): string {
-  return `${alert.code}:${alert.employeeName ?? "_"}:${alert.metric ?? "_"}`;
+function alertKey(alert: PagerAlert): string {
+  return alert.alertKey ?? `${alert.code}:${alert.employeeName ?? "_"}:${alert.metric ?? "_"}`;
 }
 
-function dedupeAlerts(alerts: DataProtectionAlert[]): DataProtectionAlert[] {
+function dedupeAlerts(alerts: PagerAlert[]): PagerAlert[] {
   const seen = new Set<string>();
   return alerts.filter((alert) => {
     const key = `${alert.code}:${alert.employeeName ?? "_"}:${alert.metric ?? "_"}:${alert.value ?? "_"}`;
