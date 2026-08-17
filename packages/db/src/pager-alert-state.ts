@@ -22,49 +22,32 @@ export function upsertPagerAlertStateSync(input: UpsertPagerAlertStateInput): Pa
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = input.now ?? new Date().toISOString();
-  const existing = readPagerAlertStateByKeySync(input.alertKey, workspaceId);
-  if (existing?.status === "active") {
-    db.prepare(
-      `UPDATE pager_alert_state
-       SET code = ?, employee_name = ?, metric = ?, severity = ?, status = 'active',
-           last_seen_at = ?, occurrences = occurrences + 1, cleared_at = NULL
-       WHERE id = ? AND workspace_id = ?`,
-    ).run(
-      input.code,
-      input.employeeName?.trim() || null,
-      input.metric?.trim() || null,
-      input.severity,
-      now,
-      existing.id,
-      workspaceId,
-    );
-    return readPagerAlertStateSync(existing.id, workspaceId)!;
-  }
-  if (existing?.status === "cleared") {
-    db.prepare(
-      `UPDATE pager_alert_state
-       SET code = ?, employee_name = ?, metric = ?, severity = ?, status = 'active',
-           first_seen_at = ?, last_seen_at = ?,
-           occurrences = 1, last_escalated_at = NULL, cleared_at = NULL
-       WHERE id = ? AND workspace_id = ?`,
-    ).run(
-      input.code,
-      input.employeeName?.trim() || null,
-      input.metric?.trim() || null,
-      input.severity,
-      now,
-      now,
-      existing.id,
-      workspaceId,
-    );
-    return readPagerAlertStateSync(existing.id, workspaceId)!;
-  }
   const id = `pa-${randomLikeId()}`;
   db.prepare(
     `INSERT INTO pager_alert_state (
       id, workspace_id, alert_key, code, employee_name, metric, severity, status,
       first_seen_at, last_seen_at, occurrences, last_escalated_at, cleared_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 1, NULL, NULL)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 1, NULL, NULL)
+    ON CONFLICT (workspace_id, alert_key) DO UPDATE SET
+       code = EXCLUDED.code,
+       employee_name = EXCLUDED.employee_name,
+       metric = EXCLUDED.metric,
+       severity = EXCLUDED.severity,
+       status = 'active',
+       first_seen_at = CASE
+         WHEN pager_alert_state.status = 'active' THEN pager_alert_state.first_seen_at
+         ELSE EXCLUDED.first_seen_at
+       END,
+       last_seen_at = EXCLUDED.last_seen_at,
+       occurrences = CASE
+         WHEN pager_alert_state.status = 'active' THEN pager_alert_state.occurrences + 1
+         ELSE 1
+       END,
+       last_escalated_at = CASE
+         WHEN pager_alert_state.status = 'active' THEN pager_alert_state.last_escalated_at
+         ELSE NULL
+       END,
+       cleared_at = NULL`,
   ).run(
     id,
     workspaceId,
@@ -76,7 +59,7 @@ export function upsertPagerAlertStateSync(input: UpsertPagerAlertStateInput): Pa
     now,
     now,
   );
-  return readPagerAlertStateSync(id, workspaceId)!;
+  return readPagerAlertStateByKeySync(input.alertKey, workspaceId)!;
 }
 
 /** Marks an active state cleared (recovery notification was dispatched). */

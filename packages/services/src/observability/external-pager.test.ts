@@ -150,9 +150,10 @@ test("sendExternalPagerAlert surfaces HTTP errors as reason", async () => {
 });
 
 test("repeated alerts escalate after the threshold and cleared alerts page a recovery", async () => {
-  const { getDatabase } = await import("@dofe-agent/db");
+  const { getDatabase, readPagerAlertStateByKeySync } = await import("@dofe-agent/db");
   const db = getDatabase();
   const now = new Date().toISOString();
+  const reopenedAt = new Date(new Date(now).getTime() + 60_000).toISOString();
   db.prepare(
     `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
      VALUES ('default', 'default', 'Dofe Agent', '', ?, ?) ON CONFLICT (id) DO NOTHING`,
@@ -185,6 +186,8 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
     assert.equal(third.escalatedCount, 1);
     assert.equal(payloads[2]?.alerts[0]?.severity, "critical");
     assert.match(payloads[2]?.alerts[0]?.message as string, /ESCALATED/);
+    const escalatedState = readPagerAlertStateByKeySync("recovery.failed:alice:rpo", "default");
+    assert.equal(escalatedState?.occurrences, 3);
 
     // The alert clears → the next dispatched payload carries a recovery notice.
     const recovered = await sendExternalPagerAlert({
@@ -214,12 +217,16 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
     await sendExternalPagerAlert({
       workspaceId: "default",
       alerts: [alert],
-      checkedAt: now,
+      checkedAt: reopenedAt,
       config,
       recoveryCodes: ["recovery.failed", "other.ok"],
     });
     assert.equal(payloads.at(-1)?.alerts[0]?.occurrences, 1);
     assert.equal(payloads.at(-1)?.alerts[0]?.escalated, false);
+    const reopenedState = readPagerAlertStateByKeySync("recovery.failed:alice:rpo", "default");
+    assert.equal(reopenedState?.id, escalatedState?.id, "reopening reuses the unique alert state row");
+    assert.equal(reopenedState?.firstSeenAt, reopenedAt, "a reopened incident gets a fresh first-seen time");
+    assert.equal(reopenedState?.clearedAt, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }
