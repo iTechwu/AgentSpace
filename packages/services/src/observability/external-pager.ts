@@ -84,14 +84,8 @@ export async function sendExternalPagerAlert(options: {
   if (!webhookUrl) {
     return { sent: false, reason: "EXTERNAL_PAGER_WEBHOOK_URL not configured." };
   }
-  const currentKeys = new Set(options.alerts.map(alertKey));
-
   const filtered = dedupeAlerts(options.alerts.filter((alert) => config.severityFilter.has(alert.severity)));
-  if (filtered.length === 0) {
-    // Nothing to page this cycle. Recovery is only consumed when a payload is
-    // actually dispatched, so an empty cycle never loses a recovery notice.
-    return { sent: false, reason: "No alerts match the configured severity filter." };
-  }
+  const currentKeys = new Set(options.alerts.map(alertKey));
 
   // Recovery: any previously-active state not present in the current alert set
   // has cleared → include it as a recovery notification and clear its state.
@@ -114,6 +108,11 @@ export async function sendExternalPagerAlert(options: {
     }
   } catch {
     // State store unavailable — recovery detection is skipped this cycle.
+  }
+  if (filtered.length === 0 && recovered.length === 0) {
+    // Nothing to page or recover this cycle. Recovery is only consumed when a
+    // payload is actually dispatched, so an empty cycle never loses a notice.
+    return { sent: false, reason: "No alerts match the configured severity filter." };
   }
 
   const payloadAlerts: PagerAlertPayload["alerts"] = [];

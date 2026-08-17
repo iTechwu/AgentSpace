@@ -14,6 +14,7 @@ export {
   type ExternalPagerConfig,
   type PagerAlertPayload,
 } from "../observability/external-pager.ts";
+export { sendPrismaCutoverSloPagerAlert } from "../observability/prisma-cutover-slo-pager.ts";
 
 export {
   assertCanManageEmployeeForActorSync,
