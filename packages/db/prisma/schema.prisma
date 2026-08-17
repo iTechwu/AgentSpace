@@ -464,6 +464,25 @@ model WorkflowRun {
   @@map("workflow_run")
 }
 
+model WorkflowOutbox {
+  id           String    @id
+  workspaceId  String    @map("workspace_id")
+  aggregateType String   @map("aggregate_type")
+  aggregateId  String    @map("aggregate_id")
+  eventType    String    @map("event_type")
+  payloadJson  Json      @default("{}") @map("payload_json")
+  status       String    @default("pending")
+  attempts     Int       @default(0)
+  availableAt  DateTime  @map("available_at") @db.Timestamptz(6)
+  lockedAt     DateTime? @map("locked_at") @db.Timestamptz(6)
+  lockedBy     String?   @map("locked_by")
+  lastError    String?   @map("last_error")
+  createdAt    DateTime  @map("created_at") @db.Timestamptz(6)
+  publishedAt  DateTime? @map("published_at") @db.Timestamptz(6)
+
+  @@map("workflow_outbox")
+}
+
 model WorkflowTrigger {
   id                  String    @id
   workspaceId         String    @map("workspace_id")

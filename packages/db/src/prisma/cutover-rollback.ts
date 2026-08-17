@@ -20,6 +20,10 @@ export interface PrismaCutoverRollbackPublisher {
   publish(request: PrismaCutoverRollbackRequest): PrismaCutoverRollbackPublication;
 }
 
+export interface PrismaCutoverRollbackAsyncPublisher {
+  publish(request: PrismaCutoverRollbackRequest): Promise<PrismaCutoverRollbackPublication>;
+}
+
 /**
  * Publishes an SLO-triggered rollback to the deployment adapter and records the
  * exact last-known-good flag version selected for replay.
@@ -30,6 +34,28 @@ export function publishPrismaCutoverRollbackSync(input: {
   publisher: PrismaCutoverRollbackPublisher;
   workspaceId?: string;
 }): PrismaCutoverRollbackPublication {
+  const request = buildRollbackRequest(input);
+  const publication = input.publisher.publish(request);
+  recordRollbackPublication({ ...input, request, publication });
+  return publication;
+}
+
+export async function publishPrismaCutoverRollback(input: {
+  snapshot: PrismaCutoverSloSnapshot;
+  releaseId: string;
+  publisher: PrismaCutoverRollbackAsyncPublisher;
+  workspaceId?: string;
+}): Promise<PrismaCutoverRollbackPublication> {
+  const request = buildRollbackRequest(input);
+  const publication = await input.publisher.publish(request);
+  recordRollbackPublication({ ...input, request, publication });
+  return publication;
+}
+
+function buildRollbackRequest(input: {
+  snapshot: PrismaCutoverSloSnapshot;
+  releaseId: string;
+}): PrismaCutoverRollbackRequest {
   const releaseId = input.releaseId.trim();
   if (!releaseId) throw new Error("releaseId is required for Prisma cutover rollback.");
   if (!input.snapshot.rollbackRecommended || input.snapshot.rollbackReasons.length === 0) {
@@ -43,7 +69,7 @@ export function publishPrismaCutoverRollbackSync(input: {
   if (currentFlagVersion === targetFlagVersion) {
     throw new Error("Rollback target must differ from the current flag version.");
   }
-  const request: PrismaCutoverRollbackRequest = {
+  return {
     domain: input.snapshot.domain,
     releaseId,
     currentFlagVersion,
@@ -51,20 +77,26 @@ export function publishPrismaCutoverRollbackSync(input: {
     rollbackReasons: [...input.snapshot.rollbackReasons],
     burnRate: input.snapshot.burnRate,
   };
-  const publication = input.publisher.publish(request);
-  if (!publication.publicationId.trim()) throw new Error("Rollback publisher returned an empty publicationId.");
+}
+
+function recordRollbackPublication(input: {
+  snapshot: PrismaCutoverSloSnapshot;
+  workspaceId?: string;
+  request: PrismaCutoverRollbackRequest;
+  publication: PrismaCutoverRollbackPublication;
+}): void {
+  if (!input.publication.publicationId.trim()) throw new Error("Rollback publisher returned an empty publicationId.");
   recordAuditLogSync({
     workspaceId: input.workspaceId ?? DEFAULT_WORKSPACE_ID,
-    idempotencyKey: `prisma.cutover.rollback:${releaseId}:${input.snapshot.domain}:${currentFlagVersion}:${targetFlagVersion}`,
+    idempotencyKey: `prisma.cutover.rollback:${input.request.releaseId}:${input.request.domain}:${input.request.currentFlagVersion}:${input.request.targetFlagVersion}`,
     title: "Prisma cutover rollback published",
-    note: `${input.snapshot.domain} rollback published to ${targetFlagVersion}`,
+    note: `${input.request.domain} rollback published to ${input.request.targetFlagVersion}`,
     code: "prisma.cutover.rollback.published",
     source: "platform_admin",
     data: {
-      ...request,
-      publicationId: publication.publicationId,
-      publicationStatus: publication.status,
+      ...input.request,
+      publicationId: input.publication.publicationId,
+      publicationStatus: input.publication.status,
     },
   });
-  return publication;
 }

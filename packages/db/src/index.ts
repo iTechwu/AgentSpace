@@ -353,6 +353,31 @@ export {
   registerDofePrismaShutdownHooks,
 } from "./prisma/prisma-client.ts";
 export {
+  collectPrismaPoolCapacityEvidence,
+  type PrismaPoolCapacityEvidence,
+  type PrismaPoolCapacityEvidenceRole,
+} from "./prisma/pool-capacity-evidence.ts";
+export {
+  createAgentTaskQueuePrisma,
+  isTaskQueuePrismaWriteEnabled,
+  type CreateTaskQueuePrismaInput,
+} from "./prisma/task-queue-prisma-write.ts";
+export {
+  claimWorkflowOutboxBatchPrisma,
+  enqueueWorkflowOutboxPrisma,
+  isWorkflowOutboxPrismaWriteEnabled,
+  markWorkflowOutboxPublishedPrisma,
+  type CreateWorkflowOutboxPrismaInput,
+} from "./prisma/workflow-outbox-prisma-write.ts";
+export {
+  advanceWorkflowTriggerPrisma,
+  claimDueWorkflowTriggersPrisma,
+  isWorkflowTriggersPrismaWriteEnabled,
+  listWorkflowTriggersForWorkflowPrisma,
+  type ClaimWorkflowTriggersPrismaInput,
+  type ListWorkflowTriggersPrismaInput,
+} from "./prisma/workflow-triggers-prisma.ts";
+export {
   PRISMA_CUTOVER_FLAG_REGISTRY,
   assertPrismaCutoverFlagsValid,
   type PrismaCutoverFlagKind,
@@ -374,7 +399,9 @@ export {
   type PrismaCutoverSloArchiveResult,
 } from "./prisma/cutover-slo-store.ts";
 export {
+  publishPrismaCutoverRollback,
   publishPrismaCutoverRollbackSync,
+  type PrismaCutoverRollbackAsyncPublisher,
   type PrismaCutoverRollbackPublication,
   type PrismaCutoverRollbackPublisher,
   type PrismaCutoverRollbackRequest,

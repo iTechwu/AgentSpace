@@ -23,6 +23,7 @@ import {
   archivePrismaCutoverSloSnapshotsToFileSync,
 } from "@dofe-agent/db";
 import { sendPrismaCutoverSloPagerAlert } from "../observability/prisma-cutover-slo-pager.ts";
+import { publishPrismaCutoverRollbacksFromEnv } from "../observability/prisma-cutover-rollback-publisher.ts";
 
 export interface RuntimeMaintenanceStageResult {
   status: "succeeded" | "failed";
@@ -50,6 +51,7 @@ export interface RuntimeMaintenanceResult {
     sloFlush?: RuntimeMaintenanceStageResult;
     sloPager?: RuntimeMaintenanceStageResult;
     sloArchive?: RuntimeMaintenanceStageResult;
+    sloRollback?: RuntimeMaintenanceStageResult;
   };
 }
 
@@ -82,6 +84,8 @@ export interface RuntimeMaintenanceDependencies {
   pageSlo?: () => Promise<unknown>;
   /** Archives and prunes expired central SLO ledger snapshots. */
   archiveSlo?: () => unknown;
+  /** Publishes opt-in SLO rollback recommendations to the release system. */
+  rollbackSlo?: () => Promise<unknown>;
 }
 
 export const defaultDependencies: RuntimeMaintenanceDependencies = {
@@ -107,6 +111,10 @@ export const defaultDependencies: RuntimeMaintenanceDependencies = {
     archiveDir: process.env.PRISMA_CUTOVER_SLO_ARCHIVE_DIR,
     workspaceId: process.env.PRISMA_CUTOVER_SLO_WORKSPACE_ID?.trim() || "default",
     retentionDays: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_RETENTION_DAYS, 30, 1, 3_650),
+  }),
+  rollbackSlo: () => publishPrismaCutoverRollbacksFromEnv({
+    workspaceId: process.env.PRISMA_CUTOVER_SLO_WORKSPACE_ID?.trim() || "default",
+    windowSeconds: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_WINDOW_SECONDS, 900, 60, 86_400),
   }),
 };
 
@@ -148,6 +156,7 @@ export async function runRuntimeMaintenanceAsync(
     ...(dependencies.flushSlo ? [["sloFlush", dependencies.flushSlo] as const] : []),
     ...(dependencies.pageSlo ? [["sloPager", dependencies.pageSlo] as const] : []),
     ...(dependencies.archiveSlo ? [["sloArchive", dependencies.archiveSlo] as const] : []),
+    ...(dependencies.rollbackSlo ? [["sloRollback", dependencies.rollbackSlo] as const] : []),
   ];
   for (const [name, operation] of operations) {
     stages[name] = leaseHealthy

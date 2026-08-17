@@ -36,6 +36,14 @@ export interface ListWorkflowTriggersPrismaInput {
   workspaceId: string;
 }
 
+export interface ClaimWorkflowTriggersPrismaInput {
+  workerId: string;
+  now: string;
+  limit: number;
+  leaseSeconds: number;
+  workspaceId?: string;
+}
+
 export async function listWorkflowTriggersForWorkflowPrisma(
   input: ListWorkflowTriggersPrismaInput,
   client?: PrismaClient,
@@ -56,6 +64,84 @@ export function isWorkflowTriggersPrismaReadEnabled(): boolean {
 
 export function isWorkflowTriggersPrismaShadowReadEnabled(): boolean {
   return process.env.WORKFLOW_TRIGGERS_PRISMA_SHADOW_READ_ENABLED === "1";
+}
+
+export function isWorkflowTriggersPrismaWriteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.WORKFLOW_TRIGGERS_PRISMA_WRITE_ENABLED === "1";
+}
+
+/** Claims due triggers with the same compare-and-swap lease predicate as legacy SQL. */
+export async function claimDueWorkflowTriggersPrisma(
+  input: ClaimWorkflowTriggersPrismaInput,
+  client?: PrismaClient,
+): Promise<WorkflowTriggerRecord[]> {
+  const prisma = client ?? getDofePrismaClient();
+  const now = new Date(input.now);
+  const leaseExpiresAt = new Date(now.getTime() + Math.max(1, input.leaseSeconds) * 1_000);
+  const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
+  return prisma.$transaction(async (tx) => {
+    const candidates = await tx.workflowTrigger.findMany({
+      where: {
+        status: "active",
+        nextFireAt: { lte: now },
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lt: now } }],
+      },
+      orderBy: [{ nextFireAt: "asc" }, { id: "asc" }],
+      take: limit,
+    });
+    const claimed: WorkflowTriggerRecord[] = [];
+    for (const candidate of candidates) {
+      const definition = await tx.workflowDefinition.findFirst({
+        where: { id: candidate.workflowId, workspaceId: candidate.workspaceId, status: "published" },
+        select: { id: true },
+      });
+      if (!definition) continue;
+      const updated = await tx.workflowTrigger.updateMany({
+        where: {
+          id: candidate.id,
+          workspaceId: candidate.workspaceId,
+          status: "active",
+          nextFireAt: { lte: now },
+          OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lt: now } }],
+        },
+        data: { leaseOwner: input.workerId, leaseExpiresAt, updatedAt: now },
+      });
+      if (updated.count !== 1) continue;
+      const row = await tx.workflowTrigger.findUnique({ where: { id: candidate.id } });
+      if (row) {
+        const mapped = mapPrismaRow(row as unknown as PrismaWorkflowTrigger);
+        if (mapped) claimed.push(mapped);
+      }
+    }
+    return claimed;
+  });
+}
+
+export async function advanceWorkflowTriggerPrisma(input: {
+  id: string;
+  workspaceId: string;
+  workerId: string;
+  nextFireAt?: string | null;
+  lastFireAt?: string | null;
+  status?: string;
+  now: string;
+}, client?: PrismaClient): Promise<WorkflowTriggerRecord | null> {
+  const prisma = client ?? getDofePrismaClient();
+  const result = await prisma.workflowTrigger.updateMany({
+    where: { id: input.id, workspaceId: input.workspaceId, leaseOwner: input.workerId },
+    data: {
+      nextFireAt: input.nextFireAt ? new Date(input.nextFireAt) : null,
+      lastFireAt: input.lastFireAt ? new Date(input.lastFireAt) : undefined,
+      status: input.status,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      updatedAt: new Date(input.now),
+    },
+  });
+  if (result.count !== 1) return null;
+  const row = await prisma.workflowTrigger.findUnique({ where: { id: input.id } });
+  return row ? mapPrismaRow(row as unknown as PrismaWorkflowTrigger) : null;
 }
 
 export { setDofePrismaClientForTests as setWorkflowTriggersPrismaClientForTests };

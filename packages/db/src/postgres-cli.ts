@@ -9,6 +9,7 @@ import {
   resolvePostgresDatabaseUrl,
   type MigrationStatus,
 } from "./postgres.ts";
+import { collectPrismaPoolCapacityEvidence } from "./prisma/pool-capacity-evidence.ts";
 
 interface ParsedArgs {
   positionals: string[];
@@ -40,6 +41,11 @@ async function main(): Promise<void> {
   if (command === "init") {
     const status = await ensurePostgresSchema({ databaseUrl });
     writeOutput(status, json);
+    return;
+  }
+
+  if (command === "prisma-pool-evidence") {
+    writeOutput(await collectPrismaPoolCapacityEvidence({ databaseUrl }), true);
     return;
   }
 
@@ -90,6 +96,7 @@ function printHelp(): void {
   console.log(`Usage:
   node --experimental-strip-types packages/db/src/postgres-cli.ts status --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts init --database-url <postgres-url> [--json]
+  node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-evidence --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-sqlite [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-postgres --source-database-url <postgres-url> [--target-database-url <postgres-url>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts cutover-plan [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--json]

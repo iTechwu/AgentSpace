@@ -31,6 +31,7 @@
     "postgres": "node --experimental-strip-types ./src/postgres-cli.ts",
     "postgres:status": "node --experimental-strip-types ./src/postgres-cli.ts status",
     "postgres:init": "node --experimental-strip-types ./src/postgres-cli.ts init",
+    "prisma:pool:evidence": "node --experimental-strip-types ./src/postgres-cli.ts prisma-pool-evidence --json",
     "postgres:migrate": "node --experimental-strip-types ./src/postgres-cli.ts migrate-from-sqlite",
     "postgres:cutover-plan": "node --experimental-strip-types ./src/postgres-cli.ts cutover-plan"
   },

@@ -3,7 +3,7 @@ import test, { after, before } from "node:test";
 import { listAuditLogsSync } from "../audit-log.ts";
 import { getDatabase, resetDatabaseForTests } from "../database.ts";
 import { createWorkspaceSync } from "../workspaces.ts";
-import { publishPrismaCutoverRollbackSync, type PrismaCutoverRollbackRequest } from "./cutover-rollback.ts";
+import { publishPrismaCutoverRollback, publishPrismaCutoverRollbackSync, type PrismaCutoverRollbackRequest } from "./cutover-rollback.ts";
 
 let workspaceId = "";
 
@@ -72,4 +72,32 @@ test("rollback publication rejects snapshots without last-known-good configurati
     },
     publisher: { publish: () => assert.fail("publisher must not be called") },
   }), /last-known-good/);
+});
+
+test("async rollback publication records the same idempotent audit contract", async () => {
+  const result = await publishPrismaCutoverRollback({
+    workspaceId,
+    releaseId: "release-async",
+    snapshot: {
+      domain: "task-queue",
+      sampleCount: 10,
+      mismatchRate: 0,
+      fallbackRate: 0,
+      errorRate: 0.4,
+      p95DurationMs: 20,
+      deadlockRate: 0,
+      p2034Rate: 0,
+      burnRate: 4,
+      rollbackRecommended: true,
+      rollbackReasons: ["error_rate"],
+      flagVersion: "flags-v4",
+      lastKnownGoodFlagVersion: "flags-v3",
+    },
+    publisher: {
+      publish: async () => ({ publicationId: "publish-async-1", status: "published" }),
+    },
+  });
+  assert.deepEqual(result, { publicationId: "publish-async-1", status: "published" });
+  const [audit] = listAuditLogsSync(workspaceId, { code: "prisma.cutover.rollback.published" });
+  assert.ok(audit?.dataJson.includes("release-async"));
 });

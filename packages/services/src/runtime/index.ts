@@ -15,6 +15,12 @@ export {
   type PagerAlertPayload,
 } from "../observability/external-pager.ts";
 export { sendPrismaCutoverSloPagerAlert } from "../observability/prisma-cutover-slo-pager.ts";
+export {
+  createPrismaCutoverRollbackHttpPublisher,
+  publishPrismaCutoverRollbacksFromEnv,
+  readPrismaCutoverRollbackHttpConfigFromEnv,
+  type PrismaCutoverRollbackHttpConfig,
+} from "../observability/prisma-cutover-rollback-publisher.ts";
 
 export {
   assertCanManageEmployeeForActorSync,
