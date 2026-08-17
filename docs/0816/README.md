@@ -19,8 +19,8 @@
 0815 的核心代码修复已经大体落地，Runtime capability 的注册/心跳解析、校验和规范化
 也已补齐；但仍不能宣称完整发布验收。剩余门槛包括真实 Runtime 能力来源证明与跨环境验收、
 失败 reconcile 持久化状态机、完整质量报告运行时绑定，以及 PostgreSQL 定义级 invariant gate。
-Prisma 审查文档中的连接池容量、SLO 周期任务部署、真实发布系统回滚演练和高风险写路径实施仍需按
-`03-实施清单与验收矩阵.md` 排期推进。
+Prisma 连接池隔离库容量与自动回归、SLO 周期任务部署已完成；真实发布系统回滚演练、coordinator
+外层事务和写路径 shadow oracle 仍需按 `03-实施清单与验收矩阵.md` 排期推进。
 
-当前 dev PostgreSQL 已通过允许的 `postgres:init` 流程从 schema 117 升至 121，且两个 drift gate
-均通过；连接池容量和生产回滚闭环完成前，仍不得扩大 Prisma 切流范围。
+当前 dev PostgreSQL 已通过允许的 `postgres:init` 流程从 schema 117 升至 122，且两个 drift gate
+均通过；真实回滚闭环、外层事务和 30 天有效 shadow 对照完成前，仍不得扩大 Prisma 切流范围。

@@ -2,17 +2,16 @@
 
 ## 1. 当前状态
 
-本轮实现基线为 `b94242bb`；dev PostgreSQL 已通过 `postgres:init` 从 schema 121 升至 122。
+当前审查基线为 2026-08-17 `dev` HEAD；dev PostgreSQL 已通过 `postgres:init` 升至 schema 122。
 
-审查基线为 `dev` HEAD `b94242bb`。当前 `packages/db/prisma/schema.prisma` 有 **26 个
-model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通过共享
+当前 `packages/db/prisma/schema.prisma` 有 **26 个 model**；切流注册表登记 **26 个域**，并通过共享
 `PrismaPg` 单例和按域 feature flag 渐进切流。定向验证结果：
 
 | 检查 | 结果 |
 | --- | --- |
 | `pnpm --filter @dofe-agent/db run prisma:validate` | 通过 |
 | `pnpm --filter @dofe-agent/db run types` | 通过 |
-| `pnpm --filter @dofe-agent/db run prisma:verify:pilot` | 通过，报告 25 models |
+| `pnpm --filter @dofe-agent/db run prisma:verify:pilot` | 通过，当前 contract 覆盖 26 models |
 
 这些结果证明 schema 可生成、类型可编译、pilot 列级漂移检查可运行，不等于已经完成
 全库约束、容量和生产切流验收。
@@ -28,7 +27,7 @@ model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通
 表达的约束漂移。
 
 本轮通过允许入口 `pnpm --filter @dofe-agent/db run postgres:init` 将 dev 数据库从
-`schema_version=117` 升到代码要求的 `121`，并修复版本写入 SQL 中模板字符串的 `\d` 转义错误。
+`schema_version=117` 逐步升到代码要求的 `122`，并修复版本写入 SQL 中模板字符串的 `\d` 转义错误。
 随后 `prisma:verify:contract` 与 `postgres:verify:invariants` 均通过；后者现在比对对象、48 个
 partial-index predicate、CHECK 定义和 6 个函数体，并支持 enum/view 定义比较。
 
@@ -41,6 +40,8 @@ history 顺序检查，也不替代真实数据库备份/恢复演练，这两�
 pool max、连接超时、空闲超时、statement timeout 和 `application_name`，并在
 `prisma-client-config.test.ts` 覆盖默认值、非法值和上下界。隔离库已完成
 Web/worker/daemon 三角色基线、过载、connection/statement timeout 与 in-flight shutdown 验收。
+`pool-capacity-loadtest.test.ts` 还会在隔离测试库可用时执行真实 Prisma hold query、负载期连接观测和
+in-flight disconnect，防止手工证据对应的关键路径再次退化。
 
 `prisma:pool:evidence` 仍用于 live snapshot；dev observed=0 只代表当时无长驻实例。
 隔离库报告已记录池上限 10/5/3、无失败基线、过载连接获取超时、P95 和
@@ -79,6 +80,11 @@ mismatch/fallback/error 比率与 P95，并根据调用方提供的阈值生成 
 pager active/cleared 状态以及带 release/current/last-known-good/reasons 的 HTTP rollback publisher。
 schema 122 增加 `idx_audit_log_code_created`，归档目录写入 JSONL 成功后才 prune。代码不会未经发布系统
 授权自动修改 flag；真实 webhook、发布权限和恢复演练仍需部署环境执行。
+
+workflow dispatcher/materialization 的 Prisma 主路径现已写入 SLO window，并显式记录
+`shadowComparisonRate=0`；read shadow runner 只有实际执行主备比较时才记录 1。30 天准入新增
+`shadow_comparison_missing` 与损坏快照 `invalid_snapshot`，所以“普通成功样本”或损坏账本不能被当成
+零 drift 证据。工作流写路径的只读 shadow oracle 尚未实现，仍是切流阻断项。
 
 ### P2（已部分完成）：Raw SQL 已参数化并增加 Unsafe 门禁
 
