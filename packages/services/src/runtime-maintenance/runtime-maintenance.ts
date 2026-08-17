@@ -18,7 +18,10 @@ import { migrateAllWorkspaceLegacySkillsSync } from "../skills/legacy-migration.
 import {
   requeueExpiredManagedSkillServiceOperationLeasesSync,
   requeueExpiredSkillInstallationOperationLeasesSync,
+  flushPrismaCutoverSloSnapshotsSync,
+  type PrismaCutoverSloThresholds,
 } from "@dofe-agent/db";
+import { sendPrismaCutoverSloPagerAlert } from "../observability/prisma-cutover-slo-pager.ts";
 
 export interface RuntimeMaintenanceStageResult {
   status: "succeeded" | "failed";
@@ -43,6 +46,8 @@ export interface RuntimeMaintenanceResult {
     skillServiceRetire?: RuntimeMaintenanceStageResult;
     commitReconciliation?: RuntimeMaintenanceStageResult;
     legacySkillMigration?: RuntimeMaintenanceStageResult;
+    sloFlush?: RuntimeMaintenanceStageResult;
+    sloPager?: RuntimeMaintenanceStageResult;
   };
 }
 
@@ -69,6 +74,10 @@ export interface RuntimeMaintenanceDependencies {
   retireSkillServices?: () => unknown;
   /** Optional stage: backfills legacy skills into DSP artifacts (Phase 6.1). */
   migrateLegacySkills?: () => unknown;
+  /** Periodically persists the process SLO window to the central ledger. */
+  flushSlo?: () => unknown;
+  /** Pages on the centrally aggregated SLO window and emits recoveries. */
+  pageSlo?: () => Promise<unknown>;
 }
 
 export const defaultDependencies: RuntimeMaintenanceDependencies = {
@@ -88,6 +97,8 @@ export const defaultDependencies: RuntimeMaintenanceDependencies = {
   lifecycle: () => runEmployeeLifecycleMaintenanceSync(),
   retireSkillServices: () => retireUnreferencedManagedSkillServicesSync(),
   migrateLegacySkills: () => migrateAllWorkspaceLegacySkillsSync(),
+  flushSlo: () => flushPrismaCutoverSloSnapshotsSync(readSloFlushInputFromEnv()),
+  pageSlo: () => sendPrismaCutoverSloPagerAlert(readSloPagerInputFromEnv()),
 };
 
 export async function runRuntimeMaintenanceAsync(
@@ -125,6 +136,8 @@ export async function runRuntimeMaintenanceAsync(
     ...(dependencies.retireSkillServices ? [["skillServiceRetire", dependencies.retireSkillServices] as const] : []),
     ...(dependencies.commitReconciliation ? [["commitReconciliation", dependencies.commitReconciliation] as const] : []),
     ...(dependencies.migrateLegacySkills ? [["legacySkillMigration", dependencies.migrateLegacySkills] as const] : []),
+    ...(dependencies.flushSlo ? [["sloFlush", dependencies.flushSlo] as const] : []),
+    ...(dependencies.pageSlo ? [["sloPager", dependencies.pageSlo] as const] : []),
   ];
   for (const [name, operation] of operations) {
     stages[name] = leaseHealthy
@@ -148,6 +161,67 @@ export async function runRuntimeMaintenanceAsync(
     await sendExternalPagerAlert({ alerts, checkedAt: new Date().toISOString() });
   }
   return { ok, status, runId, evidence, stages };
+}
+
+function readSloFlushInputFromEnv(): {
+  thresholds: PrismaCutoverSloThresholds;
+  instanceId: string;
+  workspaceId: string;
+  now: string;
+} {
+  const now = new Date().toISOString();
+  return {
+    thresholds: readSloThresholdsFromEnv(),
+    instanceId: readSloInstanceIdFromEnv(),
+    workspaceId: process.env.PRISMA_CUTOVER_SLO_WORKSPACE_ID?.trim() || "default",
+    now,
+  };
+}
+
+function readSloPagerInputFromEnv(): {
+  thresholds: PrismaCutoverSloThresholds;
+  workspaceId: string;
+  checkedAt: string;
+  windowSeconds: number;
+} {
+  return {
+    thresholds: readSloThresholdsFromEnv(),
+    workspaceId: process.env.PRISMA_CUTOVER_SLO_WORKSPACE_ID?.trim() || "default",
+    checkedAt: new Date().toISOString(),
+    windowSeconds: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_WINDOW_SECONDS, 900, 60, 86_400),
+  };
+}
+
+function readSloThresholdsFromEnv(): PrismaCutoverSloThresholds {
+  return {
+    minimumSamples: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_MINIMUM_SAMPLES, 10, 1, 100_000),
+    maximumMismatchRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_MISMATCH_RATE, 0.01),
+    maximumFallbackRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_FALLBACK_RATE, 0.05),
+    maximumErrorRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_ERROR_RATE, 0.01),
+    maximumP95DurationMs: readBoundedNumber(process.env.PRISMA_CUTOVER_SLO_MAX_P95_MS, 2_000, 0, 600_000),
+    maximumDeadlockRate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_DEADLOCK_RATE, 0.001),
+    maximumP2034Rate: readRate(process.env.PRISMA_CUTOVER_SLO_MAX_P2034_RATE, 0.001),
+  };
+}
+
+function readSloInstanceIdFromEnv(): string {
+  const configured = process.env.PRISMA_CUTOVER_SLO_INSTANCE_ID?.trim();
+  if (configured) return configured;
+  const hostname = process.env.HOSTNAME?.trim();
+  if (hostname) return hostname;
+  return `runtime-maintenance-${process.pid}`;
+}
+
+function readBoundedNumber(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, Math.trunc(parsed)));
+}
+
+function readRate(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(1, Math.max(0, parsed));
 }
 
 function buildRuntimeMaintenanceFailureAlerts(

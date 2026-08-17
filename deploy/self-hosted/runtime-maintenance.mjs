@@ -35,6 +35,7 @@ async function runMaintenance() {
   cycle += 1;
   const failuresBefore = counters.httpError + counters.requestError;
   await runEndpoint("Task commit reconciliation", "/api/cron/task-commit-reconcile");
+  await runEndpoint("Prisma cutover SLO", "/api/cron/prisma-cutover-slo");
   if (runtimeMode === "remote") {
     await runEndpoint("Runtime maintenance", "/api/cron/runtime-provisioning");
   }
