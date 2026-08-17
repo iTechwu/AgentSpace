@@ -116,13 +116,13 @@ export async function sendExternalPagerAlert(options: {
   // store is unavailable.
   const recoveryScope = new Set(options.recoveryCodes);
   const recovered: PagerAlertPayload["recovered"] = [];
-  const pendingClears: Array<{ alertKey: string; occurrences: number }> = [];
+  const pendingClears: Array<{ alertKey: string; occurrences: number; lastSeenAt: string }> = [];
   try {
     for (const state of listActivePagerAlertStatesSync(workspaceId)) {
       if (!recoveryScope.has(state.code) || currentKeys.has(state.alertKey)) {
         continue;
       }
-      pendingClears.push({ alertKey: state.alertKey, occurrences: state.occurrences });
+      pendingClears.push({ alertKey: state.alertKey, occurrences: state.occurrences, lastSeenAt: state.lastSeenAt });
       recovered.push({
         code: state.code,
         employeeName: state.employeeName,
@@ -207,6 +207,7 @@ export async function sendExternalPagerAlert(options: {
           workspaceId,
           alertKey: pending.alertKey,
           expectedOccurrences: pending.occurrences,
+          expectedLastSeenAt: pending.lastSeenAt,
         });
       }
     } catch {

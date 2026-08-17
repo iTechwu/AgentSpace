@@ -379,6 +379,50 @@ test("stale recovery delivery cannot clear a newer alert occurrence", async () =
   }
 });
 
+test("stale recovery delivery cannot clear a refreshed alert state", async () => {
+  const { getDatabase, upsertPagerAlertStateSync, readPagerAlertStateByKeySync } = await import("@dofe-agent/db");
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const refreshedAt = new Date(new Date(now).getTime() + 1_000).toISOString();
+  const workspaceId = "ws-recovery-refresh";
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES (?, ?, 'Recovery refresh', '', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  ).run(workspaceId, workspaceId, now, now);
+  db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run(workspaceId);
+  upsertPagerAlertStateSync({ workspaceId, alertKey: "refresh.key", code: "refresh.alert", severity: "error", now });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    upsertPagerAlertStateSync({
+      workspaceId,
+      alertKey: "refresh.key",
+      code: "refresh.alert",
+      severity: "error",
+      now: refreshedAt,
+      incrementOccurrence: false,
+    });
+    return new Response("ok", { status: 200 });
+  };
+  try {
+    const result = await sendExternalPagerAlert({
+      workspaceId,
+      alerts: [],
+      checkedAt: now,
+      config: { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error"]) },
+      recoveryCodes: ["refresh.alert"],
+    });
+    assert.equal(result.recoveredCount, 1);
+    const state = readPagerAlertStateByKeySync("refresh.key", workspaceId);
+    assert.equal(state?.status, "active", "a refreshed state must survive a stale recovery");
+    assert.equal(state?.occurrences, 1);
+    assert.equal(state?.lastSeenAt, refreshedAt);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run(workspaceId);
+  }
+});
+
 test("alertKey override keeps a stable dedup key when the metric payload changes", async () => {
   const { getDatabase, readPagerAlertStateByKeySync } = await import("@dofe-agent/db");
   const db = getDatabase();

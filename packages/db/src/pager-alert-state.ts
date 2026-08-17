@@ -73,19 +73,23 @@ export function markPagerAlertClearedSync(input: {
   now?: string;
   /** Only clear the state if it has not been observed again since recovery was built. */
   expectedOccurrences?: number;
+  expectedLastSeenAt?: string;
 }): boolean {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = input.now ?? new Date().toISOString();
   const occurrencePredicate = input.expectedOccurrences === undefined ? "" : " AND occurrences = ?";
+  const lastSeenPredicate = input.expectedLastSeenAt === undefined ? "" : " AND last_seen_at = ?";
   const result = db.prepare(
     `UPDATE pager_alert_state
      SET status = 'cleared', cleared_at = ?
-     WHERE workspace_id = ? AND alert_key = ? AND status = 'active'${occurrencePredicate}`,
+     WHERE workspace_id = ? AND alert_key = ? AND status = 'active'${occurrencePredicate}${lastSeenPredicate}`,
   ).run(
-    ...(input.expectedOccurrences === undefined
-      ? [now, workspaceId, input.alertKey]
-      : [now, workspaceId, input.alertKey, input.expectedOccurrences]),
+    now,
+    workspaceId,
+    input.alertKey,
+    ...(input.expectedOccurrences === undefined ? [] : [input.expectedOccurrences]),
+    ...(input.expectedLastSeenAt === undefined ? [] : [input.expectedLastSeenAt]),
   );
   return result.changes > 0;
 }
