@@ -6,6 +6,7 @@ export type PrismaShadowReadinessReason =
   | "no_snapshots"
   | "invalid_snapshot"
   | "invalid_window"
+  | "window_span_exceeded"
   | "insufficient_coverage"
   | "stale_coverage"
   | "coverage_gap"
@@ -23,13 +24,19 @@ export interface PrismaCutoverShadowReadinessReport {
   ready: boolean;
   requiredWindowDays: number;
   maximumGapSeconds: number;
+  maximumWindowSpanSeconds: number;
   windowStart?: string;
   windowEnd?: string;
   sampleCount: number;
   reasons: PrismaShadowReadinessReason[];
 }
 
-/** Evaluate persisted SLO snapshots before a shadow domain may enter write cutover. */
+/**
+ * Evaluate persisted SLO snapshots before a shadow domain may enter write cutover.
+ *
+ * 默认样本下限与窗口跨度上限必须与采集/flush 周期匹配：单个超长窗口
+ * （例如一次性回填 30 天）不得满足样本数量门禁，持续采集才有准入资格。
+ */
 export function assessPrismaCutoverShadowReadiness(input: {
   domain: string;
   snapshots: readonly unknown[];
@@ -37,6 +44,8 @@ export function assessPrismaCutoverShadowReadiness(input: {
   requiredWindowDays?: number;
   maximumGapSeconds?: number;
   minimumSamples?: number;
+  /** 单窗口最大跨度（秒）；超过视为非常规窗口，剔除并记 window_span_exceeded。 */
+  maximumWindowSpanSeconds?: number;
   maximumDeadlockRate?: number;
   maximumP2034Rate?: number;
 }): PrismaCutoverShadowReadinessReport {
@@ -47,7 +56,10 @@ export function assessPrismaCutoverShadowReadiness(input: {
   if (!Number.isFinite(nowMs)) throw new Error("prisma_shadow_readiness.now_invalid");
   const requiredWindowDays = boundedInteger(input.requiredWindowDays, 30, 1, 365);
   const maximumGapSeconds = boundedInteger(input.maximumGapSeconds, 1_800, 0, 86_400);
-  const minimumSamples = boundedInteger(input.minimumSamples, 1, 1, Number.MAX_SAFE_INTEGER);
+  // 默认 1000：30 天窗口按 15 分钟一个样本的持续采集下限，单窗口/单次回填无法满足。
+  const minimumSamples = boundedInteger(input.minimumSamples, 1_000, 1, Number.MAX_SAFE_INTEGER);
+  // 默认 1 小时：正常 flush 周期（分钟级）远小于该值，超长窗口不得计入覆盖。
+  const maximumWindowSpanSeconds = boundedInteger(input.maximumWindowSpanSeconds, 3_600, 60, 86_400);
   const maximumDeadlockRate = boundedRate(input.maximumDeadlockRate, 0);
   const maximumP2034Rate = boundedRate(input.maximumP2034Rate, 0);
   const reasons = new Set<PrismaShadowReadinessReason>();
@@ -69,8 +81,15 @@ export function assessPrismaCutoverShadowReadiness(input: {
     .filter((window) => {
       const valid = Number.isFinite(window.startMs) && Number.isFinite(window.endMs)
         && window.startMs <= window.endMs && window.endMs <= nowMs;
-      if (!valid) reasons.add("invalid_window");
-      return valid;
+      if (!valid) {
+        reasons.add("invalid_window");
+        return false;
+      }
+      if (window.endMs - window.startMs > maximumWindowSpanSeconds * 1_000) {
+        reasons.add("window_span_exceeded");
+        return false;
+      }
+      return true;
     })
     .sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
 
@@ -102,6 +121,7 @@ export function assessPrismaCutoverShadowReadiness(input: {
     ready: reasons.size === 0,
     requiredWindowDays,
     maximumGapSeconds,
+    maximumWindowSpanSeconds,
     sampleCount,
     reasons: [...reasons],
   };
@@ -118,6 +138,7 @@ export function assessPersistedPrismaCutoverShadowReadinessSync(input: {
   requiredWindowDays?: number;
   maximumGapSeconds?: number;
   minimumSamples?: number;
+  maximumWindowSpanSeconds?: number;
   maximumDeadlockRate?: number;
   maximumP2034Rate?: number;
 }): PrismaCutoverShadowReadinessReport {

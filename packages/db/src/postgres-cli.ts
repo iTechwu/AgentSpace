@@ -79,6 +79,7 @@ async function main(): Promise<void> {
       requiredWindowDays: getNumberFlag(flags, "window-days"),
       maximumGapSeconds: getNumberFlag(flags, "maximum-gap-seconds"),
       minimumSamples: getNumberFlag(flags, "minimum-samples"),
+      maximumWindowSpanSeconds: getNumberFlag(flags, "maximum-window-span-seconds"),
       maximumDeadlockRate: getNumberFlag(flags, "maximum-deadlock-rate"),
       maximumP2034Rate: getNumberFlag(flags, "maximum-p2034-rate"),
     });
@@ -136,7 +137,7 @@ function printHelp(): void {
   node --experimental-strip-types packages/db/src/postgres-cli.ts init --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-evidence --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-loadtest --database-url <isolated-test-postgres-url> --role <web|worker|daemon> [--concurrency <n>] [--hold-ms <n>] [--connection-timeout-ms <n>] [--statement-timeout-ms <n>] [--json]
-  node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-shadow-readiness --domain <domain> [--workspace-id <id>] [--window-days <n>] [--maximum-gap-seconds <n>] [--minimum-samples <n>] [--maximum-deadlock-rate <rate>] [--maximum-p2034-rate <rate>] [--json]
+  node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-shadow-readiness --domain <domain> [--workspace-id <id>] [--window-days <n>] [--maximum-gap-seconds <n>] [--minimum-samples <n>] [--maximum-window-span-seconds <n>] [--maximum-deadlock-rate <rate>] [--maximum-p2034-rate <rate>] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-sqlite [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-postgres --source-database-url <postgres-url> [--target-database-url <postgres-url>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts cutover-plan [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--json]
