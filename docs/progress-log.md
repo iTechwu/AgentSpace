@@ -368,8 +368,15 @@
 
 ## 测试与 CI/CD（专项，⏸ 本轮排除）
 
-> 按决策，本轮优化明确排除测试 CI 专项。§3.6-1（ci.yml 流水线）、§3.6-2（`integrations.test.ts` 11k 行 + `daemon.test.ts` 844 行入默认列表）整体保持待办。§3.3-4（飞书测试入内）已完成，见上文。
+> 按决策，本轮优化明确排除测试 CI 专项。§3.6-1（ci.yml 流水线）保持待办；§3.6-2 已完成（见下）。§3.3-4（飞书测试入内）已完成，见上文。
 > 已推进的子项：`permissions`/`document-permissions`/`prisma` 测试纳入默认门禁（见 3.3-8）；飞书 23 个测试文件纳入默认门禁（见 3.3-4）。
+
+### 3.6-2 integrations/daemon 大测试文件入 cli 默认清单 —— ✅ 完成（aed17132）
+
+- **根因修复**（入默认清单的前置阻塞）：`apps/cli/src/lib/daemon-task-output.ts` 原经 `dofe-agent-daemon`（dist）re-export `loadTaskOutputEnvelope`，而 daemon dist 由 esbuild 全量打包、内联 services 附件存储代码，`setAttachmentStorageClientForTests` 注入只落在 src 模块实例——dist 副本按 `--env-file` 真实 TOS 配置构造客户端，daemon.test.ts 4 例附件断言失败且**真实上传远端桶**（带 .env）或 0 附件（无 .env，两种环境都红）。改指 `../../../../packages/daemon/src/task-output.ts`（与 `daemon-task-context.ts`/`output.ts` 既有惯例一致）后，测试与被测代码共享同一模块实例，mock 生效，22/22 绿。
+- **顺带修复既有环境耦合缺陷**：`daemon-task-context.test.ts`（本就在默认清单内）`beforeEach` 的 `resetWorkspaceStateSync()` 会按真实 TOS 配置对既有附件发起远端删除（本地 403，10 例失败；CI 数据库无附件才侥幸绿）。before() 补注入 `createTestTosAttachmentStorage()` 内存夹具（services 既有测试夹具）。
+- **清单变更**：apps/cli 默认测试脚本 5→7 文件（+`integrations.test.ts` 182 例、`daemon.test.ts` 22 例），全量 228/228 绿、~4.8s；`pnpm typecheck` 0 错。
+- **门禁**：`verify-test-inventory.mjs` isDefaultOwned 补记两文件，deferred 冻结集 173→171，digest 重冻结 `4b69d47f`（round 9，含冻结说明注释）。
 
 ---
 
