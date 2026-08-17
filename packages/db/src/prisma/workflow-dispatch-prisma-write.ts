@@ -38,7 +38,7 @@ export async function dispatchWorkflowNodePrisma(
   return retryPrismaTransaction(() => client.$transaction(
     (tx) => dispatchWorkflowNodePrismaInTransaction(input, tx),
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  ));
+  ), { scope: "workflow-dispatcher" });
 }
 
 /** Claim the ready outbox row and dispatch the node under one transaction. */
@@ -63,7 +63,7 @@ export async function dispatchWorkflowNodeFromOutboxPrisma(
       return dispatchWorkflowNodePrismaInTransaction(input, tx);
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  ));
+  ), { scope: "workflow-dispatcher" });
 }
 
 export function isWorkflowDispatcherPrismaWriteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

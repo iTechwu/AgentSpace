@@ -389,8 +389,12 @@ export {
   type DispatchWorkflowNodePrismaResult,
 } from "./prisma/workflow-dispatch-prisma-write.ts";
 export {
+  classifyPrismaTransactionConflictKind,
   isPrismaTransactionConflict,
   retryPrismaTransaction,
+  setPrismaTransactionRetryObserver,
+  type PrismaTransactionConflictKind,
+  type PrismaTransactionRetryEvent,
   type PrismaTransactionRetryOptions,
 } from "./prisma/transaction-retry.ts";
 export {

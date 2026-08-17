@@ -220,7 +220,7 @@ export async function materializeWorkflowRunPrisma(
       }
     }
     return { runId, created };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { scope: "workflow-materialization" });
 }
 
 function assertTriggerSnapshot(

@@ -255,7 +255,7 @@ export async function fanOutWorkflowRunOutboxPrisma(input: {
     });
     if (published.count !== 1) throw new Error("workflow_outbox_lease_conflict");
     return { nodeRunIds: nodes.map((node) => node.id) };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { scope: "workflow-dispatcher" });
 }
 
 async function claimWorkflowOutboxForFailureInTransaction(

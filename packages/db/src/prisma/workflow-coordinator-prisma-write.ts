@@ -62,5 +62,5 @@ export async function readyWorkflowNodeWithOutboxPrisma(
       },
     });
     return { transitioned: true, outboxId };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { scope: "workflow-coordinator" });
 }

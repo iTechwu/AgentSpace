@@ -203,7 +203,7 @@ export async function advanceWorkflowTriggerWithOutcomePrisma(
     });
     const row = await tx.workflowTrigger.findUnique({ where: { id: input.id } });
     return row ? mapPrismaRow(row as unknown as PrismaWorkflowTrigger) : null;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { scope: "workflow-materialization" });
 }
 
 export { setDofePrismaClientForTests as setWorkflowTriggersPrismaClientForTests };
