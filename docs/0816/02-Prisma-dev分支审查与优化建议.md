@@ -2,7 +2,9 @@
 
 ## 1. 当前状态
 
-审查基线为 `dev` HEAD `6d9b1ff9`。当前 `packages/db/prisma/schema.prisma` 有 **25 个
+本轮实现基线为 `b94242bb`；dev PostgreSQL 已通过 `postgres:init` 从 schema 121 升至 122。
+
+审查基线为 `dev` HEAD `b94242bb`。当前 `packages/db/prisma/schema.prisma` 有 **26 个
 model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通过共享
 `PrismaPg` 单例和按域 feature flag 渐进切流。定向验证结果：
 
@@ -40,8 +42,10 @@ pool max、连接超时、空闲超时、statement timeout 和 `application_name
 `prisma-client-config.test.ts` 覆盖默认值、非法值和上下界。该实现补齐了配置边界，
 但还没有证明真实 Web/worker/daemon 并发下的连接池容量和饱和行为。
 
-剩余建议：启动时打印脱敏后的有效配置，采集 active/waiting/timeout 指标，并在 Web、worker、
-daemon 三种并发模型下分别做容量基线。未完成这些运行证据前，不应把本项标记为完整生产验收。
+现在已有 `prisma:pool:evidence` 入口，会按 `application_name` 采集 Web/worker/daemon 的
+configuredPoolMax、active/idle/waiting。dev 采集快照为 10/5/3 上限、observed=0；这只能证明
+查询入口可用。仍需三种并发模型的容量基线、timeout/P95、池耗尽和 graceful shutdown 证据，完成前
+不应把本项标记为完整生产验收。
 
 ### P1（基础门禁已完成）：切流开关集中注册，仍需发布系统联动
 
@@ -74,13 +78,11 @@ mismatch/fallback/error 比率与 P95，并根据调用方提供的阈值生成 
 当前 flag version 和 last-known-good flag version。相关 SLO、采样与 cutover runner 测试共 16 项通过。
 
 本轮已将快照持久化到集中 `audit_log` 指标账本，按实例/窗口幂等写入并可跨实例按样本加权；新增
-`flushPrismaCutoverSloSnapshotsSync` 作为周期任务固定入口，并新增
-`sendPrismaCutoverSloPagerAlert` 将中心快照转换为现有外部 pager payload，并默认限制在最近 15 分钟窗口；
-新增 deadlock/P2034 分类、burn-rate、pager active/cleared 状态以及带 release/current/
-last-known-good/reasons 的 `PrismaCutoverRollbackPublisher` 契约。仍需由部署环境调度周期任务、
-配置真实 webhook 和完成发布适配器演练；代码不会未经发布系统授权自动修改 flag。
-由于快照当前复用 `audit_log`，还需为 `prisma.cutover.slo.snapshot` 规划保留期、按 code/created_at
-的查询索引和归档策略，避免中心账本无限增长。
+`flushPrismaCutoverSloSnapshotsSync`、`/api/cron/prisma-cutover-slo` 和
+`sendPrismaCutoverSloPagerAlert`，默认限制在最近 15 分钟窗口；新增 deadlock/P2034 分类、burn-rate、
+pager active/cleared 状态以及带 release/current/last-known-good/reasons 的 HTTP rollback publisher。
+schema 122 增加 `idx_audit_log_code_created`，归档目录写入 JSONL 成功后才 prune。代码不会未经发布系统
+授权自动修改 flag；真实 webhook、发布权限和恢复演练仍需部署环境执行。
 
 ### P2（已部分完成）：Raw SQL 已参数化并增加 Unsafe 门禁
 
