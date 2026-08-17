@@ -24,7 +24,7 @@ import {
 } from "@dofe-agent/db";
 import { sendPrismaCutoverSloPagerAlert } from "../observability/prisma-cutover-slo-pager.ts";
 import { publishPrismaCutoverRollbacksFromEnv } from "../observability/prisma-cutover-rollback-publisher.ts";
-import { readSloThresholdsFromEnv } from "../shared/slo-thresholds.ts";
+import { readBoundedNumber, readSloThresholdsFromEnv } from "../shared/slo-thresholds.ts";
 
 export interface RuntimeMaintenanceStageResult {
   status: "succeeded" | "failed";
@@ -218,12 +218,6 @@ function readSloInstanceIdFromEnv(): string {
   const hostname = process.env.HOSTNAME?.trim();
   if (hostname) return hostname;
   return `runtime-maintenance-${process.pid}`;
-}
-
-function readBoundedNumber(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(maximum, Math.max(minimum, Math.trunc(parsed)));
 }
 
 function buildRuntimeMaintenanceFailureAlerts(
