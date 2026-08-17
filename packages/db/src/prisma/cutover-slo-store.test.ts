@@ -240,6 +240,57 @@ test("aggregation with thresholds re-evaluates: a single small bad instance does
   assert.deepEqual(snapshot?.rollbackReasons, []);
 });
 
+test("retention archive reaches expired rows even when newer rows exceed the old 500-row window", () => {
+  const db = getDatabase();
+  const workspaceId = (db.prepare("SELECT id FROM workspace WHERE id = 'slo-archive-flood'").get() as { id: string } | undefined)?.id
+    ?? createWorkspaceSync({ id: "slo-archive-flood", slug: "slo-archive-flood", name: "SLO archive flood", createdBy: "test" }).id;
+  db.prepare("DELETE FROM audit_log WHERE workspace_id = ?").run(workspaceId);
+  // 600 行新快照（windowEnd 新、created_at 新）+ 1 行过期快照（windowEnd 旧、
+  // created_at 新，模拟迟到 flush）：旧的 DESC+500 查询永远看不到过期行。
+  const insert = db.prepare(
+    `INSERT INTO audit_log (id, workspace_id, title, note, code, data_json, source, source_index, created_at)
+     VALUES (?, ?, 't', 'n', ?, ?, 'platform_admin', 0, ?)
+     ON CONFLICT (id) DO NOTHING`,
+  );
+  const fresh = "2026-08-17T00:00:00.000Z";
+  for (let index = 0; index < 600; index += 1) {
+    insert.run(
+      `flood-${index}`,
+      workspaceId,
+      PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+      JSON.stringify({ domain: "flood-domain", sampleCount: 1, instanceId: "flood", windowEnd: fresh }),
+      fresh,
+    );
+  }
+  insert.run(
+    "flood-expired",
+    workspaceId,
+    PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+    JSON.stringify({ domain: "flood-domain", sampleCount: 1, instanceId: "flood", windowEnd: "2026-08-01T00:00:00.000Z" }),
+    fresh,
+  );
+  const archiveDir = mkdtempSync(join(tmpdir(), "dofe-slo-archive-flood-"));
+  try {
+    const result = archivePrismaCutoverSloSnapshotsToFileSync({
+      archiveDir,
+      workspaceId,
+      retentionDays: 7,
+      now: "2026-08-17T00:00:00.000Z",
+    });
+    assert.equal(result.status, "archived");
+    assert.equal(result.selected, 1, "只有 windowEnd 过期的 1 行被选中");
+    assert.equal(result.deleted, 1);
+    assert.match(readFileSync(result.archiveFile!, "utf8"), /flood-expired/);
+    const remaining = db.prepare(
+      "SELECT COUNT(*) AS count FROM audit_log WHERE workspace_id = ? AND code = ?",
+    ).get(workspaceId, PRISMA_CUTOVER_SLO_SNAPSHOT_CODE) as { count: number };
+    assert.equal(remaining.count, 600, "新快照保留，下轮达到保留期后再归档");
+  } finally {
+    db.prepare("DELETE FROM audit_log WHERE workspace_id = ?").run(workspaceId);
+    rmSync(archiveDir, { recursive: true, force: true });
+  }
+});
+
 test("SLO retention archives before pruning expired ledger rows", () => {
   const oldSnapshot = {
     domain: "retention-domain",

@@ -2,9 +2,9 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   deleteAuditLogsByIdsSync,
-  listAuditLogsSync,
   recordAuditLogSync,
 } from "../audit-log.ts";
+import { canonicalizeAuditLogDataJson } from "../audit-log-idempotency.ts";
 import {
   markPagerAlertClearedSync,
   upsertPagerAlertStateSync,
@@ -51,17 +51,59 @@ export function archivePrismaCutoverSloSnapshotsToFileSync(input: {
   const retentionDays = Math.min(Math.max(Math.trunc(input.retentionDays ?? 30), 1), 3_650);
   const now = input.now ?? new Date().toISOString();
   const cutoff = new Date(Date.parse(now) - retentionDays * 86_400_000).toISOString();
-  const selected = listAuditLogsSync(input.workspaceId, {
-    code: PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
-    limit: Math.min(Math.max(Math.trunc(input.maxRows ?? 1_000), 1), 10_000),
-  }).filter((row) => {
-    try {
-      const data = JSON.parse(row.dataJson) as { windowEnd?: unknown };
-      return typeof data.windowEnd === "string" ? data.windowEnd <= cutoff : row.createdAt <= cutoff;
-    } catch {
-      return row.createdAt <= cutoff;
+  const maxRows = Math.min(Math.max(Math.trunc(input.maxRows ?? 1_000), 1), 10_000);
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  // 过期侧游标扫描：不能直接复用 listAuditLogsSync（DESC + 500 上限）——持续
+  // 写入时最新 500 行永远不含过期行，旧数据无法归档（复审 P1）。过期语义以
+  // windowEnd（数据时间）为准，created_at（真实插入时间）兜底；SQL 侧同时下推
+  // 两个条件，从最早开始 ASC 翻页，持续写入下过期行始终可达。
+  const selected: Array<{ id: string; createdAt: string; dataJson: string; archive: Record<string, unknown> }> = [];
+  const pageSize = Math.min(maxRows, 500);
+  let cursorCreatedAt = new Date(0).toISOString();
+  let cursorId = "";
+  while (selected.length < maxRows) {
+    const rows = getDatabase().prepare(
+      `SELECT id, workspace_id AS "workspaceId", title, note, code,
+              data_json AS "dataJson", source, source_index AS "sourceIndex",
+              created_at AS "createdAt"
+         FROM audit_log
+        WHERE workspace_id = ? AND code = ?
+          AND (created_at <= ? OR data_json ->> 'windowEnd' <= ?)
+          AND (created_at, id) > (?, ?)
+        ORDER BY created_at ASC, id ASC
+        LIMIT ?`,
+    ).all(
+      workspaceId,
+      PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+      cutoff,
+      cutoff,
+      cursorCreatedAt,
+      cursorId,
+      Math.min(pageSize, maxRows - selected.length),
+    ) as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      cursorCreatedAt = row.createdAt as string;
+      cursorId = row.id as string;
+      const dataJson = typeof row.dataJson === "string" ? row.dataJson : JSON.stringify(row.dataJson);
+      try {
+        const data = JSON.parse(dataJson) as { windowEnd?: unknown };
+        if (typeof data.windowEnd === "string" && data.windowEnd > cutoff) continue;
+      } catch {
+        // 无 windowEnd 时按 created_at 判定（SQL 已过滤）。
+      }
+      selected.push({
+        id: row.id as string,
+        createdAt: row.createdAt as string,
+        dataJson,
+        archive: {
+          ...row,
+          code: row.code ?? undefined,
+          dataJson: canonicalizeAuditLogDataJson(dataJson),
+        },
+      });
     }
-  });
+    if (rows.length < pageSize || rows.length === 0) break;
+  }
   if (selected.length === 0) return { status: "skipped", selected: 0, deleted: 0, cutoff };
   const archiveDir = input.archiveDir?.trim();
   if (!archiveDir) return { status: "skipped", selected: selected.length, deleted: 0, cutoff };
@@ -70,7 +112,7 @@ export function archivePrismaCutoverSloSnapshotsToFileSync(input: {
   const archiveFile = join(archiveDir, `prisma-cutover-slo-${month}.jsonl`);
   appendFileSync(
     archiveFile,
-    selected.map((row) => JSON.stringify({ archivedAt: now, audit: row })).join("\n") + "\n",
+    selected.map((row) => JSON.stringify({ archivedAt: now, audit: row.archive })).join("\n") + "\n",
     { encoding: "utf8" },
   );
   const deleted = deleteAuditLogsByIdsSync({ workspaceId: input.workspaceId, ids: selected.map((row) => row.id) });
