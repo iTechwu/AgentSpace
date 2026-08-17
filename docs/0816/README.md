@@ -12,14 +12,15 @@
 | [02-Prisma-dev分支审查与优化建议.md](./02-Prisma-dev分支审查与优化建议.md) | Prisma schema、切流、连接容量、开关和观测审查 |
 | [03-实施清单与验收矩阵.md](./03-实施清单与验收矩阵.md) | P0/P1/P2 优化顺序、责任边界和验收证据 |
 | [04-当前迁移状态与待实施清单.md](./04-当前迁移状态与待实施清单.md) | 当前数据库版本、阻断项、已实施门禁和后续落地顺序 |
+| [05-Prisma剩余写路径inventory.md](./05-Prisma剩余写路径inventory.md) | 已切流与待迁移 Prisma 写路径、事务和退出 legacy 条件 |
 
 ## 总结
 
 0815 的核心代码修复已经大体落地，Runtime capability 的注册/心跳解析、校验和规范化
 也已补齐；但仍不能宣称完整发布验收。剩余门槛包括真实 Runtime 能力来源证明与跨环境验收、
-失败 reconcile 持久化状态机、完整质量报告运行时绑定，以及 PostgreSQL 全量 invariant gate。
-Prisma 审查文档中的连接池容量、shadow SLO 持久化/回滚联动、全量 invariant gate 和剩余写路径建议仍需按
+失败 reconcile 持久化状态机、完整质量报告运行时绑定，以及 PostgreSQL 定义级 invariant gate。
+Prisma 审查文档中的连接池容量、SLO 周期 flush/告警路由、真实发布系统回滚演练和高风险写路径实施仍需按
 `03-实施清单与验收矩阵.md` 排期推进。
 
-当前 dev PostgreSQL 实例仍处于 schema version 117，缺少当前代码要求的 reconcile 索引；
-迁移应用和 invariant gate 通过前，不得扩大 Prisma 切流范围。
+当前 dev PostgreSQL 已通过允许的 `postgres:init` 流程从 schema 117 升至 121，且两个 drift gate
+均通过；连接池容量和生产回滚闭环完成前，仍不得扩大 Prisma 切流范围。

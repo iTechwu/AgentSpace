@@ -2,7 +2,7 @@
 
 ## 1. 当前状态
 
-审查基线为 `dev` HEAD `8a990c2a`。当前 `packages/db/prisma/schema.prisma` 有 **25 个
+审查基线为 `dev` HEAD `1199e166`。当前 `packages/db/prisma/schema.prisma` 有 **25 个
 model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通过共享
 `PrismaPg` 单例和按域 feature flag 渐进切流。定向验证结果：
 
@@ -25,23 +25,13 @@ model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通
 `prisma:verify:contract` 命令与现有 pilot 使用同一入口，先补齐最容易发生且可由 Prisma
 表达的约束漂移。
 
-本轮新增 `postgres:verify:invariants`，从版本化 PostgreSQL schema 语句提取 index、function、
-trigger 和命名 CHECK 清单，再查询当前 catalog 做 fail-closed 比对。定向纯函数测试通过；
-对当前 dev 数据库的实际执行结果为失败：数据库 `schema_version=117`，代码当前要求 `121`，
-缺少 `idx_skill_rollout_reconcile_plan_status`。这说明迁移尚未应用，不能把当前数据库当作已验收状态。
+本轮通过允许入口 `pnpm --filter @dofe-agent/db run postgres:init` 将 dev 数据库从
+`schema_version=117` 升到代码要求的 `121`，并修复版本写入 SQL 中模板字符串的 `\d` 转义错误。
+随后 `prisma:verify:contract` 与 `postgres:verify:invariants` 均通过；后者现在比对对象、48 个
+partial-index predicate、CHECK 定义和 6 个函数体，并支持 enum/view 定义比较。
 
-当前门禁仍不会发现 CHECK 表达式/predicate 漂移、enum 定义、partial index 谓词、view、
-function body 或 migration 历史顺序漂移。项目文档仍将这些对象列为 Prisma 与自定义 SQL 的共同边界。
-
-建议：继续拆成两个明确门禁：
-
-1. `prisma:verify:contract`：继续扩展到枚举和删除动作；
-2. `postgres:verify:invariants`：在现有对象存在性清单基础上，继续校验 CHECK/partial index
-   predicate、enum、view 和 function body 等 Prisma 不表达的对象。
-
-两者都应在 CI 的 schema/migration 变更时执行；当前命令只代表对象存在性 gate，必须先完成
-`schema_version 117 -> 121` 的迁移应用，再补齐 predicate/enum/view/function body 检查，才能
-升级为全库 drift gate。
+当前门禁已覆盖上述定义级对象；迁移变更仍应在 CI 同时执行两条命令。它不替代 migration
+history 顺序检查，也不替代真实数据库备份/恢复演练，这两项仍是发布前证据。
 
 ### P1（已部分落地）：Prisma Client 的连接池与运行容量仍需验收
 
@@ -71,9 +61,10 @@ shadow 未开启对应 read 的组合；拼写错误和 read/shadow 不同步现
 暂不迁移。该选择是合理的风险控制，但如果没有调用方清单、完成定义和 deadline，Phase 2 会
 长期停留在“4 个写路径已完成”的中间态。
 
-建议：为每个剩余写域建立 inventory（调用方、事务边界、幂等键、事件副作用、负责人），
-把 task enqueue、outbox、workflow lease 作为独立高风险批次；只有完成 legacy/Prisma
-affected rows、错误类别、幂等、并发和事件顺序对照后，才允许关闭旧路径。
+本轮已建立 [05-Prisma剩余写路径inventory.md](./05-Prisma剩余写路径inventory.md)，记录已切流
+的 4 条写路径和 task enqueue/outbox/lease/channel/rollout 等待迁移路径。下一步仍应把
+task enqueue + workflow outbox 作为独立高风险批次；只有完成 legacy/Prisma affected rows、
+错误类别、幂等、并发和事件顺序对照后，才允许关闭旧路径。
 
 ### P2（已部分完成）：shadow 观测已有进程内 SLO 聚合，仍缺持久化和自动回滚
 
@@ -82,9 +73,10 @@ affected rows、错误类别、幂等、并发和事件顺序对照后，才允�
 mismatch/fallback/error 比率与 P95，并根据调用方提供的阈值生成 rollback reasons；快照可携带
 当前 flag version 和 last-known-good flag version。相关 SLO、采样与 cutover runner 测试共 16 项通过。
 
-剩余建议：把进程内窗口写入集中指标/时序存储，定义每域时间窗口、burn-rate 告警和统一阈值；
-将 rollback reasons 交给发布系统生成回滚建议并关联 `last-known-good` 配置。当前实现不会自动
-修改 flag，也不会跨实例合并，因此仍不能作为生产级自动回滚闭环。
+本轮已将快照持久化到集中 `audit_log` 指标账本，按实例/窗口幂等写入并可跨实例按样本加权；
+新增 deadlock/P2034 分类、burn-rate、pager active/cleared 状态以及带 release/current/
+last-known-good/reasons 的 `PrismaCutoverRollbackPublisher` 契约。仍需由部署环境安排周期 flush、
+真实告警渠道和发布适配器演练；代码不会未经发布系统授权自动修改 flag。
 
 ### P2（已部分完成）：Raw SQL 已参数化并增加 Unsafe 门禁
 
