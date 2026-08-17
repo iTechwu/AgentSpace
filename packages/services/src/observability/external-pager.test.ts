@@ -18,9 +18,11 @@ test("readExternalPagerConfigFromEnv parses comma-separated severity filter", ()
     EXTERNAL_PAGER_SEVERITY_FILTER: "warning,error",
     EXTERNAL_PAGER_WEBHOOK_URL: "https://pager.example/hook",
     EXTERNAL_PAGER_TOKEN: "secret",
+    EXTERNAL_PAGER_TIMEOUT_MS: "15000",
   });
   assert.equal(config.webhookUrl, "https://pager.example/hook");
   assert.equal(config.token, "secret");
+  assert.equal(config.timeoutMs, 15_000);
   assert.deepEqual(Array.from(config.severityFilter).sort(), ["error", "warning"]);
 });
 
@@ -146,6 +148,35 @@ test("sendExternalPagerAlert surfaces HTTP errors as reason", async () => {
     assert.ok(result.reason?.includes("500"));
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("sendExternalPagerAlert bounds a stalled webhook request", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal;
+    if (!signal) return reject(new Error("missing abort signal"));
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+  try {
+    const result = await sendExternalPagerAlert({
+      workspaceId: "default",
+      alerts: [{ code: "pager.timeout", severity: "error", message: "stalled" }],
+      checkedAt: "2026-08-03T00:00:00Z",
+      config: {
+        webhookUrl: "https://pager.example/hook",
+        severityFilter: new Set(["error"]),
+        timeoutMs: 10,
+      },
+      recoveryCodes: ["pager.timeout"],
+    });
+    assert.equal(result.sent, false);
+    assert.match(result.reason ?? "", /timeout|aborted/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+    const { getDatabase } = await import("@dofe-agent/db");
+    getDatabase().prepare("DELETE FROM pager_alert_state WHERE workspace_id = ? AND code = ?")
+      .run("default", "pager.timeout");
   }
 });
 

@@ -22,6 +22,8 @@ export interface ExternalPagerConfig {
   severityFilter: Set<DataProtectionAlert["severity"]>;
   /** Occurrences before an alert escalates (default 3). */
   escalateAfter?: number;
+  /** Maximum webhook request duration (default 10 seconds). */
+  timeoutMs?: number;
 }
 
 /**
@@ -68,11 +70,15 @@ export function readExternalPagerConfigFromEnv(env: NodeJS.ProcessEnv = process.
       : severities.filter((s): s is DataProtectionAlert["severity"] => s === "info" || s === "warning" || s === "error"),
   );
   const rawEscalate = Number.parseInt(env.EXTERNAL_PAGER_ESCALATE_AFTER?.trim() ?? "", 10);
+  const rawTimeout = Number(env.EXTERNAL_PAGER_TIMEOUT_MS);
   return {
     webhookUrl: env.EXTERNAL_PAGER_WEBHOOK_URL?.trim() || undefined,
     token: env.EXTERNAL_PAGER_TOKEN?.trim() || undefined,
     severityFilter,
     escalateAfter: Number.isFinite(rawEscalate) && rawEscalate > 1 ? rawEscalate : undefined,
+    timeoutMs: Number.isFinite(rawTimeout) && rawTimeout >= 1_000 && rawTimeout <= 120_000
+      ? Math.trunc(rawTimeout)
+      : undefined,
   };
 }
 
@@ -194,6 +200,7 @@ export async function sendExternalPagerAlert(options: {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(config.timeoutMs ?? 10_000),
     });
     if (!response.ok) {
       return { sent: false, reason: `Pager webhook returned ${response.status} ${response.statusText}.`, recoveredCount: recovered.length };
