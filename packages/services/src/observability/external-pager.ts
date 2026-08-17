@@ -64,10 +64,11 @@ export interface PagerAlertPayload {
 export function readExternalPagerConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ExternalPagerConfig {
   const rawFilter = env.EXTERNAL_PAGER_SEVERITY_FILTER?.trim().toLowerCase() ?? "error";
   const severities = rawFilter.split(",").map((s) => s.trim()).filter(Boolean);
+  const validSeverities = severities.filter(
+    (s): s is DataProtectionAlert["severity"] => s === "info" || s === "warning" || s === "error",
+  );
   const severityFilter = new Set<DataProtectionAlert["severity"]>(
-    severities.length === 0
-      ? ["error"]
-      : severities.filter((s): s is DataProtectionAlert["severity"] => s === "info" || s === "warning" || s === "error"),
+    validSeverities.length > 0 ? validSeverities : ["error"],
   );
   const rawEscalate = Number.parseInt(env.EXTERNAL_PAGER_ESCALATE_AFTER?.trim() ?? "", 10);
   const rawTimeout = Number(env.EXTERNAL_PAGER_TIMEOUT_MS);

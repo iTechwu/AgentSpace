@@ -15,15 +15,24 @@ test("readExternalPagerConfigFromEnv defaults to error severity", () => {
 
 test("readExternalPagerConfigFromEnv parses comma-separated severity filter", () => {
   const config = readExternalPagerConfigFromEnv({
-    EXTERNAL_PAGER_SEVERITY_FILTER: "warning,error",
+    EXTERNAL_PAGER_SEVERITY_FILTER: "warning,invalid,error",
     EXTERNAL_PAGER_WEBHOOK_URL: "https://pager.example/hook",
     EXTERNAL_PAGER_TOKEN: "secret",
+    EXTERNAL_PAGER_ESCALATE_AFTER: "4",
     EXTERNAL_PAGER_TIMEOUT_MS: "15000",
   });
   assert.equal(config.webhookUrl, "https://pager.example/hook");
   assert.equal(config.token, "secret");
+  assert.equal(config.escalateAfter, 4);
   assert.equal(config.timeoutMs, 15_000);
   assert.deepEqual(Array.from(config.severityFilter).sort(), ["error", "warning"]);
+});
+
+test("readExternalPagerConfigFromEnv falls back to error when all severities are invalid", () => {
+  const config = readExternalPagerConfigFromEnv({
+    EXTERNAL_PAGER_SEVERITY_FILTER: "errors,critical",
+  });
+  assert.deepEqual(Array.from(config.severityFilter), ["error"]);
 });
 
 test("sendExternalPagerAlert returns false when no webhook is configured", async () => {
