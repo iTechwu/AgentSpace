@@ -246,14 +246,14 @@ export function aggregatePrismaCutoverSloSnapshots(
     const linkConflictRate = sampleCount === 0
       ? 0
       : rows.reduce((sum, row) => sum + (row.linkConflictRate ?? 0) * row.sampleCount, 0) / sampleCount;
-    const eventOrderComparedCount = rows.reduce(
-      (sum, row) => sum + (row.eventOrderComparedCount ?? (row.eventOrderDriftRate === undefined ? 0 : row.sampleCount)),
-      0,
-    );
+    // Historical snapshots without an explicit comparison count are excluded
+    // from this reason's denominator; inferring it from sampleCount would turn
+    // pre-detector rows into fake event-order observations.
+    const eventOrderComparedCount = rows.reduce((sum, row) => sum + (row.eventOrderComparedCount ?? 0), 0);
     const eventOrderDriftRate = eventOrderComparedCount === 0
       ? 0
       : rows.reduce((sum, row) => {
-          const comparedCount = row.eventOrderComparedCount ?? (row.eventOrderDriftRate === undefined ? 0 : row.sampleCount);
+          const comparedCount = row.eventOrderComparedCount ?? 0;
           return sum + (row.eventOrderDriftRate ?? 0) * comparedCount;
         }, 0) / eventOrderComparedCount;
     const p95DurationMs = Math.max(0, ...rows.map((row) => row.p95DurationMs));

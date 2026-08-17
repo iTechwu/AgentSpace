@@ -313,6 +313,21 @@ test("aggregation keeps event-order drift denominator limited to compared dispat
         rollbackRecommended: false,
         rollbackReasons: [],
       },
+      // 旧快照即使带有 eventOrderDriftRate，也没有真实对照计数，不能进入分母。
+      {
+        domain: "workflow-dispatcher",
+        sampleCount: 100,
+        eventOrderDriftRate: 1,
+        mismatchRate: 0,
+        fallbackRate: 0,
+        errorRate: 0,
+        p95DurationMs: 10,
+        deadlockRate: 0,
+        p2034Rate: 0,
+        burnRate: 0,
+        rollbackRecommended: false,
+        rollbackReasons: [],
+      },
       {
         domain: "workflow-dispatcher",
         sampleCount: 100,
@@ -331,7 +346,7 @@ test("aggregation keeps event-order drift denominator limited to compared dispat
     ],
     { thresholds },
   );
-  assert.equal(snapshot?.sampleCount, 200);
+  assert.equal(snapshot?.sampleCount, 300);
   assert.equal(snapshot?.eventOrderComparedCount, 2);
   assert.equal(snapshot?.eventOrderDriftRate, 0.5);
   assert.deepEqual(snapshot?.rollbackReasons, ["event_order_drift"]);
