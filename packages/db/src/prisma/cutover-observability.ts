@@ -51,6 +51,7 @@ export function emitPrismaCutoverMetric(
     mismatch: metric.mismatch,
     durationMs: Math.max(0, metric.durationMs),
   };
+  if (metric.shadowCompared !== undefined) record.shadowCompared = metric.shadowCompared;
   if ("fallbackInvoked" in metric) record.fallbackInvoked = metric.fallbackInvoked;
   if (metric.fallbackFailed !== undefined) record.fallbackFailed = metric.fallbackFailed;
   // Error messages can contain connection details. The application error path

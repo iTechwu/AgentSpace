@@ -7,6 +7,7 @@ function snapshot(windowStart: string, windowEnd: string, overrides: Record<stri
     domain: "workflow-dispatcher",
     sampleCount: 120,
     mismatchRate: 0,
+    shadowComparisonRate: 1,
     fallbackRate: 0,
     errorRate: 0,
     deadlockRate: 0,
@@ -68,4 +69,17 @@ test("shadow readiness fails closed for malformed persisted evidence", () => {
   assert.equal(result.sampleCount, 0);
   assert.ok(Number.isFinite(result.sampleCount));
   assert.ok(result.reasons.includes("invalid_snapshot"));
+});
+
+test("shadow readiness rejects successful samples that were never compared", () => {
+  const result = assessPrismaCutoverShadowReadiness({
+    domain: "workflow-dispatcher",
+    now: "2026-08-17T00:00:00.000Z",
+    snapshots: [snapshot("2026-07-18T00:00:00.000Z", "2026-08-17T00:00:00.000Z", {
+      shadowComparisonRate: 0,
+    })],
+  });
+
+  assert.equal(result.ready, false);
+  assert.ok(result.reasons.includes("shadow_comparison_missing"));
 });

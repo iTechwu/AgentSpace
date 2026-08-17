@@ -12,8 +12,8 @@ const thresholds = {
 
 test("cutover SLO window aggregates domain rates, P95, and rollback reasons", () => {
   const window = new PrismaCutoverSloWindow(10);
-  window.record({ domain: "notifications" }, { source: "primary", mismatch: 0, durationMs: 10 });
-  window.record({ domain: "notifications" }, { source: "primary", mismatch: 1, durationMs: 20 });
+  window.record({ domain: "notifications" }, { source: "primary", mismatch: 0, shadowCompared: 1, durationMs: 10 });
+  window.record({ domain: "notifications" }, { source: "primary", mismatch: 1, shadowCompared: 1, durationMs: 20 });
   window.record({ domain: "notifications" }, { source: "fallback", mismatch: 0, durationMs: 30, error: "present" });
   window.record({ domain: "notifications" }, { source: "primary", mismatch: 0, durationMs: 200 });
 
@@ -25,6 +25,7 @@ test("cutover SLO window aggregates domain rates, P95, and rollback reasons", ()
     domain: "notifications",
     sampleCount: 4,
     mismatchRate: 0.25,
+    shadowComparisonRate: 0.5,
     fallbackRate: 0.25,
     errorRate: 0.25,
     p95DurationMs: 200,

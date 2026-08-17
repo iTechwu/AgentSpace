@@ -16,6 +16,7 @@
 export interface ReadCutoverMetric {
   source: "primary" | "fallback";
   mismatch: 0 | 1;
+  shadowCompared?: 0 | 1;
   durationMs: number;
   error?: string;
   fallbackFailed?: 0 | 1;
@@ -50,7 +51,8 @@ export async function withReadCutover<TResult>(config: ReadCutoverConfig<TResult
   }
 
   let mismatch: 0 | 1 = 0;
-  if (config.isShadowEnabled()) {
+  const shadowEnabled = config.isShadowEnabled();
+  if (shadowEnabled) {
     try {
       const fallbackResult = config.runFallback();
       mismatch = config.compare(primaryResult, fallbackResult) ? 0 : 1;
@@ -60,6 +62,7 @@ export async function withReadCutover<TResult>(config: ReadCutoverConfig<TResult
       safeEmitMetric(config, {
         source: "primary",
         mismatch: 1,
+        shadowCompared: 1,
         durationMs: Date.now() - start,
         error: errorMessage(shadowError),
       });
@@ -70,6 +73,7 @@ export async function withReadCutover<TResult>(config: ReadCutoverConfig<TResult
   safeEmitMetric(config, {
     source: "primary",
     mismatch,
+    shadowCompared: shadowEnabled ? 1 : 0,
     durationMs: Date.now() - start,
   });
   return primaryResult;
@@ -86,6 +90,7 @@ function runFallbackAfterPrimaryFailure<TResult>(
     safeEmitMetric(config, {
       source: "fallback",
       mismatch: 0,
+      shadowCompared: 0,
       durationMs: Date.now() - start,
       error: primaryMessage,
     });
@@ -94,6 +99,7 @@ function runFallbackAfterPrimaryFailure<TResult>(
     safeEmitMetric(config, {
       source: "fallback",
       mismatch: 0,
+      shadowCompared: 0,
       durationMs: Date.now() - start,
       error: primaryMessage,
       fallbackFailed: 1,

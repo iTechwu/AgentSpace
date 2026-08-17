@@ -15,6 +15,7 @@ import { isWorkflowEventName } from "@dofe-agent/domain";
 import { CronExpressionParser } from "cron-parser";
 import { materializeWorkflowRunSync } from "./materialization.ts";
 import { expireWorkflowApprovalsSync, type WorkflowApprovalExpiryFailure } from "./coordinator.ts";
+import { observeWorkflowPrismaWrite } from "./prisma-cutover-metrics.ts";
 
 type PublishWorkflowTriggerInput = Omit<UpsertWorkflowTriggerInput, "workspaceId" | "workflowId">;
 
@@ -50,7 +51,10 @@ export async function tickWorkflowSchedulerAuto(input: {
   workspaceId?: string;
 }): Promise<WorkflowSchedulerTickResult> {
   return isWorkflowMaterializationPrismaWriteEnabled()
-    ? tickWorkflowSchedulerPrisma(input)
+    ? observeWorkflowPrismaWrite(
+        { domain: "workflow-materialization", operation: "scheduler.tick" },
+        () => tickWorkflowSchedulerPrisma(input),
+      )
     : tickWorkflowSchedulerSync(input);
 }
 

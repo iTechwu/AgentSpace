@@ -44,6 +44,7 @@ test("withReadCutover returns primary and compares when shadow is enabled", asyn
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "primary");
   assert.equal(metrics[0]!.mismatch, 0);
+  assert.equal(metrics[0]!.shadowCompared, 1);
 });
 
 test("withReadCutover does not compare when shadow is disabled", async () => {
@@ -64,6 +65,7 @@ test("withReadCutover does not compare when shadow is disabled", async () => {
   assert.equal(metrics.length, 1);
   assert.equal(metrics[0]!.source, "primary");
   assert.equal(metrics[0]!.mismatch, 0);
+  assert.equal(metrics[0]!.shadowCompared, 0);
 });
 
 test("withReadCutover falls back to sync when primary fails", async () => {

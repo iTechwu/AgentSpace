@@ -19,6 +19,7 @@ import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
 import { dispatchReadyWorkflowNodePrisma, dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
 import { createWorkflowApprovalSync, workflowApprovalInputFromNodeConfig } from "./approvals.ts";
 import { validateWorkflowNodeForDispatchSync } from "./validation.ts";
+import { observeWorkflowPrismaWrite } from "./prisma-cutover-metrics.ts";
 
 export interface WorkflowOutboxDispatchResult {
   claimedOutboxIds: string[];
@@ -192,7 +193,10 @@ export function dispatchWorkflowOutboxBatchAuto(input: {
   workspaceId?: string;
 }): WorkflowOutboxDispatchResult | Promise<WorkflowOutboxDispatchResult> {
   return isWorkflowDispatcherPrismaWriteEnabled()
-    ? dispatchWorkflowOutboxBatchPrisma(input)
+    ? observeWorkflowPrismaWrite(
+        { domain: "workflow-dispatcher", operation: "outbox.batch" },
+        () => dispatchWorkflowOutboxBatchPrisma(input),
+      )
     : dispatchWorkflowOutboxBatchSync(input);
 }
 

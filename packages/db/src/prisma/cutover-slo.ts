@@ -17,6 +17,7 @@ export interface PrismaCutoverSloSnapshot {
   domain: string;
   sampleCount: number;
   mismatchRate: number;
+  shadowComparisonRate?: number;
   fallbackRate: number;
   errorRate: number;
   p95DurationMs: number;
@@ -41,6 +42,7 @@ export interface PrismaCutoverSloSnapshot {
 
 interface CutoverSloSample {
   mismatch: boolean;
+  shadowCompared: boolean;
   fallback: boolean;
   error: boolean;
   deadlock: boolean;
@@ -65,6 +67,7 @@ export class PrismaCutoverSloWindow {
     const samples = this.samplesByDomain.get(domain) ?? [];
     samples.push({
       mismatch: metric.mismatch === 1,
+      shadowCompared: metric.shadowCompared === 1,
       fallback: metric.source === "fallback" || ("fallbackInvoked" in metric && metric.fallbackInvoked === 1),
       error: metric.error !== undefined || metric.fallbackFailed === 1,
       deadlock: isDeadlockError(metric.error),
@@ -110,6 +113,7 @@ function summarizeDomain(
 ): PrismaCutoverSloSnapshot {
   const sampleCount = samples.length;
   const mismatchRate = rate(samples.filter((sample) => sample.mismatch).length, sampleCount);
+  const shadowComparisonRate = rate(samples.filter((sample) => sample.shadowCompared).length, sampleCount);
   const fallbackRate = rate(samples.filter((sample) => sample.fallback).length, sampleCount);
   const errorRate = rate(samples.filter((sample) => sample.error).length, sampleCount);
   const deadlockRate = rate(samples.filter((sample) => sample.deadlock).length, sampleCount);
@@ -140,6 +144,7 @@ function summarizeDomain(
     domain,
     sampleCount,
     mismatchRate,
+    shadowComparisonRate,
     fallbackRate,
     errorRate,
     p95DurationMs,

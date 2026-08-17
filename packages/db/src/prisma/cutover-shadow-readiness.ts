@@ -11,6 +11,7 @@ export type PrismaShadowReadinessReason =
   | "coverage_gap"
   | "insufficient_samples"
   | "mismatch_observed"
+  | "shadow_comparison_missing"
   | "fallback_observed"
   | "error_observed"
   | "deadlock_rate_exceeded"
@@ -87,6 +88,7 @@ export function assessPrismaCutoverShadowReadiness(input: {
   const sampleCount = windows.reduce((sum, window) => sum + window.snapshot.sampleCount, 0);
   if (sampleCount < minimumSamples) reasons.add("insufficient_samples");
   if (windows.some(({ snapshot }) => snapshot.mismatchRate > 0)) reasons.add("mismatch_observed");
+  if (windows.some(({ snapshot }) => snapshot.shadowComparisonRate !== 1)) reasons.add("shadow_comparison_missing");
   if (windows.some(({ snapshot }) => snapshot.fallbackRate > 0)) reasons.add("fallback_observed");
   if (windows.some(({ snapshot }) => snapshot.errorRate > 0)) reasons.add("error_observed");
   if (windows.some(({ snapshot }) => snapshot.deadlockRate > maximumDeadlockRate)) reasons.add("deadlock_rate_exceeded");
@@ -170,7 +172,7 @@ const ROLLBACK_REASONS = new Set([
 function isPrismaCutoverSloSnapshot(value: unknown): value is PrismaCutoverSloSnapshot {
   if (!isRecord(value) || typeof value.domain !== "string" || !value.domain.trim()) return false;
   if (!Number.isSafeInteger(value.sampleCount) || (value.sampleCount as number) < 0) return false;
-  for (const field of ["mismatchRate", "fallbackRate", "errorRate", "deadlockRate", "p2034Rate"] as const) {
+  for (const field of ["mismatchRate", "shadowComparisonRate", "fallbackRate", "errorRate", "deadlockRate", "p2034Rate"] as const) {
     if (!isRate(value[field])) return false;
   }
   if (!isNonNegativeNumber(value.p95DurationMs) || !isNonNegativeNumber(value.burnRate)) return false;

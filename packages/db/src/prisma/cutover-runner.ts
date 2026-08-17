@@ -55,6 +55,7 @@ export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutove
     safeEmitWriteMetric(config.emitMetric, {
       source: "primary",
       mismatch: 0,
+      shadowCompared: 0,
       durationMs: Date.now() - start,
       error: primaryError instanceof Error ? primaryError.message : String(primaryError),
       fallbackInvoked: 0,
@@ -64,6 +65,7 @@ export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutove
   safeEmitWriteMetric(config.emitMetric, {
     source: "primary",
     mismatch: 0,
+    shadowCompared: 0,
     durationMs: Date.now() - start,
     fallbackInvoked: 0,
   } as TMetric);

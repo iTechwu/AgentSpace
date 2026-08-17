@@ -154,6 +154,9 @@ export function aggregatePrismaCutoverSloSnapshots(
     const sampleCount = rows.reduce((sum, row) => sum + row.sampleCount, 0);
     const weighted = (field: "mismatchRate" | "fallbackRate" | "errorRate" | "deadlockRate" | "p2034Rate") =>
       sampleCount === 0 ? 0 : rows.reduce((sum, row) => sum + row[field] * row.sampleCount, 0) / sampleCount;
+    const shadowComparisonRate = sampleCount === 0
+      ? 0
+      : rows.reduce((sum, row) => sum + (row.shadowComparisonRate ?? 0) * row.sampleCount, 0) / sampleCount;
     const p95DurationMs = Math.max(0, ...rows.map((row) => row.p95DurationMs));
     const burnRate = Math.max(0, ...rows.map((row) => row.burnRate));
     const rollbackReasons = [...new Set(rows.flatMap((row) => row.rollbackReasons))] as PrismaCutoverSloSnapshot["rollbackReasons"];
@@ -161,6 +164,7 @@ export function aggregatePrismaCutoverSloSnapshots(
       domain,
       sampleCount,
       mismatchRate: weighted("mismatchRate"),
+      shadowComparisonRate,
       fallbackRate: weighted("fallbackRate"),
       errorRate: weighted("errorRate"),
       p95DurationMs,
