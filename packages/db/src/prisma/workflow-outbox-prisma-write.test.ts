@@ -5,6 +5,7 @@ import {
   claimWorkflowOutboxBatchPrisma,
   enqueueWorkflowOutboxPrisma,
   fanOutWorkflowRunOutboxPrisma,
+  listPendingWorkflowOutboxPrisma,
   markWorkflowOutboxFailedPrisma,
   markWorkflowOutboxPublishedPrisma,
 } from "./workflow-outbox-prisma-write.ts";
@@ -90,6 +91,27 @@ test("Prisma outbox claim uses compare-and-swap lease updates", async () => {
   }, client as never);
   assert.equal(updateCount, 1);
   assert.equal(claimed[0]?.lockedBy, "worker-1");
+});
+
+test("Prisma pending outbox list applies one globally ordered event-type filter", async () => {
+  let args: Record<string, unknown> | undefined;
+  const client = {
+    workflowOutbox: {
+      findMany: async (input: Record<string, unknown>) => {
+        args = input;
+        return [row];
+      },
+    },
+  };
+  await listPendingWorkflowOutboxPrisma({
+    now: "2026-08-17T00:00:00.000Z",
+    limit: 10,
+    eventTypes: ["workflow.node.ready", "workflow.run.ready", "workflow.run.resumed"],
+  }, client as never);
+
+  const where = args?.where as { eventType: { in: string[] } };
+  assert.deepEqual(where.eventType.in, ["workflow.node.ready", "workflow.run.ready", "workflow.run.resumed"]);
+  assert.deepEqual(args?.orderBy, [{ availableAt: "asc" }, { createdAt: "asc" }]);
 });
 
 test("Prisma outbox publish rejects a lost lease", async () => {

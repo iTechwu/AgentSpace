@@ -91,14 +91,17 @@ export async function listPendingWorkflowOutboxPrisma(input: {
   limit: number;
   workspaceId?: string;
   eventType?: string;
+  eventTypes?: readonly string[];
 }, client?: PrismaClient): Promise<WorkflowOutboxRecord[]> {
   const prisma = client ?? getDofePrismaClient();
+  const eventTypes = input.eventTypes?.map((eventType) => eventType.trim()).filter(Boolean);
   const rows = await prisma.workflowOutbox.findMany({
     where: {
       status: "pending",
       availableAt: { lte: new Date(input.now) },
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(input.eventType ? { eventType: input.eventType } : {}),
+      ...(eventTypes?.length ? { eventType: { in: eventTypes } } : {}),
       OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(input.now) } }],
     },
     orderBy: [{ availableAt: "asc" }, { createdAt: "asc" }],

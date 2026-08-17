@@ -16,6 +16,7 @@ import {
 import { enqueueWorkflowOutboxSync } from "../workflows/outbox.ts";
 import { disconnectDofePrismaClient, getDofePrismaClient } from "./prisma-client.ts";
 import { retryPrismaTransaction } from "./transaction-retry.ts";
+import { fanOutWorkflowRunOutboxPrisma } from "./workflow-outbox-prisma-write.ts";
 import {
   dispatchWorkflowNodeFromOutboxPrisma,
   dispatchWorkflowNodePrisma,
@@ -158,6 +159,20 @@ function dispatchInput(fixture: DispatchFixture, nodeIndex = 0): DispatchWorkflo
   };
 }
 
+function seedRunFanOutFixture(nodeCount = 2): DispatchFixture & { parentOutboxId: string } {
+  const fixture = seedDispatchFixture(nodeCount);
+  getDatabase().prepare("DELETE FROM workflow_outbox WHERE id = ?").run(fixture.outboxId);
+  const parent = enqueueWorkflowOutboxSync({
+    workspaceId: fixture.workspaceId,
+    aggregateType: "workflow_run",
+    aggregateId: fixture.runId,
+    eventType: "workflow.run.ready",
+    payloadJson: JSON.stringify({ runId: fixture.runId }),
+    now: SEED_NOW,
+  });
+  return { ...fixture, parentOutboxId: parent.id };
+}
+
 async function cleanupDispatchFixture(workspaceId: string): Promise<void> {
   await disconnectDofePrismaClient();
   hardDeleteWorkspaceSync(workspaceId);
@@ -255,6 +270,92 @@ test("a lost outbox lease at publish time rolls back the node claim, queue row a
     assert.equal(outbox.status, "published");
     assert.equal(outbox.attempts, 0);
   } finally {
+    await cleanupDispatchFixture(fixture.workspaceId);
+  }
+});
+
+test("two workers race one run fan-out without duplicate child events", async () => {
+  const fixture = seedRunFanOutFixture();
+  try {
+    const settled = await Promise.allSettled([
+      fanOutWorkflowRunOutboxPrisma({
+        id: fixture.parentOutboxId,
+        workerId: "worker-a",
+        workspaceId: fixture.workspaceId,
+        runId: fixture.runId,
+        now: DISPATCH_NOW,
+      }),
+      fanOutWorkflowRunOutboxPrisma({
+        id: fixture.parentOutboxId,
+        workerId: "worker-b",
+        workspaceId: fixture.workspaceId,
+        runId: fixture.runId,
+        now: DISPATCH_NOW,
+      }),
+    ]);
+
+    assert.equal(settled.filter((entry) => entry.status === "fulfilled").length, 1);
+    const rejected = settled.find((entry) => entry.status === "rejected") as PromiseRejectedResult;
+    assert.match(String(rejected.reason), /workflow_outbox_lease_conflict/);
+    const parent = getDatabase().prepare(
+      "SELECT status, attempts FROM workflow_outbox WHERE id = ?",
+    ).get(fixture.parentOutboxId) as { status: string; attempts: number };
+    assert.deepEqual(parent, { status: "published", attempts: 1 });
+    assert.equal(countRows(
+      "SELECT COUNT(*)::integer AS count FROM workflow_outbox WHERE workspace_id = ? AND event_type = 'workflow.node.ready'",
+      fixture.workspaceId,
+    ), 2);
+  } finally {
+    await cleanupDispatchFixture(fixture.workspaceId);
+  }
+});
+
+test("run fan-out rolls child events and lease claim back when parent publish fails", async () => {
+  const fixture = seedRunFanOutFixture();
+  const suffix = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+  const functionName = `test_fail_fanout_publish_${suffix}`;
+  const triggerName = `test_fanout_publish_${suffix}`;
+  try {
+    getDatabase().exec(`
+      CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.id = '${fixture.parentOutboxId}' AND NEW.status = 'published' THEN
+          RAISE EXCEPTION 'forced_fanout_publish_failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER ${triggerName}
+        BEFORE UPDATE ON workflow_outbox
+        FOR EACH ROW EXECUTE FUNCTION ${functionName}();
+    `);
+
+    await assert.rejects(
+      fanOutWorkflowRunOutboxPrisma({
+        id: fixture.parentOutboxId,
+        workerId: "worker-a",
+        workspaceId: fixture.workspaceId,
+        runId: fixture.runId,
+        now: DISPATCH_NOW,
+      }),
+      /forced_fanout_publish_failure/,
+    );
+
+    const parent = getDatabase().prepare(
+      "SELECT status, attempts, locked_by FROM workflow_outbox WHERE id = ?",
+    ).get(fixture.parentOutboxId) as { status: string; attempts: number; locked_by: string | null };
+    assert.equal(parent.status, "pending");
+    assert.equal(parent.attempts, 0);
+    assert.equal(parent.locked_by, null);
+    assert.equal(countRows(
+      "SELECT COUNT(*)::integer AS count FROM workflow_outbox WHERE workspace_id = ? AND event_type = 'workflow.node.ready'",
+      fixture.workspaceId,
+    ), 0);
+  } finally {
+    getDatabase().exec(`
+      DROP TRIGGER IF EXISTS ${triggerName} ON workflow_outbox;
+      DROP FUNCTION IF EXISTS ${functionName}();
+    `);
     await cleanupDispatchFixture(fixture.workspaceId);
   }
 });

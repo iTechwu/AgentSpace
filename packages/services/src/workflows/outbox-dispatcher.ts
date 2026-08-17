@@ -108,22 +108,12 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
   workspaceId?: string;
 }): Promise<WorkflowOutboxDispatchResult> {
   const now = input.now ?? new Date().toISOString();
-  const nodeItems = await listPendingWorkflowOutboxPrisma({
+  const items = await listPendingWorkflowOutboxPrisma({
     now,
     limit: input.limit,
     workspaceId: input.workspaceId,
-    eventType: "workflow.node.ready",
+    eventTypes: ["workflow.node.ready", "workflow.run.ready", "workflow.run.resumed"],
   });
-  const remaining = Math.max(0, input.limit - nodeItems.length);
-  const runReadyItems = remaining > 0
-    ? await listPendingWorkflowOutboxPrisma({ now, limit: remaining, workspaceId: input.workspaceId, eventType: "workflow.run.ready" })
-    : [];
-  const resumedLimit = Math.max(0, remaining - runReadyItems.length);
-  const runResumedItems = resumedLimit > 0
-    ? await listPendingWorkflowOutboxPrisma({ now, limit: resumedLimit, workspaceId: input.workspaceId, eventType: "workflow.run.resumed" })
-    : [];
-  const runItems = [...runReadyItems, ...runResumedItems];
-  const items = [...nodeItems, ...runItems];
   const result: WorkflowOutboxDispatchResult = {
     claimedOutboxIds: items.map((item) => item.id),
     publishedOutboxIds: [],
