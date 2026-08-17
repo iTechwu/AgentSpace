@@ -141,6 +141,8 @@ export function assessPersistedPrismaCutoverShadowReadinessSync(input: {
   maximumWindowSpanSeconds?: number;
   maximumDeadlockRate?: number;
   maximumP2034Rate?: number;
+  /** 仅测试用：缩页验证分页游标；生产保持默认页大小。 */
+  pageSize?: number;
 }): PrismaCutoverShadowReadinessReport {
   const now = input.now ?? new Date().toISOString();
   const requiredWindowDays = boundedInteger(input.requiredWindowDays, 30, 1, 365);
@@ -148,26 +150,44 @@ export function assessPersistedPrismaCutoverShadowReadinessSync(input: {
   const createdFrom = new Date(
     Date.parse(now) - requiredWindowDays * 86_400_000 - maximumGapSeconds * 1_000,
   ).toISOString();
-  const rows = getDatabase().prepare(
-    `SELECT data_json AS "dataJson"
-       FROM audit_log
-      WHERE workspace_id = ? AND code = ? AND created_at >= ?
-        AND data_json ->> 'domain' = ?
-      ORDER BY created_at ASC
-      LIMIT 10000`,
-  ).all(
-    input.workspaceId ?? DEFAULT_WORKSPACE_ID,
-    PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
-    createdFrom,
-    input.domain,
-  ) as Array<{ dataJson: unknown }>;
-  const snapshots = rows.map((row) => {
-    try {
-      return typeof row.dataJson === "string" ? JSON.parse(row.dataJson) : row.dataJson;
-    } catch {
-      return undefined;
+  // 逐页游标读取完整窗口：worker 默认 60s flush 一条/域，30 天约 4.32 万行，
+  // 单页 LIMIT 会截掉最新数据并持续 stale_coverage；(created_at, id) 游标
+  // 保证同毫秒写入的行不重不漏。防御上限截断时按已读数据评估（偏不通过）。
+  const pageSize = Math.min(Math.max(Math.trunc(input.pageSize ?? 5_000), 1), 10_000);
+  const MAXIMUM_SNAPSHOT_ROWS = 200_000;
+  const snapshots: unknown[] = [];
+  let cursorCreatedAt: string | Date = createdFrom;
+  let cursorId = "";
+  for (;;) {
+    const rows = getDatabase().prepare(
+      `SELECT id, created_at AS "createdAt", data_json AS "dataJson"
+         FROM audit_log
+        WHERE workspace_id = ? AND code = ? AND created_at >= ?
+          AND data_json ->> 'domain' = ?
+          AND (created_at, id) > (?, ?)
+        ORDER BY created_at ASC, id ASC
+        LIMIT ?`,
+    ).all(
+      input.workspaceId ?? DEFAULT_WORKSPACE_ID,
+      PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+      createdFrom,
+      input.domain,
+      cursorCreatedAt,
+      cursorId,
+      pageSize,
+    ) as Array<{ id: string; createdAt: string | Date; dataJson: unknown }>;
+    for (const row of rows) {
+      cursorCreatedAt = row.createdAt;
+      cursorId = row.id;
+      try {
+        snapshots.push(typeof row.dataJson === "string" ? JSON.parse(row.dataJson) : row.dataJson);
+      } catch {
+        snapshots.push(undefined);
+      }
     }
-  });
+    if (rows.length < pageSize) break;
+    if (snapshots.length >= MAXIMUM_SNAPSHOT_ROWS) break;
+  }
   return assessPrismaCutoverShadowReadiness({ ...input, now, requiredWindowDays, maximumGapSeconds, snapshots });
 }
 

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assessPrismaCutoverShadowReadiness } from "./cutover-shadow-readiness.ts";
+import { createWorkspaceSync } from "../workspaces.ts";
+import { getDatabase } from "../database.ts";
+import { PRISMA_CUTOVER_SLO_SNAPSHOT_CODE } from "./cutover-slo-store.ts";
+import {
+  assessPersistedPrismaCutoverShadowReadinessSync,
+  assessPrismaCutoverShadowReadiness,
+} from "./cutover-shadow-readiness.ts";
 
 function snapshot(windowStart: string, windowEnd: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -141,4 +147,56 @@ test("shadow readiness accepts sustained hourly windows meeting the default gate
   assert.equal(result.ready, true);
   assert.equal(result.sampleCount, 1_440);
   assert.deepEqual(result.reasons, []);
+});
+
+test("persisted readiness pages through the full evidence window without skipping rows", () => {
+  // worker 60s flush × 30 天 ≈ 4.32 万行/域，远超单页：分页游标必须翻完
+  // 全窗口，且同毫秒 created_at 的行靠 (created_at, id) 游标不重不漏。
+  const db = getDatabase();
+  const workspaceId = (db.prepare("SELECT id FROM workspace ORDER BY id LIMIT 1").get() as { id: string } | undefined)?.id
+    ?? createWorkspaceSync({ id: "readiness-page-test", slug: "readiness-page-test", name: "Readiness page test", createdBy: "test" }).id;
+  const domain = "page-domain";
+  const cleanup = () => {
+    db.prepare("DELETE FROM audit_log WHERE code = ? AND workspace_id = ? AND data_json ->> 'domain' = ?")
+      .run(PRISMA_CUTOVER_SLO_SNAPSHOT_CODE, workspaceId, domain);
+  };
+  cleanup();
+  const nowMs = Date.now();
+  const createdAt = new Date(nowMs - 120_000).toISOString();
+  const insert = db.prepare(
+    `INSERT INTO audit_log (id, workspace_id, title, note, code, data_json, source, source_index, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+  );
+  for (let index = 0; index < 5; index += 1) {
+    const start = nowMs - (5 - index) * 6 * 3_600_000;
+    const row = snapshot(new Date(start).toISOString(), new Date(start + 3_000_000).toISOString(), {
+      domain,
+      sampleCount: 2,
+    });
+    insert.run(
+      `audit-page-${nowMs}-${index}`,
+      workspaceId,
+      "Prisma cutover SLO snapshot",
+      `${domain} SLO snapshot from pagination-test`,
+      PRISMA_CUTOVER_SLO_SNAPSHOT_CODE,
+      JSON.stringify(row),
+      "platform_admin",
+      createdAt,
+    );
+  }
+  try {
+    const report = assessPersistedPrismaCutoverShadowReadinessSync({
+      domain,
+      workspaceId,
+      now: new Date(nowMs).toISOString(),
+      requiredWindowDays: 1,
+      maximumGapSeconds: 86_400,
+      minimumSamples: 10,
+      pageSize: 2, // 5 行 → 3 页，强验证游标推进。
+    });
+    assert.equal(report.sampleCount, 10);
+    assert.deepEqual(report.reasons, []);
+  } finally {
+    cleanup();
+  }
 });
