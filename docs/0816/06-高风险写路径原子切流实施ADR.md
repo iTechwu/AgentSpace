@@ -73,6 +73,10 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
   回滚原因新增场景：`link_conflict_spike`（CAS 冲突率异常）、`event_order_drift`（router/queue 事件顺序与 legacy 不一致）；
 - write 开启条件：shadow ≥ 指定窗口（沿用 30 天口径）零 mismatch、零 fallback、deadlock/P2034 不高于 legacy 基线。
 
+> 实施状态（2026-08-18）：当前 `event_order_drift` 仅校验 Prisma 实际写入返回的 router/queue
+> 事件类型与 legacy 顺序契约，并保持 `shadowCompared=0`。它不是第 70–71 行要求的双 runner、五对象
+> 逐字段 shadow 对照，不能单独作为 write 准入证据；完整 shadow 必须先提供无副作用的 legacy 写对照基础设施。
+
 ## 6. flag、负责人与目标版本
 
 | flag | 管辖 | 默认 |
