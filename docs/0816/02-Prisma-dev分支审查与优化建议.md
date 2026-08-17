@@ -4,14 +4,14 @@
 
 当前审查基线为 2026-08-17 `dev` HEAD；dev PostgreSQL 已通过 `postgres:init` 升至 schema 122。
 
-当前 `packages/db/prisma/schema.prisma` 有 **26 个 model**；切流注册表登记 **26 个域**，并通过共享
+当前 `packages/db/prisma/schema.prisma` 有 **30 个 model**；切流注册表登记 **26 个域**，并通过共享
 `PrismaPg` 单例和按域 feature flag 渐进切流。定向验证结果：
 
 | 检查 | 结果 |
 | --- | --- |
 | `pnpm --filter @dofe-agent/db run prisma:validate` | 通过 |
 | `pnpm --filter @dofe-agent/db run types` | 通过 |
-| `pnpm --filter @dofe-agent/db run prisma:verify:pilot` | 通过，当前 contract 覆盖 26 models |
+| `pnpm --filter @dofe-agent/db run prisma:verify:pilot` | 通过，当前 contract 覆盖 30 models |
 
 这些结果证明 schema 可生成、类型可编译、pilot 列级漂移检查可运行，不等于已经完成
 全库约束、容量和生产切流验收。
