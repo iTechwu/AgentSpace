@@ -26,14 +26,20 @@ export async function runWorkflowWorker(): Promise<void> {
       if (!stopping) await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
   } finally {
+    // 退出前强制落账一次：SIGTERM/SIGINT 不应丢失最后一段样本。
+    flushSloWindowBestEffort(workerId, sloFlushState, { force: true });
     process.off("SIGTERM", stop);
     process.off("SIGINT", stop);
   }
 }
 
-function flushSloWindowBestEffort(workerId: string, state: WorkflowWorkerSloFlushState): void {
+function flushSloWindowBestEffort(
+  workerId: string,
+  state: WorkflowWorkerSloFlushState,
+  options?: { force?: boolean },
+): void {
   try {
-    maybeFlushWorkflowWorkerSloSync({ workerId, state, nowMs: Date.now() });
+    maybeFlushWorkflowWorkerSloSync({ workerId, state, nowMs: Date.now(), force: options?.force });
   } catch (error) {
     // SLO 落账失败不阻断工作循环；样本保留在窗口内，下个周期重试。
     console.error(JSON.stringify({

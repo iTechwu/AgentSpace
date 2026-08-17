@@ -68,13 +68,15 @@ export function maybeFlushWorkflowWorkerSloSync(input: {
   nowMs: number;
   flushIntervalMs?: number;
   flush?: (flushInput: { instanceId: string; windowStart?: string; now: string }) => number;
+  /** 退出等场景：跳过节流，强制落账一次。 */
+  force?: boolean;
 }): number {
   const intervalMs = Math.min(
     Math.max(Math.trunc(input.flushIntervalMs ?? DEFAULT_SLO_FLUSH_INTERVAL_MS), 5_000),
     3_600_000,
   );
   const lastAttemptAtMs = input.state.lastAttemptAtMs;
-  if (lastAttemptAtMs !== undefined && input.nowMs - lastAttemptAtMs < intervalMs) return 0;
+  if (!input.force && lastAttemptAtMs !== undefined && input.nowMs - lastAttemptAtMs < intervalMs) return 0;
   const windowStart = input.state.lastFlushAtMs !== undefined
     ? new Date(input.state.lastFlushAtMs).toISOString()
     : undefined;

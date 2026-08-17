@@ -167,3 +167,18 @@ test("worker SLO flush failure retries next interval without advancing the succe
   });
   assert.equal(flushes[0]?.windowStart, new Date(1_070_000).toISOString());
 });
+
+test("worker SLO flush can be forced to bypass the throttle", () => {
+  const state: WorkflowWorkerSloFlushState = {};
+  const flushes: Array<{ instanceId: string; windowStart?: string; now: string }> = [];
+  const flush = (input: { instanceId: string; windowStart?: string; now: string }): number => {
+    flushes.push(input);
+    return 1;
+  };
+  maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_000_000, flushIntervalMs: 60_000, flush });
+  // 仍在节流窗口内，普通调用被跳过。
+  maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_010_000, flushIntervalMs: 60_000, flush });
+  // force 调用立即再落账一次。
+  maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_020_000, flushIntervalMs: 60_000, flush, force: true });
+  assert.equal(flushes.length, 2);
+});
