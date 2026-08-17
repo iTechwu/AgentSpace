@@ -427,3 +427,55 @@ test("alertKey override keeps a stable dedup key when the metric payload changes
     db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run("ws-key");
   }
 });
+
+test("stable alertKey deduplicates metric updates within one dispatch", async () => {
+  const { getDatabase, readPagerAlertStateByKeySync } = await import("@dofe-agent/db");
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const workspaceId = "ws-batch-key";
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES (?, ?, 'Batch key', '', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  ).run(workspaceId, workspaceId, now, now);
+  db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run(workspaceId);
+  const payloads: Array<{ alerts: unknown[] }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    payloads.push(JSON.parse(init?.body as string));
+    return new Response("ok", { status: 200 });
+  };
+  try {
+    const result = await sendExternalPagerAlert({
+      workspaceId,
+      alerts: [
+        {
+          code: "prisma.cutover.slo.burn_rate",
+          severity: "warning",
+          message: "first",
+          alertKey: "prisma-cutover-slo:orders",
+          metric: JSON.stringify({ domain: "orders", burnRate: 1.5 }),
+          value: 1.5,
+        },
+        {
+          code: "prisma.cutover.slo.burn_rate",
+          severity: "warning",
+          message: "latest",
+          alertKey: "prisma-cutover-slo:orders",
+          metric: JSON.stringify({ domain: "orders", burnRate: 2.5 }),
+          value: 2.5,
+        },
+      ],
+      checkedAt: now,
+      config: { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["warning"]) },
+      recoveryCodes: ["prisma.cutover.slo.burn_rate"],
+    });
+    assert.equal(result.sent, true);
+    assert.equal(payloads[0]?.alerts.length, 1);
+    assert.equal(payloads[0]?.alerts[0]?.message, "latest");
+    assert.equal(readPagerAlertStateByKeySync("prisma-cutover-slo:orders", workspaceId)?.metric, JSON.stringify({ domain: "orders", burnRate: 2.5 }));
+    assert.equal(readPagerAlertStateByKeySync("prisma-cutover-slo:orders", workspaceId)?.occurrences, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run(workspaceId);
+  }
+});

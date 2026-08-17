@@ -222,11 +222,12 @@ function alertKey(alert: PagerAlert): string {
 }
 
 function dedupeAlerts(alerts: PagerAlert[]): PagerAlert[] {
-  const seen = new Set<string>();
-  return alerts.filter((alert) => {
-    const key = `${alert.code}:${alert.employeeName ?? "_"}:${alert.metric ?? "_"}:${alert.value ?? "_"}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const latestByKey = new Map<string, PagerAlert>();
+  for (const alert of alerts) {
+    // Use the same key as persistence/recovery. Otherwise two metric updates
+    // sharing an explicit stable alertKey would increment the same state twice
+    // and produce duplicate notifications in one evaluation cycle.
+    latestByKey.set(alertKey(alert), alert);
+  }
+  return [...latestByKey.values()];
 }
