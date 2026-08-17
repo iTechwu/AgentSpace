@@ -20,10 +20,11 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Every *.test.ts under one of these prefixes must be matched by a glob in the
 // `test` script in package.json.
-const COVERED_PREFIXES = ["src/runtime-maintenance", "src/skills", "src/mcp-center", "src/skill-services", "src/workflows", "src/permissions", "src/document-permissions", "src/documents", "src/employees", "src/knowledge/", "src/integrations/providers/feishu/__tests__"];
+const COVERED_PREFIXES = ["src/runtime-maintenance", "src/observability", "src/skills", "src/mcp-center", "src/skill-services", "src/workflows", "src/permissions", "src/document-permissions", "src/documents", "src/employees", "src/knowledge/", "src/integrations/providers/feishu/__tests__"];
 // The exact globs used by the `test` script. Keep in sync with package.json.
 const COVERED_GLOBS = [
   "src/runtime-maintenance/*.test.ts",
+  "src/observability/*.test.ts",
   "src/skills/*.test.ts",
   "src/skills/package/*.test.ts",
   "src/mcp-center/*.test.ts",
