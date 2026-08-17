@@ -75,7 +75,7 @@ mismatch/fallback/error 比率与 P95，并根据调用方提供的阈值生成 
 
 本轮已将快照持久化到集中 `audit_log` 指标账本，按实例/窗口幂等写入并可跨实例按样本加权；新增
 `flushPrismaCutoverSloSnapshotsSync` 作为周期任务固定入口，并新增
-`sendPrismaCutoverSloPagerAlert` 将中心快照转换为现有外部 pager payload；
+`sendPrismaCutoverSloPagerAlert` 将中心快照转换为现有外部 pager payload，并默认限制在最近 15 分钟窗口；
 新增 deadlock/P2034 分类、burn-rate、pager active/cleared 状态以及带 release/current/
 last-known-good/reasons 的 `PrismaCutoverRollbackPublisher` 契约。仍需由部署环境调度周期任务、
 配置真实 webhook 和完成发布适配器演练；代码不会未经发布系统授权自动修改 flag。
