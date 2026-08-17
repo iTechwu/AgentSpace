@@ -15,6 +15,8 @@ export interface UpsertPagerAlertStateInput {
   metric?: string;
   severity: string;
   now?: string;
+  /** Set false when the observation was already counted by the source ledger. */
+  incrementOccurrence?: boolean;
 }
 
 /** Records a seen alert; increments occurrences when it is already active. */
@@ -22,6 +24,7 @@ export function upsertPagerAlertStateSync(input: UpsertPagerAlertStateInput): Pa
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = input.now ?? new Date().toISOString();
+  const occurrenceIncrement = input.incrementOccurrence === false ? 0 : 1;
   const id = `pa-${randomLikeId()}`;
   db.prepare(
     `INSERT INTO pager_alert_state (
@@ -40,7 +43,7 @@ export function upsertPagerAlertStateSync(input: UpsertPagerAlertStateInput): Pa
        END,
        last_seen_at = EXCLUDED.last_seen_at,
        occurrences = CASE
-         WHEN pager_alert_state.status = 'active' THEN pager_alert_state.occurrences + 1
+         WHEN pager_alert_state.status = 'active' THEN pager_alert_state.occurrences + ?
          ELSE 1
        END,
        last_escalated_at = CASE
@@ -58,6 +61,7 @@ export function upsertPagerAlertStateSync(input: UpsertPagerAlertStateInput): Pa
     input.severity,
     now,
     now,
+    occurrenceIncrement,
   );
   return readPagerAlertStateByKeySync(input.alertKey, workspaceId)!;
 }

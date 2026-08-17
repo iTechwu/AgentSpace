@@ -56,6 +56,9 @@ export async function sendPrismaCutoverSloPagerAlert(options: {
         lastKnownGoodFlagVersion: snapshot.lastKnownGoodFlagVersion,
       }),
       value: snapshot.burnRate,
+      // persistPrismaCutoverSloSnapshotsSync already records this snapshot in
+      // pager state before the maintenance pager stage runs.
+      trackOccurrence: false,
     }));
   return sendExternalPagerAlert({
     alerts,

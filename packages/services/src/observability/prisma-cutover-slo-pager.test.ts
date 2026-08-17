@@ -67,6 +67,7 @@ test("scheduled SLO pager flush sends the centrally aggregated burn-rate alert",
     });
     assert.equal(result.sent, true);
     assert.equal((body?.alerts as Array<Record<string, unknown>>)[0]?.code, "prisma.cutover.slo.burn_rate");
+    assert.equal((body?.alerts as Array<Record<string, unknown>>)[0]?.occurrences, 1, "pager must reuse the persisted observation count");
   } finally {
     globalThis.fetch = originalFetch;
   }

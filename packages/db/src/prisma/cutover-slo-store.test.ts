@@ -67,6 +67,11 @@ test("SLO snapshot persists centrally with retry-safe idempotency and pager stat
     db.prepare("SELECT COUNT(*) AS count FROM pager_alert_state WHERE alert_key = ? AND workspace_id = ? AND status = 'active'").get("prisma-cutover-slo:test-domain", workspaceId)?.count,
     1,
   );
+  assert.equal(
+    db.prepare("SELECT occurrences FROM pager_alert_state WHERE alert_key = ? AND workspace_id = ?").get("prisma-cutover-slo:test-domain", workspaceId)?.occurrences,
+    1,
+    "idempotent snapshot persistence must not double-count the observation",
+  );
 });
 
 test("SLO snapshot rolls back audit row when pager state fails", () => {

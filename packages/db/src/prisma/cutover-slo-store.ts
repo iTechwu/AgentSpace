@@ -6,7 +6,6 @@ import {
 } from "../audit-log.ts";
 import { canonicalizeAuditLogDataJson } from "../audit-log-idempotency.ts";
 import {
-  markPagerAlertClearedSync,
   upsertPagerAlertStateSync,
 } from "../pager-alert-state.ts";
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "../database.ts";
@@ -321,6 +320,7 @@ function syncSloAlertState(snapshot: PersistedPrismaCutoverSloSnapshot): void {
       }),
       severity: snapshot.deadlockRate > 0 || snapshot.p2034Rate > 0 ? "critical" : "warning",
       now: snapshot.persistedAt,
+      incrementOccurrence: false,
     });
   }
 }

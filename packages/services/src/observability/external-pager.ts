@@ -29,7 +29,11 @@ export interface ExternalPagerConfig {
  * code:employee:metric key so callers with rich metric payloads (e.g. the SLO
  * pager embeds a JSON detail blob) can keep a stable dedup/recovery key.
  */
-export type PagerAlert = DataProtectionAlert & { alertKey?: string };
+export type PagerAlert = DataProtectionAlert & {
+  alertKey?: string;
+  /** Set false when a source ledger already counted this evaluation. */
+  trackOccurrence?: boolean;
+};
 
 export interface PagerAlertPayload {
   source: "dofe-agent-data-protection";
@@ -148,6 +152,7 @@ export async function sendExternalPagerAlert(options: {
         metric: alert.metric,
         severity: alert.severity,
         now: options.checkedAt,
+        incrementOccurrence: alert.trackOccurrence !== false,
       });
       occurrences = state.occurrences;
     } catch {
