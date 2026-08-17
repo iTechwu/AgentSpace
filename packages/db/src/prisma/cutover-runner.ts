@@ -39,6 +39,14 @@ export interface DomainWriteCutoverConfig<T, TMetric extends ReadCutoverMetric =
 
 export interface DomainWriteCutoverMetric extends ReadCutoverMetric {
   fallbackInvoked: 0 | 1;
+  /** 批量样本权重（缺省 1）。批次内每个条目计为一个样本，误差率按权重聚合。 */
+  sampleCount?: number;
+  /** 批次内失败条目数；缺省由 error/fallbackFailed 推导为 0 或全量。 */
+  errorCount?: number;
+  /** 批次内 deadlock 冲突数（含成功重试），缺省由 error 消息推导。 */
+  deadlockCount?: number;
+  /** 批次内序列化冲突（P2034/40001）数（含成功重试），缺省由 error 消息推导。 */
+  p2034Count?: number;
 }
 
 export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutoverMetric = DomainWriteCutoverMetric>(

@@ -68,3 +68,43 @@ test("cutover SLO classifies deadlock/P2034 and exposes burn-rate alerts", () =>
   assert.equal(snapshot?.burnRate, 5);
   assert.deepEqual(snapshot?.rollbackReasons, ["error_rate", "deadlock_rate", "p2034_rate"]);
 });
+
+test("cutover SLO window aggregates weighted batch samples with partial failures", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  // 批次一：100 条中 2 条结构化失败 + 1 次成功重试的 P2034 冲突。
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, shadowCompared: 0, durationMs: 500, fallbackInvoked: 0,
+    sampleCount: 100, errorCount: 2, p2034Count: 1,
+  });
+  // 批次二：全成功。
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, shadowCompared: 0, durationMs: 300, fallbackInvoked: 0,
+    sampleCount: 50,
+  });
+  const [snapshot] = window.snapshots({
+    thresholds: {
+      ...thresholds,
+      minimumSamples: 150,
+      maximumErrorRate: 0.01,
+      maximumP2034Rate: 0,
+    },
+  });
+  assert.equal(snapshot?.sampleCount, 150);
+  assert.equal(snapshot?.errorRate, 2 / 150);
+  assert.equal(snapshot?.p2034Rate, 1 / 150);
+  assert.equal(snapshot?.deadlockRate, 0);
+  // 部分失败的批次不再被记成纯成功样本。
+  assert.ok(snapshot?.rollbackReasons.includes("error_rate"));
+  assert.ok(snapshot?.rollbackReasons.includes("p2034_rate"));
+});
+
+test("cutover SLO window caps absurd batch weights and keeps rates within [0,1]", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "workflow-materialization" }, {
+    source: "primary", mismatch: 0, durationMs: 10, fallbackInvoked: 0,
+    sampleCount: 1_000_000, errorCount: 999_999,
+  });
+  const [snapshot] = window.snapshots({ thresholds });
+  assert.equal(snapshot?.sampleCount, 10_000);
+  assert.equal(snapshot?.errorRate, 1);
+});

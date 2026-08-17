@@ -41,13 +41,33 @@ export interface PrismaCutoverSloSnapshot {
 }
 
 interface CutoverSloSample {
-  mismatch: boolean;
-  shadowCompared: boolean;
-  fallback: boolean;
-  error: boolean;
-  deadlock: boolean;
-  p2034: boolean;
+  /** 样本权重：单次调用为 1，批次调用为批次条目数。 */
+  sampleCount: number;
+  mismatchCount: number;
+  shadowComparedCount: number;
+  fallbackCount: number;
+  errorCount: number;
+  deadlockCount: number;
+  p2034Count: number;
   durationMs: number;
+}
+
+/** 单批次权重上限，防止异常批次淹没整个窗口的比率。 */
+const MAXIMUM_SAMPLE_WEIGHT = 10_000;
+
+function normalizedSampleWeight(metric: CutoverMetric): number {
+  const fields = metric as unknown as Record<string, unknown>;
+  const declared = Number(fields.sampleCount);
+  let weight = Number.isFinite(declared) && declared > 0 ? declared : 1;
+  for (const field of ["errorCount", "deadlockCount", "p2034Count"] as const) {
+    const count = Number(fields[field]);
+    if (Number.isFinite(count) && count > 0) weight = Math.max(weight, count);
+  }
+  return Math.min(MAXIMUM_SAMPLE_WEIGHT, weight);
+}
+
+function normalizedCount(value: number | undefined, weight: number): number {
+  return Number.isFinite(value) && value !== undefined && value > 0 ? Math.min(value, weight) : 0;
 }
 
 export class PrismaCutoverSloWindow {
@@ -65,13 +85,23 @@ export class PrismaCutoverSloWindow {
     const domain = context.domain.trim();
     if (!domain) return;
     const samples = this.samplesByDomain.get(domain) ?? [];
+    const weight = normalizedSampleWeight(metric);
+    const declared = metric as Partial<Pick<DomainWriteCutoverMetric, "errorCount" | "deadlockCount" | "p2034Count">>;
+    const errorDerived = metric.error !== undefined || metric.fallbackFailed === 1 ? weight : 0;
     samples.push({
-      mismatch: metric.mismatch === 1,
-      shadowCompared: metric.shadowCompared === 1,
-      fallback: metric.source === "fallback" || ("fallbackInvoked" in metric && metric.fallbackInvoked === 1),
-      error: metric.error !== undefined || metric.fallbackFailed === 1,
-      deadlock: isDeadlockError(metric.error),
-      p2034: isP2034Error(metric.error),
+      sampleCount: weight,
+      mismatchCount: metric.mismatch === 1 ? weight : 0,
+      shadowComparedCount: metric.shadowCompared === 1 ? weight : 0,
+      fallbackCount: metric.source === "fallback" || ("fallbackInvoked" in metric && metric.fallbackInvoked === 1) ? weight : 0,
+      errorCount: declared.errorCount !== undefined
+        ? normalizedCount(declared.errorCount, weight) || errorDerived
+        : errorDerived,
+      deadlockCount: declared.deadlockCount !== undefined
+        ? normalizedCount(declared.deadlockCount, weight)
+        : isDeadlockError(metric.error) ? weight : 0,
+      p2034Count: declared.p2034Count !== undefined
+        ? normalizedCount(declared.p2034Count, weight)
+        : isP2034Error(metric.error) ? weight : 0,
       durationMs: Math.max(0, metric.durationMs),
     });
     if (samples.length > this.maximumSamplesPerDomain) {
@@ -111,13 +141,15 @@ function summarizeDomain(
     windowEnd?: string;
   },
 ): PrismaCutoverSloSnapshot {
-  const sampleCount = samples.length;
-  const mismatchRate = rate(samples.filter((sample) => sample.mismatch).length, sampleCount);
-  const shadowComparisonRate = rate(samples.filter((sample) => sample.shadowCompared).length, sampleCount);
-  const fallbackRate = rate(samples.filter((sample) => sample.fallback).length, sampleCount);
-  const errorRate = rate(samples.filter((sample) => sample.error).length, sampleCount);
-  const deadlockRate = rate(samples.filter((sample) => sample.deadlock).length, sampleCount);
-  const p2034Rate = rate(samples.filter((sample) => sample.p2034).length, sampleCount);
+  const sampleCount = samples.reduce((sum, sample) => sum + sample.sampleCount, 0);
+  const count = (selector: (sample: CutoverSloSample) => number): number =>
+    samples.reduce((sum, sample) => sum + selector(sample), 0);
+  const mismatchRate = rate(count((sample) => sample.mismatchCount), sampleCount);
+  const shadowComparisonRate = rate(count((sample) => sample.shadowComparedCount), sampleCount);
+  const fallbackRate = rate(count((sample) => sample.fallbackCount), sampleCount);
+  const errorRate = rate(count((sample) => sample.errorCount), sampleCount);
+  const deadlockRate = rate(count((sample) => sample.deadlockCount), sampleCount);
+  const p2034Rate = rate(count((sample) => sample.p2034Count), sampleCount);
   const p95DurationMs = percentile95(samples.map((sample) => sample.durationMs));
   const rollbackReasons: PrismaCutoverSloSnapshot["rollbackReasons"] = [];
   const thresholdRatios = [
