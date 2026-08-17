@@ -35,17 +35,16 @@ partial-index predicate、CHECK 定义和 6 个函数体，并支持 enum/view �
 当前门禁已覆盖上述定义级对象；迁移变更仍应在 CI 同时执行两条命令。它不替代 migration
 history 顺序检查，也不替代真实数据库备份/恢复演练，这两项仍是发布前证据。
 
-### P1（已部分落地）：Prisma Client 的连接池与运行容量仍需验收
+### P1（已完成隔离库验收）：Prisma Client 的角色化连接池与运行容量
 
 已在 `packages/db/src/prisma/prisma-client.ts:21-80` 增加按 `web/worker/daemon` 角色解析的
 pool max、连接超时、空闲超时、statement timeout 和 `application_name`，并在
-`prisma-client-config.test.ts` 覆盖默认值、非法值和上下界。该实现补齐了配置边界，
-但还没有证明真实 Web/worker/daemon 并发下的连接池容量和饱和行为。
+`prisma-client-config.test.ts` 覆盖默认值、非法值和上下界。隔离库已完成
+Web/worker/daemon 三角色基线、过载、connection/statement timeout 与 in-flight shutdown 验收。
 
-现在已有 `prisma:pool:evidence` 入口，会按 `application_name` 采集 Web/worker/daemon 的
-configuredPoolMax、active/idle/waiting。dev 采集快照为 10/5/3 上限、observed=0；这只能证明
-查询入口可用。仍需三种并发模型的容量基线、timeout/P95、池耗尽和 graceful shutdown 证据，完成前
-不应把本项标记为完整生产验收。
+`prisma:pool:evidence` 仍用于 live snapshot；dev observed=0 只代表当时无长驻实例。
+隔离库报告已记录池上限 10/5/3、无失败基线、过载连接获取超时、P95 和
+`gracefulShutdownDuringInflight=true`，详见 [06-运行闭环与演练记录.md](./06-运行闭环与演练记录.md)。
 
 ### P1（基础门禁已完成）：切流开关集中注册，仍需发布系统联动
 
@@ -61,14 +60,11 @@ shadow 未开启对应 read 的组合；拼写错误和 read/shadow 不同步现
 
 ### P2：写路径覆盖仍不完整，跨域编排边界没有退出条件
 
-`docs/progress-log.md:121-126` 明确 notifications 的 30+ 深层 sync 调用链和 task enqueue
-暂不迁移。该选择是合理的风险控制，但如果没有调用方清单、完成定义和 deadline，Phase 2 会
-长期停留在“4 个写路径已完成”的中间态。
-
-本轮已建立 [05-Prisma剩余写路径inventory.md](./05-Prisma剩余写路径inventory.md)，记录已切流
-的 4 条写路径和 task enqueue/outbox/lease/channel/rollout 等待迁移路径。下一步仍应把
-task enqueue + workflow outbox 作为独立高风险批次；只有完成 legacy/Prisma affected rows、
-错误类别、幂等、并发和事件顺序对照后，才允许关闭旧路径。
+本轮已建立 [05-Prisma剩余写路径inventory.md](./05-Prisma剩余写路径inventory.md)。task enqueue/
+dispatcher、run-level outbox fan-out 和 materialization worker 已完成 Prisma 原子路径，相应 flag
+仍默认关闭。coordinator 已完成 ready/outbox 原语，但生产 completion 的 task complete、
+commit journal、节点完成与 downstream 计算必须整体收进一个 Prisma transaction；此外
+recovery lease、channel/rollout 深层路径和 30 天 shadow 仍待完成。
 
 ### P2（已部分完成）：shadow 观测已有进程内 SLO 聚合、集中 flush 和外部 pager 适配
 
@@ -96,5 +92,5 @@ schema 122 增加 `idx_audit_log_code_created`，归档目录写入 JSONL 成功
 
 ## 3. 推荐落地顺序
 
-先完成角色化连接池运行容量证据、周期任务调度和发布回滚演练，再继续扩展写路径；不要因为
+连接池运行容量证据已完成；下一顺序是外部 webhook/发布回滚演练、coordinator 外层事务整体迁移与 shadow 积累。不要因为
 pilot drift 通过就提前删除 legacy 路径或一次开启多个新域。

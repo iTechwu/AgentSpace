@@ -19,7 +19,7 @@
 
 | 优先级 | 路径/调用方 | 现状证据 | 必须先固定的契约 | 实施批次 |
 | --- | --- | --- | --- | --- |
-| P1 | task enqueue：`workflows/dispatcher.ts` → `dispatchReadyWorkflowNodePrisma` | node-level Prisma interactive transaction、P2034/40P01 重试和 approval fallback 已实现；同步入口仍是 rollback runner | idempotency key、claim/queue/router event 原子性、队列不可用重试、affected rows、重复 dispatch | 完成 run-level fan-out、真实 deadlock 注入和 shadow/write 对照 |
+| P1 | task enqueue：`workflows/dispatcher.ts` → `dispatchReadyWorkflowNodePrisma` | node-level Prisma interactive transaction、run-level fan-out、P2034/真实 40P01 重试和 approval fallback 已实现；同步入口仍是 rollback runner | idempotency key、claim/queue/router event 原子性、队列不可用重试、affected rows、重复 dispatch | 完成 shadow/write 对照与 30 天准入，再关闭 rollback runner |
 | P1 | workflow node/run/event：`workflows/runs.ts`、`workflows/events.ts` | 多张表同步写入，事件顺序依赖事务提交 | run/node 状态机、版本锁、事件序号、唯一 `(run_id, sequence)` | 与 task enqueue 同批，禁止拆成独立非事务写 |
 | P1 | workflow outbox：`workflows/outbox.ts`、`workflows/definitions.ts` | 已有 Prisma enqueue/claim/publish adapter；生产调用仍为 `enqueueWorkflowOutboxSync` | outbox idempotency、delivery lease、attempt/backoff、事件 payload digest | 单独迁移，先比对未投递数量、重复消费和业务变更事务提交顺序 |
 | P1 | workflow lease/recovery：`workflows/definitions.ts`、scheduler/reconcile worker | trigger lease Prisma adapter 已实现；recovery/其他 lease 仍是同步 SQL | owner token、expiresAt、compare-and-swap、抢占失败分类 | 先建立并发锁压测，再开 `WORKFLOW_TRIGGERS_PRISMA_WRITE_ENABLED` |
