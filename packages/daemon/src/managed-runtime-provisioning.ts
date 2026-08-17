@@ -14,6 +14,7 @@ import {
 } from "./managed-provider-credentials.ts";
 import type { ProviderCredentialProfile } from "./provider-credentials.ts";
 import { buildRedactions, redactText } from "./agent-router/utils.ts";
+import { buildManagedRuntimeImage, resolveManagedRuntimeImageTag } from "./managed-runtime-image.ts";
 
 const ALLOWED_COMMAND_EXECUTABLES = new Set([
   "docker",
@@ -159,7 +160,6 @@ export function buildManagedContainerHealthCheckCommand(
     .find(([key]) => key.endsWith("_BASE_URL"))?.[1];
   if (!baseUrl) throw new Error("managed_runtime.gateway_health_credentials_missing");
   const endpoint = resolveManagedGatewayHealthEndpoint(baseUrl, provider);
-  const imageTag = process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest";
   const user = `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`;
   const script = [
     'const { readFileSync } = require("node:fs");',
@@ -185,7 +185,7 @@ export function buildManagedContainerHealthCheckCommand(
       "--user", user,
       "--mount", `type=bind,src=${profile.profileDir},dst=/dofe-profile,readonly`,
       "--entrypoint", "node",
-      `dofe/agent-runtime-${provider}:${imageTag}`,
+      buildManagedRuntimeImage(provider),
       "-e", script, endpoint, provider,
     ],
   };

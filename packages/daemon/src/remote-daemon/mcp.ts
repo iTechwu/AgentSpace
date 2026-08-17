@@ -13,6 +13,7 @@ import {
 } from "../managed-provider-credentials.ts";
 import type { RemoteRuntimeRecord } from "../provider-runtime.ts";
 import type { RemoteDaemonConfig } from "./config.ts";
+import { buildManagedRuntimeImage } from "../managed-runtime-image.ts";
 
 export function ensureManagedRuntimeHomeDir(stateDir: string, runtimeId: string): string {
   const homeDir = getManagedRuntimeHomeDir(stateDir, runtimeId);
@@ -113,7 +114,7 @@ export function buildManagedStdioLaunch(
       ...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
       "--env", "HOME=/dofe-home", "--env", `PATH=${containerPath}`,
       "--entrypoint", `/dofe-home/.local/bin/${entryPoint}`,
-      `dofe/agent-runtime-${runtime.provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
+      buildManagedRuntimeImage(runtime.provider),
       ...profileArgs,
       ...(connection.managedStdioProfile?.managedArgs ?? []),
     ],

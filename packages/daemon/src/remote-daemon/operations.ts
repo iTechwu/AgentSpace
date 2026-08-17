@@ -30,6 +30,7 @@ import type { RemoteDaemonConfig } from "./config.ts";
 import { ensureManagedRuntimeHomeDir } from "./mcp.ts";
 import type { ManagedRuntimeEntry } from "./heartbeat.ts";
 import { readErrorTail } from "./internal.ts";
+import { buildManagedRuntimeImage } from "../managed-runtime-image.ts";
 
 export async function executeRemoteRuntimeAppOperation(
   client: HttpDaemonClient,
@@ -57,7 +58,7 @@ export async function executeRemoteRuntimeAppOperation(
     const runtimeHomeDir = ensureManagedRuntimeHomeDir(config.stateDir, runtime.id);
     const executionPlan = config.managedNode
       ? buildManagedRuntimeAppPlan(plan, {
-          image: `dofe/agent-runtime-${runtime.provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
+          image: buildManagedRuntimeImage(runtime.provider),
           runtimeHomeDir,
           depsRoot,
           dockerNetwork: resolveManagedRuntimeInstallDockerNetwork(),

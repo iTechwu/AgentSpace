@@ -11,6 +11,15 @@ import {
 import { readRuntimeMetadataString } from "./metadata.ts";
 import type { DetectedProvider, ProviderRuntimeRecord } from "./types.ts";
 
+// 默认模型名单点（构建/版本漂移治理）：目录定义与 resolveModelId 兜底共用，
+// 改模型只动这里；运行时仍可被 *_MODEL 环境变量覆盖。
+const DEFAULT_MODEL_IDS = {
+  claude: "claude-haiku-4-5-20251001",
+  gemini: "gemini-2.0-flash-lite",
+  opencode: "opencode-default",
+  nanobot: "nanobot-default",
+} as const;
+
 const PROVIDER_CATALOG: Array<{
   provider: DaemonProvider;
   label: string;
@@ -24,7 +33,7 @@ const PROVIDER_CATALOG: Array<{
     provider: "claude",
     label: formatDaemonProviderLabel("claude"),
     command: "claude",
-    defaultModelId: "claude-haiku-4-5-20251001",
+    defaultModelId: DEFAULT_MODEL_IDS.claude,
   },
   {
     provider: "antigravity",
@@ -36,13 +45,13 @@ const PROVIDER_CATALOG: Array<{
     provider: "gemini",
     label: formatDaemonProviderLabel("gemini"),
     command: "gemini",
-    defaultModelId: "gemini-2.0-flash-lite",
+    defaultModelId: DEFAULT_MODEL_IDS.gemini,
   },
   {
     provider: "opencode",
     label: formatDaemonProviderLabel("opencode"),
     command: "opencode",
-    defaultModelId: "opencode-default",
+    defaultModelId: DEFAULT_MODEL_IDS.opencode,
   },
   {
     provider: "openclaw",
@@ -53,7 +62,7 @@ const PROVIDER_CATALOG: Array<{
     provider: "nanobot",
     label: formatDaemonProviderLabel("nanobot"),
     command: "nanobot",
-    defaultModelId: "nanobot-default",
+    defaultModelId: DEFAULT_MODEL_IDS.nanobot,
   },
   {
     provider: "hermes",
@@ -102,12 +111,12 @@ function readProviderAllowlist(): Set<DaemonProvider> | undefined {
 export function resolveModelId(runtime: ProviderRuntimeRecord): string | undefined {
   const providerDefinition = PROVIDER_CATALOG.find((candidate) => candidate.provider === runtime.provider);
   if (runtime.provider === "codex") return process.env.CODEX_MODEL?.trim() || undefined;
-  if (runtime.provider === "claude") return process.env.CLAUDE_MODEL || providerDefinition?.defaultModelId || "claude-haiku-4-5-20251001";
-  if (runtime.provider === "gemini") return process.env.GEMINI_MODEL || providerDefinition?.defaultModelId || "gemini-2.0-flash-lite";
+  if (runtime.provider === "claude") return process.env.CLAUDE_MODEL || providerDefinition?.defaultModelId || DEFAULT_MODEL_IDS.claude;
+  if (runtime.provider === "gemini") return process.env.GEMINI_MODEL || providerDefinition?.defaultModelId || DEFAULT_MODEL_IDS.gemini;
   if (runtime.provider === "antigravity") return process.env.ANTIGRAVITY_MODEL?.trim() || undefined;
-  if (runtime.provider === "opencode") return process.env.OPENCODE_MODEL || providerDefinition?.defaultModelId || "opencode-default";
+  if (runtime.provider === "opencode") return process.env.OPENCODE_MODEL || providerDefinition?.defaultModelId || DEFAULT_MODEL_IDS.opencode;
   if (runtime.provider === "openclaw") return readRuntimeMetadataString(runtime, "openClawModel", "openclawModel") || process.env.OPENCLAW_MODEL?.trim() || undefined;
-  if (runtime.provider === "nanobot") return process.env.NANOBOT_MODEL || providerDefinition?.defaultModelId || "nanobot-default";
+  if (runtime.provider === "nanobot") return process.env.NANOBOT_MODEL || providerDefinition?.defaultModelId || DEFAULT_MODEL_IDS.nanobot;
   if (runtime.provider === "hermes") return process.env.HERMES_MODEL?.trim() || process.env.HERMES_INFERENCE_MODEL?.trim() || undefined;
   return providerDefinition?.defaultModelId;
 }

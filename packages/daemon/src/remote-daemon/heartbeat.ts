@@ -15,6 +15,7 @@ import {
 import type { ManagedCredentialResolver } from "../managed-provider-credentials.ts";
 import type { RemoteDaemonConfig } from "./config.ts";
 import { ensureManagedRuntimeHomeDir } from "./mcp.ts";
+import { buildManagedRuntimeImage } from "../managed-runtime-image.ts";
 
 export interface ManagedRuntimeEntry {
   id: string;
@@ -221,7 +222,7 @@ export function resolveRemoteRuntimeCliHubReadiness(
     const runtimeHomeDir = ensureManagedRuntimeHomeDir(config.stateDir, runtimeId);
     result.set(runtimeId, managed || config.managedNode
       ? readManagedCliHubReadiness({
-          image: `dofe/agent-runtime-${provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
+          image: buildManagedRuntimeImage(provider),
           runtimeHomeDir,
           user: `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
         })

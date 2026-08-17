@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import type { ManagedCredentialBundleDocument } from "./daemon-api.ts";
 import { cleanupCredentialProfile, writeCredentialProfile, type ProviderCredentialProfile } from "./provider-credentials.ts";
+import { buildManagedRuntimeImage } from "./managed-runtime-image.ts";
 
 export interface ManagedCredentialResolver {
   resolve(runtimeId: string, expectedCredentialId?: string): Promise<ProviderCredentialProfile | null>;
@@ -273,8 +274,7 @@ export function createManagedCredentialResolver(
 }
 
 function buildDockerProviderLauncher(profileDir: string, runtimeId: string, provider: DaemonProvider): string {
-  const imageTag = process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest";
-  const image = `dofe/agent-runtime-${provider}:${imageTag}`;
+  const image = buildManagedRuntimeImage(provider);
   const runtimeHomeDir = join(dirname(profileDir), "home");
   const dockerNetwork = resolveManagedRuntimeDockerNetwork();
   const connectivityArgs = buildManagedRuntimeDockerConnectivityArgs()

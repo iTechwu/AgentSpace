@@ -8,7 +8,7 @@
     "dofe-mcp-egress-proxy": "./bin/dofe-mcp-egress-proxy.js"
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node25 --outfile=dist/index.js",
     "test": "sh -c 'node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/**/*.test.ts' --",
     "types": "tsc -p tsconfig.json --incremental false"
   },
