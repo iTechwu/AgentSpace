@@ -4,6 +4,7 @@ import { PRISMA_CUTOVER_SLO_SNAPSHOT_CODE } from "./cutover-slo-store.ts";
 
 export type PrismaShadowReadinessReason =
   | "no_snapshots"
+  | "invalid_snapshot"
   | "invalid_window"
   | "insufficient_coverage"
   | "stale_coverage"
@@ -30,7 +31,7 @@ export interface PrismaCutoverShadowReadinessReport {
 /** Evaluate persisted SLO snapshots before a shadow domain may enter write cutover. */
 export function assessPrismaCutoverShadowReadiness(input: {
   domain: string;
-  snapshots: readonly PrismaCutoverSloSnapshot[];
+  snapshots: readonly unknown[];
   now?: string;
   requiredWindowDays?: number;
   maximumGapSeconds?: number;
@@ -49,8 +50,16 @@ export function assessPrismaCutoverShadowReadiness(input: {
   const maximumDeadlockRate = boundedRate(input.maximumDeadlockRate, 0);
   const maximumP2034Rate = boundedRate(input.maximumP2034Rate, 0);
   const reasons = new Set<PrismaShadowReadinessReason>();
-  const windows = input.snapshots
-    .filter((snapshot) => snapshot.domain === domain)
+  const snapshots: PrismaCutoverSloSnapshot[] = [];
+  for (const candidate of input.snapshots) {
+    if (isRecord(candidate) && typeof candidate.domain === "string" && candidate.domain !== domain) continue;
+    if (!isPrismaCutoverSloSnapshot(candidate)) {
+      reasons.add("invalid_snapshot");
+      continue;
+    }
+    snapshots.push(candidate);
+  }
+  const windows = snapshots
     .map((snapshot) => ({
       snapshot,
       startMs: Date.parse(snapshot.windowStart ?? ""),
@@ -129,12 +138,11 @@ export function assessPersistedPrismaCutoverShadowReadinessSync(input: {
     createdFrom,
     input.domain,
   ) as Array<{ dataJson: unknown }>;
-  const snapshots = rows.flatMap((row) => {
+  const snapshots = rows.map((row) => {
     try {
-      const parsed = typeof row.dataJson === "string" ? JSON.parse(row.dataJson) : row.dataJson;
-      return parsed && typeof parsed === "object" ? [parsed as PrismaCutoverSloSnapshot] : [];
+      return typeof row.dataJson === "string" ? JSON.parse(row.dataJson) : row.dataJson;
     } catch {
-      return [];
+      return undefined;
     }
   });
   return assessPrismaCutoverShadowReadiness({ ...input, now, requiredWindowDays, maximumGapSeconds, snapshots });
@@ -148,4 +156,40 @@ function boundedInteger(value: number | undefined, fallback: number, minimum: nu
 function boundedRate(value: number | undefined, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(1, Math.max(0, value as number));
+}
+
+const ROLLBACK_REASONS = new Set([
+  "mismatch_rate",
+  "fallback_rate",
+  "error_rate",
+  "p95_duration",
+  "deadlock_rate",
+  "p2034_rate",
+]);
+
+function isPrismaCutoverSloSnapshot(value: unknown): value is PrismaCutoverSloSnapshot {
+  if (!isRecord(value) || typeof value.domain !== "string" || !value.domain.trim()) return false;
+  if (!Number.isSafeInteger(value.sampleCount) || (value.sampleCount as number) < 0) return false;
+  for (const field of ["mismatchRate", "fallbackRate", "errorRate", "deadlockRate", "p2034Rate"] as const) {
+    if (!isRate(value[field])) return false;
+  }
+  if (!isNonNegativeNumber(value.p95DurationMs) || !isNonNegativeNumber(value.burnRate)) return false;
+  if (typeof value.rollbackRecommended !== "boolean" || !Array.isArray(value.rollbackReasons)) return false;
+  if (!value.rollbackReasons.every((reason) => typeof reason === "string" && ROLLBACK_REASONS.has(reason))) return false;
+  for (const field of ["flagVersion", "lastKnownGoodFlagVersion", "instanceId", "windowStart", "windowEnd"] as const) {
+    if (value[field] !== undefined && typeof value[field] !== "string") return false;
+  }
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isRate(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }

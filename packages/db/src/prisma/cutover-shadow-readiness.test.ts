@@ -51,3 +51,21 @@ test("shadow readiness names gaps and non-zero drift as blocking reasons", () =>
   assert.ok(result.reasons.includes("coverage_gap"));
   assert.ok(result.reasons.includes("mismatch_observed"));
 });
+
+test("shadow readiness fails closed for malformed persisted evidence", () => {
+  const result = assessPrismaCutoverShadowReadiness({
+    domain: "workflow-dispatcher",
+    now: "2026-08-17T00:00:00.000Z",
+    snapshots: [
+      snapshot("2026-07-18T00:00:00.000Z", "2026-08-17T00:00:00.000Z", {
+        sampleCount: Number.NaN,
+        mismatchRate: 2,
+      }),
+    ],
+  });
+
+  assert.equal(result.ready, false);
+  assert.equal(result.sampleCount, 0);
+  assert.ok(Number.isFinite(result.sampleCount));
+  assert.ok(result.reasons.includes("invalid_snapshot"));
+});
