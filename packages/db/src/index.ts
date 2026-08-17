@@ -458,6 +458,13 @@ export {
   type PrismaCutoverSloSnapshot,
   type PrismaCutoverSloThresholds,
 } from "./prisma/cutover-slo.ts";
+export {
+  LEGACY_TASK_ENQUEUE_EVENT_ORDER,
+  observeLegacyTaskEnqueueEventOrder,
+  type EventOrderObservation,
+  type TaskEnqueueLifecycleEvent,
+  type WorkflowDispatchObservability,
+} from "./task-enqueue-event-contract.ts";
 
 // Database
 export {

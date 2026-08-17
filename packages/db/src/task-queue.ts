@@ -23,6 +23,7 @@ import {
 import { readAgentRuntimeSync } from "./daemons.ts";
 import { deleteMcpTaskSessionGrantSync } from "./mcp-session-grant.ts";
 import { readTaskCommitJournalSync, upsertTaskCommitJournalSync } from "./task-commit-journal.ts";
+import { LEGACY_TASK_ENQUEUE_EVENT_ORDER } from "./task-enqueue-event-contract.ts";
 
 export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord | null {
   const db = getDatabase();
@@ -104,28 +105,33 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
 
   const task = readQueuedTaskSync(queueId);
   if (task && inserted) {
-    recordRouterLifecycleEvent(task, {
-      type: "task_queued",
-      actorType: "system",
-      summary: input.title,
-      data: {
-        priority: input.priority,
-        preferredRuntimeId: binding.runtimeId,
-        requestedByUserId: input.requestedByUserId,
-        requestedByDisplayName: input.requestedByDisplayName,
-      },
-    });
-    recordQueueLifecycleEvent(task, {
-      type: "queued",
-      title: "Task entered the execution queue",
-      summary: `${input.title} is waiting for ${binding.runtimeName}.`,
-      status: "pending",
-      data: {
-        priority: input.priority,
-        requestedByUserId: input.requestedByUserId,
-        requestedByDisplayName: input.requestedByDisplayName,
-      },
-    });
+    for (const event of LEGACY_TASK_ENQUEUE_EVENT_ORDER) {
+      if (event.stream === "router") {
+        recordRouterLifecycleEvent(task, {
+          type: event.type,
+          actorType: "system",
+          summary: input.title,
+          data: {
+            priority: input.priority,
+            preferredRuntimeId: binding.runtimeId,
+            requestedByUserId: input.requestedByUserId,
+            requestedByDisplayName: input.requestedByDisplayName,
+          },
+        });
+      } else {
+        recordQueueLifecycleEvent(task, {
+          type: event.type,
+          title: "Task entered the execution queue",
+          summary: `${input.title} is waiting for ${binding.runtimeName}.`,
+          status: "pending",
+          data: {
+            priority: input.priority,
+            requestedByUserId: input.requestedByUserId,
+            requestedByDisplayName: input.requestedByDisplayName,
+          },
+        });
+      }
+    }
   }
 
   return task;

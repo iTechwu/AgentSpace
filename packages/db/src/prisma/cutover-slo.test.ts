@@ -33,6 +33,7 @@ test("cutover SLO window aggregates domain rates, P95, and rollback reasons", ()
     p2034Rate: 0,
     linkConflictRate: 0,
     eventOrderDriftRate: 0,
+    eventOrderComparedCount: 0,
     burnRate: 1.25,
     rollbackRecommended: true,
     rollbackReasons: ["mismatch_rate", "fallback_rate", "error_rate", "p95_duration"],
@@ -41,13 +42,15 @@ test("cutover SLO window aggregates domain rates, P95, and rollback reasons", ()
   }]);
 });
 
-test("cutover SLO detects router/queue event order drift", () => {
+test("cutover SLO uses only compared dispatches for event-order drift rate", () => {
   const window = new PrismaCutoverSloWindow(10);
   window.record({ domain: "workflow-dispatcher" }, {
-    source: "primary", mismatch: 0, durationMs: 10, eventOrderDriftCount: 1,
+    source: "primary", mismatch: 0, durationMs: 10, sampleCount: 100,
+    eventOrder: { comparedCount: 1, driftCount: 1 },
   });
   window.record({ domain: "workflow-dispatcher" }, {
-    source: "primary", mismatch: 0, durationMs: 10,
+    source: "primary", mismatch: 0, durationMs: 10, sampleCount: 100,
+    eventOrder: { comparedCount: 1, driftCount: 0 },
   });
   const [snapshot] = window.snapshots({
     thresholds: {
@@ -56,9 +59,25 @@ test("cutover SLO detects router/queue event order drift", () => {
       maximumEventOrderDriftRate: 0.2,
     },
   });
+  assert.equal(snapshot?.sampleCount, 200);
+  assert.equal(snapshot?.eventOrderComparedCount, 2);
   assert.equal(snapshot?.eventOrderDriftRate, 0.5);
   assert.ok(snapshot?.rollbackReasons.includes("event_order_drift"));
   assert.equal(snapshot?.rollbackRecommended, true);
+});
+
+test("uncompared batch entries cannot satisfy the event-order minimum sample gate", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, durationMs: 10, sampleCount: 100,
+    eventOrder: { comparedCount: 1, driftCount: 1 },
+  });
+  const [snapshot] = window.snapshots({
+    thresholds: { ...thresholds, minimumSamples: 2, maximumEventOrderDriftRate: 0.2 },
+  });
+  assert.equal(snapshot?.eventOrderDriftRate, 1);
+  assert.equal(snapshot?.burnRate, 0);
+  assert.equal(snapshot?.rollbackReasons.includes("event_order_drift"), false);
 });
 
 test("cutover SLO window is bounded and waits for its minimum sample count", () => {

@@ -40,10 +40,11 @@ export function emitPrismaCutoverMetric(
   if (env.PRISMA_CUTOVER_METRICS_ENABLED !== "1") return;
   (options.sloWindow ?? sharedSloWindow).record(context, metric);
 
-  const weighted = metric as Partial<Pick<DomainWriteCutoverMetric, "sampleCount" | "errorCount" | "deadlockCount" | "p2034Count" | "eventOrderDriftCount">>;
+  const weighted = metric as Partial<Pick<DomainWriteCutoverMetric, "sampleCount" | "errorCount" | "deadlockCount" | "p2034Count" | "eventOrder">>;
   const batchFailureCount = weighted.errorCount ?? 0;
   const batchConflictCount = (weighted.deadlockCount ?? 0) + (weighted.p2034Count ?? 0);
-  const eventOrderDriftCount = weighted.eventOrderDriftCount ?? 0;
+  const eventOrder = weighted.eventOrder;
+  const eventOrderDriftCount = eventOrder?.driftCount ?? 0;
   const abnormal = metric.source === "fallback" || metric.mismatch === 1
     || metric.error !== undefined || batchFailureCount > 0 || batchConflictCount > 0 || eventOrderDriftCount > 0;
   if (!abnormal && (options.random ?? Math.random)() >= readSuccessSampleRate(env)) return;
@@ -65,7 +66,10 @@ export function emitPrismaCutoverMetric(
     if (weighted.deadlockCount !== undefined && weighted.deadlockCount > 0) record.deadlockCount = weighted.deadlockCount;
     if (weighted.p2034Count !== undefined && weighted.p2034Count > 0) record.p2034Count = weighted.p2034Count;
   }
-  if (eventOrderDriftCount > 0) record.eventOrderDriftCount = eventOrderDriftCount;
+  if (eventOrder && eventOrder.comparedCount > 0) {
+    record.eventOrderComparedCount = eventOrder.comparedCount;
+    record.eventOrderDriftCount = eventOrder.driftCount;
+  }
   // Error messages can contain connection details. The application error path
   // keeps the original exception; telemetry only records its presence.
   if (metric.error !== undefined) record.error = "present";

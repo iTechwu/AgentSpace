@@ -1,5 +1,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { randomLikeId } from "../database.ts";
+import {
+  observeLegacyTaskEnqueueEventOrder,
+  type TaskEnqueueLifecycleEvent,
+  type WorkflowDispatchObservability,
+} from "../task-enqueue-event-contract.ts";
 import { getDofePrismaClient } from "./prisma-client.ts";
 import { retryPrismaTransaction } from "./transaction-retry.ts";
 
@@ -23,11 +28,8 @@ export interface DispatchWorkflowNodePrismaResult {
   status: string;
   taskQueueId?: string;
   reason: "claimed" | "already_queued" | "concurrency_limited" | "queue_unavailable" | "not_ready";
-  /** 1 when the router/queue event creation order differs from legacy. */
-  eventOrderDriftCount?: number;
+  observability?: WorkflowDispatchObservability;
 }
-
-const LEGACY_DISPATCH_EVENT_ORDER = ["router.task_queued", "queue.queued"] as const;
 
 /**
  * The dispatcher write boundary. All state that makes a node dispatchable is
@@ -163,7 +165,7 @@ async function dispatchWorkflowNodePrismaInTransaction(
     workflow: input.workflowMetadata,
   } as Prisma.InputJsonObject;
   const conversationKey = `workspace_task:${node.id}`;
-  const eventOrder: string[] = [];
+  const eventOrder: TaskEnqueueLifecycleEvent[] = [];
   const existingSession = await tx.agentRouterSession.findFirst({
     where: { workspaceId: input.workspaceId, agentId: binding.employeeId, conversationKey },
   });
@@ -227,7 +229,7 @@ async function dispatchWorkflowNodePrismaInTransaction(
         createdAt: new Date(input.now),
       },
     });
-    eventOrder.push("router.task_queued");
+    eventOrder.push({ stream: "router", type: "task_queued" });
     await tx.taskExecutionEvent.create({
       data: {
         id: `task-event-${randomLikeId()}`,
@@ -246,7 +248,7 @@ async function dispatchWorkflowNodePrismaInTransaction(
         createdAt: new Date(input.now),
       },
     });
-    eventOrder.push("queue.queued");
+    eventOrder.push({ stream: "queue", type: "queued" });
   }
   await appendRunEventInTransaction(tx, {
     workspaceId: input.workspaceId,
@@ -263,7 +265,9 @@ async function dispatchWorkflowNodePrismaInTransaction(
     status: "queued",
     taskQueueId: task.id,
     reason: "claimed",
-    ...(existingTask || eventOrderMatchesLegacy(eventOrder) ? {} : { eventOrderDriftCount: 1 }),
+    ...(existingTask ? {} : {
+      observability: { eventOrder: observeLegacyTaskEnqueueEventOrder(eventOrder) },
+    }),
   };
 }
 
@@ -297,11 +301,6 @@ async function deferQueueUnavailableInTransaction(
   });
   await publishOutboxInTransaction(input, tx);
   return { nodeRunId: node.id, status: "retry_wait", reason: "queue_unavailable" };
-}
-
-function eventOrderMatchesLegacy(observed: readonly string[]): boolean {
-  return observed.length === LEGACY_DISPATCH_EVENT_ORDER.length
-    && observed.every((event, index) => event === LEGACY_DISPATCH_EVENT_ORDER[index]);
 }
 
 async function appendRunEventInTransaction(

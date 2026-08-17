@@ -17,6 +17,7 @@
 
 import { withReadCutover } from "./read-cutover.ts";
 import type { ReadCutoverMetric } from "./read-cutover.ts";
+import type { EventOrderObservation } from "../task-enqueue-event-contract.ts";
 
 export type DomainCutoverCompare<T> = (primary: T, fallback: T) => boolean;
 export type DomainCutoverMetric<TMetric extends ReadCutoverMetric = ReadCutoverMetric> = TMetric;
@@ -49,8 +50,8 @@ export interface DomainWriteCutoverMetric extends ReadCutoverMetric {
   p2034Count?: number;
   /** 批次内 CAS link 冲突（workflow_node_queue_link_conflict）数，缺省由 error 消息推导。 */
   linkConflictCount?: number;
-  /** 批次内 router/queue 事件顺序偏离 legacy 契约的条目数。 */
-  eventOrderDriftCount?: number;
+  /** 批次内 router/queue 事件顺序的对照样本与漂移计数。 */
+  eventOrder?: EventOrderObservation;
 }
 
 export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutoverMetric = DomainWriteCutoverMetric>(

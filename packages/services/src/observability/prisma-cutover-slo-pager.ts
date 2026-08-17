@@ -51,6 +51,7 @@ export async function sendPrismaCutoverSloPagerAlert(options: {
         p2034Rate: snapshot.p2034Rate,
         linkConflictRate: snapshot.linkConflictRate,
         eventOrderDriftRate: snapshot.eventOrderDriftRate,
+        eventOrderComparedCount: snapshot.eventOrderComparedCount,
         flagVersion: snapshot.flagVersion,
         lastKnownGoodFlagVersion: snapshot.lastKnownGoodFlagVersion,
       }),

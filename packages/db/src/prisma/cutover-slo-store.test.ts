@@ -287,6 +287,56 @@ test("aggregation weights linkConflictRate and flags link_conflict_spike on re-e
   assert.deepEqual(snapshot?.rollbackReasons, ["link_conflict_spike"]);
 });
 
+test("aggregation keeps event-order drift denominator limited to compared dispatches", () => {
+  const thresholds = {
+    minimumSamples: 2,
+    maximumMismatchRate: 1,
+    maximumFallbackRate: 1,
+    maximumErrorRate: 1,
+    maximumP95DurationMs: 1000,
+    maximumEventOrderDriftRate: 0.2,
+  };
+  const [snapshot] = aggregatePrismaCutoverSloSnapshots(
+    [
+      {
+        domain: "workflow-dispatcher",
+        sampleCount: 100,
+        eventOrderComparedCount: 1,
+        eventOrderDriftRate: 1,
+        mismatchRate: 0,
+        fallbackRate: 0,
+        errorRate: 0,
+        p95DurationMs: 10,
+        deadlockRate: 0,
+        p2034Rate: 0,
+        burnRate: 0,
+        rollbackRecommended: false,
+        rollbackReasons: [],
+      },
+      {
+        domain: "workflow-dispatcher",
+        sampleCount: 100,
+        eventOrderComparedCount: 1,
+        eventOrderDriftRate: 0,
+        mismatchRate: 0,
+        fallbackRate: 0,
+        errorRate: 0,
+        p95DurationMs: 10,
+        deadlockRate: 0,
+        p2034Rate: 0,
+        burnRate: 0,
+        rollbackRecommended: false,
+        rollbackReasons: [],
+      },
+    ],
+    { thresholds },
+  );
+  assert.equal(snapshot?.sampleCount, 200);
+  assert.equal(snapshot?.eventOrderComparedCount, 2);
+  assert.equal(snapshot?.eventOrderDriftRate, 0.5);
+  assert.deepEqual(snapshot?.rollbackReasons, ["event_order_drift"]);
+});
+
 test("retention archive reaches expired rows even when newer rows exceed the old 500-row window", () => {
   const db = getDatabase();
   const workspaceId = (db.prepare("SELECT id FROM workspace WHERE id = 'slo-archive-flood'").get() as { id: string } | undefined)?.id

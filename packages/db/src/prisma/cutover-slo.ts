@@ -31,6 +31,8 @@ export interface PrismaCutoverSloSnapshot {
   linkConflictRate?: number;
   /** router/queue 事件顺序偏离 legacy 契约的比例。 */
   eventOrderDriftRate?: number;
+  /** 实际与 legacy 顺序契约完成对照的派发数。 */
+  eventOrderComparedCount?: number;
   burnRate: number;
   rollbackRecommended: boolean;
   /**
@@ -64,6 +66,7 @@ interface CutoverSloSample {
   deadlockCount: number;
   p2034Count: number;
   linkConflictCount: number;
+  eventOrderComparedCount: number;
   eventOrderDriftCount: number;
   durationMs: number;
 }
@@ -75,9 +78,13 @@ function normalizedSampleWeight(metric: CutoverMetric): number {
   const fields = metric as unknown as Record<string, unknown>;
   const declared = Number(fields.sampleCount);
   let weight = Number.isFinite(declared) && declared > 0 ? declared : 1;
-  for (const field of ["errorCount", "deadlockCount", "p2034Count", "linkConflictCount", "eventOrderDriftCount"] as const) {
+  for (const field of ["errorCount", "deadlockCount", "p2034Count", "linkConflictCount"] as const) {
     const count = Number(fields[field]);
     if (Number.isFinite(count) && count > 0) weight = Math.max(weight, count);
+  }
+  const eventOrderComparedCount = Number((metric as DomainWriteCutoverMetric).eventOrder?.comparedCount);
+  if (Number.isFinite(eventOrderComparedCount) && eventOrderComparedCount > 0) {
+    weight = Math.max(weight, eventOrderComparedCount);
   }
   return Math.min(MAXIMUM_SAMPLE_WEIGHT, weight);
 }
@@ -94,10 +101,12 @@ function isEmptyBatchMetric(metric: CutoverMetric): boolean {
   if (!Number.isFinite(declared) || declared > 0) return false;
   if (metric.error !== undefined || metric.fallbackFailed === 1 || metric.mismatch === 1) return false;
   if (metric.source === "fallback") return false;
-  for (const field of ["errorCount", "deadlockCount", "p2034Count", "linkConflictCount", "eventOrderDriftCount"] as const) {
+  for (const field of ["errorCount", "deadlockCount", "p2034Count", "linkConflictCount"] as const) {
     const count = Number(fields[field]);
     if (Number.isFinite(count) && count > 0) return false;
   }
+  const eventOrder = (metric as DomainWriteCutoverMetric).eventOrder;
+  if (eventOrder && (eventOrder.comparedCount > 0 || eventOrder.driftCount > 0)) return false;
   return true;
 }
 
@@ -122,7 +131,8 @@ export class PrismaCutoverSloWindow {
     if (isEmptyBatchMetric(metric)) return;
     const samples = this.samplesByDomain.get(domain) ?? [];
     const weight = normalizedSampleWeight(metric);
-    const declared = metric as Partial<Pick<DomainWriteCutoverMetric, "errorCount" | "deadlockCount" | "p2034Count" | "linkConflictCount" | "eventOrderDriftCount">>;
+    const declared = metric as Partial<Pick<DomainWriteCutoverMetric, "errorCount" | "deadlockCount" | "p2034Count" | "linkConflictCount" | "eventOrder">>;
+    const eventOrderComparedCount = normalizedCount(declared.eventOrder?.comparedCount, weight);
     const errorDerived = metric.error !== undefined || metric.fallbackFailed === 1 ? weight : 0;
     samples.push({
       sampleCount: weight,
@@ -141,7 +151,8 @@ export class PrismaCutoverSloWindow {
       linkConflictCount: declared.linkConflictCount !== undefined
         ? normalizedCount(declared.linkConflictCount, weight)
         : isLinkConflictError(metric.error) ? weight : 0,
-      eventOrderDriftCount: normalizedCount(declared.eventOrderDriftCount, weight),
+      eventOrderComparedCount,
+      eventOrderDriftCount: normalizedCount(declared.eventOrder?.driftCount, eventOrderComparedCount),
       durationMs: Math.max(0, metric.durationMs),
     });
     if (samples.length > this.maximumSamplesPerDomain) {
@@ -202,7 +213,9 @@ export function evaluateCutoverSloRollback(
   rates: CutoverSloRates,
   sampleCount: number,
   thresholds: PrismaCutoverSloThresholds,
+  reasonSampleCounts: { eventOrder?: number } = {},
 ): CutoverSloRollbackVerdict {
+  const eventOrderSampleCount = reasonSampleCounts.eventOrder ?? sampleCount;
   const thresholdRatios = [
     ratio(rates.mismatchRate, thresholds.maximumMismatchRate),
     ratio(rates.fallbackRate, thresholds.maximumFallbackRate),
@@ -210,7 +223,9 @@ export function evaluateCutoverSloRollback(
     ratio(rates.deadlockRate, thresholds.maximumDeadlockRate),
     ratio(rates.p2034Rate, thresholds.maximumP2034Rate),
     ratio(rates.linkConflictRate ?? 0, thresholds.maximumLinkConflictRate),
-    ratio(rates.eventOrderDriftRate ?? 0, thresholds.maximumEventOrderDriftRate),
+    eventOrderSampleCount >= thresholds.minimumSamples
+      ? ratio(rates.eventOrderDriftRate ?? 0, thresholds.maximumEventOrderDriftRate)
+      : 0,
   ];
   const burnRate = Math.max(0, ...thresholdRatios);
   const rollbackReasons: PrismaCutoverSloSnapshot["rollbackReasons"] = [];
@@ -232,6 +247,7 @@ export function evaluateCutoverSloRollback(
       rollbackReasons.push("link_conflict_spike");
     }
     if (
+      eventOrderSampleCount >= thresholds.minimumSamples &&
       thresholds.maximumEventOrderDriftRate !== undefined &&
       (rates.eventOrderDriftRate ?? 0) > thresholds.maximumEventOrderDriftRate
     ) {
@@ -263,12 +279,14 @@ function summarizeDomain(
   const deadlockRate = rate(count((sample) => sample.deadlockCount), sampleCount);
   const p2034Rate = rate(count((sample) => sample.p2034Count), sampleCount);
   const linkConflictRate = rate(count((sample) => sample.linkConflictCount), sampleCount);
-  const eventOrderDriftRate = rate(count((sample) => sample.eventOrderDriftCount), sampleCount);
+  const eventOrderComparedCount = count((sample) => sample.eventOrderComparedCount);
+  const eventOrderDriftRate = rate(count((sample) => sample.eventOrderDriftCount), eventOrderComparedCount);
   const p95DurationMs = percentile95(samples.map((sample) => ({ value: sample.durationMs, weight: sample.sampleCount })));
   const verdict = evaluateCutoverSloRollback(
     { mismatchRate, fallbackRate, errorRate, p95DurationMs, deadlockRate, p2034Rate, linkConflictRate, eventOrderDriftRate },
     sampleCount,
     input.thresholds,
+    { eventOrder: eventOrderComparedCount },
   );
   const snapshot: PrismaCutoverSloSnapshot = {
     domain,
@@ -282,6 +300,7 @@ function summarizeDomain(
     p2034Rate,
     linkConflictRate,
     eventOrderDriftRate,
+    eventOrderComparedCount,
     burnRate: verdict.burnRate,
     rollbackRecommended: verdict.rollbackRecommended,
     rollbackReasons: verdict.rollbackReasons,

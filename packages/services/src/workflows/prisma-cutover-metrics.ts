@@ -2,6 +2,7 @@ import {
   emitPrismaCutoverMetric,
   flushPrismaCutoverSloSnapshotsSync,
   runWithPrismaTransactionRetryCapture,
+  type EventOrderObservation,
   type PrismaTransactionRetryEvent,
 } from "@dofe-agent/db";
 import { readSloThresholdsFromEnv } from "../shared/slo-thresholds.ts";
@@ -35,8 +36,8 @@ export async function observeWorkflowPrismaWrite<T>(
       fallbackInvoked: 0,
       sampleCount: summary?.sampleCount ?? 1,
       errorCount: summary?.errorCount ?? 0,
-      ...(summary?.eventOrderDriftCount && summary.eventOrderDriftCount > 0
-        ? { eventOrderDriftCount: summary.eventOrderDriftCount }
+      ...(summary?.eventOrder && summary.eventOrder.comparedCount > 0
+        ? { eventOrder: summary.eventOrder }
         : {}),
       deadlockCount: conflicts.deadlock,
       p2034Count: conflicts.p2034,
@@ -68,8 +69,8 @@ export interface WorkflowPrismaBatchSummary {
   sampleCount: number;
   /** 批次内结构化失败的条目数。 */
   errorCount: number;
-  /** 批次内检测到的 router/queue 事件顺序漂移条目数。 */
-  eventOrderDriftCount?: number;
+  /** 批次内 router/queue 事件顺序的对照样本与漂移计数。 */
+  eventOrder?: EventOrderObservation;
 }
 
 function domainConflictCounts(

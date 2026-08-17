@@ -94,22 +94,30 @@ test("batch summaries carry structured item failures into the SLO sample", async
   assert.equal(metrics[0]?.error, undefined);
 });
 
-test("batch summaries carry event-order drift into the SLO sample", async () => {
+test("batch summaries carry structured event-order observations into the SLO sample", async () => {
   const metrics: Array<Record<string, unknown>> = [];
   await observeWorkflowPrismaWrite(
     { domain: "workflow-dispatcher", operation: "outbox.batch" },
-    async () => ({ publishedOutboxIds: ["a"], failedOutboxIds: [], eventOrderDriftCount: 1 }),
+    async () => ({
+      publishedOutboxIds: ["a"],
+      failedOutboxIds: [],
+      observability: { eventOrder: { comparedCount: 1, driftCount: 1 } },
+    }),
     {
       emitMetric: (_context, metric) => metrics.push(metric),
       now: () => 100,
-      summarizeResult: (result: { publishedOutboxIds: string[]; failedOutboxIds: string[]; eventOrderDriftCount: number }) => ({
+      summarizeResult: (result: {
+        publishedOutboxIds: string[];
+        failedOutboxIds: string[];
+        observability: { eventOrder: { comparedCount: number; driftCount: number } };
+      }) => ({
         sampleCount: result.publishedOutboxIds.length,
         errorCount: result.failedOutboxIds.length,
-        eventOrderDriftCount: result.eventOrderDriftCount,
+        eventOrder: result.observability.eventOrder,
       }),
     },
   );
-  assert.equal(metrics[0]?.eventOrderDriftCount, 1);
+  assert.deepEqual(metrics[0]?.eventOrder, { comparedCount: 1, driftCount: 1 });
 });
 
 test("successfully retried transaction conflicts surface as p2034/deadlock counts", async () => {

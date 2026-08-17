@@ -246,9 +246,16 @@ export function aggregatePrismaCutoverSloSnapshots(
     const linkConflictRate = sampleCount === 0
       ? 0
       : rows.reduce((sum, row) => sum + (row.linkConflictRate ?? 0) * row.sampleCount, 0) / sampleCount;
-    const eventOrderDriftRate = sampleCount === 0
+    const eventOrderComparedCount = rows.reduce(
+      (sum, row) => sum + (row.eventOrderComparedCount ?? (row.eventOrderDriftRate === undefined ? 0 : row.sampleCount)),
+      0,
+    );
+    const eventOrderDriftRate = eventOrderComparedCount === 0
       ? 0
-      : rows.reduce((sum, row) => sum + (row.eventOrderDriftRate ?? 0) * row.sampleCount, 0) / sampleCount;
+      : rows.reduce((sum, row) => {
+          const comparedCount = row.eventOrderComparedCount ?? (row.eventOrderDriftRate === undefined ? 0 : row.sampleCount);
+          return sum + (row.eventOrderDriftRate ?? 0) * comparedCount;
+        }, 0) / eventOrderComparedCount;
     const p95DurationMs = Math.max(0, ...rows.map((row) => row.p95DurationMs));
     const rates = {
       mismatchRate: weighted("mismatchRate"),
@@ -264,7 +271,7 @@ export function aggregatePrismaCutoverSloSnapshots(
     // （各实例不足最小样本、合计已超阈值）和误报（单个小实例异常）（复审 P1）。
     // 缺省保持实例级并集，兼容 shadow-readiness 等只读历史判定结果的调用方。
     const verdict = options?.thresholds
-      ? evaluateCutoverSloRollback(rates, sampleCount, options.thresholds)
+      ? evaluateCutoverSloRollback(rates, sampleCount, options.thresholds, { eventOrder: eventOrderComparedCount })
       : {
           burnRate: Math.max(0, ...rows.map((row) => row.burnRate)),
           rollbackRecommended: rows.some((row) => row.rollbackRecommended),
@@ -282,6 +289,7 @@ export function aggregatePrismaCutoverSloSnapshots(
       p2034Rate: rates.p2034Rate,
       linkConflictRate,
       eventOrderDriftRate,
+      eventOrderComparedCount,
       burnRate: verdict.burnRate,
       rollbackRecommended: verdict.rollbackRecommended,
       rollbackReasons: verdict.rollbackReasons,

@@ -14,6 +14,7 @@ import {
   transitionWorkflowNodeRunSync,
   withTransaction,
   isWorkflowDispatcherPrismaWriteEnabled,
+  type EventOrderObservation,
 } from "@dofe-agent/db";
 import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
 import { dispatchReadyWorkflowNodePrisma, dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
@@ -27,7 +28,7 @@ export interface WorkflowOutboxDispatchResult {
   dispatchedTaskIds: string[];
   failedOutboxIds: string[];
   leaseConflictOutboxIds: string[];
-  eventOrderDriftCount: number;
+  observability?: { eventOrder: EventOrderObservation };
 }
 
 export const WORKFLOW_OUTBOX_MAX_ATTEMPTS = 8;
@@ -46,7 +47,6 @@ export function dispatchWorkflowOutboxBatchSync(input: {
     dispatchedTaskIds: [],
     failedOutboxIds: [],
     leaseConflictOutboxIds: [],
-    eventOrderDriftCount: 0,
   };
   for (const item of items) {
     try {
@@ -123,7 +123,7 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
     dispatchedTaskIds: [],
     failedOutboxIds: [],
     leaseConflictOutboxIds: [],
-    eventOrderDriftCount: 0,
+    observability: { eventOrder: { comparedCount: 0, driftCount: 0 } },
   };
   for (const item of items) {
     try {
@@ -148,7 +148,11 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
           atomicOutbox: true,
         });
         if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
-        result.eventOrderDriftCount += dispatched.eventOrderDriftCount ?? 0;
+        const eventOrder = result.observability?.eventOrder;
+        if (eventOrder && dispatched.observability) {
+          eventOrder.comparedCount += dispatched.observability.eventOrder.comparedCount;
+          eventOrder.driftCount += dispatched.observability.eventOrder.driftCount;
+        }
       } else if (item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") {
         if (typeof payload.runId !== "string") throw new Error("workflow_outbox_payload_invalid");
         await fanOutWorkflowRunOutboxPrisma({
@@ -206,7 +210,7 @@ export function dispatchWorkflowOutboxBatchAuto(input: {
           summarizeResult: (result) => ({
             sampleCount: result.publishedOutboxIds.length + result.failedOutboxIds.length,
             errorCount: result.failedOutboxIds.length,
-            eventOrderDriftCount: result.eventOrderDriftCount,
+            eventOrder: result.observability?.eventOrder,
           }),
         },
       )

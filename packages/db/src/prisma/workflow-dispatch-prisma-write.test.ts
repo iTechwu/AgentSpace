@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { observeLegacyTaskEnqueueEventOrder } from "../task-enqueue-event-contract.ts";
 import { dispatchWorkflowNodeFromOutboxPrisma } from "./workflow-dispatch-prisma-write.ts";
 
 const input = {
@@ -57,8 +58,16 @@ test("dispatcher Prisma writer keeps claim, queue, events and outbox acknowledge
     status: "queued",
     taskQueueId: "queue-workflow-node-run-1",
     reason: "claimed",
+    observability: { eventOrder: { comparedCount: 1, driftCount: 0 } },
   });
   assert.deepEqual(calls, ["outbox.publish", "node.update", "queue.create", "node.update", "router.event", "task.event", "workflow.event", "outbox.publish"]);
+});
+
+test("dispatcher event-order observer detects a sequence that differs from legacy", () => {
+  assert.deepEqual(observeLegacyTaskEnqueueEventOrder([
+    { stream: "queue", type: "queued" },
+    { stream: "router", type: "task_queued" },
+  ]), { comparedCount: 1, driftCount: 1 });
 });
 
 test("dispatcher Prisma writer retries a serializable conflict", async () => {

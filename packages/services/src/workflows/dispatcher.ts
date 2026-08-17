@@ -14,6 +14,7 @@ import {
   readWorkflowVersionSync,
   transitionWorkflowNodeRunSync,
   withTransaction,
+  type WorkflowDispatchObservability,
   type WorkflowTaskMetadata,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition, WorkflowNodeDefinition } from "@dofe-agent/domain";
@@ -31,7 +32,7 @@ export interface DispatchWorkflowNodeResult {
   nodeRunId: string;
   taskQueueId?: string;
   status: string;
-  eventOrderDriftCount?: number;
+  observability?: WorkflowDispatchObservability;
 }
 
 export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {
@@ -137,7 +138,7 @@ export async function dispatchReadyWorkflowNodePrisma(input: DispatchWorkflowNod
     nodeRunId: result.nodeRunId,
     taskQueueId: result.taskQueueId,
     status: result.status,
-    ...(result.eventOrderDriftCount !== undefined ? { eventOrderDriftCount: result.eventOrderDriftCount } : {}),
+    ...(result.observability ? { observability: result.observability } : {}),
   };
 }
 
