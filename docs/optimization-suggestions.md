@@ -64,7 +64,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 | P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ✅ |
 | P2 | 零 SSG 全动态渲染 | 所有访问都触发完整 DB 装配 | 中 | ⏳ |
 | P2 | i18n 无 key | `tx(zh, en)` 内联双语无字典校验 | 中 | ⏳ |
-| P2 | 构建/版本漂移 | esbuild `target` 与 engines 不一致、版本号硬编码 | 低 | 🟡 |
+| P2 | 构建/版本漂移 | esbuild `target` 与 engines 不一致、版本号硬编码 | 低 | ✅ |
 | P2 | sandbox 抽象虚置 | Cube `exec()` 未实现，`connectSandbox()` 无调用方 | 中 | ✅ |
 
 ---
@@ -130,7 +130,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 3. **【P1】版本号单一来源** ✅：`cli.ts` 硬编码 `"0.1.3"`（与 package.json 重复），建议构建注入或加测试断言。
 4. **【P1】拆分三大文件** ✅（fc3bbe0 + 2cbad3c + 4d25905）：`remote-daemon.ts`(2,178→12 模块，最大 574)、`task-context.ts`(1,544→7 模块，最大 369)、`provider-runtime.ts`(1,820→11 模块，最大 455) 全部拆毕——原文件保留为 barrel 显式重导出原公共面，外部 import 零改动。
 5. **【P1】sandbox 抽象决策收口** ✅（bbc935f）：移除未完成的 Cube provider（exec 数据面落地起未实现，双开关只会真建云沙箱后必抛）；`connectSandbox` 收口 local-only fail-closed。注：「`connectSandbox()` 无调用方」前提已过时——provider-runtime 两条执行路径一直在用 `Sandbox`/`LocalSandbox`。
-6. **【P2】构建/版本漂移** 🟡：esbuild `target` 与 engines 不一致；`remote-daemon.ts` 硬编码 `dofe/agent-runtime-${provider}:latest`（生产应锁 digest）；4 个默认模型名硬编码在 `provider-runtime.ts`。
+6. **【P2】构建/版本漂移** ✅（f37d5357）：esbuild `target` node20→node25（对齐根 engines ^25.9.0 与 daemon build.mjs）；5 处内联 `MANAGED_RUNTIME_IMAGE_TAG || "latest"` 收敛为 `managed-runtime-image.ts` 单点，生产未锁定 tag 回落 latest 并告警（锁 digest 走 env 即可）；4 个默认模型名去重为 `DEFAULT_MODEL_IDS` 单点（目录与 resolveModelId 兜底共用，行为不变）。
 7. **【P2】测试路径与产物不对齐** ✅（f3e623b）：`dist-smoke.test.ts` 入 daemon 测试门——每次先 esbuild 重建再加载全部 6 个 dist 入口断言导出面/`--version`。首跑即抓到真实缺口：`preloaded-skill-sources.json` 未随 bundle 输出，`dist/dofe-agent.js`（tgz 部署入口）import 即 ENOENT；build.mjs 已补拷贝。
 8. **【P2】轮询请求放大** ✅（9fd0836）：操作队列 claim 空闲背压（默认 15s ±20% 抖动，认领即重置），任务 claim 每 tick 不变；空闲稳态 6→1 请求/tick/runtime，零 API 改动。
 

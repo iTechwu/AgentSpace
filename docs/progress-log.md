@@ -345,6 +345,12 @@
 - **验证**：五端 tsc 0 错；web vitest 144 文件/1155 用例、cli 24/24、integrations 182/182、`next build`（compiled + static pages 6/6）全绿。
 - **过程坑**：用户并发提交给根 barrel 追加了包级 re-export，拆分基线须取当前 HEAD 而非历史认知。
 
+### 3.5-6 daemon 构建与版本漂移单点化 —— ✅ 完成
+
+- **治理**（`f37d5357`）：①新增 `managed-runtime-image.ts`——provisioning/credentials/remote-daemon（heartbeat/mcp/operations）共 5 处内联 `MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"` 收敛为 `buildManagedRuntimeImage()`/`resolveManagedRuntimeImageTag()`，生产（NODE_ENV=production）未锁定 tag 时回落 latest 并 console.warn（锁 digest 只需设 env，支持 sha256:... 形式）；②`provider-runtime/catalog.ts` 4 个默认模型名（claude-haiku-4-5 / gemini-2.0-flash-lite / opencode-default / nanobot-default）去重为 `DEFAULT_MODEL_IDS` 单点，目录定义与 `resolveModelId` 兜底共用同一常量（此前两处各写一份字面量，行为不变）；③mcp-egress-proxy esbuild `--target=node20`→`node25`，对齐根 engines `^25.9.0` 与 daemon build.mjs 的 node25。
+- **验证**：daemon tsc 0 错；provider-runtime.test.ts 49/49；mcp-egress-proxy `pnpm run build` 通过（52.4kb）；web typecheck 0 错。
+- **过程坑**：自动插 import 误落进 `buildAttributionProxySource()` 模板串内的伪 `import` 行——插入位置须以首个实体声明为界而非「最后一个 import 行」。
+
 ---
 
 ## 测试与 CI/CD（专项，⏸ 本轮排除）
