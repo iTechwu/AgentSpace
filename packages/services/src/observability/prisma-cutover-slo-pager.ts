@@ -61,7 +61,6 @@ export async function sendPrismaCutoverSloPagerAlert(options: {
     workspaceId,
     checkedAt,
     config: options.config,
-    forceRecovery: alerts.length === 0,
     recoveryCodes: [PRISMA_CUTOVER_SLO_PAGER_CODE],
   });
 }

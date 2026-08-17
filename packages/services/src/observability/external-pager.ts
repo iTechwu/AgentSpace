@@ -83,8 +83,6 @@ export async function sendExternalPagerAlert(options: {
   workspaceId?: string;
   checkedAt: string;
   config?: ExternalPagerConfig;
-  /** 强制执行 recovery 检测：用于 SLO 等“无告警即全清”的场景，避免被 severity filter 提前返回跳过。 */
-  forceRecovery?: boolean;
   /**
    * recovery 检测的告警域（state.code 集合）。必填：不同调用方共享同一张
    * pager_alert_state 表，不限定域时 SLO pager 的“无告警即恢复”会把数据保护、
@@ -100,10 +98,10 @@ export async function sendExternalPagerAlert(options: {
     return { sent: false, reason: "EXTERNAL_PAGER_WEBHOOK_URL not configured." };
   }
   const filtered = dedupeAlerts(options.alerts.filter((alert) => config.severityFilter.has(alert.severity)));
-  if (filtered.length === 0 && options.alerts.length > 0 && !options.forceRecovery) {
-    return { sent: false, reason: "No alerts match the configured severity filter." };
-  }
-  const currentKeys = new Set(options.alerts.map(alertKey));
+  // Pager state tracks only alerts accepted by the severity filter. When an
+  // error drops to warning under the default error-only filter, the prior
+  // error must recover instead of remaining active indefinitely.
+  const currentKeys = new Set(filtered.map(alertKey));
 
   // Recovery: any previously-active state in this caller's alert domain that is
   // not present in the current alert set has cleared → include it as a recovery

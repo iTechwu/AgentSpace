@@ -48,6 +48,57 @@ test("sendExternalPagerAlert skips alerts outside the severity filter", async ()
   assert.ok(result.reason?.includes("severity filter"));
 });
 
+test("an alert that drops below the severity filter emits recovery", async () => {
+  const { getDatabase, upsertPagerAlertStateSync, readPagerAlertStateByKeySync } = await import("@dofe-agent/db");
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const workspaceId = "ws-severity-recovery";
+  const alertKey = "workspace_head_age:_:workspace_head_age";
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES (?, ?, 'Severity recovery', '', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  ).run(workspaceId, workspaceId, now, now);
+  db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run(workspaceId);
+  upsertPagerAlertStateSync({
+    workspaceId,
+    alertKey,
+    code: "workspace_head_age",
+    employeeName: undefined,
+    metric: "workspace_head_age",
+    severity: "error",
+    now,
+  });
+
+  let payload: { alerts: unknown[]; recovered: Array<{ code: string }> } | undefined;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    payload = JSON.parse(init?.body as string);
+    return new Response("ok", { status: 200 });
+  };
+  try {
+    const result = await sendExternalPagerAlert({
+      workspaceId,
+      alerts: [{
+        code: "workspace_head_age",
+        severity: "warning",
+        message: "head age is improving",
+        metric: "workspace_head_age",
+      }],
+      checkedAt: now,
+      config: { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error"]) },
+      recoveryCodes: ["workspace_head_age"],
+    });
+    assert.equal(result.sent, true);
+    assert.equal(result.recoveredCount, 1);
+    assert.equal(payload?.alerts.length, 0);
+    assert.equal(payload?.recovered[0]?.code, "workspace_head_age");
+    assert.equal(readPagerAlertStateByKeySync(alertKey, workspaceId)?.status, "cleared");
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ?").run(workspaceId);
+  }
+});
+
 test("sendExternalPagerAlert posts deduplicated error alerts", async () => {
   let posted: unknown;
   const originalFetch = globalThis.fetch;
@@ -195,7 +246,6 @@ test("recovery detection never clears active states from other alert domains", a
       alerts: [],
       checkedAt: now,
       config: { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error"]) },
-      forceRecovery: true,
       recoveryCodes: ["prisma.cutover.slo.burn_rate"],
     });
     assert.equal(result.sent, false, "no in-scope recovery and no alerts → nothing dispatched");
@@ -239,7 +289,6 @@ test("failed webhook delivery keeps recovery state active and re-sends next cycl
       alerts: [],
       checkedAt: now,
       config,
-      forceRecovery: true,
       recoveryCodes: ["flaky.alert"],
     });
     assert.equal(failed.sent, false);
@@ -251,7 +300,6 @@ test("failed webhook delivery keeps recovery state active and re-sends next cycl
       alerts: [],
       checkedAt: now,
       config,
-      forceRecovery: true,
       recoveryCodes: ["flaky.alert"],
     });
     assert.equal(retried.sent, true);
