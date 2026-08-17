@@ -79,18 +79,19 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
 | --- | --- | --- |
 | `TASK_QUEUE_PRISMA_WRITE_ENABLED` | 既有：queue 行单表 adapter（已在 b94242bb 落地） | 0 |
 | `WORKFLOW_OUTBOX_PRISMA_WRITE_ENABLED` | 既有：outbox 单表 adapter | 0 |
+| `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` | 新增：dispatcher node claim + queue/router/task/run event + outbox lease 的 Serializable interactive transaction | 0 |
 | `WORKFLOW_TRIGGERS_PRISMA_WRITE_ENABLED` | 既有：trigger lease adapter | 0 |
-| `WORKFLOW_DISPATCH_PRISMA_TX_ENABLED`（新增建议）+ `_SHADOW_` 变体 | dispatcher 跨表事务整体切换（含 node claim、router session/event、node link） | 0 |
-| `WORKFLOW_OUTBOX_MERGE_TX_ENABLED`（新增建议）+ `_SHADOW_` 变体 | coordinator/materialization 业务变更+outbox 合并事务 | 0 |
+| `WORKFLOW_DISPATCH_PRISMA_TX_ENABLED`（历史建议，未注册） | 不再使用；由 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 统一控制 node-level transaction | - |
+| `WORKFLOW_OUTBOX_MERGE_TX_ENABLED`（历史建议，未注册） | 尚未实现；coordinator/materialization 合并事务保持 legacy | - |
 
 原则：**事务级 flag 与单表 adapter flag 解耦**——开事务 flag 时事务内不走单表 flag 分支（同事务混用两套开关会造成半 Prisma 半 legacy 事务）；flag 注册进 04 清单所述 24 域集中注册表，未知/非法值 fail-closed。负责人：Prisma Phase 2 工作流（用户主理）；目标版本：待池容量证据（04 第 1 项）完成后排期；legacy 删除条件：两事务域 30 天零 fallback + 零 drift + 池容量达标。
 
 ## 7. 实施顺序建议（单 PR 内分步可回退）
 
-1. `prisma/workflow-dispatch-prisma-tx.ts`：实现 `dispatchWorkflowNodePrismaTx(input, tx?)`——node claim、router session upsert、
-   queue upsert、双生命周期事件、node link 全部接受 `Prisma.TransactionClient`；锁顺序复刻 run→node；
-2. dispatcher 入口接线双 runner（sync legacy primary / Prisma shadow），flag 默认 0，shadow 记 mismatch；
-3. coordinator/materialization outbox 合并事务同款接线（独立 flag）；
+1. **已完成 node.ready 路径**：`prisma/workflow-dispatch-prisma-write.ts` 实现 `Prisma.TransactionClient` 边界——outbox lease claim、node claim、router session upsert、
+   queue upsert、双生命周期事件、run event、node link 和 outbox publish 同一 Serializable transaction；锁顺序复刻 run→node；
+2. **已接线双 runner**：worker 根据 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 选择 Prisma node-level path，flag 默认 0，sync legacy 保留回退；
+3. **待实施**：coordinator/materialization outbox 合并事务仍需独立 flag 和对照；run.ready/resumed fan-out 目前在 Prisma worker 中逐节点事务后再确认批量 outbox；
 4. 定向测试：幂等重入（同 nodeRunId 二次 dispatch）、并发抢占（两 claim 同 node）、queue 冲突不产事件、
    40P01/P2034 注入重试、outbox+业务变更原子回滚（故障注入两者皆无）；
 5. 全量 `packages/db` + `services` 相关测试（逐文件运行），SLO 域注册与 `prisma:pool:evidence` 复测。

@@ -1,17 +1,22 @@
 import {
   appendWorkflowRunEventSync,
+  claimWorkflowOutboxBatchPrisma,
   claimWorkflowOutboxBatchSync,
   getDatabase,
   lockWorkflowRunForUpdateSync,
   readWorkflowNodeRunSync,
   listWorkflowNodeRunsSync,
   markWorkflowOutboxFailedSync,
+  markWorkflowOutboxFailedPrisma,
+  markWorkflowOutboxPublishedPrisma,
   markWorkflowOutboxPublishedSync,
+  listPendingWorkflowOutboxPrisma,
   transitionWorkflowNodeRunSync,
   withTransaction,
+  isWorkflowDispatcherPrismaWriteEnabled,
 } from "@dofe-agent/db";
 import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
-import { dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
+import { dispatchReadyWorkflowNodePrisma, dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
 import { createWorkflowApprovalSync, workflowApprovalInputFromNodeConfig } from "./approvals.ts";
 import { validateWorkflowNodeForDispatchSync } from "./validation.ts";
 
@@ -88,6 +93,105 @@ export function dispatchWorkflowOutboxBatchSync(input: {
     }
   }
   return result;
+}
+
+/**
+ * Prisma dispatcher mode. `workflow.node.ready` is acknowledged by the same
+ * transaction that claims the node and inserts the queue/router records. Run
+ * level fan-out keeps the existing outbox lease acknowledgement after all
+ * child nodes have been attempted, so a partial failure remains retryable.
+ */
+export async function dispatchWorkflowOutboxBatchPrisma(input: {
+  workerId: string;
+  limit: number;
+  now?: string;
+  workspaceId?: string;
+}): Promise<WorkflowOutboxDispatchResult> {
+  const now = input.now ?? new Date().toISOString();
+  const nodeItems = await listPendingWorkflowOutboxPrisma({
+    now,
+    limit: input.limit,
+    workspaceId: input.workspaceId,
+    eventType: "workflow.node.ready",
+  });
+  const remaining = Math.max(0, input.limit - nodeItems.length);
+  const runReadyItems = remaining > 0
+    ? await claimWorkflowOutboxBatchPrisma({ workerId: input.workerId, now, limit: remaining, leaseSeconds: 60, workspaceId: input.workspaceId, eventType: "workflow.run.ready" })
+    : [];
+  const resumedLimit = Math.max(0, remaining - runReadyItems.length);
+  const runResumedItems = resumedLimit > 0
+    ? await claimWorkflowOutboxBatchPrisma({ workerId: input.workerId, now, limit: resumedLimit, leaseSeconds: 60, workspaceId: input.workspaceId, eventType: "workflow.run.resumed" })
+    : [];
+  const runItems = [...runReadyItems, ...runResumedItems];
+  const items = [...nodeItems, ...runItems];
+  const result: WorkflowOutboxDispatchResult = {
+    claimedOutboxIds: items.map((item) => item.id),
+    publishedOutboxIds: [],
+    dispatchedTaskIds: [],
+    failedOutboxIds: [],
+    leaseConflictOutboxIds: [],
+  };
+  for (const item of items) {
+    try {
+      const payload = parsePayload(item.payloadJson);
+      if (item.eventType === "workflow.node.ready") {
+        if (typeof payload.nodeRunId !== "string") throw new Error("workflow_outbox_payload_invalid");
+        const dispatched = await dispatchReadyWorkflowNodePrisma({
+          workspaceId: item.workspaceId,
+          nodeRunId: payload.nodeRunId,
+          now,
+          outbox: { id: item.id, workerId: input.workerId },
+          atomicOutbox: true,
+        });
+        if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
+      } else if (item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") {
+        if (typeof payload.runId !== "string") throw new Error("workflow_outbox_payload_invalid");
+        for (const node of listWorkflowNodeRunsSync(item.workspaceId, payload.runId).filter((candidate) => candidate.status === "ready")) {
+          const dispatched = await dispatchReadyWorkflowNodePrisma({ workspaceId: item.workspaceId, nodeRunId: node.id, now });
+          if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
+        }
+        await markWorkflowOutboxPublishedPrisma({ id: item.id, workerId: input.workerId, workspaceId: item.workspaceId, now });
+      } else {
+        throw new Error("workflow_outbox_event_unsupported");
+      }
+      if (!result.publishedOutboxIds.includes(item.id)) result.publishedOutboxIds.push(item.id);
+    } catch (error) {
+      if (workflowOutboxErrorCode(error) === "workflow_outbox_lease_conflict") {
+        result.leaseConflictOutboxIds.push(item.id);
+        continue;
+      }
+      try {
+        await markWorkflowOutboxFailedPrisma({
+          id: item.id,
+          workerId: input.workerId,
+          workspaceId: item.workspaceId,
+          error: workflowOutboxErrorCode(error),
+          nextAvailableAt: computeWorkflowOutboxRetryAt(now, item.attempts),
+          maxAttempts: WORKFLOW_OUTBOX_MAX_ATTEMPTS,
+          now,
+        });
+        result.failedOutboxIds.push(item.id);
+      } catch (markError) {
+        if (workflowOutboxErrorCode(markError) === "workflow_outbox_lease_conflict") {
+          result.leaseConflictOutboxIds.push(item.id);
+          continue;
+        }
+        throw markError;
+      }
+    }
+  }
+  return result;
+}
+
+export function dispatchWorkflowOutboxBatchAuto(input: {
+  workerId: string;
+  limit: number;
+  now?: string;
+  workspaceId?: string;
+}): WorkflowOutboxDispatchResult | Promise<WorkflowOutboxDispatchResult> {
+  return isWorkflowDispatcherPrismaWriteEnabled()
+    ? dispatchWorkflowOutboxBatchPrisma(input)
+    : dispatchWorkflowOutboxBatchSync(input);
 }
 
 export function computeWorkflowOutboxRetryAt(now: string, attempts: number): string {

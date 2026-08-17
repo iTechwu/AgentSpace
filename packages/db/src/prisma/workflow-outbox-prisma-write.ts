@@ -46,6 +46,7 @@ export async function claimWorkflowOutboxBatchPrisma(input: {
   limit: number;
   leaseSeconds: number;
   workspaceId?: string;
+  eventType?: string;
 }, client?: PrismaClient): Promise<WorkflowOutboxRecord[]> {
   const prisma = client ?? getDofePrismaClient();
   const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
@@ -57,6 +58,7 @@ export async function claimWorkflowOutboxBatchPrisma(input: {
         status: "pending",
         availableAt: { lte: now },
         ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        ...(input.eventType ? { eventType: input.eventType } : {}),
         OR: [{ lockedAt: null }, { lockedAt: { lt: now } }],
       },
       orderBy: [{ availableAt: "asc" }, { createdAt: "asc" }],
@@ -80,6 +82,57 @@ export async function claimWorkflowOutboxBatchPrisma(input: {
     }
     return claimed;
   });
+}
+
+export async function listPendingWorkflowOutboxPrisma(input: {
+  now: string;
+  limit: number;
+  workspaceId?: string;
+  eventType?: string;
+}, client?: PrismaClient): Promise<WorkflowOutboxRecord[]> {
+  const prisma = client ?? getDofePrismaClient();
+  const rows = await prisma.workflowOutbox.findMany({
+    where: {
+      status: "pending",
+      availableAt: { lte: new Date(input.now) },
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      ...(input.eventType ? { eventType: input.eventType } : {}),
+      OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(input.now) } }],
+    },
+    orderBy: [{ availableAt: "asc" }, { createdAt: "asc" }],
+    take: Math.min(Math.max(Math.trunc(input.limit), 1), 100),
+  });
+  return rows.map((row) => mapWorkflowOutboxRow(row));
+}
+
+export async function markWorkflowOutboxFailedPrisma(input: {
+  id: string;
+  workerId: string;
+  workspaceId: string;
+  error: string;
+  nextAvailableAt: string;
+  maxAttempts: number;
+  now?: string;
+}, client?: PrismaClient): Promise<void> {
+  const prisma = client ?? getDofePrismaClient();
+  const current = await prisma.workflowOutbox.findFirst({
+    where: { id: input.id, workspaceId: input.workspaceId, status: "pending", lockedBy: input.workerId },
+    select: { attempts: true },
+  });
+  if (!current) throw new Error("workflow_outbox_lease_conflict");
+  const nextAttempts = current.attempts + 1;
+  const result = await prisma.workflowOutbox.updateMany({
+    where: { id: input.id, workspaceId: input.workspaceId, status: "pending", lockedBy: input.workerId },
+    data: {
+      status: nextAttempts >= input.maxAttempts ? "dead_letter" : "pending",
+      lastError: input.error,
+      availableAt: new Date(input.nextAvailableAt),
+      lockedAt: null,
+      lockedBy: null,
+      attempts: nextAttempts,
+    },
+  });
+  if (result.count !== 1) throw new Error("workflow_outbox_lease_conflict");
 }
 
 export async function markWorkflowOutboxPublishedPrisma(input: {

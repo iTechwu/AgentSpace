@@ -55,6 +55,7 @@ export {
 
 export {
   dispatchReadyWorkflowNodeSync,
+  dispatchReadyWorkflowNodePrisma,
   resolveWorkflowMaxConcurrency,
   workflowNodeOutputSchema,
   type DispatchWorkflowNodeInput,
@@ -126,6 +127,8 @@ export {
 
 export {
   dispatchWorkflowOutboxBatchSync,
+  dispatchWorkflowOutboxBatchPrisma,
+  dispatchWorkflowOutboxBatchAuto,
   type WorkflowOutboxDispatchResult,
 } from "./outbox-dispatcher.ts";
 

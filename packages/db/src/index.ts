@@ -372,10 +372,19 @@ export {
 export {
   claimWorkflowOutboxBatchPrisma,
   enqueueWorkflowOutboxPrisma,
+  listPendingWorkflowOutboxPrisma,
+  markWorkflowOutboxFailedPrisma,
   isWorkflowOutboxPrismaWriteEnabled,
   markWorkflowOutboxPublishedPrisma,
   type CreateWorkflowOutboxPrismaInput,
 } from "./prisma/workflow-outbox-prisma-write.ts";
+export {
+  dispatchWorkflowNodePrisma,
+  dispatchWorkflowNodeFromOutboxPrisma,
+  isWorkflowDispatcherPrismaWriteEnabled,
+  type DispatchWorkflowNodePrismaInput,
+  type DispatchWorkflowNodePrismaResult,
+} from "./prisma/workflow-dispatch-prisma-write.ts";
 export {
   advanceWorkflowTriggerPrisma,
   claimDueWorkflowTriggersPrisma,

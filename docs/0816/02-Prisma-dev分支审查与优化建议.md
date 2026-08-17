@@ -51,7 +51,7 @@ configuredPoolMax、active/idle/waiting。dev 采集快照为 10/5/3 上限、ob
 
 当前源码中约有 **57 个 read flag 文件、56 个 shadow flag 文件和 8 个 write flag 文件**，
 各域仍直接读取 `process.env.<DOMAIN>_PRISMA_*`。本轮新增
-`packages/db/src/prisma/cutover-flags.ts`，以 typed registry 登记 23 个域的 read、shadow
+`packages/db/src/prisma/cutover-flags.ts`，以 typed registry 登记 25 个域的 read、shadow
 和 write 能力，并在 Prisma Client 初始化时拒绝未知 flag、非法值、未注册 write 以及
 shadow 未开启对应 read 的组合；拼写错误和 read/shadow 不同步现在会 fail-closed。
 

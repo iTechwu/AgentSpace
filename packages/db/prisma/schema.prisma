@@ -107,6 +107,30 @@ model EmployeeRuntimeBinding {
   @@map("employee_runtime_binding")
 }
 
+model WorkspaceEmployee {
+  id                  String   @unique @default(dbgenerated("gen_random_uuid()"))
+  workspaceId         String   @map("workspace_id")
+  name                String
+  role                String   @default("Agent")
+  remarkName          String?  @map("remark_name")
+  origin              String   @default("manual")
+  summary             String   @default("")
+  traitsJson          Json     @default("[]") @map("traits_json")
+  fit                 String   @default("")
+  status              String   @default("active")
+  instructions        String   @default("")
+  ownerUserId         String?  @map("owner_user_id")
+  channelMemberAccess String   @default("disabled") @map("channel_member_access")
+  defaultModel        String?  @map("default_model")
+  executionPolicyJson Json     @default("{}") @map("execution_policy_json")
+  version             Int      @default(1)
+  createdAt           DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@id([workspaceId, name])
+  @@map("workspace_employee")
+}
+
 model AgentRuntime {
   id               String                   @id
   provider         String
@@ -149,6 +173,45 @@ model AgentTaskQueue {
   updatedAt              DateTime  @map("updated_at") @db.Timestamptz(6)
 
   @@map("agent_task_queue")
+}
+
+model AgentRouterSession {
+  id                   String    @id
+  workspaceId          String    @map("workspace_id")
+  agentId              String    @map("agent_id")
+  conversationKey      String?   @map("conversation_key")
+  sourceType           String    @default("task") @map("source_type")
+  status               String    @default("active")
+  title                String?
+  summary              String?
+  memorySummary        String?   @map("memory_summary")
+  modelOverride        String?   @map("model_override")
+  modelOverrideSource  String?   @map("model_override_source")
+  modelOverrideSetAt   DateTime? @map("model_override_set_at") @db.Timestamptz(6)
+  createdAt            DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @map("updated_at") @db.Timestamptz(6)
+  closedAt             DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, agentId, conversationKey])
+  @@map("agent_router_session")
+}
+
+model AgentRouterEvent {
+  id              String   @id
+  workspaceId     String   @map("workspace_id")
+  routerSessionId String   @map("router_session_id")
+  taskQueueId     String?  @map("task_queue_id")
+  attemptId       String?  @map("attempt_id")
+  type            String
+  actorType       String   @map("actor_type")
+  actorId         String?  @map("actor_id")
+  runtimeId       String?  @map("runtime_id")
+  provider        String?
+  summary         String?
+  dataJson        Json     @default("{}") @map("data_json")
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@map("agent_router_event")
 }
 
 model AgentSkill {
@@ -481,6 +544,23 @@ model WorkflowOutbox {
   publishedAt  DateTime? @map("published_at") @db.Timestamptz(6)
 
   @@map("workflow_outbox")
+}
+
+model WorkflowRunEvent {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  runId       String   @map("run_id")
+  nodeRunId   String?  @map("node_run_id")
+  sequence    Int
+  type        String
+  actorType   String   @map("actor_type")
+  actorId     String?  @map("actor_id")
+  severity    String   @default("info")
+  dataJson    Json     @default("{}") @map("data_json")
+  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@unique([runId, sequence])
+  @@map("workflow_run_event")
 }
 
 model WorkflowTrigger {

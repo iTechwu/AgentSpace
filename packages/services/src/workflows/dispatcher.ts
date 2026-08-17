@@ -1,5 +1,7 @@
 import {
   claimWorkflowNodeForDispatchSync,
+  dispatchWorkflowNodePrisma,
+  dispatchWorkflowNodeFromOutboxPrisma,
   enqueueNativeTaskSync,
   getDatabase,
   appendWorkflowRunEventSync,
@@ -31,6 +33,77 @@ export interface DispatchWorkflowNodeResult {
 
 export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {
   return withTransaction(getDatabase(), () => dispatchReadyWorkflowNodeInTransactionSync(input));
+}
+
+/**
+ * Prisma interactive-transaction dispatcher. The sync entry point remains the
+ * rollback path; this entry point is used by the worker only when the explicit
+ * dispatcher write flag is enabled and an outbox lease is available.
+ */
+export async function dispatchReadyWorkflowNodePrisma(input: DispatchWorkflowNodeInput & {
+  outbox?: { id: string; workerId: string };
+  atomicOutbox?: boolean;
+}): Promise<DispatchWorkflowNodeResult> {
+  const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+  if (!candidate) throw new Error("workflow_node_run_not_found");
+  const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+  if (!run) throw new Error("workflow_run_not_found");
+  if (isWorkflowRunDispatchBlocked(run.status)) {
+    return { nodeRunId: candidate.id, taskQueueId: candidate.taskQueueId, status: candidate.status };
+  }
+  if (candidate.status !== "ready") {
+    return { nodeRunId: candidate.id, taskQueueId: candidate.taskQueueId, status: candidate.status };
+  }
+  const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
+  if (!version) throw new Error("workflow_version_not_found");
+  const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
+  const runtimeContext = buildWorkflowNodeRuntimeContext({
+    graph,
+    nodeId: candidate.nodeId,
+    runInput: parseConfig(run.inputJson),
+    nodeRuns: listWorkflowNodeRunsSync(input.workspaceId, run.id),
+  });
+  const config = runtimeContext.nodeConfig;
+  const blocker = validateWorkflowNodeForDispatchSync(input.workspaceId, {
+    id: candidate.nodeId,
+    type: "employee_task",
+    employeeId: candidate.employeeId,
+    config,
+  } satisfies WorkflowNodeDefinition);
+  if (blocker) throw new Error(blocker.code);
+  if (!candidate.employeeId) throw new Error("workflow_employee_not_ready");
+  const governance = parseConfig(version.governanceJson);
+  const priority: "low" | "medium" | "high" = config.priority === "low" || config.priority === "high" ? config.priority : "medium";
+  const prismaInput = {
+    workspaceId: input.workspaceId,
+    nodeRunId: candidate.id,
+    employeeId: candidate.employeeId,
+    title: typeof config.title === "string"
+      ? config.title
+      : typeof config.instruction === "string" && config.instruction.trim()
+        ? config.instruction.trim()
+        : `Workflow node ${candidate.nodeId}`,
+    channelName: typeof config.channelName === "string" ? config.channelName : undefined,
+    priority,
+    inputJson: runtimeContext.resolvedInput,
+    workflowMetadata: {
+      workflowId: run.workflowId,
+      workflowVersionId: run.versionId,
+      workflowRunId: run.id,
+      workflowNodeId: candidate.nodeId,
+      workflowNodeRunId: candidate.id,
+      attempt: Math.max(1, candidate.attemptCount),
+      artifactRefs: runtimeContext.artifactRefs,
+      outputSchema: workflowNodeOutputSchema(config),
+    },
+    maxConcurrency: resolveWorkflowMaxConcurrency(governance.maxConcurrency),
+    now: input.now ?? new Date().toISOString(),
+    outbox: input.outbox,
+  };
+  const result = input.atomicOutbox && input.outbox
+    ? await dispatchWorkflowNodeFromOutboxPrisma({ ...prismaInput, outbox: input.outbox })
+    : await dispatchWorkflowNodePrisma(prismaInput);
+  return { nodeRunId: result.nodeRunId, taskQueueId: result.taskQueueId, status: result.status };
 }
 
 function dispatchReadyWorkflowNodeInTransactionSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {
