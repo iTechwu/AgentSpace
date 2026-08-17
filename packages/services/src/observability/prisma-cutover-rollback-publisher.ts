@@ -5,6 +5,7 @@ import {
   type PrismaCutoverRollbackPublication,
   type PrismaCutoverRollbackRequest,
 } from "@dofe-agent/db";
+import { readSloThresholdsFromEnv } from "../shared/slo-thresholds.ts";
 
 export interface PrismaCutoverRollbackHttpConfig {
   webhookUrl: string;
@@ -84,11 +85,16 @@ export async function publishPrismaCutoverRollbacksFromEnv(input?: {
   const checkedAt = input?.checkedAt ?? new Date().toISOString();
   const windowSeconds = Math.min(Math.max(Math.trunc(input?.windowSeconds ?? 900), 60), 86_400);
   const createdFrom = new Date(Date.parse(checkedAt) - windowSeconds * 1000).toISOString();
-  const snapshots = aggregatePrismaCutoverSloSnapshots(listPersistedPrismaCutoverSloSnapshotsSync({
-    workspaceId: input?.workspaceId,
-    createdFrom,
-    createdTo: checkedAt,
-  })).filter((snapshot) => snapshot.rollbackRecommended);
+  const snapshots = aggregatePrismaCutoverSloSnapshots(
+    listPersistedPrismaCutoverSloSnapshotsSync({
+      workspaceId: input?.workspaceId,
+      createdFrom,
+      createdTo: checkedAt,
+    }),
+    // Rollback must use the same cross-instance threshold re-evaluation as the
+    // SLO pager; instance-local recommendations can miss an aggregate breach.
+    { thresholds: readSloThresholdsFromEnv() },
+  ).filter((snapshot) => snapshot.rollbackRecommended);
   const publisher = createPrismaCutoverRollbackHttpPublisher(config);
   const publications: string[] = [];
   for (const snapshot of snapshots) {
