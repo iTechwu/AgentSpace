@@ -32,6 +32,8 @@ export interface PrismaCutoverSloSnapshot {
     | "p95_duration"
     | "deadlock_rate"
     | "p2034_rate"
+    | "link_conflict_spike"
+    | "event_order_drift"
   >;
   flagVersion?: string;
   lastKnownGoodFlagVersion?: string;

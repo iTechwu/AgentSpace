@@ -208,6 +208,8 @@ const ROLLBACK_REASONS = new Set([
   "p95_duration",
   "deadlock_rate",
   "p2034_rate",
+  "link_conflict_spike",
+  "event_order_drift",
 ]);
 
 function isPrismaCutoverSloSnapshot(value: unknown): value is PrismaCutoverSloSnapshot {

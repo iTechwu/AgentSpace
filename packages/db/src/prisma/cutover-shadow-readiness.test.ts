@@ -129,6 +129,22 @@ test("shadow readiness defaults demand 1000 samples across continuous short wind
   assert.ok(result.reasons.includes("insufficient_coverage"));
 });
 
+test("shadow readiness accepts ADR-defined rollback reasons", () => {
+  const result = assessPrismaCutoverShadowReadiness({
+    domain: "workflow-dispatcher",
+    now: "2026-08-17T00:00:00.000Z",
+    snapshots: [snapshot("2026-08-16T23:00:00.000Z", "2026-08-17T00:00:00.000Z", {
+      rollbackRecommended: true,
+      rollbackReasons: ["link_conflict_spike", "event_order_drift"],
+      sampleCount: 1000,
+    })],
+  });
+
+  assert.equal(result.ready, false);
+  assert.ok(result.reasons.includes("rollback_recommended"));
+  assert.equal(result.reasons.includes("invalid_snapshot"), false);
+});
+
 test("shadow readiness accepts sustained hourly windows meeting the default gates", () => {
   // 30 天 × 每小时一个 50 分钟窗口 × 每窗 2 样本 = 1440 样本，持续采集可通过默认门禁。
   const now = Date.parse("2026-08-17T00:00:00.000Z");
