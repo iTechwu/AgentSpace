@@ -2,7 +2,7 @@
 
 ## 1. 当前状态
 
-审查基线为 `dev` HEAD `1199e166`。当前 `packages/db/prisma/schema.prisma` 有 **25 个
+审查基线为 `dev` HEAD `6d9b1ff9`。当前 `packages/db/prisma/schema.prisma` 有 **25 个
 model**；进度记录显示已接入 **22 个读域、4 个写路径**，并通过共享
 `PrismaPg` 单例和按域 feature flag 渐进切流。定向验证结果：
 
@@ -66,17 +66,19 @@ shadow 未开启对应 read 的组合；拼写错误和 read/shadow 不同步现
 task enqueue + workflow outbox 作为独立高风险批次；只有完成 legacy/Prisma affected rows、
 错误类别、幂等、并发和事件顺序对照后，才允许关闭旧路径。
 
-### P2（已部分完成）：shadow 观测已有进程内 SLO 聚合，仍缺持久化和自动回滚
+### P2（已部分完成）：shadow 观测已有进程内 SLO 聚合、集中 flush 和外部 pager 适配
 
 `packages/db/src/prisma/cutover-observability.ts` 对异常全量记录、正常 primary 默认只采样 1%，
 并脱敏错误文本。本轮新增有界的 `PrismaCutoverSloWindow`：采样决策前记录完整调用结果，按域计算
 mismatch/fallback/error 比率与 P95，并根据调用方提供的阈值生成 rollback reasons；快照可携带
 当前 flag version 和 last-known-good flag version。相关 SLO、采样与 cutover runner 测试共 16 项通过。
 
-本轮已将快照持久化到集中 `audit_log` 指标账本，按实例/窗口幂等写入并可跨实例按样本加权；
+本轮已将快照持久化到集中 `audit_log` 指标账本，按实例/窗口幂等写入并可跨实例按样本加权；新增
+`flushPrismaCutoverSloSnapshotsSync` 作为周期任务固定入口，并新增
+`sendPrismaCutoverSloPagerAlert` 将中心快照转换为现有外部 pager payload；
 新增 deadlock/P2034 分类、burn-rate、pager active/cleared 状态以及带 release/current/
-last-known-good/reasons 的 `PrismaCutoverRollbackPublisher` 契约。仍需由部署环境安排周期 flush、
-真实告警渠道和发布适配器演练；代码不会未经发布系统授权自动修改 flag。
+last-known-good/reasons 的 `PrismaCutoverRollbackPublisher` 契约。仍需由部署环境调度周期任务、
+配置真实 webhook 和完成发布适配器演练；代码不会未经发布系统授权自动修改 flag。
 
 ### P2（已部分完成）：Raw SQL 已参数化并增加 Unsafe 门禁
 
@@ -90,6 +92,5 @@ last-known-good/reasons 的 `PrismaCutoverRollbackPublisher` 契约。仍需由�
 
 ## 3. 推荐落地顺序
 
-先完成全量 schema/invariant drift gate、角色化连接池运行容量证据和 shadow SLO，再继续扩展
-写路径；同时补齐 shadow 指标聚合与自动回滚证据。不要因为 pilot drift 通过就提前删除 legacy
-路径或一次开启多个新域。
+先完成角色化连接池运行容量证据、周期任务调度和发布回滚演练，再继续扩展写路径；不要因为
+pilot drift 通过就提前删除 legacy 路径或一次开启多个新域。
