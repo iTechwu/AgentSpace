@@ -79,6 +79,8 @@ mismatch/fallback/error 比率与 P95，并根据调用方提供的阈值生成 
 新增 deadlock/P2034 分类、burn-rate、pager active/cleared 状态以及带 release/current/
 last-known-good/reasons 的 `PrismaCutoverRollbackPublisher` 契约。仍需由部署环境调度周期任务、
 配置真实 webhook 和完成发布适配器演练；代码不会未经发布系统授权自动修改 flag。
+由于快照当前复用 `audit_log`，还需为 `prisma.cutover.slo.snapshot` 规划保留期、按 code/created_at
+的查询索引和归档策略，避免中心账本无限增长。
 
 ### P2（已部分完成）：Raw SQL 已参数化并增加 Unsafe 门禁
 
