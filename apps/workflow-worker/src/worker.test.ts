@@ -118,9 +118,9 @@ test("worker tick reports invalid clock in schedulerFailures and skips outbox/re
   assert.deepEqual(result, { scheduled: 0, schedulerFailures: 1, dispatched: 0, recovered: 0 });
 });
 
-test("worker SLO flush throttles by interval and threads windowStart from last flush", () => {
+test("worker SLO flush throttles by interval and threads windowStart from last success", () => {
   // worker 进程的 SLO 窗口必须由 worker 自己落账（Web/maintenance cron 刷不到本进程样本）；
-  // 节流窗口内重复调用不落账，跨窗口调用以 lastFlushAtMs 作为 windowStart。
+  // 节流窗口内重复调用不落账，跨窗口调用以 lastFlushAtMs（上次成功）作为 windowStart。
   const flushes: Array<{ instanceId: string; windowStart?: string; now: string }> = [];
   const flush = (input: { instanceId: string; windowStart?: string; now: string }): number => {
     flushes.push(input);
@@ -142,13 +142,28 @@ test("worker SLO flush throttles by interval and threads windowStart from last f
   assert.equal(flushes[1]?.now, new Date(1_070_000).toISOString());
 });
 
-test("worker SLO flush failure still advances the throttle state", () => {
-  // 落账失败不重试风暴：状态推进，下一周期再试；窗口内样本留给下一次 flush。
+test("worker SLO flush failure retries next interval without advancing the success window", () => {
+  // 失败不推进 lastFlushAtMs（windowStart 仍为空，失败域样本留给下次整段覆盖），
+  // 但推进 lastAttemptAtMs：节流窗口内不重试，跨窗口后重试一次。
   const state: WorkflowWorkerSloFlushState = {};
-  let failures = 0;
-  const failingFlush = (): number => { failures += 1; throw new Error("ledger unavailable"); };
-  assert.throws(() => maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_000_000, flushIntervalMs: 60_000, flush: failingFlush }));
-  // 节流窗口内不重复落账。
-  maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_010_000, flushIntervalMs: 60_000, flush: failingFlush });
-  assert.equal(failures, 1);
+  let attempts = 0;
+  const flush = (): number => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("ledger unavailable");
+    return 2;
+  };
+  assert.throws(() => maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_000_000, flushIntervalMs: 60_000, flush }));
+  maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_010_000, flushIntervalMs: 60_000, flush });
+  assert.equal(attempts, 1);
+  // 跨过失败尝试一个周期后重试成功；此前从未成功过，windowStart 保持 undefined。
+  const flushed = maybeFlushWorkflowWorkerSloSync({ workerId: "w1", state, nowMs: 1_070_000, flushIntervalMs: 60_000, flush });
+  assert.equal(flushed, 2);
+  assert.equal(attempts, 2);
+  // 成功之后，下一次 flush 的 windowStart 指向该成功时刻。
+  const flushes: Array<{ windowStart?: string }> = [];
+  maybeFlushWorkflowWorkerSloSync({
+    workerId: "w1", state, nowMs: 1_140_000, flushIntervalMs: 60_000,
+    flush: (input) => { flushes.push(input); return 0; },
+  });
+  assert.equal(flushes[0]?.windowStart, new Date(1_070_000).toISOString());
 });

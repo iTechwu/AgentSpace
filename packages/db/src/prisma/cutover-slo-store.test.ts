@@ -177,6 +177,48 @@ test("scheduled flush persists and resets the bounded window by default", () => 
   }), []);
 });
 
+test("scheduled flush resets per domain so partial failure never double-writes", () => {
+  // 多域 flush 部分失败：已落账域样本立即清空（下次不会带新 windowEnd 重复写入
+  // 与重复计数），失败域样本保留在窗口内等待下一周期重写。
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "domain-a" }, { source: "primary", mismatch: 0, durationMs: 10 });
+  window.record({ domain: "domain-b" }, { source: "primary", mismatch: 0, durationMs: 10 });
+  const thresholds = {
+    minimumSamples: 1,
+    maximumMismatchRate: 1,
+    maximumFallbackRate: 1,
+    maximumErrorRate: 1,
+    maximumP95DurationMs: 1000,
+  };
+  const persistedDomains: string[] = [];
+  assert.throws(() => flushPrismaCutoverSloSnapshotsSync({
+    sloWindow: window,
+    instanceId: "instance-partial",
+    workspaceId: testWorkspaceId,
+    now: "2026-08-17T00:02:00.000Z",
+    thresholds,
+    persist: (input) => {
+      const domain = input.snapshots[0]?.domain ?? "";
+      persistedDomains.push(domain);
+      if (domain === "domain-b") throw new Error("ledger write failed");
+      return persistPrismaCutoverSloSnapshotsSync(input);
+    },
+  }), /ledger write failed/);
+  assert.deepEqual(persistedDomains, ["domain-a", "domain-b"]);
+  // domain-a 已落账并被清空；窗口里只剩 domain-b。
+  assert.deepEqual(window.snapshots({ thresholds }).map((snapshot) => snapshot.domain), ["domain-b"]);
+  // 重试成功后窗口清空。
+  const persisted = flushPrismaCutoverSloSnapshotsSync({
+    sloWindow: window,
+    instanceId: "instance-partial",
+    workspaceId: testWorkspaceId,
+    now: "2026-08-17T00:03:00.000Z",
+    thresholds,
+  });
+  assert.deepEqual(persisted.map((row) => row.domain), ["domain-b"]);
+  assert.deepEqual(window.snapshots({ thresholds }), []);
+});
+
 test("central snapshot listing supports a bounded persistence window", () => {
   persistPrismaCutoverSloSnapshotsSync({
     workspaceId: testWorkspaceId,

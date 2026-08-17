@@ -147,6 +147,11 @@ export class PrismaCutoverSloWindow {
   reset(): void {
     this.samplesByDomain.clear();
   }
+
+  /** 按域清空：flush 逐域落账成功后立即移除该域样本，失败域留给下次重试。 */
+  resetDomain(domain: string): void {
+    this.samplesByDomain.delete(domain.trim());
+  }
 }
 
 function summarizeDomain(

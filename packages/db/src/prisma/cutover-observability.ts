@@ -98,8 +98,10 @@ export function flushPrismaCutoverSloSnapshotsSync(input: {
   now?: string;
   resetAfterFlush?: boolean;
   sloWindow?: PrismaCutoverSloWindow;
+  persist?: typeof persistPrismaCutoverSloSnapshotsSync;
 }): PersistedPrismaCutoverSloSnapshot[] {
   const window = input.sloWindow ?? sharedSloWindow;
+  const persist = input.persist ?? persistPrismaCutoverSloSnapshotsSync;
   const snapshots = window.snapshots({
     thresholds: input.thresholds,
     flagVersion: input.flagVersion,
@@ -108,13 +110,20 @@ export function flushPrismaCutoverSloSnapshotsSync(input: {
     windowStart: input.windowStart,
     windowEnd: input.windowEnd ?? input.now,
   });
-  const persisted = persistPrismaCutoverSloSnapshotsSync({
-    snapshots,
-    instanceId: input.instanceId,
-    workspaceId: input.workspaceId,
-    now: input.now,
-  });
-  if (input.resetAfterFlush !== false) window.reset();
+  // 逐域落账：某域写入成功立即清空该域样本，失败域留给下一周期以新
+  // windowEnd 重写。若整体成功后才统一 reset，部分失败会把已落账域的
+  // 样本带着新 windowEnd 再写一遍（幂等键含 windowEnd）——同域重复计数。
+  const persisted: PersistedPrismaCutoverSloSnapshot[] = [];
+  for (const snapshot of snapshots) {
+    const [row] = persist({
+      snapshots: [snapshot],
+      instanceId: input.instanceId,
+      workspaceId: input.workspaceId,
+      now: input.now,
+    });
+    if (row) persisted.push(row);
+    if (input.resetAfterFlush !== false) window.resetDomain(snapshot.domain);
+  }
   return persisted;
 }
 

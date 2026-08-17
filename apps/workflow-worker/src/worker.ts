@@ -46,8 +46,10 @@ export async function runWorkflowWorkerTick(input: {
 }
 
 export interface WorkflowWorkerSloFlushState {
-  /** 上次 flush 的 epoch 毫秒；undefined 表示本进程尚未 flush 过。 */
+  /** 上次成功 flush 的 epoch 毫秒；undefined 表示本进程尚未成功 flush 过。 */
   lastFlushAtMs?: number;
+  /** 上次尝试（含失败）的 epoch 毫秒——节流基准，防止失败后每 tick 重试风暴。 */
+  lastAttemptAtMs?: number;
 }
 
 const DEFAULT_SLO_FLUSH_INTERVAL_MS = 60_000;
@@ -56,7 +58,9 @@ const DEFAULT_SLO_FLUSH_INTERVAL_MS = 60_000;
  * worker 进程内 SLO 窗口节流落账：指标样本累积在本进程 sharedSloWindow，
  * Web/maintenance cron 的 flush 刷不到 worker 进程；由 worker 循环按
  * flushIntervalMs 调用本函数，把窗口写入集中 audit ledger。
- * windowStart 取上次 flush 时刻，保证单窗口跨度不超过 flush 周期。
+ * 节流以"上次尝试"为基准（失败也推进，防重试风暴）；windowStart 取"上次成功
+ * flush"时刻，且仅在整轮 flush 成功返回后才推进——部分失败时失败域样本仍在
+ * 窗口内，下次以新 windowEnd 重写（store 逐域落账+逐域重置保证已成功域不重复）。
  */
 export function maybeFlushWorkflowWorkerSloSync(input: {
   workerId: string;
@@ -69,13 +73,17 @@ export function maybeFlushWorkflowWorkerSloSync(input: {
     Math.max(Math.trunc(input.flushIntervalMs ?? DEFAULT_SLO_FLUSH_INTERVAL_MS), 5_000),
     3_600_000,
   );
-  const lastFlushAtMs = input.state.lastFlushAtMs;
-  if (lastFlushAtMs !== undefined && input.nowMs - lastFlushAtMs < intervalMs) return 0;
-  const windowStart = lastFlushAtMs !== undefined ? new Date(lastFlushAtMs).toISOString() : undefined;
+  const lastAttemptAtMs = input.state.lastAttemptAtMs;
+  if (lastAttemptAtMs !== undefined && input.nowMs - lastAttemptAtMs < intervalMs) return 0;
+  const windowStart = input.state.lastFlushAtMs !== undefined
+    ? new Date(input.state.lastFlushAtMs).toISOString()
+    : undefined;
   const now = new Date(input.nowMs).toISOString();
-  input.state.lastFlushAtMs = input.nowMs;
+  input.state.lastAttemptAtMs = input.nowMs;
   const flush = input.flush ?? flushWorkflowWorkerPrismaCutoverSloSync;
-  return flush({ instanceId: `workflow-worker-${input.workerId}`, windowStart, now });
+  const flushed = flush({ instanceId: `workflow-worker-${input.workerId}`, windowStart, now });
+  input.state.lastFlushAtMs = input.nowMs;
+  return flushed;
 }
 
 // schedulerFailures 是告警出口（后端设计文档:119）：触发器物化失败、审批限时扫描单条失败、
