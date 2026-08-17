@@ -62,7 +62,8 @@ async function main(): Promise<void> {
       role,
       concurrency: getNumberFlag(flags, "concurrency"),
       holdMs: getNumberFlag(flags, "hold-ms"),
-      timeoutMs: getNumberFlag(flags, "timeout-ms"),
+      connectionTimeoutMs: getNumberFlag(flags, "connection-timeout-ms"),
+      statementTimeoutMs: getNumberFlag(flags, "statement-timeout-ms") ?? getNumberFlag(flags, "timeout-ms"),
     }), true);
     return;
   }
@@ -115,7 +116,7 @@ function printHelp(): void {
   node --experimental-strip-types packages/db/src/postgres-cli.ts status --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts init --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-evidence --database-url <postgres-url> [--json]
-  node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-loadtest --database-url <isolated-test-postgres-url> --role <web|worker|daemon> [--concurrency <n>] [--hold-ms <n>] [--timeout-ms <n>] [--json]
+  node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-loadtest --database-url <isolated-test-postgres-url> --role <web|worker|daemon> [--concurrency <n>] [--hold-ms <n>] [--connection-timeout-ms <n>] [--statement-timeout-ms <n>] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-sqlite [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-postgres --source-database-url <postgres-url> [--target-database-url <postgres-url>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts cutover-plan [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--json]

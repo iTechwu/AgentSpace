@@ -88,10 +88,8 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
 
 ## 7. 实施顺序建议（单 PR 内分步可回退）
 
-1. **已完成 node.ready 路径**：`prisma/workflow-dispatch-prisma-write.ts` 实现 `Prisma.TransactionClient` 边界——outbox lease claim、node claim、router session upsert、
-   queue upsert、双生命周期事件、run event、node link 和 outbox publish 同一 Serializable transaction；锁顺序复刻 run→node；
-2. **已接线双 runner**：worker 根据 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 选择 Prisma node-level path，flag 默认 0，sync legacy 保留回退；
+1. **已完成 employee_task node.ready 路径**：`prisma/workflow-dispatch-prisma-write.ts` 实现 `Prisma.TransactionClient` 边界——outbox lease claim、run→node 行锁、node claim、router session、queue insert/read、双生命周期事件、run event、node link 和 outbox publish 同一 Serializable transaction；CAS/link affected rows 强制为 1，重复 queue 不再重复写事件；
+2. **已接线按类型双 runner**：worker 根据 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 选择 Prisma node-level path，flag 默认 0；`approval` 与非 employee_task 节点显式 claim 后进入 sync legacy，避免全局开关破坏审批流；终态/非 ready employee_task 原子 claim+publish，不再出现结果标记 published 但数据库仍 pending；
 3. **待实施**：coordinator/materialization outbox 合并事务仍需独立 flag 和对照；run.ready/resumed fan-out 目前在 Prisma worker 中逐节点事务后再确认批量 outbox；
-4. 定向测试：幂等重入（同 nodeRunId 二次 dispatch）、并发抢占（两 claim 同 node）、queue 冲突不产事件、
-   40P01/P2034 注入重试、outbox+业务变更原子回滚（故障注入两者皆无）；
+4. **已完成基础故障处理测试**：P2034 有界重试、binding/employee 缺失转 `retry_wait +60s`、已有 queue 不重复写 router/task event、outbox failure 不重复增加 attempt；仍需真实 PostgreSQL 40P01/40001 故障注入、两 worker 并发 claim 和 outbox+业务变更原子回滚测试；
 5. 全量 `packages/db` + `services` 相关测试（逐文件运行），SLO 域注册与 `prisma:pool:evidence` 复测。

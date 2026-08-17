@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  acknowledgeInactiveWorkflowNodeOutboxPrisma,
   claimWorkflowOutboxBatchPrisma,
   enqueueWorkflowOutboxPrisma,
+  markWorkflowOutboxFailedPrisma,
   markWorkflowOutboxPublishedPrisma,
 } from "./workflow-outbox-prisma-write.ts";
 
@@ -95,4 +97,58 @@ test("Prisma outbox publish rejects a lost lease", async () => {
     () => markWorkflowOutboxPublishedPrisma({ id: "outbox-1", workerId: "worker-1", workspaceId: "workspace-1" }, client as never),
     /workflow_outbox_lease_conflict/,
   );
+});
+
+test("Prisma outbox failure keeps the existing claim attempt count", async () => {
+  let updateData: Record<string, unknown> | undefined;
+  const tx = {
+    workflowOutbox: {
+      findFirst: async () => ({ attempts: 3, lockedBy: "worker-1" }),
+      updateMany: async (args: { data: Record<string, unknown> }) => {
+        updateData = args.data;
+        return { count: 1 };
+      },
+    },
+  };
+  const client = { $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx) };
+
+  await markWorkflowOutboxFailedPrisma({
+    id: "outbox-1",
+    workerId: "worker-1",
+    workspaceId: "workspace-1",
+    error: "workflow_outbox_dispatch_failed",
+    nextAvailableAt: "2026-08-17T00:01:00.000Z",
+    maxAttempts: 8,
+    now: "2026-08-17T00:00:00.000Z",
+  }, client as never);
+
+  assert.equal(updateData?.attempts, undefined);
+  assert.equal(updateData?.status, "pending");
+});
+
+test("Prisma inactive-node acknowledgement locks run then node and rechecks the skip condition", async () => {
+  const calls: string[] = [];
+  const tx = {
+    $queryRaw: async () => {
+      calls.push(calls.length === 0 ? "run.lock" : "node.lock");
+      return calls.length === 1 ? [{ status: "paused" }] : [{ status: "ready" }];
+    },
+    workflowOutbox: {
+      updateMany: async () => { calls.push("outbox.update"); return { count: 1 }; },
+    },
+  };
+  const client = { $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx) };
+
+  const acknowledged = await acknowledgeInactiveWorkflowNodeOutboxPrisma({
+    id: "outbox-1",
+    workerId: "worker-1",
+    workspaceId: "workspace-1",
+    runId: "run-1",
+    nodeRunId: "node-run-1",
+    reason: "run_blocked",
+    now: "2026-08-17T00:00:00.000Z",
+  }, client as never);
+
+  assert.equal(acknowledged, true);
+  assert.deepEqual(calls, ["run.lock", "node.lock", "outbox.update", "outbox.update"]);
 });

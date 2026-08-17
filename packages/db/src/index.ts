@@ -243,6 +243,7 @@ export {
 export {
   enqueueWorkflowOutboxSync,
   readWorkflowOutboxSync,
+  claimWorkflowOutboxByIdSync,
   claimWorkflowOutboxBatchSync,
   markWorkflowOutboxFailedSync,
   markWorkflowOutboxPublishedSync,
@@ -371,6 +372,7 @@ export {
 } from "./prisma/task-queue-prisma-write.ts";
 export {
   claimWorkflowOutboxBatchPrisma,
+  acknowledgeInactiveWorkflowNodeOutboxPrisma,
   enqueueWorkflowOutboxPrisma,
   listPendingWorkflowOutboxPrisma,
   markWorkflowOutboxFailedPrisma,

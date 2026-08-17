@@ -2,11 +2,13 @@ import {
   claimWorkflowNodeForDispatchSync,
   dispatchWorkflowNodePrisma,
   dispatchWorkflowNodeFromOutboxPrisma,
+  acknowledgeInactiveWorkflowNodeOutboxPrisma,
   enqueueNativeTaskSync,
   getDatabase,
   appendWorkflowRunEventSync,
   listWorkflowNodeRunsSync,
   lockWorkflowRunForUpdateSync,
+  readWorkflowRunSync,
   readStoredEmployeeByIdSync,
   readWorkflowNodeRunSync,
   readWorkflowVersionSync,
@@ -46,13 +48,39 @@ export async function dispatchReadyWorkflowNodePrisma(input: DispatchWorkflowNod
 }): Promise<DispatchWorkflowNodeResult> {
   const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
   if (!candidate) throw new Error("workflow_node_run_not_found");
-  const run = lockWorkflowRunForUpdateSync(candidate.runId, input.workspaceId);
+  const run = readWorkflowRunSync(candidate.runId, input.workspaceId);
   if (!run) throw new Error("workflow_run_not_found");
   if (isWorkflowRunDispatchBlocked(run.status)) {
-    return { nodeRunId: candidate.id, taskQueueId: candidate.taskQueueId, status: candidate.status };
+    if (input.atomicOutbox && input.outbox) {
+      const acknowledged = await acknowledgeInactiveWorkflowNodeOutboxPrisma({
+        id: input.outbox.id,
+        workerId: input.outbox.workerId,
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        nodeRunId: candidate.id,
+        reason: "run_blocked",
+        now: input.now ?? new Date().toISOString(),
+      });
+      if (acknowledged) {
+        return { nodeRunId: candidate.id, taskQueueId: candidate.taskQueueId, status: candidate.status };
+      }
+    }
   }
   if (candidate.status !== "ready") {
-    return { nodeRunId: candidate.id, taskQueueId: candidate.taskQueueId, status: candidate.status };
+    if (input.atomicOutbox && input.outbox) {
+      const acknowledged = await acknowledgeInactiveWorkflowNodeOutboxPrisma({
+        id: input.outbox.id,
+        workerId: input.outbox.workerId,
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        nodeRunId: candidate.id,
+        reason: "node_not_ready",
+        now: input.now ?? new Date().toISOString(),
+      });
+      if (acknowledged) {
+        return { nodeRunId: candidate.id, taskQueueId: candidate.taskQueueId, status: candidate.status };
+      }
+    }
   }
   const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
   if (!version) throw new Error("workflow_version_not_found");
@@ -76,6 +104,7 @@ export async function dispatchReadyWorkflowNodePrisma(input: DispatchWorkflowNod
   const priority: "low" | "medium" | "high" = config.priority === "low" || config.priority === "high" ? config.priority : "medium";
   const prismaInput = {
     workspaceId: input.workspaceId,
+    runId: run.id,
     nodeRunId: candidate.id,
     employeeId: candidate.employeeId,
     title: typeof config.title === "string"

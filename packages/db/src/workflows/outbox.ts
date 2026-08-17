@@ -70,6 +70,27 @@ export function claimWorkflowOutboxBatchSync(input: {
   return claimed;
 }
 
+export function claimWorkflowOutboxByIdSync(input: {
+  id: string;
+  workerId: string;
+  workspaceId: string;
+  now: string;
+  leaseSeconds: number;
+}): WorkflowOutboxRecord | null {
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const leaseUntil = new Date(Date.parse(input.now) + Math.max(1, input.leaseSeconds) * 1_000).toISOString();
+    const updated = db.prepare(
+      `UPDATE workflow_outbox
+          SET locked_at = ?, locked_by = ?, attempts = attempts + 1
+        WHERE id = ? AND workspace_id = ? AND status = 'pending' AND available_at <= ?
+          AND (locked_at IS NULL OR locked_at < ?)
+        RETURNING id`,
+    ).get(leaseUntil, input.workerId, input.id, input.workspaceId, input.now, input.now) as { id?: string } | undefined;
+    return updated?.id ? readWorkflowOutboxSync(input.id, input.workspaceId) : null;
+  });
+}
+
 export function markWorkflowOutboxPublishedSync(id: string, workerId: string, workspaceId: string, now = new Date().toISOString()): void {
   const result = getDatabase().prepare(
     `UPDATE workflow_outbox SET status = 'published', published_at = ?, locked_at = NULL, locked_by = NULL

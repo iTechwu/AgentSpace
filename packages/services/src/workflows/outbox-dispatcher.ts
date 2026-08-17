@@ -1,5 +1,6 @@
 import {
   appendWorkflowRunEventSync,
+  claimWorkflowOutboxByIdSync,
   claimWorkflowOutboxBatchPrisma,
   claimWorkflowOutboxBatchSync,
   getDatabase,
@@ -136,6 +137,16 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
       const payload = parsePayload(item.payloadJson);
       if (item.eventType === "workflow.node.ready") {
         if (typeof payload.nodeRunId !== "string") throw new Error("workflow_outbox_payload_invalid");
+        const node = readWorkflowNodeRunSync(payload.nodeRunId, item.workspaceId);
+        if (node?.nodeType !== "employee_task") {
+          const claimed = claimWorkflowOutboxByIdSync({ id: item.id, workerId: input.workerId, workspaceId: item.workspaceId, now, leaseSeconds: 60 });
+          if (!claimed) throw new Error("workflow_outbox_lease_conflict");
+          const dispatched = dispatchReadyWorkflowNodeByTypeSync({ workspaceId: item.workspaceId, nodeRunId: payload.nodeRunId, now });
+          if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
+          markWorkflowOutboxPublishedSync(item.id, input.workerId, item.workspaceId, now);
+          result.publishedOutboxIds.push(item.id);
+          continue;
+        }
         const dispatched = await dispatchReadyWorkflowNodePrisma({
           workspaceId: item.workspaceId,
           nodeRunId: payload.nodeRunId,

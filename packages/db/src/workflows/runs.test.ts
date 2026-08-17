@@ -23,6 +23,7 @@ import {
 } from "./runs.ts";
 import { appendWorkflowRunEventSync, listWorkflowRunEventsSync } from "./events.ts";
 import {
+  claimWorkflowOutboxByIdSync,
   claimWorkflowOutboxBatchSync,
   enqueueWorkflowOutboxSync,
   markWorkflowOutboxPublishedSync,
@@ -416,6 +417,30 @@ test("event sequence and outbox lease are monotonic and owned", () => {
     /workflow_outbox_lease_conflict/,
   );
   markWorkflowOutboxPublishedSync(outbox.id, "worker-1", WORKSPACE_ID);
+
+  const targeted = enqueueWorkflowOutboxSync({
+    workspaceId: WORKSPACE_ID,
+    aggregateType: "workflow_run",
+    aggregateId: run.id,
+    eventType: "workflow.node.ready",
+    payloadJson: "{}",
+    now: "2026-08-07T00:00:00.000Z",
+  });
+  assert.equal(claimWorkflowOutboxByIdSync({
+    id: targeted.id,
+    workerId: "approval-worker",
+    workspaceId: WORKSPACE_ID,
+    now: "2026-08-07T00:00:01.000Z",
+    leaseSeconds: 30,
+  })?.attempts, 1);
+  assert.equal(claimWorkflowOutboxByIdSync({
+    id: targeted.id,
+    workerId: "other-worker",
+    workspaceId: WORKSPACE_ID,
+    now: "2026-08-07T00:00:02.000Z",
+    leaseSeconds: 30,
+  }), null);
+  markWorkflowOutboxPublishedSync(targeted.id, "approval-worker", WORKSPACE_ID);
 });
 
 test("keyset 分页纳入 history_sequence 仍为 NULL 的旧行（回填窗口期不丢行）", () => {

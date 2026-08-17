@@ -4,6 +4,7 @@ import { getDofePrismaClient } from "./prisma-client.ts";
 
 export interface DispatchWorkflowNodePrismaInput {
   workspaceId: string;
+  runId: string;
   nodeRunId: string;
   employeeId: string;
   title: string;
@@ -20,7 +21,7 @@ export interface DispatchWorkflowNodePrismaResult {
   nodeRunId: string;
   status: string;
   taskQueueId?: string;
-  reason: "claimed" | "already_queued" | "concurrency_limited" | "not_ready";
+  reason: "claimed" | "already_queued" | "concurrency_limited" | "queue_unavailable" | "not_ready";
 }
 
 /**
@@ -33,10 +34,10 @@ export async function dispatchWorkflowNodePrisma(
   input: DispatchWorkflowNodePrismaInput,
   client: PrismaClient = getDofePrismaClient(),
 ): Promise<DispatchWorkflowNodePrismaResult> {
-  return client.$transaction(
+  return retrySerializableTransaction(() => client.$transaction(
     (tx) => dispatchWorkflowNodePrismaInTransaction(input, tx),
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  );
+  ));
 }
 
 /** Claim the ready outbox row and dispatch the node under one transaction. */
@@ -44,7 +45,7 @@ export async function dispatchWorkflowNodeFromOutboxPrisma(
   input: DispatchWorkflowNodePrismaInput & { outbox: { id: string; workerId: string } },
   client: PrismaClient = getDofePrismaClient(),
 ): Promise<DispatchWorkflowNodePrismaResult> {
-  return client.$transaction(
+  return retrySerializableTransaction(() => client.$transaction(
     async (tx) => {
       const leaseUntil = new Date(Date.parse(input.now) + 60_000);
       const claimed = await tx.workflowOutbox.updateMany({
@@ -61,7 +62,7 @@ export async function dispatchWorkflowNodeFromOutboxPrisma(
       return dispatchWorkflowNodePrismaInTransaction(input, tx);
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  );
+  ));
 }
 
 export function isWorkflowDispatcherPrismaWriteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -72,10 +73,18 @@ async function dispatchWorkflowNodePrismaInTransaction(
   input: DispatchWorkflowNodePrismaInput,
   tx: Prisma.TransactionClient,
 ): Promise<DispatchWorkflowNodePrismaResult> {
+  const lockedRun = await tx.$queryRaw<Array<{ id: string; status: string }>>(
+    Prisma.sql`SELECT id, status FROM workflow_run WHERE id = ${input.runId} AND workspace_id = ${input.workspaceId} FOR UPDATE`,
+  );
+  if (lockedRun.length !== 1) throw new Error("workflow_run_not_found");
   const node = await tx.workflowNodeRun.findFirst({
     where: { id: input.nodeRunId, workspaceId: input.workspaceId },
   });
   if (!node) throw new Error("workflow_node_run_not_found");
+  if (isWorkflowRunDispatchBlocked(lockedRun[0]!.status)) {
+    await publishOutboxInTransaction(input, tx);
+    return { nodeRunId: node.id, status: node.status, taskQueueId: node.taskQueueId ?? undefined, reason: "not_ready" };
+  }
   if (node.status === "queued" && node.taskQueueId) {
     await publishOutboxInTransaction(input, tx);
     return { nodeRunId: node.id, status: node.status, taskQueueId: node.taskQueueId, reason: "already_queued" };
@@ -100,7 +109,10 @@ async function dispatchWorkflowNodePrismaInTransaction(
         updatedAt: new Date(input.now),
       },
     });
-    if (updated.count !== 1) return { nodeRunId: node.id, status: "ready", reason: "not_ready" };
+    if (updated.count !== 1) {
+      await publishOutboxInTransaction(input, tx);
+      return { nodeRunId: node.id, status: "ready", reason: "not_ready" };
+    }
     await appendRunEventInTransaction(tx, {
       workspaceId: input.workspaceId,
       runId: node.runId,
@@ -118,19 +130,22 @@ async function dispatchWorkflowNodePrismaInTransaction(
     where: { id: node.id, workspaceId: input.workspaceId, status: "ready" },
     data: { status: "queued", errorCode: null, errorMessage: null, updatedAt: new Date(input.now) },
   });
-  if (claimed.count !== 1) return { nodeRunId: node.id, status: "ready", reason: "not_ready" };
+  if (claimed.count !== 1) {
+    await publishOutboxInTransaction(input, tx);
+    return { nodeRunId: node.id, status: "ready", reason: "not_ready" };
+  }
 
   const employee = await tx.workspaceEmployee.findFirst({
     where: { id: input.employeeId, workspaceId: input.workspaceId },
     select: { id: true, name: true },
   });
-  if (!employee) throw new Error("workflow_employee_not_ready");
+  if (!employee) return deferQueueUnavailableInTransaction(input, node, tx);
   const binding = await tx.employeeRuntimeBinding.findUnique({
     where: { workspaceId_employeeId: { workspaceId: input.workspaceId, employeeId: employee.id } },
     include: { runtime: { select: { id: true, name: true, provider: true } } },
   });
   if (!binding || binding.status === "offline" || binding.status === "needs_attention") {
-    throw new Error("workflow_employee_runtime_not_ready");
+    return deferQueueUnavailableInTransaction(input, node, tx);
   }
 
   const queueId = `queue-workflow-${node.id}`;
@@ -165,9 +180,9 @@ async function dispatchWorkflowNodePrismaInTransaction(
       },
     });
 
-  const task = await tx.agentTaskQueue.upsert({
-    where: { id: queueId },
-    create: {
+  const existingTask = await tx.agentTaskQueue.findUnique({ where: { id: queueId } });
+  const task = existingTask ?? await tx.agentTaskQueue.create({
+    data: {
       id: queueId,
       workspaceId: input.workspaceId,
       agentId: employee.name,
@@ -184,45 +199,47 @@ async function dispatchWorkflowNodePrismaInTransaction(
       createdAt: new Date(input.now),
       updatedAt: new Date(input.now),
     },
-    update: {},
   });
-  await tx.workflowNodeRun.updateMany({
+  const linked = await tx.workflowNodeRun.updateMany({
     where: { id: node.id, workspaceId: input.workspaceId, status: "queued", taskQueueId: null },
     data: { taskQueueId: task.id, updatedAt: new Date(input.now) },
   });
-  await tx.agentRouterEvent.create({
-    data: {
-      id: `router-event-${randomLikeId()}`,
-      workspaceId: input.workspaceId,
-      routerSessionId: session.id,
-      taskQueueId: task.id,
-      type: "task_queued",
-      actorType: "system",
-      runtimeId: binding.runtimeId,
-      provider: binding.runtime.provider,
-      summary: input.title,
-      dataJson: { preferredRuntimeId: binding.runtimeId, nodeRunId: node.id } as Prisma.InputJsonObject,
-      createdAt: new Date(input.now),
-    },
-  });
-  await tx.taskExecutionEvent.create({
-    data: {
-      id: `task-event-${randomLikeId()}`,
-      workspaceId: input.workspaceId,
-      taskId: task.id,
-      channelName: input.channelName ?? "",
-      agentId: employee.name,
-      runtimeId: binding.runtimeId,
-      runId: node.runId,
-      type: "queued",
-      title: "Task entered the execution queue",
-      summary: `${input.title} is waiting for ${binding.runtime.name}.`,
-      severity: "info",
-      status: "pending",
-      dataJson: { nodeRunId: node.id, preferredRuntimeId: binding.runtimeId } as Prisma.InputJsonObject,
-      createdAt: new Date(input.now),
-    },
-  });
+  if (linked.count !== 1) throw new Error("workflow_node_queue_link_conflict");
+  if (!existingTask) {
+    await tx.agentRouterEvent.create({
+      data: {
+        id: `router-event-${randomLikeId()}`,
+        workspaceId: input.workspaceId,
+        routerSessionId: session.id,
+        taskQueueId: task.id,
+        type: "task_queued",
+        actorType: "system",
+        runtimeId: binding.runtimeId,
+        provider: binding.runtime.provider,
+        summary: input.title,
+        dataJson: { preferredRuntimeId: binding.runtimeId, nodeRunId: node.id } as Prisma.InputJsonObject,
+        createdAt: new Date(input.now),
+      },
+    });
+    await tx.taskExecutionEvent.create({
+      data: {
+        id: `task-event-${randomLikeId()}`,
+        workspaceId: input.workspaceId,
+        taskId: task.id,
+        channelName: input.channelName ?? "",
+        agentId: employee.name,
+        runtimeId: binding.runtimeId,
+        runId: node.runId,
+        type: "queued",
+        title: "Task entered the execution queue",
+        summary: `${input.title} is waiting for ${binding.runtime.name}.`,
+        severity: "info",
+        status: "pending",
+        dataJson: { nodeRunId: node.id, preferredRuntimeId: binding.runtimeId } as Prisma.InputJsonObject,
+        createdAt: new Date(input.now),
+      },
+    });
+  }
   await appendRunEventInTransaction(tx, {
     workspaceId: input.workspaceId,
     runId: node.runId,
@@ -236,9 +253,41 @@ async function dispatchWorkflowNodePrismaInTransaction(
   return { nodeRunId: node.id, status: "queued", taskQueueId: task.id, reason: "claimed" };
 }
 
+async function deferQueueUnavailableInTransaction(
+  input: DispatchWorkflowNodePrismaInput,
+  node: { id: string; runId: string },
+  tx: Prisma.TransactionClient,
+): Promise<DispatchWorkflowNodePrismaResult> {
+  const availableAt = new Date(Date.parse(input.now) + 60_000);
+  const updated = await tx.workflowNodeRun.updateMany({
+    where: { id: node.id, workspaceId: input.workspaceId, status: "queued" },
+    data: {
+      status: "retry_wait",
+      availableAt,
+      taskQueueId: null,
+      errorCode: "workflow_task_queue_unavailable",
+      errorMessage: "workflow_task_queue_unavailable",
+      updatedAt: new Date(input.now),
+    },
+  });
+  if (updated.count !== 1) throw new Error("workflow_node_queue_retry_conflict");
+  await appendRunEventInTransaction(tx, {
+    workspaceId: input.workspaceId,
+    runId: node.runId,
+    nodeRunId: node.id,
+    type: "node.queue_blocked",
+    actorType: "dispatcher",
+    severity: "warning",
+    dataJson: { code: "workflow_task_queue_unavailable", availableAt: availableAt.toISOString() },
+    now: input.now,
+  });
+  await publishOutboxInTransaction(input, tx);
+  return { nodeRunId: node.id, status: "retry_wait", reason: "queue_unavailable" };
+}
+
 async function appendRunEventInTransaction(
   tx: Prisma.TransactionClient,
-  input: { workspaceId: string; runId: string; nodeRunId: string; type: string; actorType: string; dataJson: Record<string, unknown>; now: string },
+  input: { workspaceId: string; runId: string; nodeRunId: string; type: string; actorType: string; severity?: string; dataJson: Record<string, unknown>; now: string },
 ): Promise<void> {
   const run = await tx.workflowRun.update({
     where: { id: input.runId },
@@ -255,7 +304,7 @@ async function appendRunEventInTransaction(
       sequence: run.currentSequence,
       type: input.type,
       actorType: input.actorType,
-      severity: "info",
+      severity: input.severity ?? "info",
       dataJson: input.dataJson as Prisma.InputJsonObject,
       createdAt: new Date(input.now),
     },
@@ -278,4 +327,28 @@ async function publishOutboxInTransaction(input: DispatchWorkflowNodePrismaInput
 
 function priorityToNumber(priority: "low" | "medium" | "high" | undefined): number {
   return priority === "high" ? 1 : priority === "low" ? -1 : 0;
+}
+
+function isWorkflowRunDispatchBlocked(status: string): boolean {
+  return ["paused", "cancelled", "failed", "succeeded", "partially_succeeded"].includes(status);
+}
+
+async function retrySerializableTransaction<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isSerializableConflict(error) || attempt === 2) throw error;
+      await new Promise<void>((resolve) => setTimeout(resolve, 10 * 2 ** attempt));
+    }
+  }
+  throw new Error("prisma_transaction_retry_exhausted");
+}
+
+function isSerializableConflict(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String(error.code) : "";
+  const message = "message" in error ? String(error.message) : "";
+  return code === "P2034" || code === "40001" || code === "40P01"
+    || /could not serialize|deadlock detected|serialization failure/i.test(message);
 }

@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type { WorkflowOutboxRecord } from "../types.ts";
 import { randomLikeId } from "../database.ts";
 import { getDofePrismaClient } from "./prisma-client.ts";
@@ -115,24 +115,107 @@ export async function markWorkflowOutboxFailedPrisma(input: {
   now?: string;
 }, client?: PrismaClient): Promise<void> {
   const prisma = client ?? getDofePrismaClient();
-  const current = await prisma.workflowOutbox.findFirst({
+  const now = new Date(input.now ?? new Date().toISOString());
+  await prisma.$transaction(async (tx) => {
+    const current = await tx.workflowOutbox.findFirst({
+      where: {
+        id: input.id,
+        workspaceId: input.workspaceId,
+        status: "pending",
+        availableAt: { lte: now },
+        OR: [
+          { lockedBy: input.workerId },
+          { lockedAt: null },
+          { lockedAt: { lt: now } },
+        ],
+      },
+      select: { attempts: true, lockedBy: true },
+    });
+    if (!current) throw new Error("workflow_outbox_lease_conflict");
+    const claimed = current.lockedBy === input.workerId
+      ? current
+      : await claimWorkflowOutboxForFailureInTransaction(input, now, tx);
+    const result = await tx.workflowOutbox.updateMany({
+      where: { id: input.id, workspaceId: input.workspaceId, status: "pending", lockedBy: input.workerId },
+      data: {
+        status: claimed.attempts >= input.maxAttempts ? "dead_letter" : "pending",
+        lastError: input.error,
+        availableAt: new Date(input.nextAvailableAt),
+        lockedAt: null,
+        lockedBy: null,
+      },
+    });
+    if (result.count !== 1) throw new Error("workflow_outbox_lease_conflict");
+  });
+}
+
+/** Lock run then node and acknowledge only while the observed skip condition still holds. */
+export async function acknowledgeInactiveWorkflowNodeOutboxPrisma(input: {
+  id: string;
+  workerId: string;
+  workspaceId: string;
+  runId: string;
+  nodeRunId: string;
+  reason: "run_blocked" | "node_not_ready";
+  now: string;
+}, client?: PrismaClient): Promise<boolean> {
+  const prisma = client ?? getDofePrismaClient();
+  const now = new Date(input.now);
+  return prisma.$transaction(async (tx) => {
+    const runs = await tx.$queryRaw<Array<{ status: string }>>(
+      Prisma.sql`SELECT status FROM workflow_run WHERE id = ${input.runId} AND workspace_id = ${input.workspaceId} FOR UPDATE`,
+    );
+    if (runs.length !== 1) throw new Error("workflow_run_not_found");
+    const nodes = await tx.$queryRaw<Array<{ status: string }>>(
+      Prisma.sql`SELECT status FROM workflow_node_run WHERE id = ${input.nodeRunId} AND workspace_id = ${input.workspaceId} FOR UPDATE`,
+    );
+    if (nodes.length !== 1) throw new Error("workflow_node_run_not_found");
+    const shouldAcknowledge = input.reason === "run_blocked"
+      ? isWorkflowRunDispatchBlocked(runs[0]!.status)
+      : nodes[0]!.status !== "ready";
+    if (!shouldAcknowledge) return false;
+    const claimed = await tx.workflowOutbox.updateMany({
+      where: {
+        id: input.id,
+        workspaceId: input.workspaceId,
+        status: "pending",
+        availableAt: { lte: now },
+        OR: [{ lockedAt: null }, { lockedAt: { lt: now } }],
+      },
+      data: { lockedAt: new Date(now.getTime() + 60_000), lockedBy: input.workerId, attempts: { increment: 1 } },
+    });
+    if (claimed.count !== 1) throw new Error("workflow_outbox_lease_conflict");
+    const published = await tx.workflowOutbox.updateMany({
+      where: { id: input.id, workspaceId: input.workspaceId, status: "pending", lockedBy: input.workerId },
+      data: { status: "published", publishedAt: now, lockedAt: null, lockedBy: null },
+    });
+    if (published.count !== 1) throw new Error("workflow_outbox_lease_conflict");
+    return true;
+  });
+}
+
+async function claimWorkflowOutboxForFailureInTransaction(
+  input: { id: string; workerId: string; workspaceId: string },
+  now: Date,
+  tx: Prisma.TransactionClient,
+): Promise<{ attempts: number }> {
+  const claimed = await tx.workflowOutbox.updateMany({
+    where: {
+      id: input.id,
+      workspaceId: input.workspaceId,
+      status: "pending",
+      availableAt: { lte: now },
+      OR: [{ lockedAt: null }, { lockedAt: { lt: now } }],
+    },
+    data: { lockedAt: new Date(now.getTime() + 60_000), lockedBy: input.workerId, attempts: { increment: 1 } },
+  });
+  if (claimed.count !== 1) throw new Error("workflow_outbox_lease_conflict");
+  const row = await tx.workflowOutbox.findFirst({
     where: { id: input.id, workspaceId: input.workspaceId, status: "pending", lockedBy: input.workerId },
     select: { attempts: true },
   });
-  if (!current) throw new Error("workflow_outbox_lease_conflict");
-  const nextAttempts = current.attempts + 1;
-  const result = await prisma.workflowOutbox.updateMany({
-    where: { id: input.id, workspaceId: input.workspaceId, status: "pending", lockedBy: input.workerId },
-    data: {
-      status: nextAttempts >= input.maxAttempts ? "dead_letter" : "pending",
-      lastError: input.error,
-      availableAt: new Date(input.nextAvailableAt),
-      lockedAt: null,
-      lockedBy: null,
-      attempts: nextAttempts,
-    },
-  });
-  if (result.count !== 1) throw new Error("workflow_outbox_lease_conflict");
+  if (!row) throw new Error("workflow_outbox_lease_conflict");
+  return row;
 }
 
 export async function markWorkflowOutboxPublishedPrisma(input: {
@@ -192,4 +275,8 @@ function required(value: string, name: string): string {
 
 function toIso(value: unknown): string {
   return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
+}
+
+function isWorkflowRunDispatchBlocked(status: string): boolean {
+  return ["paused", "cancelled", "failed", "succeeded", "partially_succeeded"].includes(status);
 }
