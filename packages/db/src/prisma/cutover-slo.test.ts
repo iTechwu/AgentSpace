@@ -69,6 +69,22 @@ test("cutover SLO classifies deadlock/P2034 and exposes burn-rate alerts", () =>
   assert.deepEqual(snapshot?.rollbackReasons, ["error_rate", "deadlock_rate", "p2034_rate"]);
 });
 
+test("cutover SLO p95 is weighted by sampleCount, not by batch count", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  // 大批次 100 条，每条耗时 10ms；小批次 1 条，耗时 1000ms。
+  // 等权 p95 会取到 1000ms；加权 p95（总重 101，阈值 95.95）应落在 10ms。
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, shadowCompared: 0, durationMs: 10, fallbackInvoked: 0,
+    sampleCount: 100,
+  });
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, shadowCompared: 0, durationMs: 1000, fallbackInvoked: 0,
+    sampleCount: 1,
+  });
+  const [snapshot] = window.snapshots({ thresholds: { ...thresholds, minimumSamples: 1 } });
+  assert.equal(snapshot?.p95DurationMs, 10);
+});
+
 test("cutover SLO window aggregates weighted batch samples with partial failures", () => {
   const window = new PrismaCutoverSloWindow(10);
   // 批次一：100 条中 2 条结构化失败 + 1 次成功重试的 P2034 冲突。

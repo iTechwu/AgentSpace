@@ -177,7 +177,7 @@ function summarizeDomain(
   const errorRate = rate(count((sample) => sample.errorCount), sampleCount);
   const deadlockRate = rate(count((sample) => sample.deadlockCount), sampleCount);
   const p2034Rate = rate(count((sample) => sample.p2034Count), sampleCount);
-  const p95DurationMs = percentile95(samples.map((sample) => sample.durationMs));
+  const p95DurationMs = percentile95(samples.map((sample) => ({ value: sample.durationMs, weight: sample.sampleCount })));
   const rollbackReasons: PrismaCutoverSloSnapshot["rollbackReasons"] = [];
   const thresholdRatios = [
     ratio(mismatchRate, input.thresholds.maximumMismatchRate),
@@ -221,10 +221,19 @@ function summarizeDomain(
   return snapshot;
 }
 
-function percentile95(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+function percentile95(entries: { value: number; weight: number }[]): number {
+  if (entries.length === 0) return 0;
+  const sorted = [...entries].sort((left, right) => left.value - right.value);
+  const totalWeight = sorted.reduce((sum, entry) => sum + entry.weight, 0);
+  if (totalWeight <= 0) return 0;
+  // 第 95 百分位：累计权重首次达到或超过总权重 95% 的最小值。
+  const threshold = totalWeight * 0.95;
+  let cumulative = 0;
+  for (const entry of sorted) {
+    cumulative += entry.weight;
+    if (cumulative >= threshold) return entry.value;
+  }
+  return sorted[sorted.length - 1]?.value ?? 0;
 }
 
 function rate(count: number, total: number): number {
