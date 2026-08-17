@@ -108,3 +108,29 @@ test("cutover SLO window caps absurd batch weights and keeps rates within [0,1]"
   assert.equal(snapshot?.sampleCount, 10_000);
   assert.equal(snapshot?.errorRate, 1);
 });
+
+test("cutover SLO window drops empty batches so idle polls never inflate samples", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  // 空闲轮询：没有认领任何触发器/没有发布任何 outbox 条目——不是观测。
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, shadowCompared: 0, durationMs: 5, fallbackInvoked: 0,
+    sampleCount: 0, errorCount: 0,
+  });
+  window.record({ domain: "workflow-materialization" }, {
+    source: "primary", mismatch: 0, shadowCompared: 0, durationMs: 5, fallbackInvoked: 0,
+    sampleCount: 0, errorCount: 0,
+  });
+  assert.deepEqual(window.snapshots({ thresholds }), []);
+});
+
+test("cutover SLO window still records an empty-declared batch that carries failures", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  // 分母声明为 0 但带失败计数：失败必须留痕，权重由计数兜底。
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary", mismatch: 0, shadowCompared: 0, durationMs: 5, fallbackInvoked: 0,
+    sampleCount: 0, errorCount: 2,
+  });
+  const [snapshot] = window.snapshots({ thresholds });
+  assert.equal(snapshot?.sampleCount, 2);
+  assert.equal(snapshot?.errorRate, 1);
+});

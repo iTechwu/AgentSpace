@@ -66,6 +66,25 @@ function normalizedSampleWeight(metric: CutoverMetric): number {
   return Math.min(MAXIMUM_SAMPLE_WEIGHT, weight);
 }
 
+/**
+ * 空批次判定：显式声明 sampleCount<=0 且无任何失败/冲突/回退信号。
+ * 空闲轮询没有写出任何条目，不构成对写路径正确性的观测——记入窗口只会
+ * 虚增样本数并稀释错误率（复审 P1：实测空批次生成了 sampleCount=1 的零错误快照）。
+ */
+function isEmptyBatchMetric(metric: CutoverMetric): boolean {
+  const fields = metric as unknown as Record<string, unknown>;
+  if (fields.sampleCount === undefined) return false;
+  const declared = Number(fields.sampleCount);
+  if (!Number.isFinite(declared) || declared > 0) return false;
+  if (metric.error !== undefined || metric.fallbackFailed === 1 || metric.mismatch === 1) return false;
+  if (metric.source === "fallback") return false;
+  for (const field of ["errorCount", "deadlockCount", "p2034Count"] as const) {
+    const count = Number(fields[field]);
+    if (Number.isFinite(count) && count > 0) return false;
+  }
+  return true;
+}
+
 function normalizedCount(value: number | undefined, weight: number): number {
   return Number.isFinite(value) && value !== undefined && value > 0 ? Math.min(value, weight) : 0;
 }
@@ -84,6 +103,7 @@ export class PrismaCutoverSloWindow {
   record(context: { domain: string }, metric: CutoverMetric): void {
     const domain = context.domain.trim();
     if (!domain) return;
+    if (isEmptyBatchMetric(metric)) return;
     const samples = this.samplesByDomain.get(domain) ?? [];
     const weight = normalizedSampleWeight(metric);
     const declared = metric as Partial<Pick<DomainWriteCutoverMetric, "errorCount" | "deadlockCount" | "p2034Count">>;
