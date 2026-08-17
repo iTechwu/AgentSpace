@@ -356,6 +356,11 @@ test("alertKey override keeps a stable dedup key when the metric payload changes
     }
     const state = readPagerAlertStateByKeySync("prisma-cutover-slo:orders", "ws-key");
     assert.equal(state?.occurrences, 2, "same alertKey accumulates occurrences despite changing metric JSON");
+    assert.equal(
+      state?.metric,
+      JSON.stringify({ domain: "orders", burnRate: 2.5 }),
+      "recovery metadata tracks the most recent occurrence",
+    );
     const { listActivePagerAlertStatesSync } = await import("@dofe-agent/db");
     assert.equal(
       listActivePagerAlertStatesSync("ws-key").length,

@@ -26,18 +26,37 @@ export function upsertPagerAlertStateSync(input: UpsertPagerAlertStateInput): Pa
   if (existing?.status === "active") {
     db.prepare(
       `UPDATE pager_alert_state
-       SET severity = ?, status = 'active', last_seen_at = ?, occurrences = occurrences + 1, cleared_at = NULL
+       SET code = ?, employee_name = ?, metric = ?, severity = ?, status = 'active',
+           last_seen_at = ?, occurrences = occurrences + 1, cleared_at = NULL
        WHERE id = ? AND workspace_id = ?`,
-    ).run(input.severity, now, existing.id, workspaceId);
+    ).run(
+      input.code,
+      input.employeeName?.trim() || null,
+      input.metric?.trim() || null,
+      input.severity,
+      now,
+      existing.id,
+      workspaceId,
+    );
     return readPagerAlertStateSync(existing.id, workspaceId)!;
   }
   if (existing?.status === "cleared") {
     db.prepare(
       `UPDATE pager_alert_state
-       SET severity = ?, status = 'active', first_seen_at = ?, last_seen_at = ?,
+       SET code = ?, employee_name = ?, metric = ?, severity = ?, status = 'active',
+           first_seen_at = ?, last_seen_at = ?,
            occurrences = 1, last_escalated_at = NULL, cleared_at = NULL
        WHERE id = ? AND workspace_id = ?`,
-    ).run(input.severity, now, now, existing.id, workspaceId);
+    ).run(
+      input.code,
+      input.employeeName?.trim() || null,
+      input.metric?.trim() || null,
+      input.severity,
+      now,
+      now,
+      existing.id,
+      workspaceId,
+    );
     return readPagerAlertStateSync(existing.id, workspaceId)!;
   }
   const id = `pa-${randomLikeId()}`;
