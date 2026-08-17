@@ -1,14 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  buildContentAddressedBlobKey,
-  type AttachmentStorageClient,
-  type AttachmentStoragePutInput,
-  type AttachmentStorageReadInput,
-  type ContentAddressedBlobPutInput,
-  type ContentAddressedBlobReadInput,
-  type ContentAddressedBlobRef,
-  type StoredAttachmentObject,
-} from "@dofe-agent/services";
+import { buildContentAddressedBlobKey, type AttachmentStorageClient, type AttachmentStoragePutInput, type AttachmentStorageReadInput, type ContentAddressedBlobPutInput, type ContentAddressedBlobReadInput, type ContentAddressedBlobRef, type StoredAttachmentObject } from "@dofe-agent/services/content";
 
 export function createTestTosAttachmentStorage(): {
   client: AttachmentStorageClient;

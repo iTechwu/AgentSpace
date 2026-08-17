@@ -3,7 +3,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RuntimeAppContextEntry, RuntimeToolCapability } from "@dofe-agent/domain";
-import { buildFeishuLarkCliDiagnosticRuntimeToolCapability } from "@dofe-agent/services";
+import { buildFeishuLarkCliDiagnosticRuntimeToolCapability } from "@dofe-agent/services/integrations";
 import { resolveRuntimeAppUserBinDir } from "../runtime-apps.ts";
 import { dedupeStrings, findExecutableOnPath, isPathLike, shellQuote } from "./executables.ts";
 import type { ProviderTaskOptions } from "./types.ts";

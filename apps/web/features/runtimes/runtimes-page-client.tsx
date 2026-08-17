@@ -16,7 +16,7 @@ import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
-import type { ManagedRuntimeListItem, PublicRuntimeProvisioningTaskRecord } from "@dofe-agent/services";
+import type { ManagedRuntimeListItem, PublicRuntimeProvisioningTaskRecord } from "@dofe-agent/services/runtime";
 
 export function RuntimesPageClient({
   workspaceSlug,

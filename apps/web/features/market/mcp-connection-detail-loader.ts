@@ -3,7 +3,7 @@ import {
   readMcpCatalogItemSync,
   readMcpConnectionSync,
 } from "@dofe-agent/db";
-import { listMcpConnectionActivitySync } from "@dofe-agent/services";
+import { listMcpConnectionActivitySync } from "@dofe-agent/services/mcp-center";
 import type { McpConnectionDetailPageData } from "@/features/market/mcp-connection-detail-client";
 import { parseMcpDeclaredTools } from "@/features/market/mcp-declared-tools";
 

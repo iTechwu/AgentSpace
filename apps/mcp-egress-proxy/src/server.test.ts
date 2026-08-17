@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
-import { digestMcpEgressPolicyRevision, digestMcpPrivateCa, signMcpEgressLease } from "@dofe-agent/services";
+import { digestMcpEgressPolicyRevision, digestMcpPrivateCa, signMcpEgressLease } from "@dofe-agent/services/mcp-center";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressProxyServer } from "./server.ts";
 import { SingleReplicaJtiReplayGuard } from "./jti-replay-guard.ts";

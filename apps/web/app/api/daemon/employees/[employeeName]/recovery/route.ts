@@ -2,10 +2,7 @@ import {
   listRecoveryOperationsSync,
   readEmployeeRuntimeBindingSync,
 } from "@dofe-agent/db";
-import {
-  createEmployeeRecoveryOperationSync,
-  readEmployeeDataProtectionSnapshotSync,
-} from "@dofe-agent/services";
+import { createEmployeeRecoveryOperationSync, readEmployeeDataProtectionSnapshotSync } from "@dofe-agent/services/employees";
 import { requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

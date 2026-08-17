@@ -1,4 +1,5 @@
-import { postMessageSync, sendChannelHumanMessageSync, readWorkspaceSnapshotSync } from "@dofe-agent/services";
+import { postMessageSync, sendChannelHumanMessageSync } from "@dofe-agent/services/messaging";
+import { readWorkspaceSnapshotSync } from "@dofe-agent/services/workspace";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 

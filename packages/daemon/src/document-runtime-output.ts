@@ -1,8 +1,5 @@
 import { readFileSync } from "node:fs";
-import {
-  createDocumentPermissionRequestSync,
-  type DocumentPermissionRequestExternalProvider,
-} from "@dofe-agent/services";
+import { createDocumentPermissionRequestSync, type DocumentPermissionRequestExternalProvider } from "@dofe-agent/services/operations";
 import {
   readDocumentPermissionRequestsManifest,
   type DocumentPermissionRequestManifestEntry,

@@ -4,13 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkspaceSync, getDatabase } from "@dofe-agent/db";
-import {
-  initializeOrganizationSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  setAttachmentStorageClientForTests,
-  writeWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { initializeOrganizationSync, readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { setAttachmentStorageClientForTests } from "@dofe-agent/services/content";
 import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 const { mockGetCurrentWorkspaceContext } = vi.hoisted(() => ({
   mockGetCurrentWorkspaceContext: vi.fn(),

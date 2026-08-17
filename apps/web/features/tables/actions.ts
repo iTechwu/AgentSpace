@@ -1,13 +1,6 @@
 "use server";
 
-import {
-  createDataTableSync,
-  updateDataTableSync,
-  deleteDataTableSync,
-  addDataRowSync,
-  updateDataRowSync,
-  deleteDataRowSync,
-} from "@dofe-agent/services";
+import { createDataTableSync, updateDataTableSync, deleteDataTableSync, addDataRowSync, updateDataRowSync, deleteDataRowSync } from "@dofe-agent/services/content";
 import type { DataColumn } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";

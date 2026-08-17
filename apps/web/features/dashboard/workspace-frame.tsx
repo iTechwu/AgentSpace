@@ -47,7 +47,7 @@ import {
 } from "@/features/settings/settings-sections";
 import type { AuthUser } from "@/features/auth/server-auth";
 import type { StoredWorkspaceRecord, WorkspaceRole } from "@dofe-agent/db";
-import type { AgentRuntimeMode } from "@dofe-agent/services";
+import type { AgentRuntimeMode } from "@dofe-agent/services/runtime";
 import type { WorkspaceShellData } from "@/features/dashboard/workspace-shell-data";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";

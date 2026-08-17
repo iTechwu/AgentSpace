@@ -7,7 +7,7 @@ import {
   listSkillServiceCatalogSync,
   readAgentRuntimeSync,
 } from "@dofe-agent/db";
-import { queueManagedSkillServiceRetireSync } from "@dofe-agent/services";
+import { queueManagedSkillServiceRetireSync } from "@dofe-agent/services/skills";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

@@ -5,7 +5,8 @@ import type { ChannelDetailPageData, ChannelListItem, ChannelThreadData, Channel
 import { DEFAULT_WORKSPACE_ID, listTaskMessagesForTasksSync } from "@dofe-agent/db";
 import type { TaskMessageRecord, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
 import type { ActiveEmployee, ChannelRecord, DofeAgentState, WorkspaceMessage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
-import { getChannelAccessSummaryForActorSync, listEmployeeSkillIdsByAgentIdMapSync, resolveChannelHumanMemberNames } from "@dofe-agent/services";
+import { getChannelAccessSummaryForActorSync, resolveChannelHumanMemberNames } from "@dofe-agent/services/channels";
+import { listEmployeeSkillIdsByAgentIdMapSync } from "@dofe-agent/services/employees";
 import { listEmployeeRuntimeBindingsCached, listQueuedTasksCached, listWorkspaceSkillsCached, readWorkspaceStateCached } from "./cached.ts";
 import { resolveAssignedSkillIdsForEmployee } from "./inbox-items.ts";
 

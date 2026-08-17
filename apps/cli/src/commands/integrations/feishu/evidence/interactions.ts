@@ -1,6 +1,6 @@
 // 从 feishu/evidence.ts 拆出（3.6-3 补充），域：interactions。
 import type { ExternalChannelBindingRecord, ExternalMessageMappingRecord, ExternalMessageOutboxRecord, ExternalThreadBindingRecord } from "@dofe-agent/db";
-import { FEISHU_PROVIDER_ID } from "@dofe-agent/services";
+import { FEISHU_PROVIDER_ID } from "@dofe-agent/services/integrations";
 import { hasNonEmptyString, hasFeishuExternalGuestNoWorkspaceMemberEvidence, hasFeishuSafeInboundMessageContext, hasFeishuMessageMappingAgentBotContext, readJsonRecord, readStringMetadata, readStringArrayMetadata, buildFeishuShortHash } from "./core.ts";
 import { hasNoFeishuRawProviderIdentityContext, hasNoFeishuRawExternalLocationContext, hasNoFeishuRawDataOperationResourceContext } from "./failures.ts";
 import { containsFeishuSecretLikeEvidence, containsRawFeishuOpenApiEvidenceIdentifier, isRecord } from "./proofs.ts";

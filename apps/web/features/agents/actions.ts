@@ -35,62 +35,17 @@ import {
   type EmployeeRecoveryOperationRecord,
   type EmployeeWorkspaceRevisionRecord,
 } from "@dofe-agent/db";
-import type { AgentForkOptions } from "@dofe-agent/services";
+import type { AgentForkOptions } from "@dofe-agent/services/operations";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { revalidateWorkspacePath, revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
-import {
-  acceptAgentForkInvitationForActorSync,
-  approveAgentAccessRequestForActorSync,
-  assertAgentSkillRequirementsReadySync,
-  assertOpenMontageRuntimePurgeableAsync,
-  assertRuntimeCanBindEmployeeSync,
-  bindEmployeeRuntimeSync,
-  assertCanManageEmployeeForActorSync,
-  assertCanUseEmployeeInChannelForActorSync,
-  assertCanUseRuntimeForActorSync,
-  cancelAgentAccessRequestForActorSync,
-  createAgentAccessRequestForActorSync,
-  createAgentForkInvitationForActorSync,
-  createEmployeeSync,
-  createTaskSync,
-  deleteEmployeeSync,
-  ensureManagedRuntimeModelAllowedAsync,
-  deleteManagedRuntimeAsync,
-  grantRuntimeUseToUserForActorSync,
-  getManagedRuntimeCredentialEnvKey,
-  isWorkspaceAdminOrOwnerSync,
-  hasGitHubSkillDependenciesSync,
-  listEmployeeSkillIdsSync,
-  readAgentSkillRequirementConfigurationSync,
-  queueGitHubSkillDependenciesForAgentSync,
-  readEmployeeDataProtectionSnapshotSync,
-  rejectAgentAccessRequestForActorSync,
-  requestSkillRequirementConfigurationSync,
-  revokeAgentForkInvitationForActorSync,
-  revokeRuntimeUseFromUserForActorSync,
-  resolveAgentRuntimeMode,
-  resolveSystemAgentTemplateForWorkspaceSync,
-  readSkillRequirementDeclarations,
-  readWorkspaceSkillSync,
-  recordWorkspaceAuditEventSync,
-  restoreValidatedWorkspaceRevisionSync,
-  rotateAgentSkillRequirementSecretSync,
-  setEmployeeChannelMemberAccessSync,
-  setEmployeeKnowledgePageIdsSync,
-  setAgentSkillAssignmentsWithRequirementsValidationSync,
-  tryRecordWorkspaceAuditEventSync,
-  unbindEmployeeRuntimeSync,
-  upsertAgentSkillRequirementsSync,
-  deleteAgentSkillRequirementKeySync,
-  updateEmployeeDefaultModelSync,
-  updateEmployeeExecutionPolicySync,
-  updateEmployeeInstructionsSync,
-  createEmployeeRecoveryOperationSync,
-  evaluateDataProtectionHealthSync,
-  runBackupRestoreDrillRunSync,
-  type DataProtectionHealthResult,
-  type DataProtectionAlert,
-} from "@dofe-agent/services";
+import { acceptAgentForkInvitationForActorSync, approveAgentAccessRequestForActorSync, cancelAgentAccessRequestForActorSync, createAgentAccessRequestForActorSync, createAgentForkInvitationForActorSync, rejectAgentAccessRequestForActorSync, revokeAgentForkInvitationForActorSync, resolveSystemAgentTemplateForWorkspaceSync } from "@dofe-agent/services/operations";
+import { assertAgentSkillRequirementsReadySync, hasGitHubSkillDependenciesSync, readAgentSkillRequirementConfigurationSync, queueGitHubSkillDependenciesForAgentSync, requestSkillRequirementConfigurationSync, readSkillRequirementDeclarations, readWorkspaceSkillSync, rotateAgentSkillRequirementSecretSync, setAgentSkillAssignmentsWithRequirementsValidationSync, upsertAgentSkillRequirementsSync, deleteAgentSkillRequirementKeySync } from "@dofe-agent/services/skills";
+import { assertOpenMontageRuntimePurgeableAsync } from "@dofe-agent/services/openmontage";
+import { assertRuntimeCanBindEmployeeSync, bindEmployeeRuntimeSync, createEmployeeSync, deleteEmployeeSync, listEmployeeSkillIdsSync, readEmployeeDataProtectionSnapshotSync, restoreValidatedWorkspaceRevisionSync, setEmployeeChannelMemberAccessSync, unbindEmployeeRuntimeSync, updateEmployeeDefaultModelSync, updateEmployeeExecutionPolicySync, updateEmployeeInstructionsSync, createEmployeeRecoveryOperationSync, evaluateDataProtectionHealthSync, runBackupRestoreDrillRunSync, type DataProtectionHealthResult, type DataProtectionAlert } from "@dofe-agent/services/employees";
+import { assertCanManageEmployeeForActorSync, assertCanUseEmployeeInChannelForActorSync, assertCanUseRuntimeForActorSync, ensureManagedRuntimeModelAllowedAsync, deleteManagedRuntimeAsync, grantRuntimeUseToUserForActorSync, getManagedRuntimeCredentialEnvKey, isWorkspaceAdminOrOwnerSync, revokeRuntimeUseFromUserForActorSync, resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { createTaskSync } from "@dofe-agent/services/tasks";
+import { recordWorkspaceAuditEventSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
+import { setEmployeeKnowledgePageIdsSync } from "@dofe-agent/services/knowledge";
 import type { TaskRecord } from "@dofe-agent/domain/workspace";
 import { isDaemonProvider, type DaemonProvider, type EmployeeExecutionPolicy } from "@dofe-agent/domain";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";

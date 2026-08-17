@@ -6,13 +6,7 @@ import {
   listModelPricingSync,
   getMonthStartIso,
 } from "@dofe-agent/db";
-import {
-  listBudgetsWithSpentSync,
-  upsertBudgetSync,
-  toggleBudgetSync,
-  deleteBudgetSync,
-  checkAllBudgetsForAgentSync,
-} from "@dofe-agent/services";
+import { listBudgetsWithSpentSync, upsertBudgetSync, toggleBudgetSync, deleteBudgetSync, checkAllBudgetsForAgentSync } from "@dofe-agent/services/finance";
 import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";

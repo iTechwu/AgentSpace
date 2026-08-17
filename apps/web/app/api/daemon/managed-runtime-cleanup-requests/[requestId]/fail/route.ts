@@ -1,5 +1,5 @@
 import { readManagedRuntimeCleanupRequestSync } from "@dofe-agent/db";
-import { failManagedRuntimeCleanupSync } from "@dofe-agent/services";
+import { failManagedRuntimeCleanupSync } from "@dofe-agent/services/runtime";
 import { requireDaemonAuth, requireManagedNodeBootstrapToken, requireRemoteManagedRuntimeMode } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

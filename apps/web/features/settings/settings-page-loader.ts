@@ -3,7 +3,8 @@ import {
   readAuthIdentityForUserSync,
   type WorkspaceRole,
 } from "@dofe-agent/db";
-import { getWorkspacePermissionCenter, resolveAgentRuntimeMode } from "@dofe-agent/services";
+import { getWorkspacePermissionCenter } from "@dofe-agent/services/operations";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
 import { loadSsoWorkspaceDirectory } from "@/features/auth/sso-directory";
 import { readPublicAppUrl } from "@/features/auth/public-app-url";
 import {

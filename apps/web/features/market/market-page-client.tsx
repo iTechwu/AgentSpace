@@ -1,7 +1,7 @@
 "use client";
 
 import type { McpCatalogCategory, McpCatalogSource, McpConnectionOperationStage, RuntimeAppCatalogSource, RuntimeAppOperationStage, RuntimeAppOperationType } from "@dofe-agent/db";
-import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
+import type { CapabilityAvailabilityProjection } from "@dofe-agent/services/capabilities";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {

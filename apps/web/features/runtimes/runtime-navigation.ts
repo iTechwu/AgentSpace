@@ -1,4 +1,4 @@
-import type { AgentRuntimeMode } from "@dofe-agent/services";
+import type { AgentRuntimeMode } from "@dofe-agent/services/runtime";
 
 export function getRuntimeManagementPath(runtimeMode: AgentRuntimeMode): string {
   return runtimeMode === "remote" ? "/runtimes" : "/agents?mode=container";

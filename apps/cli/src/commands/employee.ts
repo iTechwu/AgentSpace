@@ -1,12 +1,5 @@
 import { writeFileSync } from "node:fs";
-import {
-  bindEmployeeRuntimeSync,
-  createEmployeeSync,
-  listActiveEmployeesSync,
-  listEmployeeRuntimeBindingsForWorkspaceSync,
-  listEmployeeSkillIdsSync,
-  unbindEmployeeRuntimeSync,
-} from "@dofe-agent/services";
+import { bindEmployeeRuntimeSync, createEmployeeSync, listActiveEmployeesSync, listEmployeeRuntimeBindingsForWorkspaceSync, listEmployeeSkillIdsSync, unbindEmployeeRuntimeSync } from "@dofe-agent/services/employees";
 import { employeeToPersona } from "@dofe-agent/domain";
 import { signPersona } from "../lib/openagent-persona-sign.ts";
 import { parseArgs, getStringFlag } from "../lib/args.ts";

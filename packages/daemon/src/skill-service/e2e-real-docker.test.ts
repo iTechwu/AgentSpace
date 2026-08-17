@@ -11,14 +11,8 @@ import {
   listManagedSkillServiceOperationsSync,
   readManagedSkillServiceSync,
 } from "@dofe-agent/db";
-import {
-  completeManagedSkillServiceProvisionOperationSync,
-  completeManagedSkillServiceRetireOperationSync,
-  createSkillServiceCatalogEntrySync,
-  queueManagedSkillServiceRetireSync,
-  resetWorkspaceStateSync,
-  resolveClaimedManagedSkillServiceOperation,
-} from "@dofe-agent/services";
+import { completeManagedSkillServiceProvisionOperationSync, completeManagedSkillServiceRetireOperationSync, createSkillServiceCatalogEntrySync, queueManagedSkillServiceRetireSync, resolveClaimedManagedSkillServiceOperation } from "@dofe-agent/services/skills";
+import { resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import {
   createDockerManagedServiceContainerRuntime,
   type ManagedServiceContainerRuntime,

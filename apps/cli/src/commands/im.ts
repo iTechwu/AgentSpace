@@ -1,4 +1,4 @@
-import { readWorkspaceSnapshotSync } from "@dofe-agent/services";
+import { readWorkspaceSnapshotSync } from "@dofe-agent/services/workspace";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
 export function runImCommand(subcommand: string | undefined, format: OutputFormat): number {

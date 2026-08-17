@@ -1,15 +1,8 @@
 "use server";
 
-import {
-  approveAgentAccessRequestForActorSync,
-  approveDocumentPermissionRequestSync,
-  grantDocumentAgentAccessAsync,
-  removeWorkspaceMemberFromChannelForActorSync,
-  rejectAgentAccessRequestForActorSync,
-  rejectDocumentPermissionRequestSync,
-  revokeDocumentAgentAccessAsync,
-  tryRecordWorkspaceAuditEventSync,
-} from "@dofe-agent/services";
+import { approveAgentAccessRequestForActorSync, approveDocumentPermissionRequestSync, grantDocumentAgentAccessAsync, rejectAgentAccessRequestForActorSync, rejectDocumentPermissionRequestSync, revokeDocumentAgentAccessAsync } from "@dofe-agent/services/operations";
+import { removeWorkspaceMemberFromChannelForActorSync } from "@dofe-agent/services/channels";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import {
   bindWorkspaceAgentRuntimeAction,

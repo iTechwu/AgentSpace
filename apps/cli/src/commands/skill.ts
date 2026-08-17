@@ -1,15 +1,5 @@
 import { writeFileSync } from "node:fs";
-import {
-  createWorkspaceSkillSync,
-  deleteWorkspaceSkillFileSync,
-  deleteWorkspaceSkillSync,
-  exportWorkspaceSkillsArchiveSync,
-  importWorkspaceSkillFromUrl,
-  listWorkspaceSkillsSync,
-  readWorkspaceSkillSync,
-  updateWorkspaceSkillSync,
-  upsertWorkspaceSkillFileSync,
-} from "@dofe-agent/services";
+import { createWorkspaceSkillSync, deleteWorkspaceSkillFileSync, deleteWorkspaceSkillSync, exportWorkspaceSkillsArchiveSync, importWorkspaceSkillFromUrl, listWorkspaceSkillsSync, readWorkspaceSkillSync, updateWorkspaceSkillSync, upsertWorkspaceSkillFileSync } from "@dofe-agent/services/skills";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 

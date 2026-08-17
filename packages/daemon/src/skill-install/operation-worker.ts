@@ -3,7 +3,7 @@ import { chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSyn
 import { dirname, join, relative } from "node:path";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
 import { connectSandbox } from "@dofe-agent/sandbox";
-import { computeArtifactDigest, resolveSystemDependencySync, type SkillArtifactManifest } from "@dofe-agent/services";
+import { computeArtifactDigest, resolveSystemDependencySync, type SkillArtifactManifest } from "@dofe-agent/services/skills";
 import type { ClaimedSkillInstallationOperation, SkillEntrypointRuntime } from "@dofe-agent/domain";
 import { collectSkillManifestRuntimes } from "@dofe-agent/domain";
 import type { HttpDaemonClient } from "../daemon-client.ts";

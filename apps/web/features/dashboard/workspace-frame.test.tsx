@@ -22,7 +22,7 @@ import type { AuthUser } from "@/features/auth/server-auth";
 import type { ChannelsPageData, InboxPageData } from "@/features/dashboard/data";
 import type { WorkspaceShellData } from "@/features/dashboard/workspace-shell-data";
 import type { ActionToastResult } from "@/shared/lib/toast-action";
-import type { PerformanceDashboardData } from "@dofe-agent/services";
+import type { PerformanceDashboardData } from "@dofe-agent/services/finance";
 
 const searchParams = new URLSearchParams();
 let pathname = "/inbox";

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
-import type { SkillArtifactManifest } from "@dofe-agent/services";
+import type { SkillArtifactManifest } from "@dofe-agent/services/skills";
 import {
   buildSkillRunnerSyntaxCheckDockerArgs,
   verifySkillInstallationComponents,

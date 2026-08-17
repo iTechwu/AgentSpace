@@ -1,6 +1,6 @@
 import { readAgentRuntimeSync } from "@dofe-agent/db";
 import type { ClaimMcpTaskSessionResponse } from "@dofe-agent/domain";
-import { claimMcpTaskSessionSync } from "@dofe-agent/services";
+import { claimMcpTaskSessionSync } from "@dofe-agent/services/mcp-center";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

@@ -1,6 +1,6 @@
 "use server";
 
-import { evaluateDataProtectionHealthSync } from "@dofe-agent/services";
+import { evaluateDataProtectionHealthSync } from "@dofe-agent/services/employees";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 

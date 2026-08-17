@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { afterEach, before, beforeEach } from "node:test";
 import { getDatabase } from "@dofe-agent/db";
-import { createAttachmentStorageClient, createEmployeeSync, resetWorkspaceStateSync } from "@dofe-agent/services";
+import { createAttachmentStorageClient } from "@dofe-agent/services/content";
+import { createEmployeeSync } from "@dofe-agent/services/employees";
+import { resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { materializeHeadRevisionToWorkDir } from "./workdir-capture.ts";
 
 const WORKSPACE_ID = "wdc-materialize-test";

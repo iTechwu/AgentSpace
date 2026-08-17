@@ -28,19 +28,15 @@ import type {
   RuntimeMcpConnectionContextEntry,
   TaskSkillExecutionSnapshot,
 } from "@dofe-agent/domain";
-import {
-  buildSkillRunnerEntrypointsForSnapshotSync,
-  buildContactAgentContext,
-  isWorkflowTaskInputAvailableSync,
-  readWorkspaceStateSync,
-  resolveAgentDocumentContextSync,
-  resolveAgentRuntimeMode,
-  resolveCompatibleDirectChannelRecord,
-  resolveEffectiveModelForTaskAsync,
-  redactToolInputSchema,
-  sameValue,
-  type EffectiveModelResolution,
-} from "@dofe-agent/services";
+import { buildSkillRunnerEntrypointsForSnapshotSync } from "@dofe-agent/services/skills";
+import { buildContactAgentContext } from "@dofe-agent/services/content";
+import { isWorkflowTaskInputAvailableSync } from "@dofe-agent/services/workflows";
+import { readWorkspaceStateSync, sameValue } from "@dofe-agent/services/workspace";
+import { resolveAgentDocumentContextSync } from "@dofe-agent/services/operations";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { resolveCompatibleDirectChannelRecord } from "@dofe-agent/services/channels";
+import { resolveEffectiveModelForTaskAsync, type EffectiveModelResolution } from "@dofe-agent/services/models";
+import { redactToolInputSchema } from "@dofe-agent/services/mcp-center";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

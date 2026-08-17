@@ -1,20 +1,8 @@
 "use server";
 
 import type { McpCatalogCategory, McpRisk, McpTransport, RuntimeAppCatalogSource } from "@dofe-agent/db";
-import {
-  completeCapabilityRequestMcpConnectionSync,
-  createMcpCatalogItemSync,
-  disableMcpConnectionSync,
-  enableMcpConnectionSync,
-  removeMcpConnectionAsync,
-  type McpRemovalStrategy,
-  replaceMcpConnectionConfigSync,
-  requestMcpConnectionSync,
-  reverifyMcpConnectionSync,
-  rotateMcpSecretSync,
-  updateMcpConnectionConfigServiceSync,
-  type McpDeclaredTool,
-} from "@dofe-agent/services";
+import { completeCapabilityRequestMcpConnectionSync } from "@dofe-agent/services/capabilities";
+import { createMcpCatalogItemSync, disableMcpConnectionSync, enableMcpConnectionSync, removeMcpConnectionAsync, type McpRemovalStrategy, replaceMcpConnectionConfigSync, requestMcpConnectionSync, reverifyMcpConnectionSync, rotateMcpSecretSync, updateMcpConnectionConfigServiceSync, type McpDeclaredTool } from "@dofe-agent/services/mcp-center";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

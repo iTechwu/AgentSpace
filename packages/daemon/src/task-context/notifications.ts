@@ -1,7 +1,8 @@
 // 3.5-4：自 task-context.ts 拆出——任务相关未读通知的筛选（只保留与当前
 // 任务频道/任务/文档相关的通知）。
 import type { QueuedTaskRecord } from "@dofe-agent/db";
-import { listNotificationsForRecipientSync, type AgentDocumentContext, type WorkspaceNotificationRecord } from "@dofe-agent/services";
+import { listNotificationsForRecipientSync, type WorkspaceNotificationRecord } from "@dofe-agent/services/workspace";
+import { type AgentDocumentContext } from "@dofe-agent/services/operations";
 import type { ParsedTaskPayload } from "./payload.ts";
 
 export function resolveAgentNotificationsForTask(input: {

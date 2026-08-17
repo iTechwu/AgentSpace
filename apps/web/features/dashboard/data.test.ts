@@ -26,23 +26,15 @@ import {
   upsertExternalResourceBindingSync,
   writeWorkspaceStateRecordSync,
 } from "@dofe-agent/db";
-import {
-  bindEmployeeRuntimeSync,
-  createChannelSync,
-  createChannelDocumentFromAttachmentSync,
-  createChannelDocumentSync,
-  createEmployeeSync,
-  createKnowledgePageFromSharedDocumentSync,
-  createRuntimeToolApprovalRequestSync,
-  createWorkspaceSkillSync,
-  grantRuntimeUseToUserForActorSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  setAttachmentStorageClientForTests,
-  setEmployeeSkillIdsSync,
-  upsertAgentSkillRequirementsSync,
-  writeWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { bindEmployeeRuntimeSync, createEmployeeSync, setEmployeeSkillIdsSync } from "@dofe-agent/services/employees";
+import { createChannelSync } from "@dofe-agent/services/channels";
+import { createChannelDocumentFromAttachmentSync, createChannelDocumentSync } from "@dofe-agent/services/documents";
+import { createKnowledgePageFromSharedDocumentSync } from "@dofe-agent/services/knowledge";
+import { createRuntimeToolApprovalRequestSync } from "@dofe-agent/services/tasks";
+import { createWorkspaceSkillSync, upsertAgentSkillRequirementsSync } from "@dofe-agent/services/skills";
+import { grantRuntimeUseToUserForActorSync } from "@dofe-agent/services/runtime";
+import { readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { setAttachmentStorageClientForTests } from "@dofe-agent/services/content";
 import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 import {
   getAgentsPageData,

@@ -16,7 +16,7 @@ import {
   type WorkspaceRole,
 } from "@dofe-agent/db";
 import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
-import { readWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services";
+import { readWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import type {
   InternalTeam,
   InternalTenant,

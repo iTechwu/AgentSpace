@@ -1,9 +1,5 @@
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
-import {
-  queueFeishuAgentStatusCardOutboxSync,
-  queueFeishuChannelReplyOutboxSync,
-  type FeishuAgentStatusCardStatus,
-} from "@dofe-agent/services";
+import { queueFeishuAgentStatusCardOutboxSync, queueFeishuChannelReplyOutboxSync, type FeishuAgentStatusCardStatus } from "@dofe-agent/services/integrations";
 
 interface TaskCompletionOutboxInput {
   workspaceId: string;

@@ -5,15 +5,8 @@ import {
   createExternalIntegrationSync,
   type ExternalIntegrationRecord
 } from "@dofe-agent/db";
-import {
-  buildEncryptedFeishuCredentials,
-  FEISHU_DEFAULT_SCOPES,
-  FEISHU_EVENT_CALLBACK_PATH,
-  FEISHU_PROVIDER_ID,
-  FEISHU_REQUIRED_CREDENTIAL_FIELDS,
-  FEISHU_REQUIRED_EVENTS,
-  tryRecordWorkspaceAuditEventSync
-} from "@dofe-agent/services";
+import { buildEncryptedFeishuCredentials, FEISHU_DEFAULT_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_PROVIDER_ID, FEISHU_REQUIRED_CREDENTIAL_FIELDS, FEISHU_REQUIRED_EVENTS } from "@dofe-agent/services/integrations";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { getStringFlag } from "../../../lib/args.ts";
 import { normalizeOptionalText, parseFeishuCliEnvFile, parseFeishuCliTransportMode, readStringFlagOrEnv, requireNonEmpty, requireNonPlaceholderFeishuCreateValue, requireStringFlagOrEnv, validateOptionalFeishuCreateValue } from "./cli-shared.ts";
 import { buildFeishuOpenPlatformSetupSummary, buildFeishuSmokeHarnessSummary } from "./smoke-env.ts";

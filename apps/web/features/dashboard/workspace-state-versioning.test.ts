@@ -8,11 +8,7 @@ import {
   readWorkspaceStateCurrentVersionSync,
   readWorkspaceStateVersion,
 } from "@dofe-agent/db";
-import {
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  writeWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-state-versioning-"));

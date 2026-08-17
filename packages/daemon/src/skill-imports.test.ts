@@ -4,11 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, beforeEach } from "node:test";
 import { listStoredAgentSkillAssignmentsSync } from "@dofe-agent/db";
-import {
-  createEmployeeSync,
-  listWorkspaceSkillsSync,
-  resetWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { createEmployeeSync } from "@dofe-agent/services/employees";
+import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
+import { resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { applySkillImportOperations, prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 
 const originalFetch = globalThis.fetch;

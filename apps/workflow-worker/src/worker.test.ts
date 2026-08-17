@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { runWorkflowWorkerTick, type WorkflowWorkerServices } from "./worker.ts";
-import type {
-  WorkflowApprovalExpiryFailure,
-  WorkflowOutboxDispatchResult,
-  WorkflowRecoveryResult,
-  WorkflowSchedulerTickResult,
-} from "@dofe-agent/services";
+import type { WorkflowApprovalExpiryFailure, WorkflowOutboxDispatchResult, WorkflowRecoveryResult, WorkflowSchedulerTickResult } from "@dofe-agent/services/workflows";
 
 // 构造完整 WorkflowSchedulerTickResult，避免在 Worker 边界丢失服务层契约字段。
 function tickResult(overrides: Partial<WorkflowSchedulerTickResult> = {}): WorkflowSchedulerTickResult {

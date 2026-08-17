@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readWorkspaceRevisionSync } from "@dofe-agent/db";
-import { createAttachmentStorageClient } from "@dofe-agent/services";
+import { createAttachmentStorageClient } from "@dofe-agent/services/content";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
 export const runtime = "nodejs";

@@ -46,7 +46,7 @@ import { FeedbackBanner } from "@/shared/ui/feedback-banner";
 import { WorkspacePageLoading, WorkspacePageLoadingProgress } from "@/shared/ui/workspace-page-loading";
 import type { SettingsPageData } from "@/features/settings/settings-page-loader";
 import { isSettingsDetailSectionId } from "@/features/settings/settings-sections";
-import type { PerformanceDashboardData } from "@dofe-agent/services";
+import type { PerformanceDashboardData } from "@dofe-agent/services/finance";
 
 // Module page clients are lazy-loaded per module: the workspace frame bundle
 // must not carry all 17 page clients (the IM client alone is ~4k lines). Each

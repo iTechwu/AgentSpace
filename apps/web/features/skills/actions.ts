@@ -1,22 +1,8 @@
 "use server";
 
 import { delimiter } from "node:path";
-import {
-  createWorkspaceSkillSync,
-  deleteWorkspaceSkillFileSync,
-  deleteWorkspaceSkillSync,
-  exportWorkspaceSkillsArchiveSync,
-  importWorkspaceSkillFromZipUpload,
-  importWorkspaceSkillFromUrl,
-  inspectWorkspaceSkillSourceUpdate,
-  readWorkspaceSkillSync,
-  tryRecordWorkspaceAuditEventSync,
-  updateWorkspaceSkillSync,
-  upsertWorkspaceSkillFileSync,
-  SkillGitHubImportError,
-  type SkillGitHubImportErrorCode,
-  type SkillSourceUpdateInspection,
-} from "@dofe-agent/services";
+import { createWorkspaceSkillSync, deleteWorkspaceSkillFileSync, deleteWorkspaceSkillSync, exportWorkspaceSkillsArchiveSync, importWorkspaceSkillFromZipUpload, importWorkspaceSkillFromUrl, inspectWorkspaceSkillSourceUpdate, readWorkspaceSkillSync, updateWorkspaceSkillSync, upsertWorkspaceSkillFileSync, SkillGitHubImportError, type SkillGitHubImportErrorCode, type SkillSourceUpdateInspection } from "@dofe-agent/services/skills";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

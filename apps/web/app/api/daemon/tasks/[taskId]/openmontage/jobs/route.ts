@@ -2,11 +2,7 @@ import {
   OpenMontageJobBindingError,
   readMcpTaskAuditAuthorizationSync,
 } from "@dofe-agent/db";
-import {
-  bindOpenMontageJobDelegationAsync,
-  OpenMontageDelegationConfigurationError,
-  OpenMontageDelegationValidationError,
-} from "@dofe-agent/services";
+import { bindOpenMontageJobDelegationAsync, OpenMontageDelegationConfigurationError, OpenMontageDelegationValidationError } from "@dofe-agent/services/openmontage";
 import {
   OPENMONTAGE_MCP_CATALOG_SLUG,
   parseOpenMontageSubmittedJob,

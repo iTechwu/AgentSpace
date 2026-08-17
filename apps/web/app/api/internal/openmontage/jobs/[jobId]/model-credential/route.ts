@@ -1,8 +1,4 @@
-import {
-  issueOpenMontageModelCredential,
-  OpenMontageDelegationAuthenticationError,
-  OpenMontageDelegationConfigurationError,
-} from "@dofe-agent/services";
+import { issueOpenMontageModelCredential, OpenMontageDelegationAuthenticationError, OpenMontageDelegationConfigurationError } from "@dofe-agent/services/openmontage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

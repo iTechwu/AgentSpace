@@ -13,17 +13,7 @@ import {
   type ExternalResourceBindingRecord,
   type ExternalUserBindingRecord
 } from "@dofe-agent/db";
-import {
-  checkFeishuIntegrationHealth,
-  buildFeishuHealthSnapshotConfigJson,
-  FEISHU_BOT_SMOKE_SCOPES,
-  FEISHU_DATA_PLANE_SMOKE_SCOPES,
-  FEISHU_EVENT_CALLBACK_PATH,
-  FEISHU_PROVIDER_ID,
-  readFeishuIntegrationCredentials,
-  summarizeFeishuStoredCredentials,
-  type FeishuHealthCheckResult
-} from "@dofe-agent/services";
+import { checkFeishuIntegrationHealth, buildFeishuHealthSnapshotConfigJson, FEISHU_BOT_SMOKE_SCOPES, FEISHU_DATA_PLANE_SMOKE_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_PROVIDER_ID, readFeishuIntegrationCredentials, summarizeFeishuStoredCredentials, type FeishuHealthCheckResult } from "@dofe-agent/services/integrations";
 import { isFeishuCliPlaceholderValue, uniqueStrings } from "./cli-shared.ts";
 import { hasNonEmptyString } from "./evidence.ts";
 import type { BuildFeishuReadinessReportInput, FeishuHealthCheckCliItem, FeishuHealthCheckCliReport, FeishuIntegrationReadiness, FeishuReadinessReport, FeishuReadinessSetupCheck, FeishuRequiredReadiness, FeishuSmokePlanStep } from "./types.ts";

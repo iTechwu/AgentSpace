@@ -1,24 +1,15 @@
 import { appendTaskMessageSync, failQueuedTaskSync, getDatabase, withTransaction } from "@dofe-agent/db";
 import { parseTaskPayload } from "dofe-agent-daemon";
 import type { FailTaskRequest } from "@dofe-agent/domain";
-import {
-  continueAutoContinuationAfterTaskSync,
-  failWorkflowTaskIfLinkedSync,
-  failChannelDocumentRunStepSync,
-  formatConversationFailureSummary,
-  formatTaskFailureSummary,
-  handleManagedRuntimeProviderFailureAsync,
-  lockWorkflowRunForTaskIfLinkedSync,
-  postMessageSync,
-  queueFeishuChannelReplyOutboxSync,
-  readWorkspaceStateSync,
-  replacePendingChannelMessageSync,
-  resolveCompatibleDirectChannelRecord,
-  writeConversationExecutionWorkspaceStateSync,
-  upsertDirectConversationStateSync,
-  updateTaskStatusSync,
-  writeWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { continueAutoContinuationAfterTaskSync } from "@dofe-agent/services/operations";
+import { failWorkflowTaskIfLinkedSync, lockWorkflowRunForTaskIfLinkedSync } from "@dofe-agent/services/workflows";
+import { failChannelDocumentRunStepSync } from "@dofe-agent/services/documents";
+import { formatConversationFailureSummary, formatTaskFailureSummary, postMessageSync, replacePendingChannelMessageSync } from "@dofe-agent/services/messaging";
+import { handleManagedRuntimeProviderFailureAsync } from "@dofe-agent/services/runtime";
+import { queueFeishuChannelReplyOutboxSync } from "@dofe-agent/services/integrations";
+import { readWorkspaceStateSync, writeConversationExecutionWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { resolveCompatibleDirectChannelRecord, upsertDirectConversationStateSync } from "@dofe-agent/services/channels";
+import { updateTaskStatusSync } from "@dofe-agent/services/tasks";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

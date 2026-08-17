@@ -3,13 +3,10 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentRuntimeRecord } from "@dofe-agent/db";
 import type { ActiveEmployee, KnowledgePage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
-import {
-  listEmployeeKnowledgePagesSync,
-  materializeWorkspaceSkillsForProvider,
-  readWorkspaceAttachmentBytesSync,
-  readWorkspaceStateSync,
-  type MaterializedSkillDirectories,
-} from "@dofe-agent/services";
+import { listEmployeeKnowledgePagesSync } from "@dofe-agent/services/knowledge";
+import { materializeWorkspaceSkillsForProvider, type MaterializedSkillDirectories } from "@dofe-agent/services/skills";
+import { readWorkspaceAttachmentBytesSync } from "@dofe-agent/services/content";
+import { readWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import type { ParsedTaskPayload } from "./payload.ts";
 
 export function materializeAgentSkills(

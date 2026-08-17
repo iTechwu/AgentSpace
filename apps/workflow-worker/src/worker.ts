@@ -1,11 +1,4 @@
-import {
-  dispatchWorkflowOutboxBatchSync,
-  recoverStaleWorkflowWorkSync,
-  tickWorkflowSchedulerSync,
-  type WorkflowOutboxDispatchResult,
-  type WorkflowRecoveryResult,
-  type WorkflowSchedulerTickResult,
-} from "@dofe-agent/services";
+import { dispatchWorkflowOutboxBatchSync, recoverStaleWorkflowWorkSync, tickWorkflowSchedulerSync, type WorkflowOutboxDispatchResult, type WorkflowRecoveryResult, type WorkflowSchedulerTickResult } from "@dofe-agent/services/workflows";
 
 export interface WorkflowWorkerServices {
   // 直接复用服务层结果契约（scheduler/outbox/recovery），避免在 Worker 边界把它们弱化为

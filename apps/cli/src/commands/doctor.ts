@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { cwd, version } from "node:process";
-import { ensureWorkspaceStateSync, getWorkspaceDatabaseFilePath } from "@dofe-agent/services";
+import { ensureWorkspaceStateSync, getWorkspaceDatabaseFilePath } from "@dofe-agent/services/workspace";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
 export function runDoctorCommand(format: OutputFormat): number {

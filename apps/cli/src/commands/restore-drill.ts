@@ -1,5 +1,5 @@
 import { resolvePostgresDatabaseUrl } from "@dofe-agent/db/postgres";
-import { runBackupRestoreDrillRunSync } from "@dofe-agent/services";
+import { runBackupRestoreDrillRunSync } from "@dofe-agent/services/employees";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 

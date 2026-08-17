@@ -1,6 +1,7 @@
-import { completeMcpConnectionOperationWithHealthScheduleSync } from "@dofe-agent/services";
+import { completeMcpConnectionOperationWithHealthScheduleSync } from "@dofe-agent/services/mcp-center";
 import type { CompleteMcpConnectionOperationRequest, McpVerificationResult } from "@dofe-agent/domain";
-import { classifyVerificationOutcome, failMcpConnectionOperationWithHealthScheduleSync, findMissingApprovedMcpTools, redactMcpText, resolveClaimedMcpOperationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { classifyVerificationOutcome, failMcpConnectionOperationWithHealthScheduleSync, findMissingApprovedMcpTools, redactMcpText, resolveClaimedMcpOperationSync } from "@dofe-agent/services/mcp-center";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { readMcpOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

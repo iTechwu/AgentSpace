@@ -11,7 +11,7 @@ import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { useLanguage } from "@/features/i18n/language-provider";
 import type { TxFn } from "@/features/i18n/presentation";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
-import type { RuntimeProvisioningTaskDetail } from "@dofe-agent/services";
+import type { RuntimeProvisioningTaskDetail } from "@dofe-agent/services/runtime";
 
 const POLL_INTERVAL_MS = 2000;
 

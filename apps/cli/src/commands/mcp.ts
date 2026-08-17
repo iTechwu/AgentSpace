@@ -1,4 +1,4 @@
-import { rotateMcpEncryptionKeySync } from "@dofe-agent/services";
+import { rotateMcpEncryptionKeySync } from "@dofe-agent/services/mcp-center";
 import type { OutputFormat } from "../lib/format.ts";
 
 export function runMcpCommand(subcommand: string | undefined, args: string[], format: OutputFormat): number {

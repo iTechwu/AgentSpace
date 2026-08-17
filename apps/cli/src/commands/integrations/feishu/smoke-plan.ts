@@ -4,10 +4,7 @@ import {
   listExternalIntegrationsSync,
   type ExternalIntegrationRecord
 } from "@dofe-agent/db";
-import {
-  FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS,
-  FEISHU_PROVIDER_ID
-} from "@dofe-agent/services";
+import { FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS, FEISHU_PROVIDER_ID } from "@dofe-agent/services/integrations";
 import { formatIntegrationLabel, uniqueStrings } from "./cli-shared.ts";
 import { hasNonEmptyString } from "./evidence.ts";
 import { buildFeishuNativeAgentBotSmokeReadiness, buildFeishuReadinessReport, buildFeishuWorkerSmokeIssues, collectDataPlaneBindingIssues, collectSetupIssues, isFeishuNativeAgentBotSmokeReady, prereqStatus, selectFeishuReadinessCandidate } from "./readiness.ts";

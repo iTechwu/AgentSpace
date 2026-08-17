@@ -1,8 +1,4 @@
-import {
-  drainOrphanedOpenMontageDelegationsAsync,
-  drainPendingOpenMontageJobDelegationsAsync,
-  reconcileSyncingOpenMontageJobsAsync,
-} from "@dofe-agent/services";
+import { drainOrphanedOpenMontageDelegationsAsync, drainPendingOpenMontageJobDelegationsAsync, reconcileSyncingOpenMontageJobsAsync } from "@dofe-agent/services/openmontage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

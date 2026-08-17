@@ -1,11 +1,5 @@
 import { OpenMontageArtifactGrantError } from "@dofe-agent/db";
-import {
-  issueOpenMontageArtifactReadGrant,
-  issueOpenMontageArtifactWriteGrant,
-  OpenMontageArtifactAuthenticationError,
-  OpenMontageArtifactConfigurationError,
-  OpenMontageArtifactValidationError,
-} from "@dofe-agent/services";
+import { issueOpenMontageArtifactReadGrant, issueOpenMontageArtifactWriteGrant, OpenMontageArtifactAuthenticationError, OpenMontageArtifactConfigurationError, OpenMontageArtifactValidationError } from "@dofe-agent/services/openmontage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

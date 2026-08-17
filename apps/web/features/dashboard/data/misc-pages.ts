@@ -3,8 +3,8 @@
 import type { ChannelDocumentRunRecord } from "../data-types";
 import { DEFAULT_WORKSPACE_ID, listWorkflowDefinitionsSync, readWorkflowTriggerForWorkflowSync } from "@dofe-agent/db";
 import type { AutomationRule, DataTable, ScheduledTask, Template } from "@dofe-agent/domain/workspace";
-import { projectLegacySchedulesForCutover, readWorkflowCutoverModeSync } from "@dofe-agent/services";
-import type { PerformanceDashboardData } from "@dofe-agent/services";
+import { projectLegacySchedulesForCutover, readWorkflowCutoverModeSync } from "@dofe-agent/services/workflows";
+import type { PerformanceDashboardData } from "@dofe-agent/services/finance";
 import { getPerformanceDashboardDataCached, listQueuedTasksCached, readWorkspaceStateCached } from "./cached.ts";
 
 export function getPerformancePageData(workspaceId = DEFAULT_WORKSPACE_ID): Promise<PerformanceDashboardData> {

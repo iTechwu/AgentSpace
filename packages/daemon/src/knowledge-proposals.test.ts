@@ -12,12 +12,8 @@ import {
   loadRepositoryEnvIntoProcess,
   registerDaemonRuntimesSync,
 } from "@dofe-agent/db";
-import {
-  createEmployeeSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  writeWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { createEmployeeSync } from "@dofe-agent/services/employees";
+import { readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import {
   appendKnowledgeProposalManifestEntry,
   MAX_KNOWLEDGE_PROPOSAL_MARKDOWN_BYTES,

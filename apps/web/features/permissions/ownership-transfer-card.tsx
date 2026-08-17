@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import type { PermissionCatalogMember } from "@dofe-agent/services";
+import type { PermissionCatalogMember } from "@dofe-agent/services/operations";
 import { transferWorkspaceOwnershipAction } from "@/features/settings/actions";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";

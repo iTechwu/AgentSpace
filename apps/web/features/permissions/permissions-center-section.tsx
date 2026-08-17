@@ -2,13 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import type { CSSProperties, TransitionStartFunction } from "react";
-import type {
-  PermissionActorSummary,
-  PermissionBinding,
-  PermissionCenterData,
-  PermissionDiagnostic,
-  PermissionTreeNode,
-} from "@dofe-agent/services";
+import type { PermissionActorSummary, PermissionBinding, PermissionCenterData, PermissionDiagnostic, PermissionTreeNode } from "@dofe-agent/services/operations";
 import type { WorkspaceRole } from "@dofe-agent/db";
 import { SettingsSectionShell } from "@/features/settings/components/settings-chrome";
 import type { SettingsSectionMeta } from "@/features/settings/settings-meta";

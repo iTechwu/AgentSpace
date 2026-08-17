@@ -2,17 +2,11 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  createChannelSync,
-  createChannelDocumentSync,
-  createEmployeeSync,
-  deleteEmployeeSync,
-  ensureDirectChannelSync,
-  initializeOrganizationSync,
-  postMessageSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { createChannelSync, ensureDirectChannelSync } from "@dofe-agent/services/channels";
+import { createChannelDocumentSync } from "@dofe-agent/services/documents";
+import { createEmployeeSync, deleteEmployeeSync } from "@dofe-agent/services/employees";
+import { initializeOrganizationSync, readWorkspaceStateSync, resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { postMessageSync } from "@dofe-agent/services/messaging";
 
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-direct-channel-cleanup-"));
 

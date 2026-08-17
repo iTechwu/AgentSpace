@@ -11,17 +11,11 @@ import {
   listTaskMessagesForTaskSync,
 } from "@dofe-agent/db";
 import { getDatabase } from "@dofe-agent/db/database";
-import {
-  bindEmployeeRuntimeSync,
-  createEmployeeSync,
-  initializeOrganizationSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  sendChannelHumanMessageSync,
-  sendContactMessageSync,
-  writeWorkspaceStateSync,
-  setAttachmentStorageClientForTests,
-} from "@dofe-agent/services";
+import { bindEmployeeRuntimeSync, createEmployeeSync } from "@dofe-agent/services/employees";
+import { initializeOrganizationSync, readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { sendChannelHumanMessageSync } from "@dofe-agent/services/messaging";
+import { sendContactMessageSync } from "@dofe-agent/services/channels";
+import { setAttachmentStorageClientForTests } from "@dofe-agent/services/content";
 import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 import { HttpDaemonClient } from "dofe-agent-daemon/daemon-client";
 import { POST as registerPOST } from "./register/route";

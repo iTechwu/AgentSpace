@@ -5,9 +5,7 @@ import {
   type ExternalIntegrationRecord,
   type ExternalIntegrationTransportMode
 } from "@dofe-agent/db";
-import {
-  FEISHU_PROVIDER_ID
-} from "@dofe-agent/services";
+import { FEISHU_PROVIDER_ID } from "@dofe-agent/services/integrations";
 import { getStringFlag } from "../../../lib/args.ts";
 import type { FeishuIntegrationReadiness } from "./types.ts";
 

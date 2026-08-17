@@ -4,7 +4,8 @@ import {
   registerDaemonRuntimesSync,
 } from "@dofe-agent/db";
 import { isDaemonProvider, type RegisterDaemonRequest, type RegisterDaemonResponse } from "@dofe-agent/domain";
-import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { requireDaemonAuth, requireManagedNodeBootstrapToken } from "../_lib/auth";
 
 export const runtime = "nodejs";

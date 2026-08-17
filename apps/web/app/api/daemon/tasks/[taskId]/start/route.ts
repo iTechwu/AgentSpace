@@ -1,5 +1,6 @@
 import { parseTaskPayload } from "dofe-agent-daemon";
-import { postMessageSync, startQueuedTaskWithWorkflowSync } from "@dofe-agent/services";
+import { postMessageSync } from "@dofe-agent/services/messaging";
+import { startQueuedTaskWithWorkflowSync } from "@dofe-agent/services/workflows";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

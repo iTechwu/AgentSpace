@@ -1,7 +1,4 @@
-import {
-  defaultRuntimeMaintenanceDependencies,
-  runRuntimeMaintenanceAsync,
-} from "@dofe-agent/services";
+import { defaultRuntimeMaintenanceDependencies, runRuntimeMaintenanceAsync } from "@dofe-agent/services/runtime";
 import { runCommitReconciliationStage } from "../../daemon/_lib/commit-reconciliation";
 
 export const runtime = "nodejs";

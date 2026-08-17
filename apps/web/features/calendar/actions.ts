@@ -1,11 +1,6 @@
 "use server";
 
-import {
-  createScheduledTaskSync,
-  updateScheduledTaskSync,
-  toggleScheduledTaskSync,
-  deleteScheduledTaskSync,
-} from "@dofe-agent/services";
+import { createScheduledTaskSync, updateScheduledTaskSync, toggleScheduledTaskSync, deleteScheduledTaskSync } from "@dofe-agent/services/operations";
 import type { ScheduledTask } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";

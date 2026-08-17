@@ -5,8 +5,11 @@ import type { AgentsPageData, DashboardCurrentUser, InboxItem, InboxPageData, Ta
 import { DEFAULT_WORKSPACE_ID, listTaskMessagesForTasksSync } from "@dofe-agent/db";
 import type { WorkspaceRole } from "@dofe-agent/db";
 import type { DofeAgentState, WorkspaceMessage } from "@dofe-agent/domain/workspace";
-import { canReadChannelForActorSync, listEmployeeSkillIdsByAgentIdMap, listNotificationsForRecipientAsync, listNotificationsForRecipientSync, listTaskExecutionEventsAsync } from "@dofe-agent/services";
-import type { WorkspaceNotificationRecord } from "@dofe-agent/services";
+import { canReadChannelForActorSync } from "@dofe-agent/services/channels";
+import { listEmployeeSkillIdsByAgentIdMap } from "@dofe-agent/services/employees";
+import { listNotificationsForRecipientAsync, listNotificationsForRecipientSync } from "@dofe-agent/services/workspace";
+import { listTaskExecutionEventsAsync } from "@dofe-agent/services/tasks";
+import type { WorkspaceNotificationRecord } from "@dofe-agent/services/workspace";
 import { formatAbsoluteDateTime, formatNotificationResourceType, formatNotificationStatus, toneForNotification } from "./agent-record.ts";
 import { getAgentsPageData, mapTaskExecutionTimelineEntry, resolveAgentsPageDataOptions } from "./agents.ts";
 import { listDaemonSnapshotsCached, listEmployeeRuntimeBindingsCached, listQueuedTasksCached, listRuntimeAppOperationsCached, listRuntimeInstalledAppsCached, readWorkspaceStateCached } from "./cached.ts";

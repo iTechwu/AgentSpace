@@ -2,7 +2,7 @@
 
 import { DEFAULT_WORKSPACE_ID } from "@dofe-agent/db";
 import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
-import type { CostDashboardData } from "@dofe-agent/services";
+import type { CostDashboardData } from "@dofe-agent/services/finance";
 import { getAuthoritativeCostDashboardDataCached, getCostDashboardDataCached, listBudgetsWithSpentCached, readWorkspaceStateCached } from "./cached.ts";
 
 export type CostPageData = CostDashboardData;

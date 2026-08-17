@@ -1,8 +1,6 @@
 // 从 commands/integrations/feishu.ts 拆出（3.6-3），由原文件 barrel 再导出。
 
-import {
-  type FeishuWebSocketWorkerMetrics
-} from "@dofe-agent/services";
+import { type FeishuWebSocketWorkerMetrics } from "@dofe-agent/services/integrations";
 import type { FeishuWorkerHarnessSummary } from "./types.ts";
 
 export function getFeishuWorkerExitCode(metrics: Pick<

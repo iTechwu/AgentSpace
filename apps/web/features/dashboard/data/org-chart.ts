@@ -2,7 +2,7 @@
 
 import { formatWorkspaceRoleLabel, listWorkspaceMemberUsersCached, sameText } from "../dashboard-view-builders";
 import { DEFAULT_WORKSPACE_ID, countUsersSync } from "@dofe-agent/db";
-import { resolveChannelHumanMemberNames } from "@dofe-agent/services";
+import { resolveChannelHumanMemberNames } from "@dofe-agent/services/channels";
 import { listEmployeeRuntimeBindingsCached, readWorkspaceStateCached } from "./cached.ts";
 
 export function readAuthenticatedUserCountSync(): number {

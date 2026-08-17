@@ -21,7 +21,8 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readHeadRevisionSync } from "@dofe-agent/db";
-import { createAttachmentStorageClient, type WorkspaceRevisionManifest } from "@dofe-agent/services";
+import { createAttachmentStorageClient } from "@dofe-agent/services/content";
+import { type WorkspaceRevisionManifest } from "@dofe-agent/services/employees";
 
 /**
  * Bounded capture of an employee's real working-directory changes. The daemon

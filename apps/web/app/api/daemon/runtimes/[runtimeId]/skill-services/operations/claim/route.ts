@@ -1,5 +1,5 @@
 import { claimNextManagedSkillServiceOperationForRuntimeSync } from "@dofe-agent/db";
-import { resolveClaimedManagedSkillServiceOperation } from "@dofe-agent/services";
+import { resolveClaimedManagedSkillServiceOperation } from "@dofe-agent/services/skills";
 import type { ClaimManagedSkillServiceOperationResponse } from "@dofe-agent/domain";
 import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../../_lib/auth";
 

@@ -1,5 +1,5 @@
 import { failWorkspaceMountOperationSync } from "@dofe-agent/db";
-import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { readWorkspaceMountOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

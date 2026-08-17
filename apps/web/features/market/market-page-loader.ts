@@ -9,21 +9,13 @@ import {
   readMcpCatalogItemSync,
   listCapabilityRequestsSync,
 } from "@dofe-agent/db";
-import {
-  assessRuntimeAppInstallability,
-  assessRuntimeAppRisk,
-  isCapabilityProjectionEnabled,
-  listMcpCatalogItemsForWorkspaceSync,
-  readCliHubReadinessForRuntimeSync,
-  listWorkspaceRuntimeAppCatalogItemsSync,
-  resolveMcpRuntimeAppRequirement,
-  syncOfficialMcpCatalogForWorkspaceSync,
-  syncCliHubCatalog,
-} from "@dofe-agent/services";
+import { assessRuntimeAppInstallability, assessRuntimeAppRisk, readCliHubReadinessForRuntimeSync, listWorkspaceRuntimeAppCatalogItemsSync, syncCliHubCatalog } from "@dofe-agent/services/skills";
+import { isCapabilityProjectionEnabled } from "@dofe-agent/services/capabilities";
+import { listMcpCatalogItemsForWorkspaceSync, resolveMcpRuntimeAppRequirement, syncOfficialMcpCatalogForWorkspaceSync } from "@dofe-agent/services/mcp-center";
 import type { MarketPageData } from "@/features/market/market-page-client";
 import { parseMcpDeclaredTools } from "@/features/market/mcp-declared-tools";
 import { computeMarketCapabilityProjections } from "@/features/market/capability-projection-loader";
-import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
+import type { CapabilityAvailabilityProjection } from "@dofe-agent/services/capabilities";
 
 export async function loadMarketPageData(input: {
   workspaceId: string;

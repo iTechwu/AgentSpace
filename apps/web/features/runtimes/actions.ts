@@ -2,26 +2,8 @@
 
 import { readAgentRuntimeSync, updateAgentRuntimeManagedFieldsSync } from "@dofe-agent/db";
 import { DAEMON_PROVIDER_PROTOCOLS, resolveProviderProtocols } from "@dofe-agent/domain";
-import {
-  cancelRuntimeProvisioningTaskAsync,
-  deleteManagedRuntimeAsync,
-  ensureManagedRuntimeCapacitySync,
-  getManagedRuntimeCredentialStatusAsync,
-  getRuntimeProvisioningTaskDetailSync,
-  listManagedRuntimeTasksSync,
-  preflightManagedRuntimeCreationAsync,
-  resolveAgentRuntimeMode,
-  resolveManagedRuntimeScopeSync,
-  retryRuntimeProvisioningTaskSync,
-  rotateManagedRuntimeCredentialAsync,
-  setManagedRuntimeDefaultModelAsync,
-  stopManagedRuntimeAsync,
-} from "@dofe-agent/services";
-import {
-  getModelsInternalClient,
-  isExecutionLanguageModel,
-  isModelsInternalConfigured,
-} from "@dofe-agent/services";
+import { cancelRuntimeProvisioningTaskAsync, deleteManagedRuntimeAsync, ensureManagedRuntimeCapacitySync, getManagedRuntimeCredentialStatusAsync, getRuntimeProvisioningTaskDetailSync, listManagedRuntimeTasksSync, preflightManagedRuntimeCreationAsync, resolveAgentRuntimeMode, resolveManagedRuntimeScopeSync, retryRuntimeProvisioningTaskSync, rotateManagedRuntimeCredentialAsync, setManagedRuntimeDefaultModelAsync, stopManagedRuntimeAsync } from "@dofe-agent/services/runtime";
+import { getModelsInternalClient, isExecutionLanguageModel, isModelsInternalConfigured } from "@dofe-agent/services/models";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";

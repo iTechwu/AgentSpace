@@ -3,15 +3,11 @@
 import type { AgentRuntimeRecord } from "@dofe-agent/db";
 import type { RuntimeAppContextEntry } from "@dofe-agent/domain";
 import type { ActiveEmployee, KnowledgePage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
-import type { ContactAgentContext } from "@dofe-agent/services";
-import {
-  BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME,
-  FEISHU_LARK_CLI_RESULT_MANIFEST_KIND,
-  FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
-  type DocumentPermissionRequestRecord,
-  type FeishuLarkCliResourceGrant,
-  type WorkspaceNotificationRecord,
-} from "@dofe-agent/services";
+import type { ContactAgentContext } from "@dofe-agent/services/content";
+import { BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME } from "@dofe-agent/services/skills";
+import { FEISHU_LARK_CLI_RESULT_MANIFEST_KIND, FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH, type FeishuLarkCliResourceGrant } from "@dofe-agent/services/integrations";
+import { type DocumentPermissionRequestRecord } from "@dofe-agent/services/operations";
+import { type WorkspaceNotificationRecord } from "@dofe-agent/services/workspace";
 
 export interface RouterSessionPromptContext {
   routerSessionId: string;

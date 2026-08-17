@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { overlayCapabilityRequestState } from "./capability-projection-loader";
-import type { CapabilityAvailabilityProjection } from "@dofe-agent/services";
+import type { CapabilityAvailabilityProjection } from "@dofe-agent/services/capabilities";
 
 const baseProjection: CapabilityAvailabilityProjection = {
   packageId: "clihub_harness:mermaid",
@@ -122,7 +122,7 @@ describe("overlayCapabilityRequestState", () => {
   });
 });
 
-import { projectCliCapabilityAvailability, projectMcpCapabilityAvailability } from "@dofe-agent/services";
+import { projectCliCapabilityAvailability, projectMcpCapabilityAvailability } from "@dofe-agent/services/capabilities";
 
 function cliItem(): Parameters<typeof projectCliCapabilityAvailability>[0]["item"] {
   return {

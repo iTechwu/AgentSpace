@@ -1,6 +1,6 @@
 // 从 feishu/evidence.ts 拆出（3.6-3 补充），域：smoke。
 import { readFileSync } from "node:fs";
-import { FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS, FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS, FEISHU_OPENAPI_REQUIRED_REQUEST_STEPS } from "@dofe-agent/services";
+import { FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS, FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS, FEISHU_OPENAPI_REQUIRED_REQUEST_STEPS } from "@dofe-agent/services/integrations";
 import { uniqueStrings } from "../cli-shared.ts";
 import { buildFeishuSmokeHarnessSummary } from "../smoke-env.ts";
 import type { FeishuBotAddedPayloadEvidenceVerification, FeishuEvidenceRemediationStep, FeishuExpectedBotAddedPayloadChatReferenceProof, FeishuExpectedBotAddedPayloadIdentityProof, FeishuExpectedCallbackRouteProof, FeishuExpectedTodo120NativeSecondAgentAppProof, FeishuOpenApiSmokeEvidenceVerification } from "../types.ts";

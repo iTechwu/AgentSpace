@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorkspaceRealtimeEvent } from "@dofe-agent/services";
+import type { WorkspaceRealtimeEvent } from "@dofe-agent/services/messaging";
 
 const {
   mockCanReadChannelForActorSync,

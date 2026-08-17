@@ -7,10 +7,8 @@ import {
   readOpenMontageJobLinkSync,
   readOpenMontageJobProjectionSync,
 } from "@dofe-agent/db";
-import {
-  canReadChannelForActorSync,
-  createAttachmentStorageClient,
-} from "@dofe-agent/services";
+import { canReadChannelForActorSync } from "@dofe-agent/services/channels";
+import { createAttachmentStorageClient } from "@dofe-agent/services/content";
 import { getWorkspaceAccessForIdentifier } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

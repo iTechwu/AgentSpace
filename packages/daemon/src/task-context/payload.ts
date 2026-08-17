@@ -1,6 +1,6 @@
 // 3.5-4：自 task-context.ts 拆出——任务 inputJson 的结构化解析与线程 ID 解析。
 import { type QueuedTaskRecord, type WorkflowTaskMetadata } from "@dofe-agent/db";
-import type { WorkspaceDataPolicyDecision } from "@dofe-agent/services";
+import type { WorkspaceDataPolicyDecision } from "@dofe-agent/services/operations";
 
 export interface ParsedTaskPayload {
   taskId?: string;

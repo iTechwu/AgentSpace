@@ -1,9 +1,4 @@
-import {
-  listManagedRuntimesForWorkspaceSync,
-  listManagedRuntimeTasksSync,
-  listManagedExecutionNodesSync,
-  resolveAgentRuntimeMode,
-} from "@dofe-agent/services";
+import { listManagedRuntimesForWorkspaceSync, listManagedRuntimeTasksSync, listManagedExecutionNodesSync, resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
 import { notFound } from "next/navigation";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";

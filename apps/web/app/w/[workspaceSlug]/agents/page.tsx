@@ -6,7 +6,7 @@ import {
   getRuntimeManagementPath,
   isLegacyRuntimeManagementRequest,
 } from "@/features/runtimes/runtime-navigation";
-import { resolveAgentRuntimeMode } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
 import { redirect } from "next/navigation";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
 

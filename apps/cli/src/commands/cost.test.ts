@@ -9,11 +9,8 @@ import {
   registerDaemonRuntimesSync,
   upsertBudgetSync,
 } from "@dofe-agent/db";
-import {
-  bindEmployeeRuntimeSync,
-  createEmployeeSync,
-  resetWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { bindEmployeeRuntimeSync, createEmployeeSync } from "@dofe-agent/services/employees";
+import { resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { runCostCommand } from "./cost.ts";
 
 const originalCwd = process.cwd();

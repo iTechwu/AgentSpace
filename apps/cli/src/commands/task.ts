@@ -1,8 +1,4 @@
-import {
-  createTaskSync,
-  listTasksSync,
-  updateTaskStatusSync,
-} from "@dofe-agent/services";
+import { createTaskSync, listTasksSync, updateTaskStatusSync } from "@dofe-agent/services/tasks";
 import { listQueuedTasksSync, listTaskMessagesForTaskSync } from "@dofe-agent/db";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";

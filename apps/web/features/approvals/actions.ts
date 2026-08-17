@@ -1,19 +1,11 @@
 "use server";
 
-import {
-  approveChannelAccessRequestForActorSync,
-  approveAgentAccessRequestForActorSync,
-  approveDocumentPermissionRequestSync,
-  approveKnowledgeProposalForActorSync,
-  createApprovalRequestSync,
-  listApprovalsSync,
-  rejectChannelAccessRequestForActorSync,
-  rejectAgentAccessRequestForActorSync,
-  rejectDocumentPermissionRequestSync,
-  rejectKnowledgeProposalForActorSync,
-  reviewFeishuDataOperationApproval,
-  reviewApprovalWithWorkflowSync,
-} from "@dofe-agent/services";
+import { approveChannelAccessRequestForActorSync, rejectChannelAccessRequestForActorSync } from "@dofe-agent/services/channels";
+import { approveAgentAccessRequestForActorSync, approveDocumentPermissionRequestSync, rejectAgentAccessRequestForActorSync, rejectDocumentPermissionRequestSync } from "@dofe-agent/services/operations";
+import { approveKnowledgeProposalForActorSync, rejectKnowledgeProposalForActorSync } from "@dofe-agent/services/knowledge";
+import { createApprovalRequestSync, listApprovalsSync } from "@dofe-agent/services/tasks";
+import { reviewFeishuDataOperationApproval } from "@dofe-agent/services/integrations";
+import { reviewApprovalWithWorkflowSync } from "@dofe-agent/services/workflows";
 import type { ApprovalRequest } from "@dofe-agent/domain/workspace";
 import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 import type { ApprovalItemKind } from "@/features/approvals/approval-queue-data";

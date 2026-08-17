@@ -10,7 +10,8 @@ import {
   revokeSessionByIdSync,
   transferWorkspaceOwnershipSync,
 } from "@dofe-agent/db";
-import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { getCurrentSession } from "@/features/auth/server-auth";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { transferSsoWorkspaceOwnership } from "@/features/auth/sso-workspace-ownership";

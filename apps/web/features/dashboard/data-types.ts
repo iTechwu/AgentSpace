@@ -1,11 +1,9 @@
 // Workspace dashboard 页面的共享视图模型类型定义。
 // 从 ./data.ts（原 5.7k 行）拆出：类型层无运行时依赖，可被 ./dashboard-view-builders.ts
 // 与各域 loader 单向引用。./data.ts 通过 `export *` 对外保持原有导入路径不变。
-import type {
-  AgentSkillRequirementSummary,
-  FeishuChatMemberSnapshot,
-  WorkspaceNotificationRecord,
-} from "@dofe-agent/services";
+import type { AgentSkillRequirementSummary } from "@dofe-agent/services/skills";
+import type { FeishuChatMemberSnapshot } from "@dofe-agent/services/integrations";
+import type { WorkspaceNotificationRecord } from "@dofe-agent/services/workspace";
 import type {
   TaskExecutionEventType,
   TaskMessageRecord,

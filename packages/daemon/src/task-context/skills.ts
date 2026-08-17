@@ -3,17 +3,9 @@
 import { listStoredAgentSkillAssignmentsSync, readStoredSkillActiveArtifactDigestSync } from "@dofe-agent/db";
 import type { DaemonProvider, RuntimeAppContextEntry, TaskSkillExecutionSnapshot } from "@dofe-agent/domain";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
-import {
-  assertSkillInstallationReadyForTaskSync,
-  BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME,
-  BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME,
-  BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
-  listEmployeeSkillIdsSync,
-  readAgentSkillRequirementEnvSync,
-  readAgentSkillRequirementSummarySync,
-  readWorkspaceStateSync,
-  sameValue,
-} from "@dofe-agent/services";
+import { assertSkillInstallationReadyForTaskSync, BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME, BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME, BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME, readAgentSkillRequirementEnvSync, readAgentSkillRequirementSummarySync } from "@dofe-agent/services/skills";
+import { listEmployeeSkillIdsSync } from "@dofe-agent/services/employees";
+import { readWorkspaceStateSync, sameValue } from "@dofe-agent/services/workspace";
 import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 
 export function resolveAgentSkills(

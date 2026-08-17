@@ -4,7 +4,7 @@ import { WorkspaceAccessScreen } from "@/features/auth/workspace-access-screen";
 import { WorkspaceFrame } from "@/features/dashboard/workspace-frame";
 import { getWorkspaceShellData } from "@/features/dashboard/workspace-shell-data";
 import { normalizeWorkspaceSlugParam } from "./_lib/workspace-slug";
-import { resolveAgentRuntimeMode } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
 
 export const dynamic = "force-dynamic";
 

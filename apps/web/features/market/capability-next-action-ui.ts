@@ -1,4 +1,4 @@
-import type { CapabilityNextAction } from "@dofe-agent/services";
+import type { CapabilityNextAction } from "@dofe-agent/services/capabilities";
 import type { CapabilityTranslator } from "./capability-presentation";
 
 export interface CapabilityNextActionBadge {

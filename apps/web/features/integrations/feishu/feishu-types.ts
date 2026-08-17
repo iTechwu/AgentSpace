@@ -10,10 +10,7 @@ import type {
   ExternalResourceBindingDofeAgentType,
   ExternalResourceBindingProviderType,
 } from "@dofe-agent/db";
-import type {
-  FeishuAgentBotChannelAutoProvisioningInput,
-  FeishuAgentBotExternalGuestPolicyInput,
-} from "@dofe-agent/services";
+import type { FeishuAgentBotChannelAutoProvisioningInput, FeishuAgentBotExternalGuestPolicyInput } from "@dofe-agent/services/integrations";
 
 export interface FeishuAvailableChannelItem {
   name: string;

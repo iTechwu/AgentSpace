@@ -1,14 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
-import {
-  getModelsTenantBillingReportAsync,
-  isModelsInternalConfigured,
-  listManagedRuntimesForWorkspaceSync,
-  resolveAgentRuntimeMode,
-  resolveManagedRuntimeScopeSync,
-  type ModelsTenantBillingReport,
-} from "@dofe-agent/services";
+import { getModelsTenantBillingReportAsync, isModelsInternalConfigured, type ModelsTenantBillingReport } from "@dofe-agent/services/models";
+import { listManagedRuntimesForWorkspaceSync, resolveAgentRuntimeMode, resolveManagedRuntimeScopeSync } from "@dofe-agent/services/runtime";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { getWorkspacePageContext } from "../../../_lib/workspace-page-context";

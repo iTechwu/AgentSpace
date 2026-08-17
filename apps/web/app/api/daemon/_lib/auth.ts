@@ -17,7 +17,8 @@ import {
   type StoredSkillInstallationOperationRecord,
   type WorkspaceMountOperationRecord,
 } from "@dofe-agent/db";
-import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 
 export interface DaemonAuthContext {
   token: DaemonApiTokenRecord;

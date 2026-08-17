@@ -2,7 +2,10 @@
 
 import { listAgentRouterProviderSessionsSync, listAgentTaskAttemptsSync, listDaemonApiTokensSync, listDaemonSnapshotsSync, listEmployeeRuntimeBindingsSync, listMcpCatalogItemsSync, listMcpConnectionsSync, listProviderAccountsSync, listQueuedTasksSync, listRuntimeAppOperationsSync, listRuntimeGrantsSync, listRuntimeInstalledAppsSync, listRuntimeProvisionRequestsSync, listStoredSkillImportEventsSync, listTaskExecutionEventsSync, listWorkspaceRuntimeDisplayNamesSync, readAgentRouterSessionSync } from "@dofe-agent/db";
 import type { BudgetPeriod } from "@dofe-agent/db";
-import { getCostDashboardDataAsync, getCostDashboardDataSync, getPerformanceDashboardData, listBudgetsWithSpentSync, listKnowledgeAssignmentPoliciesSync, listKnowledgeAssignmentsSync, listWorkspaceSkillsSync, readWorkspaceStateSnapshotSync } from "@dofe-agent/services";
+import { getCostDashboardDataAsync, getCostDashboardDataSync, getPerformanceDashboardData, listBudgetsWithSpentSync } from "@dofe-agent/services/finance";
+import { listKnowledgeAssignmentPoliciesSync, listKnowledgeAssignmentsSync } from "@dofe-agent/services/knowledge";
+import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
+import { readWorkspaceStateSnapshotSync } from "@dofe-agent/services/workspace";
 import { cache } from "react";
 
 export const readWorkspaceStateCached = cache((workspaceId: string) => readWorkspaceStateSnapshotSync(workspaceId));

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { DAEMON_PROVIDER_IDS, formatDaemonProviderLabel } from "@dofe-agent/domain";
-import type { ManagedRuntimeListItem } from "@dofe-agent/services";
+import type { ManagedRuntimeListItem } from "@dofe-agent/services/runtime";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { useLanguage } from "@/features/i18n/language-provider";
 

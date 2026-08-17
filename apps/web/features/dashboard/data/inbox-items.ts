@@ -5,7 +5,8 @@ import type { ContainerRecord, DashboardCurrentUser, InboxItem } from "../data-t
 import { listQueuedTasksSync } from "@dofe-agent/db";
 import type { TaskMessageRecord } from "@dofe-agent/db";
 import type { ActiveEmployee, DofeAgentState, WorkspaceMessage } from "@dofe-agent/domain/workspace";
-import { buildLegacyAgentIdForEmployeeName, resolveChannelHumanMemberNames } from "@dofe-agent/services";
+import { buildLegacyAgentIdForEmployeeName } from "@dofe-agent/services/employees";
+import { resolveChannelHumanMemberNames } from "@dofe-agent/services/channels";
 import { formatAbsoluteDateTime, formatNativeQueueStatus, formatPriority, formatTaskStatus, toneForTask } from "./agent-record.ts";
 import { buildRouterExecutionView, buildTaskExecutionTimeline, canSeeWorkspaceDiagnostics, limitLoadtestDashboardPayload, redactInboxExecutionForMember } from "./agents.ts";
 import { INBOX_TASK_ITEM_LIMIT } from "./cached.ts";

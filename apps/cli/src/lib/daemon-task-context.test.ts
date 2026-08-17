@@ -5,20 +5,11 @@ import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
 import type { QueuedTaskRecord } from "@dofe-agent/db";
 import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
-import {
-  createDocumentPermissionRequestSync,
-  createNotificationSync,
-  BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME,
-  BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
-  createEmployeeSync,
-  createKnowledgePageSync,
-  createWorkspaceSkillSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  setKnowledgePageAssignedEmployeesSync,
-  setKnowledgePageAssignmentModeSync,
-  setEmployeeSkillIdsSync,
-} from "@dofe-agent/services";
+import { createDocumentPermissionRequestSync } from "@dofe-agent/services/operations";
+import { createNotificationSync, readWorkspaceStateSync, resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME, BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME, createWorkspaceSkillSync } from "@dofe-agent/services/skills";
+import { createEmployeeSync, setEmployeeSkillIdsSync } from "@dofe-agent/services/employees";
+import { createKnowledgePageSync, setKnowledgePageAssignedEmployeesSync, setKnowledgePageAssignmentModeSync } from "@dofe-agent/services/knowledge";
 import {
   commitWorkspaceRevisionSync,
   createWorkspaceRevisionSync,

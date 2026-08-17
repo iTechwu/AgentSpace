@@ -1,4 +1,4 @@
-import { submitFileParseTaskSync, type FileParseIntent } from "@dofe-agent/services";
+import { submitFileParseTaskSync, type FileParseIntent } from "@dofe-agent/services/knowledge";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 

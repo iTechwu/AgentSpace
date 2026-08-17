@@ -1,9 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  createKnowledgeProposalFromAgentSync,
-  type CreateKnowledgeProposalFromAgentInput,
-} from "@dofe-agent/services";
+import { createKnowledgeProposalFromAgentSync, type CreateKnowledgeProposalFromAgentInput } from "@dofe-agent/services/knowledge";
 import {
   MAX_KNOWLEDGE_PROPOSAL_MARKDOWN_BYTES,
   readKnowledgeProposalsManifest,

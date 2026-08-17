@@ -1,5 +1,6 @@
 import { listWorkspacesSync } from "@dofe-agent/db";
-import { runBackupRestoreDrillRunSync, notifyWorkspaceAdminsAsync } from "@dofe-agent/services";
+import { runBackupRestoreDrillRunSync } from "@dofe-agent/services/employees";
+import { notifyWorkspaceAdminsAsync } from "@dofe-agent/services/workspace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

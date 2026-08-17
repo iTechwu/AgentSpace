@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services";
+import { resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
 
 const { mockGetCurrentWorkspaceContext } = vi.hoisted(() => ({
   mockGetCurrentWorkspaceContext: vi.fn(),

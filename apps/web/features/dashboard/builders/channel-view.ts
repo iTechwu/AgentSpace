@@ -1,9 +1,6 @@
 // 频道域视图构建：频道列表项、直聊定位、可见频道名与提及未读检测。
 // resolveDirectChannelForContact 会经 services 读取频道 ACL（canReadChannelForActorSync）。
-import {
-  canReadChannelForActorSync,
-  resolveChannelHumanMemberNames,
-} from "@dofe-agent/services";
+import { canReadChannelForActorSync, resolveChannelHumanMemberNames } from "@dofe-agent/services/channels";
 import type {
   WorkspaceRole,
 } from "@dofe-agent/db";

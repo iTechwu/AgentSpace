@@ -1,11 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
-import {
-  importWorkspaceSkillFromUrl,
-  listEmployeeSkillIdsSync,
-  setEmployeeSkillIdsSync,
-  tryRecordWorkspaceAuditEventSync,
-} from "@dofe-agent/services";
+import { importWorkspaceSkillFromUrl } from "@dofe-agent/services/skills";
+import { listEmployeeSkillIdsSync, setEmployeeSkillIdsSync } from "@dofe-agent/services/employees";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import {
   getRuntimeOutputSkillImportsPath,
   RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR,

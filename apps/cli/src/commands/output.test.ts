@@ -4,10 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { discardTaskOutputAttachments, loadTaskOutputEnvelope } from "dofe-agent-daemon";
-import {
-  FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND,
-  FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH,
-} from "@dofe-agent/services";
+import { FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND, FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH } from "@dofe-agent/services/integrations";
 import { runOutputCommand } from "./output.ts";
 
 test("output attach creates and appends agent-output attachments", async () => {

@@ -1,12 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { WorkspaceRole } from "@dofe-agent/db";
-import {
-  canViewChannelDocumentSync,
-  globalSearchSync,
-  type SearchResult,
-  type SearchResultType,
-  tryRecordWorkspaceAuditEventSync,
-} from "@dofe-agent/services";
+import { canViewChannelDocumentSync } from "@dofe-agent/services/documents";
+import { globalSearchSync, type SearchResult, type SearchResultType } from "@dofe-agent/services/content";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { getKnowledgePageData } from "@/features/dashboard/data";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import {

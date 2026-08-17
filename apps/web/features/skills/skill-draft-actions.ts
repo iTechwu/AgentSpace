@@ -1,13 +1,6 @@
 "use server";
 
-import {
-  discardSkillDraftAsync,
-  hasSkillDraftSync,
-  publishSkillDraftAsync,
-  readSkillDraftSync,
-  saveSkillDraftAsync,
-  type SkillDraftView,
-} from "@dofe-agent/services";
+import { discardSkillDraftAsync, hasSkillDraftSync, publishSkillDraftAsync, readSkillDraftSync, saveSkillDraftAsync, type SkillDraftView } from "@dofe-agent/services/skills";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

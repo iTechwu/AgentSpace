@@ -1,7 +1,7 @@
 // 从 feishu/evidence.ts 拆出（3.6-3 补充），域：core。
 import { createHash } from "node:crypto";
 import type { ExternalChannelBindingRecord, ExternalDataOperationRunRecord, ExternalIntegrationEventRecord, ExternalIntegrationRecord, ExternalMessageMappingRecord, ExternalMessageOutboxRecord, ExternalThreadBindingRecord } from "@dofe-agent/db";
-import { FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH, FEISHU_PROVIDER_ID } from "@dofe-agent/services";
+import { FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH, FEISHU_PROVIDER_ID } from "@dofe-agent/services/integrations";
 import { uniqueStrings } from "../cli-shared.ts";
 import { FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS } from "../types.ts";
 import type { FeishuExpectedBotAddedPayloadIdentityProof, FeishuIntegrationEvidence, FeishuLocalEvidenceFreshnessSummary } from "../types.ts";

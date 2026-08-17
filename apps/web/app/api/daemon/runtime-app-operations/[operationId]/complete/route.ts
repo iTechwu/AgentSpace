@@ -1,6 +1,7 @@
 import { completeRuntimeAppOperationSync } from "@dofe-agent/db";
 import type { CompleteRuntimeAppOperationRequest } from "@dofe-agent/domain";
-import { chainCapabilityMcpDependencySync, chainCapabilityRuntimeBaselineSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { chainCapabilityMcpDependencySync, chainCapabilityRuntimeBaselineSync } from "@dofe-agent/services/capabilities";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { readRuntimeAppOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

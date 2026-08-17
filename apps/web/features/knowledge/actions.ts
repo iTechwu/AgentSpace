@@ -1,15 +1,6 @@
 "use server";
 
-import {
-  createKnowledgePageSync,
-  createKnowledgePageFromSharedDocumentSync,
-  setKnowledgePageAssignedEmployeesSync,
-  setKnowledgePageAssignmentModeSync,
-  updateKnowledgePageSync,
-  moveKnowledgePageSync,
-  deleteKnowledgePageSync,
-  materialToKnowledgePageSync,
-} from "@dofe-agent/services";
+import { createKnowledgePageSync, createKnowledgePageFromSharedDocumentSync, setKnowledgePageAssignedEmployeesSync, setKnowledgePageAssignmentModeSync, updateKnowledgePageSync, moveKnowledgePageSync, deleteKnowledgePageSync, materialToKnowledgePageSync } from "@dofe-agent/services/knowledge";
 import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";

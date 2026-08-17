@@ -73,7 +73,7 @@ import {
   revokeSessionAction,
   transferWorkspaceOwnershipAction,
 } from "./actions";
-import { resolveAgentRuntimeMode } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
 
 describe("settings actions", () => {
   beforeEach(() => {

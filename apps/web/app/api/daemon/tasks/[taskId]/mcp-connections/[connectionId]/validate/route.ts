@@ -1,6 +1,6 @@
 import { readMcpConnectionSync } from "@dofe-agent/db";
 import type { ValidateMcpConnectionForTaskResponse } from "@dofe-agent/domain";
-import { validateMcpConnectionForGatewaySync } from "@dofe-agent/services";
+import { validateMcpConnectionForGatewaySync } from "@dofe-agent/services/mcp-center";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../../../_lib/auth";
 
 export const runtime = "nodejs";

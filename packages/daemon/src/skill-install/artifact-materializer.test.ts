@@ -4,12 +4,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { after, before } from "node:test";
-import {
-  buildContentAddressedBlobKey,
-  computeArtifactDigest,
-  type AttachmentRuntimeConfig,
-  type SkillArtifactManifest,
-} from "@dofe-agent/services";
+import { buildContentAddressedBlobKey } from "@dofe-agent/services/content";
+import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services/skills";
+import { type AttachmentRuntimeConfig } from "@dofe-agent/services/runtime";
 import {
   materializeSkillInstallationArtifact,
   SkillMaterializationError,

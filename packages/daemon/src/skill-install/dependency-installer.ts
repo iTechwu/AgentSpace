@@ -1,6 +1,6 @@
 import { rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { SkillDependencyDeclaration } from "@dofe-agent/services";
+import type { SkillDependencyDeclaration } from "@dofe-agent/services/skills";
 import type { ExecResult } from "@dofe-agent/sandbox";
 import { resetSkillDependencyEnvironment } from "./task-environment.ts";
 

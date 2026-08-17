@@ -1,6 +1,7 @@
-import { failMcpConnectionOperationWithHealthScheduleSync } from "@dofe-agent/services";
+import { failMcpConnectionOperationWithHealthScheduleSync } from "@dofe-agent/services/mcp-center";
 import type { FailMcpConnectionOperationRequest } from "@dofe-agent/domain";
-import { redactMcpText, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { redactMcpText } from "@dofe-agent/services/mcp-center";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { readMcpOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

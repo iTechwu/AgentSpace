@@ -41,26 +41,14 @@ import {
   readRuntimeProvisioningTaskSync,
 } from "@dofe-agent/db";
 import { getDatabase } from "@dofe-agent/db/database";
-import {
-  bindEmployeeRuntimeSync,
-  addChannelEmployeesSync,
-  createEmployeeSync,
-  createWorkspaceSkillSync,
-  FEISHU_LARK_CLI_RESULT_MANIFEST_KIND,
-  FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
-  initializeOrganizationSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  readWorkspaceAttachmentBytesSync,
-  reviewApprovalSync,
-  sendChannelHumanMessageSync,
-  sendContactMessageSync,
-  setEmployeeSkillIdsSync,
-  setWorkspaceServiceSecretSync,
-  unbindEmployeeRuntimeSync,
-  writeWorkspaceStateSync,
-  setAttachmentStorageClientForTests,
-} from "@dofe-agent/services";
+import { bindEmployeeRuntimeSync, createEmployeeSync, setEmployeeSkillIdsSync, unbindEmployeeRuntimeSync } from "@dofe-agent/services/employees";
+import { addChannelEmployeesSync, sendContactMessageSync } from "@dofe-agent/services/channels";
+import { createWorkspaceSkillSync, setWorkspaceServiceSecretSync } from "@dofe-agent/services/skills";
+import { FEISHU_LARK_CLI_RESULT_MANIFEST_KIND, FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH } from "@dofe-agent/services/integrations";
+import { initializeOrganizationSync, readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { readWorkspaceAttachmentBytesSync, setAttachmentStorageClientForTests } from "@dofe-agent/services/content";
+import { reviewApprovalSync } from "@dofe-agent/services/tasks";
+import { sendChannelHumanMessageSync } from "@dofe-agent/services/messaging";
 import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 import { POST as registerPOST } from "./register/route";
 import { POST as heartbeatPOST } from "./heartbeat/route";

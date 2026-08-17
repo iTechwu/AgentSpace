@@ -1,9 +1,7 @@
 import { listWorkspaceMemberUsersSync } from "@dofe-agent/db";
 import type { WorkspaceMessage } from "@dofe-agent/domain/workspace";
-import {
-  readWorkspaceStateSnapshotSync,
-  resolveHumanDirectChannelForUsersSync,
-} from "@dofe-agent/services";
+import { readWorkspaceStateSnapshotSync } from "@dofe-agent/services/workspace";
+import { resolveHumanDirectChannelForUsersSync } from "@dofe-agent/services/channels";
 
 export interface HumanContactItem {
   id: string;

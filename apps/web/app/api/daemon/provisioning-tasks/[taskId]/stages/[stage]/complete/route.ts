@@ -1,8 +1,4 @@
-import {
-  completeManagedProvisioningStageSync,
-  finalizeManagedRuntimeProvisioningSync,
-  readRuntimeProvisioningTaskSync,
-} from "@dofe-agent/services";
+import { completeManagedProvisioningStageSync, finalizeManagedRuntimeProvisioningSync, readRuntimeProvisioningTaskSync } from "@dofe-agent/services/runtime";
 import type { RuntimeProvisioningTaskStage } from "@dofe-agent/db";
 import { requireDaemonAuth, requireManagedNodeBootstrapToken, requireRemoteManagedRuntimeMode } from "../../../../../_lib/auth";
 

@@ -1,4 +1,4 @@
-import { fireWorkflowEventSync } from "@dofe-agent/services";
+import { fireWorkflowEventSync } from "@dofe-agent/services/workflows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

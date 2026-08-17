@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { setAttachmentStorageClientForTests } from "@dofe-agent/services";
+import { setAttachmentStorageClientForTests } from "@dofe-agent/services/content";
 import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 import {
   clearDaemonTaskOutputStaging,

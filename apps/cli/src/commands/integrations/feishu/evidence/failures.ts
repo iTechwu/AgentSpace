@@ -1,6 +1,6 @@
 // 从 feishu/evidence.ts 拆出（3.6-3 补充），域：failures。
 import type { ExternalDataOperationRunRecord, ExternalMessageOutboxRecord } from "@dofe-agent/db";
-import { FEISHU_PROVIDER_ID } from "@dofe-agent/services";
+import { FEISHU_PROVIDER_ID } from "@dofe-agent/services/integrations";
 import { readFeishuGovernanceContext, hasFeishuSafeDataOperationResultSummary, hasNonEmptyString, readJsonRecord, readStringMetadata } from "./core.ts";
 import { hasNoFeishuUnsafeSerializedEvidenceContext } from "./interactions.ts";
 import { containsFeishuSecretLikeEvidence, containsRawFeishuOpenApiEvidenceIdentifier } from "./proofs.ts";

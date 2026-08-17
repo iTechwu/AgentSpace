@@ -18,6 +18,9 @@ export default defineConfig({
       { find: /^@dofe-agent\/domain$/, replacement: path.resolve(import.meta.dirname, "../../packages/domain/src/index.ts") },
       { find: /^@dofe-agent\/domain\/(.*)$/, replacement: `${path.resolve(import.meta.dirname, "../../packages/domain/src")}/$1.ts` },
       { find: /^@dofe-agent\/services$/, replacement: path.resolve(import.meta.dirname, "../../packages/services/src/index.ts") },
+      // 域 barrel 子路径在测试环境指回根 barrel：vi.mock("@dofe-agent/services") 才能拦截
+      // SUT 的域导入（32 个测试文件 mock 根模块）。生产构建走 package.json exports 按域收窄，不受影响。
+      { find: /^@dofe-agent\/services\/(workflows|skills|employees|workspace|mcp-center|models|runtime|integrations|openmontage|capabilities|channels|messaging|tasks|collaboration|knowledge|documents|content|finance|operations)$/, replacement: path.resolve(import.meta.dirname, "../../packages/services/src/index.ts") },
       { find: /^@dofe-agent\/services\/(.*)$/, replacement: `${path.resolve(import.meta.dirname, "../../packages/services/src")}/$1.ts` },
       { find: /^@dofe-agent\/db$/, replacement: path.resolve(import.meta.dirname, "../../packages/db/src/index.ts") },
       { find: /^@dofe-agent\/db\/(.*)$/, replacement: `${path.resolve(import.meta.dirname, "../../packages/db/src")}/$1.ts` },

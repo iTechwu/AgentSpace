@@ -2,7 +2,7 @@
 
 import type { DaemonSnapshotView, DaemonTokenView, ProviderAccountView, RuntimeGrantMember, RuntimeProvisionRequestView } from "../data-types";
 import { DEFAULT_WORKSPACE_ID } from "@dofe-agent/db";
-import { normalizeRuntimeProviderHealth } from "@dofe-agent/services";
+import { normalizeRuntimeProviderHealth } from "@dofe-agent/services/runtime";
 import { safeParseJson } from "./agent-record.ts";
 import { listDaemonApiTokensCached, listDaemonSnapshotsCached, listProviderAccountsCached, listRuntimeProvisionRequestsCached, listWorkspaceRuntimeDisplayNamesCached } from "./cached.ts";
 

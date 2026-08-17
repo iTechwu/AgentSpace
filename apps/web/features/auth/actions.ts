@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { readWorkspaceSync } from "@dofe-agent/db";
-import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { clearCurrentSession, readCurrentSsoIdToken } from "./server-auth";
 import { getSsoLogoutUrl } from "./sso-oidc";
 import { requireCurrentWorkspaceContext } from "./server-workspace";

@@ -1,5 +1,5 @@
 import { readManagedSkillServiceSync } from "@dofe-agent/db";
-import { resolveWorkspaceServiceSecretsSync } from "@dofe-agent/services";
+import { resolveWorkspaceServiceSecretsSync } from "@dofe-agent/services/skills";
 import { readManagedSkillServiceOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import { parseClaimGenerationQuery } from "../../../_lib/claim-generation";
 

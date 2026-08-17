@@ -1,8 +1,4 @@
-import {
-  dispatchWorkflowOutboxBatchSync,
-  recoverStaleWorkflowWorkSync,
-  tickWorkflowSchedulerSync,
-} from "@dofe-agent/services";
+import { dispatchWorkflowOutboxBatchSync, recoverStaleWorkflowWorkSync, tickWorkflowSchedulerSync } from "@dofe-agent/services/workflows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

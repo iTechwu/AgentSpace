@@ -1,20 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import {
-  applyChannelDocumentBlockOperations,
-  assertAgentDocumentActionAllowedSync,
-  AgentDocumentPermissionError,
-  type ChannelDocumentOperation,
-  createChannelDocumentSync,
-  BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME,
-  listChannelDocumentBlocksSync,
-  listChannelDocumentsSync,
-  listChannelDocumentVersionsSync,
-  recordChannelDocumentConflictSync,
-  readWorkspaceStateSync,
-  updateChannelDocumentSync,
-} from "@dofe-agent/services";
-import type { AgentDocumentContext } from "@dofe-agent/services";
+import { applyChannelDocumentBlockOperations, type ChannelDocumentOperation, createChannelDocumentSync, listChannelDocumentBlocksSync, listChannelDocumentsSync, listChannelDocumentVersionsSync, recordChannelDocumentConflictSync, updateChannelDocumentSync } from "@dofe-agent/services/documents";
+import { assertAgentDocumentActionAllowedSync, AgentDocumentPermissionError } from "@dofe-agent/services/operations";
+import { BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME } from "@dofe-agent/services/skills";
+import { readWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import type { AgentDocumentContext } from "@dofe-agent/services/operations";
 import type { ChannelDocument } from "@dofe-agent/domain/workspace";
 import {
   getRuntimeOutputChannelDocumentsPath,

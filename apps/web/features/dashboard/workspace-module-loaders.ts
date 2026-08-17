@@ -49,7 +49,7 @@ import {
   type SettingsPageData,
 } from "@/features/settings/settings-page-loader";
 import { readWorkspaceSync, type WorkspaceRole } from "@dofe-agent/db";
-import type { PerformanceDashboardData } from "@dofe-agent/services";
+import type { PerformanceDashboardData } from "@dofe-agent/services/finance";
 import { getWorkflowCenterPageData } from "@/features/workflows/workflow-data";
 import type { WorkflowCenterPageData } from "@/features/workflows/workflow-types";
 

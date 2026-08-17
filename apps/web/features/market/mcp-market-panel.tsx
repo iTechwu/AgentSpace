@@ -22,7 +22,7 @@ import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-actio
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
-import type { CapabilityImplementation } from "@dofe-agent/services";
+import type { CapabilityImplementation } from "@dofe-agent/services/capabilities";
 import type { MarketPageData } from "@/features/market/market-page-client";
 import {
   implementationKindLabel,

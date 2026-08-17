@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { McpDiscoveredTool, McpErrorCode, McpVerificationResult, ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
-import { redactMcpText, redactToolInputSchema, validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services";
+import { redactMcpText, redactToolInputSchema, validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services/mcp-center";
 import { buildMcpEgressProxyRequestHeaders, createMcpEgressProxyClient } from "./egress-client.ts";
 
 const REQUEST_TIMEOUT_MS = 15_000;

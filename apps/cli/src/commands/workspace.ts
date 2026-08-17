@@ -1,13 +1,5 @@
-import {
-  initializeOrganizationSync,
-  listWorkspaceContextChannelsSync,
-  listWorkspaceContextDocumentsSync,
-  listWorkspaceContextEntitiesSync,
-  resolveWorkspaceContextEntitySync,
-  readWorkspaceSummarySync,
-  resetWorkspaceStateSync,
-  searchWorkspaceContextMessagesSync,
-} from "@dofe-agent/services";
+import { initializeOrganizationSync, readWorkspaceSummarySync, resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { listWorkspaceContextChannelsSync, listWorkspaceContextDocumentsSync, listWorkspaceContextEntitiesSync, resolveWorkspaceContextEntitySync, searchWorkspaceContextMessagesSync } from "@dofe-agent/services/content";
 import { readQueuedTaskSync } from "@dofe-agent/db";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";

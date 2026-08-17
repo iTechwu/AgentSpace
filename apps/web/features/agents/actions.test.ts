@@ -124,7 +124,7 @@ import {
   updateWorkspaceAgentDefaultModelAction,
 } from "@/features/agents/actions";
 import { readAgentRuntimeSync, readEmployeeRuntimeBindingSync } from "@dofe-agent/db";
-import { bindEmployeeRuntimeSync } from "@dofe-agent/services";
+import { bindEmployeeRuntimeSync } from "@dofe-agent/services/employees";
 
 describe("agent actions", () => {
   beforeEach(() => {

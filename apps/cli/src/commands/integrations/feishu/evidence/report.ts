@@ -1,6 +1,6 @@
 // 从 feishu/evidence.ts 拆出（3.6-3 补充），域：report。
 import { listExternalChannelBindingsSync, listExternalDataOperationRunsSync, listExternalIntegrationEventsSync, listExternalIntegrationsSync, listExternalMessageMappingsSync, listExternalMessageOutboxSync, listExternalThreadBindingsSync } from "@dofe-agent/db";
-import { FEISHU_PROVIDER_ID } from "@dofe-agent/services";
+import { FEISHU_PROVIDER_ID } from "@dofe-agent/services/integrations";
 import { uniqueStrings } from "../cli-shared.ts";
 import { FEISHU_CLI_PLACEHOLDERS, FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS } from "../types.ts";
 import type { BuildFeishuEvidenceReportInput, FeishuBotAddedPayloadEvidenceVerification, FeishuEvidenceRemediationStep, FeishuEvidenceReport, FeishuIntegrationEvidence, FeishuIntegrationEvidenceSource, FeishuLocalEvidenceFreshnessSummary, FeishuOpenApiSmokeEvidenceVerification } from "../types.ts";

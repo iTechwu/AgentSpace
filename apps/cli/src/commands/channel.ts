@@ -1,9 +1,5 @@
-import {
-  createChannelSync,
-  deleteChannelSync,
-  renameChannelSync,
-  readWorkspaceSnapshotSync,
-} from "@dofe-agent/services";
+import { createChannelSync, deleteChannelSync, renameChannelSync } from "@dofe-agent/services/channels";
+import { readWorkspaceSnapshotSync } from "@dofe-agent/services/workspace";
 import { parseArgs, getStringFlag } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 

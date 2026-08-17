@@ -1,15 +1,10 @@
 "use server";
 
-import {
-  assertCanUseEmployeeInChannelForActorSync,
-  updateTaskStatusSync,
-  reorderTaskSync,
-  addTaskLabelSync,
-  removeTaskLabelSync,
-  estimateTaskSync,
-  readWorkspaceStateSync,
-} from "@dofe-agent/services";
-import type { TaskEstimationResult } from "@dofe-agent/services";
+import { assertCanUseEmployeeInChannelForActorSync } from "@dofe-agent/services/runtime";
+import { updateTaskStatusSync, reorderTaskSync, addTaskLabelSync, removeTaskLabelSync } from "@dofe-agent/services/tasks";
+import { estimateTaskSync } from "@dofe-agent/services/finance";
+import { readWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import type { TaskEstimationResult } from "@dofe-agent/services/finance";
 import type { TaskStatus } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

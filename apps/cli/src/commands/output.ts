@@ -17,10 +17,7 @@ import {
   type KnowledgeProposalManifestEntry,
   type SkillImportManifestEntry,
 } from "../../../../packages/daemon/src/runtime-output-manifests.ts";
-import {
-  appendFeishuRuntimeDataOperationRequest,
-  type FeishuRuntimeDataOperationRequestManifestEntry,
-} from "@dofe-agent/services";
+import { appendFeishuRuntimeDataOperationRequest, type FeishuRuntimeDataOperationRequestManifestEntry } from "@dofe-agent/services/integrations";
 import { prepareSkillImportOperationArtifacts } from "../../../../packages/daemon/src/skill-imports.ts";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";

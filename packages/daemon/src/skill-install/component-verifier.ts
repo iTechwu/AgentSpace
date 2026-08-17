@@ -7,7 +7,7 @@ import type {
   SkillComponentKind,
   SkillComponentStatus,
 } from "@dofe-agent/domain";
-import type { SkillArtifactManifest } from "@dofe-agent/services";
+import type { SkillArtifactManifest } from "@dofe-agent/services/skills";
 import { isSkillRunnerImageAvailableLocally, resolveSkillRunnerImage } from "../skill-runner.ts";
 
 export interface ComponentVerificationResult {

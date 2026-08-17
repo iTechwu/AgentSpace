@@ -1,11 +1,4 @@
-import {
-  dispatchOpenMontageProjectionNotificationSync,
-  drainOpenMontageJobDelegationAsync,
-  ingestSignedOpenMontageEventSync,
-  OpenMontageEventAuthenticationError,
-  OpenMontageEventValidationError,
-  reconcileOpenMontageJobAsync,
-} from "@dofe-agent/services";
+import { dispatchOpenMontageProjectionNotificationSync, drainOpenMontageJobDelegationAsync, ingestSignedOpenMontageEventSync, OpenMontageEventAuthenticationError, OpenMontageEventValidationError, reconcileOpenMontageJobAsync } from "@dofe-agent/services/openmontage";
 import {
   OpenMontageEventConflictError,
   OpenMontageEventNonceReplayError,

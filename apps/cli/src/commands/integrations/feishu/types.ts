@@ -13,13 +13,7 @@ import {
   type ExternalThreadBindingRecord,
   type ExternalUserBindingRecord
 } from "@dofe-agent/db";
-import {
-  type FeishuAgentBotChannelAutoProvisioningInput,
-  type FeishuAgentBotExternalGuestPolicyInput,
-  type FeishuChannelAutoProvisionPolicy,
-  type FeishuExternalParticipantPolicy,
-  type FeishuApiClient
-} from "@dofe-agent/services";
+import { type FeishuAgentBotChannelAutoProvisioningInput, type FeishuAgentBotExternalGuestPolicyInput, type FeishuChannelAutoProvisionPolicy, type FeishuExternalParticipantPolicy, type FeishuApiClient } from "@dofe-agent/services/integrations";
 
 export const FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const FEISHU_SMOKE_EVIDENCE_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;

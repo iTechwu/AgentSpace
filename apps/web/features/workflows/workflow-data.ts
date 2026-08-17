@@ -17,12 +17,9 @@ import {
   readWorkflowVersionSync,
 } from "@dofe-agent/db";
 import type { WorkflowRunRecord, WorkflowRunListCursor } from "@dofe-agent/db";
-import {
-  listEmployeeRuntimeBindingsForWorkspaceAsync,
-  readWorkflowCutoverModeSync,
-  readWorkspaceStateSnapshotSync,
-  shouldReadLegacyWorkflowSources,
-} from "@dofe-agent/services";
+import { listEmployeeRuntimeBindingsForWorkspaceAsync } from "@dofe-agent/services/employees";
+import { readWorkflowCutoverModeSync, shouldReadLegacyWorkflowSources } from "@dofe-agent/services/workflows";
+import { readWorkspaceStateSnapshotSync } from "@dofe-agent/services/workspace";
 import type { WorkflowGraphDefinition, WorkflowRunStatus } from "@dofe-agent/domain";
 import type {
   WorkflowBuilderPageData,

@@ -1,10 +1,4 @@
-import {
-  listWorkspaceContextChannelsSync,
-  listWorkspaceContextDocumentsSync,
-  listWorkspaceContextEntitiesSync,
-  resolveWorkspaceContextEntitySync,
-  searchWorkspaceContextMessagesSync,
-} from "@dofe-agent/services";
+import { listWorkspaceContextChannelsSync, listWorkspaceContextDocumentsSync, listWorkspaceContextEntitiesSync, resolveWorkspaceContextEntitySync, searchWorkspaceContextMessagesSync } from "@dofe-agent/services/content";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 

@@ -4,15 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
 import type { ActiveEmployee, ChannelRecord } from "@dofe-agent/domain/workspace";
-import {
-  BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
-  createEmployeeSync,
-  initializeOrganizationSync,
-  listWorkspaceSkillsSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  writeWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME, listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
+import { createEmployeeSync } from "@dofe-agent/services/employees";
+import { initializeOrganizationSync, readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { runWorkspaceCommand } from "./workspace.ts";
 
 const originalCwd = process.cwd();

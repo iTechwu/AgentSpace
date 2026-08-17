@@ -8,18 +8,8 @@ import type {
   RuntimeAppCatalogSource,
   RuntimeAppOperationType,
 } from "@dofe-agent/db";
-import {
-  approveCapabilityRequestSync,
-  cancelCapabilityRequestSync,
-  createWorkspaceRuntimeAppRelease,
-  rejectCapabilityRequestSync,
-  requestRuntimeAppOperationSync,
-  submitCapabilityRequestSync,
-  switchCapabilityImplementationSync,
-  syncCliHubCatalog,
-  syncRuntimeAppSkill,
-  type CapabilityImplementation,
-} from "@dofe-agent/services";
+import { approveCapabilityRequestSync, cancelCapabilityRequestSync, rejectCapabilityRequestSync, submitCapabilityRequestSync, switchCapabilityImplementationSync, type CapabilityImplementation } from "@dofe-agent/services/capabilities";
+import { createWorkspaceRuntimeAppRelease, requestRuntimeAppOperationSync, syncCliHubCatalog, syncRuntimeAppSkill } from "@dofe-agent/services/skills";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

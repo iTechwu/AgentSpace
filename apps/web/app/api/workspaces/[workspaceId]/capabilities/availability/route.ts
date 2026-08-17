@@ -9,16 +9,9 @@ import {
   type RuntimeAppCatalogItemRecord,
   type RuntimeInstalledAppRecord,
 } from "@dofe-agent/db";
-import {
-  isCapabilityProjectionEnabled,
-  listActiveCapabilityRequestsForRuntime,
-  listMcpCatalogItemsForWorkspaceSync,
-  listWorkspaceRuntimeAppCatalogItemsSync,
-  projectCliCapabilityAvailability,
-  projectMcpCapabilityAvailability,
-  selectCliHubReadiness,
-  type CapabilityAvailabilityProjection,
-} from "@dofe-agent/services";
+import { isCapabilityProjectionEnabled, listActiveCapabilityRequestsForRuntime, projectCliCapabilityAvailability, projectMcpCapabilityAvailability, type CapabilityAvailabilityProjection } from "@dofe-agent/services/capabilities";
+import { listMcpCatalogItemsForWorkspaceSync } from "@dofe-agent/services/mcp-center";
+import { listWorkspaceRuntimeAppCatalogItemsSync, selectCliHubReadiness } from "@dofe-agent/services/skills";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

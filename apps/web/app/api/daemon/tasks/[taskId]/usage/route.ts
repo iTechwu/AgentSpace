@@ -1,6 +1,6 @@
 import type { ReportTaskUsagesRequest, ReportTaskUsagesResponse } from "@dofe-agent/domain";
 import { readAgentRuntimeSync } from "@dofe-agent/db";
-import { resolveAgentRuntimeMode } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import {
   isPersistableManagedTaskUsage,

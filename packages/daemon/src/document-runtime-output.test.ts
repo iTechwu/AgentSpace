@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { beforeEach } from "node:test";
 import { getDatabase } from "@dofe-agent/db";
-import { createEmployeeSync, resetWorkspaceStateSync } from "@dofe-agent/services";
+import { createEmployeeSync } from "@dofe-agent/services/employees";
+import { resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { appendDocumentPermissionRequest } from "./runtime-output-manifests.ts";
 import { applyDocumentRuntimeOutputOperations } from "./document-runtime-output.ts";
 

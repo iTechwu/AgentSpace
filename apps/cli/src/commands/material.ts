@@ -1,9 +1,4 @@
-import {
-  addMaterialSync,
-  importMaterialFileSync,
-  listMaterialsSync,
-  parseMaterialSync,
-} from "@dofe-agent/services";
+import { addMaterialSync, importMaterialFileSync, listMaterialsSync, parseMaterialSync } from "@dofe-agent/services/content";
 import { parseArgs, getStringFlag } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 

@@ -1,10 +1,6 @@
-import type { SearchResult } from "@dofe-agent/services";
-import {
-  canReadChannelForActorSync,
-  readWorkspaceStateSync,
-  resolveChannelHumanMemberNames,
-  sameValue,
-} from "@dofe-agent/services";
+import type { SearchResult } from "@dofe-agent/services/content";
+import { canReadChannelForActorSync, resolveChannelHumanMemberNames } from "@dofe-agent/services/channels";
+import { readWorkspaceStateSync, sameValue } from "@dofe-agent/services/workspace";
 import type { ChannelRecord } from "@dofe-agent/domain/workspace";
 import type { WorkspaceRole } from "@dofe-agent/db";
 

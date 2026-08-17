@@ -1,9 +1,6 @@
 // 从 commands/integrations/feishu.ts 拆出（3.6-3），由原文件 barrel 再导出。
 
-import {
-  drainFeishuOutboxMessages,
-  startFeishuWebSocketWorkerSupervisor
-} from "@dofe-agent/services";
+import { drainFeishuOutboxMessages, startFeishuWebSocketWorkerSupervisor } from "@dofe-agent/services/integrations";
 import { getNumberFlag, getStringFlag, parseArgs } from "../../../lib/args.ts";
 import { writeData, type OutputFormat } from "../../../lib/format.ts";
 import { buildFeishuAgentBotCliInputFromFlags, buildFeishuAgentBotPolicyCliInputFromFlags, buildFeishuAgentChannelAccessCliInputFromFlags, buildFeishuCliAgentBotErrorReport, createFeishuAgentBotBindingForCli, disableFeishuAgentBotForCli, rotateFeishuAgentBotCredentialsForCli, setFeishuAgentChannelAccessForCli, updateFeishuAgentBotPolicyForCli } from "./agent-bot.ts";

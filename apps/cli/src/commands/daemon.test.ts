@@ -3,14 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
-import type { AttachmentStorageClient, ContactAgentContext, FeishuWebSocketWorkerSupervisorHandle } from "@dofe-agent/services";
-import {
-  initializeOrganizationSync,
-  postMessageSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  setAttachmentStorageClientForTests,
-} from "@dofe-agent/services";
+import type { AttachmentStorageClient, ContactAgentContext } from "@dofe-agent/services/content";
+import type { FeishuWebSocketWorkerSupervisorHandle } from "@dofe-agent/services/integrations";
+import { initializeOrganizationSync, readWorkspaceStateSync, resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { postMessageSync } from "@dofe-agent/services/messaging";
+import { setAttachmentStorageClientForTests } from "@dofe-agent/services/content";
 import {
   buildTaskPrompt,
   buildDaemonConfig,

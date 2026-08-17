@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { deleteWorkspaceAttachmentsSync, persistWorkspaceAttachmentFromFileSync } from "@dofe-agent/services";
+import { deleteWorkspaceAttachmentsSync, persistWorkspaceAttachmentFromFileSync } from "@dofe-agent/services/content";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import { clearChannelDocumentOperationArtifacts } from "./channel-documents.ts";
 import {

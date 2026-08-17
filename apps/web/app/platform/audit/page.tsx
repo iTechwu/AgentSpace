@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/features/auth/server-auth";
 import { listAuditLogsPrismaCutover } from "@dofe-agent/db";
-import { PLATFORM_AUDIT_WORKSPACE_ID } from "@dofe-agent/services";
+import { PLATFORM_AUDIT_WORKSPACE_ID } from "@dofe-agent/services/workspace";
 import { AuditLogView } from "@/features/audit/audit-log-view";
 import { parseAuditLogFilters } from "@/features/audit/audit-log-filters";
 import { PlatformConsoleShell } from "@/features/platform/platform-console-shell";

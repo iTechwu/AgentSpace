@@ -1,10 +1,6 @@
 import { heartbeatDaemonSync, listPendingManagedRuntimeCleanupRequestsForDaemonSync, markManagedRuntimeCleanupRequestRunningSync } from "@dofe-agent/db";
 import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@dofe-agent/domain";
-import {
-  buildManagedCleanupCommands,
-  resolveAgentRuntimeMode,
-  resumePendingRuntimeCredentialRecoveriesAsync,
-} from "@dofe-agent/services";
+import { buildManagedCleanupCommands, resolveAgentRuntimeMode, resumePendingRuntimeCredentialRecoveriesAsync } from "@dofe-agent/services/runtime";
 import { readDaemonConnectionForDaemon, requireDaemonAuth, requireManagedNodeBootstrapToken } from "../_lib/auth";
 
 export const runtime = "nodejs";

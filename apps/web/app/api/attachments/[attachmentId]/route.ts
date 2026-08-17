@@ -1,15 +1,9 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
-import {
-  canViewChannelDocumentSync,
-  createAttachmentStorageClient,
-  inferAttachmentKind,
-  readStoredAttachmentSync,
-  readWorkspaceStateSync,
-  resolveAttachmentMediaType,
-  tryRecordWorkspaceAuditEventSync,
-} from "@dofe-agent/services";
+import { canViewChannelDocumentSync } from "@dofe-agent/services/documents";
+import { createAttachmentStorageClient, readStoredAttachmentSync } from "@dofe-agent/services/content";
+import { inferAttachmentKind, readWorkspaceStateSync, resolveAttachmentMediaType, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { getWorkspaceChannelVisibilitySync } from "@/features/auth/workspace-channel-visibility";
 

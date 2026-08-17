@@ -1,5 +1,5 @@
 import { isCapabilityDeploymentMode, isCapabilityPackageKind, isCapabilityRequestedAction } from "@dofe-agent/db";
-import { submitCapabilityRequestSync } from "@dofe-agent/services";
+import { submitCapabilityRequestSync } from "@dofe-agent/services/capabilities";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

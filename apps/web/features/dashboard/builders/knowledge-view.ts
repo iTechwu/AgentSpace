@@ -1,9 +1,6 @@
 // 知识域视图构建：把频道文档、频道附件与知识页统一装配为知识文档页记录
 // （含被知识页/文档版本保留的合成附件记录）。
-import {
-  inferAttachmentKind,
-  resolveAttachmentMediaType,
-} from "@dofe-agent/services";
+import { inferAttachmentKind, resolveAttachmentMediaType } from "@dofe-agent/services/workspace";
 import type {
   KnowledgePage,
 } from "@dofe-agent/domain/workspace";

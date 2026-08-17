@@ -1,5 +1,6 @@
 import { listWorkspacesSync } from "@dofe-agent/db";
-import { evaluateDataProtectionHealthSync, sendExternalPagerAlert } from "@dofe-agent/services";
+import { evaluateDataProtectionHealthSync } from "@dofe-agent/services/employees";
+import { sendExternalPagerAlert } from "@dofe-agent/services/runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

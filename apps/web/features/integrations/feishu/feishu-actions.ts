@@ -23,24 +23,8 @@ import {
   type ExternalBindingStatus,
   type WorkspaceRole,
 } from "@dofe-agent/db";
-import {
-  FEISHU_DEFAULT_SCOPES,
-  FEISHU_EVENT_CALLBACK_PATH,
-  FEISHU_PROVIDER_ID,
-  buildFeishuHealthSnapshotConfigJson,
-  checkFeishuIntegrationHealth,
-  createFeishuAgentBotBindingSync,
-  disableFeishuAgentBotBindingSync,
-  inspectFeishuAgentBotBindingAvailabilitySync,
-  resolveFeishuResourceDescriptorForType,
-  rotateFeishuAgentBotCredentialsSync,
-  tryRecordWorkspaceAuditEventSync,
-  updateFeishuAgentBotPolicySync,
-  upsertFeishuExternalChannelDocumentSync,
-  upsertFeishuExternalDataTableSync,
-  validateFeishuResourceDescriptorForBinding,
-  validateFeishuResourceBindingScopes,
-} from "@dofe-agent/services";
+import { FEISHU_DEFAULT_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_PROVIDER_ID, buildFeishuHealthSnapshotConfigJson, checkFeishuIntegrationHealth, createFeishuAgentBotBindingSync, disableFeishuAgentBotBindingSync, inspectFeishuAgentBotBindingAvailabilitySync, resolveFeishuResourceDescriptorForType, rotateFeishuAgentBotCredentialsSync, updateFeishuAgentBotPolicySync, upsertFeishuExternalChannelDocumentSync, upsertFeishuExternalDataTableSync, validateFeishuResourceDescriptorForBinding, validateFeishuResourceBindingScopes } from "@dofe-agent/services/integrations";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { readPublicAppUrl } from "@/features/auth/public-app-url";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";

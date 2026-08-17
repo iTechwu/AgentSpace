@@ -1,7 +1,4 @@
-import {
-  buildManagedCredentialBundleDocument,
-  getRuntimeCredentialVault,
-} from "@dofe-agent/services";
+import { buildManagedCredentialBundleDocument, getRuntimeCredentialVault } from "@dofe-agent/services/runtime";
 import { readWorkspaceSsoBindingSync } from "@dofe-agent/db";
 import { readRuntimeForDaemon, requireDaemonAuth, requireRemoteManagedRuntimeMode } from "../../../_lib/auth";
 

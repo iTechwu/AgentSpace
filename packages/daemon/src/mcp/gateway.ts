@@ -9,7 +9,7 @@ import {
   type McpTaskSessionConnection,
   type ResolvedMcpConnection,
 } from "@dofe-agent/domain";
-import { redactMcpText } from "@dofe-agent/services";
+import { redactMcpText } from "@dofe-agent/services/mcp-center";
 import { createRuntimeMcpClient } from "./client.ts";
 
 export interface McpToolAuditRecord {

@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { getWorkspaceDaemonRemoteStagingDirPath } from "@dofe-agent/db";
 import type { DaemonTaskOutputBundle } from "@dofe-agent/domain";
-import { createAttachmentStorageClient } from "@dofe-agent/services";
+import { createAttachmentStorageClient } from "@dofe-agent/services/content";
 import { WORKDIR_CAPTURE_INCLUDE_DIRS } from "dofe-agent-daemon";
 
 const MAX_OUTPUT_BUNDLE_FILES = 64;

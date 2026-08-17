@@ -7,18 +7,12 @@ import type {
   TaskSkillExecutionSnapshot,
 } from "@dofe-agent/domain";
 import type { ActiveEmployee, ChannelDocument, KnowledgePage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
-import {
-  listDocumentPermissionRequestsSync,
-  listReadyMcpConnectionsForTaskSync,
-  listRuntimeAppContextEntriesForRuntimeSync,
-  readWorkspaceStateSync,
-  resolveOrLoadTaskSkillExecutionSnapshotSync,
-  resolveSkillProjectWorkDirSync,
-  type AgentDocumentContext,
-  type ContactAgentContext,
-  type FeishuLarkCliResourceGrant,
-  type WorkspaceNotificationRecord,
-} from "@dofe-agent/services";
+import { listDocumentPermissionRequestsSync, type AgentDocumentContext } from "@dofe-agent/services/operations";
+import { listReadyMcpConnectionsForTaskSync } from "@dofe-agent/services/mcp-center";
+import { listRuntimeAppContextEntriesForRuntimeSync, resolveOrLoadTaskSkillExecutionSnapshotSync, resolveSkillProjectWorkDirSync } from "@dofe-agent/services/skills";
+import { readWorkspaceStateSync, type WorkspaceNotificationRecord } from "@dofe-agent/services/workspace";
+import { type ContactAgentContext } from "@dofe-agent/services/content";
+import { type FeishuLarkCliResourceGrant } from "@dofe-agent/services/integrations";
 import { materializeChannelDocuments } from "../channel-documents.ts";
 import { materializeHeadRevisionToWorkDir } from "../workdir-capture.ts";
 import { parseTaskPayload, type ParsedTaskPayload } from "./payload.ts";

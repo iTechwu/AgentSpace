@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { getDatabase } from "@dofe-agent/db";
-import { createAttachmentStorageClient, resetWorkspaceStateSync } from "@dofe-agent/services";
+import { createAttachmentStorageClient } from "@dofe-agent/services/content";
+import { resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { materializeHeadRevisionToWorkDirStrict } from "./workdir-capture.ts";
 
 test("strict workspace materialization is idempotent after a partial mount retry", () => {

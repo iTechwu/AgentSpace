@@ -1,5 +1,5 @@
 import { listOpenMontageChannelProjectionsSync } from "@dofe-agent/db";
-import { canReadChannelForActorSync } from "@dofe-agent/services";
+import { canReadChannelForActorSync } from "@dofe-agent/services/channels";
 import { getWorkspaceAccessForIdentifier } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

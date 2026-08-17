@@ -1,4 +1,4 @@
-import { drainFeishuOutboxMessages } from "@dofe-agent/services";
+import { drainFeishuOutboxMessages } from "@dofe-agent/services/integrations";
 import { getNumberFlag, getStringFlag, parseArgs } from "../../lib/args.ts";
 import { writeData, type OutputFormat } from "../../lib/format.ts";
 

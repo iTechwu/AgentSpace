@@ -1,9 +1,7 @@
-import {
-  canReadChannelForActorSync,
-  listOpenMontageChannelProjectionVersionsSync,
-  readWorkspaceStateSnapshotSync,
-  subscribeWorkspaceRealtimeEvents,
-} from "@dofe-agent/services";
+import { canReadChannelForActorSync } from "@dofe-agent/services/channels";
+import { listOpenMontageChannelProjectionVersionsSync } from "@dofe-agent/services/openmontage";
+import { readWorkspaceStateSnapshotSync } from "@dofe-agent/services/workspace";
+import { subscribeWorkspaceRealtimeEvents } from "@dofe-agent/services/messaging";
 import { getWorkspaceAccessForIdentifier } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

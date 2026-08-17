@@ -4,7 +4,8 @@ import type { ContainerRecord, RuntimeMcpConnectionView, SkillsPageData } from "
 import { DEFAULT_WORKSPACE_ID, listDaemonSnapshotsSync, listEmployeeRuntimeBindingsSync, listMcpCatalogItemsSync, listMcpConnectionsSync, listQueuedTasksSync, listRuntimeAppOperationsSync, listRuntimeInstalledAppsSync } from "@dofe-agent/db";
 import type { WorkspaceRole } from "@dofe-agent/db";
 import type { DofeAgentState } from "@dofe-agent/domain/workspace";
-import { buildLegacyAgentIdForEmployeeName, isSystemSkillName, listEmployeeSkillIdsByAgentIdMap, listEmployeeSkillIdsByAgentIdMapSync } from "@dofe-agent/services";
+import { buildLegacyAgentIdForEmployeeName, listEmployeeSkillIdsByAgentIdMap, listEmployeeSkillIdsByAgentIdMapSync } from "@dofe-agent/services/employees";
+import { isSystemSkillName } from "@dofe-agent/services/skills";
 import { buildNativeRuntimeRecord } from "./agent-record.ts";
 import { listStoredSkillImportEventsCached, listWorkspaceSkillsCached, readWorkspaceStateCached } from "./cached.ts";
 import { resolveAssignedSkillIdsForEmployee } from "./inbox-items.ts";

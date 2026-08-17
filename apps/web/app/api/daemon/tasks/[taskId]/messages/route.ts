@@ -6,7 +6,7 @@ import {
 } from "@dofe-agent/db";
 import type { DaemonProvider, DaemonTaskMessageInput, ReportTaskMessagesRequest } from "@dofe-agent/domain";
 import { parseTaskPayload } from "dofe-agent-daemon";
-import { recordAgentChannelProgressSync, updatePendingAgentChannelReplySync } from "@dofe-agent/services";
+import { recordAgentChannelProgressSync, updatePendingAgentChannelReplySync } from "@dofe-agent/services/messaging";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

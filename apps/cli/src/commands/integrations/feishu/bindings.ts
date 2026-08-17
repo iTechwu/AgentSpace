@@ -16,15 +16,8 @@ import {
   type ExternalBindingStatus,
   type ExternalIntegrationRecord
 } from "@dofe-agent/db";
-import {
-  FEISHU_PROVIDER_ID,
-  resolveFeishuResourceDescriptorForType,
-  tryRecordWorkspaceAuditEventSync,
-  upsertFeishuExternalChannelDocumentSync,
-  upsertFeishuExternalDataTableSync,
-  validateFeishuResourceDescriptorForBinding,
-  validateFeishuResourceBindingScopes
-} from "@dofe-agent/services";
+import { FEISHU_PROVIDER_ID, resolveFeishuResourceDescriptorForType, upsertFeishuExternalChannelDocumentSync, upsertFeishuExternalDataTableSync, validateFeishuResourceDescriptorForBinding, validateFeishuResourceBindingScopes } from "@dofe-agent/services/integrations";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { isFeishuCliPlaceholderValue, normalizeOptionalText, requireActiveFeishuCliIntegration, requireNonEmpty, requireNonPlaceholderFeishuBindingValue, validateOptionalFeishuBindingValue } from "./cli-shared.ts";
 import { buildFeishuCliExternalReference, readJsonRecord, readStringMetadata } from "./evidence.ts";
 import type { FeishuBindingCliResult, FeishuChannelBindingCliItem, FeishuChannelBindingsCliReport, FeishuCliErrorReport } from "./types.ts";

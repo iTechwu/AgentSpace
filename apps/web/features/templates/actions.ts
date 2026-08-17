@@ -1,10 +1,6 @@
 "use server";
 
-import {
-  createTemplateSync,
-  updateTemplateSync,
-  deleteTemplateSync,
-} from "@dofe-agent/services";
+import { createTemplateSync, updateTemplateSync, deleteTemplateSync } from "@dofe-agent/services/content";
 import type { Template } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";

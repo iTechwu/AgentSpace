@@ -2,12 +2,8 @@ import {
   readOpenMontageChatBindingSync,
   recordAuditLogSync,
 } from "@dofe-agent/db";
-import {
-  callOpenMontageJobActionAsync,
-  canWriteChannelForActorSync,
-  OpenMontageJobActionError,
-  type OpenMontageJobActionInput,
-} from "@dofe-agent/services";
+import { callOpenMontageJobActionAsync, OpenMontageJobActionError, type OpenMontageJobActionInput } from "@dofe-agent/services/openmontage";
+import { canWriteChannelForActorSync } from "@dofe-agent/services/channels";
 import { getWorkspaceAccessForIdentifier } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

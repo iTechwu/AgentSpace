@@ -2,10 +2,7 @@ import {
   claimManagedProvisioningStageSync,
   readAgentRuntimeSync,
 } from "@dofe-agent/db";
-import {
-  buildManagedProvisioningCommandContext,
-  buildManagedProvisioningStageCommands,
-} from "@dofe-agent/services";
+import { buildManagedProvisioningCommandContext, buildManagedProvisioningStageCommands } from "@dofe-agent/services/runtime";
 import { requireDaemonAuth, requireManagedNodeBootstrapToken, requireRemoteManagedRuntimeMode } from "../../_lib/auth";
 
 export const runtime = "nodejs";

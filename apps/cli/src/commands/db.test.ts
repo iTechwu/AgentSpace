@@ -9,9 +9,7 @@ import {
   getWorkspaceChannelHistoryDirPath,
   readWorkspaceSync,
 } from "@dofe-agent/db";
-import {
-  resetWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { runDatabaseCommand } from "./db.ts";
 
 const originalCwd = process.cwd();

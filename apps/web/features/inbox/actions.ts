@@ -1,13 +1,7 @@
 "use server";
 
-import {
-  archiveNotificationAsync,
-  markNotificationReadAsync,
-  readWorkspaceStateSync,
-  sameValue,
-  updateTaskStatusSync,
-  type WorkspaceNotificationRecipient,
-} from "@dofe-agent/services";
+import { archiveNotificationAsync, markNotificationReadAsync, readWorkspaceStateSync, sameValue, type WorkspaceNotificationRecipient } from "@dofe-agent/services/workspace";
+import { updateTaskStatusSync } from "@dofe-agent/services/tasks";
 import type { TaskStatus } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

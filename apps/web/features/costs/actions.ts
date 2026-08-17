@@ -1,13 +1,15 @@
 "use server";
 
-import { deleteBudgetSync, toggleBudgetSync, tryRecordWorkspaceAuditEventSync, upsertBudgetSync } from "@dofe-agent/services";
+import { deleteBudgetSync, toggleBudgetSync, upsertBudgetSync } from "@dofe-agent/services/finance";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { readBudgetByIdSync, readWorkspaceSsoBindingSync, type BudgetAction, type BudgetPeriod, type BudgetScope } from "@dofe-agent/db";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";
-import { listManagedRuntimesForWorkspaceSync, syncRuntimeCredentialUsageAsync } from "@dofe-agent/services";
-import { resolveAgentRuntimeMode } from "@dofe-agent/services";
-import { getModelsInternalClient, isModelsInternalConfigured } from "@dofe-agent/services";
+import { listManagedRuntimesForWorkspaceSync } from "@dofe-agent/services/runtime";
+import { syncRuntimeCredentialUsageAsync } from "@dofe-agent/services/models";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { getModelsInternalClient, isModelsInternalConfigured } from "@dofe-agent/services/models";
 
 export interface TeamBillingBalance {
   balance: string;

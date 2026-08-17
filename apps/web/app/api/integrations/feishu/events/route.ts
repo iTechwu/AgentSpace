@@ -4,27 +4,7 @@ import {
   readExternalIntegrationSync,
   type ExternalIntegrationRecord,
 } from "@dofe-agent/db";
-import {
-  FEISHU_PROVIDER_ID,
-  buildFeishuUrlVerificationResponse,
-  createFeishuInboundAttachmentDownloader,
-  decryptFeishuEventPayload,
-  drainFeishuOutboxMessages,
-  isFeishuEncryptedPayload,
-  isFeishuApprovalCardActionCallbackPayload,
-  isFeishuCardActionCallbackPayload,
-  isFeishuUrlVerificationPayload,
-  processFeishuCardActionCallback,
-  processFeishuInboundEvent,
-  resolveFeishuChatMemberDisplayName,
-  recordFeishuCardActionCallbackIgnoredSync,
-  recordFeishuCallbackRejectedSync,
-  resolveFeishuCallbackAppId,
-  resolveFeishuCallbackTenantKey,
-  validateFeishuCallbackContext,
-  verifyFeishuCallbackToken,
-  verifyFeishuRequestSignature,
-} from "@dofe-agent/services";
+import { FEISHU_PROVIDER_ID, buildFeishuUrlVerificationResponse, createFeishuInboundAttachmentDownloader, decryptFeishuEventPayload, drainFeishuOutboxMessages, isFeishuEncryptedPayload, isFeishuApprovalCardActionCallbackPayload, isFeishuCardActionCallbackPayload, isFeishuUrlVerificationPayload, processFeishuCardActionCallback, processFeishuInboundEvent, resolveFeishuChatMemberDisplayName, recordFeishuCardActionCallbackIgnoredSync, recordFeishuCallbackRejectedSync, resolveFeishuCallbackAppId, resolveFeishuCallbackTenantKey, validateFeishuCallbackContext, verifyFeishuCallbackToken, verifyFeishuRequestSignature } from "@dofe-agent/services/integrations";
 import { readFeishuIntegrationCredentials } from "@/features/integrations/feishu/feishu-credentials";
 
 export const runtime = "nodejs";

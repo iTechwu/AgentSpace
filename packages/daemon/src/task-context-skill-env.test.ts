@@ -15,22 +15,9 @@ import {
   setStoredEmployeeSkillAssignmentsSync,
   updateSkillInstallationComponentStatusSync,
 } from "@dofe-agent/db";
-import {
-  approveSkillInstallSync,
-  assertSkillInstallationReadyForTaskSync,
-  buildAndPersistSkillArtifactSync,
-  buildSkillInstallRiskItemsSync,
-  computeSkillReleaseLockSync,
-  createEmployeeSync,
-  createSkillInstallationPlanSync,
-  createSkillUpgradePlanSync,
-  createWorkspaceSkillSync,
-  resetWorkspaceStateSync,
-  resolveOrLoadTaskSkillExecutionSnapshotSync,
-  resolveTaskSkillExecutionSnapshotSync,
-  updateWorkspaceSkillSync,
-  upsertAgentSkillRequirementsSync,
-} from "@dofe-agent/services";
+import { approveSkillInstallSync, assertSkillInstallationReadyForTaskSync, buildAndPersistSkillArtifactSync, buildSkillInstallRiskItemsSync, computeSkillReleaseLockSync, createSkillInstallationPlanSync, createSkillUpgradePlanSync, createWorkspaceSkillSync, resolveOrLoadTaskSkillExecutionSnapshotSync, resolveTaskSkillExecutionSnapshotSync, updateWorkspaceSkillSync, upsertAgentSkillRequirementsSync } from "@dofe-agent/services/skills";
+import { createEmployeeSync } from "@dofe-agent/services/employees";
+import { resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import type { WorkspaceSkill } from "@dofe-agent/domain";
 import { collectSkillReadinessBlockers, materializeAgentSkills, resolveAgentSkillEnvironment } from "./task-context.ts";
 

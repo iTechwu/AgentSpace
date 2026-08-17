@@ -1,4 +1,4 @@
-import type { WorkflowPublishValidation } from "@dofe-agent/services";
+import type { WorkflowPublishValidation } from "@dofe-agent/services/workflows";
 import { translateWorkflowErrorCode, type TxFn } from "@/features/i18n/presentation";
 
 export function WorkflowPreflightPanel({

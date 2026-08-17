@@ -1,22 +1,13 @@
-import {
-  completeAgentChannelReplySync,
-  completeChannelDocumentRunStepSync,
-  completeWorkflowTaskIfLinkedSync,
-  continueAutoContinuationAfterTaskSync,
-  failWorkflowTaskIfLinkedSync,
-  lockWorkflowRunForTaskIfLinkedSync,
-  prepareWorkflowTaskOutputSync,
-  queueFeishuAgentStatusCardOutboxSync,
-  queueFeishuChannelReplyOutboxSync,
-  readWorkspaceStateSync,
-  readWorkspaceAttachmentBytesSync,
-  reconcileStaleCommitJournalsSync,
-  resolveCompatibleDirectChannelRecord,
-  updateTaskStatusSync,
-  upsertDirectConversationStateSync,
-  writeConversationExecutionWorkspaceStateSync,
-  writeWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { completeAgentChannelReplySync } from "@dofe-agent/services/messaging";
+import { completeChannelDocumentRunStepSync } from "@dofe-agent/services/documents";
+import { completeWorkflowTaskIfLinkedSync, failWorkflowTaskIfLinkedSync, lockWorkflowRunForTaskIfLinkedSync, prepareWorkflowTaskOutputSync } from "@dofe-agent/services/workflows";
+import { continueAutoContinuationAfterTaskSync } from "@dofe-agent/services/operations";
+import { queueFeishuAgentStatusCardOutboxSync, queueFeishuChannelReplyOutboxSync } from "@dofe-agent/services/integrations";
+import { readWorkspaceStateSync, writeConversationExecutionWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { readWorkspaceAttachmentBytesSync } from "@dofe-agent/services/content";
+import { reconcileStaleCommitJournalsSync } from "@dofe-agent/services/employees";
+import { resolveCompatibleDirectChannelRecord, upsertDirectConversationStateSync } from "@dofe-agent/services/channels";
+import { updateTaskStatusSync } from "@dofe-agent/services/tasks";
 import {
   appendTaskMessageSync,
   completeCommittedTaskSync,

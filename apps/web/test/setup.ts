@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { setAttachmentStorageClientForTests } from "@dofe-agent/services";
+import { setAttachmentStorageClientForTests } from "@dofe-agent/services/content";
 import { createTestTosAttachmentStorage } from "../test-utils/tos-attachment-storage";
 
 setAttachmentStorageClientForTests(createTestTosAttachmentStorage().client);

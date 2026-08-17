@@ -5,15 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ActiveEmployee, ChannelRecord } from "@dofe-agent/domain/workspace";
 import { applyChannelDocumentOperations } from "./channel-documents.ts";
-import {
-  createEmployeeSync,
-  initializeOrganizationSync,
-  listChannelDocumentsSync,
-  readChannelDocumentSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-  writeWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { createEmployeeSync } from "@dofe-agent/services/employees";
+import { initializeOrganizationSync, readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { listChannelDocumentsSync, readChannelDocumentSync } from "@dofe-agent/services/documents";
 
 test("applyChannelDocumentOperations accepts a valid relative contentPath for document creation", () => {
   const originalCwd = process.cwd();

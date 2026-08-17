@@ -10,7 +10,7 @@ import {
   removeWorkspaceMembershipSync,
 } from "@dofe-agent/db";
 import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
-import { writeWorkspaceStateSync } from "@dofe-agent/services";
+import { writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
 
 const AUTH_COOKIE_NAME = "dofe_agent_session";
 const WORKSPACE_SELECTION_COOKIE = "dofe_agent_workspace";

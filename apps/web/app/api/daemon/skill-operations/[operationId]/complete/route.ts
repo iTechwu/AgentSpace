@@ -1,8 +1,5 @@
-import {
-  completeSkillInstallationOperationSync,
-  parseCompleteSkillInstallationOperationPayload,
-  tryRecordWorkspaceAuditEventSync,
-} from "@dofe-agent/services";
+import { completeSkillInstallationOperationSync, parseCompleteSkillInstallationOperationPayload } from "@dofe-agent/services/skills";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { readSkillInstallationOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import { parseJsonObjectBody } from "../../../_lib/claim-generation";
 

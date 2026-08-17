@@ -1,9 +1,6 @@
 import type { RuntimeToolCapability } from "@dofe-agent/domain";
-import {
-  buildFeishuLarkCliRuntimeToolCapability,
-  type AgentDocumentContext,
-  type FeishuLarkCliResourceGrant,
-} from "@dofe-agent/services";
+import { buildFeishuLarkCliRuntimeToolCapability, type FeishuLarkCliResourceGrant } from "@dofe-agent/services/integrations";
+import { type AgentDocumentContext } from "@dofe-agent/services/operations";
 
 export function buildDocumentRuntimeToolCapabilities(
   agentDocumentContexts: AgentDocumentContext[],

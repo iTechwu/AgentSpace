@@ -1,7 +1,4 @@
-import {
-  approveCapabilityRequestSync,
-  rejectCapabilityRequestSync,
-} from "@dofe-agent/services";
+import { approveCapabilityRequestSync, rejectCapabilityRequestSync } from "@dofe-agent/services/capabilities";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
-import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services";
+import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services/skills";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
 import { executeSkillInstallationOperation, readManifestDependencies, readManifestRuntimes, verifySystemDependenciesInRunner } from "./operation-worker.ts";
 import type { HttpDaemonClient } from "../daemon-client.ts";

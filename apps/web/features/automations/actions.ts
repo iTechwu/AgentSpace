@@ -1,12 +1,6 @@
 "use server";
 
-import {
-  createAutomationRuleSync,
-  updateAutomationRuleSync,
-  toggleAutomationRuleSync,
-  deleteAutomationRuleSync,
-  stopAutoContinuationSync,
-} from "@dofe-agent/services";
+import { createAutomationRuleSync, updateAutomationRuleSync, toggleAutomationRuleSync, deleteAutomationRuleSync, stopAutoContinuationSync } from "@dofe-agent/services/operations";
 import type { AutomationTrigger, AutomationCondition, AutomationAction } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";

@@ -1,5 +1,6 @@
 import { failManagedSkillServiceOperationSync } from "@dofe-agent/db";
-import { convergeCapabilityRequestFromSkillServiceOperationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { convergeCapabilityRequestFromSkillServiceOperationSync } from "@dofe-agent/services/capabilities";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { readManagedSkillServiceOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import { parseClaimGenerationValue, parseJsonObjectBody } from "../../../_lib/claim-generation";
 

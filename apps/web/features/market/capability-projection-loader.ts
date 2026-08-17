@@ -6,13 +6,8 @@ import type {
   RuntimeMcpConnectionRecord,
   RuntimeMcpOperationRecord,
 } from "@dofe-agent/db";
-import {
-  projectCliCapabilityAvailability,
-  projectMcpCapabilityAvailability,
-  selectCliHubReadiness,
-  type CapabilityAvailabilityProjection,
-  type CapabilityNextAction,
-} from "@dofe-agent/services";
+import { projectCliCapabilityAvailability, projectMcpCapabilityAvailability, type CapabilityAvailabilityProjection, type CapabilityNextAction } from "@dofe-agent/services/capabilities";
+import { selectCliHubReadiness } from "@dofe-agent/services/skills";
 import { isActiveCapabilityOperationStatus } from "./capability-presentation";
 
 /**

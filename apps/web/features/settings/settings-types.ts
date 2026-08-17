@@ -5,7 +5,7 @@ import type {
   FeishuIntegrationCreationGuide,
   FeishuIntegrationSettingsItem,
 } from "@/features/integrations/feishu/feishu-types";
-import type { PermissionCenterData } from "@dofe-agent/services";
+import type { PermissionCenterData } from "@dofe-agent/services/operations";
 
 export type SettingsTx = (zh: string, en: string) => string;
 export type SettingsPermissionCenterData = PermissionCenterData;

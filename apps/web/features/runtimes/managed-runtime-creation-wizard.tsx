@@ -13,7 +13,7 @@ import {
   resolveProviderDefaultModel,
   type DaemonProvider,
 } from "@dofe-agent/domain";
-import type { ManagedRuntimeCreationPreflightResult } from "@dofe-agent/services";
+import type { ManagedRuntimeCreationPreflightResult } from "@dofe-agent/services/runtime";
 
 export function ManagedRuntimeCreationWizard({
   onResolved,

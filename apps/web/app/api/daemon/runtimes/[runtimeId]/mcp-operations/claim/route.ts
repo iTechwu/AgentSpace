@@ -1,6 +1,6 @@
 import { claimNextMcpOperationForRuntimeSync, failMcpOperationSync, startMcpOperationSync } from "@dofe-agent/db";
 import type { ClaimMcpConnectionOperationResponse } from "@dofe-agent/domain";
-import { resolveClaimedMcpOperationSync } from "@dofe-agent/services";
+import { resolveClaimedMcpOperationSync } from "@dofe-agent/services/mcp-center";
 import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
 export const runtime = "nodejs";

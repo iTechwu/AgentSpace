@@ -18,7 +18,7 @@ import {
   type StoredSessionRecord,
   type StoredUserRecord,
 } from "@dofe-agent/db";
-import { tryRecordPlatformAuditEventAsync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { tryRecordPlatformAuditEventAsync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { syncSsoWorkspacesForUserSync, type SsoWorkspaceScope } from "./sso-workspaces";
 import { clearWorkspaceSelectionCookie, writeWorkspaceSelectionCookie } from "./workspace-selection";
 

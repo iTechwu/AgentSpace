@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import type { TaskEstimationResult } from "@dofe-agent/services";
+import type { TaskEstimationResult } from "@dofe-agent/services/finance";
 import { estimateTaskAction } from "./actions";
 import { useLanguage } from "@/features/i18n/language-provider";
 

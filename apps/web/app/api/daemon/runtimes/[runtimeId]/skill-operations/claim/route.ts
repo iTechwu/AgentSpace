@@ -1,6 +1,6 @@
 import { claimNextSkillInstallationOperationForRuntimeSync } from "@dofe-agent/db";
 import type { ClaimSkillInstallationOperationResponse } from "@dofe-agent/domain";
-import { resolveClaimedSkillInstallationOperation } from "@dofe-agent/services";
+import { resolveClaimedSkillInstallationOperation } from "@dofe-agent/services/skills";
 import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
 export const runtime = "nodejs";

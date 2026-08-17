@@ -1,5 +1,5 @@
 // 从 feishu/evidence.ts 拆出（3.6-3 补充），域：satisfaction。
-import { FEISHU_PROVIDER_ID } from "@dofe-agent/services";
+import { FEISHU_PROVIDER_ID } from "@dofe-agent/services/integrations";
 import { uniqueStrings } from "../cli-shared.ts";
 import type { FeishuEvidenceRequirement, FeishuIntegrationEvidence, FeishuIntegrationEvidenceSource } from "../types.ts";
 import { hasNonEmptyString, readJsonRecord } from "./core.ts";

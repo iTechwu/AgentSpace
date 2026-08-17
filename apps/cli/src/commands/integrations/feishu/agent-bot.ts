@@ -4,19 +4,8 @@ import {
   readExternalIntegrationSync,
   type ExternalIntegrationTransportMode
 } from "@dofe-agent/db";
-import {
-  createFeishuAgentBotBindingSync,
-  disableFeishuAgentBotBindingSync,
-  readFeishuChannelAutoProvisionPolicy,
-  readFeishuExternalParticipantPolicy,
-  setEmployeeChannelMemberAccessSync,
-  summarizeFeishuStoredCredentials,
-  rotateFeishuAgentBotCredentialsSync,
-  updateFeishuAgentBotPolicySync,
-  type FeishuAgentBotChannelAutoProvisioningInput,
-  type FeishuAgentBotExternalGuestPolicyInput,
-  type FeishuAgentBotBinding
-} from "@dofe-agent/services";
+import { createFeishuAgentBotBindingSync, disableFeishuAgentBotBindingSync, readFeishuChannelAutoProvisionPolicy, readFeishuExternalParticipantPolicy, summarizeFeishuStoredCredentials, rotateFeishuAgentBotCredentialsSync, updateFeishuAgentBotPolicySync, type FeishuAgentBotChannelAutoProvisioningInput, type FeishuAgentBotExternalGuestPolicyInput, type FeishuAgentBotBinding } from "@dofe-agent/services/integrations";
+import { setEmployeeChannelMemberAccessSync } from "@dofe-agent/services/employees";
 import { getStringFlag } from "../../../lib/args.ts";
 import { normalizeOptionalText, parseFeishuCliTransportMode, readStringFlagByKeys, readStringFlagOrEnv, requireActiveFeishuCliIntegration, requireNonEmpty, requireNonPlaceholderFeishuAgentBotValue, requireNonPlaceholderFeishuBindingValue, requireStringFlagOrEnv, requireStringFlagValue, sameValue, validateOptionalFeishuAgentBotValue } from "./cli-shared.ts";
 import { buildFeishuSmokeHarnessSummary } from "./smoke-env.ts";

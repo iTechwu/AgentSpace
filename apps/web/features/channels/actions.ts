@@ -7,60 +7,17 @@ import { getWorkspaceChannelVisibilitySync } from "@/features/auth/workspace-cha
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
 import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
-import {
-  addChannelEmployeesSync,
-  addWorkspaceMemberToChannelForActorSync,
-  addChannelDocumentCollaboratorSync,
-  assertCanUseEmployeeForActorSync,
-  archiveChannelDocumentSync,
-  approveChannelAccessRequestForActorSync,
-  restoreChannelDocumentSync,
-  createChannelParticipantsForMembersSync,
-  createChannelDocumentFromAttachmentSync,
-  createChannelDocumentSync,
-  deleteChannelSync,
-  deleteChannelAttachmentSync,
-  exportChannelDocumentAsAttachmentSync,
-  canReadChannelForActorSync,
-  canViewChannelDocumentSync,
-  renameChannelSync,
-  removeChannelDocumentCollaboratorSync,
-  resolveChannelDocumentConflictSync,
-  retryChannelDocumentConflictSync,
-  rollbackChannelDocumentVersionSync,
-  updateChannelDocumentAccessRoleSync,
-  acknowledgeMessageSync,
-  createChannelSync,
-  inviteUserToChannelForActorSync,
-  sendContactMessageForHumanWithAttachmentsSync,
-  sendChannelHumanMessageSync,
-  sendHumanDirectMessageSync,
-  pinMessageSync,
-  readWorkspaceStateSync,
-  rejectChannelAccessRequestForActorSync,
-  requestChannelAccessForActorSync,
-  revokeChannelInvitationForActorSync,
-  sameValue,
-  unpinMessageSync,
-  updateEmployeeRemarkNameSync,
-  upsertChannelDocumentPresenceSync,
-  updateChannelDocumentSync,
-  reviewApprovalSync,
-  reviewApprovalWithWorkflowSync,
-  cancelWorkflowRunSync,
-  listApprovalsSync,
-  listEmployeeSkillIdsSync,
-  listWorkspaceSkillsSync,
-  replacePendingChannelMessageSync,
-  FEISHU_PROVIDER_ID,
-  readFeishuChatMemberSnapshot,
-  readFeishuIntegrationCredentials,
-  setSessionModelOverrideForChatCommandSync,
-  validateSessionModelOverrideForChatCommandAsync,
-  ChatModelOverrideValidationError,
-  resolveAgentRuntimeMode,
-  resolveChatModelOverrideAsync,
-} from "@dofe-agent/services";
+import { addChannelEmployeesSync, addWorkspaceMemberToChannelForActorSync, approveChannelAccessRequestForActorSync, createChannelParticipantsForMembersSync, deleteChannelSync, canReadChannelForActorSync, renameChannelSync, createChannelSync, inviteUserToChannelForActorSync, sendContactMessageForHumanWithAttachmentsSync, sendHumanDirectMessageSync, rejectChannelAccessRequestForActorSync, requestChannelAccessForActorSync, revokeChannelInvitationForActorSync } from "@dofe-agent/services/channels";
+import { addChannelDocumentCollaboratorSync, archiveChannelDocumentSync, restoreChannelDocumentSync, createChannelDocumentFromAttachmentSync, createChannelDocumentSync, exportChannelDocumentAsAttachmentSync, canViewChannelDocumentSync, removeChannelDocumentCollaboratorSync, resolveChannelDocumentConflictSync, retryChannelDocumentConflictSync, rollbackChannelDocumentVersionSync, updateChannelDocumentAccessRoleSync, upsertChannelDocumentPresenceSync, updateChannelDocumentSync } from "@dofe-agent/services/documents";
+import { assertCanUseEmployeeForActorSync, resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { deleteChannelAttachmentSync } from "@dofe-agent/services/content";
+import { acknowledgeMessageSync, sendChannelHumanMessageSync, pinMessageSync, unpinMessageSync, replacePendingChannelMessageSync, setSessionModelOverrideForChatCommandSync, validateSessionModelOverrideForChatCommandAsync, ChatModelOverrideValidationError, resolveChatModelOverrideAsync } from "@dofe-agent/services/messaging";
+import { readWorkspaceStateSync, sameValue } from "@dofe-agent/services/workspace";
+import { updateEmployeeRemarkNameSync, listEmployeeSkillIdsSync } from "@dofe-agent/services/employees";
+import { reviewApprovalSync, listApprovalsSync } from "@dofe-agent/services/tasks";
+import { reviewApprovalWithWorkflowSync, cancelWorkflowRunSync } from "@dofe-agent/services/workflows";
+import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
+import { FEISHU_PROVIDER_ID, readFeishuChatMemberSnapshot, readFeishuIntegrationCredentials } from "@dofe-agent/services/integrations";
 import {
   cancelQueuedTaskSync,
   listExternalChannelBindingsSync,

@@ -17,25 +17,8 @@ import {
   readSkillInstallationSync,
   readSkillServiceCatalogSync,
 } from "@dofe-agent/db";
-import {
-  approveSkillInstallSync,
-  approveSkillUpgradeCandidateSync,
-  approveSkillUpgradeSync,
-  buildSkillInstallRiskItemsSync,
-  buildSkillInstallationComponentsSync,
-  computeSkillInstallRiskDecisionDigestSync,
-  computeSkillReleaseLockSync,
-  computeSkillUpgradeDiffHashSync,
-  createSkillInstallationPlanSync,
-  createSkillUpgradePlanSync,
-  diffSkillArtifactsSync,
-  listSkillUpgradeReviewCandidatesSync,
-  migrateLegacySkillArtifactsSync,
-  promoteSkillUpgradeSync,
-  rollbackSkillInstallationSync,
-  tryRecordWorkspaceAuditEventSync,
-  uninstallSkillInstallationSync,
-} from "@dofe-agent/services";
+import { approveSkillInstallSync, approveSkillUpgradeCandidateSync, approveSkillUpgradeSync, buildSkillInstallRiskItemsSync, buildSkillInstallationComponentsSync, computeSkillInstallRiskDecisionDigestSync, computeSkillReleaseLockSync, computeSkillUpgradeDiffHashSync, createSkillInstallationPlanSync, createSkillUpgradePlanSync, diffSkillArtifactsSync, listSkillUpgradeReviewCandidatesSync, migrateLegacySkillArtifactsSync, promoteSkillUpgradeSync, rollbackSkillInstallationSync, uninstallSkillInstallationSync } from "@dofe-agent/services/skills";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

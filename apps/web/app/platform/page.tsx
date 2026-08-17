@@ -9,7 +9,7 @@ import {
   listRuntimeCostSummariesSync,
   listWorkspacesSync,
 } from "@dofe-agent/db";
-import { PLATFORM_AUDIT_WORKSPACE_ID } from "@dofe-agent/services";
+import { PLATFORM_AUDIT_WORKSPACE_ID } from "@dofe-agent/services/workspace";
 import {
   PlatformConsoleClient,
   type PlatformWorkspaceSummary,

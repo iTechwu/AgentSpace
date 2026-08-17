@@ -4,23 +4,7 @@ import {
   readExternalIntegrationSync,
   type ExternalIntegrationRecord
 } from "@dofe-agent/db";
-import {
-  createFeishuApiClient,
-  executeBoundFeishuReadDataOperation,
-  fetchFeishuTenantAccessToken,
-  FEISHU_PROVIDER_ID,
-  readFeishuIntegrationCredentials,
-  planBoundFeishuWriteDataOperation,
-  planBoundFeishuWriteDataOperationWithApproval,
-  reviewFeishuDataOperationApproval,
-  resolveFeishuResourceDescriptorForType,
-  sanitizeFeishuOperationResponseSummary,
-  type ExternalDataOperationRequest,
-  type ExternalDataOperationResult,
-  type FeishuDataOperationApprovalContext,
-  type FeishuApiClient,
-  type FeishuApiRequest
-} from "@dofe-agent/services";
+import { createFeishuApiClient, executeBoundFeishuReadDataOperation, fetchFeishuTenantAccessToken, FEISHU_PROVIDER_ID, readFeishuIntegrationCredentials, planBoundFeishuWriteDataOperation, planBoundFeishuWriteDataOperationWithApproval, reviewFeishuDataOperationApproval, resolveFeishuResourceDescriptorForType, sanitizeFeishuOperationResponseSummary, type ExternalDataOperationRequest, type ExternalDataOperationResult, type FeishuDataOperationApprovalContext, type FeishuApiClient, type FeishuApiRequest } from "@dofe-agent/services/integrations";
 import { asRecord, copyJsonFlagAsParameter, copyStringFlagAsParameter, getOptionalNumberFlag, isFeishuCliPlaceholderValue, normalizeOptionalText, readNumberFromRecord, readStringFromRecord, requireActiveFeishuCliIntegration, requireNonEmpty } from "./cli-shared.ts";
 import { readFeishuMetadataString, sanitizeFeishuCliHealthErrorMessage } from "./readiness.ts";
 import type { FeishuApiUploadRequest, FeishuDataOperationApprovalReviewCliResult, FeishuDataOperationCliResult } from "./types.ts";

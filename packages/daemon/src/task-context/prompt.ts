@@ -3,13 +3,10 @@
 import type { AgentRuntimeRecord } from "@dofe-agent/db";
 import type { RuntimeAppContextEntry } from "@dofe-agent/domain";
 import type { ActiveEmployee, ChannelDocument, WorkspaceSkill } from "@dofe-agent/domain/workspace";
-import type { ContactAgentContext } from "@dofe-agent/services";
-import type {
-  AgentDocumentContext,
-  DocumentPermissionRequestRecord,
-  FeishuLarkCliResourceGrant,
-  WorkspaceNotificationRecord,
-} from "@dofe-agent/services";
+import type { ContactAgentContext } from "@dofe-agent/services/content";
+import type { AgentDocumentContext, DocumentPermissionRequestRecord } from "@dofe-agent/services/operations";
+import type { FeishuLarkCliResourceGrant } from "@dofe-agent/services/integrations";
+import type { WorkspaceNotificationRecord } from "@dofe-agent/services/workspace";
 import { buildChannelDocumentPromptLines } from "../channel-documents.ts";
 import type { ParsedTaskPayload } from "./payload.ts";
 import {

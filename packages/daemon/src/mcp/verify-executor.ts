@@ -1,5 +1,5 @@
 import type { ClaimedMcpConnectionOperation, McpErrorCode, ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
-import { redactMcpText } from "@dofe-agent/services";
+import { redactMcpText } from "@dofe-agent/services/mcp-center";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import { createRuntimeMcpClient } from "./client.ts";
 

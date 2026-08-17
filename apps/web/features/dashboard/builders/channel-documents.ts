@@ -1,9 +1,6 @@
 // 频道文档域视图装配：buildChannelWorkspaceArtifacts 汇总可见频道下的文档、
 // 文档运行、开放冲突与频道文件。会读工作区成员（cached）并复用变更集/附件域 helper。
-import {
-  inferAttachmentKind,
-  resolveAttachmentMediaType,
-} from "@dofe-agent/services";
+import { inferAttachmentKind, resolveAttachmentMediaType } from "@dofe-agent/services/workspace";
 import type {
   listQueuedTasksSync,
 } from "@dofe-agent/db";

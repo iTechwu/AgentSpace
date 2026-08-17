@@ -6,13 +6,10 @@ import {
   readWorkspaceStateRecordSync,
   writeWorkspaceStateRecordSync,
 } from "@dofe-agent/db";
-import {
-  createChannelSync,
-  createEmployeeSync,
-  createTaskSync,
-  readWorkspaceStateSync,
-  resetWorkspaceStateSync,
-} from "@dofe-agent/services";
+import { createChannelSync } from "@dofe-agent/services/channels";
+import { createEmployeeSync } from "@dofe-agent/services/employees";
+import { createTaskSync } from "@dofe-agent/services/tasks";
+import { readWorkspaceStateSync, resetWorkspaceStateSync } from "@dofe-agent/services/workspace";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-core-storage-reconciliation-"));

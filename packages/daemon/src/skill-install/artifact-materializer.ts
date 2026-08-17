@@ -5,12 +5,8 @@ import type {
   ClaimedSkillInstallationOperation,
   SkillInstallationOperationFile,
 } from "@dofe-agent/domain";
-import {
-  computeArtifactDigest,
-  resolveAttachmentRuntimeConfig,
-  type AttachmentRuntimeConfig,
-  type SkillArtifactManifest,
-} from "@dofe-agent/services";
+import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services/skills";
+import { resolveAttachmentRuntimeConfig, type AttachmentRuntimeConfig } from "@dofe-agent/services/runtime";
 import {
   downloadSkillArtifactFile,
   type SkillArtifactDownloadInput,

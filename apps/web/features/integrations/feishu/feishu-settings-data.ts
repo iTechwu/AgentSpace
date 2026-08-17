@@ -12,20 +12,9 @@ import {
   type ExternalResourceBindingRecord,
   type WorkspaceRole,
 } from "@dofe-agent/db";
-import {
-  FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS,
-  FEISHU_DEFAULT_SCOPES,
-  FEISHU_EVENT_CALLBACK_PATH,
-  FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS,
-  FEISHU_OPEN_PLATFORM_CONSOLE_URLS,
-  FEISHU_OPEN_PLATFORM_SETUP_STEPS,
-  FEISHU_PROVIDER_ID,
-  FEISHU_REQUIRED_CREDENTIAL_FIELDS,
-  FEISHU_REQUIRED_EVENTS,
-  listActiveEmployeesSync,
-  listWorkspaceMembershipsAsync,
-  sanitizeFeishuOperationResponseSummary,
-} from "@dofe-agent/services";
+import { FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS, FEISHU_DEFAULT_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS, FEISHU_OPEN_PLATFORM_CONSOLE_URLS, FEISHU_OPEN_PLATFORM_SETUP_STEPS, FEISHU_PROVIDER_ID, FEISHU_REQUIRED_CREDENTIAL_FIELDS, FEISHU_REQUIRED_EVENTS, sanitizeFeishuOperationResponseSummary } from "@dofe-agent/services/integrations";
+import { listActiveEmployeesSync } from "@dofe-agent/services/employees";
+import { listWorkspaceMembershipsAsync } from "@dofe-agent/services/workspace";
 import { buildPublicAppUrl } from "@/features/auth/public-app-url";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { summarizeFeishuStoredCredentials } from "./feishu-credentials";

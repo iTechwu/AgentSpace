@@ -1,12 +1,8 @@
 import { cache } from "react";
-import {
-  listAgentAccessRequestsForActorSync,
-  listKnowledgeProposalsForWorkspace,
-  listKnowledgeProposalsForWorkspaceSync,
-  listDocumentPermissionRequestsSync,
-  readWorkspaceStateSnapshotSync,
-  sanitizeFeishuDataOperationApprovalMetadata,
-} from "@dofe-agent/services";
+import { listAgentAccessRequestsForActorSync, listDocumentPermissionRequestsSync } from "@dofe-agent/services/operations";
+import { listKnowledgeProposalsForWorkspace, listKnowledgeProposalsForWorkspaceSync } from "@dofe-agent/services/knowledge";
+import { readWorkspaceStateSnapshotSync } from "@dofe-agent/services/workspace";
+import { sanitizeFeishuDataOperationApprovalMetadata } from "@dofe-agent/services/integrations";
 import {
   DEFAULT_WORKSPACE_ID,
   listChannelAccessRequestsSync,

@@ -1,13 +1,6 @@
 import { createExternalMessageOutboxSync, readQueuedTaskSync } from "@dofe-agent/db";
-import {
-  buildFeishuIdentityBindingRequiredCard,
-  buildFeishuInteractiveCardOutboundMessage,
-  createRuntimeToolApprovalRequestSync,
-  evaluateFeishuExternalGuestRuntimeToolIdentityRequirementFromTaskInput,
-  listApprovalsSync,
-  reviewApprovalSync,
-  type FeishuRuntimeToolIdentityRequirement,
-} from "@dofe-agent/services";
+import { buildFeishuIdentityBindingRequiredCard, buildFeishuInteractiveCardOutboundMessage, evaluateFeishuExternalGuestRuntimeToolIdentityRequirementFromTaskInput, type FeishuRuntimeToolIdentityRequirement } from "@dofe-agent/services/integrations";
+import { createRuntimeToolApprovalRequestSync, listApprovalsSync, reviewApprovalSync } from "@dofe-agent/services/tasks";
 import type { CreateRuntimeApprovalRequest } from "@dofe-agent/domain";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 

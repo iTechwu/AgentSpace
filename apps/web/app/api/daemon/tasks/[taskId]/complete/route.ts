@@ -21,37 +21,17 @@ import {
   parseTaskPayload,
 } from "dofe-agent-daemon";
 import type { CompleteTaskRequest } from "@dofe-agent/domain";
-import {
-  completeWorkflowTaskIfLinkedSync,
-  beginWorkflowTaskCommitSync,
-  continueAutoContinuationAfterTaskSync,
-  failChannelDocumentRunStepSync,
-  formatConversationFailureSummary,
-  formatTaskFailureSummary,
-  getWorkflowCompletionErrorCode,
-  applyFeishuLarkCliResultManifestOperations,
-  applyFeishuRuntimeDataOperationRequests,
-  listFeishuLarkCliResourceGrantsForChannelSync,
-  lockWorkflowRunForTaskIfLinkedSync,
-  postMessageSync,
-  prepareWorkflowTaskOutputSync,
-  promoteTaskOutputsToWorkspaceSync,
-  queueFeishuAgentStatusCardOutboxSync,
-  queueFeishuChannelReplyOutboxSync,
-  readWorkspaceAttachmentBytesSync,
-  readWorkspaceStateSync,
-  replacePendingChannelMessageSync,
-  resolveWorkflowCompletionFailureCode,
-  resolveCompatibleDirectChannelRecord,
-  AgentDocumentPermissionError,
-  resolveAgentRuntimeMode,
-  writeConversationExecutionWorkspaceStateSync,
-  upsertDirectConversationStateSync,
-  updateTaskStatusSync,
-  failWorkflowTaskIfLinkedSync,
-  writeWorkspaceStateSync,
-  type FeishuAgentStatusCardStatus,
-} from "@dofe-agent/services";
+import { completeWorkflowTaskIfLinkedSync, beginWorkflowTaskCommitSync, getWorkflowCompletionErrorCode, lockWorkflowRunForTaskIfLinkedSync, prepareWorkflowTaskOutputSync, resolveWorkflowCompletionFailureCode, failWorkflowTaskIfLinkedSync } from "@dofe-agent/services/workflows";
+import { continueAutoContinuationAfterTaskSync, AgentDocumentPermissionError } from "@dofe-agent/services/operations";
+import { failChannelDocumentRunStepSync } from "@dofe-agent/services/documents";
+import { formatConversationFailureSummary, formatTaskFailureSummary, postMessageSync, replacePendingChannelMessageSync } from "@dofe-agent/services/messaging";
+import { applyFeishuLarkCliResultManifestOperations, applyFeishuRuntimeDataOperationRequests, listFeishuLarkCliResourceGrantsForChannelSync, queueFeishuAgentStatusCardOutboxSync, queueFeishuChannelReplyOutboxSync, type FeishuAgentStatusCardStatus } from "@dofe-agent/services/integrations";
+import { promoteTaskOutputsToWorkspaceSync } from "@dofe-agent/services/employees";
+import { readWorkspaceAttachmentBytesSync } from "@dofe-agent/services/content";
+import { readWorkspaceStateSync, writeConversationExecutionWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { resolveCompatibleDirectChannelRecord, upsertDirectConversationStateSync } from "@dofe-agent/services/channels";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { updateTaskStatusSync } from "@dofe-agent/services/tasks";
 import {
   finalizeReconciledTask,
   projectTaskCompletion,

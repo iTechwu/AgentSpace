@@ -6,8 +6,11 @@ import { buildFeishuAgentBotSetupReference, listFeishuIntegrationSettingsItems }
 import { DEFAULT_WORKSPACE_ID, listQueuedTasksSync } from "@dofe-agent/db";
 import type { TaskExecutionEventRecord, TaskExecutionEventType, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
 import type { DofeAgentState, WorkspaceSkill } from "@dofe-agent/domain/workspace";
-import { listAgentAccessRequestsForActorSync, listAgentForkInvitationsForActorSync, listAgentForkInvitationsForSourceAgentSync, listDocumentAgentAccessSync, listDocumentPermissionRequestsSync, listEmployeeSkillIdsByAgentIdMapSync, listManagedRuntimesForWorkspaceSync, normalizeRuntimeProviderHealth, resolveAgentRuntimeMode, resolveChannelHumanMemberNames } from "@dofe-agent/services";
-import type { AgentAccessRequestRecord, AgentForkInvitationRecord } from "@dofe-agent/services";
+import { listAgentAccessRequestsForActorSync, listAgentForkInvitationsForActorSync, listAgentForkInvitationsForSourceAgentSync, listDocumentAgentAccessSync, listDocumentPermissionRequestsSync } from "@dofe-agent/services/operations";
+import { listEmployeeSkillIdsByAgentIdMapSync } from "@dofe-agent/services/employees";
+import { listManagedRuntimesForWorkspaceSync, normalizeRuntimeProviderHealth, resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { resolveChannelHumanMemberNames } from "@dofe-agent/services/channels";
+import type { AgentAccessRequestRecord, AgentForkInvitationRecord } from "@dofe-agent/services/operations";
 import { buildWorkspaceAgentRecord, compareAgents, compareContainers, redactSkillRequirementsForViewer, safeParseJson } from "./agent-record.ts";
 import { listAgentRouterProviderSessionsCached, listAgentTaskAttemptsCached, listDaemonSnapshotsCached, listEmployeeRuntimeBindingsCached, listKnowledgeAssignmentPoliciesCached, listKnowledgeAssignmentsCached, listMcpCatalogItemsCached, listMcpConnectionsCached, listQueuedTasksCached, listRuntimeAppOperationsCached, listRuntimeGrantsCached, listRuntimeInstalledAppsCached, listTaskExecutionEventsCached, listWorkspaceSkillsCached, readAgentRouterSessionCached, readWorkspaceStateCached } from "./cached.ts";
 import { buildWorkspaceAgentKnowledgeRecord } from "./knowledge.ts";

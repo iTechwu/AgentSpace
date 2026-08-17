@@ -5,7 +5,8 @@ import type { AgentKnowledgePageRecord, KnowledgeAgentOption, KnowledgeAssignedA
 import { DEFAULT_WORKSPACE_ID, listCapabilityRequestsSync } from "@dofe-agent/db";
 import type { WorkspaceRole } from "@dofe-agent/db";
 import type { ActiveEmployee, DofeAgentState, KnowledgeAssignmentMode, KnowledgePage } from "@dofe-agent/domain/workspace";
-import { buildLegacyAgentIdForEmployeeName, listKnowledgeAssignmentPoliciesSync, listKnowledgeAssignmentsSync, reapStuckParseTasksSync } from "@dofe-agent/services";
+import { buildLegacyAgentIdForEmployeeName } from "@dofe-agent/services/employees";
+import { listKnowledgeAssignmentPoliciesSync, listKnowledgeAssignmentsSync, reapStuckParseTasksSync } from "@dofe-agent/services/knowledge";
 import { limitLoadtestDashboardPayload } from "./agents.ts";
 import { AGENT_ASSIGNABLE_KNOWLEDGE_LIMIT, AGENT_KNOWLEDGE_PREVIEW_LIMIT, KNOWLEDGE_PAGE_PREVIEW_LIMIT, listKnowledgeAssignmentPoliciesCached, listKnowledgeAssignmentsCached, listQueuedTasksCached, readWorkspaceStateCached } from "./cached.ts";
 

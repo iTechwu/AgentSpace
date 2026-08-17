@@ -7,12 +7,9 @@ import {
 import type { WorkspaceRole } from "@dofe-agent/db";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import type { ChannelRecord } from "@dofe-agent/domain/workspace";
-import {
-  countUnreadNotificationsSync,
-  listWorkspaceSkillsSync,
-  readWorkspaceStateSnapshotSync,
-  resolveChannelHumanMemberCount,
-} from "@dofe-agent/services";
+import { countUnreadNotificationsSync, readWorkspaceStateSnapshotSync } from "@dofe-agent/services/workspace";
+import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
+import { resolveChannelHumanMemberCount } from "@dofe-agent/services/channels";
 import { getPendingApprovalCount } from "@/features/approvals/approval-queue-data";
 
 const readWorkspaceStateCached = cache((workspaceId: string) => readWorkspaceStateSnapshotSync(workspaceId));

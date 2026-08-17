@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { RuntimeTaskDetailClient } from "@/features/runtimes/task-detail-client";
 import { LanguageProvider } from "@/features/i18n/language-provider";
-import type { RuntimeProvisioningTaskDetail } from "@dofe-agent/services";
+import type { RuntimeProvisioningTaskDetail } from "@dofe-agent/services/runtime";
 
 vi.mock("@/features/runtimes/actions", () => ({
   cancelProvisioningAction: vi.fn(),

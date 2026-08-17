@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import type { ManagedRuntimeListItem } from "@dofe-agent/services";
+import type { ManagedRuntimeListItem } from "@dofe-agent/services/runtime";
 import { RuntimesPageClient } from "@/features/runtimes/runtimes-page-client";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 

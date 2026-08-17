@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WORKFLOW_EVENT_NAMES, type WorkflowGraphDefinition } from "@dofe-agent/domain";
-import type { WorkflowPublishValidation } from "@dofe-agent/services";
+import type { WorkflowPublishValidation } from "@dofe-agent/services/workflows";
 import { translateWorkflowErrorCode } from "@/features/i18n/presentation";
 import {
   createWorkflowDraftAction,
