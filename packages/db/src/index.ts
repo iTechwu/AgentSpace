@@ -374,6 +374,7 @@ export {
   claimWorkflowOutboxBatchPrisma,
   acknowledgeInactiveWorkflowNodeOutboxPrisma,
   enqueueWorkflowOutboxPrisma,
+  fanOutWorkflowRunOutboxPrisma,
   listPendingWorkflowOutboxPrisma,
   markWorkflowOutboxFailedPrisma,
   isWorkflowOutboxPrismaWriteEnabled,
@@ -387,6 +388,11 @@ export {
   type DispatchWorkflowNodePrismaInput,
   type DispatchWorkflowNodePrismaResult,
 } from "./prisma/workflow-dispatch-prisma-write.ts";
+export {
+  isPrismaTransactionConflict,
+  retryPrismaTransaction,
+  type PrismaTransactionRetryOptions,
+} from "./prisma/transaction-retry.ts";
 export {
   advanceWorkflowTriggerPrisma,
   claimDueWorkflowTriggersPrisma,

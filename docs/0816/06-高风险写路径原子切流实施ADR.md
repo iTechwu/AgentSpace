@@ -90,6 +90,7 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
 
 1. **已完成 employee_task node.ready 路径**：`prisma/workflow-dispatch-prisma-write.ts` 实现 `Prisma.TransactionClient` 边界——outbox lease claim、run→node 行锁、node claim、router session、queue insert/read、双生命周期事件、run event、node link 和 outbox publish 同一 Serializable transaction；CAS/link affected rows 强制为 1，重复 queue 不再重复写事件；
 2. **已接线按类型双 runner**：worker 根据 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 选择 Prisma node-level path，flag 默认 0；`approval` 与非 employee_task 节点显式 claim 后进入 sync legacy，避免全局开关破坏审批流；终态/非 ready employee_task 原子 claim+publish，不再出现结果标记 published 但数据库仍 pending；
-3. **待实施**：coordinator/materialization outbox 合并事务仍需独立 flag 和对照；run.ready/resumed fan-out 目前在 Prisma worker 中逐节点事务后再确认批量 outbox；
-4. **已完成基础故障处理测试**：P2034 有界重试、binding/employee 缺失转 `retry_wait +60s`、已有 queue 不重复写 router/task event、outbox failure 不重复增加 attempt；**真库集成测试已补**（`8b93f344`，`prisma/workflow-dispatch-prisma-write.integration.test.ts`）：两 worker 并发 claim 同一 outbox 行（恰一 claimed、败者 `workflow_outbox_lease_conflict`、终态 attempts=1/published/事件各一条）、outbox 发布阶段丢租约的业务写整体回滚（node claim/queue/双事件/run event 随事务回退）、同 run 双 ready 节点并发派发（run 行锁串行化无死锁）；40P01/40001 真实舞台化从事务边界不可行（事务内无显式反向行锁），由 mock 分类测试覆盖 40P01/40001 错误码重试路径，40001 在并发用例中自然出现并经有界重试收敛；
-5. 全量 `packages/db` + `services` 相关测试（逐文件运行），SLO 域注册与 `prisma:pool:evidence` 复测。
+3. **已完成 run outbox fan-out**：run.ready/resumed 不再逐节点派发后单独确认；同一 Serializable transaction 内 claim 父事件、锁 run、按 parentOutboxId+nodeRunId 生成确定性 node.ready 子事件并发布父事件，approval/employee_task 由后续批次按类型处理；
+4. **已完成数据库故障处理测试**：P2034 有界重试、binding/employee 缺失转 `retry_wait +60s`、已有 queue 不重复写 router/task event、outbox failure 不重复增加 attempt；`workflow-dispatch-prisma-write.integration.test.ts` 在真实 PostgreSQL 验证双 worker 竞争、publish 失败整体回滚、同 run 并发及反向行锁产生的真实 40P01 自动重试；
+5. **待实施**：coordinator/materialization 业务状态写 + outbox insert 合并 Prisma transaction、legacy/Prisma shadow 对照和 30 天准入证据；
+6. 全量 `packages/db` + `services` 相关测试（逐文件运行），SLO 域注册与 `prisma:pool:evidence` 复测。

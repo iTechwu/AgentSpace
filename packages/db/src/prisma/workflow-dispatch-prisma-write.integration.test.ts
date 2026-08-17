@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Prisma } from "@prisma/client";
 import { getDatabase } from "../database.ts";
 import { registerDaemonRuntimesSync } from "../daemons.ts";
 import { bindEmployeeRuntimeSync } from "../employee-bindings.ts";
@@ -13,7 +14,8 @@ import {
   transitionWorkflowNodeRunSync,
 } from "../workflows/runs.ts";
 import { enqueueWorkflowOutboxSync } from "../workflows/outbox.ts";
-import { disconnectDofePrismaClient } from "./prisma-client.ts";
+import { disconnectDofePrismaClient, getDofePrismaClient } from "./prisma-client.ts";
+import { retryPrismaTransaction } from "./transaction-retry.ts";
 import {
   dispatchWorkflowNodeFromOutboxPrisma,
   dispatchWorkflowNodePrisma,
@@ -317,5 +319,49 @@ test("serializable conflict classification covers deadlock 40P01 and SQLSTATE 40
     }, client as never);
     assert.equal(attempts, 2);
     assert.equal(result.reason, "already_queued");
+  }
+});
+
+test("real PostgreSQL deadlock retries one of two opposing Serializable transactions", async () => {
+  const first = createWorkspaceSync({
+    id: `workspace-deadlock-a-${Math.random().toString(36).slice(2, 10)}`,
+    slug: `workspace-deadlock-a-${Math.random().toString(36).slice(2, 10)}`,
+    name: "Deadlock A",
+    createdBy: "dispatch-it-test",
+  });
+  const second = createWorkspaceSync({
+    id: `workspace-deadlock-b-${Math.random().toString(36).slice(2, 10)}`,
+    slug: `workspace-deadlock-b-${Math.random().toString(36).slice(2, 10)}`,
+    name: "Deadlock B",
+    createdBy: "dispatch-it-test",
+  });
+  let arrived = 0;
+  let releaseFirstAttempt: (() => void) | undefined;
+  const firstAttemptBarrier = new Promise<void>((resolve) => { releaseFirstAttempt = resolve; });
+  let firstAttempts = 0;
+  let secondAttempts = 0;
+  const client = getDofePrismaClient();
+
+  const lock = (left: string, right: string, increment: () => number) => retryPrismaTransaction(() => client.$transaction(async (tx) => {
+    const attempt = increment();
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM workspace WHERE id = ${left} FOR UPDATE`);
+    if (attempt === 1) {
+      arrived += 1;
+      if (arrived === 2) releaseFirstAttempt?.();
+      await firstAttemptBarrier;
+    }
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM workspace WHERE id = ${right} FOR UPDATE`);
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+
+  try {
+    await Promise.all([
+      lock(first.id, second.id, () => ++firstAttempts),
+      lock(second.id, first.id, () => ++secondAttempts),
+    ]);
+    assert.ok(firstAttempts > 1 || secondAttempts > 1, "one transaction must retry after the real deadlock");
+  } finally {
+    await disconnectDofePrismaClient();
+    hardDeleteWorkspaceSync(first.id);
+    hardDeleteWorkspaceSync(second.id);
   }
 });

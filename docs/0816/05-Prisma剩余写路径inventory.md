@@ -10,8 +10,8 @@
 | document agent access | `prisma/document-agent-access-prisma-write.ts` | 已切流 | 四列唯一键、grant upsert、revoke COALESCE、affected rows | 主/备结果和撤销语义连续 30 天一致 |
 | workspace notifications | `prisma/notifications-prisma-write.ts` | 已切流/仍保留 raw SQL 更新 | create 冲突重试、markRead/archive 的列集与状态保护 | 将 `UPDATE` raw SQL 替换为受审计 Prisma API；完成并发顺序回归 |
 | skill drafts | `prisma/skill-drafts-prisma-write.ts` | 已切流 | `(workspace_id, skill_id)` upsert、版本和更新时间语义 | 完成删除/恢复语义、事件审计与 30 天零 fallback |
-| task queue row | `prisma/task-queue-prisma-write.ts` + `prisma/workflow-dispatch-prisma-write.ts` | **node-level 原子路径已完成 / flag 关闭** | run→node lock、queue id 幂等、node/link CAS、binding/session、queue unavailable +60s、router/task event 去重、run event、outbox acknowledgement、P2034/40P01 有界重试 | 完成 run-level fan-out、真实 deadlock 注入、shadow 对照与 30 天零 drift |
-| workflow outbox | `prisma/workflow-outbox-prisma-write.ts` + `workflows/outbox-dispatcher.ts` | **node.ready 已接入原子 dispatcher / flag 关闭** | Prisma lease CAS、node.ready 同事务 publish、终态原子确认、attempt 单次递增、lease conflict；approval 显式 legacy fallback；run.ready/resumed 保留批量后确认 | run-level fan-out、业务写 + outbox insert 合并事务和发布顺序对照 |
+| task queue row | `prisma/task-queue-prisma-write.ts` + `prisma/workflow-dispatch-prisma-write.ts` | **node-level 原子路径已完成 / flag 关闭** | run→node lock、queue id 幂等、node/link CAS、binding/session、queue unavailable +60s、router/task event 去重、run event、outbox acknowledgement、P2034/40P01 有界重试；真实 40P01 测试通过 | 完成 shadow 对照与 30 天零 drift |
+| workflow outbox | `prisma/workflow-outbox-prisma-write.ts` + `workflows/outbox-dispatcher.ts` | **node.ready 与 run fan-out 已接入 / flag 关闭** | node.ready 同事务 publish、终态原子确认、attempt 单次递增；run.ready/resumed 原子生成确定性 node.ready 子事件并发布父事件；approval 显式 legacy fallback | coordinator/materialization 业务写 + outbox insert 合并事务和发布顺序 shadow 对照 |
 | workflow trigger lease | `prisma/workflow-triggers-prisma.ts` | **adapter 已完成 / flag 关闭** | published definition gate、lease CAS、owner release | scheduler/materialization 全链切换；并发抢占/过期 reclaim、P2034/deadlock 重试 |
 
 ## 待迁移高风险写路径
@@ -39,4 +39,4 @@
 
 ## 当前结论
 
-本 inventory 已完成“发现、契约定义、第一批 Prisma adapter 和 dispatcher node-level 原子事务”。它仍不表示生产写切流已经实施：run-level fan-out、coordinator/materialization 的业务写 + outbox insert 合并事务、recovery lease、真实 deadlock 注入和 shadow 对照仍缺失；在这些证据完成前，不删除同步 legacy 写路径或开启 write flag。
+本 inventory 已完成“发现、契约定义、第一批 Prisma adapter、dispatcher node-level 原子事务、run-level outbox fan-out 和真实 deadlock 注入”。它仍不表示生产写切流已经实施：coordinator/materialization 的业务写 + outbox insert 合并事务、recovery lease 和 30 天 shadow 对照仍缺失；在这些证据完成前，不删除同步 legacy 写路径或开启 write flag。

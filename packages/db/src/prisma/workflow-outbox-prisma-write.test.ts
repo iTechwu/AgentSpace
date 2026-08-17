@@ -4,6 +4,7 @@ import {
   acknowledgeInactiveWorkflowNodeOutboxPrisma,
   claimWorkflowOutboxBatchPrisma,
   enqueueWorkflowOutboxPrisma,
+  fanOutWorkflowRunOutboxPrisma,
   markWorkflowOutboxFailedPrisma,
   markWorkflowOutboxPublishedPrisma,
 } from "./workflow-outbox-prisma-write.ts";
@@ -151,4 +152,50 @@ test("Prisma inactive-node acknowledgement locks run then node and rechecks the 
 
   assert.equal(acknowledged, true);
   assert.deepEqual(calls, ["run.lock", "node.lock", "outbox.update", "outbox.update"]);
+});
+
+test("Prisma run outbox fan-out atomically creates node-ready events before publishing the parent", async () => {
+  const calls: string[] = [];
+  const created: Array<Record<string, unknown>> = [];
+  const tx = {
+    workflowOutbox: {
+      updateMany: async () => {
+        calls.push(calls.length === 0 ? "parent.claim" : "parent.publish");
+        return { count: 1 };
+      },
+      upsert: async (args: { create: Record<string, unknown> }) => {
+        calls.push("child.upsert");
+        created.push(args.create);
+        return args.create;
+      },
+    },
+    $queryRaw: async () => {
+      calls.push("run.lock");
+      return [{ id: "run-1" }];
+    },
+    workflowNodeRun: {
+      findMany: async () => [{ id: "node-1" }, { id: "node-2" }],
+    },
+  };
+  const client = { $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx) };
+
+  const result = await fanOutWorkflowRunOutboxPrisma({
+    id: "outbox-parent",
+    workerId: "worker-1",
+    workspaceId: "workspace-1",
+    runId: "run-1",
+    now: "2026-08-17T00:00:00.000Z",
+  }, client as never);
+
+  assert.deepEqual(result.nodeRunIds, ["node-1", "node-2"]);
+  assert.deepEqual(calls, ["parent.claim", "run.lock", "child.upsert", "child.upsert", "parent.publish"]);
+  assert.deepEqual(created.map((row) => ({
+    aggregateType: row.aggregateType,
+    aggregateId: row.aggregateId,
+    eventType: row.eventType,
+    payloadJson: row.payloadJson,
+  })), [
+    { aggregateType: "workflow_node_run", aggregateId: "node-1", eventType: "workflow.node.ready", payloadJson: { nodeRunId: "node-1" } },
+    { aggregateType: "workflow_node_run", aggregateId: "node-2", eventType: "workflow.node.ready", payloadJson: { nodeRunId: "node-2" } },
+  ]);
 });

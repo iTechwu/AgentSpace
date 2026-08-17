@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { randomLikeId } from "../database.ts";
 import { getDofePrismaClient } from "./prisma-client.ts";
+import { retryPrismaTransaction } from "./transaction-retry.ts";
 
 export interface DispatchWorkflowNodePrismaInput {
   workspaceId: string;
@@ -34,7 +35,7 @@ export async function dispatchWorkflowNodePrisma(
   input: DispatchWorkflowNodePrismaInput,
   client: PrismaClient = getDofePrismaClient(),
 ): Promise<DispatchWorkflowNodePrismaResult> {
-  return retrySerializableTransaction(() => client.$transaction(
+  return retryPrismaTransaction(() => client.$transaction(
     (tx) => dispatchWorkflowNodePrismaInTransaction(input, tx),
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   ));
@@ -45,7 +46,7 @@ export async function dispatchWorkflowNodeFromOutboxPrisma(
   input: DispatchWorkflowNodePrismaInput & { outbox: { id: string; workerId: string } },
   client: PrismaClient = getDofePrismaClient(),
 ): Promise<DispatchWorkflowNodePrismaResult> {
-  return retrySerializableTransaction(() => client.$transaction(
+  return retryPrismaTransaction(() => client.$transaction(
     async (tx) => {
       const leaseUntil = new Date(Date.parse(input.now) + 60_000);
       const claimed = await tx.workflowOutbox.updateMany({
@@ -331,24 +332,4 @@ function priorityToNumber(priority: "low" | "medium" | "high" | undefined): numb
 
 function isWorkflowRunDispatchBlocked(status: string): boolean {
   return ["paused", "cancelled", "failed", "succeeded", "partially_succeeded"].includes(status);
-}
-
-async function retrySerializableTransaction<T>(operation: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (!isSerializableConflict(error) || attempt === 2) throw error;
-      await new Promise<void>((resolve) => setTimeout(resolve, 10 * 2 ** attempt));
-    }
-  }
-  throw new Error("prisma_transaction_retry_exhausted");
-}
-
-function isSerializableConflict(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const code = "code" in error ? String(error.code) : "";
-  const message = "message" in error ? String(error.message) : "";
-  return code === "P2034" || code === "40001" || code === "40P01"
-    || /could not serialize|deadlock detected|serialization failure/i.test(message);
 }

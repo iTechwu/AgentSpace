@@ -1,7 +1,9 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { createHash } from "node:crypto";
 import type { WorkflowOutboxRecord } from "../types.ts";
 import { randomLikeId } from "../database.ts";
 import { getDofePrismaClient } from "./prisma-client.ts";
+import { retryPrismaTransaction } from "./transaction-retry.ts";
 
 export interface CreateWorkflowOutboxPrismaInput {
   id?: string;
@@ -194,6 +196,65 @@ export async function acknowledgeInactiveWorkflowNodeOutboxPrisma(input: {
   });
 }
 
+/** Atomically replace a run-ready event with deterministic node-ready events. */
+export async function fanOutWorkflowRunOutboxPrisma(input: {
+  id: string;
+  workerId: string;
+  workspaceId: string;
+  runId: string;
+  now: string;
+}, client?: PrismaClient): Promise<{ nodeRunIds: string[] }> {
+  const prisma = client ?? getDofePrismaClient();
+  const now = new Date(input.now);
+  return retryPrismaTransaction(() => prisma.$transaction(async (tx) => {
+    const claimed = await tx.workflowOutbox.updateMany({
+      where: {
+        id: input.id,
+        workspaceId: input.workspaceId,
+        status: "pending",
+        availableAt: { lte: now },
+        OR: [{ lockedAt: null }, { lockedAt: { lt: now } }],
+      },
+      data: { lockedAt: new Date(now.getTime() + 60_000), lockedBy: input.workerId, attempts: { increment: 1 } },
+    });
+    if (claimed.count !== 1) throw new Error("workflow_outbox_lease_conflict");
+    const runs = await tx.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT id FROM workflow_run WHERE id = ${input.runId} AND workspace_id = ${input.workspaceId} FOR UPDATE`,
+    );
+    if (runs.length !== 1) throw new Error("workflow_run_not_found");
+    const nodes = await tx.workflowNodeRun.findMany({
+      where: { workspaceId: input.workspaceId, runId: input.runId, status: "ready" },
+      orderBy: { id: "asc" },
+      select: { id: true },
+    });
+    for (const node of nodes) {
+      const id = workflowRunFanOutboxId(input.id, node.id);
+      await tx.workflowOutbox.upsert({
+        where: { id },
+        create: {
+          id,
+          workspaceId: input.workspaceId,
+          aggregateType: "workflow_node_run",
+          aggregateId: node.id,
+          eventType: "workflow.node.ready",
+          payloadJson: { nodeRunId: node.id },
+          status: "pending",
+          attempts: 0,
+          availableAt: now,
+          createdAt: now,
+        },
+        update: {},
+      });
+    }
+    const published = await tx.workflowOutbox.updateMany({
+      where: { id: input.id, workspaceId: input.workspaceId, status: "pending", lockedBy: input.workerId },
+      data: { status: "published", publishedAt: now, lockedAt: null, lockedBy: null },
+    });
+    if (published.count !== 1) throw new Error("workflow_outbox_lease_conflict");
+    return { nodeRunIds: nodes.map((node) => node.id) };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+}
+
 async function claimWorkflowOutboxForFailureInTransaction(
   input: { id: string; workerId: string; workspaceId: string },
   now: Date,
@@ -279,4 +340,9 @@ function toIso(value: unknown): string {
 
 function isWorkflowRunDispatchBlocked(status: string): boolean {
   return ["paused", "cancelled", "failed", "succeeded", "partially_succeeded"].includes(status);
+}
+
+function workflowRunFanOutboxId(parentOutboxId: string, nodeRunId: string): string {
+  const digest = createHash("sha256").update(`${parentOutboxId}\0${nodeRunId}`).digest("hex").slice(0, 32);
+  return `workflow-outbox-fanout-${digest}`;
 }
