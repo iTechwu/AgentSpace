@@ -399,6 +399,10 @@ export {
   type MaterializeWorkflowRunPrismaResult,
 } from "./prisma/workflow-materialization-prisma-write.ts";
 export {
+  readyWorkflowNodeWithOutboxPrisma,
+  type ReadyWorkflowNodeWithOutboxPrismaInput,
+} from "./prisma/workflow-coordinator-prisma-write.ts";
+export {
   assessPersistedPrismaCutoverShadowReadinessSync,
   assessPrismaCutoverShadowReadiness,
   type PrismaCutoverShadowReadinessReport,
