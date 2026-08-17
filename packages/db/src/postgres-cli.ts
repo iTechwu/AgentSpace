@@ -10,6 +10,7 @@ import {
   type MigrationStatus,
 } from "./postgres.ts";
 import { collectPrismaPoolCapacityEvidence } from "./prisma/pool-capacity-evidence.ts";
+import { runPrismaPoolCapacityLoadTest } from "./prisma/pool-capacity-loadtest.ts";
 
 interface ParsedArgs {
   positionals: string[];
@@ -26,6 +27,7 @@ async function main(): Promise<void> {
   const sqlitePath = getStringFlag(flags, "sqlite-path");
   const dryRun = flags["dry-run"] === true;
   const reset = flags.reset === true;
+  const role = getStringFlag(flags, "role") as "web" | "worker" | "daemon" | undefined;
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp();
@@ -46,6 +48,22 @@ async function main(): Promise<void> {
 
   if (command === "prisma-pool-evidence") {
     writeOutput(await collectPrismaPoolCapacityEvidence({ databaseUrl }), true);
+    return;
+  }
+
+  if (command === "prisma-pool-loadtest") {
+    if (!role || !["web", "worker", "daemon"].includes(role)) {
+      throw new Error("prisma_pool_loadtest.role_required");
+    }
+    const loadtestDatabaseUrl = databaseUrl ?? process.env.DOFE_AGENT_PRISMA_POOL_LOADTEST_DATABASE_URL;
+    if (!loadtestDatabaseUrl) throw new Error("prisma_pool_loadtest.database_url_required");
+    writeOutput(await runPrismaPoolCapacityLoadTest({
+      databaseUrl: loadtestDatabaseUrl,
+      role,
+      concurrency: getNumberFlag(flags, "concurrency"),
+      holdMs: getNumberFlag(flags, "hold-ms"),
+      timeoutMs: getNumberFlag(flags, "timeout-ms"),
+    }), true);
     return;
   }
 
@@ -97,6 +115,7 @@ function printHelp(): void {
   node --experimental-strip-types packages/db/src/postgres-cli.ts status --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts init --database-url <postgres-url> [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-evidence --database-url <postgres-url> [--json]
+  node --experimental-strip-types packages/db/src/postgres-cli.ts prisma-pool-loadtest --database-url <isolated-test-postgres-url> --role <web|worker|daemon> [--concurrency <n>] [--hold-ms <n>] [--timeout-ms <n>] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-sqlite [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts migrate-from-postgres --source-database-url <postgres-url> [--target-database-url <postgres-url>] [--dry-run] [--reset] [--json]
   node --experimental-strip-types packages/db/src/postgres-cli.ts cutover-plan [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--json]
@@ -137,6 +156,13 @@ function parseArgs(args: string[]): ParsedArgs {
 function getStringFlag(flags: Record<string, string | boolean>, key: string): string | undefined {
   const value = flags[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function getNumberFlag(flags: Record<string, string | boolean>, key: string): number | undefined {
+  const value = getStringFlag(flags, key);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function writeOutput(payload: unknown, json: boolean): void {

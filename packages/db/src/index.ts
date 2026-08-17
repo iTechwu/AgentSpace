@@ -358,6 +358,13 @@ export {
   type PrismaPoolCapacityEvidenceRole,
 } from "./prisma/pool-capacity-evidence.ts";
 export {
+  percentile95,
+  runPrismaPoolCapacityLoadTest,
+  validatePrismaPoolLoadTestDatabaseUrl,
+  type PrismaPoolCapacityLoadTestInput,
+  type PrismaPoolCapacityLoadTestReport,
+} from "./prisma/pool-capacity-loadtest.ts";
+export {
   createAgentTaskQueuePrisma,
   isTaskQueuePrismaWriteEnabled,
   type CreateTaskQueuePrismaInput,
