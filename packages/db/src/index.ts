@@ -394,6 +394,11 @@ export {
   type PrismaTransactionRetryOptions,
 } from "./prisma/transaction-retry.ts";
 export {
+  materializeWorkflowRunPrisma,
+  type MaterializeWorkflowRunPrismaInput,
+  type MaterializeWorkflowRunPrismaResult,
+} from "./prisma/workflow-materialization-prisma-write.ts";
+export {
   assessPersistedPrismaCutoverShadowReadinessSync,
   assessPrismaCutoverShadowReadiness,
   type PrismaCutoverShadowReadinessReport,
