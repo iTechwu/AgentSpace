@@ -1,7 +1,7 @@
 import {
   emitPrismaCutoverMetric,
   flushPrismaCutoverSloSnapshotsSync,
-  setPrismaTransactionRetryObserver,
+  runWithPrismaTransactionRetryCapture,
   type PrismaTransactionRetryEvent,
 } from "@dofe-agent/db";
 import { readSloThresholdsFromEnv } from "../runtime-maintenance/runtime-maintenance.ts";
@@ -19,13 +19,14 @@ export async function observeWorkflowPrismaWrite<T>(
 ): Promise<T> {
   const emitMetric = options.emitMetric ?? emitPrismaCutoverMetric;
   const now = options.now ?? Date.now;
-  // 基线清理：本批次之前遗留的冲突事件（如未观测路径产生）不归入本批次。
-  drainConflictCounts();
+  // 事务冲突事件按本次调用的异步上下文捕获：并发批次互不串扰，
+  // 事件精确归属触发它的这次 operation（含成功重试与耗尽终态）。
+  const events: PrismaTransactionRetryEvent[] = [];
   const startedAt = now();
   try {
-    const result = await operation();
+    const result = await runWithPrismaTransactionRetryCapture(events, operation);
     const summary = options.summarizeResult?.(result);
-    const conflicts = takeDomainConflicts(context.domain);
+    const conflicts = domainConflictCounts(events, context.domain);
     emitMetric(context, {
       source: "primary",
       mismatch: 0,
@@ -39,7 +40,9 @@ export async function observeWorkflowPrismaWrite<T>(
     });
     return result;
   } catch (error) {
-    const conflicts = takeDomainConflicts(context.domain);
+    const conflicts = domainConflictCounts(events, context.domain);
+    // 冲突计数仅在大于 0 时声明：为 0 时省略字段，让窗口层按错误消息
+    // 分类兜底（直抛的 P2034/40P01 不经 retry 包装也要进对应冲突率）。
     emitMetric(context, {
       source: "primary",
       mismatch: 0,
@@ -49,8 +52,9 @@ export async function observeWorkflowPrismaWrite<T>(
       error: error instanceof Error ? error.message : String(error),
       sampleCount: 1,
       errorCount: 1,
-      deadlockCount: conflicts.deadlock,
-      p2034Count: conflicts.p2034,
+      ...(conflicts.deadlock > 0 || conflicts.p2034 > 0
+        ? { deadlockCount: conflicts.deadlock, p2034Count: conflicts.p2034 }
+        : {}),
     });
     throw error;
   }
@@ -63,28 +67,19 @@ export interface WorkflowPrismaBatchSummary {
   errorCount: number;
 }
 
-// 进程级冲突事件缓冲：transaction-retry 观察者在重试发生时立即上报，
-// observeWorkflowPrismaWrite 在批次结束时按 domain 认领（ADR 0816/06 第 4 节：
-// 成功重试的 P2034/deadlock 必须进入 SLO，而不是被吞成无错样本）。
-const conflictEvents: PrismaTransactionRetryEvent[] = [];
-setPrismaTransactionRetryObserver((event) => { conflictEvents.push(event); });
-
-function drainConflictCounts(): Map<string, { deadlock: number; p2034: number }> {
-  const counts = new Map<string, { deadlock: number; p2034: number }>();
-  for (const event of conflictEvents) {
-    const entry = counts.get(event.scope) ?? { deadlock: 0, p2034: 0 };
-    if (event.kind === "deadlock") entry.deadlock += 1;
-    else entry.p2034 += 1;
-    counts.set(event.scope, entry);
+function domainConflictCounts(
+  events: readonly PrismaTransactionRetryEvent[],
+  domain: string,
+): { deadlock: number; p2034: number } {
+  let deadlock = 0;
+  let p2034 = 0;
+  // 非本域事件（如嵌套调用的 coordinator 域写路径）不归入本域样本。
+  for (const event of events) {
+    if (event.scope !== domain) continue;
+    if (event.kind === "deadlock") deadlock += 1;
+    else p2034 += 1;
   }
-  conflictEvents.length = 0;
-  return counts;
-}
-
-function takeDomainConflicts(domain: string): { deadlock: number; p2034: number } {
-  const drained = drainConflictCounts();
-  // 非本域事件（如尚未接入观测的 coordinator 域）一并清空，避免跨批次误归属。
-  return drained.get(domain) ?? { deadlock: 0, p2034: 0 };
+  return { deadlock, p2034 };
 }
 
 /**

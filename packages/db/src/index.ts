@@ -392,6 +392,7 @@ export {
   classifyPrismaTransactionConflictKind,
   isPrismaTransactionConflict,
   retryPrismaTransaction,
+  runWithPrismaTransactionRetryCapture,
   setPrismaTransactionRetryObserver,
   type PrismaTransactionConflictKind,
   type PrismaTransactionRetryEvent,

@@ -44,6 +44,30 @@ test("workflow Prisma write metrics preserve transaction errors for SLO classifi
   assert.equal(metrics[0]?.error, "P2034: could not serialize access");
   assert.equal(metrics[0]?.errorCount, 1);
   assert.equal(metrics[0]?.sampleCount, 1);
+  // 直抛（未经 retry 包装）的冲突没有已捕获事件：不硬填 0，省略字段让
+  // 窗口层按错误消息分类兜底进入 p2034Rate。
+  assert.equal(metrics[0]?.p2034Count, undefined);
+  assert.equal(metrics[0]?.deadlockCount, undefined);
+});
+
+test("exhausted transaction conflicts count into the failure sample's conflict rates", async () => {
+  const metrics: Array<Record<string, unknown>> = [];
+  await assert.rejects(
+    observeWorkflowPrismaWrite(
+      { domain: "workflow-dispatcher", operation: "outbox.batch" },
+      () => retryPrismaTransaction(async () => {
+        throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+      }, { scope: "workflow-dispatcher", maxAttempts: 3, baseDelayMs: 0 }),
+      { emitMetric: (_context, metric) => metrics.push(metric), now: () => 100 },
+    ),
+    /deadlock/,
+  );
+
+  // 3 次尝试全部 40P01 冲突后耗尽：错误照抛，同时每次冲突（含终态）
+  // 都计入 deadlockCount——不能只剩 errorRate。
+  assert.equal(metrics[0]?.errorCount, 1);
+  assert.equal(metrics[0]?.deadlockCount, 3);
+  assert.equal(metrics[0]?.p2034Count, 0);
 });
 
 test("batch summaries carry structured item failures into the SLO sample", async () => {
