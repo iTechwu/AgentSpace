@@ -85,6 +85,9 @@ export async function sendExternalPagerAlert(options: {
     return { sent: false, reason: "EXTERNAL_PAGER_WEBHOOK_URL not configured." };
   }
   const filtered = dedupeAlerts(options.alerts.filter((alert) => config.severityFilter.has(alert.severity)));
+  if (filtered.length === 0 && options.alerts.length > 0) {
+    return { sent: false, reason: "No alerts match the configured severity filter." };
+  }
   const currentKeys = new Set(options.alerts.map(alertKey));
 
   // Recovery: any previously-active state not present in the current alert set
