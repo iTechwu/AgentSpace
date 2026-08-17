@@ -18,6 +18,7 @@ const input = {
 
 test("dispatcher Prisma writer keeps claim, queue, events and outbox acknowledgement in one transaction", async () => {
   const calls: string[] = [];
+  let persistedRouterEventType = "task_queued";
   const tx = {
     $queryRaw: async () => [{ id: "run-1", status: "running" }],
     workflowNodeRun: {
@@ -40,8 +41,8 @@ test("dispatcher Prisma writer keeps claim, queue, events and outbox acknowledge
       findUnique: async () => null,
       create: async () => { calls.push("queue.create"); return { id: "queue-workflow-node-run-1" }; },
     },
-    agentRouterEvent: { create: async () => { calls.push("router.event"); } },
-    taskExecutionEvent: { create: async () => { calls.push("task.event"); } },
+    agentRouterEvent: { create: async () => { calls.push("router.event"); return { type: persistedRouterEventType }; } },
+    taskExecutionEvent: { create: async () => { calls.push("task.event"); return { type: "queued" }; } },
     workflowRun: {
       update: async () => ({ workspaceId: "workspace-1", currentSequence: 1 }),
     },
@@ -61,6 +62,10 @@ test("dispatcher Prisma writer keeps claim, queue, events and outbox acknowledge
     observability: { eventOrder: { comparedCount: 1, driftCount: 0 } },
   });
   assert.deepEqual(calls, ["outbox.publish", "node.update", "queue.create", "node.update", "router.event", "task.event", "workflow.event", "outbox.publish"]);
+
+  persistedRouterEventType = "unexpected";
+  const drifted = await dispatchWorkflowNodeFromOutboxPrisma(input, client as never);
+  assert.deepEqual(drifted.observability?.eventOrder, { comparedCount: 1, driftCount: 1 });
 });
 
 test("dispatcher event-order observer detects a sequence that differs from legacy", () => {
@@ -130,8 +135,8 @@ test("dispatcher Prisma writer does not duplicate lifecycle events for an existi
     },
     agentRouterSession: { findFirst: async () => ({ id: "session-1" }), update: async () => ({ id: "session-1" }) },
     agentTaskQueue: { findUnique: async () => ({ id: "queue-workflow-node-run-1" }) },
-    agentRouterEvent: { create: async () => { routerEvents += 1; } },
-    taskExecutionEvent: { create: async () => { taskEvents += 1; } },
+    agentRouterEvent: { create: async () => { routerEvents += 1; return { type: "task_queued" }; } },
+    taskExecutionEvent: { create: async () => { taskEvents += 1; return { type: "queued" }; } },
     workflowRun: { update: async () => ({ workspaceId: "workspace-1", currentSequence: 1 }) },
     workflowRunEvent: { create: async () => undefined },
     workflowOutbox: { updateMany: async () => ({ count: 1 }) },

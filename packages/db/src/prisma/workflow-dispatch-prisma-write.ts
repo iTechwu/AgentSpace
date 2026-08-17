@@ -2,7 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { randomLikeId } from "../database.ts";
 import {
   observeLegacyTaskEnqueueEventOrder,
-  type TaskEnqueueLifecycleEvent,
+  type ObservedTaskEnqueueLifecycleEvent,
   type WorkflowDispatchObservability,
 } from "../task-enqueue-event-contract.ts";
 import { getDofePrismaClient } from "./prisma-client.ts";
@@ -165,7 +165,7 @@ async function dispatchWorkflowNodePrismaInTransaction(
     workflow: input.workflowMetadata,
   } as Prisma.InputJsonObject;
   const conversationKey = `workspace_task:${node.id}`;
-  const eventOrder: TaskEnqueueLifecycleEvent[] = [];
+  const eventOrder: ObservedTaskEnqueueLifecycleEvent[] = [];
   const existingSession = await tx.agentRouterSession.findFirst({
     where: { workspaceId: input.workspaceId, agentId: binding.employeeId, conversationKey },
   });
@@ -214,7 +214,7 @@ async function dispatchWorkflowNodePrismaInTransaction(
   });
   if (linked.count !== 1) throw new Error("workflow_node_queue_link_conflict");
   if (!existingTask) {
-    await tx.agentRouterEvent.create({
+    const routerEvent = await tx.agentRouterEvent.create({
       data: {
         id: `router-event-${randomLikeId()}`,
         workspaceId: input.workspaceId,
@@ -229,8 +229,8 @@ async function dispatchWorkflowNodePrismaInTransaction(
         createdAt: new Date(input.now),
       },
     });
-    eventOrder.push({ stream: "router", type: "task_queued" });
-    await tx.taskExecutionEvent.create({
+    eventOrder.push({ stream: "router", type: routerEvent.type });
+    const queueEvent = await tx.taskExecutionEvent.create({
       data: {
         id: `task-event-${randomLikeId()}`,
         workspaceId: input.workspaceId,
@@ -248,7 +248,7 @@ async function dispatchWorkflowNodePrismaInTransaction(
         createdAt: new Date(input.now),
       },
     });
-    eventOrder.push({ stream: "queue", type: "queued" });
+    eventOrder.push({ stream: "queue", type: queueEvent.type });
   }
   await appendRunEventInTransaction(tx, {
     workspaceId: input.workspaceId,
