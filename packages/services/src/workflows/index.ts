@@ -38,6 +38,9 @@ export {
 } from "./materialization.ts";
 
 export {
+  isWorkflowMaterializationPrismaWriteEnabled,
+  tickWorkflowSchedulerAuto,
+  tickWorkflowSchedulerPrisma,
   tickWorkflowSchedulerSync,
   computeNextWorkflowFireAt,
   isOneTimeWorkflowTrigger,

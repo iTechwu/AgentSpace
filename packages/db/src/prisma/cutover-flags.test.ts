@@ -37,4 +37,5 @@ test("Prisma write registry rejects writes for read-only domains", () => {
     /not registered for agent-skills/,
   );
   assert.doesNotThrow(() => assertPrismaCutoverFlagsValid({ SKILL_DRAFTS_PRISMA_WRITE_ENABLED: "1" }));
+  assert.doesNotThrow(() => assertPrismaCutoverFlagsValid({ WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED: "1" }));
 });

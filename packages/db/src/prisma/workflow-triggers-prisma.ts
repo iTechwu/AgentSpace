@@ -18,7 +18,7 @@ interface PrismaWorkflowTrigger {
   workspaceId: string;
   workflowId: string;
   type: string;
-  configJson: string;
+  configJson: unknown;
   timezone: string | null;
   status: string;
   nextFireAt: Date | null;
@@ -158,7 +158,7 @@ function mapPrismaRow(row: PrismaWorkflowTrigger): WorkflowTriggerRecord | null 
     workspaceId: row.workspaceId,
     workflowId: row.workflowId,
     type: row.type as WorkflowTriggerRecord["type"],
-    configJson: row.configJson,
+    configJson: typeof row.configJson === "string" ? row.configJson : JSON.stringify(row.configJson),
     status: row.status,
     misfirePolicy: row.misfirePolicy as WorkflowTriggerRecord["misfirePolicy"],
     dedupeWindowSeconds: Number(row.dedupeWindowSeconds),

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   claimDueWorkflowTriggersSync,
   createWorkflowDefinitionSync,
+  disconnectDofePrismaClient,
   getDatabase,
   listWorkflowRunEventsSync,
   publishWorkflowVersionSync,
@@ -11,6 +12,7 @@ import {
   upsertWorkflowTriggerSync,
 } from "@dofe-agent/db";
 import { materializeWorkflowRunSync } from "./materialization.ts";
+import { tickWorkflowSchedulerAuto } from "./scheduler.ts";
 
 const hasTestDatabase = Boolean(
   process.env.DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE
@@ -107,6 +109,61 @@ test("schedule materialization atomically advances the trigger and records trigg
       null,
     );
   } finally {
+    db.prepare("DELETE FROM workspace WHERE id = ?").run(workspaceId);
+  }
+});
+
+test("auto scheduler uses the Prisma materialization transaction when its write flag is enabled", {
+  skip: !hasTestDatabase,
+}, async () => {
+  const suffix = Math.random().toString(36).slice(2, 10);
+  const workspaceId = `workflow-materialization-auto-${suffix}`;
+  const workflowId = `workflow-definition-${suffix}`;
+  const triggerId = `workflow-trigger-${suffix}`;
+  const scheduledAt = "2026-08-17T04:00:00.000Z";
+  const previousFlag = process.env.WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED;
+  const db = getDatabase();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, 'test', ?, ?)`,
+  ).run(workspaceId, workspaceId, workspaceId, scheduledAt, scheduledAt);
+
+  try {
+    createWorkflowDefinitionSync({ id: workflowId, workspaceId, name: "Auto Prisma", ownerUserId: "u1", createdBy: "u1", now: scheduledAt });
+    publishWorkflowVersionSync({
+      workspaceId,
+      workflowId,
+      graphJson: '{"schemaVersion":1,"nodes":[{"id":"employee","type":"employee_task","config":{}}],"edges":[]}',
+      contentHash: `sha256:${suffix}`,
+      publishedBy: "u1",
+      now: scheduledAt,
+    });
+    upsertWorkflowTriggerSync({
+      id: triggerId,
+      workspaceId,
+      workflowId,
+      type: "schedule",
+      configJson: '{"repeatSeconds":3600}',
+      status: "active",
+      nextFireAt: scheduledAt,
+      now: scheduledAt,
+    });
+    process.env.WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED = "1";
+
+    const result = await tickWorkflowSchedulerAuto({
+      workspaceId,
+      workerId: "worker-auto",
+      now: scheduledAt,
+      limit: 1,
+    });
+
+    assert.equal(result.createdRunIds.length, 1);
+    assert.equal(result.failedTriggerIds.length, 0);
+    assert.ok(readWorkflowRunSyncByTriggerKey(workspaceId, `${workflowId}:${triggerId}:${scheduledAt}`));
+  } finally {
+    if (previousFlag === undefined) delete process.env.WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED;
+    else process.env.WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED = previousFlag;
+    await disconnectDofePrismaClient();
     db.prepare("DELETE FROM workspace WHERE id = ?").run(workspaceId);
   }
 });

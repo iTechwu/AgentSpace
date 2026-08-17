@@ -1,7 +1,10 @@
 import {
+  advanceWorkflowTriggerPrisma,
   advanceWorkflowTriggerSync,
+  claimDueWorkflowTriggersPrisma,
   claimDueWorkflowTriggersSync,
   getDatabase,
+  materializeWorkflowRunPrisma,
   recordAuditLogSync,
   withTransaction,
   type UpsertWorkflowTriggerInput,
@@ -35,6 +38,98 @@ export interface WorkflowSchedulerTickResult {
   invalidClock: boolean;
 }
 
+export function isWorkflowMaterializationPrismaWriteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED === "1";
+}
+
+export async function tickWorkflowSchedulerAuto(input: {
+  now: string;
+  workerId: string;
+  limit: number;
+  workspaceId?: string;
+}): Promise<WorkflowSchedulerTickResult> {
+  return isWorkflowMaterializationPrismaWriteEnabled()
+    ? tickWorkflowSchedulerPrisma(input)
+    : tickWorkflowSchedulerSync(input);
+}
+
+export async function tickWorkflowSchedulerPrisma(input: {
+  now: string;
+  workerId: string;
+  limit: number;
+  workspaceId?: string;
+}): Promise<WorkflowSchedulerTickResult> {
+  if (!Number.isFinite(Date.parse(input.now))) return createInvalidClockResult();
+  const triggers = await claimDueWorkflowTriggersPrisma({ ...input, leaseSeconds: 60 });
+  const result = createWorkflowSchedulerResult(triggers);
+  for (const trigger of triggers) {
+    const scheduledAt = trigger.nextFireAt;
+    if (!scheduledAt) {
+      await releaseTriggerPrisma(trigger, input.workerId, input.now, null, "paused", undefined, {
+        code: "workflow.trigger.invalid",
+        reasonCode: "workflow_trigger_next_fire_missing",
+      });
+      result.failedTriggerIds.push(trigger.id);
+      continue;
+    }
+    const oneTime = isOneTimeWorkflowTrigger(trigger);
+    const decision = resolveWorkflowScheduleDecision(trigger, input.now);
+    if (!decision.nextFireAt && !oneTime) {
+      await releaseTriggerPrisma(trigger, input.workerId, input.now, null, "paused", undefined, {
+        code: "workflow.trigger.invalid",
+        reasonCode: "workflow_schedule_invalid",
+      });
+      result.failedTriggerIds.push(trigger.id);
+      continue;
+    }
+    if (!decision.runScheduledAt) {
+      await releaseTriggerPrisma(trigger, input.workerId, input.now, decision.nextFireAt, oneTime ? "paused" : undefined, scheduledAt, {
+        code: "workflow.trigger.misfire_skipped",
+        reasonCode: "misfire_grace_exceeded",
+      });
+      result.misfiredTriggerIds.push(trigger.id);
+      continue;
+    }
+    try {
+      const materialized = await materializeWorkflowRunPrisma({
+        workspaceId: trigger.workspaceId,
+        trigger,
+        scheduledAt: decision.runScheduledAt,
+        now: input.now,
+        triggerAdvance: {
+          workerId: input.workerId,
+          nextFireAt: decision.nextFireAt,
+          status: oneTime ? "paused" : undefined,
+          misfired: decision.misfired,
+          outcome: decision.misfired ? {
+            code: "workflow.trigger.misfire_fire_once",
+            reasonCode: "misfire_grace_exceeded",
+          } : undefined,
+        },
+      });
+      if (decision.misfired) result.misfiredTriggerIds.push(trigger.id);
+      if (materialized.created) result.createdRunIds.push(materialized.runId);
+      else result.deduplicatedTriggerIds.push(trigger.id);
+    } catch (error) {
+      const disposition = workflowSchedulerFailureDisposition(error);
+      if (disposition === "suspend") {
+        await releaseTriggerPrisma(trigger, input.workerId, input.now, scheduledAt, "paused", undefined, {
+          code: "workflow.trigger.invalid",
+          reasonCode: workflowSchedulerErrorCode(error),
+        });
+      } else if (disposition === "retry") {
+        recordSchedulerOutcomeBestEffort(trigger, input.now, {
+          code: "workflow.trigger.materialization_failed",
+          reasonCode: workflowSchedulerErrorCode(error),
+        });
+      }
+      if (disposition !== "stale") result.failedTriggerIds.push(trigger.id);
+    }
+  }
+  scanWorkflowApprovalExpiries(input, result);
+  return result;
+}
+
 export function tickWorkflowSchedulerSync(input: {
   now: string;
   workerId: string;
@@ -46,30 +141,10 @@ export function tickWorkflowSchedulerSync(input: {
   // 既收不到 schedulerFailures、后续 outbox/recovery 也被中断。这里统一校验并返回结构化
   // 失败结果，由消费者计入 schedulerFailures（invalidClock），不再逸出非结构化异常。
   if (!Number.isFinite(Date.parse(input.now))) {
-    return {
-      claimedTriggerIds: [],
-      createdRunIds: [],
-      deduplicatedTriggerIds: [],
-      misfiredTriggerIds: [],
-      failedTriggerIds: [],
-      expiredApprovalIds: [],
-      expiredApprovalFailures: [],
-      approvalScanFailure: null,
-      invalidClock: true,
-    };
+    return createInvalidClockResult();
   }
   const triggers = claimDueWorkflowTriggersSync({ ...input, leaseSeconds: 60 });
-  const result: WorkflowSchedulerTickResult = {
-    claimedTriggerIds: triggers.map((trigger) => trigger.id),
-    createdRunIds: [],
-    deduplicatedTriggerIds: [],
-    misfiredTriggerIds: [],
-    failedTriggerIds: [],
-    expiredApprovalIds: [],
-    expiredApprovalFailures: [],
-    approvalScanFailure: null,
-    invalidClock: false,
-  };
+  const result = createWorkflowSchedulerResult(triggers);
   for (const trigger of triggers) {
     const scheduledAt = trigger.nextFireAt;
     if (!scheduledAt) {
@@ -138,21 +213,7 @@ export function tickWorkflowSchedulerSync(input: {
   // 当调度器以工作区范围调用（workspaceId）时，扫描必须同样限定在该工作区内，
   // 不得越界处理其他工作区的审批。单条审批失败以结构化 failures 上报（已各自写审计日志），
   // 不再静默；非法时钟等整轮失败同样记录审计日志，便于告警与值班定位。
-  try {
-    const expiry = expireWorkflowApprovalsSync({ now: input.now, limit: input.limit, ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}) });
-    result.expiredApprovalIds = expiry.expiredApprovalIds;
-    result.expiredApprovalFailures = expiry.failures;
-  } catch (error) {
-    // 整轮扫描失败（如 DB 读取失败、内部异常）是系统级事件，不阻断本轮触发器处理结果。
-    // 派生稳定 errorCode 并连同 occurredAt 写入结果，由 Worker/reconcile 计入
-    // schedulerFailures 供告警——值班可据此区分 DB 读取失败、非法时钟（独立 invalidClock）
-    // 等不同故障类型。仅当本轮扫描限定在具体工作区时才写审计日志（正确归属该工作区）；
-    // 全局扫描无单一工作区归属（audit_log.workspace_id NOT NULL，回落默认工作区会错归），
-    // 改写系统级结构化日志供日志/指标管道采集。
-    const errorCode = workflowApprovalScanErrorCode(error);
-    result.approvalScanFailure = { errorCode, occurredAt: input.now };
-    recordApprovalScanFailureBestEffort(input.workspaceId, errorCode, error, input.now);
-  }
+  scanWorkflowApprovalExpiries(input, result);
   return result;
 }
 
@@ -417,6 +478,64 @@ function releaseTrigger(
     if (!advanced) return;
     if (outcome) recordSchedulerOutcome(trigger, now, outcome);
   });
+}
+
+async function releaseTriggerPrisma(
+  trigger: WorkflowTriggerRecord,
+  workerId: string,
+  now: string,
+  nextFireAt: string | null,
+  status?: string,
+  lastFireAt?: string,
+  outcome?: WorkflowSchedulerOutcome,
+): Promise<void> {
+  const advanced = await advanceWorkflowTriggerPrisma({
+    id: trigger.id,
+    workspaceId: trigger.workspaceId,
+    workerId,
+    nextFireAt,
+    lastFireAt,
+    status,
+    now,
+  });
+  if (advanced && outcome) recordSchedulerOutcome(trigger, now, outcome);
+}
+
+function createInvalidClockResult(): WorkflowSchedulerTickResult {
+  return { ...createWorkflowSchedulerResult([]), invalidClock: true };
+}
+
+function createWorkflowSchedulerResult(triggers: WorkflowTriggerRecord[]): WorkflowSchedulerTickResult {
+  return {
+    claimedTriggerIds: triggers.map((trigger) => trigger.id),
+    createdRunIds: [],
+    deduplicatedTriggerIds: [],
+    misfiredTriggerIds: [],
+    failedTriggerIds: [],
+    expiredApprovalIds: [],
+    expiredApprovalFailures: [],
+    approvalScanFailure: null,
+    invalidClock: false,
+  };
+}
+
+function scanWorkflowApprovalExpiries(
+  input: { now: string; limit: number; workspaceId?: string },
+  result: WorkflowSchedulerTickResult,
+): void {
+  try {
+    const expiry = expireWorkflowApprovalsSync({
+      now: input.now,
+      limit: input.limit,
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+    });
+    result.expiredApprovalIds = expiry.expiredApprovalIds;
+    result.expiredApprovalFailures = expiry.failures;
+  } catch (error) {
+    const errorCode = workflowApprovalScanErrorCode(error);
+    result.approvalScanFailure = { errorCode, occurredAt: input.now };
+    recordApprovalScanFailureBestEffort(input.workspaceId, errorCode, error, input.now);
+  }
 }
 
 function recordSchedulerOutcomeBestEffort(trigger: WorkflowTriggerRecord, now: string, outcome: WorkflowSchedulerOutcome): void {

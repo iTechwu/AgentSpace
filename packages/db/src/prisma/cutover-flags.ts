@@ -30,6 +30,7 @@ const registryRows: ReadonlyArray<readonly [string, string, PrismaCutoverFlagSpe
   ["workflow-definitions", "WORKFLOW_DEFINITIONS", "pilot", true, true, false],
   ["workflow-outbox", "WORKFLOW_OUTBOX", "pilot", true, true, true],
   ["workflow-dispatcher", "WORKFLOW_DISPATCHER", "write", false, false, true],
+  ["workflow-materialization", "WORKFLOW_MATERIALIZATION", "write", false, false, true],
   ["workflow-node-runs", "WORKFLOW_NODE_RUNS", "pilot", true, true, false],
   ["workflow-runs", "WORKFLOW_RUNS", "pilot", true, true, false],
   ["workflow-triggers", "WORKFLOW_TRIGGERS", "pilot", true, true, true],

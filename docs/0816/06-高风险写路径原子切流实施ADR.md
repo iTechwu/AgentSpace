@@ -80,11 +80,12 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
 | `TASK_QUEUE_PRISMA_WRITE_ENABLED` | 既有：queue 行单表 adapter（已在 b94242bb 落地） | 0 |
 | `WORKFLOW_OUTBOX_PRISMA_WRITE_ENABLED` | 既有：outbox 单表 adapter | 0 |
 | `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` | 新增：dispatcher node claim + queue/router/task/run event + outbox lease 的 Serializable interactive transaction | 0 |
+| `WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED` | workflow worker scheduler 的 trigger claim + run/nodes/events/outbox + trigger advance Serializable transaction | 0 |
 | `WORKFLOW_TRIGGERS_PRISMA_WRITE_ENABLED` | 既有：trigger lease adapter | 0 |
 | `WORKFLOW_DISPATCH_PRISMA_TX_ENABLED`（历史建议，未注册） | 不再使用；由 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 统一控制 node-level transaction | - |
 | `WORKFLOW_OUTBOX_MERGE_TX_ENABLED`（历史建议，未注册） | 尚未实现；coordinator/materialization 合并事务保持 legacy | - |
 
-原则：**事务级 flag 与单表 adapter flag 解耦**——开事务 flag 时事务内不走单表 flag 分支（同事务混用两套开关会造成半 Prisma 半 legacy 事务）；flag 注册进 04 清单所述 24 域集中注册表，未知/非法值 fail-closed。负责人：Prisma Phase 2 工作流（用户主理）；目标版本：待池容量证据（04 第 1 项）完成后排期；legacy 删除条件：两事务域 30 天零 fallback + 零 drift + 池容量达标。
+原则：**事务级 flag 与单表 adapter flag 解耦**——开事务 flag 时事务内不走单表 flag 分支（同事务混用两套开关会造成半 Prisma 半 legacy 事务）；`WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED` 为 worker scheduler 接线的独立事务 flag，所有 flag 注册进 04 清单所述 26 域集中注册表，未知/非法值 fail-closed。负责人：Prisma Phase 2 工作流（用户主理）；legacy 删除条件：两事务域 30 天零 fallback + 零 drift + 池容量达标。
 
 ## 7. 实施顺序建议（单 PR 内分步可回退）
 
@@ -92,5 +93,5 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
 2. **已接线按类型双 runner**：worker 根据 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 选择 Prisma node-level path，flag 默认 0；`approval` 与非 employee_task 节点显式 claim 后进入 sync legacy，避免全局开关破坏审批流；终态/非 ready employee_task 原子 claim+publish，不再出现结果标记 published 但数据库仍 pending；
 3. **已完成 run outbox fan-out**：run.ready/resumed 不再逐节点派发后单独确认；同一 Serializable transaction 内 claim 父事件、锁 run、按 parentOutboxId+nodeRunId 生成确定性 node.ready 子事件并发布父事件，approval/employee_task 由后续批次按类型处理；
 4. **已完成数据库故障处理测试**：P2034 有界重试、binding/employee 缺失转 `retry_wait +60s`、已有 queue 不重复写 router/task event、outbox failure 不重复增加 attempt；`workflow-dispatch-prisma-write.integration.test.ts` 在真实 PostgreSQL 验证双 worker 竞争、publish 失败整体回滚、同 run 并发及反向行锁产生的真实 40P01 自动重试；
-5. **部分完成**：materialization 已实现 definition/trigger 行锁、run/nodes/events/outbox 与 trigger advance 同一 Serializable transaction，并通过真库成功/末段 lease 冲突回滚测试；待完成 scheduler worker async 接线、coordinator 业务状态 + outbox 合并、legacy/Prisma shadow 对照和 30 天准入证据；
+5. **部分完成**：materialization 已实现 definition/trigger 行锁、run/nodes/events/outbox 与 trigger advance 同一 Serializable transaction，workflow worker auto scheduler 以 `WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED=1` 接线该路径，并通过真库成功/末段 lease 冲突回滚测试；待完成 coordinator 业务状态 + outbox 合并、legacy/Prisma shadow 对照和 30 天准入证据；
 6. 全量 `packages/db` + `services` 相关测试（逐文件运行），SLO 域注册与 `prisma:pool:evidence` 复测。
