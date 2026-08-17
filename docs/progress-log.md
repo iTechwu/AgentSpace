@@ -110,7 +110,13 @@
 - `apps/cli/src/commands/daemon.ts` 2,233 行已拆分（见下文 P2 §3.6-3 补充）。
 - CLI 测试脚本与 verify-test-inventory 的 default-owned 集已对齐（见下文 P2 §3.6-4）。
 
-### 3.6-5 runtime-maintenance 自旋轮询 —— ⏳ 待办
+### 3.6-5 runtime-maintenance 自旋轮询 —— ✅ 完成（d132c667）
+
+- `deploy/self-hosted/runtime-maintenance.mjs` 加固：fetch 增加 `AbortSignal.timeout`（默认 30s，`DOFE_AGENT_RUNTIME_MAINTENANCE_TIMEOUT_MS` 可配），挂死不再阻塞循环。
+- 连续失败指数退避（`interval × 2^n`，封顶 10 分钟，`..._MAX_BACKOFF_MS` 可配），成功即复位并输出恢复日志。
+- SIGTERM/SIGINT 优雅停机（清定时器，输出停机周期号）；每 20 周期输出结构化心跳（`ok/httpError/requestError` 计数），供容器日志告警接入。
+- 关键修复：维护定时器不可 `unref()`——本进程是容器主进程，unref 后空事件循环会秒退。
+- 冒烟验证（node 驱动脚本拉起 + 不可达端点）：失败检测、退避 10s、SIGTERM 干净退出均通过。
 
 ---
 

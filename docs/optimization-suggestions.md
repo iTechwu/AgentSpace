@@ -142,7 +142,7 @@ PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发
 2. **【P0】11k 行 `integrations.test.ts` + 844 行 `daemon.test.ts` 不在默认测试列表** ⏳：被 verify-test-inventory 的 "deferred 冻结" 掩盖了「没跑」的事实。要么并入默认 glob，要么明确降级为集成测试目录并在 CI 单独 job 跑（带 env guard）。
 3. **【P1】巨型文件：`apps/cli/src/commands/integrations/feishu.ts` 达 10,597 行（全仓最大单文件）** ✅（e4ba456）：声明级重组拆为 `integrations/feishu/` 下 12 个域模块（types/command/create/agent-bot/bindings/data-operations/readiness/evidence/smoke-env/smoke-plan/cli-shared/worker），原文件收敛为 barrel、72 个公共导出零改动再导出；tsc 0 错误 + integrations.test.ts 182/182。`daemon.ts` 2,233 行亦已拆为 `commands/daemon/` 6 域模块（03a3d8d）。末代产物 `feishu/evidence.ts`（3,885 行 / 137 声明）再拆为 `feishu/evidence/` 8 域模块（ee1ee98，tsc 0 错误 + 182/182）——全仓 >1500 行非测试源码至此清零。
 4. **【P1】CLI 测试脚本与 verify-test-inventory 的 default-owned 集不一致** ✅（3feec450）：补记 `task-completion-outbox`/`task-completion-token-usage` 入 apps/cli default-owned 集，重冻结 digest；核对发现 round 6 注释「179 文件」为笔误（实为 187），已勘误。
-5. **【P1】`runtime-maintenance.mjs` 用容器内自旋轮询** ⏳：每 30s 打 3 个 HTTP cron 端点，异常只打日志无退避/告警。建议改为内置定时器或接外部 cron + 指标。
+5. **【P1】`runtime-maintenance.mjs` 用容器内自旋轮询** ✅（d132c667）：内置定时器保留自旋兜底语义，补齐 AbortSignal 超时、连续失败指数退避（封顶 10 分钟）、SIGTERM/SIGINT 优雅退出、周期性结构化心跳计数（供日志告警接入）。
 6. **【P2】多套 env 模板漂移风险** ✅（4041898）：audit-env-templates.mjs 入 pretest —— 自动发现 11 模板/186 键，键名规范+单文件重复+跨模板近重复三类强制；4 对合法共存入豁免表。不做生成器（模板注释即部署文档）。
 7. **【P2】`dev-daemons.sh` 硬编码本机绝对路径** ✅（b72a144）：REPO 自定位、NODE_BIN 取交互 PATH，workspace/daemon 身份等 5 项支持 DOFE_AGENT_DEV_* env 覆盖（本机默认值保留）。
 8. **【P2】`audit-node-engines.mjs` 从 `.pnpm` 目录「借用」semver** ✅（8562ee4）：根 devDependencies 显式声明 `semver ^7.8.5`，脚本删 loadSemver 兜底改顶层 ESM import；测试夹具不再 symlink 借用。
