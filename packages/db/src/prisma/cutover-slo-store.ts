@@ -6,6 +6,7 @@ import {
 } from "../audit-log.ts";
 import { canonicalizeAuditLogDataJson } from "../audit-log-idempotency.ts";
 import {
+  readPagerAlertStateByKeySync,
   upsertPagerAlertStateSync,
 } from "../pager-alert-state.ts";
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "../database.ts";
@@ -303,24 +304,29 @@ export function aggregatePrismaCutoverSloSnapshots(
 function syncSloAlertState(snapshot: PersistedPrismaCutoverSloSnapshot): void {
   const alertKey = `prisma-cutover-slo:${snapshot.domain}`;
   const reasons = snapshot.rollbackReasons;
+  const metric = JSON.stringify({
+    domain: snapshot.domain,
+    windowEnd: snapshot.windowEnd,
+    burnRate: snapshot.burnRate,
+    rollbackReasons: reasons,
+    deadlockRate: snapshot.deadlockRate,
+    p2034Rate: snapshot.p2034Rate,
+  });
   // 只负责“置活跃”：多实例场景下，一个实例的健康快照不得清除另一个实例
   // 仍活跃的异常状态。聚合 pager 阶段（sendExternalPagerAlert）会对比当前
   // 告警集合与历史活跃状态，统一发出 recovery 并清理。
   if (snapshot.rollbackRecommended || reasons.length > 0) {
+    const existing = readPagerAlertStateByKeySync(alertKey, snapshot.workspaceId);
     upsertPagerAlertStateSync({
       workspaceId: snapshot.workspaceId,
       alertKey,
       code: "prisma.cutover.slo.burn_rate",
-      metric: JSON.stringify({
-        domain: snapshot.domain,
-        burnRate: snapshot.burnRate,
-        rollbackReasons: reasons,
-        deadlockRate: snapshot.deadlockRate,
-        p2034Rate: snapshot.p2034Rate,
-      }),
+      metric,
       severity: snapshot.deadlockRate > 0 || snapshot.p2034Rate > 0 ? "critical" : "warning",
       now: snapshot.persistedAt,
-      incrementOccurrence: false,
+      // Idempotent retries reuse the same windowEnd and must not escalate;
+      // each distinct persisted window is one new SLO observation.
+      incrementOccurrence: existing?.status !== "active" || existing.metric !== metric,
     });
   }
 }

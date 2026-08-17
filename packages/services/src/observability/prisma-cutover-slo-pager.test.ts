@@ -74,6 +74,11 @@ test("scheduled SLO pager flush sends the centrally aggregated burn-rate alert",
 });
 
 test("stable per-domain key survives burn-rate changes; recovery fires once when the domain turns healthy", async () => {
+  const db = getDatabase();
+  db.prepare("DELETE FROM audit_log WHERE workspace_id = ? AND code = ? AND data_json ->> 'domain' = ?")
+    .run(workspaceId, PRISMA_CUTOVER_SLO_SNAPSHOT_CODE, "pager-domain");
+  db.prepare("DELETE FROM pager_alert_state WHERE workspace_id = ? AND alert_key = ?")
+    .run(workspaceId, "prisma-cutover-slo:pager-domain");
   const thresholds = {
     minimumSamples: 1,
     maximumMismatchRate: 0.1,
@@ -125,6 +130,7 @@ test("stable per-domain key survives burn-rate changes; recovery fires once when
     });
     assert.equal(alerting.sent, true);
     assert.equal(payloads.at(-1)?.recovered.length, 0, "no recovery while the domain is still alerting");
+    assert.equal(payloads.at(-1)?.alerts[0]?.occurrences, 2, "two persisted windows count as two observations");
 
     // Window slides past both snapshots → domain healthy → exactly one recovery.
     const recovered = await sendPrismaCutoverSloPagerAlert({

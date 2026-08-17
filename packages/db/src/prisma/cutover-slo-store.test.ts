@@ -103,6 +103,33 @@ test("SLO snapshot rolls back audit row when pager state fails", () => {
   assert.equal(rows.length, 0, "audit row must be rolled back when alert state fails");
 });
 
+test("SLO pager state counts distinct persisted windows once", () => {
+  const db = getDatabase();
+  const workspaceId = testWorkspaceId;
+  const domain = "window-count-domain";
+  db.prepare("DELETE FROM audit_log WHERE code = ? AND workspace_id = ?").run(PRISMA_CUTOVER_SLO_SNAPSHOT_CODE, workspaceId);
+  db.prepare("DELETE FROM pager_alert_state WHERE alert_key = ? AND workspace_id = ?").run(`prisma-cutover-slo:${domain}`, workspaceId);
+  const snapshot = {
+    domain,
+    sampleCount: 1,
+    mismatchRate: 0.2,
+    fallbackRate: 0,
+    errorRate: 0,
+    p95DurationMs: 10,
+    deadlockRate: 0,
+    p2034Rate: 0,
+    burnRate: 2,
+    rollbackRecommended: true,
+    rollbackReasons: ["mismatch_rate"] as const,
+  };
+  persistPrismaCutoverSloSnapshotsSync({ instanceId: "window-instance", workspaceId, now: "2026-08-17T00:00:00.000Z", snapshots: [snapshot] });
+  persistPrismaCutoverSloSnapshotsSync({ instanceId: "window-instance", workspaceId, now: "2026-08-17T00:01:00.000Z", snapshots: [snapshot] });
+  assert.equal(
+    db.prepare("SELECT occurrences FROM pager_alert_state WHERE alert_key = ? AND workspace_id = ?").get(`prisma-cutover-slo:${domain}`, workspaceId)?.occurrences,
+    2,
+  );
+});
+
 test("healthy snapshot from one instance does not clear another instance's active alert", () => {
   const db = getDatabase();
   const workspaceId = testWorkspaceId;
