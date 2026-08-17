@@ -37,7 +37,11 @@ export async function collectPrismaPoolCapacityEvidence(input: {
      GROUP BY application_name, state, waiting
   `);
   const roles = (["web", "worker", "daemon"] as const).map((role) => {
-    const config = resolveDofePrismaPoolConfig({ ...env, DOFE_AGENT_PROCESS_ROLE: role });
+    const roleEnv: NodeJS.ProcessEnv = { ...env, DOFE_AGENT_PROCESS_ROLE: role };
+    if (env.DOFE_AGENT_PROCESS_ROLE !== role) {
+      delete roleEnv.DOFE_AGENT_PRISMA_APPLICATION_NAME;
+    }
+    const config = resolveDofePrismaPoolConfig(roleEnv);
     const matching = rows.rows.filter((row) => String(row.application_name ?? "") === config.application_name);
     const activeConnections = sum(matching, (row) => row.state === "active");
     const idleConnections = sum(matching, (row) => row.state === "idle");
@@ -77,4 +81,3 @@ function createQuery(databaseUrl: string): (sql: string) => Promise<{ rows: Arra
 function sum(rows: Array<Record<string, unknown>>, predicate: (row: Record<string, unknown>) => boolean): number {
   return rows.reduce((total, row) => predicate(row) ? total + Number(row.count ?? 0) : total, 0);
 }
-

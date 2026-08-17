@@ -46,6 +46,26 @@ test("Prisma outbox enqueue preserves payload and idempotent id", async () => {
   assert.equal(result.payloadJson, '{"runId":"run-1"}');
 });
 
+test("Prisma outbox generates one id when caller does not provide one", async () => {
+  let args: Record<string, unknown> | undefined;
+  const client = {
+    workflowOutbox: {
+      upsert: async (input: Record<string, unknown>) => {
+        args = input;
+        return row;
+      },
+    },
+  };
+  await enqueueWorkflowOutboxPrisma({
+    workspaceId: "workspace-1",
+    aggregateType: "workflow_run",
+    aggregateId: "run-1",
+    eventType: "workflow.run.ready",
+    payloadJson: {},
+  }, client as never);
+  assert.equal((args?.where as Record<string, unknown>).id, (args?.create as Record<string, unknown>).id);
+});
+
 test("Prisma outbox claim uses compare-and-swap lease updates", async () => {
   let updateCount = 0;
   const tx = {

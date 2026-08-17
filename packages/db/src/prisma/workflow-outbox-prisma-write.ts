@@ -20,10 +20,11 @@ export async function enqueueWorkflowOutboxPrisma(
 ): Promise<WorkflowOutboxRecord> {
   const prisma = client ?? getDofePrismaClient();
   const now = input.now ?? new Date().toISOString();
+  const id = input.id?.trim() || `workflow-outbox-${randomLikeId()}`;
   const row = await prisma.workflowOutbox.upsert({
-    where: { id: input.id?.trim() || `workflow-outbox-${randomLikeId()}` },
+    where: { id },
     create: {
-      id: input.id?.trim() || `workflow-outbox-${randomLikeId()}`,
+      id,
       workspaceId: required(input.workspaceId, "workspaceId"),
       aggregateType: required(input.aggregateType, "aggregateType"),
       aggregateId: required(input.aggregateId, "aggregateId"),
