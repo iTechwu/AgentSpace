@@ -193,6 +193,9 @@ export function aggregatePrismaCutoverSloSnapshots(
 function syncSloAlertState(snapshot: PersistedPrismaCutoverSloSnapshot): void {
   const alertKey = `prisma-cutover-slo:${snapshot.domain}`;
   const reasons = snapshot.rollbackReasons;
+  // 只负责“置活跃”：多实例场景下，一个实例的健康快照不得清除另一个实例
+  // 仍活跃的异常状态。聚合 pager 阶段（sendExternalPagerAlert）会对比当前
+  // 告警集合与历史活跃状态，统一发出 recovery 并清理。
   if (snapshot.rollbackRecommended || reasons.length > 0) {
     upsertPagerAlertStateSync({
       workspaceId: snapshot.workspaceId,
@@ -208,7 +211,5 @@ function syncSloAlertState(snapshot: PersistedPrismaCutoverSloSnapshot): void {
       severity: snapshot.deadlockRate > 0 || snapshot.p2034Rate > 0 ? "critical" : "warning",
       now: snapshot.persistedAt,
     });
-    return;
   }
-  markPagerAlertClearedSync({ workspaceId: snapshot.workspaceId, alertKey, now: snapshot.persistedAt });
 }

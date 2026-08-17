@@ -98,6 +98,38 @@ test("SLO snapshot rolls back audit row when pager state fails", () => {
   assert.equal(rows.length, 0, "audit row must be rolled back when alert state fails");
 });
 
+test("healthy snapshot from one instance does not clear another instance's active alert", () => {
+  const db = getDatabase();
+  const workspaceId = testWorkspaceId;
+  const domain = "cross-instance-domain";
+  db.prepare("DELETE FROM audit_log WHERE code = ? AND workspace_id = ? AND data_json ->> 'domain' = ?")
+    .run(PRISMA_CUTOVER_SLO_SNAPSHOT_CODE, workspaceId, domain);
+  db.prepare("DELETE FROM pager_alert_state WHERE alert_key = ? AND workspace_id = ?")
+    .run(`prisma-cutover-slo:${domain}`, workspaceId);
+  const unhealthy = {
+    domain,
+    sampleCount: 1,
+    mismatchRate: 0.1,
+    fallbackRate: 0,
+    errorRate: 0,
+    p95DurationMs: 1,
+    deadlockRate: 0,
+    p2034Rate: 0,
+    burnRate: 1,
+    rollbackRecommended: true,
+    rollbackReasons: ["mismatch_rate"] as const,
+  };
+  const healthy = { ...unhealthy, mismatchRate: 0, burnRate: 0, rollbackRecommended: false, rollbackReasons: [] as const };
+  persistPrismaCutoverSloSnapshotsSync({ instanceId: "instance-a", workspaceId, now: "2026-08-17T00:20:00.000Z", snapshots: [unhealthy] });
+  // instance-b 的健康快照不应清掉 instance-a 的活跃告警。
+  persistPrismaCutoverSloSnapshotsSync({ instanceId: "instance-b", workspaceId, now: "2026-08-17T00:21:00.000Z", snapshots: [healthy] });
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM pager_alert_state WHERE alert_key = ? AND workspace_id = ? AND status = 'active'")
+      .get(`prisma-cutover-slo:${domain}`, workspaceId)?.count,
+    1,
+  );
+});
+
 test("cross-instance SLO aggregation is sample-weighted", () => {
   const [snapshot] = aggregatePrismaCutoverSloSnapshots([
     {
