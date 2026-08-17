@@ -45,5 +45,5 @@ export async function sendPrismaCutoverSloPagerAlert(options: {
       }),
       value: snapshot.burnRate,
     }));
-  return sendExternalPagerAlert({ alerts, workspaceId, checkedAt, config: options.config });
+  return sendExternalPagerAlert({ alerts, workspaceId, checkedAt, config: options.config, forceRecovery: alerts.length === 0 });
 }

@@ -76,6 +76,8 @@ export async function sendExternalPagerAlert(options: {
   workspaceId?: string;
   checkedAt: string;
   config?: ExternalPagerConfig;
+  /** 强制执行 recovery 检测：用于 SLO 等“无告警即全清”的场景，避免被 severity filter 提前返回跳过。 */
+  forceRecovery?: boolean;
 }): Promise<{ sent: boolean; reason?: string; escalatedCount?: number; recoveredCount?: number }> {
   const config = options.config ?? readExternalPagerConfigFromEnv();
   const workspaceId = options.workspaceId ?? "default";
@@ -85,6 +87,9 @@ export async function sendExternalPagerAlert(options: {
     return { sent: false, reason: "EXTERNAL_PAGER_WEBHOOK_URL not configured." };
   }
   const filtered = dedupeAlerts(options.alerts.filter((alert) => config.severityFilter.has(alert.severity)));
+  if (filtered.length === 0 && options.alerts.length > 0 && !options.forceRecovery) {
+    return { sent: false, reason: "No alerts match the configured severity filter." };
+  }
   const currentKeys = new Set(options.alerts.map(alertKey));
 
   // Recovery: any previously-active state not present in the current alert set
