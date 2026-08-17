@@ -37,8 +37,13 @@ export type PagerAlert = DataProtectionAlert & {
   trackOccurrence?: boolean;
 };
 
+export type ExternalPagerSource =
+  | "dofe-agent-data-protection"
+  | "dofe-agent-prisma-cutover-slo"
+  | "dofe-agent-runtime-maintenance";
+
 export interface PagerAlertPayload {
-  source: "dofe-agent-data-protection";
+  source: ExternalPagerSource;
   checkedAt: string;
   workspaceId?: string;
   alerts: Array<{
@@ -90,6 +95,7 @@ export function readExternalPagerConfigFromEnv(env: NodeJS.ProcessEnv = process.
  * recovery counts. Never throws; errors are returned as a string reason.
  */
 export async function sendExternalPagerAlert(options: {
+  source: ExternalPagerSource;
   alerts: PagerAlert[];
   workspaceId?: string;
   checkedAt: string;
@@ -183,7 +189,7 @@ export async function sendExternalPagerAlert(options: {
   }
 
   const payload: PagerAlertPayload = {
-    source: "dofe-agent-data-protection",
+    source: options.source,
     checkedAt: options.checkedAt,
     workspaceId: options.workspaceId,
     alerts: payloadAlerts,

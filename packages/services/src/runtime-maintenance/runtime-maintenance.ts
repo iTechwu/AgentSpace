@@ -180,6 +180,7 @@ export async function runRuntimeMaintenanceAsync(
   // Reconcile on successful runs too: an empty alert set is what lets the
   // pager emit recovery and retire a state created by a previous failed run.
   await sendExternalPagerAlert({
+    source: "dofe-agent-runtime-maintenance",
     alerts,
     checkedAt: new Date().toISOString(),
     recoveryCodes: RUNTIME_MAINTENANCE_ALERT_CODES,

@@ -62,6 +62,7 @@ export async function sendPrismaCutoverSloPagerAlert(options: {
       trackOccurrence: false,
     }));
   return sendExternalPagerAlert({
+    source: "dofe-agent-prisma-cutover-slo",
     alerts,
     workspaceId,
     checkedAt,

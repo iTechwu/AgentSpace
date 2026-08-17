@@ -6,6 +6,10 @@ import {
   type ExternalPagerConfig,
 } from "./external-pager.ts";
 
+const sendTestExternalPagerAlert = (
+  options: Omit<Parameters<typeof sendExternalPagerAlert>[0], "source">,
+) => sendExternalPagerAlert({ source: "dofe-agent-data-protection", ...options });
+
 test("readExternalPagerConfigFromEnv defaults to error severity", () => {
   const config = readExternalPagerConfigFromEnv({});
   assert.equal(config.webhookUrl, undefined);
@@ -36,7 +40,7 @@ test("readExternalPagerConfigFromEnv falls back to error when all severities are
 });
 
 test("sendExternalPagerAlert returns false when no webhook is configured", async () => {
-  const result = await sendExternalPagerAlert({
+  const result = await sendTestExternalPagerAlert({
     alerts: [{ code: "x", severity: "error", message: "boom" }],
     checkedAt: "2026-08-03T00:00:00Z",
     config: { severityFilter: new Set(["error"]) },
@@ -46,7 +50,7 @@ test("sendExternalPagerAlert returns false when no webhook is configured", async
 });
 
 test("sendExternalPagerAlert skips alerts outside the severity filter", async () => {
-  const result = await sendExternalPagerAlert({
+  const result = await sendTestExternalPagerAlert({
     alerts: [{ code: "x", severity: "info", message: "fyi" }],
     checkedAt: "2026-08-03T00:00:00Z",
     config: {
@@ -87,7 +91,7 @@ test("an alert that drops below the severity filter emits recovery", async () =>
     return new Response("ok", { status: 200 });
   };
   try {
-    const result = await sendExternalPagerAlert({
+    const result = await sendTestExternalPagerAlert({
       workspaceId,
       alerts: [{
         code: "workspace_head_age",
@@ -118,7 +122,7 @@ test("sendExternalPagerAlert posts deduplicated error alerts", async () => {
     return new Response("ok", { status: 200 });
   };
   try {
-    const result = await sendExternalPagerAlert({
+    const result = await sendTestExternalPagerAlert({
       workspaceId: "ws-1",
       alerts: [
         { code: "a", severity: "error", message: "first", employeeName: "bob", metric: "m", value: 1 },
@@ -147,7 +151,7 @@ test("sendExternalPagerAlert surfaces HTTP errors as reason", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("bad", { status: 500, statusText: "Internal Server Error" });
   try {
-    const result = await sendExternalPagerAlert({
+    const result = await sendTestExternalPagerAlert({
       alerts: [{ code: "a", severity: "error", message: "boom" }],
       checkedAt: "2026-08-03T00:00:00Z",
       config: { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error"]) },
@@ -168,7 +172,7 @@ test("sendExternalPagerAlert bounds a stalled webhook request", async () => {
     signal.addEventListener("abort", () => reject(signal.reason), { once: true });
   });
   try {
-    const result = await sendExternalPagerAlert({
+    const result = await sendTestExternalPagerAlert({
       workspaceId: "default",
       alerts: [{ code: "pager.timeout", severity: "error", message: "stalled" }],
       checkedAt: "2026-08-03T00:00:00Z",
@@ -216,13 +220,13 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
     };
 
     // Two occurrences → no escalation yet.
-    await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
-    const second = await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
+    await sendTestExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
+    const second = await sendTestExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
     assert.equal(second.escalatedCount, 0);
     assert.equal(payloads[1]?.alerts[0]?.escalated, false);
 
     // Third occurrence → escalates to critical.
-    const third = await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
+    const third = await sendTestExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config, recoveryCodes: ["recovery.failed", "other.ok"] });
     assert.equal(third.escalatedCount, 1);
     assert.equal(payloads[2]?.alerts[0]?.severity, "critical");
     assert.match(payloads[2]?.alerts[0]?.message as string, /ESCALATED/);
@@ -230,7 +234,7 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
     assert.equal(escalatedState?.occurrences, 3);
 
     // The alert clears → the next dispatched payload carries a recovery notice.
-    const recovered = await sendExternalPagerAlert({
+    const recovered = await sendTestExternalPagerAlert({
       workspaceId: "default",
       alerts: [{ code: "other.ok", severity: "info", message: "ok" }],
       checkedAt: now,
@@ -243,7 +247,7 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
     assert.ok(lastPayload.recovered[0]?.clearedAt);
 
     // An empty cycle never loses a pending recovery: re-send the info alert again.
-    const again = await sendExternalPagerAlert({
+    const again = await sendTestExternalPagerAlert({
       workspaceId: "default",
       alerts: [{ code: "other.ok", severity: "info", message: "ok" }],
       checkedAt: now,
@@ -254,7 +258,7 @@ test("repeated alerts escalate after the threshold and cleared alerts page a rec
 
     // A later incident starts a fresh escalation window instead of inheriting
     // the previous incident's occurrence count.
-    await sendExternalPagerAlert({
+    await sendTestExternalPagerAlert({
       workspaceId: "default",
       alerts: [alert],
       checkedAt: reopenedAt,
@@ -300,7 +304,7 @@ test("recovery detection never clears active states from other alert domains", a
   try {
     // SLO-style caller with zero alerts forces recovery detection — it must not
     // touch the data-protection state.
-    const result = await sendExternalPagerAlert({
+    const result = await sendTestExternalPagerAlert({
       workspaceId: "ws-scope",
       alerts: [],
       checkedAt: now,
@@ -343,7 +347,7 @@ test("failed webhook delivery keeps recovery state active and re-sends next cycl
   };
   const config = { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error"]) };
   try {
-    const failed = await sendExternalPagerAlert({
+    const failed = await sendTestExternalPagerAlert({
       workspaceId: "ws-retry",
       alerts: [],
       checkedAt: now,
@@ -354,7 +358,7 @@ test("failed webhook delivery keeps recovery state active and re-sends next cycl
     assert.equal(readPagerAlertStateByKeySync("flaky.key", "ws-retry")?.status, "active", "state stays active after failed delivery");
 
     fail = false;
-    const retried = await sendExternalPagerAlert({
+    const retried = await sendTestExternalPagerAlert({
       workspaceId: "ws-retry",
       alerts: [],
       checkedAt: now,
@@ -402,7 +406,7 @@ test("stale recovery delivery cannot clear a newer alert occurrence", async () =
     return new Response("ok", { status: 200 });
   };
   try {
-    const result = await sendExternalPagerAlert({
+    const result = await sendTestExternalPagerAlert({
       workspaceId,
       alerts: [],
       checkedAt: now,
@@ -445,7 +449,7 @@ test("stale recovery delivery cannot clear a refreshed alert state", async () =>
     return new Response("ok", { status: 200 });
   };
   try {
-    const result = await sendExternalPagerAlert({
+    const result = await sendTestExternalPagerAlert({
       workspaceId,
       alerts: [],
       checkedAt: now,
@@ -478,7 +482,7 @@ test("alertKey override keeps a stable dedup key when the metric payload changes
   const config = { webhookUrl: "https://pager.example/hook", severityFilter: new Set(["error", "warning"]) };
   try {
     for (const burnRate of [1.5, 2.5]) {
-      await sendExternalPagerAlert({
+      await sendTestExternalPagerAlert({
         workspaceId: "ws-key",
         alerts: [{
           code: "prisma.cutover.slo.burn_rate",
@@ -529,7 +533,7 @@ test("stable alertKey deduplicates metric updates within one dispatch", async ()
     return new Response("ok", { status: 200 });
   };
   try {
-    const result = await sendExternalPagerAlert({
+    const result = await sendTestExternalPagerAlert({
       workspaceId,
       alerts: [
         {

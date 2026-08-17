@@ -44,6 +44,7 @@ export async function GET(request: Request): Promise<Response> {
   // state active forever after the workspace becomes healthy.
   await Promise.all(
     perWorkspace.map((result) => sendExternalPagerAlert({
+      source: "dofe-agent-data-protection",
       workspaceId: result.workspaceId,
       alerts: result.alerts,
       checkedAt,

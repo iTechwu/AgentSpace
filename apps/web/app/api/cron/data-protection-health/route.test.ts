@@ -73,6 +73,7 @@ describe("data-protection health cron route", () => {
     expect(services.evaluateDataProtectionHealthSync).toHaveBeenCalledWith({ workspaceId: "ws-2" });
     expect(services.sendExternalPagerAlert).toHaveBeenCalledTimes(2);
     expect(services.sendExternalPagerAlert).toHaveBeenCalledWith(expect.objectContaining({
+      source: "dofe-agent-data-protection",
       workspaceId: "default",
       alerts: [],
     }));
@@ -99,6 +100,7 @@ describe("data-protection health cron route", () => {
     expect(response.status).toBe(503);
     expect(services.sendExternalPagerAlert).toHaveBeenCalledTimes(2);
     expect(services.sendExternalPagerAlert).toHaveBeenCalledWith(expect.objectContaining({
+      source: "dofe-agent-data-protection",
       workspaceId: "ws-2",
       alerts: [expect.objectContaining({ severity: "error" })],
     }));
