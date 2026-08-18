@@ -1309,6 +1309,9 @@ function formatUserFacingTaskFailure(errorText: string): string {
   if (/This command requires approval/i.test(trimmed)) {
     return "运行时需要命令审批，但当前会话无法交互审批。";
   }
+  if (/provider\.model_unavailable|令牌状态不可用|upstream provider authentication failed|provider authentication failed/i.test(trimmed)) {
+    return "当前模型线路的供应商凭证不可用，请切换模型重试；若多个模型都失败，请联系管理员更新供应商凭证。";
+  }
   if (/unexpected argument ['"]--sandbox['"]|exec resume[\s\S]*--sandbox/i.test(trimmed)) {
     return "绑定执行引擎上的 Codex CLI 不支持当前会话续接参数；已阻止跨引擎改派，请更新执行引擎后重试。";
   }

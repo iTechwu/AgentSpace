@@ -469,7 +469,7 @@ test("runAgentRouter handles Codex snake_case events without treating successful
   }
 });
 
-test("runAgentRouter classifies Codex gateway 401 events as authentication failures", async () => {
+test("runAgentRouter classifies explicit Runtime credential failures as authentication failures", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "agent-router-codex-auth-"));
   const binDir = join(workDir, "bin");
   const codexPath = join(binDir, "codex");
@@ -482,8 +482,8 @@ test("runAgentRouter classifies Codex gateway 401 events as authentication failu
         "#!/bin/sh",
         "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"codex-auth-session\"}'",
         "printf '%s\\n' '{\"type\":\"turn.started\"}'",
-        "printf '%s\\n' '{\"type\":\"error\",\"message\":\"Reconnecting... 1/5 (unexpected status 401 Unauthorized: token unavailable)\"}'",
-        "printf '%s\\n' '{\"type\":\"turn.failed\",\"error\":{\"message\":\"unexpected status 401 Unauthorized: token unavailable\"}}'",
+        "printf '%s\\n' '{\"type\":\"error\",\"message\":\"Runtime credential rejected: unexpected status 401 Unauthorized\"}'",
+        "printf '%s\\n' '{\"type\":\"turn.failed\",\"error\":{\"message\":\"Runtime credential rejected: unexpected status 401 Unauthorized\"}}'",
         "exit 1",
       ].join("\n"),
     );
@@ -502,6 +502,43 @@ test("runAgentRouter classifies Codex gateway 401 events as authentication failu
     assert.ok(authDiagnostic, JSON.stringify(result.diagnostics));
     assert.match(authDiagnostic.rawProviderMessage ?? "", /401 Unauthorized/);
     assert.equal(result.sessionId, "codex-auth-session");
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter does not rotate Runtime credentials for upstream provider 401s", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-codex-upstream-auth-"));
+  const binDir = join(workDir, "bin");
+  const codexPath = join(binDir, "codex");
+  const originalPath = process.env.PATH;
+
+  try {
+    writeExecutable(
+      codexPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"codex-upstream-auth-session\"}'",
+        "printf '%s\\n' '{\"type\":\"turn.failed\",\"error\":{\"message\":\"unexpected status 401 Unauthorized: 该令牌状态不可用\"}}'",
+        "exit 1",
+      ].join("\n"),
+    );
+    process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "codex",
+      prompt: "upstream auth failure",
+      cwd: workDir,
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(result.status, "failed");
+    const modelDiagnostic = result.diagnostics.find((diagnostic) => diagnostic.code === "harness.model_unavailable");
+    assert.ok(modelDiagnostic, JSON.stringify(result.diagnostics));
+    assert.match(modelDiagnostic.rawProviderMessage ?? "", /令牌状态不可用/);
+    assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === "harness.auth_invalid"), false);
   } finally {
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });

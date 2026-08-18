@@ -162,7 +162,7 @@ async function runCodex(
         const parsed = parseJsonEventOutput(stdout);
         const diagnostics = [
           ...parsed.diagnostics,
-          ...extractCodexAuthenticationDiagnostics(parsed.events, stderr),
+          ...extractCodexGatewayDiagnostics(parsed.events, stderr),
         ];
         let outputText = readCodexOutputFile(plan.env[CODEX_OUTPUT_ENV]);
 
@@ -194,12 +194,12 @@ async function runCodex(
 }
 
 /**
- * Codex reports gateway authentication failures as ordinary `error` events and
- * exits non-zero. Keep these separate from generic stream failures so the
- * managed-runtime credential recovery state machine can rotate the rejected
- * credential automatically.
+ * Codex reports gateway/provider failures as ordinary `error` events and exits
+ * non-zero. Only explicit Runtime credential failures may enter the managed
+ * credential recovery state machine. A bare 401 is commonly emitted by the
+ * upstream model provider and must not rotate a healthy Runtime credential.
  */
-function extractCodexAuthenticationDiagnostics(
+function extractCodexGatewayDiagnostics(
   events: Array<Record<string, unknown>>,
   stderr: string,
 ): ReturnType<typeof createDiagnostic>[] {
@@ -219,14 +219,24 @@ function extractCodexAuthenticationDiagnostics(
       }
     }
   }
-  const message = messages.find((candidate) =>
-    /(?:\b401\b|unauthorized|令牌状态不可用|invalid\s+(?:api\s+)?key|authentication\s+failed)/i.test(candidate),
+  const providerMessage = messages.find((candidate) =>
+    /(?:令牌状态不可用|upstream provider authentication failed|provider authentication failed)/i.test(candidate),
   );
-  if (!message) {
+  if (providerMessage) {
+    return [createDiagnostic("harness.model_unavailable", "The upstream model provider rejected its credential.", {
+      rawProviderMessage: providerMessage,
+      stderrTail: tailText(stderr),
+    })];
+  }
+
+  const runtimeMessage = messages.find((candidate) =>
+    /(?:runtime\s+(?:credential|delegation)|managed\s+runtime|gateway\s+credential)[\s\S]*(?:401|unauthorized|invalid|expired|inactive|authentication\s+failed)/i.test(candidate),
+  );
+  if (!runtimeMessage) {
     return [];
   }
-  return [createDiagnostic("harness.auth_invalid", "Codex authentication was rejected by the model gateway.", {
-    rawProviderMessage: message,
+  return [createDiagnostic("harness.auth_invalid", "The managed Runtime credential was rejected by the gateway.", {
+    rawProviderMessage: runtimeMessage,
     stderrTail: tailText(stderr),
   })];
 }

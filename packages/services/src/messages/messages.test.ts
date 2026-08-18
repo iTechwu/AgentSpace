@@ -244,6 +244,13 @@ test("failure summaries hide provider diagnostics in user-visible chat text", ()
   assert.match(missingRuntimeImageSummary, /执行环境尚未就绪/);
   assert.match(missingRuntimeImageSummary, /联系管理员/);
   assert.doesNotMatch(missingRuntimeImageSummary, /Codex CLI|provider diagnostic|No such image|dofe\/agent-runtime/);
+
+  const upstreamProviderAuthSummary = formatTaskFailureSummary({
+    title: "生成晨间简报",
+    errorText: "Codex CLI exited with code 1. (code=provider.model_unavailable; raw=unexpected status 401 Unauthorized: 该令牌状态不可用)",
+  });
+  assert.match(upstreamProviderAuthSummary, /供应商凭证不可用/);
+  assert.match(upstreamProviderAuthSummary, /切换模型/);
 });
 
 test("sendContactMessageSync creates a direct conversation channel", () => {
