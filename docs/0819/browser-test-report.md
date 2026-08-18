@@ -33,7 +33,8 @@
 - 观察结果：浏览器网络收到两次 `POST /w/{workspace}/runtimes` 500；服务端错误为 `managed_runtime.sso_binding_required`。
 - 用户影响：模型选择器一直显示“正在加载模型…”，没有说明工作区缺少 SSO Runtime 绑定，也没有可执行的恢复提示；控制台出现错误。
 - 预期：将“未配置/不可用”作为可预期状态返回，页面停止加载并显示明确提示，不产生未处理的 500。
-- 状态：待修复。
+- 修复：`listProtocolFilteredRuntimeModelsAction` 将 SSO 绑定缺失和模型服务不可用转换为结构化不可用结果；`RuntimeModelPicker` 结束加载并显示可操作提示，未知请求异常显示可恢复告警。
+- 状态：已修复并回归通过。
 
 ## 非缺陷观察
 
@@ -45,3 +46,11 @@
 - Runtime 模型目录在缺少 SSO 绑定时不再返回 500。
 - 模型选择器结束加载并显示明确的配置提示。
 - 其他已覆盖页面和流程无新增控制台错误、网络 4xx/5xx 或横向溢出。
+
+## 回归结果
+
+- 浏览器：Runtime 创建向导进入模型步骤后，网络 4xx/5xx 为 0，控制台错误/警告为 0，页面显示“当前工作区尚未绑定 SSO Runtime，完成绑定后才能加载模型目录”。
+- 组件测试：`features/runtimes` 共 9 个测试文件、34 个测试全部通过。
+- 类型检查：`tsconfig.typecheck.json` 通过；本次修改涉及文件 ESLint 通过。
+- 仓库测试类型检查仍存在既有错误：`features/chat/conversation-shell.test.tsx:1140` 的 `TS2532/TS2493`，与本次改动无关。
+- Playwright 原生 E2E 命令因本机 Playwright Chromium 缓存缺失而无法启动；测试使用系统 Chrome 的 Playwright + CDP 脚本完成同等覆盖，未修改浏览器用户配置。
