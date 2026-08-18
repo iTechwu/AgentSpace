@@ -77,6 +77,7 @@ export function ManagedRuntimeList({
           <tbody>
       {filtered.map((runtime) => {
         const presentation = presentRuntimeState(runtime, tx);
+        const displayName = runtime.displayName?.trim() || runtime.name;
         return (
           <tr key={runtime.id}>
             <td className="runtime-list__name">{workspaceSlug ? (
@@ -84,9 +85,10 @@ export function ManagedRuntimeList({
                 className="runtime-list__link"
                 href={buildWorkspacePath(workspaceSlug, `/runtimes/runtime/${runtime.id}`)}
               >
-                {runtime.name}
+                {displayName}
               </Link>
-            ) : runtime.name}</td>
+            ) : displayName}
+            {runtime.displayName ? <small>{runtime.name}</small> : null}</td>
             <td><span>{formatDaemonProviderLabel(runtime.provider)}</span><small>{runtime.protocols.join(", ") || "—"}</small></td>
             <td><span className={`runtime-status runtime-status--${presentation.tone}`}>{presentation.label}</span><small>{presentation.detail}</small></td>
             <td>{runtime.defaultModel || tx("跟随系统默认", "System fallback")}</td>

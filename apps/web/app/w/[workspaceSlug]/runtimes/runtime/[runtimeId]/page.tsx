@@ -9,6 +9,7 @@ import { getWorkspacePageContext } from "../../../_lib/workspace-page-context";
 import { ManagedRuntimeSharingToggle } from "@/features/runtimes/managed-runtime-sharing-toggle";
 import { ManagedRuntimeModelSettings } from "@/features/runtimes/managed-runtime-model-settings";
 import { RuntimeCapabilitiesPanel } from "@/features/runtimes/runtime-capabilities-panel";
+import { RuntimeDisplayNameEditor } from "@/features/runtimes/runtime-display-name-editor";
 import { loadMarketPageData } from "@/features/market/market-page-loader";
 import { AppIcon } from "@/shared/ui/app-icon";
 
@@ -70,8 +71,16 @@ export default async function ManagedRuntimeDetailPage({
           </div>
           <div className="runtime-detail__title">
             <div className="runtime-detail__eyebrow">托管执行引擎</div>
-            <h1>{runtime.name}</h1>
-            <p>{formatDaemonProviderLabel(runtime.provider)} 部署</p>
+            <RuntimeDisplayNameEditor
+              displayName={runtime.displayName}
+              runtimeId={runtime.id}
+              runtimeName={runtime.name}
+            />
+            <div className="runtime-detail__metadata">
+              <span>{formatDaemonProviderLabel(runtime.provider)} 部署</span>
+              {runtime.displayName ? <span>原始名称：{runtime.name}</span> : null}
+              <span className="runtime-detail__runtime-id">ID：{runtime.id}</span>
+            </div>
           </div>
           <div className="runtime-detail__status" aria-label={`Status: ${presentation.label}`}>
             <span className={`runtime-status runtime-status--${presentation.tone}`}>{presentation.label}</span>
@@ -137,7 +146,7 @@ export default async function ManagedRuntimeDetailPage({
       <RuntimeCapabilitiesPanel
         data={marketData}
         runtimeId={runtime.id}
-        runtimeName={runtime.name}
+        runtimeName={runtime.displayName?.trim() || runtime.name}
         runtimeStatus={runtime.status}
         workspaceSlug={workspaceContext.currentWorkspace.slug}
       />

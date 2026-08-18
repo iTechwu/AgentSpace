@@ -33,6 +33,7 @@ import {
   readRuntimeMaintenanceRunSync,
   upsertWorkspaceSsoBindingSync,
   upsertWorkspaceMembershipSync,
+  updateWorkspaceRuntimeDisplayNameSync,
 } from "@dofe-agent/db";
 import { resetDatabaseForTests } from "../../../db/src/database.ts";
 import {
@@ -611,7 +612,14 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal(reconciledUsage?.outputTokens, 33);
   assert.equal(reconciledUsage?.actualCostUsd, 0.75);
 
+  updateWorkspaceRuntimeDisplayNameSync({
+    workspaceId: TEAM_WS,
+    runtimeId: runtime!.id,
+    displayName: "Nightly render runtime",
+    updatedByUserId: OWNER,
+  });
   const managed = listManagedRuntimesForWorkspaceSync({ workspaceId: TEAM_WS, actorUserId: OWNER })[0]!;
+  assert.equal(managed.displayName, "Nightly render runtime");
   assert.deepEqual(managed.protocols, ["anthropic"]);
   assert.equal(managed.defaultModel, "claude-sonnet");
   assert.equal(managed.assignedEmployeeCount, 1);

@@ -32863,7 +32863,7 @@ button[aria-disabled="true"] svg {
 
 .runtime-detail {
   width: 100%;
-  max-width: none;
+  max-width: 1680px;
   min-height: 0;
   flex: 1 1 0;
   display: flex;
@@ -32874,6 +32874,7 @@ button[aria-disabled="true"] svg {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  margin-inline: auto;
 }
 
 .runtime-detail--stable {
@@ -32914,7 +32915,7 @@ button[aria-disabled="true"] svg {
   grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.85rem;
-  padding: 0.75rem 0.25rem 1rem;
+  padding: 0.85rem 0.25rem 1rem;
   border-bottom: 1px solid var(--line);
 }
 
@@ -32945,7 +32946,15 @@ button[aria-disabled="true"] svg {
   text-transform: uppercase;
 }
 
-.runtime-detail__title h1 {
+.runtime-display-name__readout {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.runtime-display-name__readout h1 {
+  min-width: 0;
   margin: 0.08rem 0 0;
   color: var(--text);
   font-family: var(--font-display), var(--font-body), sans-serif;
@@ -32955,7 +32964,97 @@ button[aria-disabled="true"] svg {
   overflow-wrap: anywhere;
 }
 
-.runtime-detail__title p,
+.runtime-display-name__edit {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.runtime-display-name__edit:hover {
+  border-color: var(--line);
+  background: var(--panel-strong);
+  color: var(--accent-hover);
+}
+
+.runtime-display-name__edit:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-hover) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.runtime-display-name__edit svg {
+  width: 16px;
+  height: 16px;
+}
+
+.runtime-display-name__form {
+  width: min(100%, 760px);
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
+}
+
+.runtime-display-name__form input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font: 650 15px/1.2 var(--font-body), sans-serif;
+}
+
+.runtime-display-name__form input:focus {
+  border-color: var(--accent-hover);
+  outline: 2px solid color-mix(in srgb, var(--accent-hover) 22%, transparent);
+  outline-offset: 1px;
+}
+
+.runtime-display-name__actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.runtime-display-name__actions :is(.primary-button, .modal-secondary-button) {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.runtime-display-name__error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #b42318;
+  font-size: 12px;
+}
+
+.runtime-detail__metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.runtime-detail__runtime-id {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+
 .runtime-detail__section-heading p {
   margin: 0.28rem 0 0;
   color: var(--muted);
@@ -32974,7 +33073,7 @@ button[aria-disabled="true"] svg {
 
 .runtime-detail__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 1fr);
   gap: 1rem;
   align-items: stretch;
 }
@@ -33012,7 +33111,7 @@ button[aria-disabled="true"] svg {
 }
 
 .runtime-detail__section-heading > p {
-  max-width: 210px;
+  max-width: 300px;
   text-align: right;
 }
 
@@ -33720,8 +33819,20 @@ button[aria-disabled="true"] svg {
     font-size: 20px;
   }
 
-  .runtime-detail__title h1 {
+  .runtime-display-name__readout h1 {
     font-size: 21px;
+  }
+
+  .runtime-display-name__form {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-display-name__actions {
+    width: 100%;
+  }
+
+  .runtime-display-name__actions :is(.primary-button, .modal-secondary-button) {
+    flex: 1 1 0;
   }
 
   .runtime-detail__status {

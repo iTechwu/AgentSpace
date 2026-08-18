@@ -7,6 +7,7 @@ import {
   listRuntimeCostSummariesSync,
   listRuntimeProvisioningTaskEventsSync,
   listRuntimeProvisioningTasksSync,
+  listWorkspaceRuntimeDisplayNamesSync,
   listTokenUsageSync,
   markRuntimeProvisioningTaskCancellingSync,
   markRuntimeProvisioningTaskFailedSync,
@@ -192,6 +193,9 @@ export function listManagedRuntimesForWorkspaceSync(
   assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const rows = listManagedAgentRuntimesSync(input.workspaceId);
+  const displayNames = new Map(
+    listWorkspaceRuntimeDisplayNamesSync(input.workspaceId).map((record) => [record.runtimeId, record.displayName]),
+  );
   const bindingCountByRuntime = new Map<string, number>();
   for (const binding of listEmployeeRuntimeBindingsSync(input.workspaceId)) {
     bindingCountByRuntime.set(binding.runtimeId, (bindingCountByRuntime.get(binding.runtimeId) ?? 0) + 1);
@@ -244,6 +248,7 @@ export function listManagedRuntimesForWorkspaceSync(
       return {
       id: row.id,
       name: row.name,
+      displayName: displayNames.get(row.id),
       provider: row.provider,
       managedCredentialId: row.managedCredentialId!,
       status: row.status === "online" ? "online" : "offline",
@@ -271,6 +276,7 @@ export function listManagedRuntimesForWorkspaceSync(
 export interface ManagedRuntimeListItem {
   id: string;
   name: string;
+  displayName?: string;
   provider: DaemonProvider;
   managedCredentialId: string;
   status: "online" | "offline";
