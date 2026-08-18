@@ -482,8 +482,8 @@ test("runAgentRouter classifies explicit Runtime credential failures as authenti
         "#!/bin/sh",
         "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"codex-auth-session\"}'",
         "printf '%s\\n' '{\"type\":\"turn.started\"}'",
-        "printf '%s\\n' '{\"type\":\"error\",\"message\":\"Runtime credential rejected: unexpected status 401 Unauthorized\"}'",
-        "printf '%s\\n' '{\"type\":\"turn.failed\",\"error\":{\"message\":\"Runtime credential rejected: unexpected status 401 Unauthorized\"}}'",
+        "printf '%s\\n' '{\"type\":\"error\",\"message\":\"Runtime credential rejected by gateway\"}'",
+        "printf '%s\\n' '{\"type\":\"turn.failed\",\"error\":{\"message\":\"Runtime credential rejected by gateway\"}}'",
         "exit 1",
       ].join("\n"),
     );
@@ -500,7 +500,7 @@ test("runAgentRouter classifies explicit Runtime credential failures as authenti
     assert.equal(result.status, "failed");
     const authDiagnostic = result.diagnostics.find((diagnostic) => diagnostic.code === "harness.auth_invalid");
     assert.ok(authDiagnostic, JSON.stringify(result.diagnostics));
-    assert.match(authDiagnostic.rawProviderMessage ?? "", /401 Unauthorized/);
+    assert.match(authDiagnostic.rawProviderMessage ?? "", /Runtime credential rejected/);
     assert.equal(result.sessionId, "codex-auth-session");
   } finally {
     process.env.PATH = originalPath;

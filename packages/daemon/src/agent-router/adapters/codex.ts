@@ -220,7 +220,7 @@ function extractCodexGatewayDiagnostics(
     }
   }
   const providerMessage = messages.find((candidate) =>
-    /(?:令牌状态不可用|upstream provider authentication failed|provider authentication failed)/i.test(candidate),
+    /(?:令牌状态不可用|token\s+unavailable|upstream provider authentication failed|provider authentication failed)/i.test(candidate),
   );
   if (providerMessage) {
     return [createDiagnostic("harness.model_unavailable", "The upstream model provider rejected its credential.", {
@@ -230,7 +230,7 @@ function extractCodexGatewayDiagnostics(
   }
 
   const runtimeMessage = messages.find((candidate) =>
-    /(?:runtime\s+(?:credential|delegation)|managed\s+runtime|gateway\s+credential)[\s\S]*(?:401|unauthorized|invalid|expired|inactive|authentication\s+failed)/i.test(candidate),
+    /(?:runtime\s+(?:credential|delegation)|managed\s+runtime|gateway\s+credential)[\s\S]*(?:401|unauthorized|invalid|expired|inactive|rejected|denied|authentication\s+failed)/i.test(candidate),
   );
   if (!runtimeMessage) {
     return [];
