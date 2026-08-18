@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   listProtocolFilteredRuntimeModelsAction,
+  type RuntimeModelCatalogIssue,
   type RuntimeModelCatalogItem,
 } from "@/features/runtimes/actions";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
@@ -266,16 +267,19 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<RuntimeModelCatalogItem[]>([]);
   const [configured, setConfigured] = useState(true);
+  const [configurationIssue, setConfigurationIssue] = useState<RuntimeModelCatalogIssue | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     setError(null);
+    setConfigurationIssue(null);
     setLoading(true);
     void listProtocolFilteredRuntimeModelsAction(provider)
       .then((result) => {
         if (!active) return;
         setConfigured(result.configured);
+        setConfigurationIssue(result.issue ?? null);
         setItems(result.list);
       })
       .catch(() => {
@@ -326,9 +330,14 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
 
       {!configured ? (
         <p className="runtime-model-picker__warning">
-          {tx("模型目录尚未配置，连接模型服务后才能创建执行引擎。", "Model catalog is not configured. Runtime creation is unavailable until it is connected.")}
+          {configurationIssue === "sso_binding_required"
+            ? tx("当前工作区尚未绑定 SSO Runtime，完成绑定后才能加载模型目录。", "This workspace is not bound to an SSO Runtime. Complete the binding to load the model catalog.")
+            : configurationIssue === "catalog_unavailable"
+              ? tx("模型目录暂时不可用，请稍后重试。", "The model catalog is temporarily unavailable. Try again later.")
+              : tx("模型目录尚未配置，连接模型服务后才能创建执行引擎。", "Model catalog is not configured. Runtime creation is unavailable until it is connected.")}
         </p>
       ) : null}
+      {error ? <p className="runtime-model-picker__warning" role="alert">{error}</p> : null}
 
       {selectedLlm ? (
         <div className="runtime-model-picker__summary">

@@ -117,3 +117,28 @@ it("finishes loading when the latest request resolves after the provider changes
     expect(screen.getByRole("button", { name: "Default model" })).toBeEnabled();
   });
 });
+
+it("stops loading and explains when the workspace has no runtime binding", async () => {
+  vi.mocked(listProtocolFilteredRuntimeModelsAction).mockResolvedValue({
+    configured: false,
+    issue: "sso_binding_required",
+    list: [],
+  });
+
+  renderChinese(<RuntimeModelPicker provider="claude" value="" onChange={vi.fn()} />);
+
+  expect(await screen.findByText("当前工作区尚未绑定 SSO Runtime，完成绑定后才能加载模型目录。"))
+    .toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "默认模型" })).toBeDisabled();
+  expect(screen.queryByText("正在加载模型..."))
+    .not.toBeInTheDocument();
+});
+
+it("shows a recoverable error when the model catalog request fails", async () => {
+  vi.mocked(listProtocolFilteredRuntimeModelsAction).mockRejectedValue(new Error("catalog unavailable"));
+
+  render(<RuntimeModelPicker provider="codex" value="" onChange={vi.fn()} />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/无法加载模型目录|Model catalog could not be loaded/);
+  expect(screen.getByRole("button", { name: /默认模型|Default model/ })).toBeEnabled();
+});

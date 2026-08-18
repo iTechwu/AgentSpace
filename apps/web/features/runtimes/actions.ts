@@ -201,9 +201,12 @@ export interface RuntimeModelCatalogItem {
   unavailableReason?: string;
 }
 
+export type RuntimeModelCatalogIssue = "sso_binding_required" | "catalog_unavailable";
+
 export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonProvider): Promise<{
   list: RuntimeModelCatalogItem[];
   configured: boolean;
+  issue?: RuntimeModelCatalogIssue;
 }> {
   assertRemoteManagedRuntimeMode();
   const { workspaceId } = await requireAdminActor();
@@ -214,9 +217,23 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
   if (protocols.length === 0) {
     return { list: [], configured: true };
   }
-  const { tenantId } = resolveManagedRuntimeScopeSync(workspaceId);
-  const client = getModelsInternalClient();
-  const response = await client.models.list({ query: { tenantId } });
+  let tenantId: string;
+  try {
+    tenantId = resolveManagedRuntimeScopeSync(workspaceId).tenantId;
+  } catch (error) {
+    if (isRuntimeScopeConfigurationError(error)) {
+      return { list: [], configured: false, issue: "sso_binding_required" };
+    }
+    throw error;
+  }
+
+  let response: Awaited<ReturnType<ReturnType<typeof getModelsInternalClient>["models"]["list"]>>;
+  try {
+    const client = getModelsInternalClient();
+    response = await client.models.list({ query: { tenantId } });
+  } catch {
+    return { list: [], configured: false, issue: "catalog_unavailable" };
+  }
   // Default-model pickers only need the models this runtime can actually
   // speak. Availability is a protocol-intersection check: codex speaks
   // openai_response, claudecode speaks anthropic, and everything else is not
@@ -250,6 +267,13 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
     })
     .filter((item) => item.alias && item.protocol);
   return { list, configured: true };
+}
+
+function isRuntimeScopeConfigurationError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === "managed_runtime.sso_binding_required"
+    || error.message === "managed_runtime.team_scoped_workspace_required"
+  );
 }
 
 /**
