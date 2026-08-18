@@ -87,6 +87,10 @@ function appendDetail(existing: string | undefined, addition: string | undefined
   return existing ? `${existing}\n\n${trimmed}` : trimmed;
 }
 
+function containsProviderDiagnostic(value: string | undefined): boolean {
+  return Boolean(value && /(?:provider\.runtime_generic_failure|Codex CLI exited|Claude CLI exited|stderrTail=|exitCode=|provider diagnostic:|No such image:)/i.test(value));
+}
+
 /**
  * Reduce the raw task_message stream of one task into Kimi-style timeline items:
  * status rows, merged thinking blocks, and tool calls paired with their results.
@@ -96,7 +100,7 @@ function appendDetail(existing: string | undefined, addition: string | undefined
  */
 export function buildExecutionTimeline(
   messages: TaskMessageRecord[],
-  labels: { thinking: string; usage?: string; runtimeEvent?: string },
+  labels: { thinking: string; usage?: string; runtimeEvent?: string; error?: (value: string) => string },
   options?: { taskRunning?: boolean; includeText?: boolean },
 ): ExecutionTimelineItem[] {
   const items: ExecutionTimelineItem[] = [];
@@ -244,11 +248,14 @@ export function buildExecutionTimeline(
       if (!content) {
         continue;
       }
+      const rawDetail = message.output && message.output.trim() !== content
+        ? formatRuntimePayload(message)
+        : undefined;
       items.push({
         id: message.id,
         kind: "error",
-        title: content,
-        detail: message.output && message.output.trim() !== content ? formatRuntimePayload(message) : undefined,
+        title: labels.error?.(content) ?? content,
+        detail: containsProviderDiagnostic(content) || containsProviderDiagnostic(rawDetail) ? undefined : rawDetail,
         status: "error",
       });
       continue;

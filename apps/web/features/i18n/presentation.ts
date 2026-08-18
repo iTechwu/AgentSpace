@@ -260,7 +260,7 @@ export function translateWorkspaceMessageSummary(
   const code = message.code;
   const data = message.data ?? {};
   if (!code) {
-    return "summary" in message ? message.summary : message.content;
+    return translateRuntimeFailureSummary("summary" in message ? message.summary : message.content, tx);
   }
 
   switch (code) {
@@ -396,8 +396,72 @@ export function translateWorkspaceMessageSummary(
     case "agent.pending":
       return tx("思考中", "Thinking");
     default:
-      return "summary" in message ? message.summary : message.content;
+      return translateRuntimeFailureSummary("summary" in message ? message.summary : message.content, tx);
   }
+}
+
+/**
+ * Protect the chat UI from legacy messages that were persisted before the
+ * daemon started normalizing provider failures. Runtime diagnostics can
+ * contain Docker image names, exit codes, and provider internals that are not
+ * actionable to a user and should remain available only in server-side logs.
+ */
+export function translateRuntimeFailureSummary(value: string, tx: TxFn = zhTx): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return value;
+  }
+
+  const failureMarker = "执行失败：";
+  const markerIndex = compact.indexOf(failureMarker);
+  const prefix = markerIndex >= 0 ? compact.slice(0, markerIndex + failureMarker.length) : "";
+  const detail = markerIndex >= 0 ? compact.slice(markerIndex + failureMarker.length).trim() : compact;
+  let safeDetail: string | undefined;
+
+  if (/No such image:\s*dofe\/agent-runtime-[^\s'";]+/i.test(detail)
+    || /Approved managed runtime image\s+dofe\/agent-runtime-[^\s'";]+\s+is unavailable locally/i.test(detail)) {
+    safeDetail = tx(
+      "执行环境尚未就绪，请联系管理员完成 Runtime 镜像安装后重试。",
+      "The execution environment is not ready. Ask an administrator to install the Runtime image, then retry.",
+    );
+  } else if (/--dangerously-skip-permissions cannot be used with root\/sudo privileges/i.test(detail)) {
+    safeDetail = tx(
+      "运行时权限模式与 root/sudo 环境不兼容，请切换到受支持的执行环境后重试。",
+      "The runtime permission mode is incompatible with root/sudo. Switch to a supported execution environment and retry.",
+    );
+  } else if (/This command requires approval/i.test(detail)) {
+    safeDetail = tx(
+      "运行时需要命令审批，但当前会话无法交互审批。",
+      "The runtime requires command approval, but this session cannot approve commands interactively.",
+    );
+  } else if (/unexpected argument ['"]--sandbox['"]|exec resume[\s\S]*--sandbox/i.test(detail)) {
+    safeDetail = tx(
+      "当前执行引擎不支持会话续接参数，请更新执行引擎后重试。",
+      "The execution engine does not support session resume parameters. Update the engine and retry.",
+    );
+  } else if (/stream disconnected[\s\S]*(response\.completed|turn\.failed)|response\.completed[\s\S]*not received|turn\.failed/i.test(detail)) {
+    safeDetail = tx(
+      "模型的流式响应在完成前中断，自动重试后仍未完成。请检查模型连接或切换模型后重试。",
+      "The model stream ended before completion. Check the model connection or switch models and retry.",
+    );
+  } else if (/model metadata[\s\S]*not found|model metadata[\s\S]*fallback metadata/i.test(detail)) {
+    safeDetail = tx(
+      "所选模型的执行配置不完整，请切换到已验证的模型后重试。",
+      "The selected model configuration is incomplete. Switch to a verified model and retry.",
+    );
+  }
+
+  if (!safeDetail && /(?:provider\.runtime_generic_failure|Codex CLI exited|Claude CLI exited|stderrTail=|exitCode=|provider diagnostic:)/i.test(detail)) {
+    safeDetail = tx(
+      "执行引擎返回了未能识别的错误，请检查执行引擎配置后重试。",
+      "The execution engine returned an unexpected error. Check its configuration and retry.",
+    );
+  }
+
+  if (!safeDetail) {
+    return value;
+  }
+  return `${prefix}${safeDetail}`;
 }
 
 export function translateLedgerTitle(entry: LedgerItem, tx: TxFn): string {

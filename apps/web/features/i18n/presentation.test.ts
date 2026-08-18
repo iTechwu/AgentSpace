@@ -5,6 +5,7 @@ import {
   translateWorkflowNodeStatus,
   translateWorkflowRunStatus,
   translateWorkflowTriggerType,
+  translateRuntimeFailureSummary,
 } from "./presentation";
 
 const en = (_zh: string, english: string): string => english;
@@ -78,5 +79,21 @@ describe("workflow error-code translations", () => {
     ["workflow_node_unreachable", "存在无法从起点到达的步骤"],
   ])("translates %s", (code, expected) => {
     expect(translateWorkflowErrorCode(code)).toBe(expected);
+  });
+});
+
+describe("runtime failure presentation", () => {
+  it("sanitizes legacy provider diagnostics while keeping the conversation context", () => {
+    const summary = translateRuntimeFailureSummary(
+      'Aim 在私聊 direct-aim 中执行失败：Codex CLI exited with code 125. (code=provider.runtime_generic_failure; stderrTail="docker: Error response from daemon: No such image: dofe/agent-runtime-codex:latest")',
+    );
+
+    expect(summary).toContain("Aim 在私聊 direct-aim 中执行失败：");
+    expect(summary).toContain("执行环境尚未就绪");
+    expect(summary).not.toMatch(/Codex CLI|provider\.runtime_generic_failure|No such image|dofe\/agent-runtime/);
+  });
+
+  it("leaves ordinary user and agent messages unchanged", () => {
+    expect(translateRuntimeFailureSummary("请先查看报价单")).toBe("请先查看报价单");
   });
 });

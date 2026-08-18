@@ -189,6 +189,24 @@ describe("buildExecutionTimeline", () => {
     ]);
   });
 
+  it("uses the user-facing error formatter for legacy provider failures", () => {
+    const items = buildExecutionTimeline(
+      [
+        taskMessage({
+          seq: 1,
+          type: "error",
+          content: 'Codex CLI exited with code 125. (stderrTail="No such image: dofe/agent-runtime-codex:latest")',
+          output: "docker: Error response from daemon: No such image: dofe/agent-runtime-codex:latest",
+        }),
+      ],
+      { ...LABELS, error: () => "执行环境尚未就绪，请联系管理员后重试。" },
+    );
+
+    expect(items[0]).toMatchObject({ kind: "error", title: "执行环境尚未就绪，请联系管理员后重试。" });
+    expect(items[0]?.title).not.toContain("Codex CLI");
+    expect(items[0]?.detail).toBeUndefined();
+  });
+
   it("includes final text when an audit surface requests a self-contained trace", () => {
     const items = buildExecutionTimeline(
       [taskMessage({ seq: 1, type: "text", content: "CODEX-0801-OK" })],

@@ -72,6 +72,7 @@ import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
 import {
   translateMemberLabel,
+  translateRuntimeFailureSummary,
   translateSystemSpeaker,
   translateWorkspaceMessageSummary,
 } from "@/features/i18n/presentation";
@@ -1038,7 +1039,10 @@ export function ChannelsPageClient({
             ? {
                 execution: buildExecutionTimeline(
                   executionRows,
-                  { thinking: tx("思考过程", "Thinking") },
+                  {
+                    thinking: tx("思考过程", "Thinking"),
+                    error: (value) => translateRuntimeFailureSummary(value, tx),
+                  },
                   { taskRunning: Boolean(taskId && pendingTaskIds.has(taskId)) },
                 ),
                 executionRunning: Boolean(taskId && pendingTaskIds.has(taskId)),
