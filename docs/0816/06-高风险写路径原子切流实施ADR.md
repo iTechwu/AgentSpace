@@ -73,9 +73,11 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
   回滚原因新增场景：`link_conflict_spike`（CAS 冲突率异常）、`event_order_drift`（router/queue 事件顺序与 legacy 不一致）；
 - write 开启条件：shadow ≥ 指定窗口（沿用 30 天口径）零 mismatch、零 fallback、deadlock/P2034 不高于 legacy 基线。
 
-> 实施状态（2026-08-18）：当前 `event_order_drift` 仅校验 Prisma 实际写入返回的 router/queue
-> 事件类型与 legacy 顺序契约，并保持 `shadowCompared=0`。它不是第 70–71 行要求的双 runner、五对象
-> 逐字段 shadow 对照，不能单独作为 write 准入证据；完整 shadow 必须先提供无副作用的 legacy 写对照基础设施。
+> 实施状态（2026-08-18）：已补齐 `WORKFLOW_DISPATCHER_PRISMA_SHADOW_WRITE_ENABLED` 双 runner。
+> shadow runner 在 Serializable Prisma 事务内执行完整 node dispatch、读取返回值和五对象快照后强制回滚，
+> 随后执行 legacy 实际写入并读取同构快照，比较器逐字段对照 `inputJson`、时间戳和对象关系；比较结果进入
+> `shadowComparisonRate/mismatchRate`。shadow 失败不阻断 legacy，但会计入 mismatch，且 shadow flag 与 write flag
+> 互斥。30 天零 mismatch/fallback 的生产准入证据仍待积累，不能据此直接开启 write。
 
 ## 6. flag、负责人与目标版本
 
@@ -84,6 +86,7 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
 | `TASK_QUEUE_PRISMA_WRITE_ENABLED` | 既有：queue 行单表 adapter（已在 b94242bb 落地） | 0 |
 | `WORKFLOW_OUTBOX_PRISMA_WRITE_ENABLED` | 既有：outbox 单表 adapter | 0 |
 | `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` | 新增：dispatcher node claim + queue/router/task/run event + outbox lease 的 Serializable interactive transaction | 0 |
+| `WORKFLOW_DISPATCHER_PRISMA_SHADOW_WRITE_ENABLED` | 新增：Prisma preview（事务强制回滚）+ legacy 实际写入的五对象逐字段对照 | 0 |
 | `WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED` | workflow worker scheduler 的 trigger claim + run/nodes/events/outbox + trigger advance Serializable transaction | 0 |
 | `WORKFLOW_TRIGGERS_PRISMA_WRITE_ENABLED` | 既有：trigger lease adapter | 0 |
 | `WORKFLOW_DISPATCH_PRISMA_TX_ENABLED`（历史建议，未注册） | 不再使用；由 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 统一控制 node-level transaction | - |
@@ -97,5 +100,5 @@ concurrency 超限路径 node transition=1 + run event=1、queue 0。
 2. **已接线按类型双 runner**：worker 根据 `WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED` 选择 Prisma node-level path，flag 默认 0；`approval` 与非 employee_task 节点显式 claim 后进入 sync legacy，避免全局开关破坏审批流；终态/非 ready employee_task 原子 claim+publish，不再出现结果标记 published 但数据库仍 pending；
 3. **已完成 run outbox fan-out**：run.ready/resumed 不再逐节点派发后单独确认；同一 Serializable transaction 内 claim 父事件、锁 run、按 parentOutboxId+nodeRunId 生成确定性 node.ready 子事件并发布父事件；三类事件一次全局有序取批，避免 node.ready 饥饿 run 事件；
 4. **已完成数据库故障处理测试**：P2034 有界重试、binding/employee 缺失转 `retry_wait +60s`、已有 queue 不重复写 router/task event、outbox failure 不重复增加 attempt；真实 PostgreSQL 验证 node/run 双 worker 竞争、node 与 fan-out publish 失败整体回滚、同 run 并发及反向行锁 40P01 自动重试；trigger release 与 outcome audit 也已合并事务并验证 audit 失败回滚；
-5. **部分完成**：materialization 已实现并接入 worker auto scheduler；coordinator 已实现 downstream pending→ready + resolved input + node.ready outbox 的 Serializable 原语，并通过真库 outbox 冲突回滚测试。主路径指标已接入且未比较样本显式为 `shadowComparisonRate=0`。由于生产 completion 目前在同步 `complete task + commit journal + coordinator` 外层事务内，不得只切 coordinator 内层；待完成该外层事务整体迁移、无副作用 shadow oracle 和 30 天准入证据；
+5. **部分完成**：materialization 已实现并接入 worker auto scheduler；coordinator 已实现 downstream pending→ready + resolved input + node.ready outbox 的 Serializable 原语，并通过真库 outbox 冲突回滚测试。dispatcher 已补齐无副作用 shadow oracle、五对象对照和指标接线；生产 completion 目前仍在同步 `complete task + commit journal + coordinator` 外层事务内，不得只切 coordinator 内层，仍待完成该外层事务整体迁移与 30 天准入证据；
 6. 全量 `packages/db` + `services` 相关测试（逐文件运行），SLO 域注册与 `prisma:pool:evidence` 复测。

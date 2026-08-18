@@ -14,10 +14,18 @@ import {
   transitionWorkflowNodeRunSync,
   withTransaction,
   isWorkflowDispatcherPrismaWriteEnabled,
+  isWorkflowDispatcherPrismaShadowWriteEnabled,
   type WorkflowDispatchObservability,
 } from "@dofe-agent/db";
 import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
-import { dispatchReadyWorkflowNodePrisma, dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
+import {
+  compareLegacyWorkflowDispatchShadow,
+  dispatchReadyWorkflowNodePrisma,
+  dispatchReadyWorkflowNodeSync,
+  isWorkflowRunDispatchBlocked,
+  previewReadyWorkflowNodePrisma,
+  readLegacyWorkflowDispatchShadowSnapshot,
+} from "./dispatcher.ts";
 import { createWorkflowApprovalSync, workflowApprovalInputFromNodeConfig } from "./approvals.ts";
 import { validateWorkflowNodeForDispatchSync } from "./validation.ts";
 import { observeWorkflowPrismaWrite } from "./prisma-cutover-metrics.ts";
@@ -31,7 +39,73 @@ export interface WorkflowOutboxDispatchResult {
   observability?: WorkflowDispatchObservability;
 }
 
+function addShadowComparison(
+  target: NonNullable<WorkflowDispatchObservability["shadowComparison"]>,
+  source: NonNullable<WorkflowDispatchObservability["shadowComparison"]> | undefined,
+): void {
+  if (!source) return;
+  target.comparedCount += source.comparedCount;
+  target.mismatchCount += source.mismatchCount;
+  if (source.diffFields?.length) {
+    target.diffFields = [...new Set([...(target.diffFields ?? []), ...source.diffFields])].slice(0, 50);
+  }
+}
+
 export const WORKFLOW_OUTBOX_MAX_ATTEMPTS = 8;
+
+type ClaimedWorkflowOutboxItem = ReturnType<typeof claimWorkflowOutboxBatchSync>[number];
+
+function dispatchClaimedWorkflowOutboxItemSync(
+  item: ClaimedWorkflowOutboxItem,
+  input: { workerId: string },
+  now: string,
+  result: WorkflowOutboxDispatchResult,
+): void {
+  const payload = parsePayload(item.payloadJson);
+  if (item.eventType === "workflow.node.ready") {
+    if (typeof payload.nodeRunId !== "string") throw new Error("workflow_outbox_payload_invalid");
+    const dispatched = dispatchReadyWorkflowNodeByTypeSync({ workspaceId: item.workspaceId, nodeRunId: payload.nodeRunId, now });
+    if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
+  } else if (item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") {
+    if (typeof payload.runId !== "string") throw new Error("workflow_outbox_payload_invalid");
+    for (const node of listWorkflowNodeRunsSync(item.workspaceId, payload.runId).filter((candidate) => candidate.status === "ready")) {
+      const dispatched = dispatchReadyWorkflowNodeByTypeSync({ workspaceId: item.workspaceId, nodeRunId: node.id, now });
+      if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
+    }
+  }
+  markWorkflowOutboxPublishedSync(item.id, input.workerId, item.workspaceId, now);
+  result.publishedOutboxIds.push(item.id);
+}
+
+function recordClaimedWorkflowOutboxFailureSync(
+  error: unknown,
+  item: ClaimedWorkflowOutboxItem,
+  input: { workerId: string },
+  now: string,
+  result: WorkflowOutboxDispatchResult,
+): void {
+  if (workflowOutboxErrorCode(error) === "workflow_outbox_lease_conflict") {
+    result.leaseConflictOutboxIds.push(item.id);
+    return;
+  }
+  try {
+    markWorkflowOutboxFailedSync({
+      id: item.id,
+      workerId: input.workerId,
+      workspaceId: item.workspaceId,
+      error: workflowOutboxErrorCode(error),
+      nextAvailableAt: computeWorkflowOutboxRetryAt(now, item.attempts),
+      maxAttempts: WORKFLOW_OUTBOX_MAX_ATTEMPTS,
+    });
+    result.failedOutboxIds.push(item.id);
+  } catch (markError) {
+    if (workflowOutboxErrorCode(markError) === "workflow_outbox_lease_conflict") {
+      result.leaseConflictOutboxIds.push(item.id);
+      return;
+    }
+    throw markError;
+  }
+}
 
 export function dispatchWorkflowOutboxBatchSync(input: {
   workerId: string;
@@ -50,49 +124,9 @@ export function dispatchWorkflowOutboxBatchSync(input: {
   };
   for (const item of items) {
     try {
-      const payload = parsePayload(item.payloadJson);
-      if (item.eventType === "workflow.node.ready") {
-        if (typeof payload.nodeRunId !== "string") throw new Error("workflow_outbox_payload_invalid");
-        const dispatched = dispatchReadyWorkflowNodeByTypeSync({ workspaceId: item.workspaceId, nodeRunId: payload.nodeRunId, now });
-        if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
-      } else if (item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") {
-        if (typeof payload.runId !== "string") throw new Error("workflow_outbox_payload_invalid");
-        for (const node of listWorkflowNodeRunsSync(item.workspaceId, payload.runId).filter((candidate) => candidate.status === "ready")) {
-          const dispatched = dispatchReadyWorkflowNodeByTypeSync({ workspaceId: item.workspaceId, nodeRunId: node.id, now });
-          if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
-        }
-      }
-      markWorkflowOutboxPublishedSync(item.id, input.workerId, item.workspaceId, now);
-      result.publishedOutboxIds.push(item.id);
+      dispatchClaimedWorkflowOutboxItemSync(item, input, now, result);
     } catch (error) {
-      // workflow_outbox_lease_conflict：本 worker 已丢失该条目租约（租约超时被另一 worker
-      // 重新认领并处理，或派发耗时超过租约）。这是瞬态：不应消耗重试次数，更不能让
-      // markWorkflowOutboxFailedSync 因同样的丢租约再次抛出该错误、逃出循环中断整批。
-      // 跳过该条目，交由当前持有租约的 worker 处理，继续批内剩余条目。
-      if (workflowOutboxErrorCode(error) === "workflow_outbox_lease_conflict") {
-        result.leaseConflictOutboxIds.push(item.id);
-        continue;
-      }
-      try {
-        markWorkflowOutboxFailedSync({
-          id: item.id,
-          workerId: input.workerId,
-          workspaceId: item.workspaceId,
-          error: workflowOutboxErrorCode(error),
-          nextAvailableAt: computeWorkflowOutboxRetryAt(now, item.attempts),
-          maxAttempts: WORKFLOW_OUTBOX_MAX_ATTEMPTS,
-        });
-        result.failedOutboxIds.push(item.id);
-      } catch (markError) {
-        // 标记失败本身也可能丢租约（派发耗时超过 60s 租约、或条目已被另一 worker 重认领）。
-        // 此第二层 lease_conflict 不得逃出 for 循环中断整批剩余条目——归入租约冲突，
-        // 交由当前持有租约的 worker 处理，继续批内剩余项。非租约错误属异常，仍向上抛出。
-        if (workflowOutboxErrorCode(markError) === "workflow_outbox_lease_conflict") {
-          result.leaseConflictOutboxIds.push(item.id);
-          continue;
-        }
-        throw markError;
-      }
+      recordClaimedWorkflowOutboxFailureSync(error, item, input, now, result);
     }
   }
   return result;
@@ -123,7 +157,10 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
     dispatchedTaskIds: [],
     failedOutboxIds: [],
     leaseConflictOutboxIds: [],
-    observability: { eventOrder: { comparedCount: 0, driftCount: 0 } },
+    observability: {
+      eventOrder: { comparedCount: 0, driftCount: 0 },
+      shadowComparison: { comparedCount: 0, mismatchCount: 0, diffFields: [] },
+    },
   };
   for (const item of items) {
     try {
@@ -149,9 +186,11 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
         });
         if (dispatched.taskQueueId) result.dispatchedTaskIds.push(dispatched.taskQueueId);
         const eventOrder = result.observability?.eventOrder;
-        if (eventOrder && dispatched.observability) {
+        const shadowComparison = result.observability?.shadowComparison;
+        if (eventOrder && shadowComparison && dispatched.observability) {
           eventOrder.comparedCount += dispatched.observability.eventOrder.comparedCount;
           eventOrder.driftCount += dispatched.observability.eventOrder.driftCount;
+          addShadowComparison(shadowComparison, dispatched.observability.shadowComparison);
         }
       } else if (item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") {
         if (typeof payload.runId !== "string") throw new Error("workflow_outbox_payload_invalid");
@@ -194,6 +233,79 @@ export async function dispatchWorkflowOutboxBatchPrisma(input: {
   return result;
 }
 
+/**
+ * Shadow runner: preview the Prisma transaction (which always rolls back),
+ * execute the legacy write, then compare the actual legacy rows to the preview
+ * snapshot. Shadow failures are recorded as mismatches but never block legacy.
+ */
+export async function dispatchWorkflowOutboxBatchShadow(input: {
+  workerId: string;
+  limit: number;
+  now?: string;
+  workspaceId?: string;
+}): Promise<WorkflowOutboxDispatchResult> {
+  const now = input.now ?? new Date().toISOString();
+  const items = claimWorkflowOutboxBatchSync({ workerId: input.workerId, now, limit: input.limit, leaseSeconds: 60, workspaceId: input.workspaceId });
+  const result: WorkflowOutboxDispatchResult = {
+    claimedOutboxIds: items.map((item) => item.id),
+    publishedOutboxIds: [],
+    dispatchedTaskIds: [],
+    failedOutboxIds: [],
+    leaseConflictOutboxIds: [],
+    observability: {
+      eventOrder: { comparedCount: 0, driftCount: 0 },
+      shadowComparison: { comparedCount: 0, mismatchCount: 0, diffFields: [] },
+    },
+  };
+  const observability = result.observability;
+  if (!observability) return result;
+  const shadowComparison = observability.shadowComparison;
+  if (!shadowComparison) return result;
+  for (const item of items) {
+    const previews: Array<{ nodeRunId: string; snapshot: Parameters<typeof compareLegacyWorkflowDispatchShadow>[0] }> = [];
+    try {
+      const payload = parsePayload(item.payloadJson);
+      const nodeRunIds = item.eventType === "workflow.node.ready" && typeof payload.nodeRunId === "string"
+        ? [payload.nodeRunId]
+        : (item.eventType === "workflow.run.ready" || item.eventType === "workflow.run.resumed") && typeof payload.runId === "string"
+          ? listWorkflowNodeRunsSync(item.workspaceId, payload.runId).filter((node) => node.status === "ready" && node.nodeType === "employee_task").map((node) => node.id)
+          : [];
+      for (const nodeRunId of nodeRunIds) {
+        const node = readWorkflowNodeRunSync(nodeRunId, item.workspaceId);
+        if (!node || node.nodeType !== "employee_task" || node.status !== "ready") continue;
+        try {
+          const preview = await previewReadyWorkflowNodePrisma({ workspaceId: item.workspaceId, nodeRunId, now });
+          previews.push({ nodeRunId, snapshot: preview.snapshot });
+          if (preview.result.observability?.eventOrder) {
+            observability.eventOrder.comparedCount += preview.result.observability.eventOrder.comparedCount;
+            observability.eventOrder.driftCount += preview.result.observability.eventOrder.driftCount;
+          }
+        } catch (error) {
+          addShadowComparison(shadowComparison, { comparedCount: 1, mismatchCount: 1, diffFields: [`shadow.preview_error:${workflowOutboxErrorCode(error)}`] });
+        }
+      }
+    } catch (error) {
+      addShadowComparison(shadowComparison, { comparedCount: 1, mismatchCount: 1, diffFields: [`shadow.preview_error:${workflowOutboxErrorCode(error)}`] });
+    }
+
+    try {
+      dispatchClaimedWorkflowOutboxItemSync(item, input, now, result);
+    } catch (error) {
+      recordClaimedWorkflowOutboxFailureSync(error, item, input, now, result);
+    }
+
+    for (const preview of previews) {
+      const legacyNode = readWorkflowNodeRunSync(preview.nodeRunId, item.workspaceId);
+      const legacy = readLegacyWorkflowDispatchShadowSnapshot({
+        workspaceId: item.workspaceId,
+        result: { nodeRunId: preview.nodeRunId, taskQueueId: legacyNode?.taskQueueId, status: legacyNode?.status ?? "missing" },
+      });
+      addShadowComparison(shadowComparison, compareLegacyWorkflowDispatchShadow(preview.snapshot, legacy));
+    }
+  }
+  return result;
+}
+
 export function dispatchWorkflowOutboxBatchAuto(input: {
   workerId: string;
   limit: number;
@@ -211,10 +323,24 @@ export function dispatchWorkflowOutboxBatchAuto(input: {
             sampleCount: result.publishedOutboxIds.length + result.failedOutboxIds.length,
             errorCount: result.failedOutboxIds.length,
             eventOrder: result.observability?.eventOrder,
+            shadowComparison: result.observability?.shadowComparison,
           }),
         },
       )
-    : dispatchWorkflowOutboxBatchSync(input);
+    : isWorkflowDispatcherPrismaShadowWriteEnabled()
+      ? observeWorkflowPrismaWrite(
+          { domain: "workflow-dispatcher", operation: "outbox.shadow-batch" },
+          () => dispatchWorkflowOutboxBatchShadow(input),
+          {
+            summarizeResult: (result) => ({
+              sampleCount: result.publishedOutboxIds.length + result.failedOutboxIds.length,
+              errorCount: result.failedOutboxIds.length,
+              eventOrder: result.observability?.eventOrder,
+              shadowComparison: result.observability?.shadowComparison,
+            }),
+          },
+        )
+      : dispatchWorkflowOutboxBatchSync(input);
 }
 
 export function computeWorkflowOutboxRetryAt(now: string, attempts: number): string {

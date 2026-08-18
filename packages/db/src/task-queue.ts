@@ -33,11 +33,9 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
     return null;
   }
 
-  const now = new Date().toISOString();
+  const now = input.now ?? new Date().toISOString();
   const idempotencyKey = input.idempotencyKey?.trim();
-  const queueId = idempotencyKey
-    ? `queue-idem-${createHash("sha256").update(`${workspaceId}\0${idempotencyKey}`).digest("hex").slice(0, 32)}`
-    : `queue-${randomLikeId()}`;
+  const queueId = buildTaskQueueId(workspaceId, idempotencyKey);
   const payload = {
     taskId: input.taskId,
     assignee: input.assignee,
@@ -61,6 +59,7 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
     triggerType: input.triggerType ?? "manual",
     inputJson: JSON.stringify(payload),
     issueId: input.taskId,
+    now,
   });
 
   const inserted = db.prepare(
@@ -117,6 +116,7 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
             requestedByUserId: input.requestedByUserId,
             requestedByDisplayName: input.requestedByDisplayName,
           },
+          createdAt: now,
         });
       } else {
         recordQueueLifecycleEvent(task, {
@@ -129,12 +129,20 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
             requestedByUserId: input.requestedByUserId,
             requestedByDisplayName: input.requestedByDisplayName,
           },
+          createdAt: now,
         });
       }
     }
   }
 
   return task;
+}
+
+export function buildTaskQueueId(workspaceId: string, idempotencyKey?: string): string {
+  const normalized = idempotencyKey?.trim();
+  return normalized
+    ? `queue-idem-${createHash("sha256").update(`${workspaceId}\0${normalized}`).digest("hex").slice(0, 32)}`
+    : `queue-${randomLikeId()}`;
 }
 
 export function listQueuedTasksSync(options?: {
@@ -897,6 +905,7 @@ function recordQueueLifecycleEvent(
     severity?: Parameters<typeof recordTaskExecutionEventSync>[0]["severity"];
     status?: Parameters<typeof recordTaskExecutionEventSync>[0]["status"];
     data?: Record<string, unknown>;
+    createdAt?: string;
   },
 ): void {
   const context = buildTaskExecutionEventContext(task);
@@ -913,6 +922,7 @@ function recordQueueLifecycleEvent(
       taskTitle: context.taskTitle,
       ...event.data,
     },
+    createdAt: event.createdAt,
   });
 }
 
@@ -927,6 +937,7 @@ function recordRouterLifecycleEvent(
     provider?: Parameters<typeof recordAgentRouterEventSync>[0]["provider"];
     summary?: string;
     data?: Record<string, unknown>;
+    createdAt?: string;
   },
 ): void {
   if (!task.routerSessionId) {
@@ -944,6 +955,7 @@ function recordRouterLifecycleEvent(
     provider: event.provider,
     summary: event.summary,
     data: event.data,
+    createdAt: event.createdAt,
   });
 }
 

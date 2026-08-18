@@ -1,4 +1,4 @@
-export type PrismaCutoverFlagKind = "read" | "shadowRead" | "write";
+export type PrismaCutoverFlagKind = "read" | "shadowRead" | "shadowWrite" | "write";
 
 export interface PrismaCutoverFlagSpec {
   domain: string;
@@ -6,6 +6,7 @@ export interface PrismaCutoverFlagSpec {
   stage: "pilot" | "shadow" | "write";
   supportsRead: boolean;
   supportsShadowRead: boolean;
+  supportsShadowWrite: boolean;
   supportsWrite: boolean;
 }
 
@@ -45,10 +46,11 @@ export const PRISMA_CUTOVER_FLAG_REGISTRY: readonly PrismaCutoverFlagSpec[] = re
   stage,
   supportsRead,
   supportsShadowRead,
+  supportsShadowWrite: domain === "workflow-dispatcher",
   supportsWrite,
 })) satisfies readonly PrismaCutoverFlagSpec[];
 
-const FLAG_PATTERN = /^([A-Z0-9_]+)_PRISMA_(READ|SHADOW_READ|WRITE)_ENABLED$/;
+const FLAG_PATTERN = /^([A-Z0-9_]+)_PRISMA_(READ|SHADOW_READ|SHADOW_WRITE|WRITE)_ENABLED$/;
 
 /**
  * Validates cutover flags at the process boundary. This keeps typoed flags and
@@ -78,11 +80,17 @@ export function assertPrismaCutoverFlagsValid(env: NodeJS.ProcessEnv = process.e
     if (shadowEnabled && !readEnabled) {
       throw new Error(`${spec.envPrefix}_PRISMA_SHADOW_READ_ENABLED requires ${spec.envPrefix}_PRISMA_READ_ENABLED.`);
     }
+    const shadowWriteEnabled = env[`${spec.envPrefix}_PRISMA_SHADOW_WRITE_ENABLED`] === "1";
+    const writeEnabled = env[`${spec.envPrefix}_PRISMA_WRITE_ENABLED`] === "1";
+    if (shadowWriteEnabled && writeEnabled) {
+      throw new Error(`${spec.envPrefix}_PRISMA_SHADOW_WRITE_ENABLED cannot be enabled with ${spec.envPrefix}_PRISMA_WRITE_ENABLED.`);
+    }
   }
 }
 
 function normalizeFlagKind(value: string): PrismaCutoverFlagKind {
   if (value === "SHADOW_READ") return "shadowRead";
+  if (value === "SHADOW_WRITE") return "shadowWrite";
   if (value === "WRITE") return "write";
   return "read";
 }
@@ -90,5 +98,6 @@ function normalizeFlagKind(value: string): PrismaCutoverFlagKind {
 function supportsFlag(spec: PrismaCutoverFlagSpec, kind: PrismaCutoverFlagKind): boolean {
   if (kind === "read") return spec.supportsRead;
   if (kind === "shadowRead") return spec.supportsShadowRead;
+  if (kind === "shadowWrite") return spec.supportsShadowWrite;
   return spec.supportsWrite;
 }

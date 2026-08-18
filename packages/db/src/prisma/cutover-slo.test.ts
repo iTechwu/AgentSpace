@@ -155,6 +155,24 @@ test("cutover SLO window aggregates weighted batch samples with partial failures
   assert.ok(snapshot?.rollbackReasons.includes("p2034_rate"));
 });
 
+test("cutover SLO derives mismatch and comparison rates from five-object shadow counts", () => {
+  const window = new PrismaCutoverSloWindow(10);
+  window.record({ domain: "workflow-dispatcher" }, {
+    source: "primary",
+    mismatch: 0,
+    shadowCompared: 0,
+    durationMs: 20,
+    fallbackInvoked: 0,
+    sampleCount: 4,
+    shadowComparison: { comparedCount: 3, mismatchCount: 1 },
+  });
+  const [snapshot] = window.snapshots({ thresholds: { ...thresholds, minimumSamples: 4 } });
+  assert.equal(snapshot?.sampleCount, 4);
+  assert.equal(snapshot?.shadowComparisonRate, 0.75);
+  assert.equal(snapshot?.mismatchRate, 0.25);
+  assert.ok(snapshot?.rollbackReasons.includes("mismatch_rate"));
+});
+
 test("cutover SLO window caps absurd batch weights and keeps rates within [0,1]", () => {
   const window = new PrismaCutoverSloWindow(10);
   window.record({ domain: "workflow-materialization" }, {

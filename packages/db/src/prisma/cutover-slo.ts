@@ -132,12 +132,17 @@ export class PrismaCutoverSloWindow {
     const samples = this.samplesByDomain.get(domain) ?? [];
     const weight = normalizedSampleWeight(metric);
     const declared = metric as Partial<Pick<DomainWriteCutoverMetric, "errorCount" | "deadlockCount" | "p2034Count" | "linkConflictCount" | "eventOrder">>;
+    const shadowComparison = (metric as DomainWriteCutoverMetric).shadowComparison;
     const eventOrderComparedCount = normalizedCount(declared.eventOrder?.comparedCount, weight);
     const errorDerived = metric.error !== undefined || metric.fallbackFailed === 1 ? weight : 0;
     samples.push({
       sampleCount: weight,
-      mismatchCount: metric.mismatch === 1 ? weight : 0,
-      shadowComparedCount: metric.shadowCompared === 1 ? weight : 0,
+      mismatchCount: metric.mismatch === 1
+        ? weight
+        : normalizedCount(shadowComparison?.mismatchCount, weight),
+      shadowComparedCount: metric.shadowCompared === 1
+        ? weight
+        : normalizedCount(shadowComparison?.comparedCount, weight),
       fallbackCount: metric.source === "fallback" || ("fallbackInvoked" in metric && metric.fallbackInvoked === 1) ? weight : 0,
       errorCount: declared.errorCount !== undefined
         ? normalizedCount(declared.errorCount, weight) || errorDerived

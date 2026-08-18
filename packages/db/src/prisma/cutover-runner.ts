@@ -52,6 +52,12 @@ export interface DomainWriteCutoverMetric extends ReadCutoverMetric {
   linkConflictCount?: number;
   /** 批次内 router/queue 事件顺序的对照样本与漂移计数。 */
   eventOrder?: EventOrderObservation;
+  /** 五对象 workflow dispatch shadow 对照结果。 */
+  shadowComparison?: {
+    comparedCount: number;
+    mismatchCount: number;
+    diffFields?: string[];
+  };
 }
 
 export async function runDomainWriteCutover<T, TMetric extends DomainWriteCutoverMetric = DomainWriteCutoverMetric>(

@@ -1,10 +1,15 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { randomLikeId } from "../database.ts";
+import { buildTaskQueueId } from "../task-queue.ts";
 import {
   observeLegacyTaskEnqueueEventOrder,
   type ObservedTaskEnqueueLifecycleEvent,
   type WorkflowDispatchObservability,
 } from "../task-enqueue-event-contract.ts";
+import {
+  projectWorkflowDispatchShadowSnapshot,
+  type WorkflowDispatchShadowSnapshot,
+} from "./workflow-dispatch-shadow.ts";
 import { getDofePrismaClient } from "./prisma-client.ts";
 import { retryPrismaTransaction } from "./transaction-retry.ts";
 
@@ -29,6 +34,20 @@ export interface DispatchWorkflowNodePrismaResult {
   taskQueueId?: string;
   reason: "claimed" | "already_queued" | "concurrency_limited" | "queue_unavailable" | "not_ready";
   observability?: WorkflowDispatchObservability;
+}
+
+export interface WorkflowDispatchShadowPreview {
+  result: DispatchWorkflowNodePrismaResult;
+  snapshot: WorkflowDispatchShadowSnapshot;
+}
+
+class WorkflowDispatchShadowRollback extends Error {
+  readonly preview: WorkflowDispatchShadowPreview;
+
+  constructor(preview: WorkflowDispatchShadowPreview) {
+    super("workflow_dispatch_shadow_rollback");
+    this.preview = preview;
+  }
 }
 
 /**
@@ -72,8 +91,37 @@ export async function dispatchWorkflowNodeFromOutboxPrisma(
   ), { scope: "workflow-dispatcher" });
 }
 
+/**
+ * Executes the real Prisma dispatcher and captures its durable state, then
+ * aborts the transaction deliberately. The returned preview has no committed
+ * queue, event, node-run, session, or outbox side effects.
+ */
+export async function previewWorkflowNodeDispatchPrisma(
+  input: DispatchWorkflowNodePrismaInput,
+  client: PrismaClient = getDofePrismaClient(),
+): Promise<WorkflowDispatchShadowPreview> {
+  try {
+    await retryPrismaTransaction(() => client.$transaction(
+      async (tx) => {
+        const result = await dispatchWorkflowNodePrismaInTransaction({ ...input, outbox: undefined }, tx);
+        const snapshot = await captureWorkflowDispatchShadowSnapshot(tx, input, result);
+        throw new WorkflowDispatchShadowRollback({ result, snapshot });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    ), { scope: "workflow-dispatcher" });
+  } catch (error) {
+    if (error instanceof WorkflowDispatchShadowRollback) return error.preview;
+    throw error;
+  }
+  throw new Error("workflow_dispatch_shadow_rollback_missing");
+}
+
 export function isWorkflowDispatcherPrismaWriteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED === "1";
+}
+
+export function isWorkflowDispatcherPrismaShadowWriteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.WORKFLOW_DISPATCHER_PRISMA_SHADOW_WRITE_ENABLED === "1";
 }
 
 async function dispatchWorkflowNodePrismaInTransaction(
@@ -155,13 +203,14 @@ async function dispatchWorkflowNodePrismaInTransaction(
     return deferQueueUnavailableInTransaction(input, node, tx);
   }
 
-  const queueId = `queue-workflow-${node.id}`;
+  const queueId = buildTaskQueueId(input.workspaceId, `workflow-node:${node.id}`);
   const payload = {
+    taskId: node.id,
     assignee: employee.name,
     title: input.title,
-    ...(input.channelName ? { channel: input.channelName } : {}),
+    ...(input.channelName !== undefined ? { channel: input.channelName } : {}),
     priority: input.priority ?? "medium",
-    ...input.inputJson,
+    workflowNodeInput: input.inputJson,
     workflow: input.workflowMetadata,
   } as Prisma.InputJsonObject;
   const conversationKey = `workspace_task:${node.id}`;
@@ -210,7 +259,7 @@ async function dispatchWorkflowNodePrismaInTransaction(
   });
   const linked = await tx.workflowNodeRun.updateMany({
     where: { id: node.id, workspaceId: input.workspaceId, status: "queued", taskQueueId: null },
-    data: { taskQueueId: task.id, updatedAt: new Date(input.now) },
+    data: { taskQueueId: task.id, attemptCount: Math.max(1, node.attemptCount), updatedAt: new Date(input.now) },
   });
   if (linked.count !== 1) throw new Error("workflow_node_queue_link_conflict");
   if (!existingTask) {
@@ -223,9 +272,11 @@ async function dispatchWorkflowNodePrismaInTransaction(
         type: "task_queued",
         actorType: "system",
         runtimeId: binding.runtimeId,
-        provider: binding.runtime.provider,
         summary: input.title,
-        dataJson: { preferredRuntimeId: binding.runtimeId, nodeRunId: node.id } as Prisma.InputJsonObject,
+        dataJson: {
+          priority: input.priority ?? "medium",
+          preferredRuntimeId: binding.runtimeId,
+        } as Prisma.InputJsonObject,
         createdAt: new Date(input.now),
       },
     });
@@ -236,19 +287,50 @@ async function dispatchWorkflowNodePrismaInTransaction(
         workspaceId: input.workspaceId,
         taskId: task.id,
         channelName: input.channelName ?? "",
-        agentId: employee.name,
+        agentId: binding.employeeId,
         runtimeId: binding.runtimeId,
-        runId: node.runId,
         type: "queued",
         title: "Task entered the execution queue",
         summary: `${input.title} is waiting for ${binding.runtime.name}.`,
         severity: "info",
         status: "pending",
-        dataJson: { nodeRunId: node.id, preferredRuntimeId: binding.runtimeId } as Prisma.InputJsonObject,
+        dataJson: {
+          triggerType: "workflow",
+          issueId: node.id,
+          taskTitle: input.title,
+          priority: input.priority ?? "medium",
+          preferredRuntimeId: binding.runtimeId,
+        } as Prisma.InputJsonObject,
         createdAt: new Date(input.now),
       },
     });
     eventOrder.push({ stream: "queue", type: queueEvent.type });
+    await tx.agentRouterEvent.create({
+      data: {
+        id: `router-event-${randomLikeId()}`,
+        workspaceId: input.workspaceId,
+        routerSessionId: session.id,
+        taskQueueId: task.id,
+        type: "task.queued",
+        actorType: "runtime",
+        actorId: binding.runtimeId,
+        runtimeId: binding.runtimeId,
+        summary: `${input.title} is waiting for ${binding.runtime.name}.`,
+        dataJson: {
+          taskExecutionEventId: queueEvent.id,
+          title: "Task entered the execution queue",
+          severity: "info",
+          status: "pending",
+          channelName: input.channelName ?? "",
+          triggerType: "workflow",
+          issueId: node.id,
+          taskTitle: input.title,
+          priority: input.priority ?? "medium",
+          preferredRuntimeId: binding.runtimeId,
+        } as Prisma.InputJsonObject,
+        createdAt: new Date(input.now),
+      },
+    });
   }
   await appendRunEventInTransaction(tx, {
     workspaceId: input.workspaceId,
@@ -269,6 +351,36 @@ async function dispatchWorkflowNodePrismaInTransaction(
       observability: { eventOrder: observeLegacyTaskEnqueueEventOrder(eventOrder) },
     }),
   };
+}
+
+async function captureWorkflowDispatchShadowSnapshot(
+  tx: Prisma.TransactionClient,
+  input: DispatchWorkflowNodePrismaInput,
+  result: DispatchWorkflowNodePrismaResult,
+): Promise<WorkflowDispatchShadowSnapshot> {
+  const queue = result.taskQueueId
+    ? await tx.agentTaskQueue.findUnique({ where: { id: result.taskQueueId } })
+    : null;
+  const routerSession = queue?.routerSessionId
+    ? await tx.agentRouterSession.findUnique({ where: { id: queue.routerSessionId } })
+    : null;
+  const routerEvents = queue && typeof tx.agentRouterEvent.findMany === "function"
+    ? await tx.agentRouterEvent.findMany({ where: { workspaceId: input.workspaceId, taskQueueId: queue.id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] })
+    : [];
+  const taskEvent = queue && typeof tx.taskExecutionEvent.findFirst === "function"
+    ? await tx.taskExecutionEvent.findFirst({ where: { workspaceId: input.workspaceId, taskId: queue.id, type: "queued" }, orderBy: { createdAt: "asc" } })
+    : null;
+  const nodeRun = typeof tx.workflowNodeRun.findUnique === "function"
+    ? await tx.workflowNodeRun.findUnique({ where: { id: result.nodeRunId } })
+    : null;
+  return projectWorkflowDispatchShadowSnapshot({
+    result: { nodeRunId: result.nodeRunId, taskQueueId: result.taskQueueId, status: result.status },
+    queue: queue as unknown as Record<string, unknown> | null,
+    routerSession: routerSession as unknown as Record<string, unknown> | null,
+    routerEvents: routerEvents as unknown as Array<Record<string, unknown>>,
+    taskEvent: taskEvent as unknown as Record<string, unknown> | null,
+    nodeRun: nodeRun as unknown as Record<string, unknown> | null,
+  });
 }
 
 async function deferQueueUnavailableInTransaction(

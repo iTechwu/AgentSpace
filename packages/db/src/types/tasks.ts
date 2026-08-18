@@ -105,6 +105,8 @@ export interface TaskExecutionEventRecord {
 
 export interface EnqueueTaskInput {
   workspaceId?: string;
+  /** Optional deterministic clock used by transactional shadow comparisons. */
+  now?: string;
   /** Stable operation key for retry-safe queue creation. */
   idempotencyKey?: string;
   taskId?: string;

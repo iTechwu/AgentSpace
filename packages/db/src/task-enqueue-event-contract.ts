@@ -20,6 +20,11 @@ export interface EventOrderObservation {
 
 export interface WorkflowDispatchObservability {
   eventOrder: EventOrderObservation;
+  shadowComparison?: {
+    comparedCount: number;
+    mismatchCount: number;
+    diffFields: string[];
+  };
 }
 
 export function observeLegacyTaskEnqueueEventOrder(

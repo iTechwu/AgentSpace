@@ -384,9 +384,12 @@ export {
 export {
   dispatchWorkflowNodePrisma,
   dispatchWorkflowNodeFromOutboxPrisma,
+  previewWorkflowNodeDispatchPrisma,
   isWorkflowDispatcherPrismaWriteEnabled,
+  isWorkflowDispatcherPrismaShadowWriteEnabled,
   type DispatchWorkflowNodePrismaInput,
   type DispatchWorkflowNodePrismaResult,
+  type WorkflowDispatchShadowPreview,
 } from "./prisma/workflow-dispatch-prisma-write.ts";
 export {
   classifyPrismaTransactionConflictKind,
@@ -458,6 +461,14 @@ export {
   type PrismaCutoverSloSnapshot,
   type PrismaCutoverSloThresholds,
 } from "./prisma/cutover-slo.ts";
+export {
+  compareWorkflowDispatchShadow,
+  projectWorkflowDispatchShadowSnapshot,
+  type WorkflowDispatchShadowComparison,
+  type WorkflowDispatchShadowRecordSource,
+  type WorkflowDispatchShadowResult,
+  type WorkflowDispatchShadowSnapshot,
+} from "./prisma/workflow-dispatch-shadow.ts";
 export {
   type EventOrderObservation,
   type WorkflowDispatchObservability,
@@ -1027,6 +1038,7 @@ export {
 
 // Task queue
 export {
+  buildTaskQueueId,
   enqueueNativeTaskSync,
   listQueuedTasksSync,
   readLatestConversationExecutionSync,

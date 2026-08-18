@@ -28,10 +28,11 @@ export async function observeWorkflowPrismaWrite<T>(
     const result = await runWithPrismaTransactionRetryCapture(events, operation);
     const summary = options.summarizeResult?.(result);
     const conflicts = domainConflictCounts(events, context.domain);
+    const shadowComparison = summary?.shadowComparison;
     emitMetric(context, {
       source: "primary",
-      mismatch: 0,
-      shadowCompared: 0,
+      mismatch: shadowComparison && shadowComparison.mismatchCount > 0 ? 1 : 0,
+      shadowCompared: shadowComparison && shadowComparison.comparedCount > 0 ? 1 : 0,
       durationMs: now() - startedAt,
       fallbackInvoked: 0,
       sampleCount: summary?.sampleCount ?? 1,
@@ -39,6 +40,7 @@ export async function observeWorkflowPrismaWrite<T>(
       ...(summary?.eventOrder && summary.eventOrder.comparedCount > 0
         ? { eventOrder: summary.eventOrder }
         : {}),
+      ...(shadowComparison ? { shadowComparison } : {}),
       deadlockCount: conflicts.deadlock,
       p2034Count: conflicts.p2034,
     });
@@ -71,6 +73,12 @@ export interface WorkflowPrismaBatchSummary {
   errorCount: number;
   /** 批次内 router/queue 事件顺序的对照样本与漂移计数。 */
   eventOrder?: EventOrderObservation;
+  /** 五对象 workflow dispatch shadow 对照结果。 */
+  shadowComparison?: {
+    comparedCount: number;
+    mismatchCount: number;
+    diffFields?: string[];
+  };
 }
 
 function domainConflictCounts(

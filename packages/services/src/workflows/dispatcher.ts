@@ -2,6 +2,13 @@ import {
   claimWorkflowNodeForDispatchSync,
   dispatchWorkflowNodePrisma,
   dispatchWorkflowNodeFromOutboxPrisma,
+  previewWorkflowNodeDispatchPrisma,
+  compareWorkflowDispatchShadow,
+  projectWorkflowDispatchShadowSnapshot,
+  listAgentRouterEventsSync,
+  listTaskExecutionEventsSync,
+  readAgentRouterSessionForTaskSync,
+  readQueuedTaskSync,
   acknowledgeInactiveWorkflowNodeOutboxPrisma,
   enqueueNativeTaskSync,
   getDatabase,
@@ -15,6 +22,9 @@ import {
   transitionWorkflowNodeRunSync,
   withTransaction,
   type WorkflowDispatchObservability,
+  type WorkflowDispatchShadowSnapshot,
+  type WorkflowNodeRunRecord,
+  type WorkflowRunRecord,
   type WorkflowTaskMetadata,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition, WorkflowNodeDefinition } from "@dofe-agent/domain";
@@ -84,6 +94,86 @@ export async function dispatchReadyWorkflowNodePrisma(input: DispatchWorkflowNod
       }
     }
   }
+  const prismaInput = buildWorkflowDispatchPrismaInput(input, candidate, run);
+  const result = input.atomicOutbox && input.outbox
+    ? await dispatchWorkflowNodeFromOutboxPrisma({ ...prismaInput, outbox: input.outbox })
+    : await dispatchWorkflowNodePrisma(prismaInput);
+  return {
+    nodeRunId: result.nodeRunId,
+    taskQueueId: result.taskQueueId,
+    status: result.status,
+    ...(result.observability ? { observability: result.observability } : {}),
+  };
+}
+
+export async function previewReadyWorkflowNodePrisma(input: DispatchWorkflowNodeInput): Promise<{
+  result: DispatchWorkflowNodeResult;
+  snapshot: WorkflowDispatchShadowSnapshot;
+}> {
+  const candidate = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+  if (!candidate) throw new Error("workflow_node_run_not_found");
+  const run = readWorkflowRunSync(candidate.runId, input.workspaceId);
+  if (!run) throw new Error("workflow_run_not_found");
+  if (isWorkflowRunDispatchBlocked(run.status) || candidate.status !== "ready" || candidate.nodeType !== "employee_task") {
+    return {
+      result: { nodeRunId: candidate.id, taskQueueId: candidate.taskQueueId, status: candidate.status },
+      snapshot: projectWorkflowDispatchShadowSnapshot({
+        result: { nodeRunId: candidate.id, taskQueueId: candidate.taskQueueId, status: candidate.status },
+        queue: null,
+        routerSession: null,
+        routerEvents: [],
+        taskEvent: null,
+        nodeRun: candidate as unknown as Record<string, unknown>,
+      }),
+    };
+  }
+  const result = await previewWorkflowNodeDispatchPrisma(buildWorkflowDispatchPrismaInput(input, candidate, run));
+  return {
+    result: {
+      nodeRunId: result.result.nodeRunId,
+      taskQueueId: result.result.taskQueueId,
+      status: result.result.status,
+      ...(result.result.observability ? { observability: result.result.observability } : {}),
+    },
+    snapshot: result.snapshot,
+  };
+}
+
+export function readLegacyWorkflowDispatchShadowSnapshot(input: {
+  workspaceId: string;
+  result: { nodeRunId: string; taskQueueId?: string; status: string };
+}): WorkflowDispatchShadowSnapshot {
+  const queue = input.result.taskQueueId ? readQueuedTaskSync(input.result.taskQueueId) : null;
+  const routerSession = queue ? readAgentRouterSessionForTaskSync(queue) : null;
+  const routerEvents = queue
+    ? listAgentRouterEventsSync({ workspaceId: input.workspaceId, taskQueueId: queue.id, order: "asc" })
+    : [];
+  const taskEvent = queue
+    ? listTaskExecutionEventsSync({ workspaceId: input.workspaceId, taskId: queue.id, order: "asc" }).find((event) => event.type === "queued") ?? null
+    : null;
+  const nodeRun = readWorkflowNodeRunSync(input.result.nodeRunId, input.workspaceId);
+  return projectWorkflowDispatchShadowSnapshot({
+    result: input.result,
+    queue: queue as unknown as Record<string, unknown> | null,
+    routerSession: routerSession as unknown as Record<string, unknown> | null,
+    routerEvents: routerEvents as unknown as Array<Record<string, unknown>>,
+    taskEvent: taskEvent as unknown as Record<string, unknown> | null,
+    nodeRun: nodeRun as unknown as Record<string, unknown> | null,
+  });
+}
+
+export function compareLegacyWorkflowDispatchShadow(
+  prisma: WorkflowDispatchShadowSnapshot,
+  legacy: WorkflowDispatchShadowSnapshot,
+) {
+  return compareWorkflowDispatchShadow(prisma, legacy);
+}
+
+function buildWorkflowDispatchPrismaInput(
+  input: DispatchWorkflowNodeInput,
+  candidate: WorkflowNodeRunRecord,
+  run: WorkflowRunRecord,
+) {
   const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
   if (!version) throw new Error("workflow_version_not_found");
   const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
@@ -104,7 +194,7 @@ export async function dispatchReadyWorkflowNodePrisma(input: DispatchWorkflowNod
   if (!candidate.employeeId) throw new Error("workflow_employee_not_ready");
   const governance = parseConfig(version.governanceJson);
   const priority: "low" | "medium" | "high" = config.priority === "low" || config.priority === "high" ? config.priority : "medium";
-  const prismaInput = {
+  return {
     workspaceId: input.workspaceId,
     runId: run.id,
     nodeRunId: candidate.id,
@@ -129,16 +219,6 @@ export async function dispatchReadyWorkflowNodePrisma(input: DispatchWorkflowNod
     },
     maxConcurrency: resolveWorkflowMaxConcurrency(governance.maxConcurrency),
     now: input.now ?? new Date().toISOString(),
-    outbox: input.outbox,
-  };
-  const result = input.atomicOutbox && input.outbox
-    ? await dispatchWorkflowNodeFromOutboxPrisma({ ...prismaInput, outbox: input.outbox })
-    : await dispatchWorkflowNodePrisma(prismaInput);
-  return {
-    nodeRunId: result.nodeRunId,
-    taskQueueId: result.taskQueueId,
-    status: result.status,
-    ...(result.observability ? { observability: result.observability } : {}),
   };
 }
 
@@ -250,6 +330,9 @@ function dispatchReadyWorkflowNodeInTransactionSync(input: DispatchWorkflowNodeI
   }
   const task = enqueueNativeTaskSync({
     workspaceId: input.workspaceId,
+    now,
+    idempotencyKey: `workflow-node:${nodeRun.id}`,
+    taskId: nodeRun.id,
     assignee: employee,
     title: typeof config.title === "string"
       ? config.title

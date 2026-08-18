@@ -14,12 +14,14 @@ import {
   transitionWorkflowNodeRunSync,
 } from "../workflows/runs.ts";
 import { enqueueWorkflowOutboxSync } from "../workflows/outbox.ts";
+import { buildTaskQueueId } from "../task-queue.ts";
 import { disconnectDofePrismaClient, getDofePrismaClient } from "./prisma-client.ts";
 import { retryPrismaTransaction } from "./transaction-retry.ts";
 import { fanOutWorkflowRunOutboxPrisma } from "./workflow-outbox-prisma-write.ts";
 import {
   dispatchWorkflowNodeFromOutboxPrisma,
   dispatchWorkflowNodePrisma,
+  previewWorkflowNodeDispatchPrisma,
   type DispatchWorkflowNodePrismaInput,
 } from "./workflow-dispatch-prisma-write.ts";
 
@@ -133,7 +135,7 @@ function seedDispatchFixture(nodeCount = 1): DispatchFixture {
     runId: run.id,
     nodeRunIds,
     outboxId: outbox.id,
-    queueIds: nodeRunIds.map((nodeRunId) => `queue-workflow-${nodeRunId}`),
+    queueIds: nodeRunIds.map((nodeRunId) => buildTaskQueueId(workspaceId, `workflow-node:${nodeRunId}`)),
     baselineRunEvents: countRows(
       "SELECT COUNT(*)::integer AS count FROM workflow_run_event WHERE run_id = ?",
       run.id,
@@ -208,7 +210,7 @@ test("two outbox workers race one node: exactly one claim, lease conflict for th
     assert.equal(countRows(
       "SELECT COUNT(*)::integer AS count FROM agent_router_event WHERE workspace_id = ?",
       fixture.workspaceId,
-    ), 1);
+    ), 2);
     assert.equal(countRows(
       "SELECT COUNT(*)::integer AS count FROM task_execution_event WHERE workspace_id = ?",
       fixture.workspaceId,
@@ -268,6 +270,31 @@ test("a lost outbox lease at publish time rolls back the node claim, queue row a
       "SELECT status, attempts FROM workflow_outbox WHERE id = ?",
     ).get(fixture.outboxId) as { status: string; attempts: number };
     assert.equal(outbox.status, "published");
+    assert.equal(outbox.attempts, 0);
+  } finally {
+    await cleanupDispatchFixture(fixture.workspaceId);
+  }
+});
+
+test("shadow preview captures all five objects and rolls back every durable write", async () => {
+  const fixture = seedDispatchFixture();
+  try {
+    const preview = await previewWorkflowNodeDispatchPrisma(dispatchInput(fixture));
+    assert.equal(preview.result.reason, "claimed");
+    assert.equal(preview.snapshot.queue?.id, fixture.queueIds[0]);
+    assert.equal(preview.snapshot.routerEvents.length, 2);
+    assert.equal(preview.snapshot.taskEvent?.type, "queued");
+    assert.equal(preview.snapshot.nodeRun?.status, "queued");
+
+    const node = readWorkflowNodeRunSync(fixture.nodeRunIds[0]!, fixture.workspaceId)!;
+    assert.equal(node.status, "ready");
+    assert.equal(node.taskQueueId, undefined);
+    for (const table of ["agent_task_queue", "agent_router_session", "agent_router_event", "task_execution_event"]) {
+      assert.equal(countRows(`SELECT COUNT(*)::integer AS count FROM ${table} WHERE workspace_id = ?`, fixture.workspaceId), 0, `${table} must roll back`);
+    }
+    assert.equal(countRows("SELECT COUNT(*)::integer AS count FROM workflow_run_event WHERE run_id = ?", fixture.runId), fixture.baselineRunEvents);
+    const outbox = getDatabase().prepare("SELECT status, attempts FROM workflow_outbox WHERE id = ?").get(fixture.outboxId) as { status: string; attempts: number };
+    assert.equal(outbox.status, "pending");
     assert.equal(outbox.attempts, 0);
   } finally {
     await cleanupDispatchFixture(fixture.workspaceId);
@@ -376,7 +403,7 @@ test("two ready nodes on one run dispatch concurrently under the run row lock wi
     assert.equal(countRows(
       "SELECT COUNT(*)::integer AS count FROM agent_router_event WHERE workspace_id = ?",
       fixture.workspaceId,
-    ), 2);
+    ), 4);
     assert.equal(countRows(
       "SELECT COUNT(*)::integer AS count FROM task_execution_event WHERE workspace_id = ?",
       fixture.workspaceId,

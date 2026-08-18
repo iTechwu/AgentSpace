@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildTaskQueueId } from "../task-queue.ts";
 import { observeLegacyTaskEnqueueEventOrder } from "../task-enqueue-event-contract.ts";
-import { dispatchWorkflowNodeFromOutboxPrisma } from "./workflow-dispatch-prisma-write.ts";
+import { dispatchWorkflowNodeFromOutboxPrisma, previewWorkflowNodeDispatchPrisma } from "./workflow-dispatch-prisma-write.ts";
 
 const input = {
   workspaceId: "workspace-1",
@@ -61,7 +62,7 @@ test("dispatcher Prisma writer keeps claim, queue, events and outbox acknowledge
     reason: "claimed",
     observability: { eventOrder: { comparedCount: 1, driftCount: 0 } },
   });
-  assert.deepEqual(calls, ["outbox.publish", "node.update", "queue.create", "node.update", "router.event", "task.event", "workflow.event", "outbox.publish"]);
+  assert.deepEqual(calls, ["outbox.publish", "node.update", "queue.create", "node.update", "router.event", "task.event", "router.event", "workflow.event", "outbox.publish"]);
 
   persistedRouterEventType = "unexpected";
   const drifted = await dispatchWorkflowNodeFromOutboxPrisma(input, client as never);
@@ -73,6 +74,98 @@ test("dispatcher event-order observer detects a sequence that differs from legac
     { stream: "queue", type: "queued" },
     { stream: "router", type: "task_queued" },
   ]), { comparedCount: 1, driftCount: 1 });
+});
+
+test("dispatcher Prisma preview captures the result and all five durable objects before rollback", async () => {
+  const queueId = buildTaskQueueId(input.workspaceId, `workflow-node:${input.nodeRunId}`);
+  let queue: Record<string, unknown> | null = null;
+  let session: Record<string, unknown> | null = null;
+  const routerEvents: Array<Record<string, unknown>> = [];
+  let taskEvent: Record<string, unknown> | null = null;
+  const tx = {
+    $queryRaw: async () => [{ id: input.runId, status: "running" }],
+    workflowNodeRun: {
+      findFirst: async () => ({
+        id: input.nodeRunId,
+        workspaceId: input.workspaceId,
+        runId: input.runId,
+        nodeId: "node-1",
+        nodeType: "employee_task",
+        employeeId: input.employeeId,
+        status: "ready",
+        attemptCount: 0,
+        inputJson: {},
+        taskQueueId: null,
+      }),
+      findUnique: async () => ({
+        id: input.nodeRunId,
+        workspaceId: input.workspaceId,
+        runId: input.runId,
+        status: "queued",
+        taskQueueId: queueId,
+        inputJson: {},
+        attemptCount: 0,
+        errorCode: null,
+        errorMessage: null,
+        updatedAt: new Date(input.now),
+      }),
+      count: async () => 0,
+      updateMany: async () => ({ count: 1 }),
+    },
+    workspaceEmployee: { findFirst: async () => ({ id: input.employeeId, name: "Writer" }) },
+    employeeRuntimeBinding: {
+      findUnique: async () => ({
+        employeeId: input.employeeId,
+        employeeName: "Writer",
+        runtimeId: "runtime-1",
+        status: "online",
+        runtime: { id: "runtime-1", name: "Runtime", provider: "openai" },
+      }),
+    },
+    agentRouterSession: {
+      findFirst: async () => null,
+      findUnique: async () => session,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        session = { ...data, closedAt: null };
+        return session;
+      },
+      update: async () => { throw new Error("unexpected session update"); },
+    },
+    agentTaskQueue: {
+      findUnique: async () => queue,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        queue = data;
+        return data;
+      },
+    },
+    agentRouterEvent: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        routerEvents.push(data);
+        return data;
+      },
+      findMany: async () => routerEvents,
+    },
+    taskExecutionEvent: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        taskEvent = data;
+        return data;
+      },
+      findFirst: async () => taskEvent,
+    },
+    workflowRun: { update: async () => ({ workspaceId: input.workspaceId, currentSequence: 1 }) },
+    workflowRunEvent: { create: async () => undefined },
+    workflowOutbox: { updateMany: async () => ({ count: 1 }) },
+  };
+  const client = { $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx) };
+
+  const preview = await previewWorkflowNodeDispatchPrisma({ ...input, outbox: undefined }, client as never);
+  assert.equal(preview.result.taskQueueId, queueId);
+  assert.equal(preview.snapshot.queue?.id, queueId);
+  assert.match(String(preview.snapshot.routerSession?.id), /^router-session-/);
+  assert.equal(preview.snapshot.queue?.routerSessionId, preview.snapshot.routerSession?.id);
+  assert.deepEqual(preview.snapshot.routerEvents.map((event) => event.type), ["task_queued", "task.queued"]);
+  assert.equal(preview.snapshot.taskEvent?.type, "queued");
+  assert.equal(preview.snapshot.nodeRun?.status, "queued");
 });
 
 test("dispatcher Prisma writer retries a serializable conflict", async () => {

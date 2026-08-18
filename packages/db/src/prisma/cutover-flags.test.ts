@@ -39,3 +39,20 @@ test("Prisma write registry rejects writes for read-only domains", () => {
   assert.doesNotThrow(() => assertPrismaCutoverFlagsValid({ SKILL_DRAFTS_PRISMA_WRITE_ENABLED: "1" }));
   assert.doesNotThrow(() => assertPrismaCutoverFlagsValid({ WORKFLOW_MATERIALIZATION_PRISMA_WRITE_ENABLED: "1" }));
 });
+
+test("workflow dispatcher shadow-write is registered and mutually exclusive with write", () => {
+  assert.doesNotThrow(() => assertPrismaCutoverFlagsValid({
+    WORKFLOW_DISPATCHER_PRISMA_SHADOW_WRITE_ENABLED: "1",
+  }));
+  assert.throws(
+    () => assertPrismaCutoverFlagsValid({
+      WORKFLOW_DISPATCHER_PRISMA_SHADOW_WRITE_ENABLED: "1",
+      WORKFLOW_DISPATCHER_PRISMA_WRITE_ENABLED: "1",
+    }),
+    /cannot be enabled with/,
+  );
+  assert.throws(
+    () => assertPrismaCutoverFlagsValid({ AGENT_SKILLS_PRISMA_SHADOW_WRITE_ENABLED: "1" }),
+    /not registered for agent-skills/,
+  );
+});

@@ -64,7 +64,7 @@ function readObject(value: unknown): Record<string, unknown> | undefined {
 }
 
 export function resolveRouterSessionForTaskSync(
-  task: Pick<QueuedTaskRecord, "id" | "workspaceId" | "agentId" | "triggerType" | "inputJson" | "issueId">,
+  task: Pick<QueuedTaskRecord, "id" | "workspaceId" | "agentId" | "triggerType" | "inputJson" | "issueId"> & { now?: string },
 ): AgentRouterSessionRecord {
   const identity = resolveTaskRouterConversationIdentity(task);
   return upsertAgentRouterSessionSync({
@@ -73,6 +73,7 @@ export function resolveRouterSessionForTaskSync(
     conversationKey: identity.conversationKey,
     sourceType: identity.sourceType,
     title: identity.title,
+    now: task.now,
   });
 }
 
@@ -84,10 +85,11 @@ export function upsertAgentRouterSessionSync(input: {
   title?: string;
   summary?: string;
   memorySummary?: string;
+  now?: string;
 }): AgentRouterSessionRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const now = new Date().toISOString();
+  const now = input.now ?? new Date().toISOString();
   const agentId = input.agentId.trim();
   const conversationKey = input.conversationKey?.trim() || undefined;
   const sourceType = input.sourceType?.trim() || "task";
