@@ -1,4 +1,4 @@
-import { dispatchWorkflowOutboxBatchSync, recoverStaleWorkflowWorkSync, tickWorkflowSchedulerSync } from "@dofe-agent/services/workflows";
+import { dispatchWorkflowOutboxBatchAuto, recoverStaleWorkflowWorkSync, tickWorkflowSchedulerSync } from "@dofe-agent/services/workflows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,9 @@ export async function GET(request: Request): Promise<Response> {
   if (scheduled.invalidClock) {
     return Response.json({ scheduled: 0, schedulerFailures: 1, dispatched: 0, recovered: 0 });
   }
-  const dispatched = dispatchWorkflowOutboxBatchSync({ workerId, now, limit });
+  // 恢复 cron 与主 worker 竞争同一 outbox，必须服从同一 dispatcher 切流开关；
+  // 否则 cron 会绕过 shadow/Prisma runner，造成对照样本缺口或混合写路径。
+  const dispatched = await dispatchWorkflowOutboxBatchAuto({ workerId, now, limit });
   const recovered = recoverStaleWorkflowWorkSync({ workerId, now, limit });
   return Response.json({
     scheduled: scheduled.createdRunIds.length,

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const services = vi.hoisted(() => ({
   tickWorkflowSchedulerSync: vi.fn(),
-  dispatchWorkflowOutboxBatchSync: vi.fn(),
+  dispatchWorkflowOutboxBatchAuto: vi.fn(),
   recoverStaleWorkflowWorkSync: vi.fn(),
 }));
 vi.mock("@dofe-agent/services", () => services);
@@ -12,7 +12,7 @@ const originalSecret = process.env.CRON_SECRET;
 beforeEach(() => {
   vi.clearAllMocks();
   services.tickWorkflowSchedulerSync.mockReturnValue({ createdRunIds: ["run-1"], failedTriggerIds: ["trigger-1"], expiredApprovalFailures: [], approvalScanFailure: null, invalidClock: false });
-  services.dispatchWorkflowOutboxBatchSync.mockReturnValue({ dispatchedTaskIds: ["task-1"] });
+  services.dispatchWorkflowOutboxBatchAuto.mockResolvedValue({ dispatchedTaskIds: ["task-1"] });
   services.recoverStaleWorkflowWorkSync.mockReturnValue({
     readyNodeRunIds: ["node-1"],
     retriedNodeRunIds: [],
@@ -46,6 +46,7 @@ describe("workflow reconcile route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ scheduled: 1, schedulerFailures: 1, dispatched: 1, recovered: 1 });
     expect(services.tickWorkflowSchedulerSync).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }));
+    expect(services.dispatchWorkflowOutboxBatchAuto).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }));
   });
 
   it("counts approval expiry failures and whole-scan failures in schedulerFailures", async () => {
@@ -74,7 +75,7 @@ describe("workflow reconcile route", () => {
     const response = await GET(new Request("http://localhost/api/cron/workflows/reconcile", { headers: { authorization: "Bearer expected" } }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ scheduled: 0, schedulerFailures: 1, dispatched: 0, recovered: 0 });
-    expect(services.dispatchWorkflowOutboxBatchSync).not.toHaveBeenCalled();
+    expect(services.dispatchWorkflowOutboxBatchAuto).not.toHaveBeenCalled();
     expect(services.recoverStaleWorkflowWorkSync).not.toHaveBeenCalled();
   });
 });
