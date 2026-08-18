@@ -12,7 +12,10 @@ export {
   sendExternalPagerAlert,
   readExternalPagerConfigFromEnv,
   type ExternalPagerConfig,
+  type ExternalPagerSource,
+  type PagerAlert,
   type PagerAlertPayload,
+  type PagerAlertSeverity,
 } from "../observability/external-pager.ts";
 export { sendPrismaCutoverSloPagerAlert } from "../observability/prisma-cutover-slo-pager.ts";
 export {

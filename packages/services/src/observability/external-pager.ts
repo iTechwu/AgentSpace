@@ -3,10 +3,9 @@ import {
   markPagerAlertClearedSync,
   upsertPagerAlertStateSync,
 } from "@dofe-agent/db";
-import type { DataProtectionAlert } from "../employees/data-protection-health.ts";
 
 /**
- * Optional external paging / on-call webhook integration for data-protection alerts.
+ * Optional external paging / on-call webhook integration for domain alerts.
  *
  * When EXTERNAL_PAGER_WEBHOOK_URL is configured, error-level alerts are deduplicated
  * and posted as a compact JSON summary. Alert state is persisted so repeated
@@ -16,10 +15,12 @@ import type { DataProtectionAlert } from "../employees/data-protection-health.ts
  * runs in a scheduled context and re-pages on the next evaluation cycle.
  */
 
+export type PagerAlertSeverity = "info" | "warning" | "error";
+
 export interface ExternalPagerConfig {
   webhookUrl?: string;
   token?: string;
-  severityFilter: Set<DataProtectionAlert["severity"]>;
+  severityFilter: Set<PagerAlertSeverity>;
   /** Occurrences before an alert escalates (default 3). */
   escalateAfter?: number;
   /** Maximum webhook request duration (default 10 seconds). */
@@ -31,11 +32,17 @@ export interface ExternalPagerConfig {
  * code:employee:metric key so callers with rich metric payloads (e.g. the SLO
  * pager embeds a JSON detail blob) can keep a stable dedup/recovery key.
  */
-export type PagerAlert = DataProtectionAlert & {
+export interface PagerAlert {
+  code: string;
+  severity: PagerAlertSeverity;
+  message: string;
+  employeeName?: string;
+  metric?: string;
+  value?: number;
   alertKey?: string;
   /** Set false when a source ledger already counted this evaluation. */
   trackOccurrence?: boolean;
-};
+}
 
 export type ExternalPagerSource =
   | "dofe-agent-data-protection"
@@ -48,7 +55,7 @@ export interface PagerAlertPayload {
   workspaceId?: string;
   alerts: Array<{
     code: string;
-    severity: DataProtectionAlert["severity"] | "critical";
+    severity: PagerAlertSeverity | "critical";
     message: string;
     employeeName?: string;
     metric?: string;
@@ -70,9 +77,9 @@ export function readExternalPagerConfigFromEnv(env: NodeJS.ProcessEnv = process.
   const rawFilter = env.EXTERNAL_PAGER_SEVERITY_FILTER?.trim().toLowerCase() ?? "error";
   const severities = rawFilter.split(",").map((s) => s.trim()).filter(Boolean);
   const validSeverities = severities.filter(
-    (s): s is DataProtectionAlert["severity"] => s === "info" || s === "warning" || s === "error",
+    (s): s is PagerAlertSeverity => s === "info" || s === "warning" || s === "error",
   );
-  const severityFilter = new Set<DataProtectionAlert["severity"]>(
+  const severityFilter = new Set<PagerAlertSeverity>(
     validSeverities.length > 0 ? validSeverities : ["error"],
   );
   const rawEscalate = Number.parseInt(env.EXTERNAL_PAGER_ESCALATE_AFTER?.trim() ?? "", 10);
