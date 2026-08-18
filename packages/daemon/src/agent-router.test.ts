@@ -469,6 +469,45 @@ test("runAgentRouter handles Codex snake_case events without treating successful
   }
 });
 
+test("runAgentRouter classifies Codex gateway 401 events as authentication failures", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-codex-auth-"));
+  const binDir = join(workDir, "bin");
+  const codexPath = join(binDir, "codex");
+  const originalPath = process.env.PATH;
+
+  try {
+    writeExecutable(
+      codexPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"codex-auth-session\"}'",
+        "printf '%s\\n' '{\"type\":\"turn.started\"}'",
+        "printf '%s\\n' '{\"type\":\"error\",\"message\":\"Reconnecting... 1/5 (unexpected status 401 Unauthorized: token unavailable)\"}'",
+        "printf '%s\\n' '{\"type\":\"turn.failed\",\"error\":{\"message\":\"unexpected status 401 Unauthorized: token unavailable\"}}'",
+        "exit 1",
+      ].join("\n"),
+    );
+    process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "codex",
+      prompt: "auth failure",
+      cwd: workDir,
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(result.status, "failed");
+    const authDiagnostic = result.diagnostics.find((diagnostic) => diagnostic.code === "harness.auth_invalid");
+    assert.ok(authDiagnostic, JSON.stringify(result.diagnostics));
+    assert.match(authDiagnostic.rawProviderMessage ?? "", /401 Unauthorized/);
+    assert.equal(result.sessionId, "codex-auth-session");
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runAgentRouter normalizes OpenCode JSON text, session, usage, and launch args", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "agent-router-opencode-"));
   const providerBinDir = join(workDir, "provider-bin");

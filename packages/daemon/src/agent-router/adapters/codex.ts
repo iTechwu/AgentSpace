@@ -160,7 +160,10 @@ async function runCodex(
           stdoutBuffer = "";
         }
         const parsed = parseJsonEventOutput(stdout);
-        const diagnostics = [...parsed.diagnostics];
+        const diagnostics = [
+          ...parsed.diagnostics,
+          ...extractCodexAuthenticationDiagnostics(parsed.events, stderr),
+        ];
         let outputText = readCodexOutputFile(plan.env[CODEX_OUTPUT_ENV]);
 
         for (const event of parsed.events) {
@@ -188,6 +191,44 @@ async function runCodex(
   } finally {
     cleanupCodexOutputFile(plan.env[CODEX_OUTPUT_ENV]);
   }
+}
+
+/**
+ * Codex reports gateway authentication failures as ordinary `error` events and
+ * exits non-zero. Keep these separate from generic stream failures so the
+ * managed-runtime credential recovery state machine can rotate the rejected
+ * credential automatically.
+ */
+function extractCodexAuthenticationDiagnostics(
+  events: Array<Record<string, unknown>>,
+  stderr: string,
+): ReturnType<typeof createDiagnostic>[] {
+  const messages: string[] = [];
+  for (const event of events) {
+    const type = typeof event.type === "string" ? event.type : "";
+    if (type === "error") {
+      if (typeof event.message === "string") {
+        messages.push(event.message);
+      }
+      continue;
+    }
+    if (type === "turn.failed" && event.error && typeof event.error === "object") {
+      const message = (event.error as Record<string, unknown>).message;
+      if (typeof message === "string") {
+        messages.push(message);
+      }
+    }
+  }
+  const message = messages.find((candidate) =>
+    /(?:\b401\b|unauthorized|令牌状态不可用|invalid\s+(?:api\s+)?key|authentication\s+failed)/i.test(candidate),
+  );
+  if (!message) {
+    return [];
+  }
+  return [createDiagnostic("harness.auth_invalid", "Codex authentication was rejected by the model gateway.", {
+    rawProviderMessage: message,
+    stderrTail: tailText(stderr),
+  })];
 }
 
 function readCodexOutputFile(outputFile: string | undefined): string {
