@@ -14,6 +14,7 @@ import {
   listRuntimeGrantsSync,
   listDaemonSnapshotsSync,
   listQueuedTasksSync,
+  listTaskMessagesForTaskSync,
   readQueuedTaskSync,
   listRuntimeInstalledAppsSync,
   listTaskExecutionEventsSync,
@@ -2702,7 +2703,11 @@ describe("daemon API routes", () => {
         method: "POST",
         headers: daemonHeaders(daemonToken.token),
         body: JSON.stringify({
-          errorText: "temporary failure",
+          errorText: 'Codex CLI exited with code 125. (code=provider.runtime_generic_failure; exitCode=125; stderrTail="docker: Error response from daemon: No such image: dofe/agent-runtime-codex:latest")',
+          errorCode: "provider.runtime_generic_failure",
+          errorCategory: "runtime",
+          provider: "codex",
+          rawProviderMessage: "docker: Error response from daemon: No such image: dofe/agent-runtime-codex:latest",
         }),
       }),
       { params: Promise.resolve({ taskId: queued!.id }) },
@@ -2716,6 +2721,10 @@ describe("daemon API routes", () => {
     const channelMessages = state.messages.filter((message) => message.channel === directChannel?.name);
     expect(channelMessages[0]?.summary).toContain("在私聊");
     expect(channelMessages[0]?.summary).not.toContain("在群聊");
+    expect(channelMessages[0]?.summary).toContain("执行环境尚未就绪");
+    expect(channelMessages[0]?.summary).not.toContain("Codex CLI");
+    expect(channelMessages[0]?.summary).not.toContain("No such image");
+    expect(listTaskMessagesForTaskSync(queued!.id).some((message) => message.content?.startsWith("provider diagnostic:"))).toBe(false);
   });
 
   it("queues a Feishu outbox reply when a remote mention_chat task fails", async () => {

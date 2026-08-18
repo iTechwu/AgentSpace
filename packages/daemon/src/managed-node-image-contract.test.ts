@@ -118,6 +118,7 @@ test("provider runtime image includes operational tools required by provider che
   assert.match(providerDockerfile, /apt-get install --yes --no-install-recommends git/);
   assert.match(providerDockerfile, /npm_config_registry=https:\/\/registry\.npmmirror\.com/);
   assert.match(providerDockerfile, /--mount=type=cache,id=dofe-provider-runtime-pnpm,target=\/pnpm\/store/);
+  assert.match(providerDockerfile, /pnpm --filter @dofe-agent\/db run prisma:generate/);
   assert.match(
     providerDockerfile,
     /command -v claude-entrypoint[\s\S]*! command -v claude[\s\S]*claude-entrypoint --version/,

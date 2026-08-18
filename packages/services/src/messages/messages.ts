@@ -1297,6 +1297,12 @@ function formatUserFacingTaskFailure(errorText: string): string {
   if (!trimmed) {
     return "运行时返回了空错误。";
   }
+  if (
+    /No such image:\s*dofe\/agent-runtime-[^\s'";]+/i.test(trimmed)
+    || /Approved managed runtime image\s+dofe\/agent-runtime-[^\s'";]+\s+is unavailable locally/i.test(trimmed)
+  ) {
+    return "执行环境尚未就绪，任务未能启动。请联系管理员完成 Runtime 镜像安装后重试。";
+  }
   if (/--dangerously-skip-permissions cannot be used with root\/sudo privileges/i.test(trimmed)) {
     return "运行时权限模式与 root/sudo 环境不兼容，任务未能启动。";
   }
@@ -1315,7 +1321,10 @@ function formatUserFacingTaskFailure(errorText: string): string {
   if (/runtime approval timed out|审批等待超时/i.test(trimmed)) {
     return "等待你的工具审批已超时，任务已停止。请重新发送任务，并在出现审批卡片后处理。";
   }
-  const withoutDiagnosticBlock = trimmed.replace(/\s*\((?:code|exitCode|timedOut|events|resultEvent|textEvent|toolEvent|parseErrors|nonJsonLines|stdoutTail|stderrTail|sessionId)=[\s\S]*\)\s*$/i, "").trim();
+  const diagnosticStart = trimmed.search(
+    /\s*(?:\((?:code|exitCode|timedOut|events|resultEvent|textEvent|toolEvent|parseErrors|nonJsonLines|stdoutTail|stderrTail|sessionId)=|provider diagnostic:)/i,
+  );
+  const withoutDiagnosticBlock = diagnosticStart >= 0 ? trimmed.slice(0, diagnosticStart).trim() : trimmed;
   const compact = withoutDiagnosticBlock || trimmed;
   return compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;
 }

@@ -1020,13 +1020,6 @@ export async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedT
       effectsCheckpointed: completionEffectsCheckpointed,
       errorCode: providerError?.code,
     });
-    if (providerError) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: `provider diagnostic: ${providerError.code}${providerError.rawProviderMessage ? ` · ${providerError.rawProviderMessage}` : ""}`,
-      });
-    }
     const failureApplied = withTransaction(getDatabase(), () => {
       const fence = lockWorkflowRunForTaskIfLinkedSync({
         workspaceId: task.workspaceId,

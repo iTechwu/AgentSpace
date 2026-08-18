@@ -28,6 +28,24 @@ describe("buildExecutionTimeline", () => {
     ]);
   });
 
+  it("hides internal provider diagnostics from the user-facing timeline", () => {
+    const items = buildExecutionTimeline(
+      [
+        taskMessage({ seq: 1, type: "status", content: "正在准备执行环境" }),
+        taskMessage({
+          seq: 2,
+          type: "status",
+          content: "provider diagnostic: code=provider.runtime_generic_failure; raw=No such image: dofe/agent-runtime-codex:latest",
+        }),
+      ],
+      LABELS,
+    );
+
+    expect(items).toEqual([
+      { id: "task-msg-1", kind: "status", title: "正在准备执行环境", status: "done" },
+    ]);
+  });
+
   it("keeps each thinking event as its own item and marks only the trailing one running", () => {
     const items = buildExecutionTimeline(
       [

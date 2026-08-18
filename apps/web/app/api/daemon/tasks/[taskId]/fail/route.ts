@@ -68,15 +68,6 @@ export async function POST(
   if (!failure.applied) {
     return Response.json({ task: { id: task.id, status: failure.status }, ignored: true });
   }
-  const providerDiagnosticMessage = formatProviderDiagnosticMessage(body);
-  if (providerDiagnosticMessage) {
-    appendTaskMessageSync({
-      taskId: task.id,
-      type: "status",
-      content: providerDiagnosticMessage,
-    });
-  }
-
   if (payload.taskId) {
     updateTaskStatusSync(payload.taskId, "blocked", task.workspaceId);
   }
@@ -244,7 +235,7 @@ function formatProviderDiagnosticMessage(body: Partial<FailTaskRequest>): string
 // the task record, but their recognizable signatures let us offer a recovery
 // action instead of exposing a bare CLI exit code.
 function buildUserFacingFailureInput(body: Partial<FailTaskRequest>): string {
-  return [body.errorText, body.errorCode, body.errorCategory, body.rawProviderMessage]
+  return [body.errorText, formatProviderDiagnosticMessage(body)]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .join("\n");
 }

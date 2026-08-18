@@ -122,7 +122,7 @@ export function buildExecutionTimeline(
 
     if (message.type === "status") {
       const content = message.content?.trim();
-      if (!content) {
+      if (!content || /^provider diagnostic:/i.test(content)) {
         continue;
       }
       items.push({

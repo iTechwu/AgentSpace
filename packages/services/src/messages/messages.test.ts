@@ -231,6 +231,19 @@ test("failure summaries hide provider diagnostics in user-visible chat text", ()
     errorText: "Runtime approval timed out after 15 minutes.",
   });
   assert.match(approvalTimeoutSummary, /等待你的工具审批已超时/);
+
+  const missingRuntimeImageSummary = formatConversationFailureSummary({
+    agentName: "Aim",
+    channelName: "direct-aim",
+    errorText: [
+      'Codex CLI exited with code 125. (code=provider.runtime_generic_failure; exitCode=125; stderrTail="docker: Error response from daemon: No such image: dofe/agent-runtime-codex:latest")',
+      "provider diagnostic: code=provider.runtime_generic_failure; category=runtime; provider=codex; raw=docker: Error response from daemon: No such image: dofe/agent-runtime-codex:latest",
+    ].join("\n"),
+    isDirectConversation: true,
+  });
+  assert.match(missingRuntimeImageSummary, /执行环境尚未就绪/);
+  assert.match(missingRuntimeImageSummary, /联系管理员/);
+  assert.doesNotMatch(missingRuntimeImageSummary, /Codex CLI|provider diagnostic|No such image|dofe\/agent-runtime/);
 });
 
 test("sendContactMessageSync creates a direct conversation channel", () => {
