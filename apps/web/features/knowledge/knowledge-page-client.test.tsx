@@ -278,7 +278,7 @@ describe("KnowledgePageClient", () => {
 
     expect(screen.getByRole("link", { name: "打开原文" })).toHaveAttribute(
       "href",
-      "/w/workspace-stable-id/im?focus=channel%3Atour+visit&doc=doc-1",
+      "/w/workspace-stable-id/im?focus=channel-tour+visit&doc=doc-1",
     );
   });
 
