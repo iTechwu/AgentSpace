@@ -44,7 +44,10 @@ it("searches models and shows unavailable protocol-compatible models with their 
   render(<RuntimeModelPicker provider="codex" value="" onChange={vi.fn()} />);
 
   await userEvent.click(await screen.findByRole("button", { name: "Default model" }));
-  expect(await screen.findByRole("option", { name: /available-model.*openai.*available/i })).toBeEnabled();
+  const availableOption = await screen.findByRole("option", { name: /available-model.*openai.*available/i });
+  expect(availableOption).toBeEnabled();
+  expect(availableOption.closest("[role='listbox']")).toHaveClass("model-catalog-select__menu--portal");
+  expect(availableOption.closest("[role='listbox']")?.parentElement).toBe(document.body);
   expect(screen.getByRole("option", { name: /disabled-model.*Disabled by team policy/i })).toBeDisabled();
   await userEvent.type(screen.getByLabelText("Search models"), "disabled");
   expect(screen.queryByRole("option", { name: /available-model/i })).not.toBeInTheDocument();

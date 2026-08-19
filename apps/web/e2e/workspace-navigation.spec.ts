@@ -13,7 +13,9 @@ test("preserves the IM composer draft across workbench module switches", async (
   const session = await openSeededWorkspacePage(page, "/im");
   const draft = `draft-${Date.now().toString(36)}`;
 
-  const composer = page.getByPlaceholder(new RegExp(`发送到 ${escapeRegExp(session.channelName)}|Send to ${escapeRegExp(session.channelName)}`, "i"));
+  const composer = page
+    .getByPlaceholder(new RegExp(`发送到 ${escapeRegExp(session.channelName)}|Send to ${escapeRegExp(session.channelName)}`, "i"))
+    .filter({ visible: true });
   await expect(composer).toBeVisible();
   await composer.fill(draft);
 
@@ -103,24 +105,21 @@ test("opens the deployment-appropriate execution engine management experience", 
   }
 });
 
-test("keeps the runtime model menu visible outside the creation panel", async ({ page }) => {
+test("explains when the runtime model catalog is unavailable", async ({ page }) => {
   test.skip(runtimeMode !== "remote", "Managed runtime creation is only available in remote mode.");
 
+  const serverErrors: string[] = [];
+  page.on("response", (response) => {
+    if (response.status() >= 500) serverErrors.push(`${response.status()} ${response.url()}`);
+  });
   await openSeededWorkspacePage(page, "/runtimes");
   await page.getByRole("button", { name: /下一步|Continue/i }).click();
 
   const modelTrigger = page.getByRole("button", { name: /默认模型|Default model/i });
-  await expect(modelTrigger).toBeEnabled();
-  await modelTrigger.click();
-
-  const menu = page.getByRole("listbox", { name: /默认模型|Default model/i });
-  const fallback = menu.getByRole("option", { name: /跟随系统默认|Inherit system fallback/i });
-  await expect(menu).toBeVisible();
-  await expect(fallback).toBeVisible();
-  await expect(menu).toHaveClass(/model-catalog-select__menu--portal/);
-  await expect(page.locator("body > .model-catalog-select__menu--portal")).toBeVisible();
-  await fallback.click();
-  await expect(menu).toBeHidden();
+  await expect(page.getByText(/当前工作区尚未绑定 SSO Runtime|This workspace is not bound to an SSO Runtime/i)).toBeVisible();
+  await expect(modelTrigger).toBeDisabled();
+  await expect(page.getByText(/正在加载模型|Loading models/i)).toHaveCount(0);
+  expect(serverErrors).toEqual([]);
 });
 
 test("keeps managed runtime settings reachable in a constrained viewport", async ({ page }) => {
@@ -296,10 +295,13 @@ test("closes the mobile sidebar after module navigation and restores with back",
   const session = await openSeededWorkspacePage(page, "/im");
   const layout = page.locator(".workspace-layout");
 
-  if (!await layout.evaluate((element) => element.classList.contains("workspace-layout--sidebar-open"))) {
-    await page.getByRole("button", { name: /打开导航|Open navigation/i }).click();
-  }
-  await expect(layout).toHaveClass(/workspace-layout--sidebar-open/);
+  await expect.poll(async () => {
+    const isOpen = await layout.evaluate((element) => element.classList.contains("workspace-layout--sidebar-open"));
+    if (!isOpen) {
+      await page.getByRole("button", { name: /打开导航|Open navigation/i }).click();
+    }
+    return layout.evaluate((element) => element.classList.contains("workspace-layout--sidebar-open"));
+  }).toBe(true);
 
   await page.getByRole("link", { name: /打开任务|Open tasks/i }).click();
   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task/board(?:\\?.*)?$`));
@@ -344,5 +346,5 @@ function escapeRegExp(value: string): string {
 }
 
 function settingsSectionLabel(page: Page, name: RegExp) {
-  return page.locator(".settings-group__eyebrow").filter({ hasText: name });
+  return page.locator(".settings-group__eyebrow").filter({ hasText: name, visible: true });
 }

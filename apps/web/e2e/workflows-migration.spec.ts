@@ -16,21 +16,22 @@ import { openSeededWorkspacePage, type SeededWorkspaceSession } from "./helpers"
 
 test("creates one plan for A to parallel B/C to summary D from the unified wizard", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/automations/new?entry=task-board");
-  await page.getByLabel("工作流名称").fill("每日协作简报");
-  await page.getByRole("button", { name: "流程", exact: true }).click();
+  await page.getByLabel("工作流名称").filter({ visible: true }).fill("每日协作简报");
+  await page.getByRole("navigation", { name: "创建步骤" }).getByRole("button", { name: /流程$/ }).click();
 
   await addEmployeeStep(page, session.agentName);
   await page.getByLabel("并行起点").selectOption("employee-1");
-  await page.getByLabel("并行员工 A").selectOption({ label: session.agentName });
-  await page.getByLabel("并行员工 B").selectOption({ label: session.agentName });
+  await selectEmployee(page, "并行员工 A", session.agentName);
+  await selectEmployee(page, "并行员工 B", session.agentName);
   await page.getByRole("button", { name: "添加并行分支" }).click();
   await addEmployeeStep(page, session.agentName);
 
   await page.getByRole("tab", { name: "列表" }).click();
   await page.getByTestId("node-join-2").getByRole("button").click();
-  await page.getByLabel("连接到").selectOption("employee-5");
+  await page.getByRole("complementary", { name: "步骤配置" }).getByLabel("连接到").selectOption("employee-5");
   await page.getByRole("button", { name: "保存草稿" }).click();
-  await expect(page.getByRole("status")).toContainText("草稿已保存");
+  await expect(page.getByText("草稿已同步", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存草稿" })).toBeDisabled();
 
   const workflow = listWorkflowDefinitionsSync(session.workspaceId).find((item) => item.name === "每日协作简报");
   expect(workflow).toBeTruthy();
@@ -75,7 +76,7 @@ test("shows an approval node waiting before downstream publication", async ({ pa
   });
 
   await page.goto(`/w/${session.workspaceSlug}/automations/runs/${fixture.runId}`);
-  await expect(page.locator(".workflow-run__header-state strong")).toHaveAttribute("data-status", "waiting_approval");
+  await expect(page.locator(".workflow-run__header-status")).toHaveAttribute("data-status", "waiting_approval");
   await expect(page.locator('.workflow-run__node-status[data-status="waiting_approval"]')).toHaveCount(1);
   await expect(page.getByText("3 个节点")).toBeVisible();
 });
@@ -98,6 +99,13 @@ test("offers a bounded retry when one parallel employee fails", async ({ page })
     from: ["created"],
     to: "running",
     startedAt: fixture.now,
+  });
+  transitionWorkflowRunSync({
+    workspaceId: session.workspaceId,
+    runId: fixture.runId,
+    from: ["running"],
+    to: "partially_succeeded",
+    finishedAt: fixture.now,
   });
 
   await page.goto(`/w/${session.workspaceSlug}/automations/runs/${fixture.runId}`);
@@ -132,7 +140,7 @@ test("deduplicates a recovered misfire after a worker stop", async ({ page }) =>
   await expect(page.getByText(`运行 ID ${first.id}`, { exact: false })).toBeVisible();
 });
 
-test("keeps a node failed when its runtime grant is revoked before execution", async ({ page }) => {
+test("blocks retry when a failed node may have produced an external effect", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/automations");
   const fixture = seedRun(session, serialGraph(session.agentName), "revoked");
   transitionWorkflowNodeRunSync({
@@ -141,7 +149,7 @@ test("keeps a node failed when its runtime grant is revoked before execution", a
     from: ["pending"],
     to: "failed",
     attemptCount: 1,
-    errorCode: "workflow_runtime_grant_revoked",
+    errorCode: "workflow_completion_effect_uncertain",
     errorMessage: "redacted",
     finishedAt: fixture.now,
   });
@@ -158,11 +166,11 @@ test("keeps a node failed when its runtime grant is revoked before execution", a
     type: "workflow.node.failed",
     nodeRunId: fixture.nodeRuns[0]!.id,
     actorType: "system",
-    dataJson: JSON.stringify({ errorCode: "workflow_runtime_grant_revoked" }),
+    dataJson: JSON.stringify({ errorCode: "workflow_completion_effect_uncertain" }),
   });
 
   await page.goto(`/w/${session.workspaceSlug}/automations/runs/${fixture.runId}`);
-  await expect(page.locator(".workflow-run__header-state strong")).toHaveAttribute("data-status", "failed");
+  await expect(page.locator(".workflow-run__header-status")).toHaveAttribute("data-status", "failed");
   await expect(page.locator('.workflow-run__node-status[data-status="failed"]')).toHaveCount(1);
   await expect(page.getByRole("button", { name: "重试步骤" })).toHaveCount(0);
 });
@@ -171,6 +179,17 @@ async function addEmployeeStep(page: import("@playwright/test").Page, employeeNa
   await page.getByRole("button", { name: "添加 AI 员工步骤" }).click();
   await page.locator(".workflow-builder-add select").selectOption({ label: employeeName });
   await page.locator(".workflow-builder-add").getByRole("button", { name: "添加", exact: true }).click();
+}
+
+async function selectEmployee(
+  page: import("@playwright/test").Page,
+  selectName: string,
+  employeeName: string,
+): Promise<void> {
+  const select = page.getByLabel(selectName);
+  const value = await select.locator("option").filter({ hasText: employeeName }).getAttribute("value");
+  expect(value).toBeTruthy();
+  await select.selectOption(value!);
 }
 
 function seedRun(session: SeededWorkspaceSession, graph: WorkflowGraphDefinition, label: string, maxAttempts = 1) {

@@ -5,6 +5,7 @@ Object.assign(process.env, e2eEnv);
 const webServerEnv = toWebServerEnv({ ...process.env, ...e2eEnv });
 const port = Number(process.env.PORT ?? 3000);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
+const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim();
 
 export default defineConfig({
   testDir: "./e2e",
@@ -27,7 +28,10 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { browserName: "chromium" },
+      use: {
+        browserName: "chromium",
+        launchOptions: chromiumExecutablePath ? { executablePath: chromiumExecutablePath } : undefined,
+      },
     },
   ],
 });
