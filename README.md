@@ -1,32 +1,4 @@
-<p align="center">
-  <img src="asset/dofe-agent-logo.png" alt="agent.dofe logo" width="220" />
-</p>
-
-<h1 align="center">agent.dofe：人类 + Agent。一个团队。一个工作空间</h1>
-
-<p align="center">
-  <a href="README.md">English</a> | <strong>中文</strong>
-</p>
-
-<p align="center">
-  <a href="#agentrouter"><img src="https://img.shields.io/badge/Agents-Claude_Code%20%7C%20Codex%20%7C%20OpenClaw%20%7C%20Hermes-99C9BF.svg" alt="Agents: Claude Code, Codex, OpenClaw, Hermes" /></a>
-  <a href="#环境要求"><img src="https://img.shields.io/badge/Node.js-25.9.0%20recommended-FCE7D6.svg" alt="Node.js 25.9.0 recommended" /></a>
-  <a href="#环境要求"><img src="https://img.shields.io/badge/PostgreSQL-16%20recommended-C1E5F5.svg" alt="PostgreSQL 16 recommended" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-F5C6C6.svg" alt="License: Apache 2.0" /></a>
-  <a href="https://github.com/HKUDS/.github/blob/main/profile/README.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat-square&logo=feishu&logoColor=white" alt="飞书群" /></a>
-  <a href="https://github.com/HKUDS/.github/blob/main/profile/README.md"><img src="https://img.shields.io/badge/WeChat-Group-C5EAB4?style=flat-square&logo=wechat&logoColor=white" alt="微信群" /></a>
-</p>
-
-<p align="center">
-  <img src="asset/cli-typing.gif" alt="agent.dofe CLI typing demo" height="50" />
-</p>
-
-<p align="center">
-  <strong>agent.dofe 让人类和 Agent 在同一个工作空间里组成同一个团队</strong><br />
-  <strong>飞书为人类协作而生，agent.dofe 为人类和 Agent 共同协作而生。</strong>
-</p>
-
----
+# agent.dofe：人类 + Agent。一个团队。一个工作空间
 
 agent.dofe 是面向 **人类 + Agent 团队** 的 agent-native 协作工作空间。
 
@@ -82,6 +54,12 @@ agent.dofe 支持两种部署模式，可以按团队需要选择：
 ---
 
 ## 最新动态
+
+- **2026-08-19** — 补充页面流程浏览器测试报告（[docs/0819/browser-test-report.md](docs/0819/browser-test-report.md)），完成本轮回归测试并修复 Runtime 模型目录异常加载状态。
+
+- **2026-08-18** — 工作流引擎完成双 Runner 五对象对照与恢复入口统一切流；Pager 告警按域区分来源并按 SLO 窗口去重；员工数据保护恢复清理增加并发版本校验。
+
+- **2026-08-17** — 全量文档清理完成：`docs/` 目录建立唯一索引与行尾状态标记约定，消除断链。
 
 - **2026-07-13** — AgentRouter 已支持通过 `agy` 调用 Google Antigravity CLI；Gemini CLI 保留为仍有访问权限用户的 legacy fallback。
 
@@ -330,7 +308,7 @@ AgentRouter 是 provider harness 归一化层。它不替代 workspace，也不�
 | Gemini CLI | legacy provider-runtime | legacy one-shot CLI fallback |
 | NanoBot | legacy provider-runtime | one-shot CLI |
 
-直接对 AgentRouter 做 smoke test：
+直接对 AgentRouter 做 smoke test（`agent-router` 与 daemon 同包发布，先执行 `pnpm --filter dofe-agent-daemon link --global` 加入 PATH）：
 
 ```bash
 agent-router harnesses
@@ -447,12 +425,12 @@ DofeAgent/
 ├── packages/
 │   ├── domain/              # 共享领域模型和 daemon API 类型
 │   ├── db/                  # PostgreSQL 持久化、runtime records、schema 初始化与迁移
-│   ├── services/            # web 和 CLI 共用的业务服务（约 50 个域模块）
+│   ├── services/            # web 和 CLI 共用的业务服务（约 60 个域模块）
 │   ├── daemon/              # 远程 daemon package + AgentRouter CLI（独立可分发产物）
 │   └── sandbox/             # sandbox 抽象（local adapter + 实验性 Cube scaffold）
-├── deploy/                  # systemd、nginx、PostgreSQL、self-hosted Compose、远程 daemon 脚本
+├── deploy/                  # systemd、nginx、PostgreSQL、self-hosted Compose、staging/drills、远程 daemon 脚本
 ├── scripts/                 # 质量门禁与运维脚本（test inventory、engines 审计、dev daemons、飞书 smoke）
-├── docs/                    # 按日期组织的设计/实施文档（0724 ~ 0814）
+├── docs/                    # 按日期组织的设计/实施文档（0724 ~ 0819），入口见 docs/README.md
 └── asset/                   # 产品图片、GIF、视频和 contact sheets
 ```
 
@@ -502,7 +480,7 @@ Node 版本策略与运行时矩阵见 [docs/0814/node-runtime-matrix.md](docs/0
 已实现：
 
 - 多租户工作空间、Dofe SSO 登录、工作空间成员体系和访问控制
-- PostgreSQL 主存储（119 张表，SQLite→PG 无缝迁移）、TOS 附件对象存储和可靠通知
+- PostgreSQL 主存储（126 张表，SQLite→PG 无缝迁移）、TOS 附件对象存储和可靠通知
 - 频道文档、知识库、全局搜索、审批、任务看板、预算、成本和性能仪表盘
 - 远程 daemon、runtime sharing、AgentRouter harness switching（claude/codex/antigravity/opencode/openclaw/hermes）、OpenClaw provider health
 - 飞书 Bot 通信、飞书文档/表格/多维表格资源绑定和受治理的数据操作
