@@ -13,6 +13,7 @@ COPY packages ./packages
 RUN --mount=type=cache,id=dofe-local-runtime-pnpm,target=/pnpm/store \
   npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \
+  && pnpm --filter @dofe-agent/db run prisma:generate \
   && pnpm --filter dofe-agent-daemon run build \
   && mkdir -p /opt/daemon-package \
   && npm_config_ignore_scripts=true pnpm --filter dofe-agent-daemon pack --pack-destination /opt/daemon-package

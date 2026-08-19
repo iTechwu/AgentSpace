@@ -137,6 +137,14 @@ test("local runtime builds include provider probe tools and a pinned Codex CLI",
   );
   assert.match(runtimeBuildScript, /@openai\/codex@0\.145\.0/);
   assert.doesNotMatch(runtimeBuildScript, /codex\).*@openai\/codex@latest/);
+  assert.match(localRuntimeDockerfile, /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*pnpm --filter dofe-agent-daemon run build/);
+});
+
+test("managed-node builds generate Prisma Client before bundling", () => {
+  assert.match(
+    dockerfile,
+    /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*pnpm --filter dofe-agent-daemon run build/,
+  );
 });
 
 test("self-hosted application runtime includes curl for TOS-backed Skill artifacts", () => {
