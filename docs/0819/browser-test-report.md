@@ -139,3 +139,10 @@
 - 完整浏览器回归：系统 Google Chrome 全部 24 项 E2E 通过（51.1 秒，并发 2），覆盖桌面/移动导航、消息、工作流、Runtime、设置和访客权限流程；未出现 pageerror、控制台错误/警告或业务 4xx/5xx。
 - 代码回归：新手引导组件测试 36/36 通过；`tsconfig.typecheck.json`、`tsconfig.test.json`、`tsconfig.e2e.json` 全部通过；全量 Web 测试 147 个文件、1173 项测试全部通过（167.96 秒，`--maxWorkers=2`）。
 - 结论：本轮发现的模态可访问性和键盘焦点问题已修复并提交；回归未发现进一步业务问题。
+
+## 第六轮全量稳定性回归
+
+- 浏览器回归：系统 Google Chrome 对全部 24 条 E2E 流程使用 `--repeat-each=2` 执行，共 48/48 通过（约 1.4 分钟，并发 2）。首次访问引导焦点循环、移动端侧栏、消息草稿、Runtime 无绑定提示、工作流重试、设置刷新和访客权限流程均未复发。
+- 运行时质量：所有 E2E 场景的 `pageerror`、console error/warning 和服务端 5xx 监控均未报告异常；隔离测试数据未触及生产环境。
+- 代码回归：全量 Web 测试 147 个文件、1173 项全部通过（170.30 秒，`--maxWorkers=2`）；`tsconfig.typecheck.json`、`tsconfig.test.json`、`tsconfig.e2e.json` 全部通过。
+- 结论：已修复问题在重复全量回归中保持稳定，本轮未发现进一步需要修改的业务代码或测试契约问题。
