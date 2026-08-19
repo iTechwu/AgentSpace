@@ -104,7 +104,8 @@ test("CI managed-node lifecycle passes its environment file to every Compose cal
 });
 
 test("managed-node entrypoint repairs state-root ownership before dropping privileges", () => {
-  assert.match(managedNodeEntrypoint, /chown -R 10001:10001 "\$daemon_state_dir"/);
+  assert.match(managedNodeEntrypoint, /chown -R 10001:10001 "\$daemon_state_dir\/workspaces"/);
+  assert.doesNotMatch(managedNodeEntrypoint, /chown -R 10001:10001 "\$daemon_state_dir"\n/);
   assert.match(managedNodeCompose, /cap_add:\s+\- CHOWN/);
 });
 

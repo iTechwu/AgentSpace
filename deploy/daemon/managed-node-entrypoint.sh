@@ -15,10 +15,12 @@ fi
 # original ownership; only the daemon's own state directory is normalized.
 daemon_state_dir="${DOFE_AGENT_DAEMON_STATE_DIR:-${MANAGED_NODE_STATE_DIR:-}}"
 if [ -n "$daemon_state_dir" ] && [ -d "$daemon_state_dir" ]; then
-  # The state root can contain workspace data created by the host user or an
-  # older daemon image. Normalize the complete tree before dropping privileges
-  # so queued installs can create their operation directories reliably.
-  chown -R 10001:10001 "$daemon_state_dir"
+# The workspace tree can contain data created by the host user or an older
+# daemon image. Normalize only that daemon-owned tree before dropping
+# privileges. Other state directories may intentionally be private to the
+# runtime user and must not make startup fail.
+  mkdir -p "$daemon_state_dir/workspaces"
+  chown -R 10001:10001 "$daemon_state_dir/workspaces"
 fi
 
 # Docker Desktop commonly exposes the mounted socket as root:root. Retain the
