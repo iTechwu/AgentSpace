@@ -203,9 +203,13 @@ test("opens the deployment-appropriate execution engine management experience", 
 test("explains when the runtime model catalog is unavailable", async ({ page }) => {
   test.skip(runtimeMode !== "remote", "Managed runtime creation is only available in remote mode.");
 
-  const serverErrors: string[] = [];
+  const browserIssues: string[] = [];
+  page.on("pageerror", (error) => browserIssues.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") browserIssues.push(message.text());
+  });
   page.on("response", (response) => {
-    if (response.status() >= 500) serverErrors.push(`${response.status()} ${response.url()}`);
+    if (response.status() >= 500) browserIssues.push(`${response.status()} ${response.url()}`);
   });
   await openSeededWorkspacePage(page, "/runtimes");
   await page.getByRole("button", { name: /下一步|Continue/i }).click();
@@ -214,7 +218,7 @@ test("explains when the runtime model catalog is unavailable", async ({ page }) 
   await expect(page.getByText(/当前工作区尚未绑定 SSO Runtime|This workspace is not bound to an SSO Runtime/i)).toBeVisible();
   await expect(modelTrigger).toBeDisabled();
   await expect(page.getByText(/正在加载模型|Loading models/i)).toHaveCount(0);
-  expect(serverErrors).toEqual([]);
+  expect(browserIssues).toEqual([]);
 });
 
 test("keeps managed runtime settings reachable in a constrained viewport", async ({ page }) => {
