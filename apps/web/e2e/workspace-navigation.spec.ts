@@ -3,11 +3,41 @@ import {
   createManagedAgentRuntimeSync,
   createRuntimeProvisioningTaskSync,
 } from "../../../packages/db/src/index.ts";
-import { openSeededWorkspacePage, seedChannelScopedGuestSession } from "./helpers";
+import { openSeededWorkspacePage, seedChannelScopedGuestSession, seedWorkspaceSession } from "./helpers";
 
 const runtimeMode = process.env.DOFE_AGENT_RUNTIME_MODE?.trim().toLowerCase() === "remote"
   ? "remote"
   : "local";
+
+test("closes first-visit onboarding once and keeps the workspace interactive after refresh", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const browserIssues: string[] = [];
+  page.on("pageerror", (error) => browserIssues.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") browserIssues.push(message.text());
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 500) browserIssues.push(`${response.status()} ${response.url()}`);
+  });
+
+  const session = await seedWorkspaceSession(page);
+  await page.goto(`/w/${session.workspaceSlug}/im`);
+
+  const layout = page.getByTestId("workspace-layout");
+  const onboarding = page.getByRole("dialog", { name: /新手引导|Onboarding tour/i });
+  await expect(onboarding).toBeVisible();
+  await expect(layout).toHaveClass(/workspace-layout--sidebar-open/);
+  await onboarding.getByRole("button", { name: /关闭新手引导|Close onboarding/i }).click();
+  await expect(onboarding).toBeHidden();
+  await expect(layout).not.toHaveClass(/workspace-layout--sidebar-open/);
+  await expect(page.getByRole("heading", { name: session.channelName })).toBeVisible();
+
+  await page.reload();
+  await expect(onboarding).toHaveCount(0);
+  await page.getByRole("button", { name: /打开导航|Open navigation/i }).click();
+  await expect(layout).toHaveClass(/workspace-layout--sidebar-open/);
+  expect(browserIssues).toEqual([]);
+});
 
 test("preserves the IM composer draft across workbench module switches", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
