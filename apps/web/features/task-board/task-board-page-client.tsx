@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveTaskToColumnAction } from "@/features/task-board/actions";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
@@ -13,6 +13,7 @@ import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-re
 import type { TaskRecord, TaskStatus } from "@dofe-agent/domain/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction } from "@/shared/lib/toast-action";
+import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
@@ -43,6 +44,7 @@ export function TaskBoardPageClient({
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [selectedColumnKey, setSelectedColumnKey] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<TaskRecord | null>(null);
+  const selectedTaskTriggerRef = useRef<HTMLElement | null>(null);
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -214,7 +216,10 @@ export function TaskBoardPageClient({
                         compact={isCompactLayout}
                         groupBy={groupBy}
                         onMoveStatus={groupBy === "status" ? moveTaskToStatus : undefined}
-                        onOpen={() => setSelectedTask(task)}
+                        onOpen={(trigger) => {
+                          selectedTaskTriggerRef.current = trigger;
+                          setSelectedTask(task);
+                        }}
                         task={task}
                         tx={tx}
                         draggable={groupBy === "status" && !isCompactLayout}
@@ -236,6 +241,7 @@ export function TaskBoardPageClient({
             setSelectedTask(null);
           }}
           task={selectedTask}
+          restoreFocusRef={selectedTaskTriggerRef}
           tx={tx}
           workspaceSlug={workspaceSlug}
         />
@@ -261,20 +267,20 @@ function TaskCard({
   tx: (zh: string, en: string) => string;
   draggable: boolean;
   onDragStart: () => void;
-  onOpen: () => void;
+  onOpen: (trigger: HTMLElement) => void;
 }) {
   return (
     <div
       aria-label={tx(`查看任务：${task.title}`, `View task: ${task.title}`)}
       className={`task-board-card task-board-card--${task.priority} task-board-card--interactive${draggable ? " task-board-card--draggable" : ""}`}
       draggable={draggable}
-      onClick={onOpen}
+      onClick={(event) => onOpen(event.currentTarget)}
       onDragStart={onDragStart}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onOpen();
+          onOpen(event.currentTarget);
         }
       }}
       role="button"
@@ -326,33 +332,29 @@ function TaskCard({
 function TaskDetailDialog({
   onClose,
   onMoveStatus,
+  restoreFocusRef,
   task,
   tx,
   workspaceSlug,
 }: {
   onClose: () => void;
   onMoveStatus: (taskId: string, status: TaskStatus) => void;
+  restoreFocusRef: { current: HTMLElement | null };
   task: TaskRecord;
   tx: (zh: string, en: string) => string;
   workspaceSlug: string;
 }) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  const { handleBackdropMouseDown, surfaceRef } = useDialogSurface<HTMLElement>(onClose, restoreFocusRef);
 
   return (
-    <div className="task-board-detail-overlay" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
+    <div className="task-board-detail-overlay" onMouseDown={handleBackdropMouseDown}>
       <section
         aria-labelledby="task-board-detail-title"
         aria-modal="true"
         className="task-board-detail-dialog"
+        ref={surfaceRef}
         role="dialog"
+        tabIndex={-1}
       >
         <header className="task-board-detail-dialog__header">
           <div>

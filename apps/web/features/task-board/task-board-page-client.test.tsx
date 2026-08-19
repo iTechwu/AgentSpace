@@ -154,12 +154,14 @@ describe("TaskBoardPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(taskCard).toHaveFocus();
 
     taskCard.focus();
     await user.keyboard("{Enter}");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(taskCard).toHaveFocus();
 
     await user.click(taskCard);
     await user.selectOptions(within(screen.getByRole("dialog")).getByRole("combobox", { name: "更新任务状态" }), "blocked");

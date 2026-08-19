@@ -12,7 +12,10 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(", ");
 
-export function useDialogSurface<T extends HTMLElement>(onClose: () => void) {
+export function useDialogSurface<T extends HTMLElement>(
+  onClose: () => void,
+  restoreFocusRef?: { current: HTMLElement | null },
+) {
   const surfaceRef = useRef<T | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const labelId = useId();
@@ -44,7 +47,7 @@ export function useDialogSurface<T extends HTMLElement>(onClose: () => void) {
 
   useEffect(() => {
     return () => {
-      const previous = previouslyFocusedRef.current;
+      const previous = restoreFocusRef?.current ?? previouslyFocusedRef.current;
       if (!previous) {
         return;
       }
