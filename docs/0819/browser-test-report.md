@@ -155,3 +155,11 @@
 - 完整浏览器回归：系统 Google Chrome 全量 E2E 24/24 通过（57.2 秒，并发 2），包括 Runtime 无绑定提示、Runtime 管理导航、移动端流程、工作流、消息和设置页面；未出现 pageerror、console error/warning 或服务端 5xx。
 - 代码回归：全量 Web 测试 147 个文件、1174 项全部通过（178.73 秒，`--maxWorkers=2`）。
 - 结论：本轮发现的 Runtime 菜单焦点问题已修复并提交，回归未发现进一步业务问题。
+
+## 第八轮重复回归复查
+
+- 关键焦点流程：Runtime 模型选择器与工作区新手引导相关组件测试 2 个文件、42 项全部通过；覆盖 Portal 搜索框焦点、Escape 恢复触发按钮焦点，以及引导层 Tab/Shift+Tab 循环和 Escape 关闭。
+- 完整浏览器回归：系统 Google Chrome 全量 24 条 E2E 流程使用 `--repeat-each=2` 执行，共 48/48 通过（约 1.2 分钟，并发 2）。消息、移动导航、工作流、Runtime、设置和访客权限流程均稳定通过。
+- 代码回归：全量 Web 测试 147 个文件、1174 项全部通过（188.94 秒，`--maxWorkers=2`）；`tsconfig.typecheck.json`、`tsconfig.test.json`、`tsconfig.e2e.json` 全部通过。
+- 备注：一次尝试使用 Vitest 不支持的 `--repeat` 参数，命令在测试启动前被 CLI 拒绝；随后改用该版本支持的定向运行和全量回归，未影响产品测试结论。
+- 结论：已修复的焦点问题在重复浏览器回归和全量代码回归中均未复发，本轮未发现进一步业务缺陷。
