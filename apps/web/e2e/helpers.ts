@@ -33,8 +33,9 @@ export async function ensureWorkspaceSession(page: Page): Promise<SeededWorkspac
 
 async function dismissWorkspaceChromeOverlays(page: Page): Promise<void> {
   const closeOnboarding = page.getByRole("button", { name: /关闭新手引导|Close onboarding/i });
-  if (await closeOnboarding.isVisible().catch(() => false)) {
+  if (await closeOnboarding.waitFor({ state: "visible", timeout: 1_500 }).then(() => true).catch(() => false)) {
     await closeOnboarding.click();
+    await expect(closeOnboarding).toBeHidden();
   }
 }
 

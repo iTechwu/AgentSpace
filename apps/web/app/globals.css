@@ -3093,11 +3093,12 @@ textarea:focus {
 }
 
 .inbox-message-meta {
+  position: absolute;
+  bottom: calc(100% + 0.22rem);
+  left: 0.45rem;
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  min-height: 1rem;
-  margin: 0 0.45rem 0.22rem;
   color: var(--muted);
   font-size: 0.72rem;
   white-space: nowrap;
@@ -3107,8 +3108,13 @@ textarea:focus {
   transition: opacity 140ms ease, transform 140ms ease, visibility 0s linear 140ms;
 }
 
+.inbox-bubble-row--own .inbox-message-meta {
+  right: 0.45rem;
+  left: auto;
+}
+
 .inbox-bubble-row:hover .inbox-message-meta,
-.inbox-bubble-row:focus-within .inbox-message-meta {
+.inbox-message-unit:has(.inbox-message-body:focus-within) > .inbox-message-meta {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
@@ -3142,7 +3148,7 @@ textarea:focus {
 }
 
 .inbox-bubble-row:hover .inbox-message-actions,
-.inbox-bubble-row:focus-within .inbox-message-actions {
+.inbox-message-body:focus-within > .inbox-message-actions {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
@@ -3178,6 +3184,15 @@ textarea:focus {
 .inbox-message-actions svg {
   width: 0.95rem;
   height: 0.95rem;
+}
+
+@media (max-width: 720px) {
+  .inbox-message-actions,
+  .inbox-bubble-row--own .inbox-message-actions {
+    top: calc(100% + 0.3rem);
+    right: 0;
+    left: auto;
+  }
 }
 
 .inbox-bubble-avatar {

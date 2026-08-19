@@ -936,7 +936,7 @@ describe("ChannelsPageClient", () => {
     const addMembersButton = screen.getByRole("button", { name: "添加群成员" });
     expect(addMembersButton).toHaveAttribute("aria-describedby");
     await user.hover(addMembersButton);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("添加群成员");
+    expect(await screen.findByRole("tooltip", { name: "添加群成员" })).toBeInTheDocument();
   });
 
   it("adds selected workspace members from the channel header", async () => {
