@@ -117,15 +117,17 @@ describe("buildExecutionTimeline", () => {
   it("settles leftover running items when the task is no longer running", () => {
     const items = buildExecutionTimeline(
       [
-        taskMessage({ seq: 1, type: "tool_use", tool: "Shell", inputJson: JSON.stringify({ command: "ls" }) }),
-        taskMessage({ seq: 2, type: "thinking", content: "收尾" }),
+        taskMessage({ seq: 1, type: "status", content: "正在准备执行环境" }),
+        taskMessage({ seq: 2, type: "tool_use", tool: "Shell", inputJson: JSON.stringify({ command: "ls" }) }),
+        taskMessage({ seq: 3, type: "thinking", content: "收尾" }),
       ],
       LABELS,
       { taskRunning: false },
     );
 
     expect(items.every((item) => item.status !== "running")).toBe(true);
-    expect(items[1]).toMatchObject({ kind: "thinking", status: "done" });
+    expect(items[0]).toMatchObject({ kind: "status", title: "执行环境已准备", status: "done" });
+    expect(items[2]).toMatchObject({ kind: "thinking", status: "done" });
   });
 
   it("pairs a tool_result with the most recent open call when names drift", () => {

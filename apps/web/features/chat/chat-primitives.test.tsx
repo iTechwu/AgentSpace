@@ -93,8 +93,72 @@ describe("ConversationMessageBubble", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByText("System Notice")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View System Notice details" })).toBeInTheDocument();
+    expect(screen.getAllByText("System Notice")).toHaveLength(2);
     expect(screen.queryByText("系统提示")).not.toBeInTheDocument();
+  });
+
+  it("keeps the sender and timestamp out of the default message reading flow", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          isOwn
+          message={{
+            id: "message-own",
+            speaker: "吴敏",
+            role: "human",
+            content: "你好",
+            timestamp: "10:06",
+            status: "completed",
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    const bubble = container.querySelector(".inbox-bubble");
+    expect(bubble?.querySelector(".inbox-bubble__meta")).not.toBeInTheDocument();
+    expect(bubble?.querySelector("time")).not.toBeInTheDocument();
+    expect(bubble?.querySelector("button")).not.toBeInTheDocument();
+    expect(container.querySelector(".inbox-message-meta")).toHaveTextContent("10:06");
+    expect(bubble?.querySelector(".sr-only")).toHaveTextContent("你");
+    expect(screen.getByText("你好")).toBeInTheDocument();
+  });
+
+  it("shows AI identity on the avatar and keeps a grouped reply inside one task card", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "process-1",
+            speaker: "Aim",
+            role: "agent",
+            content: "执行环境已准备",
+            timestamp: "10:05",
+            status: "completed",
+            kind: "process",
+            execution: [{ id: "step-1", kind: "status", title: "执行环境已准备", status: "done" }],
+            executionReply: {
+              id: "reply-1",
+              speaker: "Aim",
+              role: "agent",
+              content: "你好，需要我整理什么车型？",
+              timestamp: "10:06",
+              status: "completed",
+            },
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "查看 Aim 的信息" })).toBeInTheDocument();
+    expect(screen.getByRole("tooltip")).toHaveTextContent("AimAI 员工");
+    expect(container.querySelectorAll("[data-conversation-message-id]")).toHaveLength(1);
+    expect(container.querySelector(".conversation-process__reply")).toHaveTextContent("你好，需要我整理什么车型？");
+    expect(container.querySelector(".inbox-message-meta")).toHaveTextContent("10:06");
+    expect(container.querySelector(".conversation-process__reply time")).not.toBeInTheDocument();
+    expect(container.querySelector(".conversation-process__reply button")).not.toBeInTheDocument();
+    expect(container.querySelector(".inbox-message-body > .inbox-message-actions")).toBeInTheDocument();
+    expect(container.querySelector(".conversation-process__reply .inbox-bubble__meta")).not.toBeInTheDocument();
   });
 
   it("renders human and agent mentions with mention type metadata", () => {
@@ -203,7 +267,8 @@ describe("ConversationMessageBubble", () => {
     );
 
     expect(container.querySelector(".inbox-bubble")).toHaveAttribute("tabindex", "0");
-    expect(container.querySelector(".inbox-bubble__actions")).toBeInTheDocument();
+    expect(container.querySelector(".inbox-message-body > .inbox-message-actions")).toBeInTheDocument();
+    expect(container.querySelector(".inbox-bubble .inbox-message-actions")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "回复" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "置顶" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "OK，标记已读" }).querySelector("svg")).toBeInTheDocument();

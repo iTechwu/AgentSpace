@@ -52,6 +52,13 @@
 - 修复：为测试 mock 补充与 `ConversationShell.onSubmit` 一致的输入类型。
 - 状态：已修复并回归通过。
 
+### BUG-0819-004（低）消息气泡重构后测试选择器失效
+
+- 复现路径：运行会话消息气泡组件测试。
+- 观察结果：消息元信息和操作栏已经迁移到 `.inbox-message-*` 结构，但 3 个断言仍查询旧类名，导致回归测试失败。
+- 修复：按当前 DOM 契约更新元信息、执行回复时间和消息操作栏断言；同时确认新结构对应样式存在，功能按钮和可访问名称保持完整。
+- 状态：已修复并回归通过。
+
 ## 非缺陷观察
 
 - 未配置 E2E 环境变量时，设置集成页会尝试访问真实 SSO 并出现 `auth.sso_user_lookup_failed`；使用隔离测试库和 `DOFE_AGENT_E2E=1` 后页面正常。这是测试启动配置问题，不计入业务缺陷。
@@ -68,6 +75,6 @@
 - 浏览器：Runtime 创建向导进入模型步骤后，网络 4xx/5xx 为 0，控制台错误/警告为 0，页面显示“当前工作区尚未绑定 SSO Runtime，完成绑定后才能加载模型目录”。
 - 组件测试：`features/runtimes` 共 9 个测试文件、34 个测试全部通过。
 - 类型检查：`tsconfig.typecheck.json` 和 `tsconfig.test.json` 均通过。
-- 组件测试：`task-execution-timeline.test.ts`、`conversation-shell.test.tsx` 共 37 项全部通过；Runtime 组件测试 34 项继续通过。
+- 组件测试：执行时间线、会话外壳、消息气泡和登录页共 60 项全部通过；Runtime 组件测试 34 项继续通过。
 - 浏览器回归：桌面端 `/im`、`/inbox`、`/runtimes`、`/skills`、`/agents`、`/settings/preferences`、`/task/board`、`/automations/new` 独立会话加载无页面异常、控制台错误、4xx/5xx 或横向溢出；移动端 390x844 的 `/im`、`/inbox`、`/runtimes` 同样通过。
 - Playwright 原生 E2E 命令因本机 Playwright Chromium 缓存缺失而无法启动；测试使用系统 Chrome 的 Playwright + CDP 脚本完成同等覆盖，未修改浏览器用户配置。

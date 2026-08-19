@@ -198,6 +198,99 @@ export function TaskExecutionTimeline({
   );
 }
 
+function MessageAvatar({
+  error,
+  role,
+  speaker,
+  speakerLabel,
+  tx,
+}: {
+  error: boolean;
+  role: ConversationThreadMessage["role"];
+  speaker: string;
+  speakerLabel: string;
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <button
+      aria-label={tx(`查看 ${speakerLabel} 的信息`, `View ${speakerLabel} details`)}
+      className="inbox-bubble-avatar-trigger"
+      type="button"
+    >
+      <GeneratedAvatar
+        className={`inbox-bubble-avatar${error ? " inbox-bubble-avatar--error" : ""}`}
+        id={`${role}:${speaker}`}
+        name={speakerLabel}
+        variant={role === "agent" ? "agent" : "human"}
+      />
+      <span className="inbox-bubble-avatar-tooltip" role="tooltip">
+        <strong>{speakerLabel}</strong>
+        <small>{role === "agent" ? tx("AI 员工", "AI employee") : tx("成员", "Member")}</small>
+      </span>
+    </button>
+  );
+}
+
+function MessageActions({
+  acknowledged,
+  copied,
+  onAcknowledge,
+  onCopy,
+  onPin,
+  onReply,
+  onUnpin,
+  tx,
+}: {
+  acknowledged: boolean;
+  copied: boolean;
+  onAcknowledge?: () => void;
+  onCopy: () => void;
+  onPin?: () => void;
+  onReply?: () => void;
+  onUnpin?: () => void;
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <div className="inbox-message-actions">
+      {onReply ? (
+        <button aria-label={tx("回复", "Reply")} onClick={onReply} title={tx("回复", "Reply")} type="button">
+          <AppIcon name="reply" />
+        </button>
+      ) : null}
+      <button
+        aria-label={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
+        className={copied ? "is-active" : undefined}
+        onClick={onCopy}
+        title={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
+        type="button"
+      >
+        <AppIcon name="copy" />
+      </button>
+      {onPin ? (
+        <button aria-label={tx("置顶", "Pin")} onClick={onPin} title={tx("置顶", "Pin")} type="button">
+          <AppIcon name="pin" />
+        </button>
+      ) : null}
+      {onUnpin ? (
+        <button aria-label={tx("取消置顶", "Unpin")} onClick={onUnpin} title={tx("取消置顶", "Unpin")} type="button">
+          <AppIcon name="pin" />
+        </button>
+      ) : null}
+      {onAcknowledge ? (
+        <button
+          aria-label={tx("OK，标记已读", "OK, mark as read")}
+          className={acknowledged ? "is-active" : undefined}
+          onClick={onAcknowledge}
+          title={tx("OK，标记已读", "OK, mark as read")}
+          type="button"
+        >
+          <AppIcon name="checkCircle" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export const ConversationMessageBubble = memo(function ConversationMessageBubble({
   message,
   isOwn,
@@ -280,106 +373,91 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   );
   const pendingStageLabel = resolvePendingStageLabel(message, tx);
   const pendingStageDetail = resolvePendingStageDetail(message, tx);
+  const handleCopy = (content: string): void => {
+    void copyMessageContent(content).then(() => {
+      setCopied(true);
+      if (copiedResetTimerRef.current !== null) {
+        window.clearTimeout(copiedResetTimerRef.current);
+      }
+      copiedResetTimerRef.current = window.setTimeout(() => {
+        setCopied(false);
+        copiedResetTimerRef.current = null;
+      }, 1600);
+    }).catch(() => {});
+  };
 
   if (isProcessMessage) {
     return (
       <div className="inbox-bubble-row" data-conversation-message-id={message.id}>
-        <GeneratedAvatar
-          className={`inbox-bubble-avatar${isError ? " inbox-bubble-avatar--error" : ""}`}
-          id={`${message.role}:${message.speaker}`}
-          name={speakerLabel}
-          variant={message.role === "agent" ? "agent" : "human"}
+        <MessageAvatar
+          error={isError}
+          role={message.role}
+          speaker={message.speaker}
+          speakerLabel={speakerLabel}
+          tx={tx}
         />
-        {message.execution ? (
-          <div
-            className={`conversation-process conversation-process--timeline${
-              message.executionRunning ? " conversation-process--pending" : ""
-            }${isError ? " conversation-process--error" : ""}`}
-          >
-            <TaskExecutionTimeline items={message.execution} running={message.executionRunning} />
-            {executionReply ? (
-              <div className="conversation-process__reply">
-                <div className="inbox-bubble__meta">
-                  <strong>{translateSystemSpeaker(executionReply.speaker, tx)}</strong>
-                  <span className="inbox-bubble__delivery-meta">{renderMessageTimestamp(executionReply.timestamp)}</span>
-                </div>
-                <ChatMessageContent
-                  content={translateWorkspaceMessageSummary(executionReply, tx)}
-                  mentions={executionReply.mentions}
-                  tx={tx}
-                />
-                {executionReply.attachments?.length ? <ChatAttachmentRow attachments={executionReply.attachments} tx={tx} /> : null}
-                <div className="conversation-process__reply-actions">
-                  {onReply ? (
-                    <button aria-label={tx("回复", "Reply")} onClick={onReply} title={tx("回复", "Reply")} type="button">
-                      <AppIcon name="reply" />
-                    </button>
-                  ) : null}
-                  <button
-                    aria-label={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
-                    className={copied ? "is-active" : undefined}
-                    onClick={() => {
-                      void copyMessageContent(executionReply.content).then(() => setCopied(true)).catch(() => {});
-                    }}
-                    title={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
-                    type="button"
-                  >
-                    <AppIcon name="copy" />
-                  </button>
-                  {onPin ? (
-                    <button aria-label={tx("置顶", "Pin")} onClick={onPin} title={tx("置顶", "Pin")} type="button">
-                      <AppIcon name="pin" />
-                    </button>
-                  ) : null}
-                  {onUnpin ? (
-                    <button aria-label={tx("取消置顶", "Unpin")} onClick={onUnpin} title={tx("取消置顶", "Unpin")} type="button">
-                      <AppIcon name="pin" />
-                    </button>
-                  ) : null}
-                  {onAcknowledge ? (
-                    <button
-                      aria-label={tx("OK，标记已读", "OK, mark as read")}
-                      className={acknowledgedByCurrentUser ? "is-active" : undefined}
-                      onClick={onAcknowledge}
-                      title={tx("OK，标记已读", "OK, mark as read")}
-                      type="button"
-                    >
-                      <AppIcon name="checkCircle" />
-                    </button>
-                  ) : null}
-                </div>
+        <div className="inbox-message-unit">
+          {!message.executionRunning ? (
+            <time className="inbox-message-meta">{renderMessageTimestamp(executionReply?.timestamp ?? message.timestamp)}</time>
+          ) : null}
+          <div className="inbox-message-body">
+            {message.execution ? (
+              <div
+                className={`conversation-process conversation-process--timeline${
+                  message.executionRunning ? " conversation-process--pending" : ""
+                }${isError ? " conversation-process--error" : ""}`}
+              >
+                <TaskExecutionTimeline items={message.execution} running={message.executionRunning} />
+                {executionReply ? (
+                  <div className="conversation-process__reply">
+                    <span className="sr-only">{translateSystemSpeaker(executionReply.speaker, tx)}</span>
+                    <ChatMessageContent
+                      content={translateWorkspaceMessageSummary(executionReply, tx)}
+                      mentions={executionReply.mentions}
+                      tx={tx}
+                    />
+                    {executionReply.attachments?.length ? <ChatAttachmentRow attachments={executionReply.attachments} tx={tx} /> : null}
+                  </div>
+                ) : null}
               </div>
+            ) : (
+              <details
+                className={`conversation-process${message.status === "pending" ? " conversation-process--pending" : ""}${
+                  isError ? " conversation-process--error" : ""
+                }`}
+              >
+                <summary>
+                  <span className="conversation-process__heading">
+                    {message.status === "pending" ? <AppIcon className="conversation-process__spinner" name="loader" /> : null}
+                    <strong>{processTitle(message, tx)}</strong>
+                  </span>
+                  {message.status === "pending" ? (
+                    <span aria-live="polite" className="conversation-process__state">{tx("进行中", "In progress")}</span>
+                  ) : null}
+                </summary>
+                <pre>{message.executionDetail ?? message.data?.execution_detail ?? message.content}</pre>
+              </details>
+            )}
+            {executionReply ? (
+              <MessageActions
+                acknowledged={acknowledgedByCurrentUser}
+                copied={copied}
+                onAcknowledge={onAcknowledge}
+                onCopy={() => handleCopy(executionReply.content)}
+                onPin={onPin}
+                onReply={onReply}
+                onUnpin={onUnpin}
+                tx={tx}
+              />
             ) : null}
           </div>
-        ) : (
-        <details
-          className={`conversation-process${message.status === "pending" ? " conversation-process--pending" : ""}${
-            isError ? " conversation-process--error" : ""
-          }`}
-        >
-          <summary>
-            <span className="conversation-process__heading">
-              {message.status === "pending" ? <AppIcon className="conversation-process__spinner" name="loader" /> : null}
-              <strong>{processTitle(message, tx)}</strong>
-            </span>
-            <span aria-live={message.status === "pending" ? "polite" : undefined} className="conversation-process__state">
-              {message.status === "pending" ? tx("进行中", "In progress") : renderMessageTimestamp(message.timestamp)}
-            </span>
-          </summary>
-          <pre>{message.executionDetail ?? message.data?.execution_detail ?? message.content}</pre>
-        </details>
-        )}
+        </div>
       </div>
     );
   }
 
   const hasActions = message.deliveryStatus === undefined;
   const acknowledgements = message.acknowledgements ?? [];
-  const acknowledgedByCurrentUserForMessage = acknowledgements.some((acknowledgement) =>
-    acknowledgementLabelForCurrentUser
-      ? acknowledgement.label.localeCompare(acknowledgementLabelForCurrentUser, "zh-CN", { sensitivity: "base" }) === 0
-      : false,
-  );
   const acknowledgementLabel = acknowledgements.map((acknowledgement) => acknowledgement.label).join("、");
 
   return (
@@ -390,48 +468,56 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
       data-conversation-message-id={message.id}
     >
       {!own ? (
-        <GeneratedAvatar
-          className={`inbox-bubble-avatar${isError ? " inbox-bubble-avatar--error" : ""}`}
-          id={`${message.role}:${message.speaker}`}
-          name={speakerLabel}
-          variant={message.role === "agent" ? "agent" : "human"}
+        <MessageAvatar
+          error={isError}
+          role={message.role}
+          speaker={message.speaker}
+          speakerLabel={speakerLabel}
+          tx={tx}
         />
       ) : null}
-      <article
-        className={`inbox-bubble${own ? " inbox-bubble--own" : ""}${isError ? " inbox-bubble--error" : ""}${
-          isPendingMessage ? " inbox-bubble--pending" : ""
-        }${message.pinned ? " inbox-bubble--pinned" : ""}${
-          deliveryStatus ? ` inbox-bubble--delivery-${deliveryStatus}` : ""
-        }`}
-        tabIndex={hasActions && !isPendingMessage ? 0 : undefined}
-      >
-        {replyToMessage ? (
-          <div className="inbox-bubble__reply-quote">
-            <strong>{replyToSpeakerLabel}</strong>
-            <span>{replyToMessage.content.slice(0, 80)}{replyToMessage.content.length > 80 ? "..." : ""}</span>
+      <div className="inbox-message-unit">
+        {!isPendingMessage ? (
+          <div className="inbox-message-meta">
+            {isError ? <strong>{tx("错误", "Error")}</strong> : null}
+            <time>{renderMessageTimestamp(message.timestamp)}</time>
+            {deliveryStatus ? <MessageDeliveryIcon announce={message.deliveryStatus !== undefined} status={deliveryStatus} tx={tx} /> : null}
           </div>
         ) : null}
-        <div className="inbox-bubble__meta">
-          <strong>
-            {own ? ownSpeakerLabel ?? tx("你", "You") : isError ? `${speakerLabel} · ${tx("错误", "Error")}` : speakerLabel}
+        <div className="inbox-message-body">
+          <article
+            className={`inbox-bubble${own ? " inbox-bubble--own" : ""}${isError ? " inbox-bubble--error" : ""}${
+              isPendingMessage ? " inbox-bubble--pending" : ""
+            }${message.pinned ? " inbox-bubble--pinned" : ""}${
+              deliveryStatus ? ` inbox-bubble--delivery-${deliveryStatus}` : ""
+            }`}
+            tabIndex={hasActions && !isPendingMessage ? 0 : undefined}
+          >
+            {replyToMessage ? (
+              <div className="inbox-bubble__reply-quote">
+                <strong>{replyToSpeakerLabel}</strong>
+                <span>{replyToMessage.content.slice(0, 80)}{replyToMessage.content.length > 80 ? "..." : ""}</span>
+              </div>
+            ) : null}
+            <span className="sr-only">{own ? ownSpeakerLabel ?? tx("你", "You") : speakerLabel}</span>
+        {isPendingMessage ? (
+          <div className="inbox-bubble__meta inbox-bubble__meta--status">
+            <strong>{pendingStageLabel}</strong>
+            <span className="inbox-bubble__delivery-meta" aria-live="polite">
+              <MessageDeliveryIcon announce={false} status="sending" tx={tx} />
+            </span>
+          </div>
+        ) : null}
+        {isFeishuMessage || message.pinned ? (
+          <div className="inbox-bubble__badges">
             {isFeishuMessage ? (
               <span aria-label={tx("来自飞书", "From Feishu")} className="inbox-bubble__provider-icon" role="img">
                 <AppIcon name="feishu" />
               </span>
             ) : null}
             {message.pinned ? <span className="inbox-bubble__pin-badge">{tx("已置顶", "Pinned")}</span> : null}
-          </strong>
-          <span className="inbox-bubble__delivery-meta">
-            <span>{isPendingMessage ? pendingStageLabel : renderMessageTimestamp(message.timestamp)}</span>
-            {deliveryStatus ? (
-              <MessageDeliveryIcon
-                announce={message.deliveryStatus !== undefined}
-                status={deliveryStatus}
-                tx={tx}
-              />
-            ) : null}
-          </span>
-        </div>
+          </div>
+        ) : null}
         {isPendingMessage ? (
           hasStreamedPendingContent ? (
             <div className="inbox-bubble__streaming-content">
@@ -506,56 +592,21 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
             {acknowledgements.length > 1 ? <small>{acknowledgements.length}</small> : null}
           </div>
         ) : null}
-        {hasActions && !isPendingMessage ? (
-          <div className="inbox-bubble__actions">
-            {onReply ? (
-              <button aria-label={tx("回复", "Reply")} className="inbox-bubble__action-btn" onClick={onReply} title={tx("回复", "Reply")} type="button">
-                <AppIcon name="reply" />
-              </button>
-            ) : null}
-            <button
-              aria-label={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
-              className={`inbox-bubble__action-btn${copied ? " inbox-bubble__action-btn--active" : ""}`}
-              onClick={() => {
-                void copyMessageContent(message.content).then(() => {
-                  setCopied(true);
-                  if (copiedResetTimerRef.current !== null) {
-                    window.clearTimeout(copiedResetTimerRef.current);
-                  }
-                  copiedResetTimerRef.current = window.setTimeout(() => {
-                    setCopied(false);
-                    copiedResetTimerRef.current = null;
-                  }, 1600);
-                }).catch(() => {});
-              }}
-              title={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
-              type="button"
-            >
-              <AppIcon name="copy" />
-            </button>
-            {onPin ? (
-              <button aria-label={tx("置顶", "Pin")} className="inbox-bubble__action-btn" onClick={onPin} title={tx("置顶", "Pin")} type="button">
-                <AppIcon name="pin" />
-              </button>
-            ) : null}
-            {onUnpin ? (
-              <button aria-label={tx("取消置顶", "Unpin")} className="inbox-bubble__action-btn" onClick={onUnpin} title={tx("取消置顶", "Unpin")} type="button">
-                <AppIcon name="pin" />
-              </button>
-            ) : null}
-            {onAcknowledge ? (
-              <button
-                className={`inbox-bubble__action-btn${acknowledgedByCurrentUserForMessage ? " inbox-bubble__action-btn--active" : ""}`}
-                onClick={onAcknowledge}
-                title={tx("OK，标记已读", "OK, mark as read")}
-                type="button"
-              >
-                <AppIcon name="checkCircle" />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </article>
+          </article>
+          {hasActions && !isPendingMessage ? (
+            <MessageActions
+              acknowledged={acknowledgedByCurrentUser}
+              copied={copied}
+              onAcknowledge={onAcknowledge}
+              onCopy={() => handleCopy(message.content)}
+              onPin={onPin}
+              onReply={onReply}
+              onUnpin={onUnpin}
+              tx={tx}
+            />
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 
