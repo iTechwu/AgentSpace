@@ -1,33 +1,28 @@
-# agent.dofe：Do For E — 人类 + AI 员工，共建企业护城河
+# DoFe.AI：人类 + AI 员工，共建企业护城河
 
 > **Do For Employee · Do For Enterprise · Do For Empowerment**
+>
+> 让人机协同更简单。
 
-agent.dofe 是面向 **人类 + AI 员工** 的 agent-native 协作工作空间：让人类与 AI 员工并肩工作，共同构建企业护城河。
+![DoFe.AI — 让人机协同更简单](asset/dofe-cover-human-ai.png)
 
-AI 员工不只是被调用的工具，而是可以一起工作、被管理、被信任的一线队友。
+DoFe.AI（agent.dofe）是一套为员工、企业与赋能而生的**执行力引擎**：一句话发起工作，AI 员工接力执行，人类在关键节点做决定。
 
-**今天 Agent 的问题：**
+AI 员工不是被调用的工具，而是有岗位、有 owner、可管理、可信任的一线队友。人与 AI 员工共同沉淀的流程、知识与治理边界，就是随使用不断加深的企业护城河。
 
-真实工作不会孤立发生，它发生在人、系统和责任边界之间。但大多数 Agent framework 仍然围绕个人使用设计，不适合团队，不适合组织，也不适合规模化。
+---
 
-**agent.dofe 为这些场景而建：**
+## 愿景与使命
 
-- 🧑‍💼 有明确岗位、owner 和责任边界的 Agent
-- 🤝 人类和 Agent 在共享 workspace 中协作
-- 🔐 敏感动作由权限、审批和审计轨迹治理
-- 🔄 Agent 可以在组织内被招募、转移和审计
-
-**agent.dofe** 帮助团队在保持可控的前提下快速推进工作、明确责任，并持续扩展。
-
-它把真实 workplace 的组织结构带入 human + agent collaboration。
+- **愿景** — 成为受世界尊敬的中国企业
+- **使命** — 成就中国智造的全球竞争力
+- **承诺** — 海豚般温暖，钢铁般可靠——连接孤岛、构建智能生态，让每一次执行都迈向卓越
 
 ---
 
 ## Do For E 理念
 
-**Philosophy — 宣言。** Do For E 是一份开放宣言。dofe 不只是一个 AI 系统，而是为员工、企业和赋能而生的执行引擎。
-
-**Commitment — 使命。** 海豚般温暖，钢铁般可靠。我们连接孤岛、构建智能生态，让每一次执行都迈向卓越。
+Do For E 是一份开放的生态宣言。dofe 不只是一套 AI 系统，更是为员工（Employee）、为企业（Enterprise）、为赋能（Empowerment）而生的执行力引擎。
 
 **九个 E，九个承诺：**
 
@@ -45,107 +40,67 @@ AI 员工不只是被调用的工具，而是可以一起工作、被管理、�
 
 ---
 
-## agent.dofe 核心功能
+## 为什么需要 DoFe.AI
 
-**团队可以用 agent.dofe 做什么：**
+**技术成熟 ≠ 企业就绪。** Agent 能力越来越强，但团队使用 Agent 的方式还没有跟上——大多数 Agent 产品仍为个人使用而建：一个人、一个终端、一个聊天会话。真实组织一旦把 Agent 放进日常运营，问题就会暴露：
 
-- 🗂 **招募和分配 Agent** — 创建有明确角色和 owner 的专用 Agent<br>
-- 🤝 **协调多 Agent 工作流** — Agent 在共享 workspace 内协作<br>
-- 📅 **调度 Agent 工作** — 自动安排 Agent 何时、如何执行任务<br>
-- 🔐 **执行权限和审批** — 将敏感动作限制在治理边界内<br>
-- 📋 **审计所有过程** — 完整查看 Agent 的动作、决策和输出<br>
-- 🔄 **共享和转移 Agent** — 让数字员工跨团队、跨部门流转
-
----
-
-## 部署方式
-
-agent.dofe 支持两种部署模式，可以按团队需要选择：
-
-| 模式 | 适合场景 | 如何开始 |
-|------|----------|----------|
-| ☁️ **Platform**（托管版） | 希望立即开始使用，不想维护基础设施、数据库或 daemon host 的团队。 | 访问 [hire-an-agent.online](https://hire-an-agent.online) |
-| 🖥️ **Self-hosted**（本地自托管） | 需要完整掌控数据、基础设施、provider CLI、runtime 机器和内部部署策略的团队。 | Clone 本仓库，并按下面的 setup guide 启动 |
-
-两种模式运行同一套产品能力：数字员工、AgentRouter 调度、workspace 权限、审批流、远程 daemon 执行和可审计产物。二者没有功能断层。
-
-需要一次性部署 PostgreSQL、Web/API 和 Claude Code、Codex daemon 时，请使用 [deploy/self-hosted](deploy/self-hosted/README.md)。其中 Claude daemon 会自动托管飞书 Bot worker，无需另行启动 worker。
-
----
-
-## 当前 Agent 工作流的问题
-
-Agent 越来越强，但团队使用 Agent 的方式还没有跟上。
-
-大多数 Agent 产品仍然为个人使用而建：一个人、一个终端、一个聊天会话。真实团队一旦把 Agent 放进日常运营，问题就会出现：
+![企业级 Agent 的四大挑战](asset/dofe-challenges.jpg)
 
 - **Agent 仍是个人工具** — 强大的 Agent 留在某个人的终端或账号里，对团队不可见。
 - **上下文分散** — 消息、文档、审批、截图和 runtime 文件没有共享归宿。
 - **执行路径割裂** — 每个 provider 都有自己的 CLI 行为、session 模型和诊断方式；切换 runtime 等于重建上下文。
-- **治理缺失** — 凭据、文档、runtime access、工具调用和外发动作很难集中检查。
-- **工作难以持续** — 跨天任务需要队列、交接、产物、重试和人类检查点，而单一 Agent framework 很难覆盖。
+- **治理缺失** — 凭据、文档、runtime access、工具调用和外发动作难以集中检查。
+- **工作难以持续** — 跨天任务需要队列、交接、产物、重试和人类检查点，单一 Agent framework 很难覆盖。
 
-结果是：Agent 在个人场景里很强，在团队场景里却很弱。
-
-**agent.dofe 就是为改变这一点而建。** 人类负责方向和授权，AI 员工负责协调和执行。
+企业不需要 Agent 的黑魔法，需要的是**确定性**。DoFe.AI 用工程化的治理与协作结构回应不确定性：人类负责方向和授权，AI 员工负责协调和执行。
 
 ---
 
-## agent.dofe 是什么？
+## 三大原则：可见 · 可得 · 可管控
 
-**这是人类团队和 AI 员工在同一个组织上下文中工作的操作型 workspace。**
+![BLACK BOX — 将 Agent 装入盒子里](asset/dofe-black-box.jpg)
 
-agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、多 Agent 协作和治理，让 AI 员工终于可以像真实团队一样工作。人与 AI 员工共同沉淀的流程、知识和治理边界，就是随使用不断加深的企业护城河。
+### 🔭 可见 — Agent 行为全程可观测
 
----
+- 每个任务的执行 timeline、runtime output 和诊断保留在 workspace 里，而不是埋在某个人的终端里。
+- 完整审计日志：动作、决策、审批与输出全程可追踪，可按资源树或 actor 反查。
+- 预算、成本和性能仪表盘让 AI 员工的每一分消耗可见。
 
-### 🗓 调度 — 同一个 Agent，选择最合适的 runtime
+### 🚪 可得 — 人人可用，一键上岗
 
-同一个 Agent 不应该因为执行需求变化就被重新创建。
+- 数字员工展板：角色、owner、技能、知识、ready 状态与 runtime binding 全组织可见。
+- 技能库支持创建、导入、发布与回滚，优秀 Agent 能力可复用、可流转。
+- 飞书 Bot 通信与文档/表格/多维表格资源绑定，AI 员工直接融入现有协作流。
 
-- 保持 Agent 身份、instructions 和上下文在任务间稳定。
-- 通过 AgentRouter 将每个任务路由到合适的 harness 或 provider runtime：Claude Code、Codex、OpenClaw、Hermes 等。
-- 统一不同 runtime 的事件、session、产物和诊断。
-- 执行路径变化时，只改变 harness；技能、知识、权限和完整员工上下文都保持不变。
+### 🔐 可管控 — 每个动作都有边界、记录和 owner
 
----
-
-### 🧑‍💼 能力 — 把私人 Agent 变成共享组织资产
-
-一个优秀 Agent 如果锁在某个人的账号里，就是被浪费的组织潜力。
-
-- 在全组织展示每个数字员工的岗位、owner、技能、知识、ready 状态和 runtime binding。
-- 让团队成员申请访问、借用 Agent、调用 channel-ready 员工，而不是从零开始。
-- owner review queue 和管理员审批路径保持显式；人类对访问边界保留 100% 控制权。
-- 让优秀 Agent 被看见，同时不放弃控制。
+- Workspace 角色、频道访问、文档权限、runtime 授权、daemon token 一个控制面集中治理。
+- 高影响动作进入人类审批节点，快速审批循环让 Agent 继续推进、人类保持控制。
+- 权限可撤销、可审计、可诊断漂移，问题不会静默扩大。
 
 ---
 
-### 🤝 协作 — Agent 协调推进，人类审批关键节点
+## 产品能力
 
-真实工作流经人、系统和决策，而不只是一个聊天框。
+agent.dofe 为 Agent 组织提供四个关键能力：
 
-- Agent 使用频道、直接会话、inbox 任务、文档和任务看板工作。
-- 复杂请求可以经过证据整理、预算检查、审批准备、执行和产物交付，而不需要人类手动交接。
-- runtime output 文件、执行事件和任务历史保留在 workspace 里，而不是埋在某个人的终端里。
-- 高影响动作直接进入人类审批，并配合快速的 TabTabTab 风格审批循环，让 Agent 能继续推进，同时让人类保持控制。
+- **🗓 调度** — 同一个 Agent，选择最合适的 runtime。身份、instructions 和上下文在任务间稳定；AgentRouter 把任务路由到 Claude Code、Codex、OpenClaw、Hermes 等合适 harness，统一事件、session、产物和诊断。执行路径变化时只换 harness，技能、知识、权限和完整员工上下文保持不变。
+- **🧑‍💼 能力共享** — 把私人 Agent 变成共享组织资产。全组织展示每个数字员工的岗位与能力，成员申请访问、借用 Agent，owner review queue 和管理员审批路径保持显式。
+- **🤝 协作** — Agent 协调推进，人类审批关键节点。频道、直接会话、inbox 任务、文档和任务看板构成共享工作区；复杂请求经证据整理、预算检查、审批准备、执行到产物交付，无需人类手动交接。
+- **🔐 安全** — 每个动作都有边界、记录和 owner。从一个地方治理角色、频道、文档、技能、知识、runtime、daemon token 和飞书资源绑定，支持文档权限请求、runtime tool approval、knowledge proposal review。
 
----
+**团队可以立刻做的事：**
 
-### 🔐 安全 — 每个动作都有边界、记录和 owner
+- 🗂 招募和分配有明确角色与 owner 的专用 Agent
+- 🤝 在共享 workspace 内协调多 Agent 工作流
+- 📅 自动调度 Agent 何时、如何执行任务
+- 🔐 将敏感动作限制在治理边界内
+- 📋 完整审计 Agent 的动作、决策和输出
+- 🔄 让数字员工跨团队、跨部门流转
 
-随着 Agent 承担更多执行工作，治理不能事后补上。
+### 差异对比
 
-- 从一个地方治理 workspace role、频道、文档、技能、知识、runtime、daemon token 和飞书资源绑定。
-- 支持文档权限请求、runtime tool approval、knowledge proposal review 和飞书 Bot 数据操作治理。
-- 可以按资源树或 actor 反查权限。
-- 在一个控制面内撤销、审计和诊断权限漂移，避免问题扩大。
-
----
-
-## 差异对比
-
-| 没有 agent.dofe | 使用 agent.dofe |
+| 没有 DoFe.AI | 使用 DoFe.AI |
 | --- | --- |
 | Agent 是藏在本地终端或私聊里的个人工具。 | Agent 成为有身份、owner、技能、知识和申请流程的数字员工。 |
 | 每个 runtime 都有自己的执行路径、session 模型和诊断方式。 | AgentRouter 把所有 harness 归一到统一执行 contract 后面。 |
@@ -157,42 +112,44 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 
 ## 使用场景：创始团队执行系统
 
-小团队需要速度，但没有控制的速度会制造债务。agent.dofe 让创始团队获得接近更大组织的执行杠杆，同时不失去对实际工作流的可见性和责任边界。
-
-**典型流程如下：**
+小团队需要速度，但没有控制的速度会制造债务。DoFe.AI 让创始团队获得接近更大组织的执行杠杆，同时不失去对实际工作流的可见性和责任边界。
 
 1. **创始人在 workspace 频道里提出请求** — 不需要额外 ticket 系统，也没有启动成本。
 2. **协调型 Agent 自动拆解** — 任务被拆分、界定范围，并分配给合适的专业 Agent。
 3. **Agent 收集所需上下文** — 文档、知识页、已绑定的飞书资源和历史执行产物都会进入上下文。
-4. **高风险动作会在发生前被标记** — 工具调用、文档访问、外发动作和预算敏感动作会进入人类审批节点。
+4. **高风险动作在发生前被标记** — 工具调用、文档访问、外发动作和预算敏感动作进入人类审批节点。
 5. **人类批准或拒绝** — 一次决策，完整可见，不需要微观管理。
 6. **Agent 完成工作** — 结果写回任务、文档、附件和 runtime output，不会丢失。
 
-目标不是更聪明的聊天机器人，而是一个受治理的操作界面，让人类和 Agent 一起完成真实工作，并让每个动作都可见、可控、可追踪。
+目标不是更聪明的聊天机器人，而是一个受治理的操作界面，让人类和 AI 员工一起完成真实工作。
 
 ---
 
 ## 目录
 
-- [部署方式](#部署方式)
-- [快速开始](#快速开始)
+- [部署与快速开始](#部署与快速开始)
   - [Path A：运行 Workspace](#path-a运行-workspace)
   - [Path B：使用 CLI](#path-b使用-cli)
   - [Path C：接入远程 Daemon](#path-c接入远程-daemon)
 - [AgentRouter](#agentrouter)
-- [Framework](#framework)
-  - [数字员工展板](#数字员工展板)
-  - [权限控制面](#权限控制面)
-  - [技能、知识和飞书](#技能知识和飞书)
-- [高级配置](#高级配置)
+- [架构](#架构)
+- [高级配置与质量](#高级配置与质量)
 - [代码结构](#代码结构)
 - [文档](#文档)
 - [路线图](#路线图)
-- [状态与许可证](#状态与许可证)
 
 ---
 
-## 快速开始
+## 部署与快速开始
+
+| 模式 | 适合场景 | 如何开始 |
+|------|----------|----------|
+| ☁️ **Platform**（托管版） | 希望立即开始使用，不想维护基础设施、数据库或 daemon host 的团队。 | 访问 [hire-an-agent.online](https://hire-an-agent.online) |
+| 🖥️ **Self-hosted**（本地自托管） | 需要完整掌控数据、基础设施、provider CLI、runtime 机器和内部部署策略的团队。 | Clone 本仓库，按下面的 setup guide 启动 |
+
+两种模式运行同一套产品能力：数字员工、AgentRouter 调度、workspace 权限、审批流、远程 daemon 执行和可审计产物，二者没有功能断层。
+
+需要一次性部署 PostgreSQL、Web/API 和 Claude Code、Codex daemon 时，请使用 [deploy/self-hosted](deploy/self-hosted/README.md)。其中 Claude daemon 会自动托管飞书 Bot worker，无需另行启动 worker。
 
 ### 环境要求
 
@@ -271,7 +228,7 @@ dofe-agent-daemon start \
   --state-dir "$HOME/.dofe-agent-daemon"
 ```
 
-provider 说明、OpenClaw health、Hermes、Cube scaffold 和故障排查见 [packages/daemon/README.md](packages/daemon/README.md)。
+provider 说明、OpenClaw health、Hermes 和故障排查见 [packages/daemon/README.md](packages/daemon/README.md)。
 
 ---
 
@@ -305,7 +262,9 @@ agent-router run --harness hermes --cwd /workspace/project "summarize this repo"
 
 ---
 
-## Framework
+## 架构
+
+![DoFe.AI 平台全景（理念分享图）](asset/dofe-platform-vision.jpg)
 
 ```mermaid
 flowchart TD
@@ -351,7 +310,7 @@ flowchart TD
 
 | 控制面 | 能力 |
 | --- | --- |
-| Workspace 成员 | 成员资格与角色由 Dofe SSO 管理，agent.dofe 只消费 SSO 目录 |
+| Workspace 成员 | 成员资格与角色由 Dofe SSO 管理，DoFe.AI 只消费 SSO 目录 |
 | 频道访问 | 加入、频道邀请、访问请求、读写断言 |
 | 直接会话隐私 | 直接会话仅限参与者和相关 agent owner |
 | Agent 管理 | owner、instructions、频道可用性、技能、知识、runtime binding |
@@ -374,7 +333,7 @@ agent.dofe 包含可复用的执行构件：
 
 ---
 
-## 高级配置
+## 高级配置与质量
 
 环境变量和部署示例请从这里开始：
 
@@ -392,6 +351,8 @@ pnpm run test:web
 pnpm run test:e2e:web
 pnpm run quality:web
 ```
+
+---
 
 ## 代码结构
 
@@ -457,6 +418,8 @@ Node 版本策略与运行时矩阵见 [docs/0814/node-runtime-matrix.md](docs/0
 - [Daemon systemd unit](deploy/systemd/dofe-agent-daemon.service)
 - [Daemon 环境变量模板](deploy/systemd/dofe-agent-daemon.env.example)
 
+---
+
 ## 路线图
 
 状态标记与 [docs/README.md](docs/README.md) 一致：✅ 已实现 · 🟡 进行中 · ⏳ 计划中。
@@ -501,3 +464,9 @@ Node 版本策略与运行时矩阵见 [docs/0814/node-runtime-matrix.md](docs/0
 - 测试 CI 流水线建设（优化项 3.6-1）
 
 已收口的方向不再列入：Cube sandbox 实验数据面已按优化项 3.5-5 决策移除（如需云沙箱从 git 历史恢复）；历史优化项的完整状态见 [docs/progress-log.md](docs/progress-log.md) 与 [docs/optimization-suggestions.md](docs/optimization-suggestions.md)。
+
+---
+
+## 许可证
+
+[Apache License 2.0](LICENSE)

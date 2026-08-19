@@ -91,6 +91,19 @@ function containsProviderDiagnostic(value: string | undefined): boolean {
   return Boolean(value && /(?:provider\.runtime_generic_failure|Codex CLI exited|Claude CLI exited|stderrTail=|exitCode=|provider diagnostic:|No such image:)/i.test(value));
 }
 
+function settleStatusTitle(value: string, taskRunning: boolean | undefined): string {
+  if (taskRunning !== false) {
+    return value;
+  }
+  if (value === "正在准备执行环境") {
+    return "执行环境已准备";
+  }
+  if (/^Preparing (?:the )?execution environment$/i.test(value)) {
+    return "Execution environment ready";
+  }
+  return value;
+}
+
 /**
  * Reduce the raw task_message stream of one task into Kimi-style timeline items:
  * status rows, merged thinking blocks, and tool calls paired with their results.
@@ -132,7 +145,7 @@ export function buildExecutionTimeline(
       items.push({
         id: message.id,
         kind: "status",
-        title: content,
+        title: settleStatusTitle(content, options?.taskRunning),
         status: "done",
       });
       continue;

@@ -1071,20 +1071,23 @@ export function ConversationShell({
 
                   <div className="contacts-chat-thread" onScroll={handleThreadScroll} ref={threadViewportRef}>
                     {displayedMessages.length > 0 ? (
-                      displayedMessages.map((message) => (
-                        <ConversationMessageBubble
-                          isOwn={isOwnHumanMessage(message, currentUserDisplayName)}
-                          key={message.id}
-                          message={message}
-                          acknowledgementActorLabel={currentUserDisplayName}
-                          replyToMessage={message.replyToMessageId ? messageById.get(message.replyToMessageId) : undefined}
-                          onReply={() => handleReplyToMessage(message)}
-                          onPin={onPinMessage && !message.pinned ? () => onPinMessage(message.id) : undefined}
-                          onUnpin={onUnpinMessage && message.pinned ? () => onUnpinMessage(message.id) : undefined}
-                          onAcknowledge={onAcknowledgeMessage ? () => onAcknowledgeMessage(message.id) : undefined}
-                          onReviewApproval={onReviewApproval}
-                        />
-                      ))
+                      displayedMessages.map((message) => {
+                        const actionMessage = message.executionReply ?? message;
+                        return (
+                          <ConversationMessageBubble
+                            isOwn={isOwnHumanMessage(message, currentUserDisplayName)}
+                            key={message.id}
+                            message={message}
+                            acknowledgementActorLabel={currentUserDisplayName}
+                            replyToMessage={actionMessage.replyToMessageId ? messageById.get(actionMessage.replyToMessageId) : undefined}
+                            onReply={() => handleReplyToMessage(actionMessage)}
+                            onPin={onPinMessage && !actionMessage.pinned ? () => onPinMessage(actionMessage.id) : undefined}
+                            onUnpin={onUnpinMessage && actionMessage.pinned ? () => onUnpinMessage(actionMessage.id) : undefined}
+                            onAcknowledge={onAcknowledgeMessage ? () => onAcknowledgeMessage(actionMessage.id) : undefined}
+                            onReviewApproval={onReviewApproval}
+                          />
+                        );
+                      })
                     ) : !threadHasSupplementaryContent ? (
                       <ChatEmptyState body={emptyThreadBody} title={emptyThreadTitle} />
                     ) : null}

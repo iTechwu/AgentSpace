@@ -1094,7 +1094,15 @@ describe("ConversationShell", () => {
 
   it("adds pasted images and documents to the composer for preview, removal, and sending", async () => {
     const user = userEvent.setup();
-    const onSubmit = vi.fn(async () => {});
+    const onSubmit = vi.fn(async (input: {
+      content: string;
+      files: File[];
+      replyToMessageId?: string;
+      referenceAttachmentIds?: string[];
+      referenceSkillIds?: string[];
+    }) => {
+      void input;
+    });
     const screenshot = new File(["image-bytes"], "clipboard-shot.png", { type: "image/png" });
     const document = new File(["pdf-bytes"], "clipboard-brief.pdf", { type: "application/pdf" });
 

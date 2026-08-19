@@ -5609,6 +5609,52 @@ textarea:focus {
   line-height: 1.65;
 }
 
+.conversation-process__reply-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  min-height: 1.75rem;
+  margin-top: 0.35rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.conversation-process--timeline:hover .conversation-process__reply-actions,
+.conversation-process--timeline:focus-within .conversation-process__reply-actions {
+  opacity: 1;
+}
+
+.conversation-process__reply-actions button {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.conversation-process__reply-actions button:hover,
+.conversation-process__reply-actions button:focus-visible,
+.conversation-process__reply-actions button.is-active {
+  background: rgba(142, 149, 170, 0.12);
+  color: var(--text);
+}
+
+.conversation-process__reply-actions svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+@media (hover: none) {
+  .conversation-process__reply-actions {
+    opacity: 1;
+  }
+}
+
 .execution-timeline {
   position: relative;
   display: flex;

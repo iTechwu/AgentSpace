@@ -247,6 +247,14 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   const replyToSpeakerLabel = replyToMessage ? translateSystemSpeaker(replyToMessage.speaker, tx) : "";
   const approvalAction = buildRuntimeApprovalAction(message, tx);
   const executionReply = message.executionReply;
+  const actionMessage = executionReply ?? message;
+  const actionAcknowledgements = actionMessage.acknowledgements ?? [];
+  const acknowledgementLabelForCurrentUser = acknowledgementActorLabel ?? ownSpeakerLabel;
+  const acknowledgedByCurrentUser = actionAcknowledgements.some((acknowledgement) =>
+    acknowledgementLabelForCurrentUser
+      ? acknowledgement.label.localeCompare(acknowledgementLabelForCurrentUser, "zh-CN", { sensitivity: "base" }) === 0
+      : false,
+  );
   useEffect(() => {
     if (
       optimisticApproval &&
@@ -301,6 +309,45 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
                   tx={tx}
                 />
                 {executionReply.attachments?.length ? <ChatAttachmentRow attachments={executionReply.attachments} tx={tx} /> : null}
+                <div className="conversation-process__reply-actions">
+                  {onReply ? (
+                    <button aria-label={tx("回复", "Reply")} onClick={onReply} title={tx("回复", "Reply")} type="button">
+                      <AppIcon name="reply" />
+                    </button>
+                  ) : null}
+                  <button
+                    aria-label={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
+                    className={copied ? "is-active" : undefined}
+                    onClick={() => {
+                      void copyMessageContent(executionReply.content).then(() => setCopied(true)).catch(() => {});
+                    }}
+                    title={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
+                    type="button"
+                  >
+                    <AppIcon name="copy" />
+                  </button>
+                  {onPin ? (
+                    <button aria-label={tx("置顶", "Pin")} onClick={onPin} title={tx("置顶", "Pin")} type="button">
+                      <AppIcon name="pin" />
+                    </button>
+                  ) : null}
+                  {onUnpin ? (
+                    <button aria-label={tx("取消置顶", "Unpin")} onClick={onUnpin} title={tx("取消置顶", "Unpin")} type="button">
+                      <AppIcon name="pin" />
+                    </button>
+                  ) : null}
+                  {onAcknowledge ? (
+                    <button
+                      aria-label={tx("OK，标记已读", "OK, mark as read")}
+                      className={acknowledgedByCurrentUser ? "is-active" : undefined}
+                      onClick={onAcknowledge}
+                      title={tx("OK，标记已读", "OK, mark as read")}
+                      type="button"
+                    >
+                      <AppIcon name="checkCircle" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>
@@ -328,8 +375,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
 
   const hasActions = message.deliveryStatus === undefined;
   const acknowledgements = message.acknowledgements ?? [];
-  const acknowledgementLabelForCurrentUser = acknowledgementActorLabel ?? ownSpeakerLabel;
-  const acknowledgedByCurrentUser = acknowledgements.some((acknowledgement) =>
+  const acknowledgedByCurrentUserForMessage = acknowledgements.some((acknowledgement) =>
     acknowledgementLabelForCurrentUser
       ? acknowledgement.label.localeCompare(acknowledgementLabelForCurrentUser, "zh-CN", { sensitivity: "base" }) === 0
       : false,
@@ -499,7 +545,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
             ) : null}
             {onAcknowledge ? (
               <button
-                className={`inbox-bubble__action-btn${acknowledgedByCurrentUser ? " inbox-bubble__action-btn--active" : ""}`}
+                className={`inbox-bubble__action-btn${acknowledgedByCurrentUserForMessage ? " inbox-bubble__action-btn--active" : ""}`}
                 onClick={onAcknowledge}
                 title={tx("OK，标记已读", "OK, mark as read")}
                 type="button"
