@@ -19,7 +19,8 @@ RUN npm install --global pnpm@10.26.2 \
 ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
 
-RUN pnpm --filter dofe-agent-daemon run build \
+RUN pnpm --filter @dofe-agent/db run prisma:generate \
+  && pnpm --filter dofe-agent-daemon run build \
   && pnpm --filter @dofe-agent/web run build
 
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS runtime

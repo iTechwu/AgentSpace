@@ -146,6 +146,13 @@ test("self-hosted application runtime includes curl for TOS-backed Skill artifac
   );
 });
 
+test("self-hosted application build generates Prisma Client before bundling", () => {
+  assert.match(
+    selfHostedDockerfile,
+    /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*pnpm --filter dofe-agent-daemon run build/,
+  );
+});
+
 test("local managed-node recovery preserves required operational settings", () => {
   const resolved = resolveManagedNodeOperationalEnv(
     [
