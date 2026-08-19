@@ -36,7 +36,7 @@ export default async function McpConnectionDetailPage({
   return (
     <McpConnectionDetailPageClient
       data={data}
-      workspaceSlug={workspaceSlug}
+      workspaceSlug={workspaceContext.currentWorkspace.id}
     />
   );
 }

@@ -176,10 +176,11 @@ export function syncSsoWorkspacesForUserSync(input: {
       } else {
         restoreWorkspaceSync(scope.id);
         const nextSlug = ssoWorkspaceSlug(scope);
-        if (existingWorkspace.name !== scope.name || existingWorkspace.slug !== nextSlug) {
+        const shouldUpdateSlug = existingWorkspace.slug !== nextSlug && isAscii(existingWorkspace.slug);
+        if (existingWorkspace.name !== scope.name || shouldUpdateSlug) {
           updateWorkspaceSync(scope.id, {
             ...(existingWorkspace.name !== scope.name ? { name: scope.name } : {}),
-            ...(existingWorkspace.slug !== nextSlug ? { slug: nextSlug } : {}),
+            ...(shouldUpdateSlug ? { slug: nextSlug } : {}),
           });
         }
         if (existingWorkspace.name !== scope.name) {
@@ -237,8 +238,9 @@ function ssoWorkspaceSlug(scope: SsoWorkspaceScope): string {
     .map(toUrlSlugPart)
     .filter(Boolean)
     .join("-")
-    .slice(0, 40) || "workspace";
-  return `${source}-${scope.id.slice(-6)}`;
+    .slice(0, 40);
+  const normalizedSource = source || "workspace";
+  return `${normalizedSource}-${scope.id.slice(-6)}`;
 }
 
 function toUrlSlugPart(value: string | undefined): string {
@@ -252,10 +254,11 @@ function toUrlSlugPart(value: string | undefined): string {
     return asciiSlug;
   }
 
-  return source
-    .replace(/[\\/?#%]+/g, "-")
-    .replace(/\s+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return "";
+}
+
+function isAscii(value: string): boolean {
+  return Array.from(value).every((character) => (character.codePointAt(0) ?? 0) <= 0x7f);
 }
 
 function toWorkspaceRole(role: string): WorkspaceRole {

@@ -4,7 +4,11 @@ import { type FocusEvent, type MouseEvent, useCallback, useEffect, useMemo, useR
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { logoutAndRedirectAction, switchWorkspaceAction } from "@/features/auth/actions";
-import { buildWorkspacePath } from "@/features/auth/workspace-paths";
+import {
+  buildWorkspacePath,
+  canonicalWorkspacePath,
+  parseWorkspacePathname,
+} from "@/features/auth/workspace-paths";
 import {
   SidebarVisibilityProvider,
   type SidebarVisibilityState,
@@ -139,7 +143,7 @@ function WorkspaceFrameContent({
     routeStateSource,
     navigateHrefLocally,
     setOptimisticRouteFromHref,
-  } = useWorkspaceModuleRouteState(currentWorkspace.slug);
+  } = useWorkspaceModuleRouteState(currentWorkspace.id);
   const logicalPathname = routeState.appPath;
   const mode = routeState.agentsMode;
   const isSettingsPath = routeState.isSettingsPath;
@@ -154,13 +158,31 @@ function WorkspaceFrameContent({
   const accountRoleLabel = formatWorkspaceAccountRole(currentMembershipRole, tx);
   const { counters, refreshCounters } = useWorkspaceShellCounters({
     initialShell: shell,
-    workspaceSlug: currentWorkspace.slug,
+    workspaceSlug: currentWorkspace.id,
   });
   const [showSearch, setShowSearch] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const searchKey = searchParams.toString();
+
+  useEffect(() => {
+    const parsedPath = parseWorkspacePathname(pathname);
+    if (!parsedPath.workspaceSlug || parsedPath.workspaceSlug === currentWorkspace.id) {
+      return;
+    }
+
+    const canonicalPath = canonicalWorkspacePath({
+      requestedWorkspaceIdentifier: parsedPath.workspaceSlug,
+      workspaceId: currentWorkspace.id,
+      pathname: parsedPath.appPath,
+      search: searchKey ? "?" + searchKey : "",
+      hash: window.location.hash,
+    });
+    if (canonicalPath) {
+      router.replace(canonicalPath, { scroll: false });
+    }
+  }, [currentWorkspace.id, pathname, router, searchKey]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -245,7 +267,7 @@ function WorkspaceFrameContent({
                                     : isSettingsPath
                                       ? tx("设置", "Settings")
                                       : tx("工作台", "Workspace");
-  const workspaceHref = (path: string): string => buildWorkspacePath(currentWorkspace.slug, path);
+  const workspaceHref = (path: string): string => buildWorkspacePath(currentWorkspace.id, path);
   const runtimeManagementPath = getRuntimeManagementPath(runtimeMode);
   const sidebarSignals = [
     {
@@ -284,13 +306,13 @@ function WorkspaceFrameContent({
   const onboardingSteps = useMemo<WorkspaceOnboardingStep[]>(
     () => buildWorkspaceOnboardingSteps({
       canViewRuntimes,
-      currentWorkspaceSlug: currentWorkspace.slug,
+      currentWorkspaceSlug: currentWorkspace.id,
       isChannelScopedGuest,
       runtimeMode,
       tx,
       visibility,
     }),
-    [canViewRuntimes, currentWorkspace.slug, isChannelScopedGuest, runtimeMode, tx, visibility],
+    [canViewRuntimes, currentWorkspace.id, isChannelScopedGuest, runtimeMode, tx, visibility],
   );
   const handleOnboardingActiveChange = useCallback((active: boolean) => {
     setMobileSidebarOpen(active);
@@ -303,7 +325,7 @@ function WorkspaceFrameContent({
     const parsedRouteState = parseWorkspaceModuleHref(href);
     if (
       !canUseWorkspaceClientModule(parsedRouteState.moduleId) ||
-      (parsedRouteState.workspaceSlug && parsedRouteState.workspaceSlug !== currentWorkspace.slug) ||
+      (parsedRouteState.workspaceSlug && parsedRouteState.workspaceSlug !== currentWorkspace.id) ||
       !isWorkspaceModuleLoaderId(parsedRouteState.moduleId)
     ) {
       return null;
@@ -325,7 +347,7 @@ function WorkspaceFrameContent({
       cacheKey,
       loader: async ({ signal }) => {
         const response = await fetch(
-          `/api/workspaces/${encodeURIComponent(currentWorkspace.slug)}/modules/${parsedRouteState.moduleId}${query}`,
+          `/api/workspaces/${encodeURIComponent(currentWorkspace.id)}/modules/${parsedRouteState.moduleId}${query}`,
           { signal },
         );
         if (!response.ok) {
@@ -338,30 +360,30 @@ function WorkspaceFrameContent({
     });
     void loadPromise.catch(() => {});
     return loadPromise;
-  }, [currentWorkspace.id, currentWorkspace.slug, moduleCache, moduleCacheScope]);
+  }, [currentWorkspace.id, moduleCache, moduleCacheScope]);
   const handleWorkspaceModuleLinkPrefetch = useCallback((
     event: FocusEvent<HTMLAnchorElement> | MouseEvent<HTMLAnchorElement>,
   ) => {
     prefetchWorkspaceModuleHref(event.currentTarget.href);
   }, [prefetchWorkspaceModuleHref]);
-  const handleWorkspaceSelect = useCallback((nextWorkspaceSlug: string) => {
-    if (!nextWorkspaceSlug || nextWorkspaceSlug === currentWorkspace.slug) {
+  const handleWorkspaceSelect = useCallback((nextWorkspaceId: string) => {
+    if (!nextWorkspaceId || nextWorkspaceId === currentWorkspace.id) {
       return;
     }
 
     startTransition(async () => {
-      await switchWorkspaceAction(nextWorkspaceSlug);
+      await switchWorkspaceAction(nextWorkspaceId);
       const nextPath = logicalPathname === "/" ? "/im" : logicalPathname;
       const query = searchParams.toString();
       router.push(
         buildWorkspacePath(
-          nextWorkspaceSlug,
+          nextWorkspaceId,
           `${nextPath}${query ? `?${query}` : ""}`,
         ),
       );
       router.refresh();
     });
-  }, [currentWorkspace.slug, logicalPathname, router, searchParams]);
+  }, [currentWorkspace.id, logicalPathname, router, searchParams]);
 
   useEffect(() => {
     const sidebar = sidebarRef.current;
@@ -439,7 +461,7 @@ function WorkspaceFrameContent({
     const canUseClientWorkbench =
       !shouldUseNativeLinkNavigation(event) &&
       canUseWorkspaceClientModule(parsedRouteState.moduleId) &&
-      (!parsedRouteState.workspaceSlug || parsedRouteState.workspaceSlug === currentWorkspace.slug) &&
+      (!parsedRouteState.workspaceSlug || parsedRouteState.workspaceSlug === currentWorkspace.id) &&
       isWorkspaceModuleLoaderId(parsedRouteState.moduleId);
     let nextRouteState;
     if (canUseClientWorkbench) {
@@ -452,12 +474,12 @@ function WorkspaceFrameContent({
       markWorkspaceModuleNavigationClick(nextRouteState);
     }
     setMobileSidebarOpen(false);
-  }, [currentWorkspace.slug, navigateHrefLocally, setOptimisticRouteFromHref]);
+  }, [currentWorkspace.id, navigateHrefLocally, setOptimisticRouteFromHref]);
   const handleWorkspaceModuleNavigate = useCallback((href: string, options?: { replace?: boolean }) => {
     const parsedRouteState = parseWorkspaceModuleHref(href);
     if (
       !canUseWorkspaceClientModule(parsedRouteState.moduleId) ||
-      (parsedRouteState.workspaceSlug && parsedRouteState.workspaceSlug !== currentWorkspace.slug) ||
+      (parsedRouteState.workspaceSlug && parsedRouteState.workspaceSlug !== currentWorkspace.id) ||
       !isWorkspaceModuleLoaderId(parsedRouteState.moduleId)
     ) {
       const nextRouteState = setOptimisticRouteFromHref(href);
@@ -473,15 +495,15 @@ function WorkspaceFrameContent({
     }
     setMobileSidebarOpen(false);
     return true;
-  }, [currentWorkspace.slug, navigateHrefLocally, setOptimisticRouteFromHref]);
+  }, [currentWorkspace.id, navigateHrefLocally, setOptimisticRouteFromHref]);
   const fallbackToDefaultSettingsSection = useCallback(() => {
-    const href = buildWorkspacePath(currentWorkspace.slug, getSettingsSectionPath(DEFAULT_SETTINGS_SECTION));
+    const href = buildWorkspacePath(currentWorkspace.id, getSettingsSectionPath(DEFAULT_SETTINGS_SECTION));
     const nextRouteState = navigateHrefLocally(href, { replace: true });
     if (nextRouteState) {
       measureWorkspaceModuleNavigationActive(nextRouteState);
     }
     setMobileSidebarOpen(false);
-  }, [currentWorkspace.slug, navigateHrefLocally]);
+  }, [currentWorkspace.id, navigateHrefLocally]);
 
   useEffect(() => {
     if (routeState.moduleId !== "settings") {
@@ -1036,7 +1058,7 @@ function WorkspaceFrameContent({
               routeState={routeState}
               routeStateSource={routeStateSource}
               workspaceId={currentWorkspace.id}
-              workspaceSlug={currentWorkspace.slug}
+              workspaceSlug={currentWorkspace.id}
               onModuleDataChanged={refreshCounters}
               onSettingsSectionForbidden={fallbackToDefaultSettingsSection}
             >

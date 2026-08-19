@@ -10,7 +10,7 @@ interface WorkspaceSwitcherProps {
   readonly disabled?: boolean;
   readonly organizationName?: string;
   readonly workspaces: StoredWorkspaceRecord[];
-  readonly onSelect: (workspaceSlug: string) => void;
+  readonly onSelect: (workspaceId: string) => void;
   readonly tx: (zh: string, en: string) => string;
 }
 
@@ -133,7 +133,7 @@ export function WorkspaceSwitcher({
           <div className="workspace-switcher__group-label">{groupLabel}</div>
           <div className="workspace-switcher__items">
             {workspaces.map((workspace) => {
-              const selected = workspace.slug === currentWorkspace.slug;
+              const selected = workspace.id === currentWorkspace.id;
               return (
                 <button
                   aria-checked={selected}
@@ -142,7 +142,7 @@ export function WorkspaceSwitcher({
                   onClick={() => {
                     setOpen(false);
                     if (!selected) {
-                      onSelect(workspace.slug);
+                      onSelect(workspace.id);
                     }
                   }}
                   role="menuitemradio"

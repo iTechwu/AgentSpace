@@ -42,7 +42,7 @@ export default async function WorkspaceSettingsPage({
     redirect("/");
   }
   if (workspaceContext.accessScope === "channel") {
-    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/im"));
+    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, "/im"));
   }
 
   const requestedLegacySection = settingsPath?.length === 1 ? settingsPath[0] : undefined;
@@ -67,7 +67,7 @@ export default async function WorkspaceSettingsPage({
 
   if (!currentSection && legacySection) {
     redirect(buildWorkspacePath(
-      workspaceContext.currentWorkspace.slug,
+      workspaceContext.currentWorkspace.id,
       appendSearchParams(
         getSettingsSectionPath(legacySection),
         omitSearchParam(resolvedSearchParams, "section"),
@@ -76,7 +76,7 @@ export default async function WorkspaceSettingsPage({
   }
   if (!currentSection) {
     redirect(buildWorkspacePath(
-      workspaceContext.currentWorkspace.slug,
+      workspaceContext.currentWorkspace.id,
       appendSearchParams(
         getSettingsSectionPath(DEFAULT_SETTINGS_SECTION),
         omitSearchParam(resolvedSearchParams, "section"),

@@ -66,7 +66,7 @@ describe("workspace agents route runtime management compatibility", () => {
     await expect(WorkspaceAgentsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs" }),
       searchParams: Promise.resolve({ mode: "container" }),
-    })).rejects.toThrow("redirect:/w/mars-labs/runtimes");
+    })).rejects.toThrow("redirect:/w/workspace-mars/runtimes");
 
     expect(mockLoadWorkspaceModuleDataWithMeta).not.toHaveBeenCalled();
   });

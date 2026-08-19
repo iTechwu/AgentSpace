@@ -16,6 +16,6 @@ export default async function WorkspaceTaskBoardPage({
 }) {
   const { workspaceSlug } = await params;
   return renderWorkspaceModule(workspaceSlug, "task-board", (data, workspaceContext) => (
-    <TaskBoardPageClient data={data.data} workspaceSlug={workspaceContext.currentWorkspace.slug} />
+    <TaskBoardPageClient data={data.data} workspaceSlug={workspaceContext.currentWorkspace.id} />
   ), { withViewer: true });
 }

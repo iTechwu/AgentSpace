@@ -16,7 +16,7 @@ export default async function WorkspaceFallbackPage({
   }
 
   if (workspaceContext.accessScope === "channel" && workspacePath[0] !== "im") {
-    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/im"));
+    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, "/im"));
   }
 
   notFound();

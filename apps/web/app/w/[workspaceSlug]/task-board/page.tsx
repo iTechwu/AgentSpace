@@ -11,5 +11,5 @@ export default async function LegacyWorkspaceTaskBoardPage({
 }) {
   const { workspaceSlug } = await params;
   const workspaceContext = await getWorkspacePageContext(workspaceSlug);
-  redirect(buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/task/board"));
+  redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, "/task/board"));
 }

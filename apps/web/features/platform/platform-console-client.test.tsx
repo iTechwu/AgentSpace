@@ -55,7 +55,7 @@ it("summarizes platform health and links each workspace to its runtime view", ()
   expect(screen.getByText("影响 1 个工作区")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "查看 Attention Team 的 Runtime" })).toHaveAttribute(
     "href",
-    "/w/attention-team/runtimes",
+    "/w/ws-attention/runtimes",
   );
 });
 

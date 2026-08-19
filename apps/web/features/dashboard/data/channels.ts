@@ -145,6 +145,7 @@ export function getChannelsPageData(
         name: directChannel?.name ?? employee.name,
         channelName: directChannel?.name,
         contactId: employee.name,
+        agentEmployeeId: employee.id,
         kind: "direct" as const,
         displayName: employee.remarkName?.trim() || employee.name,
         displaySubtitle: employee.name,

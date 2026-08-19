@@ -19,7 +19,7 @@ export default async function WorkspaceAutomationsPage({
     <WorkflowListClient
       data={data.data}
       workspaceId={workspaceContext.currentWorkspace.id}
-      workspaceSlug={workspaceSlug}
+      workspaceSlug={workspaceContext.currentWorkspace.id}
     />
   ));
 }

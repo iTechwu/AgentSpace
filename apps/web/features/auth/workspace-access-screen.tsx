@@ -32,7 +32,7 @@ export function WorkspaceAccessScreen({
               : " 当前账号还没有任何可用工作区。"}
           </p>
           {fallbackWorkspace ? (
-            <Link className="button button--primary" href={buildWorkspacePath(fallbackWorkspace.slug, "/im")}>
+            <Link className="button button--primary" href={buildWorkspacePath(fallbackWorkspace.id, "/im")}>
               打开 {fallbackWorkspace.name}
             </Link>
           ) : (

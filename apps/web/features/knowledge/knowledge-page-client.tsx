@@ -967,7 +967,7 @@ export function KnowledgePageClient({
               onOpenDocumentPage={openDocumentPage}
               onCreateKnowledgePage={handleCreateKnowledgeFromDocument}
               onOpenLinkedKnowledgePage={openLinkedKnowledgePage}
-              pathname={pathname}
+              workspaceId={data.workspaceId}
               tx={tx}
             />
           ) : (

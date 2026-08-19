@@ -167,6 +167,7 @@ export interface ChannelListItem {
   name: string;
   channelName?: string;
   contactId?: string;
+  agentEmployeeId?: string;
   humanContactUserId?: string;
   memberLabel: string;
   humanMemberNames?: string[];
@@ -807,6 +808,7 @@ export interface RuntimeGrantMember {
 }
 
 export interface AgentsPageData {
+  workspaceId?: string;
   containers: ContainerRecord[];
   agents: WorkspaceAgentRecord[];
   showcaseAgents: DigitalEmployeeShowcaseAgentRecord[];

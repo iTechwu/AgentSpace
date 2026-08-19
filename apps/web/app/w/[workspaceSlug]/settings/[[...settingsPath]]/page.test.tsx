@@ -179,7 +179,7 @@ describe("workspace settings route", () => {
     await expect(WorkspaceSettingsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs" }),
       searchParams: Promise.resolve({}),
-    })).rejects.toThrow("redirect:/w/mars-labs/settings/preferences");
+    })).rejects.toThrow("redirect:/w/workspace-mars/settings/preferences");
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
   });
 
@@ -189,7 +189,7 @@ describe("workspace settings route", () => {
         workspaceSlug: "yootun-all-%E4%BC%98%E6%83%A0%E8%B1%9A-%E5%85%A8%E4%BD%93-87e967",
       }),
       searchParams: Promise.resolve({}),
-    })).rejects.toThrow("redirect:/w/mars-labs/settings/preferences");
+    })).rejects.toThrow("redirect:/w/workspace-mars/settings/preferences");
 
     expect(mockGetWorkspaceContextForIdentifier).toHaveBeenCalledWith(
       "yootun-all-优惠豚-全体-87e967",
@@ -200,7 +200,7 @@ describe("workspace settings route", () => {
     await expect(WorkspaceSettingsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs" }),
       searchParams: Promise.resolve({ section: "bogus", source: "legacy" }),
-    })).rejects.toThrow("redirect:/w/mars-labs/settings/preferences?source=legacy");
+    })).rejects.toThrow("redirect:/w/workspace-mars/settings/preferences?source=legacy");
   });
 
   it("loads only security data for the security section", async () => {

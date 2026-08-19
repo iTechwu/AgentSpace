@@ -5,7 +5,7 @@
 import type { KnowledgeDocumentPageRecord } from "@/features/dashboard/data";
 import { translateSystemSpeaker } from "@/features/i18n/presentation";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
-import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
+import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import MDEditor from "@uiw/react-md-editor";
 
 export function DocumentPageViewer({
@@ -15,7 +15,7 @@ export function DocumentPageViewer({
   onOpenDocumentPage,
   onCreateKnowledgePage,
   onOpenLinkedKnowledgePage,
-  pathname,
+  workspaceId,
   tx,
 }: {
   document: KnowledgeDocumentPageRecord;
@@ -24,10 +24,10 @@ export function DocumentPageViewer({
   onOpenDocumentPage: (documentId: string) => void;
   onCreateKnowledgePage: (document: KnowledgeDocumentPageRecord) => void;
   onOpenLinkedKnowledgePage: (pageId: string) => void;
-  pathname: string;
+  workspaceId: string;
   tx: (zh: string, en: string) => string;
 }) {
-  const sourceHref = buildDocumentSourceHref(document, pathname);
+  const sourceHref = buildDocumentSourceHref(document, workspaceId);
 
   return (
     <div className="knowledge-viewer">
@@ -153,7 +153,7 @@ export function DocumentPageViewer({
   );
 }
 
-function buildDocumentSourceHref(document: KnowledgeDocumentPageRecord, pathname: string): string | null {
+function buildDocumentSourceHref(document: KnowledgeDocumentPageRecord, workspaceId: string): string | null {
   if (document.sourceType === "attachment") {
     return `/api/attachments/${document.sourceId}`;
   }
@@ -162,15 +162,14 @@ function buildDocumentSourceHref(document: KnowledgeDocumentPageRecord, pathname
     return null;
   }
 
-  const parsed = parseWorkspacePathname(pathname);
-  if (!parsed.workspaceSlug) {
+  if (!workspaceId) {
     return null;
   }
 
   const search = new URLSearchParams();
   search.set("focus", `channel:${document.channelName}`);
   search.set("doc", document.sourceId);
-  return buildWorkspacePath(parsed.workspaceSlug, `/im?${search.toString()}`);
+  return buildWorkspacePath(workspaceId, `/im?${search.toString()}`);
 }
 
 function formatKnowledgeTime(value?: string): string {

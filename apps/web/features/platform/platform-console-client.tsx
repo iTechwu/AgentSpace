@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { PlatformConsoleShell } from "@/features/platform/platform-console-shell";
+import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 
 export interface PlatformWorkspaceSummary {
   readonly workspaceId: string;
@@ -205,7 +206,7 @@ export function PlatformConsoleClient({
                     return (
                       <tr key={workspace.workspaceId}>
                         <td>
-                          <Link className="platform-console-workspace-name" href={`/w/${encodeURIComponent(workspace.slug)}/runtimes`}>
+                          <Link className="platform-console-workspace-name" href={buildWorkspacePath(workspace.workspaceId, "/runtimes")}>
                             <span className="platform-console-workspace-name__mark" aria-hidden="true">
                               {workspace.name.trim().slice(0, 1).toLocaleUpperCase("zh-CN") || "W"}
                             </span>
@@ -233,7 +234,7 @@ export function PlatformConsoleClient({
                           <Link
                             aria-label={`查看 ${workspace.name} 的 Runtime`}
                             className="platform-console-row-action"
-                            href={`/w/${encodeURIComponent(workspace.slug)}/runtimes`}
+                            href={buildWorkspacePath(workspace.workspaceId, "/runtimes")}
                             title="查看 Runtime"
                           >
                             <AppIcon name="arrowRight" />
@@ -275,7 +276,7 @@ export function PlatformConsoleClient({
                         <strong>{workspace.name}</strong>
                         <span>{workspace.needsAttentionRuntimeCount} 个 Runtime 需要介入</span>
                       </div>
-                      <Link aria-label={`处理 ${workspace.name}`} href={`/w/${encodeURIComponent(workspace.slug)}/runtimes`}>
+                      <Link aria-label={`处理 ${workspace.name}`} href={buildWorkspacePath(workspace.workspaceId, "/runtimes")}>
                         <AppIcon name="arrowRight" />
                       </Link>
                     </li>

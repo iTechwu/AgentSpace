@@ -255,7 +255,7 @@ describe("SSO workspace synchronization", () => {
     expect(listUserWorkspacesSync("user-1")).toEqual([]);
   });
 
-  it("uses tenant and team names for a non-ASCII SSO workspace URL", () => {
+  it("uses an ASCII fallback for a non-ASCII SSO workspace URL", () => {
     const scopes = buildSsoWorkspaceScopes({
       teams: [{
         teamId: "team-chinese",
@@ -270,7 +270,28 @@ describe("SSO workspace synchronization", () => {
     });
 
     syncSsoWorkspacesForUserSync({ displayName: "Mina", scopes, userId: "user-1" });
-    expect(readWorkspaceSync(scopes[0]!.id)?.slug).toMatch(/^全体-产品-/);
+    expect(readWorkspaceSync(scopes[0]!.id)?.slug).toMatch(/^workspace-[a-f0-9]{6}$/);
+  });
+
+  it("preserves an existing non-ASCII slug so legacy links remain valid", () => {
+    const scopes = buildSsoWorkspaceScopes({
+      teams: [{
+        teamId: "team-chinese-existing",
+        teamSlug: "",
+        teamName: "产品",
+        tenantId: "tenant-chinese-existing",
+        tenantSlug: "",
+        tenantName: "全体",
+        role: "ADMIN",
+      }],
+      tenants: [],
+    });
+
+    syncSsoWorkspacesForUserSync({ displayName: "Mina", scopes, userId: "user-1" });
+    updateWorkspaceSync(scopes[0]!.id, { slug: "全体-产品-legacy" });
+    syncSsoWorkspacesForUserSync({ displayName: "Mina", scopes, userId: "user-1" });
+
+    expect(readWorkspaceSync(scopes[0]!.id)?.slug).toBe("全体-产品-legacy");
   });
 });
 

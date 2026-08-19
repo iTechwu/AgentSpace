@@ -241,6 +241,30 @@ describe("KnowledgePageClient", () => {
     });
   });
 
+  it("uses the workspace id in channel document source links", () => {
+    searchParamsStore.set("view", "documents");
+    const channelDocumentData: KnowledgePageData = {
+      ...data,
+      workspaceId: "workspace-stable-id",
+      documentPages: [{
+        ...data.documentPages[0]!,
+        sourceType: "channelDocument",
+        sourceId: "doc-1",
+      }],
+    };
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <KnowledgePageClient data={channelDocumentData} />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: "打开原文" })).toHaveAttribute(
+      "href",
+      "/w/workspace-stable-id/im?focus=channel%3Atour+visit&doc=doc-1",
+    );
+  });
+
   it("translates system document actors in English", () => {
     searchParamsStore.set("view", "documents");
     const systemData: KnowledgePageData = {

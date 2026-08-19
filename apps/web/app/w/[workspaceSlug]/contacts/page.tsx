@@ -46,7 +46,7 @@ export default async function WorkspaceContactsPage({
     if (typeof doc === "string" && doc.length > 0) {
       nextSearch.set("doc", doc);
     }
-    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.slug, `/im?${nextSearch.toString()}`));
+    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, `/im?${nextSearch.toString()}`));
   }
 
   const result = await loadWorkspaceModuleDataWithMeta(

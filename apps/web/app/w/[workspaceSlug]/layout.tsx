@@ -33,7 +33,10 @@ export default async function WorkspaceSlugLayout({
     );
   }
   const workspaceContext = workspaceAccess.context;
-  if (workspaceContext.currentWorkspace.slug !== workspaceSlug) {
+  if (
+    workspaceContext.currentWorkspace.id !== workspaceSlug
+    && workspaceContext.currentWorkspace.slug !== workspaceSlug
+  ) {
     notFound();
   }
 

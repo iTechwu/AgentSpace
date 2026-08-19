@@ -15,7 +15,7 @@ export default async function WorkspaceCalendarPage({
   params: Promise<{ workspaceSlug: string }>;
 }) {
   const { workspaceSlug } = await params;
-  return renderWorkspaceModule(workspaceSlug, "calendar", (data) => (
-    <CalendarPageClient data={data.data} workspaceSlug={workspaceSlug} />
+  return renderWorkspaceModule(workspaceSlug, "calendar", (data, workspaceContext) => (
+    <CalendarPageClient data={data.data} workspaceSlug={workspaceContext.currentWorkspace.id} />
   ));
 }

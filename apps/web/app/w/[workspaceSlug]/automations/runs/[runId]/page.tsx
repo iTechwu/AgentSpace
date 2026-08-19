@@ -23,5 +23,5 @@ export default async function WorkflowRunPage({
     role: context.currentMembership.role,
   });
   if (!data) notFound();
-  return <WorkflowRunClient data={data} workspaceId={context.currentWorkspace.id} workspaceSlug={workspaceSlug} />;
+  return <WorkflowRunClient data={data} workspaceId={context.currentWorkspace.id} workspaceSlug={context.currentWorkspace.id} />;
 }

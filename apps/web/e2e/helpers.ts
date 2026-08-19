@@ -18,6 +18,7 @@ const WORKSPACE_RECENT_SELECTION_COOKIE = "dofe_agent_recent_workspaces";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export interface SeededWorkspaceSession {
+  agentEmployeeId: string;
   agentName: string;
   channelName: string;
   privateChannelName: string;
@@ -39,13 +40,18 @@ async function dismissWorkspaceChromeOverlays(page: Page): Promise<void> {
   }
 }
 
-export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceSession> {
+export async function seedWorkspaceSession(
+  page: Page,
+  options: { workspaceSlug?: string } = {},
+): Promise<SeededWorkspaceSession> {
   const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const userDisplayName = `E2E Owner ${suffix}`;
   const agentName = `Atlas ${suffix}`;
   const channelName = `e2e-general-${suffix}`;
   const privateChannelName = `e2e-private-${suffix}`;
   const workspaceId = `sso-team-e2e-${suffix}`;
+  const workspaceSlug = options.workspaceSlug ?? workspaceId;
+  const agentEmployeeId = `employee-${suffix}`;
   const user = createUserSync({
     displayName: userDisplayName,
     primaryEmail: `e2e-owner-${suffix}@example.com`,
@@ -62,7 +68,7 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
     id: workspaceId,
     createdBy: user.id,
     name: `E2E Workspace ${suffix}`,
-    slug: workspaceId,
+    slug: workspaceSlug,
   });
   createWorkspaceMembershipSync({
     role: "owner",
@@ -75,7 +81,7 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
   state.humanMembers = [{ name: user.displayName, role: "Owner" }];
   state.activeEmployees = [
     {
-      id: `employee-${suffix}`,
+      id: agentEmployeeId,
       name: agentName,
       role: "Agent",
       remarkName: agentName,
@@ -180,6 +186,7 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
   ]);
 
   return {
+    agentEmployeeId,
     agentName,
     channelName,
     privateChannelName,

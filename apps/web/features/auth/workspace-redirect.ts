@@ -19,7 +19,7 @@ export async function redirectToCurrentWorkspacePath(
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   redirect(
     buildWorkspacePath(
-      workspaceContext.currentWorkspace.slug,
+      workspaceContext.currentWorkspace.id,
       appendSearchParams(pathname, resolvedSearchParams),
     ),
   );

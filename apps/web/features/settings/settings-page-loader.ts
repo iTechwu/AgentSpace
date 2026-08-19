@@ -107,7 +107,7 @@ export async function loadSettingsPageData(input: {
     currentSessionId: input.currentSessionId,
     currentUserDisplayName: input.currentUser.displayName,
     currentUserId: input.currentUser.id,
-    currentWorkspaceSlug: input.currentWorkspace.slug,
+    currentWorkspaceSlug: input.currentWorkspace.id,
     canCreateDaemonTokens: resolveAgentRuntimeMode() !== "remote",
     initialSection: requestedSection,
     feishuAvailableChannels: shouldLoadIntegrations && canManageIntegrations

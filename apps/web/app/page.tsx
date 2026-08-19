@@ -22,7 +22,7 @@ export default async function HomePage({
   const resolvedSearchParams = (await searchParams) ?? {};
   const workspaceContext = await getCurrentWorkspaceContext();
   if (workspaceContext) {
-    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/im"));
+    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, "/im"));
   }
 
   const authError = typeof resolvedSearchParams.authError === "string" ? resolvedSearchParams.authError : undefined;

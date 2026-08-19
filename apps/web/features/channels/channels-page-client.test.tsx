@@ -283,6 +283,7 @@ const digitalContactData: ChannelsPageData = {
       name: "direct-atlas",
       channelName: "contact:Atlas",
       contactId: "Atlas",
+      agentEmployeeId: "emp-atlas",
       kind: "direct",
       directParticipantKind: "agent",
       displayName: "Atlas",
@@ -403,11 +404,16 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByText("数字员工资料")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("发送到 Atlas")).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "管理" }));
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith(
+      "/w/workspace-1/agents?mode=agent&focus=agent%3Aemp-atlas",
+    );
+
     await user.click(screen.getAllByRole("button", { name: /发消息|继续对话/ })[0]!);
-    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/im?view=direct&focus=contact%3AAtlas");
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/im?view=direct&focus=contact%3AAtlas");
 
     await user.click(screen.getByRole("button", { name: "新建数字员工" }));
-    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/agents?mode=agent&create=agent");
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/agents?mode=agent&create=agent");
   });
 
   it("renders preview controls for channel attachments", () => {
@@ -1028,7 +1034,7 @@ describe("ChannelsPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "日历" }));
 
-    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/calendar");
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/calendar");
     expect(routerPushMock).not.toHaveBeenCalled();
 
     const moreTrigger = screen.getByRole("button", { name: "更多" });
@@ -1044,7 +1050,7 @@ describe("ChannelsPageClient", () => {
     await user.click(moreTrigger);
     await user.click(screen.getByRole("menuitem", { name: "查看任务" }));
 
-    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/task/board");
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/task/board");
     expect(routerPushMock).not.toHaveBeenCalled();
 
     const createTrigger = screen.getByRole("button", { name: "新建内容" });
@@ -1069,7 +1075,7 @@ describe("ChannelsPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "日历" }));
 
-    expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-alpha/calendar");
+    expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-1/calendar");
   });
 
   it("shows in-channel agents and humans in the mention menu", async () => {
@@ -1572,7 +1578,7 @@ describe("ChannelsPageClient", () => {
 
     const nextHref = replaceStateSpy.mock.lastCall?.[2];
     expect(typeof nextHref).toBe("string");
-    expect(nextHref).toContain("/w/workspace-alpha/im?");
+    expect(nextHref).toContain("/w/workspace-1/im?");
     expect(nextHref).toContain("view=direct");
     expect(nextHref).toContain("focus=contact%3AAtlas");
     expect(routerReplaceMock).not.toHaveBeenCalled();
@@ -1603,7 +1609,7 @@ describe("ChannelsPageClient", () => {
     window.history.replaceState(window.history.state, "", canonicalHref);
     expect(new URL(window.location.href).searchParams.get("focus")).toBe("contact:Atlas");
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      "/w/workspace-alpha/im?focus=contact%3AAtlas",
+      "/w/workspace-1/im?focus=contact%3AAtlas",
       { replace: true },
     );
   });
@@ -1623,7 +1629,7 @@ describe("ChannelsPageClient", () => {
 
     const nextHref = pushStateSpy.mock.lastCall?.[2];
     expect(typeof nextHref).toBe("string");
-    expect(nextHref).toContain("/w/workspace-alpha/im?");
+    expect(nextHref).toContain("/w/workspace-1/im?");
     expect(nextHref).toContain("focus=channel%3Atour+visit");
     expect(nextHref).toContain("tab=documents");
     expect(nextHref).toContain("doc=doc-1");
@@ -1648,7 +1654,7 @@ describe("ChannelsPageClient", () => {
     await user.click(knowledgeButtons.at(-1) as HTMLElement);
 
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      "/w/workspace-alpha/knowledge?view=documents&document=channelDocument%3Adoc-1",
+      "/w/workspace-1/knowledge?view=documents&document=channelDocument%3Adoc-1",
     );
     expect(routerPushMock).not.toHaveBeenCalled();
   });

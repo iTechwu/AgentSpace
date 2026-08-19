@@ -49,7 +49,7 @@ export default async function RuntimeTaskDetailPage({
 
   return (
     <RuntimeTaskDetailClient
-      workspaceSlug={workspaceContext.currentWorkspace.slug}
+      workspaceSlug={workspaceContext.currentWorkspace.id}
       initialDetail={detail}
     />
   );

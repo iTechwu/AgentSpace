@@ -90,7 +90,7 @@ export default async function ChannelInvitationPage({
 
     const accepted = await acceptChannelInvitationAction(invitationId);
     redirect(buildWorkspacePath(
-      accepted.workspaceSlug,
+      accepted.workspaceId,
       `/im?focus=${encodeURIComponent(accepted.channelName)}`,
     ));
   }

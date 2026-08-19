@@ -20,5 +20,5 @@ export default async function WorkspaceAuditPage({ params, searchParams }: { par
   if (!hasWorkspaceRole(context.currentMembership.role, "admin")) notFound();
   const filters = parseAuditLogFilters(await searchParams);
   const logs = await listAuditLogsPrismaCutover(context.currentWorkspace.id, { ...filters, limit: 500 });
-  return <AuditLogView logs={logs} filters={filters} clearHref={buildWorkspacePath(workspaceSlug, "/audit")} />;
+  return <AuditLogView logs={logs} filters={filters} clearHref={buildWorkspacePath(context.currentWorkspace.id, "/audit")} />;
 }

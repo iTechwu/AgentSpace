@@ -34,7 +34,7 @@ export default async function WorkspaceAgentsPage({
   const runtimeMode = resolveAgentRuntimeMode();
   if (isLegacyRuntimeManagementRequest(runtimeMode, requestedMode)) {
     redirect(buildWorkspacePath(
-      workspaceContext.currentWorkspace.slug,
+      workspaceContext.currentWorkspace.id,
       getRuntimeManagementPath(runtimeMode),
     ));
   }

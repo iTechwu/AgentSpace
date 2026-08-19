@@ -47,6 +47,23 @@ test("keeps first-visit onboarding keyboard-modal and the workspace interactive 
   expect(browserIssues).toEqual([]);
 });
 
+test("replaces legacy workspace slugs and agent names with stable IDs", async ({ page }) => {
+  const session = await seedWorkspaceSession(page, {
+    workspaceSlug: `优惠豚-${Date.now().toString(36)}`,
+  });
+  const legacyFocus = `agent:${session.agentName}`;
+
+  await page.goto(
+    `/w/${encodeURIComponent(session.workspaceSlug)}/agents?mode=agent&focus=${encodeURIComponent(legacyFocus)}`,
+  );
+  await expect(page.locator(".workspace-layout")).toBeVisible();
+
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/w/${session.workspaceId}/agents`);
+  await expect.poll(() => new URL(page.url()).searchParams.get("mode")).toBe("agent");
+  await expect.poll(() => new URL(page.url()).searchParams.get("focus"))
+    .toBe(`agent:${session.agentEmployeeId}`);
+});
+
 test("restores modal triggers after closing search, contact invite, and CLI creation", async ({ page }) => {
   const browserIssues: string[] = [];
   page.on("pageerror", (error) => browserIssues.push(error.message));

@@ -16,7 +16,7 @@ export async function getWorkspacePageContext(
     redirect("/");
   }
   if (workspaceContext.accessScope === "channel" && !options.allowChannelScope) {
-    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/im"));
+    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, "/im"));
   }
   return workspaceContext;
 }

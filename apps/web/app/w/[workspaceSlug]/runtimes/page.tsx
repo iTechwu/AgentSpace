@@ -45,7 +45,7 @@ export default async function WorkspaceRuntimesPage({
 
   return (
     <RuntimesPageClient
-      workspaceSlug={workspaceContext.currentWorkspace.slug}
+      workspaceSlug={workspaceContext.currentWorkspace.id}
       isAdmin={isAdmin}
       initialTasks={tasks}
       initialRuntimes={runtimes}

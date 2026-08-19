@@ -11,7 +11,7 @@ import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation
 
 export async function acceptChannelInvitationAction(
   invitationId: string,
-): Promise<{ workspaceSlug: string; channelName: string }> {
+): Promise<{ workspaceId: string; workspaceSlug: string; channelName: string }> {
   const currentUser = await getCurrentUser();
   if (!currentUser) {
     throw new Error("Unauthorized.");
@@ -45,6 +45,7 @@ export async function acceptChannelInvitationAction(
   await writeWorkspaceSelectionCookie(workspace.slug);
   revalidateWorkspacePaths(workspace.slug, ["/im", "/contacts", "/settings/permissions"]);
   return {
+    workspaceId: workspace.id,
     workspaceSlug: workspace.slug,
     channelName: accepted.channelName,
   };

@@ -27,6 +27,7 @@ import type { PerformanceDashboardData } from "@dofe-agent/services/finance";
 const searchParams = new URLSearchParams();
 let pathname = "/inbox";
 const routerPushMock = vi.fn();
+const routerReplaceMock = vi.fn();
 const mockMoveTaskToColumnAction = vi.hoisted(() =>
   vi.fn<(taskId: string, status: string) => Promise<ActionToastResult<undefined>>>(async () => ({ data: undefined })),
 );
@@ -34,6 +35,7 @@ const mockMoveTaskToColumnAction = vi.hoisted(() =>
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: routerPushMock,
+    replace: routerReplaceMock,
     refresh: vi.fn(),
   }),
   usePathname: () => pathname,
@@ -97,7 +99,7 @@ const shell: WorkspaceShellData = {
 const workspaces = [
   {
     id: "workspace-alpha",
-    slug: "workspace-alpha",
+    slug: "alpha-readable-slug",
     name: "Alpha Workspace",
     createdBy: "user-1",
     createdAt: "2026-04-23T00:00:00.000Z",
@@ -105,7 +107,7 @@ const workspaces = [
   },
   {
     id: "workspace-beta",
-    slug: "workspace-beta",
+    slug: "beta-readable-slug",
     name: "Beta Workspace",
     createdBy: "user-1",
     createdAt: "2026-04-23T00:00:00.000Z",
@@ -215,6 +217,7 @@ describe("WorkspaceFrame", () => {
     window.history.replaceState(null, "", "/");
     pathname = "/inbox";
     routerPushMock.mockReset();
+    routerReplaceMock.mockReset();
     mockMoveTaskToColumnAction.mockReset();
     mockMoveTaskToColumnAction.mockResolvedValue({ data: undefined });
     vi.unstubAllEnvs();
@@ -224,6 +227,24 @@ describe("WorkspaceFrame", () => {
     searchParams.delete("mode");
     searchParams.delete("view");
     searchParams.delete("context");
+  });
+
+  it("replaces a legacy workspace path with the canonical workspace id", async () => {
+    pathname = "/w/全体-优惠豚-87e967/agents";
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
+            <div>Workspace content</div>
+          </WorkspaceFrame>
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      expect(routerReplaceMock).toHaveBeenCalledWith("/w/workspace-alpha/agents", { scroll: false });
+    });
   });
 
   it("shows the compact default sidebar groups with clear hierarchy", async () => {

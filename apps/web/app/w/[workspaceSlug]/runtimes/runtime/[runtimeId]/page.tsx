@@ -66,7 +66,7 @@ export default async function ManagedRuntimeDetailPage({
       <header className="runtime-detail__header">
         <Link
           className="runtime-detail__back"
-          href={buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/runtimes")}
+          href={buildWorkspacePath(workspaceContext.currentWorkspace.id, "/runtimes")}
         >
           <AppIcon name="arrowLeft" />
           返回执行引擎列表
@@ -154,7 +154,7 @@ export default async function ManagedRuntimeDetailPage({
         runtimeId={runtime.id}
         runtimeName={runtime.displayName?.trim() || runtime.name}
         runtimeStatus={runtime.status}
-        workspaceSlug={workspaceContext.currentWorkspace.slug}
+        workspaceSlug={workspaceContext.currentWorkspace.id}
       />
 
       <div className="runtime-detail__settings" aria-label="执行引擎设置">

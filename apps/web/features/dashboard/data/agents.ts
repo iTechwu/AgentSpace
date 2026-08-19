@@ -228,6 +228,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
   });
 
   return {
+    workspaceId,
     containers: visibleContainers,
     agents: workspaceAgents,
     showcaseAgents,

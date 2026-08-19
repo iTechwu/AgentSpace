@@ -55,6 +55,7 @@ import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/work
 import type { AgentsPageData, WorkspaceAgentForkInvitationView } from "@/features/dashboard/data";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { PaneResizeHandle } from "@/shared/ui/pane-resize-handle";
+import { buildAgentFocusReference, resolveAgentUrlReference } from "@/features/agents/agent-url-reference";
 
 type Mode = "agent" | "showcase" | "container";
 type RuntimeHostMode = "docker" | "local" | "remote";
@@ -67,26 +68,6 @@ type RuntimeServerGroup = {
 const DAEMON_MANAGEMENT_SELECTION = "__daemon-management__";
 const AGENTS_REFRESH_POLL_MS = 3000;
 type GeneratedInstallCommandMode = "connect" | "update";
-
-function resolveFocusedAgentId(agents: AgentsPageData["agents"], focus: string | null): string | null {
-  if (!focus) {
-    return null;
-  }
-
-  const agentFocus = focus.startsWith("agent:")
-    ? focus
-    : focus.startsWith("workspace:")
-      ? `agent:${focus.slice("workspace:".length)}`
-      : null;
-  if (!agentFocus) {
-    return null;
-  }
-
-  const agentKey = agentFocus.slice("agent:".length);
-  return agents.find((agent) =>
-    agent.id === agentFocus || agent.name === agentKey || agent.internalName === agentKey,
-  )?.id ?? null;
-}
 
 function resolveFocusedContainerId({
   canManageRuntimes,
@@ -142,8 +123,11 @@ export function AgentsPageClient({
   const navigationSearchParams = useSearchParams();
   const searchParams = moduleSearchParams ?? navigationSearchParams;
   const workspaceHref = useMemo(
-    () => (path: string): string => workspaceSlug ? buildWorkspacePath(workspaceSlug, path) : path,
-    [workspaceSlug],
+    () => (path: string): string => {
+      const workspaceIdentifier = data.workspaceId ?? workspaceSlug;
+      return workspaceIdentifier ? buildWorkspacePath(workspaceIdentifier, path) : path;
+    },
+    [data.workspaceId, workspaceSlug],
   );
   const canViewContainers = data.canConnectRuntimes || data.canManageRuntimes || data.containers.length > 0;
   const fallbackContainerSelection = data.containers[0]?.runtimeId ?? (data.canManageRuntimes ? DAEMON_MANAGEMENT_SELECTION : null);
@@ -164,7 +148,7 @@ export function AgentsPageClient({
     }),
   );
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
-    () => resolveFocusedAgentId(data.agents, searchParams.get("focus")) ?? data.agents[0]?.id ?? null,
+    () => resolveAgentUrlReference(data.agents, searchParams.get("focus")).selectedId ?? data.agents[0]?.id ?? null,
   );
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [requestingShowcaseAgent, setRequestingShowcaseAgent] = useState<AgentsPageData["showcaseAgents"][number] | null>(null);
@@ -288,7 +272,8 @@ export function AgentsPageClient({
       return;
     }
 
-    const targetAgentId = resolveFocusedAgentId(data.agents, focus);
+    const targetAgentReference = resolveAgentUrlReference(data.agents, focus);
+    const targetAgentId = targetAgentReference.selectedId;
     if (!targetAgentId) return;
 
     setSelectedAgentId(targetAgentId);
@@ -297,7 +282,18 @@ export function AgentsPageClient({
     if (targetAgent.boundContainerId && data.containers.some((container) => container.runtimeId === targetAgent.boundContainerId)) {
       setSelectedContainerId(targetAgent.boundContainerId);
     }
-  }, [data.agents, data.canManageRuntimes, data.containers, searchParams]);
+    if (targetAgentReference.canonicalReference) {
+      const nextSearch = new URLSearchParams(
+        typeof window !== "undefined" ? window.location.search : searchParams.toString(),
+      );
+      nextSearch.set("focus", targetAgentReference.canonicalReference);
+      const nextQuery = nextSearch.toString();
+      const nextHref = workspaceHref("/agents" + (nextQuery ? "?" + nextQuery : ""));
+      if (!navigateWorkspaceModule(nextHref, { replace: true })) {
+        router.replace(nextHref, { scroll: false });
+      }
+    }
+  }, [data.agents, data.canManageRuntimes, data.containers, navigateWorkspaceModule, router, searchParams, workspaceHref]);
 
   useEffect(() => {
     if (mode === "container") {
@@ -362,7 +358,8 @@ export function AgentsPageClient({
 
   function handleSelectAgent(agentId: string): void {
     setSelectedAgentId(agentId);
-    replaceManagementFocus(agentId);
+    const agent = allAgents.find((item) => item.id === agentId);
+    replaceManagementFocus(agent ? buildAgentFocusReference(agent.employeeId) : agentId);
     if (isCompactLayout) {
       setMobilePane("detail");
     }
@@ -434,7 +431,8 @@ export function AgentsPageClient({
     setActiveAgentDetailTab(tab);
     replaceManagementRoute((nextSearch) => {
       if (selectedAgentId) {
-        nextSearch.set("focus", selectedAgentId);
+        const selected = allAgents.find((agent) => agent.id === selectedAgentId);
+        nextSearch.set("focus", selected ? buildAgentFocusReference(selected.employeeId) : selectedAgentId);
       }
       if (tab === "instructions") {
         nextSearch.delete("tab");
@@ -1007,8 +1005,10 @@ export function AgentsPageClient({
                 )
               }
               onOpenAgent={(agentName) => {
-                setSelectedAgentId(`agent:${agentName}`);
-                const href = workspaceHref(`/agents?mode=agent&focus=${encodeURIComponent(`agent:${agentName}`)}`);
+                const agent = data.agents.find((item) => item.internalName === agentName || item.name === agentName);
+                const employeeId = agent?.employeeId ?? agentName;
+                setSelectedAgentId(agent?.id ?? `agent:${employeeId}`);
+                const href = workspaceHref(`/agents?mode=agent&focus=${encodeURIComponent(buildAgentFocusReference(employeeId))}`);
                 if (!navigateWorkspaceModule(href)) {
                   router.push(href, { scroll: false });
                 }

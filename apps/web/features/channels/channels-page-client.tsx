@@ -167,8 +167,11 @@ export function ChannelsPageClient({
   const searchParamText = searchParams.toString();
   const [routeSearch, setRouteSearch] = useState(searchParamText);
   const workspaceHref = useCallback(
-    (path: string): string => workspaceSlug ? buildWorkspacePath(workspaceSlug, path) : path,
-    [workspaceSlug],
+    (path: string): string => {
+      const workspaceIdentifier = data.workspaceId ?? workspaceSlug;
+      return workspaceIdentifier ? buildWorkspacePath(workspaceIdentifier, path) : path;
+    },
+    [data.workspaceId, workspaceSlug],
   );
   const navigateToWorkspaceModule = useCallback((path: string) => {
     const href = workspaceHref(path);
@@ -1146,7 +1149,8 @@ export function ChannelsPageClient({
     if (!selectedChannel?.contactId) {
       return;
     }
-    navigateToWorkspaceModule(`/agents?mode=agent&focus=${encodeURIComponent(`agent:${selectedChannel.contactId}`)}`);
+    const agentReference = selectedChannel.agentEmployeeId ?? selectedChannel.contactId;
+    navigateToWorkspaceModule(`/agents?mode=agent&focus=${encodeURIComponent(`agent:${agentReference}`)}`);
   }
 
   async function uploadChannelFiles(files: FileList | null): Promise<void> {

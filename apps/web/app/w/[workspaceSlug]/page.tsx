@@ -11,5 +11,5 @@ export default async function WorkspaceRootPage({
 }) {
   const { workspaceSlug } = await params;
   const workspaceContext = await getWorkspacePageContext(workspaceSlug, { allowChannelScope: true });
-  redirect(buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/im"));
+  redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, "/im"));
 }
