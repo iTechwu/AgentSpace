@@ -17,14 +17,13 @@ export function useDialogSurface<T extends HTMLElement>(
   restoreFocusRef?: { current: HTMLElement | null },
 ) {
   const surfaceRef = useRef<T | null>(null);
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
   const labelId = useId();
   const descriptionId = useId();
-
-  useEffect(() => {
-    const active = document.activeElement;
-    previouslyFocusedRef.current = active instanceof HTMLElement ? active : null;
-  }, []);
 
   useEffect(() => {
     const surface = surfaceRef.current;

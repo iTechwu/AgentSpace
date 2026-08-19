@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import type { RuntimeAppArtifactKind } from "@dofe-agent/db";
 import { useLanguage } from "@/features/i18n/language-provider";
+import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { AppIcon } from "@/shared/ui/app-icon";
 import type { CreateWorkspaceRuntimeAppReleaseActionInput } from "./actions";
 
@@ -18,14 +19,17 @@ export function CreateCliReleaseModal(props: {
   const [displayName, setDisplayName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
+  const { handleBackdropMouseDown, surfaceRef } = useDialogSurface<HTMLFormElement>(props.onCancel);
 
   return (
-    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onCancel(); }} role="presentation">
+    <div className="modal-backdrop" onMouseDown={handleBackdropMouseDown} role="presentation">
       <form
         aria-describedby={descriptionId}
         aria-labelledby={titleId}
         aria-modal="true"
         className="modal-card modal-card--mcp-catalog"
+        ref={surfaceRef}
+        role="dialog"
         onSubmit={(event) => {
           event.preventDefault();
           const values = new FormData(event.currentTarget);
@@ -41,6 +45,7 @@ export function CreateCliReleaseModal(props: {
             entryPoint: String(values.get("entryPoint") ?? "").trim(),
           });
         }}
+        tabIndex={-1}
       >
         <div className="modal-card__header">
           <div>

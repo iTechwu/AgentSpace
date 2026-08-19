@@ -518,7 +518,15 @@ describe("MarketPageClient", () => {
       </LanguageProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: "添加 CLI" }));
+    const addCliButton = screen.getByRole("button", { name: "添加 CLI" });
+    await user.click(addCliButton);
+    expect(screen.getByRole("dialog", { name: "添加工作区私有 CLI" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "显示名称" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "添加工作区私有 CLI" })).not.toBeInTheDocument();
+    expect(addCliButton).toHaveFocus();
+
+    await user.click(addCliButton);
     await user.type(screen.getByRole("textbox", { name: "显示名称" }), "Internal Search");
     await user.type(screen.getByRole("textbox", { name: "npm package" }), "@example/internal-search");
     await user.type(screen.getByRole("textbox", { name: "固定版本" }), "1.4.2");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -86,12 +86,8 @@ export function GlobalSearchDialog({
   onClose: () => void;
 }) {
   const { tx } = useLanguage();
-  const {
-    surfaceRef,
-    handleBackdropMouseDown,
-    labelId,
-    descriptionId,
-  } = useDialogSurface<HTMLDivElement>(onClose);
+  const labelId = useId();
+  const descriptionId = useId();
   const router = useRouter();
   const pathname = usePathname();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -180,21 +176,12 @@ export function GlobalSearchDialog({
   const grouped = groupResults(results);
 
   return (
-    <div
-      className="search-overlay"
-      onMouseDown={handleBackdropMouseDown}
+    <GlobalSearchSurface
+      descriptionId={descriptionId}
+      labelId={labelId}
+      onClose={onClose}
       onKeyDown={handleKeyDown}
-      role="presentation"
     >
-      <div
-        aria-describedby={descriptionId}
-        aria-labelledby={labelId}
-        aria-modal="true"
-        className="search-dialog"
-        ref={surfaceRef}
-        role="dialog"
-        tabIndex={-1}
-      >
         <div aria-live="polite" className="sr-only">
           {query.trim().length === 0
             ? tx("请输入关键词开始搜索。", "Type a query to start searching.")
@@ -284,6 +271,42 @@ export function GlobalSearchDialog({
           </strong>
           {tx("Esc 关闭 · ↑↓ 选择 · Enter 跳转", "Esc to close · ↑↓ to select · Enter to navigate")}
         </div>
+    </GlobalSearchSurface>
+  );
+}
+
+function GlobalSearchSurface({
+  children,
+  descriptionId,
+  labelId,
+  onClose,
+  onKeyDown,
+}: {
+  children: React.ReactNode;
+  descriptionId: string;
+  labelId: string;
+  onClose: () => void;
+  onKeyDown: (event: React.KeyboardEvent) => void;
+}) {
+  const { handleBackdropMouseDown, surfaceRef } = useDialogSurface<HTMLDivElement>(onClose);
+
+  return (
+    <div
+      className="search-overlay"
+      onMouseDown={handleBackdropMouseDown}
+      onKeyDown={onKeyDown}
+      role="presentation"
+    >
+      <div
+        aria-describedby={descriptionId}
+        aria-labelledby={labelId}
+        aria-modal="true"
+        className="search-dialog"
+        ref={surfaceRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        {children}
       </div>
     </div>
   );

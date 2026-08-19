@@ -72,6 +72,32 @@ describe("HumanContactsPageClient", () => {
     expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-alpha/im?view=direct&context=contacts");
   });
 
+  it("keeps focus inside the add-contact dialog and restores its trigger on Escape", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <HumanContactsPageClient
+          channels={["general"]}
+          contacts={[]}
+          currentUserDisplayName="techwu"
+          threads={[]}
+        />
+      </LanguageProvider>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "添加真人联系人" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "添加真人联系人" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByRole("button", { name: "关闭添加真人联系人" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "外部联系人邮箱" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "添加真人联系人" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it("sends a direct message to a selected workspace member", async () => {
     const user = userEvent.setup();
     render(

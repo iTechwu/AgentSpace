@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSearchDialog } from "@/features/search/global-search-dialog";
@@ -42,6 +43,30 @@ describe("GlobalSearchDialog", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("restores the search trigger after Escape when initially mounted closed", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <LanguageProvider>
+          <button onClick={() => setOpen(true)} type="button">打开搜索</button>
+          <GlobalSearchDialog open={open} onClose={() => setOpen(false)} />
+        </LanguageProvider>
+      );
+    }
+
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "打开搜索" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "搜索工作区内容" })).toHaveFocus());
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("navigates document-page search results to the workspace knowledge documents view", async () => {

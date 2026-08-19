@@ -10,6 +10,7 @@ import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/work
 import { useWorkspaceModuleNavigation } from "@/features/dashboard/workspace-module-navigation";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 
 export function HumanContactsPageClient({
@@ -181,14 +182,13 @@ export function HumanContactsPageClient({
       selectedItemId={selectedContactId}
     />
     {showAddContact ? (
-      <div className="modal-backdrop" role="presentation">
-        <div aria-label={tx("添加真人联系人", "Add human contact")} aria-modal="true" className="modal-card modal-card--compact" role="dialog">
+      <AddHumanContactDialog onClose={() => setShowAddContact(false)} tx={tx}>
           <div className="modal-card__header">
             <div>
               <h3>{tx("添加真人联系人", "Add human contact")}</h3>
               <p>{tx("从这里开始邀请同事加入工作区，也可以给外部协作者创建单群邀请。", "Start by inviting teammates to this workspace, or create a single-channel invite for an external collaborator.")}</p>
             </div>
-            <button className="modal-close" onClick={() => setShowAddContact(false)} type="button">×</button>
+            <button aria-label={tx("关闭添加真人联系人", "Close add human contact")} className="modal-close" onClick={() => setShowAddContact(false)} type="button">×</button>
           </div>
           <div className="modal-card__body">
             <p className="settings-panel-note">
@@ -197,6 +197,7 @@ export function HumanContactsPageClient({
             <label className="form-field form-field--full">
               <span>{tx("外部联系人邮箱", "External contact email")}</span>
               <input
+                autoFocus
                 onChange={(event) => setExternalEmail(event.currentTarget.value)}
                 placeholder="teammate@example.com"
                 type="email"
@@ -249,10 +250,36 @@ export function HumanContactsPageClient({
               {tx("创建群邀请", "Create channel invitation")}
             </button>
           </div>
-        </div>
-      </div>
+      </AddHumanContactDialog>
     ) : null}
     </>
+  );
+}
+
+function AddHumanContactDialog({
+  children,
+  onClose,
+  tx,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  tx: (zh: string, en: string) => string;
+}) {
+  const { handleBackdropMouseDown, surfaceRef } = useDialogSurface<HTMLDivElement>(onClose);
+
+  return (
+    <div className="modal-backdrop" onMouseDown={handleBackdropMouseDown} role="presentation">
+      <div
+        aria-label={tx("添加真人联系人", "Add human contact")}
+        aria-modal="true"
+        className="modal-card modal-card--compact"
+        ref={surfaceRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        {children}
+      </div>
+    </div>
   );
 }
 
