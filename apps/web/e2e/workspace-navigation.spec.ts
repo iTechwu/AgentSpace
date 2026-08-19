@@ -34,6 +34,49 @@ test("preserves the IM composer draft across workbench module switches", async (
   await expect(composer).toHaveValue(draft);
 });
 
+test("keeps message bubbles and hover actions inside the thread at desktop and mobile widths", async ({ page }) => {
+  const session = await openSeededWorkspacePage(page, "/im");
+  const thread = page.locator(".contacts-chat-thread, .inbox-chat-thread");
+  const row = page.locator(".inbox-bubble-row:visible").first();
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/w/${session.workspaceSlug}/im`);
+    await expect(thread).toBeVisible();
+    await expect(row).toBeVisible();
+    await row.hover();
+
+    const metrics = await page.evaluate(() => {
+      const threadElement = document.querySelector<HTMLElement>(".contacts-chat-thread, .inbox-chat-thread");
+      const rowElement = document.querySelector<HTMLElement>(".inbox-bubble-row:has(.inbox-bubble)");
+      const bubbleElement = rowElement?.querySelector<HTMLElement>(".inbox-bubble");
+      const actionsElement = rowElement?.querySelector<HTMLElement>(".inbox-message-actions");
+      if (!threadElement || !rowElement || !bubbleElement) return null;
+      const rect = (element: HTMLElement) => {
+        const box = element.getBoundingClientRect();
+        return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+      };
+      return {
+        thread: rect(threadElement),
+        bubble: rect(bubbleElement),
+        actions: actionsElement && getComputedStyle(actionsElement).visibility === "visible"
+          ? rect(actionsElement)
+          : null,
+        documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+
+    expect(metrics).not.toBeNull();
+    expect(metrics!.documentOverflow).toBeLessThanOrEqual(1);
+    expect(metrics!.bubble.left).toBeGreaterThanOrEqual(metrics!.thread.left - 1);
+    expect(metrics!.bubble.right).toBeLessThanOrEqual(metrics!.thread.right + 1);
+    if (metrics!.actions) {
+      expect(metrics!.actions.left).toBeGreaterThanOrEqual(metrics!.thread.left - 1);
+      expect(metrics!.actions.right).toBeLessThanOrEqual(metrics!.thread.right + 1);
+    }
+  }
+});
+
 test("restores the selected IM conversation after refresh", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
 
