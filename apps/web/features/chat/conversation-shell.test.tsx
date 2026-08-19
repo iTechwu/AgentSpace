@@ -1175,14 +1175,23 @@ describe("ConversationShell", () => {
       </LanguageProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: /Runtime 默认/ }));
+    const policyTrigger = screen.getByRole("button", { name: /Runtime 默认/ });
+    await user.click(policyTrigger);
     expect(screen.getByRole("option", { name: /Manual/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Edit automatically/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /^Plan/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /^Auto/ })).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getAllByRole("option")[0]).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox", { name: "执行权限" })).not.toBeInTheDocument();
+    expect(policyTrigger).toHaveFocus();
+
+    await user.click(policyTrigger);
     await user.click(screen.getByRole("option", { name: /^Plan/ }));
 
     await waitFor(() => expect(onUpdateExecutionPolicy).toHaveBeenCalledWith("Atlas", { claudePermissionMode: "plan" }));
+    expect(policyTrigger).toHaveFocus();
   });
 
   it("offers Codex approval policies and marks full access as the selected policy", async () => {

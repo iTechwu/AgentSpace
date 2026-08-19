@@ -1006,6 +1006,7 @@ export function ChatComposer({
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const executionPolicyRef = useRef<HTMLDivElement>(null);
+  const executionPolicyTriggerRef = useRef<HTMLButtonElement>(null);
   const hasDraft = draft.trim().length > 0 || files.length > 0 || references.length > 0;
   const displayedFeedback = feedback;
   const isStopAction = isAgentRunning && !hasDraft;
@@ -1036,8 +1037,19 @@ export function ChatComposer({
         onToggleExecutionPolicyMenu?.();
       }
     }
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onToggleExecutionPolicyMenu?.();
+        executionPolicyTriggerRef.current?.focus({ preventScroll: true });
+      }
+    }
     document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [onToggleExecutionPolicyMenu, showExecutionPolicyMenu]);
 
   function beginQueueEdit(id: string, content: string): void {
@@ -1202,11 +1214,6 @@ export function ChatComposer({
             onPickedFiles(pastedFiles);
           }}
           onKeyDown={(event) => {
-            if (showExecutionPolicyMenu && event.key === "Escape") {
-              event.preventDefault();
-              onToggleExecutionPolicyMenu?.();
-              return;
-            }
             const nativeEvent = event.nativeEvent as KeyboardEvent;
             if (nativeEvent.isComposing || nativeEvent.keyCode === 229) {
               return;
@@ -1380,6 +1387,7 @@ export function ChatComposer({
                 className={`contacts-execution-policy__trigger${selectedExecutionOption.warning ? " contacts-execution-policy__trigger--warning" : ""}`}
                 disabled={executionPolicyPending}
                 onClick={onToggleExecutionPolicyMenu}
+                ref={executionPolicyTriggerRef}
                 title={tx("执行权限", "Execution permissions")}
                 type="button"
               >
@@ -1397,7 +1405,10 @@ export function ChatComposer({
                       aria-selected={option.id === selectedExecutionOption.id}
                       className={`contacts-execution-policy__option${option.id === selectedExecutionOption.id ? " contacts-execution-policy__option--selected" : ""}${option.warning ? " contacts-execution-policy__option--warning" : ""}`}
                       key={option.id}
-                      onClick={() => onSelectExecutionPolicy(option.policy)}
+                      onClick={() => {
+                        onSelectExecutionPolicy(option.policy);
+                        executionPolicyTriggerRef.current?.focus({ preventScroll: true });
+                      }}
                       role="option"
                       type="button"
                     >
