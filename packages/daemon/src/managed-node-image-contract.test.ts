@@ -22,6 +22,10 @@ const selfHostedDockerfile = readFileSync(
   new URL("../../../deploy/self-hosted/Dockerfile", import.meta.url),
   "utf8",
 );
+const workflowWorkerDockerfile = readFileSync(
+  new URL("../../../deploy/workflow-worker/Dockerfile", import.meta.url),
+  "utf8",
+);
 const runtimeBuildScript = readFileSync(
   new URL("../../../deploy/staging/build-managed-runtime-images.sh", import.meta.url),
   "utf8",
@@ -158,6 +162,13 @@ test("self-hosted application build generates Prisma Client before bundling", ()
   assert.match(
     selfHostedDockerfile,
     /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*pnpm --filter dofe-agent-daemon run build/,
+  );
+});
+
+test("workflow worker image generates Prisma Client before startup", () => {
+  assert.match(
+    workflowWorkerDockerfile,
+    /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*chown -R node:node/,
   );
 });
 
