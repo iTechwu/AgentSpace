@@ -91,6 +91,45 @@ test("restores modal triggers after closing search, contact invite, and CLI crea
   expect(browserIssues).toEqual([]);
 });
 
+test("keeps chat attachment and channel action menus keyboard accessible", async ({ page }) => {
+  const browserIssues: string[] = [];
+  page.on("pageerror", (error) => browserIssues.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") browserIssues.push(message.text());
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 500) browserIssues.push(`${response.status()} ${response.url()}`);
+  });
+
+  await openSeededWorkspacePage(page, "/im");
+  const attachmentTrigger = page.getByRole("button", {
+    name: /打开附件与快捷内容菜单|Open attachments and quick content menu/i,
+  });
+  await attachmentTrigger.click();
+  const attachmentMenu = page.getByRole("menu", { name: /附件与快捷内容|Attachments and quick content/i });
+  await expect(attachmentMenu.getByRole("menuitem", {
+    name: /引用成员、文件或技能|Reference people, files, or skills/i,
+  })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(attachmentMenu.getByRole("menuitem", { name: /图片\/视频|Images \/ Videos/i })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(attachmentMenu).toBeHidden();
+  await expect(attachmentTrigger).toBeFocused();
+
+  const moreTrigger = page.getByRole("button", { name: /更多|More/i }).filter({ visible: true });
+  await moreTrigger.click();
+  await expect(moreTrigger).toHaveAttribute("aria-expanded", "true");
+  const actionsMenu = page.getByRole("menu", { name: /更多操作|More actions/i });
+  await expect(actionsMenu.getByRole("menuitem", { name: /添加群公告|Add announcement/i })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(actionsMenu.getByRole("menuitem", { name: /添加标签页|Add tab page/i })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(actionsMenu).toBeHidden();
+  await expect(moreTrigger).toBeFocused();
+
+  expect(browserIssues).toEqual([]);
+});
+
 test("preserves the IM composer draft across workbench module switches", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
   const draft = `draft-${Date.now().toString(36)}`;

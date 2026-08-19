@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import Link from "next/link";
 import MDEditor from "@uiw/react-md-editor/nohighlight";
 import type { MessageAttachment, MessageMention } from "@/shared/types/workspace";
@@ -1007,6 +1007,8 @@ export function ChatComposer({
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const executionPolicyRef = useRef<HTMLDivElement>(null);
   const executionPolicyTriggerRef = useRef<HTMLButtonElement>(null);
+  const pickerMenuRef = useRef<HTMLDivElement>(null);
+  const pickerTriggerRef = useRef<HTMLButtonElement>(null);
   const hasDraft = draft.trim().length > 0 || files.length > 0 || references.length > 0;
   const displayedFeedback = feedback;
   const isStopAction = isAgentRunning && !hasDraft;
@@ -1051,6 +1053,49 @@ export function ChatComposer({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onToggleExecutionPolicyMenu, showExecutionPolicyMenu]);
+
+  useEffect(() => {
+    if (!showPicker) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      pickerMenuRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']")?.focus();
+    });
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onTogglePicker();
+        pickerTriggerRef.current?.focus({ preventScroll: true });
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onTogglePicker, showPicker]);
+
+  function handlePickerMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    const items = Array.from(
+      pickerMenuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']") ?? [],
+    );
+    if (items.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : event.key === "ArrowDown"
+          ? (currentIndex + 1 + items.length) % items.length
+          : (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex]?.focus();
+  }
 
   function beginQueueEdit(id: string, content: string): void {
     setEditingQueueId(id);
@@ -1327,26 +1372,33 @@ export function ChatComposer({
                 aria-label={tx("打开附件与快捷内容菜单", "Open attachments and quick content menu")}
                 className="contacts-picker-trigger"
                 onClick={onTogglePicker}
+                ref={pickerTriggerRef}
                 type="button"
               >
                 <AppIcon name="plus" />
               </button>
               {showPicker ? (
-                <div className="contacts-picker-menu" role="menu">
-                  <button className="contacts-picker-item" onClick={onInsertMentionTrigger} type="button">
+                <div
+                  aria-label={tx("附件与快捷内容", "Attachments and quick content")}
+                  className="contacts-picker-menu"
+                  onKeyDown={handlePickerMenuKeyDown}
+                  ref={pickerMenuRef}
+                  role="menu"
+                >
+                  <button className="contacts-picker-item" onClick={onInsertMentionTrigger} role="menuitem" type="button">
                     <span className="contacts-picker-item__icon"><AppIcon name="atSign" /></span>
                     <span>{tx("引用成员、文件或技能", "Reference people, files, or skills")}</span>
                   </button>
                   <div className="contacts-picker-divider" />
-                  <button className="contacts-picker-item" onClick={() => mediaInputRef.current?.click()} type="button">
+                  <button className="contacts-picker-item" onClick={() => mediaInputRef.current?.click()} role="menuitem" type="button">
                     <span className="contacts-picker-item__icon"><AppIcon name="open" /></span>
                     <span>{tx("图片/视频", "Images / Videos")}</span>
                   </button>
-                  <button className="contacts-picker-item" onClick={() => fileInputRef.current?.click()} type="button">
+                  <button className="contacts-picker-item" onClick={() => fileInputRef.current?.click()} role="menuitem" type="button">
                     <span className="contacts-picker-item__icon"><AppIcon name="knowledge" /></span>
                     <span>{tx("本地文件", "Local files")}</span>
                   </button>
-                  <button className="contacts-picker-item" onClick={() => folderInputRef.current?.click()} type="button">
+                  <button className="contacts-picker-item" onClick={() => folderInputRef.current?.click()} role="menuitem" type="button">
                     <span className="contacts-picker-item__icon"><AppIcon name="templates" /></span>
                     <span>{tx("本地文件夹", "Local folder")}</span>
                   </button>

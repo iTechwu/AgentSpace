@@ -163,6 +163,58 @@ export function ChannelWorkspaceHeader({
   const canManageChannel = selectedChannel.canManage !== false;
   const canRenameChannel = canRenameChannelFromHeader(selectedChannel);
 
+  useEffect(() => {
+    const openMenuRoot = showHeaderMenu
+      ? headerMenuRef.current
+      : showCreateMenu
+        ? createMenuRef.current
+        : null;
+    if (!openMenuRoot) {
+      return;
+    }
+    const menuRoot = openMenuRoot;
+    const frame = window.requestAnimationFrame(() => {
+      menuRoot.querySelector<HTMLButtonElement>("[role='menuitem']")?.focus();
+    });
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      if (showHeaderMenu) {
+        onShowHeaderMenu();
+      } else {
+        onOpenCreateMenu();
+      }
+      menuRoot.querySelector<HTMLButtonElement>("[aria-haspopup='menu']")?.focus({ preventScroll: true });
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [createMenuRef, headerMenuRef, onOpenCreateMenu, onShowHeaderMenu, showCreateMenu, showHeaderMenu]);
+
+  function handleMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("[role='menuitem']"));
+    if (items.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : event.key === "ArrowDown"
+          ? (currentIndex + 1 + items.length) % items.length
+          : (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex]?.focus();
+  }
+
   return (
     <header className="channel-workspace-header">
       <div className="channel-workspace-header__top">
@@ -263,27 +315,34 @@ export function ChannelWorkspaceHeader({
               <div className="channel-workspace-header__menu-wrap" ref={headerMenuRef}>
                 <HeaderIconButton
                   active={showHeaderMenu}
+                  expanded={showHeaderMenu}
+                  hasPopup
                   label={tx("更多", "More")}
                   onClick={onShowHeaderMenu}
                 >
                   <MoreIcon />
                 </HeaderIconButton>
                 {showHeaderMenu ? (
-                  <div className="channel-workspace-header__menu">
-                    <button className="channel-workspace-header__menu-item" onClick={onCreateAnnouncement} type="button">
+                  <div
+                    aria-label={tx("更多操作", "More actions")}
+                    className="channel-workspace-header__menu"
+                    onKeyDown={handleMenuKeyDown}
+                    role="menu"
+                  >
+                    <button className="channel-workspace-header__menu-item" onClick={onCreateAnnouncement} role="menuitem" type="button">
                       <AddCardIcon />
                       <span>{tx("添加群公告", "Add announcement")}</span>
                     </button>
-                    <button className="channel-workspace-header__menu-item" onClick={onCreateLabelPage} type="button">
+                    <button className="channel-workspace-header__menu-item" onClick={onCreateLabelPage} role="menuitem" type="button">
                       <AddCardIcon />
                       <span>{tx("添加标签页", "Add tab page")}</span>
                     </button>
-                    <button className="channel-workspace-header__menu-item" onClick={onOpenTaskBoard} type="button">
+                    <button className="channel-workspace-header__menu-item" onClick={onOpenTaskBoard} role="menuitem" type="button">
                       <EditIcon />
                       <span>{tx("查看任务", "View tasks")}</span>
                     </button>
                     {canRenameChannel ? (
-                      <button className="channel-workspace-header__menu-item" onClick={onOpenRename} type="button">
+                      <button className="channel-workspace-header__menu-item" onClick={onOpenRename} role="menuitem" type="button">
                         <EditIcon />
                         <span>{tx("修改群名", "Rename group")}</span>
                       </button>
@@ -293,6 +352,7 @@ export function ChannelWorkspaceHeader({
                         className="channel-workspace-header__menu-item channel-workspace-header__menu-item--danger"
                         disabled={pending}
                         onClick={onDeleteChannel}
+                        role="menuitem"
                         type="button"
                       >
                         <TrashIcon />
@@ -336,6 +396,8 @@ export function ChannelWorkspaceHeader({
         />
         <div className="channel-workspace-header__menu-wrap" ref={createMenuRef}>
           <button
+            aria-expanded={showCreateMenu}
+            aria-haspopup="menu"
             aria-label={tx("新建内容", "Create content")}
             className="channel-workspace-header__tab-plus"
             disabled={!contentTabsEnabled}
@@ -346,20 +408,25 @@ export function ChannelWorkspaceHeader({
             <AppIcon name="plus" />
           </button>
           {showCreateMenu ? (
-            <div className="channel-workspace-header__menu channel-workspace-header__menu--compact">
-              <button className="channel-workspace-header__menu-item" onClick={onUploadFiles} type="button">
+            <div
+              aria-label={tx("新建内容", "Create content")}
+              className="channel-workspace-header__menu channel-workspace-header__menu--compact"
+              onKeyDown={handleMenuKeyDown}
+              role="menu"
+            >
+              <button className="channel-workspace-header__menu-item" onClick={onUploadFiles} role="menuitem" type="button">
                 <FolderIcon />
                 <span>{tx("上传文件", "Upload files")}</span>
               </button>
-              <button className="channel-workspace-header__menu-item" onClick={onCreateDocument} type="button">
+              <button className="channel-workspace-header__menu-item" onClick={onCreateDocument} role="menuitem" type="button">
                 <CloudDocIcon />
                 <span>{tx("新建云文档", "New cloud doc")}</span>
               </button>
-              <button className="channel-workspace-header__menu-item" onClick={onCreateNativeSheet} type="button">
+              <button className="channel-workspace-header__menu-item" onClick={onCreateNativeSheet} role="menuitem" type="button">
                 <SheetIcon />
                 <span>{tx("新建表格", "New sheet")}</span>
               </button>
-              <button className="channel-workspace-header__menu-item" onClick={onCreateNativeDeck} type="button">
+              <button className="channel-workspace-header__menu-item" onClick={onCreateNativeDeck} role="menuitem" type="button">
                 <CloudDocIcon />
                 <span>{tx("新建 Deck", "New deck")}</span>
               </button>

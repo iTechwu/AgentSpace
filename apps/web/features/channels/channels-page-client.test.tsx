@@ -1031,11 +1031,31 @@ describe("ChannelsPageClient", () => {
     expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/calendar");
     expect(routerPushMock).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "更多" }));
-    await user.click(screen.getByRole("button", { name: "查看任务" }));
+    const moreTrigger = screen.getByRole("button", { name: "更多" });
+    await user.click(moreTrigger);
+    expect(moreTrigger).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "添加群公告" })).toHaveFocus();
+    });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu", { name: "更多操作" })).not.toBeInTheDocument();
+    expect(moreTrigger).toHaveFocus();
+
+    await user.click(moreTrigger);
+    await user.click(screen.getByRole("menuitem", { name: "查看任务" }));
 
     expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/task/board");
     expect(routerPushMock).not.toHaveBeenCalled();
+
+    const createTrigger = screen.getByRole("button", { name: "新建内容" });
+    await user.click(createTrigger);
+    expect(createTrigger).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "上传文件" })).toHaveFocus();
+    });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu", { name: "新建内容" })).not.toBeInTheDocument();
+    expect(createTrigger).toHaveFocus();
   });
 
   it("falls back to router navigation for header workspace modules outside the workbench", async () => {

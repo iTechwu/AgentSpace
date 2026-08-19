@@ -1085,11 +1085,20 @@ describe("ConversationShell", () => {
       </LanguageProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: "打开附件与快捷内容菜单" }));
+    const pickerTrigger = screen.getByRole("button", { name: "打开附件与快捷内容菜单" });
+    await user.click(pickerTrigger);
     expect(screen.getByRole("menu")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "引用成员、文件或技能" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "本地文件" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "本地文件夹" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "引用成员、文件或技能" })).toHaveFocus();
+    });
+    expect(screen.getByRole("menuitem", { name: "本地文件" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "本地文件夹" })).toBeInTheDocument();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "图片/视频" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(pickerTrigger).toHaveFocus();
   });
 
   it("adds pasted images and documents to the composer for preview, removal, and sending", async () => {

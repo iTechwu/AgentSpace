@@ -307,18 +307,24 @@ export function HeaderIconButton({
   active = false,
   children,
   describedBy,
+  expanded,
+  hasPopup = false,
   label,
   onClick,
 }: {
   active?: boolean;
   children: React.ReactNode;
   describedBy?: string;
+  expanded?: boolean;
+  hasPopup?: boolean;
   label: string;
   onClick?: () => void;
 }) {
   return (
     <button
       aria-describedby={describedBy}
+      aria-expanded={expanded}
+      aria-haspopup={hasPopup ? "menu" : undefined}
       aria-label={label}
       className={`channel-workspace-header__icon-button${active ? " channel-workspace-header__icon-button--active" : ""}`}
       disabled={!onClick}
