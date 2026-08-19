@@ -47,6 +47,50 @@ test("keeps first-visit onboarding keyboard-modal and the workspace interactive 
   expect(browserIssues).toEqual([]);
 });
 
+test("restores modal triggers after closing search, contact invite, and CLI creation", async ({ page }) => {
+  const browserIssues: string[] = [];
+  page.on("pageerror", (error) => browserIssues.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") browserIssues.push(message.text());
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 500) browserIssues.push(`${response.status()} ${response.url()}`);
+  });
+
+  const session = await openSeededWorkspacePage(page, "/im");
+  const searchTrigger = page.getByRole("button", { name: /打开(?:全局)?搜索|Open (?:global )?search/i }).filter({ visible: true });
+  await searchTrigger.click();
+  const searchDialog = page.getByRole("dialog", { name: /全局搜索|Global search/i });
+  await expect(searchDialog).toHaveAttribute("aria-modal", "true");
+  await expect(page.getByRole("textbox", { name: /搜索工作区内容|Search workspace content/i })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(searchDialog).toBeHidden();
+  await expect(searchTrigger).toBeFocused();
+
+  await page.goto(`/w/${session.workspaceSlug}/contacts`);
+  const addContactTrigger = page.getByRole("button", { name: /添加真人联系人|Add person/i }).filter({ visible: true });
+  await addContactTrigger.click();
+  const contactDialog = page.getByRole("dialog", { name: /添加真人联系人|Add human contact/i });
+  await expect(contactDialog).toHaveAttribute("aria-modal", "true");
+  await expect(contactDialog.getByRole("button", { name: /关闭添加真人联系人|Close add human contact/i })).toBeVisible();
+  await expect(contactDialog.getByRole("textbox", { name: /外部联系人邮箱|External contact email/i })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(contactDialog).toBeHidden();
+  await expect(addContactTrigger).toBeFocused();
+
+  await page.goto(`/w/${session.workspaceSlug}/market`);
+  const addCliTrigger = page.getByRole("button", { name: /添加 CLI|Add CLI/i }).filter({ visible: true });
+  await addCliTrigger.click();
+  const cliDialog = page.getByRole("dialog", { name: /添加工作区私有 CLI|Add workspace-private CLI/i });
+  await expect(cliDialog).toHaveAttribute("aria-modal", "true");
+  await expect(cliDialog.getByRole("textbox", { name: /显示名称|Display name/i })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(cliDialog).toBeHidden();
+  await expect(addCliTrigger).toBeFocused();
+
+  expect(browserIssues).toEqual([]);
+});
+
 test("preserves the IM composer draft across workbench module switches", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
   const draft = `draft-${Date.now().toString(36)}`;
