@@ -27,6 +27,7 @@
     "@uiw/react-md-editor": "^4.1.1",
     "@xyflow/react": "^12.11.3",
     "dofe-agent-daemon": "workspace:*",
+    "geist": "^1.7.2",
     "next": "^16.3.0",
     "pg": "^8.23.0",
     "react": "^19.2.0",

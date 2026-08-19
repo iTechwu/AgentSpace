@@ -43,12 +43,12 @@ export function AuthScreen({
   const activeTour = tours.find((tour) => tour.id === activeTourId) ?? tours[0];
   const ssoStartUrl = externalSsoStartUrl ?? "/api/auth/sso/start";
   const brandVision = process.env.NEXT_PUBLIC_BRAND_VISION?.trim() || tx(
-    "Do For E —— 一份开放宣言。dofe 不只是一套 AI 系统：它是为员工、企业与赋能而生的执行引擎。",
-    "Do For E — an open manifesto. dofe is more than an AI system: it's an execution engine built for Employees, Enterprises, and Empowerment.",
+    "成为受世界尊敬的中国企业",
+    "Become a globally respected Chinese enterprise",
   );
   const brandMission = process.env.NEXT_PUBLIC_BRAND_MISSION?.trim() || tx(
-    "像海豚一样温暖，像钢铁一样可靠。连接孤岛，构建智能生态，让每一次执行都走向卓越。",
-    "Warm like a dolphin, reliable as iron. We connect silos, build intelligent ecosystems, and make every execution a step toward excellence.",
+    "成就中国智造的全球竞争力",
+    "Strengthen the global competitiveness of intelligent manufacturing from China",
   );
   const primaryEntryLabel = tx("使用 Dofe SSO 登录", "Continue with Dofe SSO");
   const eWords = buildEWords(tx);
@@ -302,18 +302,25 @@ export function AuthScreen({
           </div>
           <div className="public-brand-story__promise">
             <article>
-              <span>{tx("理念", "Philosophy")}</span>
+              <span>{tx("愿景", "Vision")}</span>
               <strong>{brandVision}</strong>
             </article>
             <article>
-              <span>{tx("承诺", "Commitment")}</span>
+              <span>{tx("使命", "Mission")}</span>
               <strong>{brandMission}</strong>
             </article>
             <article>
-              <span>{tx("公开宣言", "Open manifesto")}</span>
+              <span>{tx("理念", "Philosophy")}</span>
               <strong>{tx(
                 "Do For E —— 不只是一套 AI 系统，更是为员工、企业与赋能而生的执行引擎。",
                 "Do For E — an open manifesto. More than an AI system: an execution engine built for Employees, Enterprises, and Empowerment.",
+              )}</strong>
+            </article>
+            <article>
+              <span>{tx("承诺", "Commitment")}</span>
+              <strong>{tx(
+                "像海豚一样温暖，像钢铁一样可靠。连接孤岛，构建智能生态，让每一次执行都走向卓越。",
+                "Warm like a dolphin, reliable as iron. We connect silos, build intelligent ecosystems, and make every execution a step toward excellence.",
               )}</strong>
             </article>
             <p>

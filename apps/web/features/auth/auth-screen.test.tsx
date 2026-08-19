@@ -28,7 +28,9 @@ describe("AuthScreen", () => {
     expect(screen.getByRole("heading", { level: 1, name: "agent.dofe" })).toBeInTheDocument();
     expect(document.querySelector(".public-hero__statement")).toHaveTextContent("人类与数字员工，共用一个工作空间。");
     expect(screen.getByText("Do For Employee · Do For Enterprise · Do For Empowerment", { selector: ".public-brand-story__tagline" })).toBeInTheDocument();
-    expect(screen.getByText(/Do For E —— 一份开放宣言/)).toBeInTheDocument();
+    expect(screen.getByText("成为受世界尊敬的中国企业")).toBeInTheDocument();
+    expect(screen.getByText("成就中国智造的全球竞争力")).toBeInTheDocument();
+    expect(screen.getByText(/Do For E —— 不只是一套 AI 系统/)).toBeInTheDocument();
     expect(screen.getByText(/像海豚一样温暖/)).toBeInTheDocument();
   });
 

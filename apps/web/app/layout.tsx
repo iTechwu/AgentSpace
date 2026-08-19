@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { GeistSans } from "geist/font/sans";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import "@xyflow/react/dist/style.css";
@@ -24,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang={initialLanguage === "zh" ? "zh-CN" : "en"} suppressHydrationWarning>
-      <body>
+      <body className={GeistSans.variable}>
         <LanguageProvider initialLanguage={initialLanguage}>
           <FeedbackToastProvider>{children}</FeedbackToastProvider>
         </LanguageProvider>
