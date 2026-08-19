@@ -107,6 +107,28 @@ test("keeps message bubbles and hover actions inside the thread at desktop and m
   }
 });
 
+test("links the add-members tooltip to its button and closes it when the dialog opens", async ({ page }) => {
+  await openSeededWorkspacePage(page, "/im");
+  const addMembersButton = page.getByRole("button", { name: /添加群成员|Add members/i });
+  await expect(addMembersButton).toBeVisible();
+  await addMembersButton.hover();
+
+  const tooltip = page.getByRole("tooltip", { name: /添加群成员|Add members/i });
+  await expect(tooltip).toHaveCount(1);
+  await expect(tooltip).toBeVisible();
+  await expect(addMembersButton).toHaveAttribute("aria-describedby", await tooltip.getAttribute("id") ?? "");
+  const tooltipBounds = await tooltip.boundingBox();
+  const viewport = page.viewportSize();
+  expect(tooltipBounds).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(tooltipBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(tooltipBounds!.x + tooltipBounds!.width).toBeLessThanOrEqual(viewport!.width);
+
+  await addMembersButton.click();
+  await expect(page.getByRole("dialog", { name: /添加群成员|Add members/i })).toBeVisible();
+  await expect(tooltip).toBeHidden();
+});
+
 test("restores the selected IM conversation after refresh", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
 
