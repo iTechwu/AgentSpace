@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { AgentsPageClient } from "@/features/agents/agents-page-client";
 import { WorkspaceInitialModuleData } from "@/features/dashboard/workspace-initial-module-data";
 import { loadWorkspaceModuleDataWithMeta } from "@/features/dashboard/workspace-module-loaders";
@@ -11,6 +12,11 @@ import { redirect } from "next/navigation";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "员工管理",
+  description: "管理与配置工作区的数字员工。",
+};
 
 export default async function WorkspaceAgentsPage({
   params,

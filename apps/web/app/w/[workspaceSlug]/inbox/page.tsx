@@ -1,7 +1,13 @@
+import type { Metadata } from "next";
 import { InboxPageClient } from "@/features/inbox/inbox-page-client";
 import { renderWorkspaceModule } from "../_lib/render-workspace-module";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "通知",
+  description: "查看需要你关注的通知与动态。",
+};
 
 export default async function WorkspaceInboxPage({
   params,

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { listManagedRuntimesForWorkspaceSync, listManagedRuntimeTasksSync, listManagedExecutionNodesSync, resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
 import { notFound } from "next/navigation";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
@@ -5,6 +6,11 @@ import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { RuntimesPageClient } from "@/features/runtimes/runtimes-page-client";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "执行引擎管理",
+  description: "管理工作区的执行引擎与运行时环境。",
+};
 
 export default async function WorkspaceRuntimesPage({
   params,

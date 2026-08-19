@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { HumanContactsPageClient } from "@/features/contacts/human-contacts-page-client";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
@@ -6,6 +7,11 @@ import { loadWorkspaceModuleDataWithMeta } from "@/features/dashboard/workspace-
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "联系人",
+  description: "管理工作区的联系人与通讯录。",
+};
 
 export default async function WorkspaceContactsPage({
   params,

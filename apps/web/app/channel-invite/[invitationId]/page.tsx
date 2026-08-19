@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -13,6 +14,12 @@ import { getCurrentUser } from "@/features/auth/server-auth";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "群邀请",
+  description: "接受或拒绝 DoFe.AI 工作区的群（频道）协作邀请。",
+  robots: { index: false },
+};
 
 export default async function ChannelInvitationPage({
   params,

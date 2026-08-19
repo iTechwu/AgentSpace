@@ -1,9 +1,15 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { WorkflowBuilderClient } from "@/features/workflows/workflow-builder-client";
 import { getWorkflowBuilderPageDataAsync } from "@/features/workflows/workflow-data";
 import { getWorkspacePageContext } from "../../_lib/workspace-page-context";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "编排详情",
+  description: "查看与编辑单个工作流编排。",
+};
 
 export default async function EditWorkflowPage({
   params,

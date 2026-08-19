@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { getRuntimeProvisioningTaskDetailSync, resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
 import { notFound } from "next/navigation";
 import { getWorkspacePageContext } from "../../_lib/workspace-page-context";
@@ -5,6 +6,11 @@ import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { RuntimeTaskDetailClient } from "@/features/runtimes/task-detail-client";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "任务执行详情",
+  description: "查看任务执行的过程与产物。",
+};
 
 export default async function RuntimeTaskDetailPage({
   params,

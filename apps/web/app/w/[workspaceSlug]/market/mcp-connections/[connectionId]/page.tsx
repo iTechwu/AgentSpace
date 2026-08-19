@@ -1,9 +1,15 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { McpConnectionDetailPageClient } from "@/features/market/mcp-connection-detail-client";
 import { loadMcpConnectionDetailPageData } from "@/features/market/mcp-connection-detail-loader";
 import { getWorkspacePageContext } from "../../../_lib/workspace-page-context";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "MCP 连接详情",
+  description: "查看单个 MCP 连接的配置与运行状态。",
+};
 
 export default async function McpConnectionDetailPage({
   params,

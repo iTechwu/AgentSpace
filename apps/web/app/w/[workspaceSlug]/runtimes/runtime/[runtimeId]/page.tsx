@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
@@ -14,6 +15,11 @@ import { loadMarketPageData } from "@/features/market/market-page-loader";
 import { AppIcon } from "@/shared/ui/app-icon";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "执行引擎详情",
+  description: "查看单个执行引擎的运行状态与配置。",
+};
 
 export default async function ManagedRuntimeDetailPage({
   params,

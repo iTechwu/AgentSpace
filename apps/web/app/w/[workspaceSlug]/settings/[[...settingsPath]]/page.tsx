@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentSession } from "@/features/auth/server-auth";
 import { getWorkspaceContextForIdentifier } from "@/features/auth/server-workspace";
@@ -17,6 +18,11 @@ import {
 import { normalizeWorkspaceSlugParam } from "../../_lib/workspace-slug";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "设置",
+  description: "管理工作区、成员与个人设置。",
+};
 
 const SSO_PROFILE_URL = "https://sso.ixicai.cn/zh/settings/profile";
 const SSO_TEAM_SETTINGS_URL = "https://sso.ixicai.cn/zh/settings/team";

@@ -1,9 +1,15 @@
+import type { Metadata } from "next";
 import { ChannelsPageClient } from "@/features/channels/channels-page-client";
 import { WorkspaceInitialModuleData } from "@/features/dashboard/workspace-initial-module-data";
 import { loadWorkspaceModuleDataWithMeta } from "@/features/dashboard/workspace-module-loaders";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "消息",
+  description: "与数字员工协作的会话工作台。",
+};
 
 export default async function WorkspaceMessagesPage({
   params,

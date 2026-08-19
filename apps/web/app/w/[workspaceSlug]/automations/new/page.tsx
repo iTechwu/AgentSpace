@@ -1,9 +1,15 @@
+import type { Metadata } from "next";
 import { WorkflowBuilderClient } from "@/features/workflows/workflow-builder-client";
 import { getWorkflowBuilderPageDataAsync } from "@/features/workflows/workflow-data";
 import type { WorkflowBuilderEntry } from "@/features/workflows/workflow-types";
 import { getWorkspacePageContext } from "../../_lib/workspace-page-context";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "新建编排",
+  description: "从零创建新的工作流编排。",
+};
 
 export default async function NewWorkflowPage({
   params,
