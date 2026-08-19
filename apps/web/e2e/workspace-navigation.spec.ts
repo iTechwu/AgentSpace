@@ -295,13 +295,9 @@ test("closes the mobile sidebar after module navigation and restores with back",
   const session = await openSeededWorkspacePage(page, "/im");
   const layout = page.locator(".workspace-layout");
 
-  await expect.poll(async () => {
-    const isOpen = await layout.evaluate((element) => element.classList.contains("workspace-layout--sidebar-open"));
-    if (!isOpen) {
-      await page.getByRole("button", { name: /打开导航|Open navigation/i }).click();
-    }
-    return layout.evaluate((element) => element.classList.contains("workspace-layout--sidebar-open"));
-  }).toBe(true);
+  await expect(layout).not.toHaveClass(/workspace-layout--sidebar-open/);
+  await page.getByRole("button", { name: /打开导航|Open navigation/i }).click();
+  await expect(layout).toHaveClass(/workspace-layout--sidebar-open/);
 
   await page.getByRole("link", { name: /打开任务|Open tasks/i }).click();
   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task/board(?:\\?.*)?$`));
