@@ -19437,6 +19437,58 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.workflow-canvas-node__label {
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  width: 100%;
+  line-height: 1.2;
+}
+
+.workflow-canvas-node__label strong { max-width: 156px; overflow: hidden; text-overflow: ellipsis; }
+.workflow-canvas-node__label small { color: var(--success); font-size: 10px; font-weight: 600; }
+.workflow-canvas-node--delivery { box-shadow: inset 0 -3px 0 var(--success-soft); }
+
+.workflow-builder-viewport .react-flow__node.workflow-canvas-boundary {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-strong) 86%, transparent);
+  color: var(--muted);
+  cursor: default;
+  padding: 8px 10px;
+}
+
+.workflow-builder-viewport .react-flow__node.workflow-canvas-boundary--delivery {
+  border-color: var(--success);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.workflow-builder-viewport .react-flow__node.workflow-canvas-boundary--incomplete {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.workflow-canvas-boundary__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  text-align: left;
+}
+
+.workflow-canvas-boundary__label > svg { width: 16px; flex: none; }
+.workflow-canvas-boundary__label > span { display: grid; gap: 2px; min-width: 0; }
+.workflow-canvas-boundary__label strong,
+.workflow-canvas-boundary__label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-canvas-boundary__label strong { color: currentColor; font-size: 12px; }
+.workflow-canvas-boundary__label small { font-size: 9px; font-weight: 400; }
+.workflow-builder-viewport .react-flow__edge.workflow-canvas-edge--boundary path { stroke-dasharray: 4 4; }
+.workflow-builder-viewport .react-flow__edge.workflow-canvas-edge--incomplete path { stroke: var(--warning); }
+
 .workflow-builder-viewport .react-flow__controls,
 .workflow-builder-viewport .react-flow__minimap {
   border: 1px solid var(--line);
@@ -19550,6 +19602,25 @@ textarea:focus {
 
 .workflow-node-list li { border-bottom: 1px solid var(--line); }
 .workflow-node-list li[data-error="true"] { box-shadow: inset 3px 0 0 var(--danger); }
+.workflow-node-list__boundary {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  border-bottom: 1px dashed var(--line) !important;
+  color: var(--muted);
+  padding: 8px 12px;
+}
+
+.workflow-node-list__boundary > svg { width: 17px; }
+.workflow-node-list__boundary > span { display: grid; gap: 2px; }
+.workflow-node-list__boundary strong { color: var(--text); font-size: 12px; }
+.workflow-node-list__boundary small { font-size: 11px; }
+.workflow-node-list__boundary--delivery { background: var(--success-soft); color: var(--success); }
+.workflow-node-list__boundary--delivery strong { color: var(--success); }
+.workflow-node-list__boundary--incomplete { background: var(--warning-soft); color: var(--warning); }
+.workflow-node-list__boundary--incomplete strong { color: var(--warning); }
 .workflow-node-list button {
   display: grid;
   grid-template-columns: 28px minmax(160px, 1fr) minmax(120px, auto);

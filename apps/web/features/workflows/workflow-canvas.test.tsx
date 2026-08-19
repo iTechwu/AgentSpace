@@ -2,7 +2,7 @@ import { useReducer, useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { WorkflowCanvas } from "./workflow-canvas";
+import { WorkflowCanvas, toCanvasGraph } from "./workflow-canvas";
 import { createWorkflowDraftState, workflowDraftReducer } from "./workflow-builder-reducer";
 
 const EMPLOYEES = [{ id: "emp-a", name: "AI 员工步骤" }];
@@ -41,6 +41,36 @@ function WorkflowCanvasHarness() {
 }
 
 describe("WorkflowCanvas", () => {
+  it("adds non-editable start and delivery anchors around a valid workflow", () => {
+    const canvas = toCanvasGraph({
+      schemaVersion: 1,
+      nodes: [
+        { id: "draft", type: "employee_task", employeeId: "emp-a", config: {} },
+        { id: "deliver", type: "employee_task", employeeId: "emp-a", config: {} },
+      ],
+      edges: [{ source: "draft", target: "deliver" }],
+    }, EMPLOYEES);
+
+    expect(canvas.nodes.filter((node) => node.className?.includes("workflow-canvas-boundary"))).toHaveLength(2);
+    expect(canvas.nodes.find((node) => node.id === "deliver")?.className).toContain("workflow-canvas-node--delivery");
+    expect(canvas.edges.filter((edge) => edge.className?.includes("workflow-canvas-edge--boundary"))).toHaveLength(2);
+  });
+
+  it("marks a terminal join as an incomplete delivery", () => {
+    const canvas = toCanvasGraph({
+      schemaVersion: 1,
+      nodes: [
+        { id: "left", type: "employee_task", employeeId: "emp-a", config: {} },
+        { id: "right", type: "employee_task", employeeId: "emp-a", config: {} },
+        { id: "join", type: "join", config: { policy: "all_success" } },
+      ],
+      edges: [{ source: "left", target: "join" }, { source: "right", target: "join" }],
+    }, EMPLOYEES);
+
+    expect(canvas.nodes.some((node) => node.className?.includes("workflow-canvas-boundary--incomplete"))).toBe(true);
+    expect(canvas.nodes.find((node) => node.id === "join")?.className).not.toContain("workflow-canvas-node--delivery");
+  });
+
   it("refits the canvas after the workflow topology changes", async () => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callback(0);
@@ -72,6 +102,7 @@ describe("WorkflowCanvas", () => {
     await user.click(screen.getByRole("tab", { name: "列表" }));
     expect(screen.getByRole("list", { name: "流程结构" })).toHaveTextContent("AI 员工步骤");
     expect(screen.getByRole("list", { name: "流程结构" })).toHaveTextContent("汇总步骤");
+    expect(screen.getByRole("list", { name: "流程结构" })).toHaveTextContent("最终交付未设置");
   });
 
   it("marks invalid nodes in the list alternative", async () => {

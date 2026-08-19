@@ -131,6 +131,18 @@ describe("workflow builder", () => {
     expect(screen.queryByRole("region", { name: "添加并行分支" })).not.toBeInTheDocument();
   });
 
+  it("names the terminal employee as the final delivery source", async () => {
+    const user = userEvent.setup();
+    renderBuilder();
+
+    await user.click(screen.getByRole("button", { name: /3.*流程/ }));
+    expect(screen.getByText(/最终交付：员工 D 的执行结果/)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /5.*预览/ }));
+    expect(screen.getByText("最终交付", { selector: "dt" })).toBeVisible();
+    expect(screen.getByText("员工 D 的执行结果")).toBeVisible();
+  });
+
   it("preflights and publishes a serial plus parallel workflow", async () => {
     const user = userEvent.setup();
     renderBuilder("calendar");

@@ -21,6 +21,7 @@ import {
 } from "./workflow-builder-reducer";
 import { validateWorkflowDraft } from "./workflow-client-validation";
 import { WorkflowCanvas } from "./workflow-canvas";
+import { workflowGraphBoundaries, workflowNodeLabel } from "./workflow-node-list-view";
 import { WorkflowPreflightPanel, workflowPreflightBlockerLabel } from "./workflow-preflight-panel";
 import type {
   WorkflowBuilderEmployee,
@@ -104,6 +105,11 @@ export function WorkflowBuilderClient({
     () => ({ schemaVersion: 1, nodes: draft.nodes, edges: draft.edges }),
     [draft.edges, draft.nodes],
   );
+  const graphBoundaries = useMemo(() => workflowGraphBoundaries(graph), [graph]);
+  const terminalNode = draft.nodes.find((node) => node.id === graphBoundaries.terminalNodeId);
+  const finalDeliveryLabel = terminalNode && terminalNode.type !== "join"
+    ? `${workflowNodeLabel(terminalNode, employees)} 的执行结果`
+    : "未设置";
   const estimatedCostUsd = useMemo(() => draft.nodes.reduce((total, node) => {
     const estimate = node.config.estimatedCostUsd;
     if (!(typeof estimate === "number" && Number.isFinite(estimate) && estimate > 0)) return total;
@@ -378,7 +384,7 @@ export function WorkflowBuilderClient({
             <div className="workflow-wizard__section-heading">
               <div>
                 <h2 id="workflow-step-title">设计执行流程</h2>
-                <p>{draft.nodes.length} 个步骤 · {draft.edges.length} 条连接</p>
+                <p>{draft.nodes.length} 个步骤 · {draft.edges.length} 条连接 · 最终交付：{finalDeliveryLabel}</p>
               </div>
               <button aria-expanded={showParallelBuilder} className="knowledge-btn" onClick={() => setShowParallelBuilder((current) => !current)} type="button">
                 <AppIcon name="orgChart" />并行分支
@@ -411,7 +417,7 @@ export function WorkflowBuilderClient({
         ) : null}
         {activeStep === 4 ? (
           <div className="workflow-wizard__preview">
-            <dl><div><dt>名称</dt><dd>{name || "未填写"}</dd></div><div><dt>发布版本</dt><dd>{initial?.publishedVersionNumber ? `版本 ${initial.publishedVersionNumber}` : "尚未发布"}</dd></div><div><dt>草稿修订</dt><dd>{draft.draftVersion > 0 ? `修订 ${draft.draftVersion}` : "未保存"}</dd></div><div><dt>影响范围</dt><dd>当前工作区 {workspaceSlug}</dd></div><div><dt>负责人</dt><dd>{ownerLabel}</dd></div><div><dt>通知</dt><dd>{notificationMode === "channel" ? channelName ? `#${channelName}` : "未选择频道" : "仅站内状态"}</dd></div><div><dt>触发</dt><dd>{triggerLabel(triggerType)}</dd></div><div><dt>最大并发</dt><dd>{maxConcurrency}</dd></div><div><dt>预计成本</dt><dd>{estimatedCostUsd > 0 ? `$${estimatedCostUsd.toFixed(2)}` : "未设置预计成本"}</dd></div><div><dt>AI 员工步骤</dt><dd>{draft.nodes.filter((node) => node.type === "employee_task").length}</dd></div><div><dt>并行汇聚</dt><dd>{draft.nodes.filter((node) => node.type === "join").length}</dd></div></dl>
+            <dl><div><dt>名称</dt><dd>{name || "未填写"}</dd></div><div><dt>发布版本</dt><dd>{initial?.publishedVersionNumber ? `版本 ${initial.publishedVersionNumber}` : "尚未发布"}</dd></div><div><dt>草稿修订</dt><dd>{draft.draftVersion > 0 ? `修订 ${draft.draftVersion}` : "未保存"}</dd></div><div><dt>影响范围</dt><dd>当前工作区 {workspaceSlug}</dd></div><div><dt>负责人</dt><dd>{ownerLabel}</dd></div><div><dt>通知</dt><dd>{notificationMode === "channel" ? channelName ? `#${channelName}` : "未选择频道" : "仅站内状态"}</dd></div><div><dt>触发</dt><dd>{triggerLabel(triggerType)}</dd></div><div><dt>最终交付</dt><dd>{finalDeliveryLabel}</dd></div><div><dt>最大并发</dt><dd>{maxConcurrency}</dd></div><div><dt>预计成本</dt><dd>{estimatedCostUsd > 0 ? `$${estimatedCostUsd.toFixed(2)}` : "未设置预计成本"}</dd></div><div><dt>AI 员工步骤</dt><dd>{draft.nodes.filter((node) => node.type === "employee_task").length}</dd></div><div><dt>并行汇聚</dt><dd>{draft.nodes.filter((node) => node.type === "join").length}</dd></div></dl>
             <WorkflowPreflightPanel isPending={pendingAction === "preflight"} onFocusNode={focusNode} onRun={() => void runPreflight()} validation={validation} />
           </div>
         ) : null}
