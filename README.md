@@ -262,7 +262,6 @@ dofe-agent daemon status --json
 ```bash
 pnpm run db:pg:status -- --json
 pnpm run db:pg:init
-pnpm run db:pg:migrate -- --dry-run --sqlite-path data/dofe-agent.sqlite --json
 ```
 
 ### Path C：接入远程 Daemon
@@ -480,7 +479,7 @@ Node 版本策略与运行时矩阵见 [docs/0814/node-runtime-matrix.md](docs/0
 已实现：
 
 - 多租户工作空间、Dofe SSO 登录、工作空间成员体系和访问控制
-- PostgreSQL 主存储（126 张表，SQLite→PG 无缝迁移）、TOS 附件对象存储和可靠通知
+- PostgreSQL 主存储（126 张表）、TOS 附件对象存储和可靠通知
 - 频道文档、知识库、全局搜索、审批、任务看板、预算、成本和性能仪表盘
 - 远程 daemon、runtime sharing、AgentRouter harness switching（claude/codex/antigravity/opencode/openclaw/hermes）、OpenClaw provider health
 - 飞书 Bot 通信、飞书文档/表格/多维表格资源绑定和受治理的数据操作
