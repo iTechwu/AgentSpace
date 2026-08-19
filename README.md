@@ -56,10 +56,6 @@ AI 员工不只是被调用的工具，而是可以一起工作、被管理、�
 - 📋 **审计所有过程** — 完整查看 Agent 的动作、决策和输出<br>
 - 🔄 **共享和转移 Agent** — 让数字员工跨团队、跨部门流转
 
-```bash
-pnpm run setup && pnpm dev
-```
-
 ---
 
 ## 部署方式
@@ -74,30 +70,6 @@ agent.dofe 支持两种部署模式，可以按团队需要选择：
 两种模式运行同一套产品能力：数字员工、AgentRouter 调度、workspace 权限、审批流、远程 daemon 执行和可审计产物。二者没有功能断层。
 
 需要一次性部署 PostgreSQL、Web/API 和 Claude Code、Codex daemon 时，请使用 [deploy/self-hosted](deploy/self-hosted/README.md)。其中 Claude daemon 会自动托管飞书 Bot worker，无需另行启动 worker。
-
----
-
-## 最新动态
-
-- **2026-08-19** — 补充页面流程浏览器测试报告（[docs/0819/browser-test-report.md](docs/0819/browser-test-report.md)），完成本轮回归测试并修复 Runtime 模型目录异常加载状态。
-
-- **2026-08-18** — 工作流引擎完成双 Runner 五对象对照与恢复入口统一切流；Pager 告警按域区分来源并按 SLO 窗口去重；员工数据保护恢复清理增加并发版本校验。
-
-- **2026-08-17** — 全量文档清理完成：`docs/` 目录建立唯一索引与行尾状态标记约定，消除断链。
-
-- **2026-07-13** — AgentRouter 已支持通过 `agy` 调用 Google Antigravity CLI；Gemini CLI 保留为仍有访问权限用户的 legacy fallback。
-
-- **2026-07-09** — Slack 插件实现已推送到远程 `slack` 测试分支，用于集成测试和最终验收。
-
-- **2026-07-02** — 飞书功能已全部通过测试，并已合并到 `main` 分支。
-
-- **2026-06-26** — 本地 `quality:web` 命令现在更贴近 Web static-check 流程，会在 lint 和 Vitest 之前额外检查 Web 测试用 TypeScript project。
-
-- **2026-06-24** — OpenCode 已迁移到 AgentRouter 执行路径。OpenCode 任务现在与其他 AgentRouter harness 一样，统一使用 JSON event 归一化、session 传递、结构化诊断和 runtime tool PATH 能力注入。
-
-- **2026-06-22** — AgentRouter 现在支持 Claude Code、Codex、OpenCode、OpenClaw 和 Hermes。同一个 Agent 可以使用多个 runtime，AgentRouter 会自动为每个任务选择合适的执行路径。
-
-- **2026-06-21** — agent.dofe v1.0 首次发布。agent.dofe 是一个 agent-native 协作工作空间，让人类和 Agent 像一个团队一样工作，并内置调度、能力共享、多 Agent 协作和完整治理。
 
 ---
 
@@ -180,19 +152,6 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 | 人类手动在聊天、文档、表格和任务之间搬运上下文。 | 共享 workspace 让人类和 Agent 拥有同一个操作上下文。 |
 | 权限散落在工具、文件、凭据和外部账号里。 | 一个控制面集中管理授权、审批、委托和审计轨迹。 |
 | 工作最终停留在对话记录里。 | 工作沉淀为任务、文件、文档、runtime output、审批和可追踪历史。 |
-
----
-
-## agent.dofe 实战演示
-
-四个短 demo 分别对应四个核心能力。这些也是 landing page 使用的产品视频。
-
-| 能力 | 你会看到什么 | 视频 |
-| --- | --- | --- |
-| 🗓 **调度** | AgentRouter 让同一个 Agent 跨多个 runtime 执行，身份、上下文和技能始终保持稳定。 | [agentrouter-showcase.mp4](apps/web/public/showcase/agentrouter-showcase.mp4) |
-| 🧑‍💼 **能力** | 数字员工展板让私人 Agent 对全组织可见、可借用、可复用。 | [digital-employee-showcase.mp4](apps/web/public/showcase/digital-employee-showcase.mp4) |
-| 🤝 **协作** | 多个 Agent 协调推进一个高风险运营决策，并通过人类审批节点继续向前。 | [multi-agent-war-room.mp4](apps/web/public/showcase/multi-agent-war-room.mp4) |
-| 🔐 **安全** | 权限、授权、凭据、文档和外发动作全部可见、可审计，并由人类控制。 | [permission-governance.mp4](apps/web/public/showcase/permission-governance.mp4) |
 
 ---
 
@@ -500,29 +459,45 @@ Node 版本策略与运行时矩阵见 [docs/0814/node-runtime-matrix.md](docs/0
 
 ## 路线图
 
-已实现：
+状态标记与 [docs/README.md](docs/README.md) 一致：✅ 已实现 · 🟡 进行中 · ⏳ 计划中。
 
-- 多租户工作空间、Dofe SSO 登录、工作空间成员体系和访问控制
-- PostgreSQL 主存储（126 张表）、TOS 附件对象存储和可靠通知
-- 频道文档、知识库、全局搜索、审批、任务看板、预算、成本和性能仪表盘
-- 远程 daemon、runtime sharing、AgentRouter harness switching（claude/codex/antigravity/opencode/openclaw/hermes）、OpenClaw provider health
-- 飞书 Bot 通信、飞书文档/表格/多维表格资源绑定和受治理的数据操作
-- 技能库（Skill 安装/导入/发布/回滚）与托管技能服务（Skill Service，Docker 隔离 + egress 防火墙）
-- MCP 中心（连接管理、凭据加密、出站 egress 租约签名）与 MCP 出站安全代理
-- 可视化自动化工作流引擎（xyflow 画布、发布/调度/运行回放）
+### ✅ 已实现
+
+#### 执行与调度
+
+- AgentRouter 统一 harness 层：Claude Code、Codex、Antigravity、OpenCode、OpenClaw、Hermes；Gemini、NanoBot 走 legacy 路径
+- 远程 daemon 执行、runtime sharing、OpenClaw provider health
+- 可视化自动化工作流引擎（xyflow 画布、发布/调度/运行回放、双 Runner 五对象对照切流）
 - 托管运行时供给（7 阶段状态机、凭据 vault、OpenMontage 作业集成）
+
+#### 协作与能力
+
+- 多租户工作空间、Dofe SSO 登录、成员体系和访问控制
+- 频道文档、知识库、全局搜索、审批、任务看板、预算、成本和性能仪表盘
+- 技能库（Skill 安装/导入/发布/回滚）与托管技能服务（Docker 隔离 + egress 防火墙）
+- 飞书 Bot 通信、飞书文档/表格/多维表格资源绑定和受治理的数据操作
+
+#### 治理与底座
+
+- MCP 中心（连接管理、凭据加密、出站 egress 租约签名）与 MCP 出站安全代理
 - 员工数据保护（备份恢复演练、法务保全 legal hold、孤儿 blob 回收）
+- PostgreSQL 主存储（126 张表）、TOS 附件对象存储和可靠通知
+- 可观测性：Pager 按告警域路由、SLO 窗口去重、完整审计日志
 
-计划中：
+### 🟡 进行中
 
-- 更强的 AgentRouter 平台会话
+- **数据库访问渐进迁移到 Prisma**（A→B 路线）：Phase 2 已覆盖 22 个读域 + 4 条写路径，写流量 flag 仍关闭，待 shadow oracle 对照后切流。详见 [docs/0808/db_migration_to_prisma](docs/0808/db_migration_to_prisma/README.md)。
+- **技能服务 Phase 5**：管理端 UI 易用性打磨与 Linux iptables egress 验证。
+- **MCP 中心 E4 收尾**：真实 Codex 经 MCP gateway 注入的 E2E 验证（待指定 CI 环境）。
+- **构建一致性**：daemon 分发镜像 tag 锁 digest、provider 默认模型目录去硬编码。
+
+### ⏳ 计划中
+
+- 更强的 AgentRouter 平台会话与更完整的 integration adapter contract
 - 更深入的 OpenClaw provider 加固
-- 多 Agent 隔离和 sandbox policy layer（Cube sandbox 数据面）
-- 更完整的 integration adapter contract
-- runtime tool marketplace 和更多 agent-native app harnesses
-- 更严格的 attachment signed URL 与 storage isolation 策略
-- 数据库访问渐进迁移到 Prisma（A→B 路线，见 [docs/0808/db_migration_to_prisma](docs/0808/db_migration_to_prisma/README.md)）
+- runtime tool marketplace 和更多 agent-native app harness
+- 更严格的 attachment signed URL 与存储隔离策略
+- 员工数据恢复的 API 路由、UI 与 daemon 接线（依赖权限模型定稿）
+- 测试 CI 流水线建设（优化项 3.6-1）
 
-## 状态与许可证
-
-agent.dofe 是一个活跃开发中的产品仓库，采用 [Apache License 2.0](LICENSE) 许可。
+已收口的方向不再列入：Cube sandbox 实验数据面已按优化项 3.5-5 决策移除（如需云沙箱从 git 历史恢复）；历史优化项的完整状态见 [docs/progress-log.md](docs/progress-log.md) 与 [docs/optimization-suggestions.md](docs/optimization-suggestions.md)。
