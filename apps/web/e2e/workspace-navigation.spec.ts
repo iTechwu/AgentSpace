@@ -130,6 +130,44 @@ test("keeps chat attachment and channel action menus keyboard accessible", async
   expect(browserIssues).toEqual([]);
 });
 
+test("keeps audit tables readable without leaking horizontal page overflow", async ({ page }) => {
+  const browserIssues: string[] = [];
+  page.on("pageerror", (error) => browserIssues.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") browserIssues.push(message.text());
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 500) browserIssues.push(`${response.status()} ${response.url()}`);
+  });
+
+  const session = await openSeededWorkspacePage(page, "/audit");
+  await expect(page.getByRole("heading", { name: /审计日志|Audit log/i })).toBeVisible();
+  const tableWrap = page.locator(".audit-table-wrap:visible").first();
+  await expect(tableWrap).toBeVisible();
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/w/${session.workspaceSlug}/audit`);
+    await expect(tableWrap).toBeVisible();
+    const metrics = await page.evaluate(() => {
+      const wrap = document.querySelector<HTMLElement>(".audit-table-wrap");
+      const table = document.querySelector<HTMLElement>(".audit-table");
+      if (!wrap || !table) return null;
+      return {
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        wrapOverflow: wrap.scrollWidth - wrap.clientWidth,
+        tableWidth: table.getBoundingClientRect().width,
+      };
+    });
+    expect(metrics).not.toBeNull();
+    expect(metrics!.pageOverflow).toBeLessThanOrEqual(1);
+    expect(metrics!.wrapOverflow).toBeGreaterThanOrEqual(0);
+    expect(metrics!.tableWidth).toBeGreaterThanOrEqual(1200);
+  }
+
+  expect(browserIssues).toEqual([]);
+});
+
 test("preserves the IM composer draft across workbench module switches", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
   const draft = `draft-${Date.now().toString(36)}`;
