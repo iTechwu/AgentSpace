@@ -6460,6 +6460,44 @@ textarea:focus {
   line-height: 1.75;
 }
 
+.public-signin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  max-width: 620px;
+  margin-top: 28px;
+  padding: 16px 16px 16px 18px;
+  border: 1px solid #c9ddd2;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(32, 81, 63, 0.08);
+}
+
+.public-signin__eyebrow {
+  margin: 0 0 4px;
+  color: var(--home-green);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.public-signin h2 {
+  margin: 0;
+  color: var(--home-ink);
+  font-size: 18px;
+  font-weight: 780;
+  line-height: 1.3;
+}
+
+.public-signin p:last-child {
+  margin: 3px 0 0;
+  color: var(--home-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .public-hero__actions {
   display: flex;
   flex-wrap: wrap;
@@ -6841,6 +6879,69 @@ textarea:focus {
   color: var(--home-green);
 }
 
+.public-values {
+  background: #ffffff;
+}
+
+.public-values__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 54px;
+}
+
+.public-value-card {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 16px;
+  min-height: 178px;
+  padding: 22px;
+  border: 1px solid var(--home-line);
+  border-radius: 8px;
+  background: var(--home-page);
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.public-value-card:hover {
+  border-color: #8fc6b0;
+  background: #f3faf6;
+  transform: translateY(-2px);
+}
+
+.public-value-card__word {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid #9ed3bc;
+  border-radius: 6px;
+  color: var(--home-green-dark);
+  background: #eaf5ef;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.public-value-card p {
+  margin: 0;
+  color: var(--home-green);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.public-value-card h3 {
+  margin: 5px 0 9px;
+  color: var(--home-ink);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.public-value-card div > span {
+  display: block;
+  color: var(--home-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .public-brand-story {
   color: #ffffff;
   background: var(--home-green-dark);
@@ -7057,6 +7158,16 @@ textarea:focus {
     line-height: 1.65;
   }
 
+  .public-signin {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .public-signin .public-button {
+    width: 100%;
+  }
+
   .public-hero__actions {
     display: grid;
     grid-template-columns: 1fr;
@@ -7147,6 +7258,15 @@ textarea:focus {
 
   .public-roles__grid article {
     min-height: auto;
+  }
+
+  .public-values__grid {
+    grid-template-columns: 1fr;
+    margin-top: 38px;
+  }
+
+  .public-value-card {
+    min-height: 0;
   }
 
   .public-brand-story__inner {

@@ -28,8 +28,18 @@ describe("AuthScreen", () => {
     expect(screen.getByRole("heading", { level: 1, name: "agent.dofe" })).toBeInTheDocument();
     expect(document.querySelector(".public-hero__statement")).toHaveTextContent("人类与数字员工，共用一个工作空间。");
     expect(screen.getByText("Do For Employee · Do For Enterprise · Do For Empowerment", { selector: ".public-brand-story__tagline" })).toBeInTheDocument();
-    expect(screen.getByText("成为受世界尊敬的中国企业")).toBeInTheDocument();
-    expect(screen.getByText("成就中国智造的全球竞争力")).toBeInTheDocument();
+    expect(screen.getByText(/Do For E —— 一份开放宣言/)).toBeInTheDocument();
+    expect(screen.getByText(/像海豚一样温暖/)).toBeInTheDocument();
+  });
+
+  it("makes the Do For E sign-in promise and value coordinates visible", () => {
+    render(<LanguageProvider initialLanguage="en"><AuthScreen /></LanguageProvider>);
+
+    expect(screen.getByRole("heading", { level: 2, name: "Sign in to DoFe.AI" })).toBeInTheDocument();
+    expect(screen.getByText("Choose how to sign in")).toBeInTheDocument();
+    expect(screen.getAllByText("For Employees").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { level: 3, name: "Evolution" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Escort" })).toBeInTheDocument();
   });
 
   it("keeps primary landing actions connected to real destinations", () => {

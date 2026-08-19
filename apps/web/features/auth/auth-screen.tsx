@@ -24,6 +24,12 @@ type WorkStep = {
   description: string;
 };
 
+type EWord = {
+  word: string;
+  label: string;
+  desc: string;
+};
+
 export function AuthScreen({
   ssoStartUrl: externalSsoStartUrl,
   initialError,
@@ -37,27 +43,29 @@ export function AuthScreen({
   const activeTour = tours.find((tour) => tour.id === activeTourId) ?? tours[0];
   const ssoStartUrl = externalSsoStartUrl ?? "/api/auth/sso/start";
   const brandVision = process.env.NEXT_PUBLIC_BRAND_VISION?.trim() || tx(
-    "成为受世界尊敬的中国企业",
-    "Become a globally respected company from China",
+    "Do For E —— 一份开放宣言。dofe 不只是一套 AI 系统：它是为员工、企业与赋能而生的执行引擎。",
+    "Do For E — an open manifesto. dofe is more than an AI system: it's an execution engine built for Employees, Enterprises, and Empowerment.",
   );
   const brandMission = process.env.NEXT_PUBLIC_BRAND_MISSION?.trim() || tx(
-    "成就中国智造的全球竞争力",
-    "Strengthen the global competitiveness of intelligent manufacturing from China",
+    "像海豚一样温暖，像钢铁一样可靠。连接孤岛，构建智能生态，让每一次执行都走向卓越。",
+    "Warm like a dolphin, reliable as iron. We connect silos, build intelligent ecosystems, and make every execution a step toward excellence.",
   );
   const primaryEntryLabel = tx("使用 Dofe SSO 登录", "Continue with Dofe SSO");
+  const eWords = buildEWords(tx);
 
   return (
     <main className="public-home" id="home">
       <header className="public-header">
         <a className="public-brand" href="#home" aria-label={tx("返回 agent.dofe 首页", "Back to agent.dofe home")}>
           <span className="public-brand__mark" aria-hidden="true">d</span>
-          <span>agent.dofe</span>
+          <span>DoFe.AI</span>
         </a>
 
         <nav className="public-header__nav" aria-label={tx("首页导航", "Homepage navigation")}>
           <a href="#product">{tx("产品", "Product")}</a>
           <a href="#workflow">{tx("工作方式", "How it works")}</a>
           <a href="#roles">{tx("适用角色", "For teams")}</a>
+          <a href="#values">{tx("价值坐标", "Values")}</a>
           <a href="#brand">{tx("关于 dofe", "About dofe")}</a>
         </nav>
 
@@ -90,7 +98,7 @@ export function AuthScreen({
       <section className="public-hero" aria-labelledby="public-hero-title">
         <div className="public-hero__inner">
           <div className="public-hero__copy">
-            <p className="public-eyebrow">Do For Employee · Enterprise · Empowerment</p>
+            <p className="public-eyebrow">Do For Employee · Do For Enterprise · Do For Empowerment</p>
             <h1 id="public-hero-title">agent.dofe</h1>
             <p className="public-hero__statement">
               {language === "zh" ? (
@@ -101,15 +109,22 @@ export function AuthScreen({
             </p>
             <p className="public-hero__lead">
               {tx(
-                "从一句话发起工作，到 AI员工 接力执行、关键节点审批与全过程审计。让团队不再切换工具，而是持续推进结果。",
-                "Start with one request, then let AI employees execute, people approve critical steps, and the workspace preserve the full audit trail.",
+                "Do For E 是一套面向员工、企业与赋能的执行引擎：从一句话发起工作，让AI员工接力执行，人类在关键节点做决定。",
+                "Do For E is an execution engine for employees, enterprises, and empowerment: start with one request, let AI employees carry the work forward, and keep people in control of critical decisions.",
               )}
             </p>
-            <div className="public-hero__actions">
+            <div className="public-signin" aria-labelledby="public-signin-title">
+              <div>
+                <p className="public-signin__eyebrow">DoFe.AI</p>
+                <h2 id="public-signin-title">{tx("登录 DoFe.AI", "Sign in to DoFe.AI")}</h2>
+                <p>{tx("选择登录方式，进入你的工作空间。", "Choose how to sign in")}</p>
+              </div>
               <a className="public-button public-button--primary" href={ssoStartUrl}>
                 {primaryEntryLabel}
                 <AppIcon name="arrowRight" />
               </a>
+            </div>
+            <div className="public-hero__actions">
               <a className="public-button public-button--secondary" href="#product">
                 {tx("查看真实产品", "Explore the product")}
                 <AppIcon name="chevronDown" />
@@ -251,6 +266,33 @@ export function AuthScreen({
         </div>
       </section>
 
+      <section className="public-section public-values" id="values" aria-labelledby="public-values-title">
+        <div className="public-section__intro">
+          <p className="public-eyebrow">{tx("Do For E 价值坐标", "The Do For E coordinates")}</p>
+          <h2 id="public-values-title">
+            {tx("从人的能力出发，把执行力扩展到整个组织。", "Start with human capability. Extend execution across the organization.")}
+          </h2>
+          <p>
+            {tx(
+              "9 个 E 词汇，组成 DoFe.AI 的产品判断：先让人被看见，再让企业变得更强，最终让每一次执行都趋向卓越。",
+              "Nine E words define how DoFe.AI makes product decisions: keep people visible, make enterprises stronger, and move every execution toward excellence.",
+            )}
+          </p>
+        </div>
+        <div className="public-values__grid">
+          {eWords.map((item) => (
+            <article key={item.word} className="public-value-card">
+              <span className="public-value-card__word">{item.word.slice(0, 1)}</span>
+              <div>
+                <p>{item.label}</p>
+                <h3>{item.word}</h3>
+                <span>{item.desc}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="public-brand-story" id="brand" aria-labelledby="public-brand-title">
         <div className="public-brand-story__inner">
           <div>
@@ -260,12 +302,19 @@ export function AuthScreen({
           </div>
           <div className="public-brand-story__promise">
             <article>
-              <span>{tx("愿景", "Vision")}</span>
+              <span>{tx("理念", "Philosophy")}</span>
               <strong>{brandVision}</strong>
             </article>
             <article>
-              <span>{tx("使命", "Mission")}</span>
+              <span>{tx("承诺", "Commitment")}</span>
               <strong>{brandMission}</strong>
+            </article>
+            <article>
+              <span>{tx("公开宣言", "Open manifesto")}</span>
+              <strong>{tx(
+                "Do For E —— 不只是一套 AI 系统，更是为员工、企业与赋能而生的执行引擎。",
+                "Do For E — an open manifesto. More than an AI system: an execution engine built for Employees, Enterprises, and Empowerment.",
+              )}</strong>
             </article>
             <p>
               {tx(
@@ -378,5 +427,19 @@ function buildRoleViews(tx: (zh: string, en: string) => string) {
       title: tx("边界清楚，运行可靠", "Clear boundaries, reliable execution"),
       items: [tx("管理执行引擎与连接状态", "Manage execution engines and connections"), tx("控制权限、范围与工作区隔离", "Control permissions, scope, and isolation"), tx("保留审批与执行审计轨迹", "Preserve approval and execution audit trails")],
     },
+  ];
+}
+
+function buildEWords(tx: (zh: string, en: string) => string): EWord[] {
+  return [
+    { word: "Employee", label: tx("为员工", "For Employees"), desc: tx("始终以人为先，赋能每一位团队成员", "Always for the people — empower every team member") },
+    { word: "Enterprise", label: tx("为企业", "For Enterprise"), desc: tx("放眼全局，驱动规模化智能转型", "Think big — drive intelligent transformation at scale") },
+    { word: "Empowerment", label: tx("为赋能", "For Empowerment"), desc: tx("超越工具，延展并放大人的能力", "Beyond tools — extend and amplify human capability") },
+    { word: "Execution", label: tx("为执行", "For Execution"), desc: tx("一句话启动一切，把想法即时变成行动", "One prompt starts everything — turn ideas into action instantly") },
+    { word: "Efficiency", label: tx("为效率", "For Efficiency"), desc: tx("收回每一分钟浪费，让团队吞吐最大化", "Reclaim every wasted minute — max out your throughput") },
+    { word: "Excellence", label: tx("为卓越", "For Excellence"), desc: tx("不止于交付，AI 标准化执行持续追求质量", "Never just ship it — AI-standardized execution pursues quality") },
+    { word: "Ecosystem", label: tx("为生态", "For Ecosystem"), desc: tx("打破信息孤岛，构建协同的数字神经系统", "Break down silos — build a collaborative digital nervous system") },
+    { word: "Evolution", label: tx("为进化", "For Evolution"), desc: tx("点燃组织持续进化，为未来而设计", "Ignite continuous organizational evolution — future-ready by design") },
+    { word: "Escort", label: tx("为护航", "For Escort"), desc: tx("守护每一笔交易与资产，全天候 AI 安全护航", "Guard every transaction and asset — your AI security escort around the clock") },
   ];
 }

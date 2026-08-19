@@ -10,11 +10,11 @@ const initialLanguage = configuredLanguage === "en" || configuredLanguage === "z
 
 export const metadata: Metadata = {
   title: {
-    default: "agent.dofe",
-    template: "%s | agent.dofe",
+    default: "Sign in to DoFe.AI",
+    template: "%s | DoFe.AI",
   },
   description:
-    "agent.dofe is a collaborative workspace where people direct and authorize while digital employees coordinate and execute.",
+    "DoFe.AI is an execution engine for employees, enterprises, and empowerment.",
 };
 
 export default function RootLayout({
