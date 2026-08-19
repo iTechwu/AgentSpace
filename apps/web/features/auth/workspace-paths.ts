@@ -11,6 +11,23 @@ export function buildWorkspacePath(workspaceSlug: string, path = "/"): string {
   return `${prefix}${normalizedPathname === "/" ? "" : normalizedPathname}${queryPart ? `?${queryPart}` : ""}`;
 }
 
+export function canonicalWorkspacePath(input: {
+  requestedWorkspaceIdentifier: string;
+  workspaceId: string;
+  pathname: string;
+  search?: string;
+  hash?: string;
+}): string | null {
+  const requestedWorkspaceIdentifier = input.requestedWorkspaceIdentifier.trim();
+  const workspaceId = input.workspaceId.trim();
+  if (!requestedWorkspaceIdentifier || !workspaceId || requestedWorkspaceIdentifier === workspaceId) {
+    return null;
+  }
+
+  const pathname = normalizeWorkspacePathname(input.pathname);
+  return buildWorkspacePath(workspaceId, pathname) + (input.search ?? "") + (input.hash ?? "");
+}
+
 export function parseWorkspacePathname(pathname: string): {
   workspaceSlug?: string;
   appPath: string;
@@ -22,7 +39,14 @@ export function parseWorkspacePathname(pathname: string): {
     };
   }
 
-  const workspaceSlug = decodeURIComponent(match[1] ?? "");
+  let workspaceSlug: string;
+  try {
+    workspaceSlug = decodeURIComponent(match[1] ?? "");
+  } catch {
+    return {
+      appPath: normalizeWorkspacePathname(pathname),
+    };
+  }
   const nestedPath = match[2] ? `/${match[2]}` : "/";
 
   return {
