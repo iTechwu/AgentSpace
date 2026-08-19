@@ -146,3 +146,12 @@
 - 运行时质量：所有 E2E 场景的 `pageerror`、console error/warning 和服务端 5xx 监控均未报告异常；隔离测试数据未触及生产环境。
 - 代码回归：全量 Web 测试 147 个文件、1173 项全部通过（170.30 秒，`--maxWorkers=2`）；`tsconfig.typecheck.json`、`tsconfig.test.json`、`tsconfig.e2e.json` 全部通过。
 - 结论：已修复问题在重复全量回归中保持稳定，本轮未发现进一步需要修改的业务代码或测试契约问题。
+
+## 第七轮 Runtime 菜单焦点复查
+
+- 缺陷复现：对 Runtime 模型选择 Portal 做键盘回归时，打开菜单后搜索框获得焦点；按 Escape 关闭菜单后，焦点落到 `body`，没有返回“默认模型”触发按钮。组件测试首次新增断言即稳定复现该问题。
+- 修复：为模型选择触发按钮增加引用；Escape 关闭菜单时阻止默认行为并显式恢复触发按钮焦点；新增回归测试覆盖 Portal 打开、搜索框初始焦点、Escape 关闭和触发按钮焦点恢复。
+- 定向回归：Runtime 模型选择器测试 6/6 通过，三套 TypeScript 检查全部通过。
+- 完整浏览器回归：系统 Google Chrome 全量 E2E 24/24 通过（57.2 秒，并发 2），包括 Runtime 无绑定提示、Runtime 管理导航、移动端流程、工作流、消息和设置页面；未出现 pageerror、console error/warning 或服务端 5xx。
+- 代码回归：全量 Web 测试 147 个文件、1174 项全部通过（178.73 秒，`--maxWorkers=2`）。
+- 结论：本轮发现的 Runtime 菜单焦点问题已修复并提交，回归未发现进一步业务问题。
