@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { WorkflowGraphDefinition, WorkflowNodeDefinition } from "@dofe-agent/domain";
+import { AppIcon } from "@/shared/ui/app-icon";
 import type { WorkflowDraftEvent } from "./workflow-builder-reducer";
 import { workflowNodeLabel, type WorkflowEmployeeOption } from "./workflow-node-list-view";
 
@@ -8,12 +9,14 @@ export function WorkflowNodeConfigPanel({
   graph,
   employees,
   members,
+  onClose,
   onEvent,
 }: {
   node: WorkflowNodeDefinition;
   graph: WorkflowGraphDefinition;
   employees: WorkflowEmployeeOption[];
   members?: Array<{ userId: string; displayName: string }>;
+  onClose?: () => void;
   onEvent: (event: WorkflowDraftEvent) => void;
 }) {
   const targets = graph.nodes.filter((candidate) => candidate.id !== node.id);
@@ -27,7 +30,10 @@ export function WorkflowNodeConfigPanel({
           <span>{node.type}</span>
           <h2 title={workflowNodeLabel(node, employees)}>{workflowNodeLabel(node, employees)}</h2>
         </div>
-        <button aria-label="删除步骤" className="knowledge-btn knowledge-btn--danger" onClick={() => { if (window.confirm("确认从草稿中删除该步骤？")) onEvent({ type: "removeNode", nodeId: node.id }); }} type="button">删除</button>
+        <div className="workflow-node-config__actions">
+          <button aria-label="删除步骤" className="workflow-icon-button workflow-icon-button--danger" onClick={() => { if (window.confirm("确认从草稿中删除该步骤？")) onEvent({ type: "removeNode", nodeId: node.id }); }} title="删除步骤" type="button"><AppIcon name="trash" /></button>
+          {onClose ? <button aria-label="关闭步骤配置" className="workflow-icon-button" onClick={onClose} title="关闭" type="button"><AppIcon name="close" /></button> : null}
+        </div>
       </header>
       {node.type === "employee_task" ? (
         <>

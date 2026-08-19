@@ -14,6 +14,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { validateWorkflowGraph, type WorkflowGraphDefinition } from "@dofe-agent/domain";
+import { AppIcon } from "@/shared/ui/app-icon";
 import type { WorkflowDraftEvent } from "./workflow-builder-reducer";
 import { WorkflowNodeConfigPanel } from "./workflow-node-config-panel";
 import { WorkflowNodeListView, workflowNodeLabel, type WorkflowEmployeeOption } from "./workflow-node-list-view";
@@ -24,8 +25,9 @@ export interface WorkflowCanvasProps {
   members?: Array<{ userId: string; displayName: string }>;
   selectedNodeId?: string;
   errorNodeIds?: string[];
-  onSelectNode: (nodeId: string) => void;
+  onSelectNode: (nodeId?: string) => void;
   onEvent: (event: WorkflowDraftEvent) => void;
+  onOpenParallelBuilder?: () => void;
 }
 
 const EMPTY_ERROR_NODE_IDS: string[] = [];
@@ -38,6 +40,7 @@ export function WorkflowCanvas({
   errorNodeIds = EMPTY_ERROR_NODE_IDS,
   onSelectNode,
   onEvent,
+  onOpenParallelBuilder,
 }: WorkflowCanvasProps) {
   const [view, setView] = useState<"canvas" | "list">("canvas");
   const [isAdding, setIsAdding] = useState(false);
@@ -96,26 +99,42 @@ export function WorkflowCanvas({
           <button aria-controls="workflow-structure-view" aria-selected={view === "canvas"} id="workflow-view-canvas" onClick={() => setView("canvas")} role="tab" type="button">画布</button>
           <button aria-controls="workflow-structure-view" aria-selected={view === "list"} id="workflow-view-list" onClick={() => setView("list")} role="tab" type="button">列表</button>
         </div>
-        <div className="workflow-builder-toolbar__actions">
-          <button className="knowledge-btn" onClick={addApprovalNode} type="button">添加审批步骤</button>
-          <button className="knowledge-btn knowledge-btn--primary" onClick={() => setIsAdding((current) => !current)} type="button">添加 AI 员工步骤</button>
-        </div>
+        <span>{graph.nodes.length === 0 ? "还没有步骤" : `${graph.nodes.length} 个步骤`}</span>
       </div>
 
-      {isAdding ? (
-        <div className="workflow-builder-add">
-          <label>
-            <span>AI 员工</span>
-            <select onChange={(event) => setEmployeeId(event.target.value)} value={employeeId}>
-              <option value="">选择员工</option>
-              {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
-            </select>
-          </label>
-          <button className="knowledge-btn knowledge-btn--primary" disabled={!employeeId} onClick={addEmployeeNode} type="button">添加</button>
-        </div>
-      ) : null}
-
-      <div className="workflow-builder-grid">
+      <div className={`workflow-builder-grid${selectedNode ? " workflow-builder-grid--config" : ""}`}>
+        <aside aria-label="步骤库" className="workflow-builder-palette">
+          <header><strong>步骤库</strong><span>点击添加</span></header>
+          <button aria-expanded={isAdding} aria-label="添加 AI 员工步骤" className="workflow-builder-palette__item" onClick={() => setIsAdding((current) => !current)} type="button">
+            <span className="workflow-builder-palette__icon"><AppIcon name="agents" /></span>
+            <span><strong>AI 员工</strong><small>执行一项任务</small></span>
+            <AppIcon name="plus" />
+          </button>
+          {isAdding ? (
+            <div className="workflow-builder-add">
+              <label>
+                <span>AI 员工</span>
+                <select onChange={(event) => setEmployeeId(event.target.value)} value={employeeId}>
+                  <option value="">选择员工</option>
+                  {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                </select>
+              </label>
+              <button className="knowledge-btn knowledge-btn--primary" disabled={!employeeId} onClick={addEmployeeNode} type="button">添加</button>
+            </div>
+          ) : null}
+          <button className="workflow-builder-palette__item" onClick={addApprovalNode} type="button">
+            <span className="workflow-builder-palette__icon"><AppIcon name="approvals" /></span>
+            <span><strong>人工审批</strong><small>等待确认后继续</small></span>
+            <AppIcon name="plus" />
+          </button>
+          {onOpenParallelBuilder ? (
+            <button className="workflow-builder-palette__item" onClick={onOpenParallelBuilder} type="button">
+              <span className="workflow-builder-palette__icon"><AppIcon name="orgChart" /></span>
+              <span><strong>并行分支</strong><small>同时执行并汇聚</small></span>
+              <AppIcon name="plus" />
+            </button>
+          ) : null}
+        </aside>
         <div
           aria-labelledby={view === "canvas" ? "workflow-view-canvas" : "workflow-view-list"}
           className="workflow-builder-viewport"
@@ -149,10 +168,8 @@ export function WorkflowCanvas({
           )}
         </div>
         {selectedNode ? (
-          <WorkflowNodeConfigPanel employees={employees} graph={graph} members={members} node={selectedNode} onEvent={onEvent} />
-        ) : (
-          <aside aria-label="步骤配置" className="workflow-node-config workflow-node-config--empty">选择一个步骤</aside>
-        )}
+          <WorkflowNodeConfigPanel employees={employees} graph={graph} members={members} node={selectedNode} onClose={() => onSelectNode(undefined)} onEvent={onEvent} />
+        ) : null}
       </div>
     </div>
   );

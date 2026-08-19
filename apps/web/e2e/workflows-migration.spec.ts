@@ -20,10 +20,11 @@ test("creates one plan for A to parallel B/C to summary D from the unified wizar
   await page.getByRole("navigation", { name: "创建步骤" }).getByRole("button", { name: /流程$/ }).click();
 
   await addEmployeeStep(page, session.agentName);
+  await page.getByRole("button", { name: "并行分支", exact: true }).click();
   await page.getByLabel("并行起点").selectOption("employee-1");
   await selectEmployee(page, "并行员工 A", session.agentName);
   await selectEmployee(page, "并行员工 B", session.agentName);
-  await page.getByRole("button", { name: "添加并行分支" }).click();
+  await page.getByRole("button", { name: "添加到流程" }).click();
   await addEmployeeStep(page, session.agentName);
 
   await page.getByRole("tab", { name: "列表" }).click();
@@ -176,7 +177,10 @@ test("blocks retry when a failed node may have produced an external effect", asy
 });
 
 async function addEmployeeStep(page: import("@playwright/test").Page, employeeName: string): Promise<void> {
-  await page.getByRole("button", { name: "添加 AI 员工步骤" }).click();
+  const palette = page.getByRole("complementary", { name: "步骤库" });
+  const employeeStepButton = palette.locator("button.workflow-builder-palette__item").filter({ hasText: "AI 员工" }).first();
+  await expect(employeeStepButton).toHaveAttribute("aria-label", "添加 AI 员工步骤");
+  await employeeStepButton.click();
   await page.locator(".workflow-builder-add select").selectOption({ label: employeeName });
   await page.locator(".workflow-builder-add").getByRole("button", { name: "添加", exact: true }).click();
 }

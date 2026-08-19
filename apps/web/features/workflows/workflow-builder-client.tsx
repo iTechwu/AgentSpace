@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { WORKFLOW_EVENT_NAMES, type WorkflowGraphDefinition } from "@dofe-agent/domain";
 import type { WorkflowPublishValidation } from "@dofe-agent/services/workflows";
 import { translateWorkflowErrorCode } from "@/features/i18n/presentation";
+import { AppIcon } from "@/shared/ui/app-icon";
 import {
   createWorkflowDraftAction,
   controlWorkflowDefinitionAction,
@@ -97,6 +98,7 @@ export function WorkflowBuilderClient({
   const [parallelSource, setParallelSource] = useState("");
   const [parallelEmployeeA, setParallelEmployeeA] = useState("");
   const [parallelEmployeeB, setParallelEmployeeB] = useState("");
+  const [showParallelBuilder, setShowParallelBuilder] = useState(false);
 
   const graph = useMemo<WorkflowGraphDefinition>(
     () => ({ schemaVersion: 1, nodes: draft.nodes, edges: draft.edges }),
@@ -296,15 +298,16 @@ export function WorkflowBuilderClient({
     });
     setParallelEmployeeA("");
     setParallelEmployeeB("");
+    setParallelSource("");
+    setShowParallelBuilder(false);
   }
 
   return (
     <main className="workflow-wizard">
       <header className="workflow-wizard__header">
-        <div>
+        <div className="workflow-wizard__title">
           <span>编排中心 / {initial ? "编辑计划" : "新建计划"}</span>
           <h1>{name.trim() || "未命名工作流"}</h1>
-          <p>将串行步骤、并行分支和汇总员工组织为可发布的执行计划。</p>
         </div>
         <div className="workflow-wizard__header-actions">
           <span className="workflow-wizard__save-state">{draftDirty ? "有未保存修改" : configurationDirty ? "有待发布配置" : "草稿已同步"}</span>
@@ -327,8 +330,8 @@ export function WorkflowBuilderClient({
 
       {notice ? <p className={`workflow-wizard__notice workflow-wizard__notice--${notice.tone}`} role="status">{notice.message}</p> : null}
 
-      <section aria-labelledby="workflow-step-title" className="workflow-wizard__content">
-        <h2 id="workflow-step-title">{STEPS[activeStep]}</h2>
+      <section aria-labelledby="workflow-step-title" className={`workflow-wizard__content${activeStep === 2 ? " workflow-wizard__content--flow" : ""}`}>
+        {activeStep !== 2 ? <h2 id="workflow-step-title">{STEPS[activeStep]}</h2> : null}
         {activeStep === 0 ? (
           <div className="workflow-wizard__form">
             <label><span>工作流名称</span><input autoFocus onChange={(event) => updateDraftMetadata(() => setName(event.target.value))} value={name} /></label>
@@ -372,15 +375,31 @@ export function WorkflowBuilderClient({
         ) : null}
         {activeStep === 2 ? (
           <div className="workflow-wizard__flow">
-            <div className="workflow-parallel-control">
-              <strong>添加并行汇聚</strong>
-              <select aria-label="并行起点" onChange={(event) => setParallelSource(event.target.value)} value={parallelSource}><option value="">选择起点步骤</option>{draft.nodes.filter((node) => node.type === "employee_task").map((node) => <option key={node.id} value={node.id}>{node.id}</option>)}</select>
-              <select aria-label="并行员工 A" onChange={(event) => setParallelEmployeeA(event.target.value)} value={parallelEmployeeA}><EmployeeOptions employees={employees} /></select>
-              <select aria-label="并行员工 B" onChange={(event) => setParallelEmployeeB(event.target.value)} value={parallelEmployeeB}><EmployeeOptions employees={employees} /></select>
-              <button className="knowledge-btn" disabled={!parallelSource || !parallelEmployeeA || !parallelEmployeeB} onClick={addParallelGroup} type="button">添加并行分支</button>
+            <div className="workflow-wizard__section-heading">
+              <div>
+                <h2 id="workflow-step-title">设计执行流程</h2>
+                <p>{draft.nodes.length} 个步骤 · {draft.edges.length} 条连接</p>
+              </div>
+              <button aria-expanded={showParallelBuilder} className="knowledge-btn" onClick={() => setShowParallelBuilder((current) => !current)} type="button">
+                <AppIcon name="orgChart" />并行分支
+              </button>
             </div>
+            {showParallelBuilder ? (
+              <section aria-label="添加并行分支" className="workflow-parallel-control">
+                <header>
+                  <div><strong>添加并行分支</strong><p>从一个已有步骤同时分派给两名 AI 员工，完成后自动汇聚。</p></div>
+                  <button aria-label="关闭并行分支设置" className="workflow-icon-button" onClick={() => setShowParallelBuilder(false)} title="关闭" type="button"><AppIcon name="close" /></button>
+                </header>
+                <div className="workflow-parallel-control__fields">
+                  <label><span>从这里开始</span><select aria-label="并行起点" onChange={(event) => setParallelSource(event.target.value)} value={parallelSource}><option value="">选择起点步骤</option>{draft.nodes.filter((node) => node.type === "employee_task").map((node) => <option key={node.id} value={node.id}>{node.id}</option>)}</select></label>
+                  <label><span>分支一</span><select aria-label="并行员工 A" onChange={(event) => setParallelEmployeeA(event.target.value)} value={parallelEmployeeA}><EmployeeOptions employees={employees} /></select></label>
+                  <label><span>分支二</span><select aria-label="并行员工 B" onChange={(event) => setParallelEmployeeB(event.target.value)} value={parallelEmployeeB}><EmployeeOptions employees={employees} /></select></label>
+                  <button className="knowledge-btn knowledge-btn--primary" disabled={!parallelSource || !parallelEmployeeA || !parallelEmployeeB} onClick={addParallelGroup} type="button">添加到流程</button>
+                </div>
+              </section>
+            ) : null}
             {clientErrors.length > 0 ? <p className="workflow-wizard__hint">当前结构有 {clientErrors.length} 项待完善，发布预检会定位具体步骤。</p> : null}
-            <WorkflowCanvas employees={employees} errorNodeIds={errorNodeIds} graph={graph} members={members} onEvent={handleDraftEvent} onSelectNode={setSelectedNodeId} selectedNodeId={selectedNodeId} />
+            <WorkflowCanvas employees={employees} errorNodeIds={errorNodeIds} graph={graph} members={members} onEvent={handleDraftEvent} onOpenParallelBuilder={() => setShowParallelBuilder(true)} onSelectNode={setSelectedNodeId} selectedNodeId={selectedNodeId} />
           </div>
         ) : null}
         {activeStep === 3 ? (
@@ -399,10 +418,10 @@ export function WorkflowBuilderClient({
       </section>
 
       <footer className="workflow-wizard__footer">
-        <button className="knowledge-btn" disabled={activeStep === 0} onClick={() => setActiveStep((current) => Math.max(0, current - 1))} type="button">上一步</button>
+        <button className="knowledge-btn" disabled={activeStep === 0} onClick={() => setActiveStep((current) => Math.max(0, current - 1))} type="button"><AppIcon name="arrowLeft" />上一步</button>
         <span>{activeStep + 1} / {STEPS.length}</span>
         <div className="workflow-wizard__footer-actions">
-          {activeStep < STEPS.length - 1 ? <button className="knowledge-btn" onClick={() => setActiveStep((current) => Math.min(STEPS.length - 1, current + 1))} type="button">下一步</button> : null}
+          {activeStep < STEPS.length - 1 ? <button className="knowledge-btn" onClick={() => setActiveStep((current) => Math.min(STEPS.length - 1, current + 1))} type="button">下一步<AppIcon name="arrowRight" /></button> : null}
           <button className="knowledge-btn knowledge-btn--primary" disabled={!canPublish || pendingAction !== null} onClick={() => void publish()} type="button">{pendingAction === "publish" ? "发布中" : "发布"}</button>
         </div>
       </footer>

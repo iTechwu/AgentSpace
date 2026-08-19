@@ -81,6 +81,19 @@ describe("WorkflowCanvas", () => {
     expect(screen.getByTestId("node-summary")).toBeVisible();
   });
 
+  it("uses a compact step library and only shows configuration after selection", async () => {
+    const user = userEvent.setup();
+    render(<WorkflowCanvasHarness />);
+
+    expect(screen.getByRole("complementary", { name: "步骤库" })).toBeVisible();
+    expect(screen.queryByRole("complementary", { name: "步骤配置" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /人工审批/ }));
+    expect(screen.getByRole("complementary", { name: "步骤配置" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "关闭步骤配置" }));
+    expect(screen.queryByRole("complementary", { name: "步骤配置" })).not.toBeInTheDocument();
+  });
+
   it("edits execution dependencies and validates JSON input mappings", async () => {
     const user = userEvent.setup();
     render(<WorkflowCanvasHarness />);

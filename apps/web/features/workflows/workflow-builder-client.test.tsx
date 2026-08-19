@@ -27,8 +27,9 @@ vi.mock("./workflow-actions", () => ({
   publishWorkflowAction: mocks.publish,
 }));
 vi.mock("./workflow-canvas", () => ({
-  WorkflowCanvas: ({ graph, errorNodeIds }: { graph: WorkflowGraphDefinition; errorNodeIds: string[] }) => (
+  WorkflowCanvas: ({ graph, errorNodeIds, onOpenParallelBuilder }: { graph: WorkflowGraphDefinition; errorNodeIds: string[]; onOpenParallelBuilder: () => void }) => (
     <div aria-label="流程画布">
+      <button onClick={onOpenParallelBuilder} type="button">打开并行分支</button>
       {graph.nodes.map((node) => <div data-error={errorNodeIds.includes(node.id)} data-testid={`node-${node.id}`} key={node.id}>{node.id}</div>)}
     </div>
   ),
@@ -117,6 +118,19 @@ describe("workflow builder", () => {
     });
   });
 
+  it("keeps parallel configuration hidden until requested", async () => {
+    const user = userEvent.setup();
+    renderBuilder();
+
+    await user.click(screen.getByRole("button", { name: /3.*流程/ }));
+    expect(screen.queryByRole("region", { name: "添加并行分支" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "打开并行分支" }));
+    expect(screen.getByRole("region", { name: "添加并行分支" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "关闭并行分支设置" }));
+    expect(screen.queryByRole("region", { name: "添加并行分支" })).not.toBeInTheDocument();
+  });
+
   it("preflights and publishes a serial plus parallel workflow", async () => {
     const user = userEvent.setup();
     renderBuilder("calendar");
@@ -150,7 +164,7 @@ describe("workflow builder", () => {
     expect(await screen.findByText("AI 员工运行环境尚未就绪")).toBeVisible();
     expect(screen.getByRole("button", { name: "发布" })).toBeDisabled();
     expect(screen.getByTestId("node-audit")).toHaveAttribute("data-error", "true");
-    expect(screen.getByRole("heading", { name: "流程" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "设计执行流程" })).toBeVisible();
   });
 
   it("submits workflow concurrency and budget governance", async () => {
