@@ -218,7 +218,7 @@ describe("InboxPageClient", () => {
           statusLabel: "Unread",
           statusTone: "positive",
           body: "Planner can now edit Research Plan.",
-          actionHref: "/im?focus=channel%3Aresearch",
+          actionHref: "/im?focus=channel-research",
           channelName: "research",
           history: [],
         },
@@ -231,7 +231,7 @@ describe("InboxPageClient", () => {
     expect(screen.getByRole("heading", { name: "系统" })).toBeInTheDocument();
     expect(screen.getAllByText("Document shared with you")).toHaveLength(2);
     expect(screen.getAllByText("Planner can now edit Research Plan.")).toHaveLength(2);
-    expect(screen.getByRole("link", { name: "查看关联内容" })).toHaveAttribute("href", "/im?focus=channel%3Aresearch");
+    expect(screen.getByRole("link", { name: "查看关联内容" })).toHaveAttribute("href", "/im?focus=channel-research");
   });
 
   it("shows logs only after the activity category is selected", async () => {

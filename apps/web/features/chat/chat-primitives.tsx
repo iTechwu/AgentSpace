@@ -1857,5 +1857,5 @@ function documentLinkForMessage(message: ConversationThreadMessage): string | nu
   ) {
     return null;
   }
-  return `/im?focus=${encodeURIComponent(`channel:${channelName}`)}&doc=${encodeURIComponent(documentId)}`;
+  return `/im?focus=${encodeURIComponent(`channel-${channelName}`)}&doc=${encodeURIComponent(documentId)}`;
 }

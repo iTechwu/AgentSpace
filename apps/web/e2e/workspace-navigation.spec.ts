@@ -61,7 +61,7 @@ test("replaces legacy workspace slugs and agent names with stable IDs", async ({
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/w/${session.workspaceId}/agents`);
   await expect.poll(() => new URL(page.url()).searchParams.get("mode")).toBe("agent");
   await expect.poll(() => new URL(page.url()).searchParams.get("focus"))
-    .toBe(`agent:${session.agentEmployeeId}`);
+    .toBe(`agent-${session.agentEmployeeId}`);
 });
 
 test("restores modal triggers after closing search, contact invite, and CLI creation", async ({ page }) => {
@@ -280,14 +280,14 @@ test("restores the selected IM conversation after refresh", async ({ page }) => 
 
   await page.getByRole("button", { name: session.privateChannelName }).click();
   await expect(page).toHaveURL(new RegExp(
-    `/w/${escapeRegExp(session.workspaceSlug)}/im\\?focus=channel%3A${escapeRegExp(encodeURIComponent(session.privateChannelName))}`,
+    `/w/${escapeRegExp(session.workspaceSlug)}/im\\?focus=channel-${escapeRegExp(encodeURIComponent(session.privateChannelName))}`,
   ));
   await expect(page.getByRole("heading", { name: session.privateChannelName })).toBeVisible();
 
   await page.reload();
 
   await expect(page).toHaveURL(new RegExp(
-    `/w/${escapeRegExp(session.workspaceSlug)}/im\\?focus=channel%3A${escapeRegExp(encodeURIComponent(session.privateChannelName))}`,
+    `/w/${escapeRegExp(session.workspaceSlug)}/im\\?focus=channel-${escapeRegExp(encodeURIComponent(session.privateChannelName))}`,
   ));
   await expect(page.getByRole("heading", { name: session.privateChannelName })).toBeVisible();
 });

@@ -195,7 +195,7 @@ describe("GlobalSearchDialog", () => {
 
     await waitFor(() => {
       expect(routerPushMock).toHaveBeenCalledWith(
-        "/w/workspace-alpha/inbox?focus=task%3Atask-trip-plan",
+        "/w/workspace-alpha/inbox?focus=task-task-trip-plan",
       );
     });
   });

@@ -9,7 +9,7 @@ export function buildDofeAgentChannelDeepLink(input: {
     return undefined;
   }
   const url = new URL(`/w/${encodeURIComponent(resolveWorkspaceSlug(input.workspaceId))}/im`, appUrl);
-  url.searchParams.set("focus", `channel:${input.channelName}`);
+  url.searchParams.set("focus", `channel-${input.channelName}`);
   return url.toString();
 }
 

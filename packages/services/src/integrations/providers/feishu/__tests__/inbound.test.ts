@@ -972,7 +972,7 @@ test("mentioning a second agent bot in an active Feishu thread records collabora
   assert.equal(card.header?.title?.content, "Hermes · DofeAgent");
   assert.match(card.elements?.[0]?.content ?? "", /Current: Hermes/);
   assert.match(card.elements?.[0]?.content ?? "", /Existing context: Atlas/);
-  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/im?focus=channel%3Ageneral");
+  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/im?focus=channel-general");
   const collaborationMetadata = JSON.parse(collaborationOutbox.metadataJson) as Record<string, unknown>;
   assert.equal(collaborationMetadata.noticeType, "thread_collaboration");
   assert.equal(collaborationMetadata.agentId, "Hermes");

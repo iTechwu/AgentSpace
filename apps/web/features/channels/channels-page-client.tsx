@@ -1155,7 +1155,7 @@ export function ChannelsPageClient({
       return;
     }
     const agentReference = selectedChannel.agentEmployeeId ?? selectedChannel.contactId;
-    navigateToWorkspaceModule(`/agents?mode=agent&focus=${encodeURIComponent(`agent:${agentReference}`)}`);
+    navigateToWorkspaceModule(`/agents?mode=agent&focus=${encodeURIComponent(`agent-${agentReference}`)}`);
   }
 
   async function uploadChannelFiles(files: FileList | null): Promise<void> {

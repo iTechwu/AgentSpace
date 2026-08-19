@@ -35,6 +35,7 @@ import {
   getHumanContactsPageData,
   type HumanContactsPageData,
 } from "@/features/contacts/human-contacts-data";
+import { buildChannelFocusKeys } from "@/features/channels/channel-focus";
 export {
   isWorkspaceModuleLoaderId,
   type WorkspaceModuleLoaderId,
@@ -506,18 +507,8 @@ function resolveInitialImDetailChannelNames(input: {
     { detailChannelNames: [] },
   );
   if (input.focus) {
-    const focused = data.channels.find((channel) => {
-      if (input.focus === `channel:${channel.id}` || input.focus === `channel:${channel.channelName ?? channel.id}`) {
-        return true;
-      }
-      if (channel.kind === "direct" && channel.contactId && input.focus === `contact:${channel.contactId}`) {
-        return true;
-      }
-      if (channel.kind === "direct" && channel.humanContactUserId && input.focus === `human:${channel.humanContactUserId}`) {
-        return true;
-      }
-      return false;
-    });
+    const focus = input.focus;
+    const focused = data.channels.find((channel) => buildChannelFocusKeys(channel).includes(focus));
     const focusedChannelName = resolveImDetailChannelName(focused);
     if (focusedChannelName) {
       return [focusedChannelName];

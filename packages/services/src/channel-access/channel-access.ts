@@ -213,7 +213,7 @@ export function approveChannelAccessRequestForActorSync(input: {
     channelName: request.channelName,
     title: "Channel access approved",
     body: `${input.actor.displayName ?? "A workspace manager"} approved your request to join #${request.channelName}.`,
-    actionHref: `/im?focus=${encodeURIComponent(`channel:${request.channelName}`)}`,
+    actionHref: `/im?focus=${encodeURIComponent(`channel-${request.channelName}`)}`,
     severity: "success",
     dedupeKey: `channel.access_approved:${input.workspaceId}:${request.id}:${request.userId}`,
     metadata: {
@@ -304,7 +304,7 @@ export function addWorkspaceMemberToChannelForActorSync(input: {
     channelName: input.channelName.trim(),
     title: "Added to channel",
     body: `${input.actor.displayName ?? "A workspace manager"} added you to #${input.channelName.trim()}.`,
-    actionHref: `/im?focus=${encodeURIComponent(`channel:${input.channelName.trim()}`)}`,
+    actionHref: `/im?focus=${encodeURIComponent(`channel-${input.channelName.trim()}`)}`,
     severity: "success",
     dedupeKey: `channel.member_added:${input.workspaceId}:${input.channelName.trim()}:${input.targetUserId.trim()}`,
     metadata: {

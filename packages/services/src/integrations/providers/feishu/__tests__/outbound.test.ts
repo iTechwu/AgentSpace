@@ -228,7 +228,7 @@ test("buildFeishuAgentStatusCard wraps status cards as Feishu interactive messag
     channelName: "general",
     agentNames: ["Atlas", "Atlas", "Nova"],
     message: "Finished the itinerary and saved the summary.",
-    actionUrl: "https://dofe-agent.test/w/northstar/im?focus=channel%3Ageneral",
+    actionUrl: "https://dofe-agent.test/w/northstar/im?focus=channel-general",
     taskId: "task-123",
   });
   const outbound = buildFeishuInteractiveCardOutboundMessage({
@@ -256,7 +256,7 @@ test("buildFeishuAgentStatusCard wraps status cards as Feishu interactive messag
   assert.match(parsed.elements[0]?.content ?? "", /Channel: general/);
   assert.match(parsed.elements[0]?.content ?? "", /Task: task-123/);
   assert.equal(parsed.elements[1]?.actions?.[0]?.text?.content, "Open DofeAgent");
-  assert.equal(parsed.elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/northstar/im?focus=channel%3Ageneral");
+  assert.equal(parsed.elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/northstar/im?focus=channel-general");
 });
 
 test("buildFeishuAgentStatusCard adds safe approval action values", () => {
@@ -337,7 +337,7 @@ test("buildFeishuAgentThreadCollaborationCard describes multi-agent thread joins
   const card = buildFeishuAgentThreadCollaborationCard({
     currentAgentId: "Hermes",
     previousAgentIds: ["Atlas", "Atlas"],
-    actionUrl: "https://dofe-agent.test/w/default/im?focus=channel%3Ageneral",
+    actionUrl: "https://dofe-agent.test/w/default/im?focus=channel-general",
   });
 
   assert.deepEqual(card.header, {
@@ -355,7 +355,7 @@ test("buildFeishuAgentThreadCollaborationCard describes multi-agent thread joins
   assert.match(elements[0]?.content ?? "", /Current: Hermes/);
   assert.match(elements[0]?.content ?? "", /Existing context: Atlas/);
   assert.equal(elements[1]?.actions?.[0]?.text?.content, "Open DofeAgent");
-  assert.equal(elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/im?focus=channel%3Ageneral");
+  assert.equal(elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/im?focus=channel-general");
   const serialized = JSON.stringify(card);
   assert.equal(serialized.includes("oc_general"), false);
   assert.equal(serialized.includes("om_root"), false);

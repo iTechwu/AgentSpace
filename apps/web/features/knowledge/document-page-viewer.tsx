@@ -167,7 +167,7 @@ function buildDocumentSourceHref(document: KnowledgeDocumentPageRecord, workspac
   }
 
   const search = new URLSearchParams();
-  search.set("focus", `channel:${document.channelName}`);
+  search.set("focus", `channel-${document.channelName}`);
   search.set("doc", document.sourceId);
   return buildWorkspacePath(workspaceId, `/im?${search.toString()}`);
 }

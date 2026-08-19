@@ -446,7 +446,7 @@ function notifyForkInvitationAccepted(input: {
     resourceId: input.invitation.id,
     title: "Agent copy accepted",
     body: `${target?.displayName ?? "A teammate"} accepted the copy invitation and created ${input.targetAgentName}.`,
-    actionHref: `/agents?focus=agent:${encodeURIComponent(input.targetAgentName)}`,
+    actionHref: `/agents?focus=agent-${encodeURIComponent(input.targetAgentName)}`,
     severity: "success",
     dedupeKey: `agent.fork_invitation_accepted:${input.workspaceId}:${input.invitation.id}:${input.invitation.createdByUserId}`,
     metadata: {

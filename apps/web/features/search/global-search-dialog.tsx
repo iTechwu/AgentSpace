@@ -35,7 +35,7 @@ function resultHref(result: SearchResult, pathname: string): string {
     case "message": {
       const channel = result.meta?.channel;
       return channel
-        ? workspaceHref(`/im?focus=${encodeURIComponent(`channel:${channel}`)}`)
+        ? workspaceHref(`/im?focus=${encodeURIComponent(`channel-${channel}`)}`)
         : workspaceHref("/im");
     }
     case "document": {
@@ -45,13 +45,13 @@ function resultHref(result: SearchResult, pathname: string): string {
       }
       const channel = result.meta?.channel;
       return channel
-        ? workspaceHref(`/im?focus=${encodeURIComponent(`channel:${channel}`)}&doc=${encodeURIComponent(result.id)}`)
+        ? workspaceHref(`/im?focus=${encodeURIComponent(`channel-${channel}`)}&doc=${encodeURIComponent(result.id)}`)
         : workspaceHref("/im");
     }
     case "task":
-      return workspaceHref(`/inbox?focus=${encodeURIComponent(`task:${result.id}`)}`);
+      return workspaceHref(`/inbox?focus=${encodeURIComponent(`task-${result.id}`)}`);
     case "agent":
-      return workspaceHref(`/im?view=direct&focus=${encodeURIComponent(`contact:${result.id}`)}`);
+      return workspaceHref(`/im?view=direct&focus=${encodeURIComponent(`contact-${result.id}`)}`);
     case "skill":
       return workspaceHref("/skills");
     case "knowledge":

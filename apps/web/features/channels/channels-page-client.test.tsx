@@ -406,17 +406,17 @@ describe("ChannelsPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Atlas 已建立私聊" }));
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      "/w/workspace-1/contacts?view=digital&focus=contact%3AAtlas",
+      "/w/workspace-1/contacts?view=digital&focus=contact-Atlas",
       { replace: true },
     );
 
     await user.click(screen.getByRole("button", { name: "管理" }));
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      "/w/workspace-1/agents?mode=agent&focus=agent%3Aemp-atlas",
+      "/w/workspace-1/agents?mode=agent&focus=agent-emp-atlas",
     );
 
     await user.click(screen.getAllByRole("button", { name: /发消息|继续对话/ })[0]!);
-    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/im?view=direct&focus=contact%3AAtlas");
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/im?view=direct&focus=contact-Atlas");
 
     await user.click(screen.getByRole("button", { name: "新建数字员工" }));
     expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/agents?mode=agent&create=agent");
@@ -1586,7 +1586,7 @@ describe("ChannelsPageClient", () => {
     expect(typeof nextHref).toBe("string");
     expect(nextHref).toContain("/w/workspace-1/im?");
     expect(nextHref).toContain("view=direct");
-    expect(nextHref).toContain("focus=contact%3AAtlas");
+    expect(nextHref).toContain("focus=contact-Atlas");
     expect(routerReplaceMock).not.toHaveBeenCalled();
     replaceStateSpy.mockRestore();
   });
@@ -1610,12 +1610,12 @@ describe("ChannelsPageClient", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /Atlas/ }));
-    expect(new URL(window.location.href).searchParams.get("focus")).toBe("contact:Atlas");
+    expect(new URL(window.location.href).searchParams.get("focus")).toBe("contact-Atlas");
 
     window.history.replaceState(window.history.state, "", canonicalHref);
-    expect(new URL(window.location.href).searchParams.get("focus")).toBe("contact:Atlas");
+    expect(new URL(window.location.href).searchParams.get("focus")).toBe("contact-Atlas");
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      "/w/workspace-1/im?focus=contact%3AAtlas",
+      "/w/workspace-1/im?focus=contact-Atlas",
       { replace: true },
     );
   });
@@ -1636,7 +1636,7 @@ describe("ChannelsPageClient", () => {
     const nextHref = pushStateSpy.mock.lastCall?.[2];
     expect(typeof nextHref).toBe("string");
     expect(nextHref).toContain("/w/workspace-1/im?");
-    expect(nextHref).toContain("focus=channel%3Atour+visit");
+    expect(nextHref).toContain("focus=channel-tour+visit");
     expect(nextHref).toContain("tab=documents");
     expect(nextHref).toContain("doc=doc-1");
     pushStateSpy.mockRestore();

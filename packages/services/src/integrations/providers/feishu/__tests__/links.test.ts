@@ -32,7 +32,7 @@ test("DofeAgent Feishu deep links use the public app URL and workspace path", ()
         workspaceId: "mars-labs",
         channelName: "tour visit",
       }),
-      "https://dofe-agent.test/w/mars-labs/im?focus=channel%3Atour+visit",
+      "https://dofe-agent.test/w/mars-labs/im?focus=channel-tour+visit",
     );
   });
 });

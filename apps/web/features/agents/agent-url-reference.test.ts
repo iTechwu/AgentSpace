@@ -8,10 +8,21 @@ const agents: AgentUrlReferenceRecord[] = [
 
 describe("agent URL references", () => {
   it("resolves employee IDs and emits the canonical reference", () => {
-    expect(resolveAgentUrlReference(agents, "agent:employee-ops")).toEqual({
+    expect(resolveAgentUrlReference(agents, "agent-employee-ops")).toEqual({
       selectedId: "agent:legacy-ops",
     });
-    expect(buildAgentFocusReference("employee-ops")).toBe("agent:employee-ops");
+    expect(buildAgentFocusReference("employee-ops")).toBe("agent-employee-ops");
+  });
+
+  it("still resolves legacy colon-separated references", () => {
+    expect(resolveAgentUrlReference(agents, "agent:employee-ops")).toEqual({
+      selectedId: "agent:legacy-ops",
+      canonicalReference: "agent-employee-ops",
+    });
+    expect(resolveAgentUrlReference(agents, "workspace:employee-support")).toEqual({
+      selectedId: "agent:legacy-support",
+      canonicalReference: "agent-employee-support",
+    });
   });
 
   it("prioritizes legacy record IDs over names", () => {
@@ -22,17 +33,17 @@ describe("agent URL references", () => {
 
     expect(resolveAgentUrlReference(collidingAgents, "agent:legacy-ops")).toEqual({
       selectedId: "agent:legacy-ops",
-      canonicalReference: "agent:employee-ops",
+      canonicalReference: "agent-employee-ops",
     });
   });
 
   it("supports internal names but refuses ambiguous display names", () => {
-    expect(resolveAgentUrlReference(agents, "agent:support-bot")?.selectedId).toBe("agent:legacy-support");
-    expect(resolveAgentUrlReference(agents, "agent:运营助手")).toEqual({ selectedId: null });
+    expect(resolveAgentUrlReference(agents, "agent-support-bot")?.selectedId).toBe("agent:legacy-support");
+    expect(resolveAgentUrlReference(agents, "agent-运营助手")).toEqual({ selectedId: null });
   });
 
   it("does not request replacement for a canonical reference", () => {
-    expect(resolveAgentUrlReference(agents, "agent:employee-ops")).toEqual({
+    expect(resolveAgentUrlReference(agents, "agent-employee-ops")).toEqual({
       selectedId: "agent:legacy-ops",
     });
   });

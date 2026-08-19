@@ -492,7 +492,7 @@ test("Agent status cards are queued back to the source Feishu thread", databaseT
     assert.equal(card.header.title.content, "Atlas · DofeAgent");
     assert.match(card.elements[0]?.content ?? "", /\*\*Atlas\*\* · Thinking/);
     assert.equal(card.elements[1]?.actions?.[0]?.text?.content, "Open DofeAgent");
-    assert.equal(card.elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/feishu-thread-status-card/im?focus=channel%3Atour+visit");
+    assert.equal(card.elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/feishu-thread-status-card/im?focus=channel-tour+visit");
   } finally {
     if (previousAppUrl === undefined) {
       delete process.env.DOFE_AGENT_APP_URL;

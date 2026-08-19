@@ -5,8 +5,19 @@ export interface AgentUrlReferenceRecord {
   name: string;
 }
 
+const AGENT_FOCUS_PREFIXES = ["agent", "workspace"] as const;
+
+function stripAgentFocusPrefix(focus: string): string | null {
+  for (const prefix of AGENT_FOCUS_PREFIXES) {
+    if (focus.startsWith(`${prefix}-`) || focus.startsWith(`${prefix}:`)) {
+      return focus.slice(prefix.length + 1);
+    }
+  }
+  return null;
+}
+
 export function buildAgentFocusReference(employeeId: string): string {
-  return "agent:" + employeeId;
+  return "agent-" + employeeId;
 }
 
 export function resolveAgentUrlReference(
@@ -20,11 +31,7 @@ export function resolveAgentUrlReference(
     return { selectedId: null };
   }
 
-  const rawReference = focus.startsWith("agent:")
-    ? focus.slice("agent:".length)
-    : focus.startsWith("workspace:")
-      ? focus.slice("workspace:".length)
-      : null;
+  const rawReference = stripAgentFocusPrefix(focus);
   if (!rawReference) {
     return { selectedId: null };
   }

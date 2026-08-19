@@ -732,14 +732,14 @@ describe("AgentsPageClient", () => {
     await user.click(secondAgentButton);
 
     expect(secondAgentButton).toHaveClass("agent-contact-row--active");
-    expect(new URL(window.location.href).searchParams.get("focus")).toBe("agent:emp-designer");
+    expect(new URL(window.location.href).searchParams.get("focus")).toBe("agent-emp-designer");
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      "/w/workspace-alpha/agents?mode=agent&focus=agent%3Aemp-designer",
+      "/w/workspace-alpha/agents?mode=agent&focus=agent-emp-designer",
       { replace: true },
     );
 
     view.unmount();
-    searchParams.set("focus", "agent:emp-designer");
+    searchParams.set("focus", "agent-emp-designer");
     renderAgentsPage(pageData);
 
     expect(screen.getByRole("button", { name: /Designer/i })).toHaveClass("agent-contact-row--active");
@@ -759,7 +759,7 @@ describe("AgentsPageClient", () => {
     await user.click(screen.getByRole("button", { name: "设置" }));
 
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      "/w/workspace-alpha/agents?mode=agent&focus=agent%3Aemp-planner&tab=settings",
+      "/w/workspace-alpha/agents?mode=agent&focus=agent-emp-planner&tab=settings",
       { replace: true },
     );
 
@@ -838,7 +838,7 @@ describe("AgentsPageClient", () => {
     await user.click(screen.getByRole("button", { name: "开始对话" }));
 
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      `/w/workspace-alpha/im?view=direct&focus=${encodeURIComponent(`contact:${selectedAgent.internalName}`)}`,
+      `/w/workspace-alpha/im?view=direct&focus=${encodeURIComponent(`contact-${selectedAgent.internalName}`)}`,
     );
   });
 
@@ -885,7 +885,7 @@ describe("AgentsPageClient", () => {
     await user.click(screen.getByRole("button", { name: "文档权限" }));
     await user.click(screen.getByRole("button", { name: "打开群文档" }));
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
-      `/w/workspace-alpha/im?focus=${encodeURIComponent(`channel:${selectedAgent.channels[0]}`)}&tab=documents`,
+      `/w/workspace-alpha/im?focus=${encodeURIComponent(`channel-${selectedAgent.channels[0]}`)}&tab=documents`,
     );
   });
 

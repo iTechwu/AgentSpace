@@ -135,7 +135,7 @@ function runGrantSideEffects(input: {
       channelName: document.channelName,
       title: "Document access granted",
       body: `${input.agentName} can now use ${input.role} access on "${document.title}".`,
-      actionHref: `/im?focus=${encodeURIComponent(`channel:${document.channelName}`)}`,
+      actionHref: `/im?focus=${encodeURIComponent(`channel-${document.channelName}`)}`,
       severity: "success",
       dedupeKey: `document.agent_access_granted:${input.workspaceId}:${document.id}:${input.agentName}:${input.role}`,
       metadata: {
@@ -158,7 +158,7 @@ function runGrantSideEffects(input: {
           channelName: document.channelName,
           title: "Agent document access granted",
           body: `${granter?.displayName ?? "A workspace member"} granted ${input.agentName} ${input.role} access on "${document.title}".`,
-          actionHref: `/im?focus=${encodeURIComponent(`channel:${document.channelName}`)}`,
+          actionHref: `/im?focus=${encodeURIComponent(`channel-${document.channelName}`)}`,
           severity: "success" as const,
           dedupeKey: `document.agent_access_granted.owner:${input.workspaceId}:${document.id}:${input.agentName}:${input.role}:${agentOwner.id}`,
           metadata: {
@@ -674,7 +674,7 @@ function notifyDocumentPermissionDecision(
       title,
       body,
       actionHref: request.requestedForChannelName
-        ? `/im?focus=${encodeURIComponent(`channel:${request.requestedForChannelName}`)}`
+        ? `/im?focus=${encodeURIComponent(`channel-${request.requestedForChannelName}`)}`
         : "/inbox",
       severity: decision === "approved" ? "success" : "warning",
       dedupeKey: `document_permission.${decision}:${workspaceId}:${request.id}:${request.requestedByAgentName}`,
@@ -702,7 +702,7 @@ function notifyDocumentPermissionDecision(
           title,
           body,
           actionHref: request.requestedForChannelName
-            ? `/im?focus=${encodeURIComponent(`channel:${request.requestedForChannelName}`)}`
+            ? `/im?focus=${encodeURIComponent(`channel-${request.requestedForChannelName}`)}`
             : "/inbox",
           severity: decision === "approved" ? "success" as const : "warning" as const,
           dedupeKey: `document_permission.${decision}.owner:${workspaceId}:${request.id}:${agentOwner.id}`,

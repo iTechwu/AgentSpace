@@ -69,6 +69,19 @@ const DAEMON_MANAGEMENT_SELECTION = "__daemon-management__";
 const AGENTS_REFRESH_POLL_MS = 3000;
 type GeneratedInstallCommandMode = "connect" | "update";
 
+function parseRuntimeFocus(focus: string | null): string | null {
+  if (!focus) {
+    return null;
+  }
+  if (focus.startsWith("runtime-")) {
+    return focus.slice("runtime-".length);
+  }
+  if (focus.startsWith("runtime:")) {
+    return focus.slice("runtime:".length);
+  }
+  return null;
+}
+
 function resolveFocusedContainerId({
   canManageRuntimes,
   containers,
@@ -84,11 +97,9 @@ function resolveFocusedContainerId({
     return DAEMON_MANAGEMENT_SELECTION;
   }
 
-  if (focus?.startsWith("runtime:")) {
-    const runtimeId = focus.slice("runtime:".length);
-    if (containers.some((container) => container.runtimeId === runtimeId)) {
-      return runtimeId;
-    }
+  const runtimeId = parseRuntimeFocus(focus);
+  if (runtimeId && containers.some((container) => container.runtimeId === runtimeId)) {
+    return runtimeId;
   }
 
   return fallbackSelection;
@@ -264,10 +275,10 @@ export function AgentsPageClient({
       return;
     }
 
-    if (focus.startsWith("runtime:")) {
-      const runtimeId = focus.slice("runtime:".length);
-      if (data.containers.some((container) => container.runtimeId === runtimeId)) {
-        setSelectedContainerId(runtimeId);
+    const focusedRuntimeId = parseRuntimeFocus(focus);
+    if (focusedRuntimeId) {
+      if (data.containers.some((container) => container.runtimeId === focusedRuntimeId)) {
+        setSelectedContainerId(focusedRuntimeId);
       }
       return;
     }
@@ -367,7 +378,7 @@ export function AgentsPageClient({
 
   function handleSelectContainer(runtimeId: string): void {
     setSelectedContainerId(runtimeId);
-    replaceManagementFocus(`runtime:${runtimeId}`);
+    replaceManagementFocus(`runtime-${runtimeId}`);
     if (isCompactLayout) {
       setMobilePane("detail");
     }
@@ -854,7 +865,7 @@ export function AgentsPageClient({
                   }
                   onActiveTabChange={replaceManagementAgentDetailTab}
                   onStartConversation={() => {
-                    const href = workspaceHref(`/im?view=direct&focus=${encodeURIComponent(`contact:${selectedAgent.internalName}`)}`);
+                    const href = workspaceHref(`/im?view=direct&focus=${encodeURIComponent(`contact-${selectedAgent.internalName}`)}`);
                     if (!navigateWorkspaceModule(href)) {
                       router.push(href, { scroll: false });
                     }
@@ -868,7 +879,7 @@ export function AgentsPageClient({
                   onOpenDocumentWorkspace={() => {
                     const channelName = selectedAgent.channels[0];
                     const href = channelName
-                      ? workspaceHref(`/im?focus=${encodeURIComponent(`channel:${channelName}`)}&tab=documents`)
+                      ? workspaceHref(`/im?focus=${encodeURIComponent(`channel-${channelName}`)}&tab=documents`)
                       : workspaceHref("/im");
                     if (!navigateWorkspaceModule(href)) {
                       router.push(href, { scroll: false });

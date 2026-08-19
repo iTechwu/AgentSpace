@@ -88,6 +88,9 @@ import type {
   ChannelWorkspaceTab,
   FeishuChannelMemberSnapshot,
 } from "@/features/channels/channels-page-shared";
+import { buildChannelFocusKeys, buildChannelFocusValue } from "@/features/channels/channel-focus";
+
+export { buildChannelFocusValue };
 export function buildChannelsPageIndexes(data: ChannelsPageData): ChannelPageIndexes {
   const channelById = new Map<string, ChannelRecord>();
   const channelByFocusKey = new Map<string, ChannelRecord>();
@@ -103,15 +106,8 @@ export function buildChannelsPageIndexes(data: ChannelsPageData): ChannelPageInd
 
   for (const channel of data.channels) {
     channelById.set(channel.id, channel);
-    channelByFocusKey.set(`channel:${channel.id}`, channel);
-    if (channel.channelName) {
-      channelByFocusKey.set(`channel:${channel.channelName}`, channel);
-    }
-    if (channel.kind === "direct" && channel.contactId) {
-      channelByFocusKey.set(`contact:${channel.contactId}`, channel);
-    }
-    if (channel.kind === "direct" && channel.humanContactUserId) {
-      channelByFocusKey.set(`human:${channel.humanContactUserId}`, channel);
+    for (const focusKey of buildChannelFocusKeys(channel)) {
+      channelByFocusKey.set(focusKey, channel);
     }
   }
 
@@ -413,32 +409,12 @@ export function parseChannelRouteState(routeSearch: string): ChannelRouteState {
 export function resolveInitialSelectedChannelId(channels: ChannelRecord[], routeSearch: string): string | null {
   const focus = new URLSearchParams(routeSearch).get("focus");
   if (focus) {
-    const focusedChannel = channels.find((channel) => {
-      if (focus === `channel:${channel.id}` || focus === `channel:${channel.channelName ?? channel.id}`) {
-        return true;
-      }
-      if (channel.kind === "direct" && channel.contactId && focus === `contact:${channel.contactId}`) {
-        return true;
-      }
-      return channel.kind === "direct"
-        && Boolean(channel.humanContactUserId)
-        && focus === `human:${channel.humanContactUserId}`;
-    });
+    const focusedChannel = channels.find((channel) => buildChannelFocusKeys(channel).includes(focus));
     if (focusedChannel) {
       return focusedChannel.id;
     }
   }
   return channels[0]?.id ?? null;
-}
-
-export function buildChannelFocusValue(channel: ChannelRecord | undefined, fallbackChannelId: string): string {
-  if (channel?.kind === "direct" && channel.contactId) {
-    return `contact:${channel.contactId}`;
-  }
-  if (channel?.kind === "direct" && channel.humanContactUserId) {
-    return `human:${channel.humanContactUserId}`;
-  }
-  return `channel:${channel?.channelName ?? fallbackChannelId}`;
 }
 
 export function readCurrentChannelSearchParams(fallbackSearch: string): URLSearchParams {
