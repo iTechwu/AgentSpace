@@ -281,6 +281,10 @@ export function ChannelsPageClient({
     [data, detailDataByChannelName],
   );
   const indexes = useMemo(() => buildChannelsPageIndexes(mergedData), [mergedData]);
+  const channelRoutePath = useMemo(
+    () => new URLSearchParams(routeSearch).get("view") === "digital" ? "/contacts" : "/im",
+    [routeSearch],
+  );
   const {
     routeState,
     replaceChannelRoute,
@@ -289,6 +293,7 @@ export function ChannelsPageClient({
     activeTab,
     channelById: indexes.channelById,
     navigateWorkspaceModule,
+    routePath: channelRoutePath,
     routeSearch,
     setRouteSearch,
     workspaceHref,

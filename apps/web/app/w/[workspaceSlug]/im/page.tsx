@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { ChannelsPageClient } from "@/features/channels/channels-page-client";
+import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { WorkspaceInitialModuleData } from "@/features/dashboard/workspace-initial-module-data";
 import { loadWorkspaceModuleDataWithMeta } from "@/features/dashboard/workspace-module-loaders";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
@@ -21,6 +23,16 @@ export default async function WorkspaceMessagesPage({
   const { workspaceSlug } = await params;
   const resolvedSearchParams = await searchParams;
   const workspaceContext = await getWorkspacePageContext(workspaceSlug, { allowChannelScope: true });
+  if (resolvedSearchParams?.context === "contacts") {
+    const nextSearch = new URLSearchParams({ view: "digital" });
+    for (const key of ["focus", "tab", "doc"] as const) {
+      const value = resolvedSearchParams[key];
+      if (typeof value === "string" && value.length > 0) {
+        nextSearch.set(key, value);
+      }
+    }
+    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, `/contacts?${nextSearch.toString()}`));
+  }
   const result = await loadWorkspaceModuleDataWithMeta(
     "im",
     workspaceContext.currentWorkspace.id,

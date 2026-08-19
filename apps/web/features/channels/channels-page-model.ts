@@ -88,7 +88,6 @@ import type {
   ChannelWorkspaceTab,
   FeishuChannelMemberSnapshot,
 } from "@/features/channels/channels-page-shared";
-
 export function buildChannelsPageIndexes(data: ChannelsPageData): ChannelPageIndexes {
   const channelById = new Map<string, ChannelRecord>();
   const channelByFocusKey = new Map<string, ChannelRecord>();
@@ -401,12 +400,13 @@ export function parseChannelWorkspaceTab(value: string | null): ChannelWorkspace
 export function parseChannelRouteState(routeSearch: string): ChannelRouteState {
   const searchParams = new URLSearchParams(routeSearch);
   const documentId = searchParams.get("doc");
+  const isDigitalContactsView = searchParams.get("view") === "digital";
   return {
     focus: searchParams.get("focus"),
     tab: parseChannelWorkspaceTab(searchParams.get("tab")),
     documentId,
-    conversationView: searchParams.get("view") === "direct" ? "direct" : "all",
-    communicationContext: searchParams.get("context") === "contacts" ? "contacts" : "messages",
+    conversationView: searchParams.get("view") === "direct" || isDigitalContactsView ? "direct" : "all",
+    communicationContext: searchParams.get("context") === "contacts" || isDigitalContactsView ? "contacts" : "messages",
   };
 }
 

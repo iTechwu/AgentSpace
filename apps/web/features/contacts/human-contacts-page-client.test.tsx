@@ -69,7 +69,7 @@ describe("HumanContactsPageClient", () => {
 
     expect(screen.getByRole("tab", { name: "真人" })).toBeDisabled();
     await user.click(screen.getByRole("tab", { name: "数字员工" }));
-    expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-alpha/im?view=direct&context=contacts");
+    expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-alpha/contacts?view=digital");
   });
 
   it("keeps focus inside the add-contact dialog and restores its trigger on Escape", async () => {

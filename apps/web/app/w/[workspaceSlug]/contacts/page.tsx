@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { ChannelsPageClient } from "@/features/channels/channels-page-client";
 import { HumanContactsPageClient } from "@/features/contacts/human-contacts-page-client";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { WorkspaceInitialModuleData } from "@/features/dashboard/workspace-initial-module-data";
@@ -27,16 +28,17 @@ export default async function WorkspaceContactsPage({
   const view = resolvedSearchParams.view;
   const tab = resolvedSearchParams.tab;
   const doc = resolvedSearchParams.doc;
-  const shouldOpenDigitalContacts =
-    (typeof view === "string" && (view === "direct" || view === "digital")) ||
-    typeof focus === "string" ||
-    typeof tab === "string" ||
-    typeof doc === "string";
+  const isDigitalContactsView = view === "digital";
+  const shouldCanonicalizeDigitalContacts =
+    view === "direct" ||
+    (!isDigitalContactsView &&
+      (typeof focus === "string" ||
+        typeof tab === "string" ||
+        typeof doc === "string"));
 
-  if (shouldOpenDigitalContacts) {
+  if (shouldCanonicalizeDigitalContacts) {
     const nextSearch = new URLSearchParams();
-    nextSearch.set("view", "direct");
-    nextSearch.set("context", "contacts");
+    nextSearch.set("view", "digital");
     if (typeof focus === "string" && focus.length > 0) {
       nextSearch.set("focus", focus);
     }
@@ -46,7 +48,21 @@ export default async function WorkspaceContactsPage({
     if (typeof doc === "string" && doc.length > 0) {
       nextSearch.set("doc", doc);
     }
-    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, `/im?${nextSearch.toString()}`));
+    redirect(buildWorkspacePath(workspaceContext.currentWorkspace.id, `/contacts?${nextSearch.toString()}`));
+  }
+
+  const moduleQuery = new URLSearchParams();
+  if (isDigitalContactsView) {
+    moduleQuery.set("view", "digital");
+  }
+  if (typeof focus === "string" && focus.length > 0) {
+    moduleQuery.set("focus", focus);
+  }
+  if (typeof tab === "string" && tab.length > 0) {
+    moduleQuery.set("tab", tab);
+  }
+  if (typeof doc === "string" && doc.length > 0) {
+    moduleQuery.set("doc", doc);
   }
 
   const result = await loadWorkspaceModuleDataWithMeta(
@@ -58,6 +74,7 @@ export default async function WorkspaceContactsPage({
       email: workspaceContext.currentUser.email,
       role: workspaceContext.currentMembership.role,
     },
+    { query: moduleQuery },
   );
   return (
     <WorkspaceInitialModuleData
@@ -65,10 +82,18 @@ export default async function WorkspaceContactsPage({
       serverDurationMs={result.meta.durationMs}
       workspaceId={workspaceContext.currentWorkspace.id}
     >
-      <HumanContactsPageClient
-        currentUserDisplayName={result.data.currentUserDisplayName}
-        {...result.data.data}
-      />
+      {result.data.view === "digital" ? (
+        <ChannelsPageClient
+          currentUserDisplayName={result.data.currentUserDisplayName}
+          data={result.data.data}
+          moduleSearchParams={moduleQuery}
+        />
+      ) : (
+        <HumanContactsPageClient
+          currentUserDisplayName={result.data.currentUserDisplayName}
+          {...result.data.data}
+        />
+      )}
     </WorkspaceInitialModuleData>
   );
 }

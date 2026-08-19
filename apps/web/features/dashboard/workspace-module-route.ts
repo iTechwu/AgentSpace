@@ -98,7 +98,15 @@ export function parseWorkspaceModulePath(
   const { workspaceSlug, appPath } = parseWorkspacePathname(pathname);
   const moduleId = resolveWorkspaceModuleId(appPath);
   const normalizedSearchParams = normalizeWorkspaceModuleQuery(moduleId, searchParams);
-  const conversationView = moduleId === "im" && normalizedSearchParams.get("view") === "direct" ? "direct" : "all";
+  const isDigitalContactsView =
+    (moduleId === "contacts" && normalizedSearchParams.get("view") === "digital") ||
+    (moduleId === "im" &&
+      normalizedSearchParams.get("view") === "direct" &&
+      normalizedSearchParams.get("context") === "contacts");
+  const conversationView =
+    (moduleId === "im" && normalizedSearchParams.get("view") === "direct") || isDigitalContactsView
+      ? "direct"
+      : "all";
   const agentsMode =
     moduleId === "agents" && normalizedSearchParams.get("mode") === "showcase"
       ? "showcase"
@@ -107,11 +115,7 @@ export function parseWorkspaceModulePath(
         : "agent";
   const knowledgeView = moduleId === "knowledge" && normalizedSearchParams.get("view") === "documents" ? "documents" : "knowledge";
   const settingsPath = moduleId === "settings" ? splitAppPath(appPath).slice(1) : [];
-  const isHumanContactsView = moduleId === "contacts";
-  const isDigitalContactsView =
-    moduleId === "im" &&
-    conversationView === "direct" &&
-    normalizedSearchParams.get("context") === "contacts";
+  const isHumanContactsView = moduleId === "contacts" && !isDigitalContactsView;
 
   return {
     workspaceSlug,
@@ -156,6 +160,13 @@ export function buildWorkspaceModuleDataQuery(routeState: Pick<WorkspaceModuleRo
   }
   if (routeState.moduleId === "settings") {
     params.set("section", routeState.settingsPath[0] ?? "account");
+  }
+  if (routeState.moduleId === "contacts" && routeState.searchParams.get("view") === "digital") {
+    params.set("view", "digital");
+    const focus = routeState.searchParams.get("focus");
+    if (focus) {
+      params.set("focus", focus);
+    }
   }
 
   return params;

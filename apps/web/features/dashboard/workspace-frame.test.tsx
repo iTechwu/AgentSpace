@@ -1578,9 +1578,8 @@ describe("WorkspaceFrame", () => {
   });
 
   it("highlights Contacts for the digital employee directory context", () => {
-    pathname = "/w/workspace-alpha/im";
-    searchParams.set("view", "direct");
-    searchParams.set("context", "contacts");
+    pathname = "/w/workspace-alpha/contacts";
+    searchParams.set("view", "digital");
 
     render(
       <LanguageProvider initialLanguage="zh">

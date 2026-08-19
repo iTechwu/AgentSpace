@@ -193,6 +193,7 @@ export function useChannelRouteState({
   activeTab,
   channelById,
   navigateWorkspaceModule,
+  routePath,
   routeSearch,
   setRouteSearch,
   workspaceHref,
@@ -200,6 +201,7 @@ export function useChannelRouteState({
   activeTab: ChannelWorkspaceTab;
   channelById: Map<string, ChannelRecord>;
   navigateWorkspaceModule: (href: string, options?: { replace?: boolean }) => boolean;
+  routePath: "/contacts" | "/im";
   routeSearch: string;
   setRouteSearch: (value: string) => void;
   workspaceHref: (path: string) => string;
@@ -227,7 +229,7 @@ export function useChannelRouteState({
         nextSearch.delete("doc");
       }
       const nextRouteSearch = nextSearch.toString();
-      const nextHref = workspaceHref(`/im?${nextRouteSearch}`);
+      const nextHref = workspaceHref(`${routePath}?${nextRouteSearch}`);
       const handledByWorkspace = navigateWorkspaceModule(
         nextHref,
         historyMode === "replace" ? { replace: true } : undefined,
@@ -241,7 +243,7 @@ export function useChannelRouteState({
       }
       setRouteSearch(nextRouteSearch);
     },
-    [activeTab, channelById, navigateWorkspaceModule, routeSearch, setRouteSearch, workspaceHref],
+    [activeTab, channelById, navigateWorkspaceModule, routePath, routeSearch, setRouteSearch, workspaceHref],
   );
 
   const replaceChannelRoute = useCallback(

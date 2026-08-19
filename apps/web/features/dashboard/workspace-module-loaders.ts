@@ -72,8 +72,15 @@ export type WorkspaceModuleLoaderData =
     }
   | {
       moduleId: "contacts";
+      view: "human";
       currentUserDisplayName: string;
       data: HumanContactsPageData;
+    }
+  | {
+      moduleId: "contacts";
+      view: "digital";
+      currentUserDisplayName: string;
+      data: ChannelsPageData;
     }
   | {
       moduleId: "costs";
@@ -207,8 +214,17 @@ async function loadWorkspaceModuleDataUncached(
         data: getCalendarPageData(workspaceId),
       };
     case "contacts":
+      if (readWorkspaceModuleLoaderSearchParams(options.query).get("view") === "digital") {
+        const digitalContacts = loadImWorkspaceModuleData(workspaceId, viewer, options);
+        return {
+          ...digitalContacts,
+          moduleId,
+          view: "digital",
+        };
+      }
       return {
         moduleId,
+        view: "human",
         currentUserDisplayName: viewer?.displayName ?? "",
         data: getHumanContactsPageData({
           workspaceId,

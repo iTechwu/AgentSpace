@@ -17,6 +17,12 @@ describe("workspace module route", () => {
     expect(parseWorkspaceModulePath("/w/acme/im", "view=direct&context=contacts").isDigitalContactsView).toBe(true);
     expect(parseWorkspaceModulePath("/w/acme/im", "focus=channel%3Atour+visit&tab=documents&doc=doc-1").moduleId).toBe("im");
     expect(parseWorkspaceModulePath("/w/acme/contacts").isHumanContactsView).toBe(true);
+    expect(parseWorkspaceModulePath("/w/acme/contacts", "view=digital")).toMatchObject({
+      conversationView: "direct",
+      isDigitalContactsView: true,
+      isHumanContactsView: false,
+      moduleId: "contacts",
+    });
     expect(parseWorkspaceModulePath("/w/acme/agents", "mode=container").agentsMode).toBe("container");
     expect(parseWorkspaceModulePath("/w/acme/agents", "mode=showcase").agentsMode).toBe("showcase");
     expect(parseWorkspaceModulePath("/w/acme/knowledge", "view=documents").knowledgeView).toBe("documents");
@@ -138,6 +144,15 @@ function expectedDataQuery(moduleId: WorkspaceModuleId, query: string): string {
   if (moduleId === "im") {
     const focus = normalizeWorkspaceModuleQuery(moduleId, query).get("focus");
     return focus ? new URLSearchParams({ focus }).toString() : "";
+  }
+  if (moduleId === "contacts") {
+    const params = normalizeWorkspaceModuleQuery(moduleId, query);
+    return params.get("view") === "digital"
+      ? new URLSearchParams([
+          ["view", "digital"],
+          ...(params.get("focus") ? [["focus", params.get("focus")!]] : []),
+        ]).toString()
+      : "";
   }
   return "";
 }

@@ -120,8 +120,8 @@ export function HumanContactsPageClient({
               label: tx("数字员工", "Digital employees"),
               onSelect: () => {
                 const href = workspaceSlug
-                  ? buildWorkspacePath(workspaceSlug, "/im?view=direct&context=contacts")
-                  : "/im?view=direct&context=contacts";
+                  ? buildWorkspacePath(workspaceSlug, "/contacts?view=digital")
+                  : "/contacts?view=digital";
                 if (!navigateWorkspaceModule(href)) {
                   router.push(href);
                 }

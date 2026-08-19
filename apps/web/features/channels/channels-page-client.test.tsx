@@ -385,11 +385,11 @@ describe("ChannelsPageClient", () => {
     });
   });
 
-  it("renders the digital employee directory without a duplicate chat composer", async () => {
+  it("renders the canonical digital employee directory without a duplicate chat composer", async () => {
     const user = userEvent.setup();
     const navigateWorkspaceModule = vi.fn(() => true);
-    searchParams.set("view", "direct");
-    searchParams.set("context", "contacts");
+    searchParams.set("view", "digital");
+    window.history.replaceState(window.history.state, "", "/w/workspace-1/contacts?view=digital");
 
     render(
       <WorkspaceModuleNavigationProvider navigateWorkspaceModule={navigateWorkspaceModule}>
@@ -403,6 +403,12 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByRole("tab", { name: "数字员工" })).toBeDisabled();
     expect(screen.getByText("数字员工资料")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("发送到 Atlas")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Atlas 已建立私聊" }));
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith(
+      "/w/workspace-1/contacts?view=digital&focus=contact%3AAtlas",
+      { replace: true },
+    );
 
     await user.click(screen.getByRole("button", { name: "管理" }));
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(

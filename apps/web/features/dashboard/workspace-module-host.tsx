@@ -419,7 +419,15 @@ function renderWorkspaceModuleData(
     case "calendar":
       return <CalendarPageClient data={data.data as CalendarPageData} workspaceSlug={workspaceSlug} />;
     case "contacts":
-      return (
+      return data.view === "digital" ? (
+        <ChannelsPageClient
+          currentUserDisplayName={data.currentUserDisplayName}
+          data={data.data as ChannelsPageData}
+          moduleSearchParams={routeState.searchParams}
+          onDataChanged={onDataChanged}
+          onInvalidation={onInvalidation}
+        />
+      ) : (
         <HumanContactsPageClient
           currentUserDisplayName={data.currentUserDisplayName}
           {...(data.data as HumanContactsPageData)}

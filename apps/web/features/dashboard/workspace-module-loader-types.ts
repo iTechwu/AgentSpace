@@ -48,6 +48,7 @@ export type WorkspaceModuleLoaderData =
     }
   | {
       moduleId: "contacts";
+      view: "human" | "digital";
       currentUserDisplayName: string;
       data: unknown;
     }
