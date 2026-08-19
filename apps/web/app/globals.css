@@ -1626,6 +1626,8 @@ textarea:focus {
 
 .contacts-chat-thread {
   flex: 1;
+  container-name: message-thread;
+  container-type: inline-size;
   padding: 1rem 1.1rem;
   display: flex;
   flex-direction: column;
@@ -3037,6 +3039,8 @@ textarea:focus {
 .inbox-chat-thread {
   min-height: 0;
   flex: 1;
+  container-name: message-thread;
+  container-type: inline-size;
   overflow: auto;
   padding: 1rem 1.1rem;
   display: flex;
@@ -3049,6 +3053,8 @@ textarea:focus {
 .inbox-bubble-row {
   display: flex;
   align-items: flex-start;
+  width: 100%;
+  min-width: 0;
   gap: 0.75rem;
 }
 
@@ -3061,8 +3067,10 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  flex: 0 1 min(72%, 680px);
+  width: min(72%, 680px);
   min-width: 0;
-  max-width: min(78%, 820px);
+  max-width: calc(100% - 44px);
 }
 
 .inbox-bubble-row--own .inbox-message-unit {
@@ -3070,7 +3078,8 @@ textarea:focus {
 }
 
 .inbox-message-unit:has(.conversation-process) {
-  width: min(86%, 760px);
+  flex-basis: min(76%, 680px);
+  width: min(76%, 680px);
   max-width: calc(100% - 44px);
 }
 
@@ -3085,6 +3094,10 @@ textarea:focus {
 
 .inbox-message-unit:has(.conversation-process) .inbox-message-body {
   width: 100%;
+}
+
+.inbox-bubble-row--own .inbox-message-body {
+  align-self: flex-end;
 }
 
 .inbox-message-unit > .inbox-message-body > .conversation-process {
@@ -3195,6 +3208,28 @@ textarea:focus {
   }
 }
 
+@container message-thread (max-width: 720px) {
+  .inbox-message-actions {
+    top: 0.15rem;
+    right: auto;
+    left: calc(100% + 0.35rem);
+    box-sizing: border-box;
+    width: 3.5rem;
+    flex-wrap: wrap;
+  }
+
+  .inbox-message-actions button {
+    width: 1.4rem;
+    height: 1.4rem;
+  }
+
+  .inbox-bubble-row--own .inbox-message-actions {
+    top: 0.15rem;
+    right: calc(100% + 0.35rem);
+    left: auto;
+  }
+}
+
 .inbox-bubble-avatar {
   width: 32px;
   height: 32px;
@@ -3263,10 +3298,13 @@ textarea:focus {
 }
 
 .inbox-bubble {
-  max-width: min(72%, 620px);
   position: relative;
-  border-radius: 18px;
-  padding: 0.9rem 1rem;
+  box-sizing: border-box;
+  width: fit-content;
+  min-width: 4rem;
+  max-width: 100%;
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
   background: #f2f4fa;
   color: var(--text);
   box-shadow: 0 6px 18px rgba(94, 100, 140, 0.06);
@@ -3373,7 +3411,8 @@ textarea:focus {
   margin: 0;
   line-height: 1.6;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .inbox-bubble__streaming-content {
@@ -3381,9 +3420,12 @@ textarea:focus {
 }
 
 .chat-message-markdown {
+  min-width: 0;
+  max-width: 100%;
   color: inherit;
   line-height: 1.6;
   overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .chat-message-markdown > :first-child {
@@ -5708,12 +5750,14 @@ textarea:focus {
 }
 
 .conversation-process {
-  width: min(86%, 760px);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
-  border-radius: 16px;
+  border-radius: 8px;
   border: 1px solid rgba(142, 149, 170, 0.18);
   background: rgba(255, 255, 255, 0.78);
-  padding: 0.75rem 0.9rem;
+  padding: 0.55rem 0.7rem;
 }
 
 .conversation-process--error {
@@ -5793,19 +5837,20 @@ textarea:focus {
 /* Task execution timeline (Kimi-style collapsible steps) */
 
 .conversation-process--timeline {
-  padding: 0.6rem 0.9rem;
+  padding: 0.5rem 0.7rem;
 }
 
 /* A task's execution trace and final answer are one reading unit. */
 .conversation-process--timeline:has(.conversation-process__reply) {
-  width: min(86%, 760px);
-  max-width: none;
-  padding-bottom: 0.85rem;
+  width: 100%;
+  max-width: 100%;
+  padding-bottom: 0.6rem;
 }
 
 .conversation-process__reply {
-  margin: 0.55rem 0.35rem 0;
-  padding: 0.75rem 0.8rem 0.1rem;
+  min-width: 0;
+  margin: 0.42rem 0 0;
+  padding: 0.58rem 0.25rem 0.05rem;
   border-top: 1px solid rgba(142, 149, 170, 0.2);
 }
 
