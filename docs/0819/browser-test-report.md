@@ -36,6 +36,22 @@
 - 修复：`listProtocolFilteredRuntimeModelsAction` 将 SSO 绑定缺失和模型服务不可用转换为结构化不可用结果；`RuntimeModelPicker` 结束加载并显示可操作提示，未知请求异常显示可恢复告警。
 - 状态：已修复并回归通过。
 
+### BUG-0819-002（中）执行时间线默认状态文案被错误结算
+
+- 复现路径：会话页加载包含 Runtime 执行轨迹的消息；调用 `buildExecutionTimeline` 时未传入任务运行状态。
+- 观察结果：未传入 `taskRunning` 时，状态“正在准备执行环境”被改写为“执行环境已准备”，与实时轨迹语义和默认函数契约不一致；时间线单测有 2 项失败。
+- 用户影响：部分未附带任务状态的审计/消息数据会提前显示为已完成，造成执行进度误导。
+- 修复：仅在显式传入 `taskRunning: false` 时结算遗留状态；未传入或传入 `true` 时保留原始状态文案。生产调用点均显式传递任务运行状态。
+- 状态：已修复并回归通过。
+
+### BUG-0819-003（低）附件发送测试 mock 参数类型缺失
+
+- 复现路径：运行 `tsconfig.test.json` 类型检查。
+- 观察结果：附件发送测试中的 `vi.fn(async () => {})` 被推断为无参数 tuple，访问首个调用参数触发 `TS2532/TS2493`；运行时行为本身正常。
+- 用户影响：测试类型检查无法通过，降低回归检查可信度。
+- 修复：为测试 mock 补充与 `ConversationShell.onSubmit` 一致的输入类型。
+- 状态：已修复并回归通过。
+
 ## 非缺陷观察
 
 - 未配置 E2E 环境变量时，设置集成页会尝试访问真实 SSO 并出现 `auth.sso_user_lookup_failed`；使用隔离测试库和 `DOFE_AGENT_E2E=1` 后页面正常。这是测试启动配置问题，不计入业务缺陷。
@@ -51,6 +67,7 @@
 
 - 浏览器：Runtime 创建向导进入模型步骤后，网络 4xx/5xx 为 0，控制台错误/警告为 0，页面显示“当前工作区尚未绑定 SSO Runtime，完成绑定后才能加载模型目录”。
 - 组件测试：`features/runtimes` 共 9 个测试文件、34 个测试全部通过。
-- 类型检查：`tsconfig.typecheck.json` 通过；本次修改涉及文件 ESLint 通过。
-- 仓库测试类型检查仍存在既有错误：`features/chat/conversation-shell.test.tsx:1140` 的 `TS2532/TS2493`，与本次改动无关。
+- 类型检查：`tsconfig.typecheck.json` 和 `tsconfig.test.json` 均通过。
+- 组件测试：`task-execution-timeline.test.ts`、`conversation-shell.test.tsx` 共 37 项全部通过；Runtime 组件测试 34 项继续通过。
+- 浏览器回归：桌面端 `/im`、`/inbox`、`/runtimes`、`/skills`、`/agents`、`/settings/preferences`、`/task/board`、`/automations/new` 独立会话加载无页面异常、控制台错误、4xx/5xx 或横向溢出；移动端 390x844 的 `/im`、`/inbox`、`/runtimes` 同样通过。
 - Playwright 原生 E2E 命令因本机 Playwright Chromium 缓存缺失而无法启动；测试使用系统 Chrome 的 Playwright + CDP 脚本完成同等覆盖，未修改浏览器用户配置。
