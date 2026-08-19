@@ -14,6 +14,7 @@ export const MINIMAX_TOKEN_PLAN_MCP_SLUG = "official-minimax-token-plan";
 export const MINIMAX_TOKEN_PLAN_MCP_VERSION = "0.0.4";
 export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE = "minimax-coding-plan-mcp";
 export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC = `${MINIMAX_TOKEN_PLAN_MCP_PACKAGE}==${MINIMAX_TOKEN_PLAN_MCP_VERSION}`;
+export const MINIMAX_TOKEN_PLAN_MCP_SDK_SPEC = "mcp==1.29.0";
 export const OPENMONTAGE_MCP_SLUG = OPENMONTAGE_MCP_CATALOG_SLUG;
 export const OPENMONTAGE_MCP_VERSION = "0.3.0";
 
@@ -143,6 +144,7 @@ export function syncOfficialMcpCatalogForWorkspaceSync(workspaceId: string): Mcp
       registryJson: JSON.stringify({
         pypi_package: MINIMAX_TOKEN_PLAN_MCP_PACKAGE,
         pypi_package_spec: MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC,
+        pypi_dependencies: [MINIMAX_TOKEN_PLAN_MCP_SDK_SPEC],
         pypi_sha256: "ef20ded2c716dfb33a446f8608b58d5fc3a8f76db744f1805d1b412906622572",
       }),
       syncedAt,

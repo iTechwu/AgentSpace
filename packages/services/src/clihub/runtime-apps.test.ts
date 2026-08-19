@@ -427,6 +427,35 @@ test("uses a validated exact PyPI package spec without starting the MCP server d
   ]);
 });
 
+test("installs validated exact PyPI dependency pins in the same resolver transaction", () => {
+  const plan = buildRuntimeAppInstallPlan({
+    operation: "install",
+    cliHubAvailable: true,
+    item: {
+      source: "clihub_public",
+      name: "minimax-coding-plan-mcp",
+      displayName: "MiniMax Token Plan MCP",
+      description: "",
+      version: "0.0.4",
+      category: "search",
+      entryPoint: "minimax-coding-plan-mcp",
+      installStrategy: "pip",
+      installCmd: "python3 -m pip install --user minimax-coding-plan-mcp==0.0.4",
+      registryJson: JSON.stringify({
+        pypi_package_spec: "minimax-coding-plan-mcp==0.0.4",
+        pypi_dependencies: ["mcp==1.29.0"],
+      }),
+      syncedAt: "2026-08-04T00:00:00.000Z",
+    },
+  });
+
+  assert.deepEqual(plan.commands, [{
+    executable: "python3",
+    args: ["-m", "pip", "install", "--user", "minimax-coding-plan-mcp==0.0.4", "mcp==1.29.0"],
+    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+  }]);
+});
+
 test("rejects unsafe public npm package metadata when no pinned fallback exists", () => {
   assert.throws(() => buildRuntimeAppInstallPlan({
     operation: "install",

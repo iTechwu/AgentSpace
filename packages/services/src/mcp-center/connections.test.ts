@@ -30,6 +30,7 @@ import {
   CHROME_DEVTOOLS_MCP_PACKAGE_SPEC,
   MINIMAX_TOKEN_PLAN_MCP_PACKAGE,
   MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC,
+  MINIMAX_TOKEN_PLAN_MCP_SDK_SPEC,
   MINIMAX_TOKEN_PLAN_MCP_SLUG,
   OPENMONTAGE_MCP_VERSION,
   resolveOfficialManagedStdioProfile,
@@ -295,7 +296,7 @@ test("official MiniMax Token Plan MCP exposes two tools and a pinned secret-back
   const plan = buildRuntimeAppInstallPlan({ item: runtimeApp, operation: "install", cliHubAvailable: true });
   assert.deepEqual(plan.commands, [{
     executable: "python3",
-    args: ["-m", "pip", "install", "--user", MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC],
+    args: ["-m", "pip", "install", "--user", MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC, MINIMAX_TOKEN_PLAN_MCP_SDK_SPEC],
     env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
   }]);
 });

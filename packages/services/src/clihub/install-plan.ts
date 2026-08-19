@@ -31,6 +31,7 @@ interface RuntimeAppReadinessInput {
 interface PublicPypiPackage {
   name: string;
   spec: string;
+  dependencies: string[];
 }
 
 interface PrivateArtifactLock {
@@ -194,7 +195,11 @@ function buildOperationCommands(
       return [{ executable: "python3", args: ["-m", "pip", "uninstall", "--yes", pypiPackage.name], env: CLI_HUB_PIP_ENV }];
     }
     if (operation === "install" || operation === "update") {
-      return [{ executable: "python3", args: ["-m", "pip", "install", "--user", privateArtifactLock?.localPath ?? pypiPackage.spec], env: CLI_HUB_PIP_ENV }];
+      return [{
+        executable: "python3",
+        args: ["-m", "pip", "install", "--user", privateArtifactLock?.localPath ?? pypiPackage.spec, ...pypiPackage.dependencies],
+        env: CLI_HUB_PIP_ENV,
+      }];
     }
   }
   if (operation !== "install") {
@@ -286,7 +291,11 @@ function readPublicPypiPackage(item: RuntimeAppCatalogItemRecord): PublicPypiPac
     const spec = typeof registry.pypi_package_spec === "string" ? registry.pypi_package_spec.trim() : "";
     const match = PYPI_PACKAGE_SPEC_PATTERN.exec(spec);
     if (!match?.[1] || !PYPI_PACKAGE_PATTERN.test(match[1])) return undefined;
-    return { name: match[1], spec };
+    const rawDependencies = registry.pypi_dependencies;
+    if (rawDependencies !== undefined && !Array.isArray(rawDependencies)) return undefined;
+    const dependencies = (rawDependencies ?? []).map((dependency) => typeof dependency === "string" ? dependency.trim() : "");
+    if (dependencies.some((dependency) => !PYPI_PACKAGE_SPEC_PATTERN.test(dependency))) return undefined;
+    return { name: match[1], spec, dependencies };
   } catch {
     return undefined;
   }
