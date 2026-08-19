@@ -5584,6 +5584,31 @@ textarea:focus {
   padding: 0.6rem 0.9rem;
 }
 
+/* A task's execution trace and final answer are one reading unit. */
+.conversation-process--timeline:has(.conversation-process__reply) {
+  width: min(86%, 760px);
+  max-width: none;
+  padding-bottom: 0.85rem;
+}
+
+.conversation-process__reply {
+  margin: 0.55rem 0.35rem 0;
+  padding: 0.75rem 0.8rem 0.1rem;
+  border-top: 1px solid rgba(142, 149, 170, 0.2);
+}
+
+.conversation-process__reply .inbox-bubble__meta {
+  margin-bottom: 0.45rem;
+}
+
+.conversation-process__reply .inbox-bubble__meta strong {
+  font-size: 0.88rem;
+}
+
+.conversation-process__reply .message-content {
+  line-height: 1.65;
+}
+
 .execution-timeline {
   position: relative;
   display: flex;
@@ -5762,35 +5787,6 @@ textarea:focus {
 }
 
 /* Agent reply attached to the execution timeline card (one task = one visual unit) */
-
-.inbox-bubble-row:has(+ .inbox-bubble-row--execution-reply) {
-  margin-bottom: calc(2px - 0.95rem);
-}
-
-.inbox-bubble-row:has(+ .inbox-bubble-row--execution-reply) .conversation-process--timeline {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-.inbox-bubble-row--execution-reply .inbox-bubble-avatar {
-  visibility: hidden;
-}
-
-.inbox-bubble-row--execution-reply .inbox-bubble {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: min(86%, 760px);
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-
-/* The default action pill floats right of the bubble; inside an execution
-   group that would stick out past the widened card and make the whole thread
-   horizontally scrollable, so it is pinned inside the bubble instead. */
-.inbox-bubble-row--execution-reply .inbox-bubble__actions {
-  left: auto;
-  right: 0.5rem;
-}
 
 /* Chat threads must never scroll sideways. */
 .contacts-chat-thread,

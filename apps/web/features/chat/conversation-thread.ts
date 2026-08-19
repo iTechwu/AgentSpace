@@ -41,6 +41,8 @@ export interface ConversationThreadMessage {
   executionRunning?: boolean;
   /** Agent reply that belongs to an execution group; rendered attached to the timeline card. */
   executionGrouped?: boolean;
+  /** Final agent reply rendered inside the task's execution card. */
+  executionReply?: ConversationThreadMessage;
   pinned?: boolean;
   pinnedAt?: string;
   replyToMessageId?: string;

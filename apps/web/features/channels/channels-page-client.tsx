@@ -1000,21 +1000,66 @@ export function ChannelsPageClient({
           .map((message) => message.data?.source_task_queue_id as string),
       );
 
+      // Keep the final agent reply in the same visual unit as its execution
+      // trace. This avoids a second bubble repeating the last narration row.
+      const executionReplyByTaskId = new Map<string, (typeof threadMessages)[number]>();
+      for (const message of threadMessages) {
+        const taskId = message.data?.source_task_queue_id;
+        if (
+          message.role === "agent" &&
+          message.kind !== "process" &&
+          taskId &&
+          carrierIdByTaskId.has(taskId)
+        ) {
+          executionReplyByTaskId.set(taskId, message);
+        }
+      }
+
       return threadMessages.flatMap((message, index) => {
         const id = message.id || `${message.speaker}-${message.time}-${index}`;
         if (foldedMessageIds.has(id)) {
           return [];
         }
         const taskId = message.data?.source_task_queue_id;
+        if (
+          message.role === "agent" &&
+          message.kind !== "process" &&
+          taskId &&
+          carrierIdByTaskId.has(taskId)
+        ) {
+          return [];
+        }
+        const executionReply = taskId && carrierIdByTaskId.get(taskId) === id
+          ? executionReplyByTaskId.get(taskId)
+          : undefined;
+        if (executionReply && executionReply.id === id) {
+          return [];
+        }
         const executionRows = taskId && carrierIdByTaskId.get(taskId) === id
           ? taskExecutions?.[taskId]
           : undefined;
-        const executionGrouped = Boolean(
-          taskId &&
-          carrierIdByTaskId.has(taskId) &&
-          message.kind !== "process" &&
-          message.role === "agent",
-        );
+        const executionReplyMessage = executionReply
+          ? {
+              id: executionReply.id,
+              speaker: executionReply.speaker,
+              role: executionReply.role,
+              content: executionReply.summary,
+              code: executionReply.code,
+              data: executionReply.data,
+              executionDetail: executionReply.data?.execution_detail,
+              timestamp: formatCompactTimestamp(executionReply.time, { emptyFallback: executionReply.time }),
+              status: executionReply.status ?? "completed",
+              attachments: executionReply.attachments,
+              mentions: executionReply.mentions,
+              acknowledgements: executionReply.acknowledgements,
+              kind: executionReply.kind,
+              processType: executionReply.processType,
+              tool: executionReply.tool,
+              pinned: executionReply.pinned,
+              pinnedAt: executionReply.pinnedAt,
+              replyToMessageId: executionReply.replyToMessageId,
+            }
+          : undefined;
         return [{
           id,
           speaker: message.speaker,
@@ -1034,7 +1079,7 @@ export function ChannelsPageClient({
           pinned: message.pinned,
           pinnedAt: message.pinnedAt,
           replyToMessageId: message.replyToMessageId,
-          ...(executionGrouped ? { executionGrouped: true } : {}),
+          ...(executionReplyMessage ? { executionReply: executionReplyMessage } : {}),
           ...(executionRows
             ? {
                 execution: buildExecutionTimeline(
@@ -1044,7 +1089,10 @@ export function ChannelsPageClient({
                     error: (value) => translateRuntimeFailureSummary(value, tx),
                   },
                   { taskRunning: Boolean(taskId && pendingTaskIds.has(taskId)) },
-                ),
+                ).filter((item) => {
+                  const replyContent = executionReplyMessage?.content.replace(/\s+/g, " ").trim();
+                  return !(item.kind === "narration" && replyContent && item.title.replace(/\s+/g, " ").trim() === replyContent);
+                }),
                 executionRunning: Boolean(taskId && pendingTaskIds.has(taskId)),
               }
             : {}),

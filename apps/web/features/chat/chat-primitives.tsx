@@ -246,6 +246,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   const isFeishuMessage = message.data?.external_provider === "feishu";
   const replyToSpeakerLabel = replyToMessage ? translateSystemSpeaker(replyToMessage.speaker, tx) : "";
   const approvalAction = buildRuntimeApprovalAction(message, tx);
+  const executionReply = message.executionReply;
   useEffect(() => {
     if (
       optimisticApproval &&
@@ -288,6 +289,20 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
             }${isError ? " conversation-process--error" : ""}`}
           >
             <TaskExecutionTimeline items={message.execution} running={message.executionRunning} />
+            {executionReply ? (
+              <div className="conversation-process__reply">
+                <div className="inbox-bubble__meta">
+                  <strong>{translateSystemSpeaker(executionReply.speaker, tx)}</strong>
+                  <span className="inbox-bubble__delivery-meta">{renderMessageTimestamp(executionReply.timestamp)}</span>
+                </div>
+                <ChatMessageContent
+                  content={translateWorkspaceMessageSummary(executionReply, tx)}
+                  mentions={executionReply.mentions}
+                  tx={tx}
+                />
+                {executionReply.attachments?.length ? <ChatAttachmentRow attachments={executionReply.attachments} tx={tx} /> : null}
+              </div>
+            ) : null}
           </div>
         ) : (
         <details
