@@ -82,6 +82,7 @@ export function ModelCatalogSelect({
   labels,
 }: ModelCatalogSelectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
   const [open, setOpen] = useState(false);
@@ -108,7 +109,11 @@ export function ModelCatalogSelect({
     }
 
     function closeOnEscape(event: KeyboardEvent): void {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus({ preventScroll: true });
+      }
     }
 
     document.addEventListener("mousedown", closeOnOutsidePointer);
@@ -172,6 +177,7 @@ export function ModelCatalogSelect({
             setOpen(true);
           }
         }}
+        ref={triggerRef}
         type="button"
       >
         <span className="model-catalog-select__trigger-copy">

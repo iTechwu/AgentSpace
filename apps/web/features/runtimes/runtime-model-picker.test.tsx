@@ -54,6 +54,32 @@ it("searches models and shows unavailable protocol-compatible models with their 
   expect(screen.getByRole("option", { name: /disabled-model/i })).toBeInTheDocument();
 });
 
+it("returns focus to the model trigger after closing the portal with Escape", async () => {
+  vi.mocked(listProtocolFilteredRuntimeModelsAction).mockResolvedValue({
+    configured: true,
+    list: [
+      {
+        alias: "available-model",
+        model: "available-model",
+        modelType: "llm",
+        protocol: "openai",
+        isAvailable: true,
+      },
+    ],
+  });
+
+  render(<RuntimeModelPicker provider="codex" value="" onChange={vi.fn()} />);
+
+  const trigger = await screen.findByRole("button", { name: "Default model" });
+  await userEvent.click(trigger);
+  expect(await screen.findByRole("searchbox", { name: "Search models" })).toHaveFocus();
+
+  await userEvent.keyboard("{Escape}");
+
+  await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+  expect(trigger).toHaveFocus();
+});
+
 it("localizes known model availability reasons in Chinese", async () => {
   vi.mocked(listProtocolFilteredRuntimeModelsAction).mockResolvedValue({
     configured: true,
