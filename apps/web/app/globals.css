@@ -18212,6 +18212,8 @@ textarea:focus {
 }
 
 .knowledge-content {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -18354,8 +18356,8 @@ textarea:focus {
 .knowledge-editor {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
-  height: 100%;
 }
 
 .knowledge-editor__title-input {
