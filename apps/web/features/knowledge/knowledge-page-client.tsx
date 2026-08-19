@@ -875,7 +875,7 @@ export function KnowledgePageClient({
                   <div className="knowledge-editor__md-container" data-color-mode="light">
                     <MDEditor
                       commands={commands.getCommands()}
-                      height={520}
+                      height="100%"
                       onChange={(value) => setEditContent(value ?? "")}
                       preview="live"
                       value={editContent}

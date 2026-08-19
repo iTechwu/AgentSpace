@@ -205,6 +205,23 @@ describe("KnowledgePageClient", () => {
     expect(screen.queryByRole("button", { name: "返回列表" })).not.toBeInTheDocument();
   });
 
+  it("lets the knowledge editor fill the detail pane instead of using a fixed height", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <KnowledgePageClient data={data} />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "日本行程" }));
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+
+    const editor = document.querySelector(".knowledge-editor__md-container .w-md-editor");
+    expect(editor).toBeTruthy();
+    expect((editor as HTMLElement).style.height).toBe("100%");
+  });
+
   it("switches to document pages and can create a knowledge page from a markdown document", async () => {
     const user = userEvent.setup();
     searchParamsStore.set("view", "documents");
