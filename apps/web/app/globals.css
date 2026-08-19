@@ -34585,7 +34585,24 @@ button[aria-disabled="true"] svg {
 }
 
 .audit-table {
-  min-width: 800px;
+  min-width: 1200px;
+  table-layout: fixed;
+}
+
+.audit-table__col--time {
+  width: 144px;
+}
+
+.audit-table__col--event {
+  width: 176px;
+}
+
+.audit-table__col--title {
+  width: 208px;
+}
+
+.audit-table__col--note {
+  width: 320px;
 }
 
 .audit-table td:first-child,
@@ -34596,11 +34613,11 @@ button[aria-disabled="true"] svg {
 
 .audit-table__muted {
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .audit-table__context {
   display: block;
-  max-width: 340px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

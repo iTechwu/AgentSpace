@@ -59,6 +59,19 @@ it("renders a user-friendly event description instead of the internal event code
   expect(screen.queryByText("model.resolution_fallback")).not.toBeInTheDocument();
 });
 
+it("reserves the flexible audit table column for context", () => {
+  const { container } = render(
+    <LanguageProvider initialLanguage="zh">
+      <AuditLogView clearHref="/w/acme/audit" filters={{}} logs={[]} />
+    </LanguageProvider>,
+  );
+
+  const columns = container.querySelectorAll(".audit-table col");
+  expect(columns).toHaveLength(5);
+  expect(columns[3]).toHaveClass("audit-table__col--note");
+  expect(columns[4]).toHaveClass("audit-table__col--context");
+});
+
 it("falls back to the readable audit title for an unknown event code", () => {
   expect(getAuditEventLabel({
     code: "custom.policy_updated",

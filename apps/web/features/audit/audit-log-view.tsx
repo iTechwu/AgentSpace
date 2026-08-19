@@ -97,6 +97,13 @@ export function AuditLogView({
           </div>
           <div className="audit-table-wrap">
             <table className="audit-table">
+              <colgroup>
+                <col className="audit-table__col audit-table__col--time" />
+                <col className="audit-table__col audit-table__col--event" />
+                <col className="audit-table__col audit-table__col--title" />
+                <col className="audit-table__col audit-table__col--note" />
+                <col className="audit-table__col audit-table__col--context" />
+              </colgroup>
               <thead><tr><th>{tx("时间", "Time")}</th><th>{tx("事件", "Event")}</th><th>{tx("标题", "Title")}</th><th>{tx("备注", "Note")}</th><th>{tx("上下文", "Context")}</th></tr></thead>
               <tbody>{logs.map((log) => <tr key={log.id}><td>{new Date(log.createdAt).toLocaleString(language === "zh" ? "zh-CN" : "en")}</td><td>{getAuditEventLabel(log, language)}</td><td>{log.title}</td><td className="audit-table__muted">{log.note}</td><td><code className="audit-table__context">{formatData(log.dataJson)}</code></td></tr>)}</tbody>
             </table>
