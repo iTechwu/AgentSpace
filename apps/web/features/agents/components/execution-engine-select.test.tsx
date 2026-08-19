@@ -4,6 +4,55 @@ import { expect, it, vi } from "vitest";
 import { ExecutionEngineSelect } from "./execution-engine-select";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 
+const onlineRuntime = {
+  id: "runtime-online",
+  label: "Online Codex",
+  provider: "codex" as const,
+  status: "online" as const,
+  providerHealth: {
+    runtimeStatus: "online" as const,
+    providerHealth: "healthy" as const,
+    providerUsable: "usable" as const,
+  },
+  serverName: "Managed",
+  daemonKey: "runtime-online",
+  mode: "remote" as const,
+  managed: true,
+  bindable: true,
+  allowNewEmployeeSharing: true,
+};
+
+it("restores the trigger after closing or selecting from the execution engine menu", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  render(
+    <LanguageProvider initialLanguage="en">
+      <ExecutionEngineSelect
+        label="Execution engine"
+        name="runtimeId"
+        onChange={onChange}
+        options={[onlineRuntime]}
+        placeholder="Select an execution engine"
+        value=""
+      />
+    </LanguageProvider>,
+  );
+
+  const trigger = screen.getByRole("button", { name: "Execution engine" });
+  await user.click(trigger);
+  const option = screen.getByRole("option", { name: /Online Codex/ });
+  await user.tab();
+  expect(option).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+
+  await user.click(trigger);
+  await user.click(screen.getByRole("option", { name: /Online Codex/ }));
+  expect(onChange).toHaveBeenCalledWith("runtime-online");
+  expect(trigger).toHaveFocus();
+});
+
 it("disables a managed runtime while its credential is recovering", async () => {
   const user = userEvent.setup();
   render(

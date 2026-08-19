@@ -29,6 +29,7 @@ export function ExecutionEngineSelect({
 }: ExecutionEngineSelectProps) {
   const { tx } = useLanguage();
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const [open, setOpen] = useState(false);
   const selectedOption = options.find((option) => option.id === value) ?? null;
@@ -45,7 +46,9 @@ export function ExecutionEngineSelect({
 
     function handleEscape(event: KeyboardEvent): void {
       if (event.key === "Escape") {
+        event.preventDefault();
         setOpen(false);
+        triggerRef.current?.focus({ preventScroll: true });
       }
     }
 
@@ -74,6 +77,7 @@ export function ExecutionEngineSelect({
             setOpen(true);
           }
         }}
+        ref={triggerRef}
         type="button"
       >
         <span className="execution-engine-select__marker">
@@ -122,6 +126,7 @@ export function ExecutionEngineSelect({
                   }
                   onChange(option.id);
                   setOpen(false);
+                  triggerRef.current?.focus({ preventScroll: true });
                 }}
                 role="option"
                 type="button"
