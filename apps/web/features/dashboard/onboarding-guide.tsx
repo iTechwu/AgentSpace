@@ -7,6 +7,14 @@ export const WORKSPACE_ONBOARDING_REPLAY_EVENT = "dofe-agent:workspace-onboardin
 
 const WORKSPACE_ONBOARDING_DONE_VALUE = "done";
 const WORKSPACE_ONBOARDING_STORAGE_PREFIX = "dofe-agent-workspace-onboarding:v1";
+const ONBOARDING_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
 
 export interface WorkspaceOnboardingStep {
   body: string;
@@ -49,6 +57,9 @@ export function WorkspaceOnboardingGuide({
   const [targetRect, setTargetRect] = useState<GuideRect | null>(null);
   const autoStartedStorageKeyRef = useRef<string | null>(null);
   const nextButtonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
   const activeStep = steps[activeIndex] ?? null;
   const isLastStep = activeIndex >= steps.length - 1;
 
@@ -103,7 +114,37 @@ export function WorkspaceOnboardingGuide({
 
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
+        event.preventDefault();
         completeGuide();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const panel = panelRef.current;
+      if (!panel) {
+        return;
+      }
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(ONBOARDING_FOCUSABLE_SELECTOR));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        event.preventDefault();
+        panel.focus({ preventScroll: true });
+        return;
+      }
+
+      const activeElement = document.activeElement;
+      if (!panel.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
       }
     }
 
@@ -157,6 +198,21 @@ export function WorkspaceOnboardingGuide({
   }, [activeStep, isOpen]);
 
   useEffect(() => {
+    if (isOpen && !wasOpenRef.current) {
+      previouslyFocusedElementRef.current = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    } else if (!isOpen && wasOpenRef.current) {
+      const previous = previouslyFocusedElementRef.current;
+      if (previous?.isConnected) {
+        previous.focus({ preventScroll: true });
+      }
+      previouslyFocusedElementRef.current = null;
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
     if (isOpen) {
       nextButtonRef.current?.focus({ preventScroll: true });
     }
@@ -197,9 +253,12 @@ export function WorkspaceOnboardingGuide({
       {targetRect ? <div className="workspace-onboarding__spotlight" style={getSpotlightStyle(targetRect)} /> : null}
       <section
         aria-label={tx("新手引导", "Onboarding tour")}
+        aria-modal="true"
         className="workspace-onboarding__panel"
+        ref={panelRef}
         role="dialog"
         style={getPanelStyle(targetRect)}
+        tabIndex={-1}
       >
         <div className="workspace-onboarding__header">
           <span className="workspace-onboarding__icon">

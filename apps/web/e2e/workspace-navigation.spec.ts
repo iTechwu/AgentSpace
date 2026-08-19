@@ -9,7 +9,7 @@ const runtimeMode = process.env.DOFE_AGENT_RUNTIME_MODE?.trim().toLowerCase() ==
   ? "remote"
   : "local";
 
-test("closes first-visit onboarding once and keeps the workspace interactive after refresh", async ({ page }) => {
+test("keeps first-visit onboarding keyboard-modal and the workspace interactive after closing", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const browserIssues: string[] = [];
   page.on("pageerror", (error) => browserIssues.push(error.message));
@@ -26,8 +26,16 @@ test("closes first-visit onboarding once and keeps the workspace interactive aft
   const layout = page.getByTestId("workspace-layout");
   const onboarding = page.getByRole("dialog", { name: /新手引导|Onboarding tour/i });
   await expect(onboarding).toBeVisible();
+  await expect(onboarding).toHaveAttribute("aria-modal", "true");
   await expect(layout).toHaveClass(/workspace-layout--sidebar-open/);
-  await onboarding.getByRole("button", { name: /关闭新手引导|Close onboarding/i }).click();
+  const closeOnboarding = onboarding.getByRole("button", { name: /关闭新手引导|Close onboarding/i });
+  const nextStep = onboarding.getByRole("button", { name: /下一步|Next/i });
+  await expect(nextStep).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeOnboarding).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(nextStep).toBeFocused();
+  await page.keyboard.press("Escape");
   await expect(onboarding).toBeHidden();
   await expect(layout).not.toHaveClass(/workspace-layout--sidebar-open/);
   await expect(page.getByRole("heading", { name: session.channelName })).toBeVisible();

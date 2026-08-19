@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -1461,6 +1461,33 @@ describe("WorkspaceFrame", () => {
     });
     expect(screen.getByTestId("workspace-layout")).not.toHaveClass("workspace-layout--sidebar-open");
     expect(window.localStorage.getItem(buildWorkspaceOnboardingStorageKey(user.id, workspaces[0].id))).toBe("done");
+  });
+
+  it("keeps keyboard focus inside onboarding and closes it with Escape", async () => {
+    const userEventApi = userEvent.setup();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
+          <button autoFocus type="button">背景操作</button>
+        </WorkspaceFrame>
+      </LanguageProvider>,
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "新手引导" });
+    const closeButton = within(dialog).getByRole("button", { name: "关闭新手引导" });
+    const nextButton = within(dialog).getByRole("button", { name: "下一步" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(nextButton).toHaveFocus();
+
+    await userEventApi.tab();
+    expect(closeButton).toHaveFocus();
+    await userEventApi.tab({ shift: true });
+    expect(nextButton).toHaveFocus();
+    await userEventApi.keyboard("{Escape}");
+
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "背景操作" })).toHaveFocus();
   });
 
   it("guides setup from runtime binding to the first conversation", async () => {
