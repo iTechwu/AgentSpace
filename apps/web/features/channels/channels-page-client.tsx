@@ -87,6 +87,24 @@ function summarizeConversationMeta(value: string, fallback: string): string {
   return normalized.length > 64 ? `${normalized.slice(0, 61)}...` : normalized;
 }
 
+type ConversationHistoryRecord = {
+  id: string;
+  channelId: string;
+  employeeKey: string;
+  title: string;
+  summary: string;
+  createdAt: string;
+};
+
+type ConversationHistoryListItem = ConversationListItem & { channelId: string };
+
+function resolveConversationEmployeeKey(channel: ChannelsPageData["channels"][number]): string | null {
+  if (channel.kind !== "direct") {
+    return null;
+  }
+  return channel.agentEmployeeId ?? channel.contactId ?? channel.channelName ?? null;
+}
+
 import {
   CHANNEL_REFRESH_POLL_MS,
   CHANNEL_REFRESH_STALE_LOCK_MS,
@@ -202,6 +220,7 @@ export function ChannelsPageClient({
   );
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showConversationHistory, setShowConversationHistory] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState<ConversationHistoryRecord[]>([]);
   const [showRename, setShowRename] = useState(false);
   const [activeTab, setActiveTab] = useState<ChannelWorkspaceTab>("messages");
   const [documentsView, setDocumentsView] = useState<ChannelDocumentsView>("list");
@@ -249,6 +268,30 @@ export function ChannelsPageClient({
   const transitionPendingRef = useRef(false);
   const documentDraftSourceRef = useRef<string | null>(null);
   const unavailableFeishuChannelNamesRef = useRef(new Set<string>());
+  const conversationHistoryStorageKey = `${data.workspaceId}:im:conversation-history`;
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(conversationHistoryStorageKey);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        setConversationHistory(parsed.filter((entry): entry is ConversationHistoryRecord => (
+          Boolean(entry) && typeof entry === "object" &&
+          typeof (entry as ConversationHistoryRecord).id === "string" &&
+          typeof (entry as ConversationHistoryRecord).channelId === "string" &&
+          typeof (entry as ConversationHistoryRecord).employeeKey === "string" &&
+          typeof (entry as ConversationHistoryRecord).title === "string" &&
+          typeof (entry as ConversationHistoryRecord).summary === "string" &&
+          typeof (entry as ConversationHistoryRecord).createdAt === "string"
+        )));
+      }
+    } catch {
+      window.localStorage.removeItem(conversationHistoryStorageKey);
+    }
+  }, [conversationHistoryStorageKey]);
   const markImChannelDetailCacheStale = useCallback((channelName?: string | null) => {
     setDetailDataByChannelName((current) => {
       if (!channelName) {
@@ -987,14 +1030,27 @@ export function ChannelsPageClient({
     [feishuMemberSnapshotByChannelName, indexes.threadByChannelName, isContactDirectoryContext, tx, visibleChannels],
   );
 
-  const historyItems = useMemo(() => {
+  const historyItems = useMemo<ConversationHistoryListItem[]>(() => {
     if (!selectedChannel || isContactDirectoryContext) {
       return [];
     }
-    const selectedEmployeeKey = selectedChannel.kind === "direct"
-      ? selectedChannel.agentEmployeeId ?? selectedChannel.contactId ?? selectedChannel.channelName
-      : null;
-    return items.filter((item) => {
+    const selectedEmployeeKey = resolveConversationEmployeeKey(selectedChannel) ?? selectedChannel.id;
+    const scopedRecords = conversationHistory
+      .filter((record) => record.employeeKey === selectedEmployeeKey)
+      .map((record) => ({
+        id: record.id,
+        channelId: record.channelId,
+        title: record.title,
+        subtitle: tx("历史会话", "Previous conversation"),
+        meta: record.summary,
+        avatar: selectedChannel.avatarLabel ?? "#",
+        avatarId: selectedChannel.humanContactUserId ?? selectedChannel.contactId ?? selectedChannel.channelName ?? selectedChannel.id,
+        avatarName: record.title,
+        avatarVariant: selectedChannel.directParticipantKind === "human" ? "human" : selectedChannel.kind === "direct" ? "agent" : "channel",
+        dateLabel: formatCompactTimestamp(record.createdAt, { emptyFallback: "" }),
+      } satisfies ConversationHistoryListItem));
+    const recordedChannelIds = new Set(scopedRecords.map((record) => record.channelId));
+    const currentItems = items.filter((item) => {
       const channel = visibleChannelById.get(item.id);
       if (!channel) {
         return false;
@@ -1004,15 +1060,11 @@ export function ChannelsPageClient({
       if (!hasMessages) {
         return false;
       }
-      if (selectedEmployeeKey) {
-        const channelEmployeeKey = channel.kind === "direct"
-          ? channel.agentEmployeeId ?? channel.contactId ?? channel.channelName
-          : null;
-        return channelEmployeeKey === selectedEmployeeKey;
-      }
-      return channel.id === selectedChannel.id;
-    });
-  }, [indexes.threadByChannelName, isContactDirectoryContext, items, selectedChannel, visibleChannelById]);
+      const channelEmployeeKey = resolveConversationEmployeeKey(channel) ?? channel.id;
+      return channelEmployeeKey === selectedEmployeeKey && !recordedChannelIds.has(channel.id);
+    }).map((item) => ({ ...item, channelId: item.id }));
+    return [...scopedRecords, ...currentItems];
+  }, [conversationHistory, indexes.threadByChannelName, isContactDirectoryContext, items, selectedChannel, tx, visibleChannelById]);
 
   const historyTitle = selectedChannel
     ? tx(`${selectedChannel.displayName ?? selectedChannel.name} 的历史会话`, `${selectedChannel.displayName ?? selectedChannel.name} history`)
@@ -1249,6 +1301,27 @@ export function ChannelsPageClient({
 
   const startNewConversation = useCallback(() => {
     const target = selectedChannel ?? visibleChannels[0];
+    if (selectedChannel && messages.length > 0) {
+      const employeeKey = resolveConversationEmployeeKey(selectedChannel) ?? selectedChannel.id;
+      const latestMessage = [...messages].reverse().find((message) => message.role === "human" || message.role === "agent");
+      const summary = summarizeConversationMeta(
+        latestMessage?.content ?? "",
+        tx("新会话", "New conversation"),
+      );
+      const record: ConversationHistoryRecord = {
+        id: `conversation-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        channelId: selectedChannel.id,
+        employeeKey,
+        title: selectedChannel.displayName ?? selectedChannel.name,
+        summary,
+        createdAt: new Date().toISOString(),
+      };
+      setConversationHistory((current) => {
+        const next = [record, ...current].slice(0, 50);
+        window.localStorage.setItem(conversationHistoryStorageKey, JSON.stringify(next));
+        return next;
+      });
+    }
     const focus = target ? buildChannelFocusValue(target, target.id) : null;
     const query = new URLSearchParams({ new: "1" });
     if (focus) {
@@ -1256,7 +1329,7 @@ export function ChannelsPageClient({
     }
     setShowConversationHistory(false);
     navigateToWorkspaceModule(`/im?${query.toString()}`);
-  }, [navigateToWorkspaceModule, selectedChannel, visibleChannels]);
+  }, [conversationHistoryStorageKey, messages, navigateToWorkspaceModule, selectedChannel, tx, visibleChannels]);
 
   async function uploadChannelFiles(files: FileList | null): Promise<void> {
     if (!selectedConversationChannelName || !files || files.length === 0) {
@@ -1966,10 +2039,10 @@ export function ChannelsPageClient({
                         onClick={() => {
                           setShowConversationHistory(false);
                           if (isNewConversation) {
-                            replaceWorkspaceModule(`/im?focus=${encodeURIComponent(buildChannelFocusValue(visibleChannelById.get(item.id), item.id))}`);
+                            replaceWorkspaceModule(`/im?focus=${encodeURIComponent(buildChannelFocusValue(visibleChannelById.get(item.channelId), item.channelId))}`);
                           } else {
-                            setSelectedChannelId(item.id);
-                            replaceChannelRoute(item.id, { tab: "messages", documentId: null });
+                            setSelectedChannelId(item.channelId);
+                            replaceChannelRoute(item.channelId, { tab: "messages", documentId: null });
                           }
                         }}
                         type="button"
