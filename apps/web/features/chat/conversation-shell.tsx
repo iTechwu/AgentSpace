@@ -102,6 +102,7 @@ export function ConversationShell({
   onUpdateExecutionPolicy,
   onOpenModelSelector,
   onStartNewConversation,
+  onOpenConversationHistory,
 }: {
   listKicker: string;
   listTitle: string;
@@ -158,6 +159,7 @@ export function ConversationShell({
   onUpdateExecutionPolicy?: (employeeId: string, policy?: EmployeeExecutionPolicy) => Promise<void>;
   onOpenModelSelector?: () => void;
   onStartNewConversation?: () => void;
+  onOpenConversationHistory?: () => void;
 }) {
   const { tx } = useLanguage();
   const router = useRouter();
@@ -898,7 +900,11 @@ export function ConversationShell({
     if (command.action === "resume") {
       setDraft(next.value);
       setDraftCaretIndex(next.caretIndex);
-      setFeedback(tx("当前运行时会话会在下一条消息中自动续接。", "The current runtime session will resume automatically with your next message."));
+      if (onOpenConversationHistory) {
+        onOpenConversationHistory();
+      } else {
+        setFeedback(tx("当前运行时会话会在下一条消息中自动续接。", "The current runtime session will resume automatically with your next message."));
+      }
       scheduleComposerFocus(next.caretIndex);
       return;
     }

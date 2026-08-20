@@ -79,6 +79,14 @@ import {
   translateWorkspaceMessageSummary,
 } from "@/features/i18n/presentation";
 
+function summarizeConversationMeta(value: string, fallback: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return fallback;
+  }
+  return normalized.length > 64 ? `${normalized.slice(0, 61)}...` : normalized;
+}
+
 import {
   CHANNEL_REFRESH_POLL_MS,
   CHANNEL_REFRESH_STALE_LOCK_MS,
@@ -978,6 +986,37 @@ export function ChannelsPageClient({
       }),
     [feishuMemberSnapshotByChannelName, indexes.threadByChannelName, isContactDirectoryContext, tx, visibleChannels],
   );
+
+  const historyItems = useMemo(() => {
+    if (!selectedChannel || isContactDirectoryContext) {
+      return [];
+    }
+    const selectedEmployeeKey = selectedChannel.kind === "direct"
+      ? selectedChannel.agentEmployeeId ?? selectedChannel.contactId ?? selectedChannel.channelName
+      : null;
+    return items.filter((item) => {
+      const channel = visibleChannelById.get(item.id);
+      if (!channel) {
+        return false;
+      }
+      const channelName = resolveSelectedChannelName(channel);
+      const hasMessages = Boolean(channelName && (indexes.threadByChannelName.get(channelName)?.messages.length ?? 0) > 0);
+      if (!hasMessages) {
+        return false;
+      }
+      if (selectedEmployeeKey) {
+        const channelEmployeeKey = channel.kind === "direct"
+          ? channel.agentEmployeeId ?? channel.contactId ?? channel.channelName
+          : null;
+        return channelEmployeeKey === selectedEmployeeKey;
+      }
+      return channel.id === selectedChannel.id;
+    });
+  }, [indexes.threadByChannelName, isContactDirectoryContext, items, selectedChannel, visibleChannelById]);
+
+  const historyTitle = selectedChannel
+    ? tx(`${selectedChannel.displayName ?? selectedChannel.name} 的历史会话`, `${selectedChannel.displayName ?? selectedChannel.name} history`)
+    : tx("历史会话", "Conversation history");
 
   const messages: ConversationThreadMessage[] = useMemo(
     () => {
@@ -1916,11 +1955,11 @@ export function ChannelsPageClient({
               {showConversationHistory ? (
                 <div className="conversation-history-popover" role="dialog">
                   <div className="conversation-history-popover__header">
-                    <strong>{tx("历史会话", "Conversation history")}</strong>
-                    <span>{items.length}</span>
+                    <strong>{historyTitle}</strong>
+                    <span>{historyItems.length}</span>
                   </div>
                   <div className="conversation-history-popover__list">
-                    {items.length > 0 ? items.map((item) => (
+                    {historyItems.length > 0 ? historyItems.map((item) => (
                       <button
                         className="conversation-history-popover__item"
                         key={item.id}
@@ -1936,10 +1975,13 @@ export function ChannelsPageClient({
                         type="button"
                       >
                         <span className="conversation-history-popover__item-title">{item.title}</span>
-                        <span className="conversation-history-popover__item-meta">{item.dateLabel || item.meta}</span>
+                        <span className="conversation-history-popover__item-meta">
+                          {summarizeConversationMeta(item.meta, tx("暂无摘要", "No summary yet"))}
+                          {item.dateLabel ? ` · ${item.dateLabel}` : ""}
+                        </span>
                       </button>
                     )) : (
-                      <p className="conversation-history-popover__empty">{tx("暂无历史会话", "No conversation history")}</p>
+                      <p className="conversation-history-popover__empty">{tx("当前 AI 员工暂无历史会话", "This AI employee has no conversation history")}</p>
                     )}
                   </div>
                 </div>
@@ -1967,6 +2009,7 @@ export function ChannelsPageClient({
         composerRuntime={composerRuntime}
         onOpenModelSelector={composerRuntime ? () => setShowModelCommandDialog(true) : undefined}
         onStartNewConversation={startNewConversation}
+        onOpenConversationHistory={() => setShowConversationHistory(true)}
         onUpdateExecutionPolicy={async (employeeId, executionPolicy: EmployeeExecutionPolicy | undefined) => {
           let updateSucceeded = false;
           await runToastAction({
