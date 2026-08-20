@@ -59,6 +59,32 @@ export interface ExternalMessageInputContext {
   workspaceDataPolicy?: WorkspaceDataPolicyDecision;
 }
 
+// 任务载荷里的附件必须带完整存储定位字段，否则 daemon 侧 readWorkspaceAttachmentBytesSync
+// 会因 storageKey 缺失而无法从对象存储取回文件内容。
+export function toTaskPayloadAttachment(attachment: MessageAttachment): {
+  fileName: string;
+  storedPath: string;
+  mediaType?: string;
+  kind?: string;
+  storageProvider?: "tos" | "local";
+  storageBucket?: string;
+  storageRegion?: string;
+  storageEndpoint?: string;
+  storageKey?: string;
+} {
+  return {
+    fileName: attachment.fileName,
+    storedPath: attachment.storedPath,
+    mediaType: attachment.mediaType,
+    kind: attachment.kind,
+    storageProvider: attachment.storageProvider,
+    storageBucket: attachment.storageBucket,
+    storageRegion: attachment.storageRegion,
+    storageEndpoint: attachment.storageEndpoint,
+    storageKey: attachment.storageKey,
+  };
+}
+
 export function applyWorkspaceDataPolicyToExternalMessageInput(
   input: ExternalMessageInputContext | undefined,
   workspaceId = DEFAULT_WORKSPACE_ID,
@@ -367,12 +393,7 @@ export function enqueueChannelMentionStepSync(
       channelSessionId: resumedSessionId,
       ...(externalInput ? { externalInput } : {}),
       attachments:
-        input.attachments?.map((attachment) => ({
-          fileName: attachment.fileName,
-          storedPath: attachment.storedPath,
-          mediaType: attachment.mediaType,
-          kind: attachment.kind,
-        })) ?? [],
+        input.attachments?.map(toTaskPayloadAttachment) ?? [],
     },
   });
 

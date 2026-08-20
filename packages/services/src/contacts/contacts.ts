@@ -27,6 +27,7 @@ import {
   getChannelHistoryFilePath,
   pushWorkspaceMessageToChannel,
   sortDirectConversations,
+  toTaskPayloadAttachment,
   type ExternalMessageInputContext,
 } from "../shared/messaging.ts";
 import {
@@ -209,12 +210,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       channelSessionId: resumedSessionId,
       ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
       attachments:
-        attachments?.map((attachment) => ({
-          fileName: attachment.fileName,
-          storedPath: attachment.storedPath,
-          mediaType: attachment.mediaType,
-          kind: attachment.kind,
-        })) ?? [],
+        attachments?.map(toTaskPayloadAttachment) ?? [],
     },
   });
 

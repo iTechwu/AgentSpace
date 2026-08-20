@@ -100,7 +100,8 @@ export function deleteWorkspaceAttachmentsSync(
 export function readWorkspaceAttachmentBytesSync(
   attachment: Pick<MessageAttachment, "storedPath" | "storageProvider" | "storageBucket" | "storageRegion" | "storageEndpoint" | "storageKey">,
 ): Uint8Array {
-  if (!attachment.storageKey) {
+  const storageKey = attachment.storageKey ?? deriveObjectKeyFromStoredPath(attachment.storedPath);
+  if (!storageKey) {
     throw new Error(`Attachment object key is missing for "${attachment.storedPath}".`);
   }
   return createAttachmentStorageClient().getObjectSync({
@@ -108,9 +109,16 @@ export function readWorkspaceAttachmentBytesSync(
     storageBucket: attachment.storageBucket,
     storageRegion: attachment.storageRegion,
     storageEndpoint: attachment.storageEndpoint,
-    storageKey: attachment.storageKey,
+    storageKey,
     storedPath: attachment.storedPath,
   });
+}
+
+// 兼容早期写入任务载荷/状态、只保留 storedPath（tos://<bucket>/<key> 或 local:///<key>）
+// 而未持久化 storageKey 的附件记录。
+function deriveObjectKeyFromStoredPath(storedPath: string): string | undefined {
+  const match = /^(?:tos|local):\/\/[^/]+\/(.+)$/.exec(storedPath) ?? /^local:\/\/\/(.+)$/.exec(storedPath);
+  return match?.[1] || undefined;
 }
 
 export function deleteChannelAttachmentSync(input: {

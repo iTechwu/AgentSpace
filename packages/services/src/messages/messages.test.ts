@@ -33,6 +33,7 @@ import {
   persistWorkspaceAttachmentFromBytesSync,
   postMessageSync,
   readWorkspaceStateSync,
+  readWorkspaceAttachmentBytesSync,
   recordAgentChannelProgressSync,
   replacePendingChannelMessageSync,
   reviewApprovalSync,
@@ -50,7 +51,7 @@ import {
   writeWorkspaceStateSync,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
-import { buildChannelHistorySnapshot } from "../shared/messaging.ts";
+import { buildChannelHistorySnapshot, toTaskPayloadAttachment } from "../shared/messaging.ts";
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
@@ -340,6 +341,53 @@ test("sendChannelHumanMessageSync keeps mentions and attachments on the same sou
   const humanMessage = readWorkspaceStateSync().messages.find((message) => message.role === "human");
   assert.equal(humanMessage?.attachments?.[0]?.id, attachment.id);
   assert.equal(humanMessage?.mentions?.[0]?.token, "Atlas");
+});
+
+test("toTaskPayloadAttachment preserves full storage location fields", () => {
+  seedWorkspace();
+  const attachment = createAttachment("att-human", "briefs/trip-plan.md", "text/markdown");
+
+  const payload = toTaskPayloadAttachment(attachment);
+
+  assert.equal(payload.fileName, attachment.fileName);
+  assert.equal(payload.storedPath, attachment.storedPath);
+  assert.equal(payload.storageProvider, attachment.storageProvider);
+  assert.equal(payload.storageBucket, attachment.storageBucket);
+  assert.equal(payload.storageKey, attachment.storageKey);
+});
+
+test("readWorkspaceAttachmentBytesSync recovers the object key from storedPath for legacy payloads", () => {
+  seedWorkspace();
+  const attachment = createAttachment("att-legacy", "briefs/legacy-plan.md", "text/markdown");
+
+  const legacyPayload: MessageAttachment = { ...attachment, storageKey: undefined };
+  const bytes = readWorkspaceAttachmentBytesSync(legacyPayload);
+
+  assert.equal(Buffer.from(bytes).toString("utf8"), "attachment-content");
+});
+
+test("sendChannelHumanMessageSync passes full attachment storage fields into the queued task payload", runtimeSkip, () => {
+  seedWorkspace();
+  bindAtlasRuntime();
+  const attachment = createAttachment("att-human", "briefs/trip-plan.md", "text/markdown");
+
+  sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas 请结合附件继续完善这版行程。", [attachment]);
+
+  const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas");
+  assert.ok(queued);
+  const payload = JSON.parse(queued.inputJson) as {
+    attachments?: Array<{
+      fileName?: string;
+      storedPath?: string;
+      storageProvider?: string;
+      storageBucket?: string;
+      storageKey?: string;
+    }>;
+  };
+  assert.equal(payload.attachments?.length, 1);
+  assert.equal(payload.attachments?.[0]?.storedPath, attachment.storedPath);
+  assert.equal(payload.attachments?.[0]?.storageKey, attachment.storageKey);
+  assert.equal(payload.attachments?.[0]?.storageBucket, attachment.storageBucket);
 });
 
 test("sendChannelHumanMessageSync stores untrusted external source metadata on the human message", () => {

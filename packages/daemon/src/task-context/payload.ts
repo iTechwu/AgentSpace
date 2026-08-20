@@ -76,7 +76,7 @@ export interface ParsedTaskPayload {
     storedPath: string;
     mediaType?: string;
     kind?: string;
-    storageProvider?: "tos";
+    storageProvider?: "tos" | "local";
     storageBucket?: string;
     storageRegion?: string;
     storageEndpoint?: string;
@@ -179,7 +179,7 @@ export function parseTaskInputJson(inputJson: string): ParsedTaskPayload {
                 storedPath: string;
                 mediaType?: string;
                 kind?: string;
-                storageProvider?: "tos";
+                storageProvider?: "tos" | "local";
                 storageBucket?: string;
                 storageRegion?: string;
                 storageEndpoint?: string;
@@ -195,7 +195,10 @@ export function parseTaskInputJson(inputJson: string): ParsedTaskPayload {
               storedPath: item.storedPath,
               mediaType: typeof item.mediaType === "string" ? item.mediaType : undefined,
               kind: typeof item.kind === "string" ? item.kind : undefined,
-              storageProvider: item.storageProvider === "tos" ? "tos" : undefined,
+              storageProvider:
+                item.storageProvider === "tos" || item.storageProvider === "local"
+                  ? item.storageProvider
+                  : undefined,
               storageBucket: typeof item.storageBucket === "string" ? item.storageBucket : undefined,
               storageRegion: typeof item.storageRegion === "string" ? item.storageRegion : undefined,
               storageEndpoint: typeof item.storageEndpoint === "string" ? item.storageEndpoint : undefined,

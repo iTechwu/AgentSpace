@@ -30,6 +30,7 @@ import {
   enqueueChannelMentionStepSync,
   getChannelHistoryFilePath,
   postMessageSync as postMessageSyncShared,
+  toTaskPayloadAttachment,
   type ExternalMessageInputContext,
 } from "../shared/messaging.ts";
 import {
@@ -449,12 +450,7 @@ export function sendChannelHumanMessageSync(
         ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
         autoContinuation,
         attachments:
-          attachments?.map((attachment) => ({
-            fileName: attachment.fileName,
-            storedPath: attachment.storedPath,
-            mediaType: attachment.mediaType,
-            kind: attachment.kind,
-          })) ?? [],
+          attachments?.map(toTaskPayloadAttachment) ?? [],
       },
     });
 
