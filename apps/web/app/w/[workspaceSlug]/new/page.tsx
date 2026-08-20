@@ -57,5 +57,6 @@ export default async function NewConversationPage({
     }
   }
 
-  redirect(buildWorkspacePath(workspaceId, "/im?new=1"));
+  // 创建失败：留在当前会话（回到员工现有会话），不强制 new=1（docs §2.2）。
+  redirect(buildWorkspacePath(workspaceId, focus ? `/im?focus=${encodeURIComponent(focus)}` : "/im"));
 }

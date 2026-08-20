@@ -7,11 +7,12 @@ export type TaskQueueByConversationMode = "off" | "shadow" | "on";
 export interface ConversationFeatureFlags {
   /** 创建与读取服务端 Conversation（off 时回到 legacy 页面读写）。 */
   conversationV2Enabled: boolean;
-  /** legacy 写路径同步写 Conversation（当前无 legacy 双写路径，保留占位）。 */
+  /** legacy 写路径同步写 Conversation。本代码库无独立 legacy 写路径（send 本身即 V2 路径），此开关保留占位、恒不影响行为。 */
   conversationV2DualWrite: boolean;
-  /** 聊天任务 claim 串行键：on=按 Lane；off=legacy（requester+employee）；shadow=按 Lane 并记录 legacy 选择。 */
+  /** 聊天任务 claim 串行键：on=按 Lane；off/shadow=legacy（requester+employee）。
+   *  shadow 的「记录 Lane 会选什么」观测尚未实现，当前行为等同 off（回滚安全）。 */
   taskQueueByConversation: TaskQueueByConversationMode;
-  /** 历史面板读服务端会话（off 时历史面板退回空/本地）。 */
+  /** 历史面板读服务端会话。off 时历史列表返回空（本地快照面板已移除，属降级而非完整回退）。 */
   conversationHistoryServer: boolean;
   /** 显式 Runtime 任务容量控制与投影。 */
   runtimeTaskCapacityEnabled: boolean;

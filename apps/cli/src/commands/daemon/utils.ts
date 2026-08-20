@@ -49,6 +49,7 @@ export function resolveConversationThreadId(input: {
     channel?: string;
     channelName?: string;
     contactId?: string;
+    conversationId?: string;
   };
 }): string | undefined {
   const isConversationTrigger = input.triggerType === "channel_chat" || input.triggerType === "mention_chat";
@@ -56,6 +57,10 @@ export function resolveConversationThreadId(input: {
     return undefined;
   }
 
+  // 会话拆分：有 conversationId 时，workDir 按 Conversation 隔离，不按频道共享（docs §4.2）。
+  if (input.payload.conversationId) {
+    return `conversation:${input.payload.conversationId}`;
+  }
   return input.payload.channelName ?? input.payload.channel;
 }
 export function resolveWorkspaceTaskWorkDir(input: {

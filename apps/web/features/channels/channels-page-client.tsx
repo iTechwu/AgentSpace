@@ -1321,7 +1321,9 @@ export function ChannelsPageClient({
         }
         // result 为 null = V2 开关关闭，回退 new=1。
       } catch {
-        // 创建失败：退回 new=1 流程，保留旧会话上下文。
+        // 创建失败：留在当前会话并提示，不回退 new=1（docs §2.2）。
+        pushToast({ tone: "error", message: tx("新会话创建失败，请重试", "Failed to create a new conversation. Please try again.") });
+        return;
       }
     }
 
@@ -1341,7 +1343,9 @@ export function ChannelsPageClient({
           }
           // result 为 null = V2 开关关闭，回退 new=1。
         } catch {
-          // 创建失败：退回 new=1 流程。
+          // 创建失败：留在当前会话并提示，不回退 new=1（docs §2.2）。
+          pushToast({ tone: "error", message: tx("新会话创建失败，请重试", "Failed to create a new conversation. Please try again.") });
+          return;
         }
       }
     }
@@ -1351,7 +1355,7 @@ export function ChannelsPageClient({
       query.set("focus", focus);
     }
     navigateToWorkspaceModule(`/im?${query.toString()}`);
-  }, [navigateToWorkspaceModule, selectedChannel, visibleChannels]);
+  }, [navigateToWorkspaceModule, pushToast, selectedChannel, tx, visibleChannels]);
 
   async function uploadChannelFiles(files: FileList | null): Promise<void> {
     if (!selectedConversationChannelName || !files || files.length === 0) {

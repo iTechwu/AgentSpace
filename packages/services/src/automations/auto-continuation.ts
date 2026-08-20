@@ -9,7 +9,7 @@ import type {
   DofeAgentState,
   ConversationAutoContinuationState,
 } from "@dofe-agent/domain/workspace";
-import { getChannelHistoryFilePath, buildChannelHistorySnapshot, pushWorkspaceMessageToChannel } from "../shared/messaging.ts";
+import { getChannelHistoryFilePath, buildChannelHistorySnapshot, buildConversationHistorySnapshot, pushWorkspaceMessageToChannel } from "../shared/messaging.ts";
 import {
   readConversationExecutionWorkspaceState,
   resolveConversationExecutionWorkspacePath,
@@ -167,6 +167,7 @@ export function continueAutoContinuationAfterTaskSync(input: {
     role: "human",
     summary: autoContinuation.instruction,
     code: "auto_continuation.reply",
+    conversationId: task.conversationId,
     data: {
       agent_name: agent.name,
       previous_task_id: task.id,
@@ -205,8 +206,10 @@ export function continueAutoContinuationAfterTaskSync(input: {
       assigneeMentionToken: payload.assigneeMentionToken ?? agent.remarkName?.trim() ?? agent.name,
       channelName: channel.name,
       channelMessage: autoContinuation.instruction,
-      channelHistory: buildChannelHistorySnapshot(state, channel.name),
-      channelHistoryPath: getChannelHistoryFilePath(channel.name, workspaceId),
+      channelHistory: conversationScoped
+        ? buildConversationHistorySnapshot(state, channel.name, task.conversationId!)
+        : buildChannelHistorySnapshot(state, channel.name),
+      channelHistoryPath: conversationScoped ? undefined : getChannelHistoryFilePath(channel.name, workspaceId),
       channelSessionId: sessionId,
       autoContinuation: nextContinuation,
       attachments: [],

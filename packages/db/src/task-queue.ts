@@ -1077,8 +1077,10 @@ function selectQueuedTaskForRuntime(
   workspaceId?: string,
 ): Record<string, unknown> | undefined {
   const flags = readConversationFeatureFlags();
-  const laneClaimEnabled = flags.taskQueueByConversation !== "off";
-  // 串行守卫：on/shadow 按 Lane（Lane 跨 runtime 互斥，无 Lane 回退 legacy）；off 回到 legacy（requester+employee）。
+  // 灰度：仅 on 启用 Lane 串行；off/shadow 均回退 legacy（requester+employee），确保可回滚。
+  // shadow 的「记录 Lane 会选什么」观测当前未实现，行为等同 off（见 conversation-flags.ts）。
+  const laneClaimEnabled = flags.taskQueueByConversation === "on";
+  // 串行守卫：on 按 Lane（Lane 跨 runtime 互斥，无 Lane 回退 legacy）；off/shadow 回到 legacy（requester+employee）。
   const serializationGuard = laneClaimEnabled
     ? `(
        (

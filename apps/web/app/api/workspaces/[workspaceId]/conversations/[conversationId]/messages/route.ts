@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
-import { listConversationMessagesSync, listConversationParticipantsSync, readConversationSync, readStoredEmployeeByIdSync } from "@dofe-agent/db";
+import { listConversationParticipantsSync, readConversationSync, readStoredEmployeeByIdSync } from "@dofe-agent/db";
 import { recordConversationMessageActivitySync, readConversationForUserSync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
 import { sendContactMessageForHumanWithAttachmentsSync } from "@dofe-agent/services/channels";
+import { sendChannelHumanMessageSync } from "@dofe-agent/services/messaging";
 import { readWorkspaceStateSync } from "@dofe-agent/services/workspace";
 
 export const runtime = "nodejs";
@@ -32,29 +33,13 @@ export async function GET(
       conversationId,
       actorUserId: workspaceContext.currentUser.id,
     });
+    // 工作区状态是消息真相（含附件/mentions/回复/置顶）；conversation_message 仅作 SQL 镜像，不用于读接口。
     const state = readWorkspaceStateSync(workspaceId);
-    const persisted = listConversationMessagesSync(conversation.id);
-    const messages = persisted.length > 0
-      ? persisted.map((message) => ({
-          id: message.id,
-          channel: message.channel,
-          speaker: message.speaker,
-          speakerUserId: message.speakerUserId,
-          role: message.role,
-          summary: message.summary,
-          time: message.time,
-          status: message.status,
-          kind: message.kind,
-          processType: message.processType,
-          tool: message.tool,
-          code: message.code,
-          data: safeParseJson(message.dataJson),
-        }))
-      : state.messages
-          .filter((message) => message.conversationId === conversation.id)
-          .slice()
-          .reverse()
-          .map((message) => ({
+    const messages = state.messages
+      .filter((message) => message.conversationId === conversation.id)
+      .slice()
+      .reverse()
+      .map((message) => ({
         id: message.id,
         channel: message.channel,
         speaker: message.speaker,
@@ -80,15 +65,6 @@ export async function GET(
       { error: error instanceof Error ? error.message : "Conversation not found." },
       { status: 404 },
     );
-  }
-}
-
-function safeParseJson(value: string): Record<string, string> | undefined {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, string> : undefined;
-  } catch {
-    return undefined;
   }
 }
 
@@ -128,36 +104,55 @@ export async function POST(
       conversationId,
       actorUserId: workspaceContext.currentUser.id,
     });
-    const employeeParticipant = listConversationParticipantsSync(conversationId)
-      .find((participant) => participant.participantType === "employee" && participant.employeeId);
-    const employeeId = employeeParticipant?.employeeId;
-    if (!employeeId) {
-      return NextResponse.json({ error: "Conversation has no employee participant." }, { status: 400 });
-    }
-    const employee = readStoredEmployeeByIdSync(employeeId, workspaceId);
-    if (!employee) {
-      return NextResponse.json({ error: "Employee not found." }, { status: 400 });
-    }
-    const lane = resolveConversationLaneForSendSync({
-      workspaceId,
-      conversationId,
-      employeeId,
-      actorUserId: workspaceContext.currentUser.id,
-    });
-
     const attachments = (await persistFormAttachments(formData, "attachments", workspaceId)) ?? [];
     const idempotencyKey = request.headers.get("idempotency-key")?.trim() || undefined;
+    const displayName = workspaceContext.currentUser.displayName.trim() || "你";
 
-    sendContactMessageForHumanWithAttachmentsSync(
-      workspaceContext.currentUser.displayName.trim() || "你",
-      employee.name,
-      content.trim(),
-      attachments,
-      workspaceId,
-      workspaceContext.currentUser.id,
-      undefined,
-      { conversationId, executionLaneId: lane.lane.id, idempotencyKey },
-    );
+    if (conversation.kind === "group") {
+      const channelName = conversation.channelId;
+      if (!channelName) {
+        return NextResponse.json({ error: "Group conversation has no channel." }, { status: 400 });
+      }
+      sendChannelHumanMessageSync(
+        channelName,
+        displayName,
+        content.trim(),
+        attachments,
+        undefined,
+        workspaceId,
+        workspaceContext.currentUser.id,
+        undefined,
+        { conversationId, idempotencyKey },
+      );
+    } else {
+      const employeeParticipant = listConversationParticipantsSync(conversationId)
+        .find((participant) => participant.participantType === "employee" && participant.employeeId);
+      const employeeId = employeeParticipant?.employeeId;
+      if (!employeeId) {
+        return NextResponse.json({ error: "Conversation has no employee participant." }, { status: 400 });
+      }
+      const employee = readStoredEmployeeByIdSync(employeeId, workspaceId);
+      if (!employee) {
+        return NextResponse.json({ error: "Employee not found." }, { status: 400 });
+      }
+      const lane = resolveConversationLaneForSendSync({
+        workspaceId,
+        conversationId,
+        employeeId,
+        actorUserId: workspaceContext.currentUser.id,
+      });
+      sendContactMessageForHumanWithAttachmentsSync(
+        displayName,
+        employee.name,
+        content.trim(),
+        attachments,
+        workspaceId,
+        workspaceContext.currentUser.id,
+        undefined,
+        { conversationId, executionLaneId: lane.lane.id, idempotencyKey },
+      );
+    }
+
     recordConversationMessageActivitySync({
       workspaceId,
       conversationId,

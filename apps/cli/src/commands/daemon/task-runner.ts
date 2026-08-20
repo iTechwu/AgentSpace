@@ -870,6 +870,7 @@ export async function executeQueuedTaskCore(runtime: AgentRuntimeRecord, queuedT
         channel: payload.channel,
         pendingSpeaker: agentName,
         speaker: agentName,
+        conversationId: payload.conversationId,
         summary: outputEnvelope.text,
         attachments: outputEnvelope.attachments,
         sourceTaskQueueId: task.id,

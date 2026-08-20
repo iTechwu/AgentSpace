@@ -7,6 +7,7 @@ import {
   archiveConversationSync,
   createConversationSync,
   ensureExecutionLaneForConversationSync,
+  listChannelParticipantsSync,
   listConversationParticipantsSync,
   listConversationsForChannelSync,
   listConversationsForEmployeeSync,
@@ -26,6 +27,7 @@ import {
 } from "@dofe-agent/db";
 import {
   assertCanUseEmployeeForActorSync,
+  assertCanUseEmployeeInChannelForActorSync,
   isWorkspaceAdminOrOwnerSync,
 } from "../runtime-access/runtime-access.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
@@ -67,16 +69,27 @@ export function createConversationForUserSync(input: CreateConversationForUserIn
     for (const employeeName of channel.employeeNames) {
       const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
       if (employeeId) {
-        assertCanUseEmployeeForActorSync({ workspaceId, employeeName, actorUserId: input.createdByUserId });
+        // 授权：用户必须可使用该员工、并可访问该频道（docs §9 创建）。
+        assertCanUseEmployeeInChannelForActorSync({
+          workspaceId,
+          employeeName,
+          channelName: input.channelName,
+          actorUserId: input.createdByUserId,
+        });
         employeeParticipants.push({ employeeId, employeeName });
       }
     }
+    // 频道人类成员快照：除创建者外的成员也作为 human participant，共享历史可见（docs §2.2）。
+    const humanParticipantUserIds = listChannelParticipantsSync(workspaceId, input.channelName, { statuses: ["active"] })
+      .map((participant) => participant.userId)
+      .filter((userId): userId is string => Boolean(userId));
     const result = createConversationSync({
       workspaceId,
       kind: "group",
       channelId: input.channelName,
       createdByUserId: input.createdByUserId,
       employeeParticipants,
+      humanParticipantUserIds,
       idempotencyKey: input.idempotencyKey,
     });
     return { conversation: result.conversation };

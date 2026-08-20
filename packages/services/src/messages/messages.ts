@@ -226,7 +226,7 @@ export function sendChannelHumanMessageSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
-  executionOptions?: { startNewConversation?: boolean; conversationId?: string; executionLaneId?: string },
+  executionOptions?: { startNewConversation?: boolean; conversationId?: string; executionLaneId?: string; idempotencyKey?: string },
 ): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -454,6 +454,7 @@ export function sendChannelHumanMessageSync(
       requestedByDisplayName: speaker,
       conversationId: executionOptions?.conversationId,
       executionLaneId: mentionLaneId,
+      idempotencyKey: executionOptions?.idempotencyKey,
       metadata: {
         sourceChannel: channel.name,
         sourceMessageId: humanMessage.id,
@@ -1283,7 +1284,9 @@ function dispatchAgentOutputMentionsSync(
         assigneeMentionToken: mention.token,
         channelName: input.channelName,
         channelMessage: input.sourceMessage.summary,
-        channelHistory: buildChannelHistorySnapshot(state, input.channelName),
+        channelHistory: sourceConversationId
+          ? buildConversationHistorySnapshot(state, input.channelName, sourceConversationId)
+          : buildChannelHistorySnapshot(state, input.channelName),
         channelHistoryPath: sourceConversationId ? undefined : getChannelHistoryFilePath(input.channelName, input.workspaceId),
         channelSessionId: sourceConversationId ? undefined : resumedSessionId,
         mentionCascadeDepth: nextDepth,
@@ -1315,6 +1318,7 @@ function dispatchAgentOutputMentionsSync(
       role: "agent",
       summary: "Thinking",
       code: "agent.pending",
+      conversationId: sourceConversationId,
       data: {
         agent_name: agent.name,
         source_message_id: input.sourceMessage.id,

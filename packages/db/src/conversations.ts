@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 import { upsertAgentRouterSessionSync } from "./agent-router-sessions.ts";
+import { isRuntimeAtCapacitySync } from "./runtime-task-capacity.ts";
 
 export type ConversationStatus = "draft" | "active" | "idle" | "failed" | "archived" | "abandoned";
 export type ConversationKind = "direct" | "group";
@@ -86,6 +87,8 @@ export interface CreateConversationInput {
   employeeName?: string;
   /** 群聊会话：一个或多个员工参与者（kind=group）。 */
   employeeParticipants?: Array<{ employeeId: string; employeeName?: string }>;
+  /** 群聊会话：频道人类成员快照（除创建者外）。 */
+  humanParticipantUserIds?: string[];
   title?: string;
   summary?: string;
   now?: string;
@@ -162,6 +165,17 @@ export function createConversationSync(input: CreateConversationInput): CreateCo
       displayNameSnapshot: undefined,
       now,
     });
+    for (const userId of input.humanParticipantUserIds ?? []) {
+      if (userId && userId !== input.createdByUserId) {
+        ensureConversationParticipantSync({
+          conversationId: id,
+          participantType: "human",
+          userId,
+          displayNameSnapshot: undefined,
+          now,
+        });
+      }
+    }
     for (const participant of employeeParticipants) {
       ensureConversationParticipantSync({
         conversationId: id,
@@ -466,20 +480,22 @@ export function ensureConversationParticipantSync(input: {
 
 export type ConversationRunState = "running" | "queued" | "capacity_wait" | "failed" | "idle";
 
-/** 从任务的 active/queued/failed 投影 Conversation 运行状态（docs 03 §8）。 */
+/** 从任务投影 Conversation 运行状态（docs 03 §8）：running > capacity_wait > queued > failed > idle。 */
 export function projectConversationRunStateSync(conversationId: string): ConversationRunState {
   const rows = getDatabase().prepare(
-    "SELECT status FROM agent_task_queue WHERE conversation_id = ? AND status IN ('queued', 'claimed', 'running', 'preparing_commit', 'failed')",
-  ).all(conversationId) as Array<{ status?: string }>;
+    "SELECT status, runtime_id FROM agent_task_queue WHERE conversation_id = ? AND status IN ('queued', 'claimed', 'running', 'preparing_commit', 'failed')",
+  ).all(conversationId) as Array<{ status?: string; runtime_id?: string }>;
   const statuses = new Set(rows.map((row) => row.status).filter((status): status is string => Boolean(status)));
   if (statuses.has("running") || statuses.has("claimed") || statuses.has("preparing_commit")) {
     return "running";
   }
+  const queuedTasks = rows.filter((row) => row.status === "queued");
+  if (queuedTasks.length > 0) {
+    const capacityWait = queuedTasks.some((row) => row.runtime_id && isRuntimeAtCapacitySync(row.runtime_id));
+    return capacityWait ? "capacity_wait" : "queued";
+  }
   if (statuses.has("failed")) {
     return "failed";
-  }
-  if (statuses.has("queued")) {
-    return "queued";
   }
   return "idle";
 }
