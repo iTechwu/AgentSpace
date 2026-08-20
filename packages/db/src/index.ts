@@ -770,6 +770,46 @@ export {
   type AgentRouterConversationIdentity,
 } from "./agent-router-sessions.ts";
 
+// Conversation / Execution Lane / Provider Session（多会话拆分）
+export {
+  archiveConversationSync,
+  createConversationSync,
+  encodeConversationCursor,
+  ensureConversationParticipantSync,
+  ensureExecutionLaneForConversationSync,
+  findActiveProviderSessionForLaneSync,
+  listConversationParticipantsSync,
+  listConversationsForEmployeeSync,
+  markConversationActiveSync,
+  markLaneProviderSessionInvalidSync,
+  readConversationParticipantSync,
+  readConversationProviderSessionSync,
+  readConversationSync,
+  readExecutionLaneForConversationEmployeeSync,
+  readExecutionLaneSync,
+  unarchiveConversationSync,
+  updateConversationSync,
+  updateExecutionLaneSync,
+  upsertLaneProviderSessionSync,
+  type ConversationExecutionLaneRecord,
+  type ConversationParticipantRecord,
+  type ConversationProviderSessionRecord,
+  type ConversationProviderSessionStatus,
+  type ConversationRecord,
+  type ConversationStatus,
+  type ConversationKind,
+  type ConversationSummarySource,
+  type ConversationParticipantType,
+  type CreateConversationInput,
+  type CreateConversationResult,
+  type EnsureExecutionLaneInput,
+  type ExecutionLaneStatus,
+  type ListConversationsOptions,
+  type UpdateConversationInput,
+  type UpdateLaneInput,
+  type UpsertLaneProviderSessionInput,
+} from "./conversations.ts";
+
 // Runtime grants
 export {
   canUserUseRuntimeSync,

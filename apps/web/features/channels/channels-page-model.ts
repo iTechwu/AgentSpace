@@ -404,6 +404,7 @@ export function parseChannelRouteState(routeSearch: string): ChannelRouteState {
     conversationView: searchParams.get("view") === "direct" || isDigitalContactsView ? "direct" : "all",
     communicationContext: searchParams.get("context") === "contacts" || isDigitalContactsView ? "contacts" : "messages",
     isNewConversation: searchParams.get("new") === "1",
+    conversationId: searchParams.get("conversation"),
   };
 }
 

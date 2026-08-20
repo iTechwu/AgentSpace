@@ -151,6 +151,8 @@ model AgentTaskQueue {
   runtimeId              String    @map("runtime_id")
   runtimeCredentialId    String?   @map("runtime_credential_id")
   routerSessionId        String?   @map("router_session_id")
+  conversationId         String?   @map("conversation_id")
+  executionLaneId        String?   @map("execution_lane_id")
   issueId                String?   @map("issue_id")
   triggerType            String    @default("manual") @map("trigger_type")
   priority               Int       @default(0)

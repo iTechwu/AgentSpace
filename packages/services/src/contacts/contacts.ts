@@ -83,7 +83,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
-  executionOptions?: { startNewConversation?: boolean },
+  executionOptions?: { startNewConversation?: boolean; conversationId?: string; executionLaneId?: string },
 ): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -181,6 +181,8 @@ export function sendContactMessageForHumanWithAttachmentsSync(
     triggerType: "channel_chat",
     requestedByUserId: requesterUserId,
     requestedByDisplayName: humanMemberName,
+    conversationId: executionOptions?.conversationId,
+    executionLaneId: executionOptions?.executionLaneId,
     metadata: {
       contactId: contact.name,
       sourceMessageId: humanMessage.id,

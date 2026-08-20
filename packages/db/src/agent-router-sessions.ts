@@ -27,9 +27,20 @@ export function resolveTaskRouterConversationIdentity(
   const payload = safeParseJsonObject(task.inputJson);
   const channelName = readString(payload.channelName) ?? readString(payload.channel);
   const contactId = readString(payload.contactId);
+  const conversationId = readString(payload.conversationId);
   const requester = readObject(payload.requester);
   const requesterUserId = requester ? readString(requester.userId) : undefined;
   const title = readString(payload.title) ?? task.issueId ?? task.id;
+
+  // 多会话拆分（docs/0820/session-split）：服务端已创建 Conversation 时，Router Session 身份
+  // 必须是 `conversation:<id>`，与用户/员工/渠道无关；否则同一用户不同会话仍会被合并。
+  if (conversationId) {
+    return {
+      conversationKey: `conversation:${conversationId}`,
+      sourceType: "conversation",
+      title,
+    };
+  }
 
   if ((task.triggerType === "channel_chat" || task.triggerType === "mention_chat" || contactId) && (channelName || contactId)) {
     const sourceType = contactId ? "direct_conversation" : "channel_conversation";

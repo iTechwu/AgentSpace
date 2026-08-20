@@ -121,6 +121,8 @@ export interface ChannelRouteState {
   conversationView: "all" | "direct";
   communicationContext: "messages" | "contacts";
   isNewConversation: boolean;
+  /** 多会话拆分：稳定 URL 中的 conversation=<id>。 */
+  conversationId: string | null;
 }
 
 export interface ChannelRouteUpdateOptions {

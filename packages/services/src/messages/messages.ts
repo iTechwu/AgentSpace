@@ -222,7 +222,7 @@ export function sendChannelHumanMessageSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
-  executionOptions?: { startNewConversation?: boolean },
+  executionOptions?: { startNewConversation?: boolean; conversationId?: string; executionLaneId?: string },
 ): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -338,6 +338,8 @@ export function sendChannelHumanMessageSync(
         externalInput: governedExternalInput,
         startNewConversation: executionOptions?.startNewConversation,
         historyFromMessageId: executionOptions?.startNewConversation ? humanMessage.id : undefined,
+        conversationId: executionOptions?.conversationId,
+        executionLaneId: executionOptions?.executionLaneId,
       });
 
       if (queued) {
@@ -429,6 +431,8 @@ export function sendChannelHumanMessageSync(
       triggerType: "mention_chat",
       requestedByUserId: requesterUserId,
       requestedByDisplayName: speaker,
+      conversationId: executionOptions?.conversationId,
+      executionLaneId: executionOptions?.executionLaneId,
       metadata: {
         sourceChannel: channel.name,
         sourceMessageId: humanMessage.id,

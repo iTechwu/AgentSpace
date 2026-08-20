@@ -1,5 +1,5 @@
 // schema 版本与 advisory lock 常量（单一来源）。源自 postgres-schema.ts 源行 1-11。
-export const POSTGRES_SCHEMA_VERSION = "122";
+export const POSTGRES_SCHEMA_VERSION = "123";
 // 跨版本固定锁：不能使用 schema 版本作为锁键，否则滚动升级中的相邻版本会并发迁移。
 // 取 116 兼容已经发布的 schema 116 实例；后续版本必须保持此值不变。
 export const POSTGRES_SCHEMA_ADVISORY_LOCK_ID = 116;

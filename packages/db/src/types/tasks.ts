@@ -51,6 +51,10 @@ export interface QueuedTaskRecord {
   /** Runtime credential captured when the task is claimed; immutable for billing attribution. */
   runtimeCredentialId?: string;
   routerSessionId?: string;
+  /** 多会话拆分：所属 Conversation 的不可变身份。 */
+  conversationId?: string;
+  /** 多会话拆分：所属 Execution Lane（conversation + employee 的有序执行边界）。 */
+  executionLaneId?: string;
   issueId?: string;
   triggerType: string;
   priority: number;
@@ -117,6 +121,9 @@ export interface EnqueueTaskInput {
   triggerType?: string;
   requestedByUserId?: string;
   requestedByDisplayName?: string;
+  /** 多会话拆分：chat trigger 写入的会话身份与执行泳道。 */
+  conversationId?: string;
+  executionLaneId?: string;
   metadata?: Record<string, unknown>;
   workflow?: WorkflowTaskMetadata;
 }

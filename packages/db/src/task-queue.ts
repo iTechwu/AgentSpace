@@ -44,6 +44,8 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
     priority: input.priority,
     ...(input.metadata ?? {}),
     ...(input.workflow ? { workflow: input.workflow } : {}),
+    ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+    ...(input.executionLaneId ? { executionLaneId: input.executionLaneId } : {}),
     requester:
       input.requestedByUserId || input.requestedByDisplayName
         ? {
@@ -71,6 +73,8 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
       employee_name,
       runtime_id,
       router_session_id,
+      conversation_id,
+      execution_lane_id,
       issue_id,
       trigger_type,
       priority,
@@ -81,7 +85,7 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
       queued_at,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
     ON CONFLICT (id) DO NOTHING`,
   ).run(
     queueId,
@@ -91,6 +95,8 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
     binding.employeeName,
     binding.runtimeId,
     routerSession.id,
+    input.conversationId ?? null,
+    input.executionLaneId ?? null,
     input.taskId ?? null,
     input.triggerType ?? "manual",
     priorityToNumber(input.priority),
@@ -172,6 +178,8 @@ export function listQueuedTasksSync(options?: {
         runtime_id AS "runtimeId",
         runtime_credential_id AS "runtimeCredentialId",
         router_session_id AS "routerSessionId",
+        conversation_id AS "conversationId",
+        execution_lane_id AS "executionLaneId",
         issue_id AS "issueId",
         trigger_type AS "triggerType",
         priority,
@@ -256,6 +264,8 @@ export function readQueuedTaskSync(taskId: string): QueuedTaskRecord | null {
         runtime_id AS "runtimeId",
         runtime_credential_id AS "runtimeCredentialId",
         router_session_id AS "routerSessionId",
+        conversation_id AS "conversationId",
+        execution_lane_id AS "executionLaneId",
         issue_id AS "issueId",
         trigger_type AS "triggerType",
         priority,
@@ -1082,14 +1092,23 @@ function selectQueuedTaskForRuntime(
              AND active.status IN ('claimed', 'running', 'preparing_commit')
              AND (
                (
-                 queue.requested_by_user_id IS NOT NULL
-                 AND active.requested_by_user_id = queue.requested_by_user_id
-                 AND COALESCE(active.employee_id, active.agent_id) = COALESCE(queue.employee_id, queue.agent_id)
+                 queue.execution_lane_id IS NOT NULL
+                 AND active.execution_lane_id = queue.execution_lane_id
                )
                OR (
-                 queue.requested_by_user_id IS NULL
-                 AND active.requested_by_user_id IS NULL
-                 AND active.router_session_id = queue.router_session_id
+                 queue.execution_lane_id IS NULL
+                 AND (
+                   (
+                     queue.requested_by_user_id IS NOT NULL
+                     AND active.requested_by_user_id = queue.requested_by_user_id
+                     AND COALESCE(active.employee_id, active.agent_id) = COALESCE(queue.employee_id, queue.agent_id)
+                   )
+                   OR (
+                     queue.requested_by_user_id IS NULL
+                     AND active.requested_by_user_id IS NULL
+                     AND active.router_session_id = queue.router_session_id
+                   )
+                 )
                )
              )
          )
@@ -1322,6 +1341,8 @@ function mapQueuedTaskRecord(value: Record<string, unknown>): QueuedTaskRecord |
     runtimeId: value.runtimeId,
     runtimeCredentialId: typeof value.runtimeCredentialId === "string" ? value.runtimeCredentialId : undefined,
     routerSessionId: typeof value.routerSessionId === "string" ? value.routerSessionId : undefined,
+    conversationId: typeof value.conversationId === "string" ? value.conversationId : undefined,
+    executionLaneId: typeof value.executionLaneId === "string" ? value.executionLaneId : undefined,
     issueId: typeof value.issueId === "string" ? value.issueId : undefined,
     triggerType: value.triggerType,
     priority: value.priority,

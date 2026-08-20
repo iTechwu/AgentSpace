@@ -130,6 +130,10 @@ export const POSTGRES_TABLE_NAMES = [
   "employee_data_legal_hold",
   "task_commit_journal",
   "employee_recovery_operation",
+  "conversation",
+  "conversation_participant",
+  "conversation_execution_lane",
+  "conversation_provider_session",
 ] as const;
 
 export type PostgresTableName = (typeof POSTGRES_TABLE_NAMES)[number];
@@ -145,6 +149,7 @@ import { provisioningAuditStatements } from "./postgres-schema/statements/08-pro
 import { capabilityMigrationStatements } from "./postgres-schema/statements/09-capability-migrations.ts";
 import { contentSkillServiceStatements } from "./postgres-schema/statements/10-content-skill-services.ts";
 import { durabilityTailStatements } from "./postgres-schema/statements/11-durability-tail.ts";
+import { conversationStatements } from "./postgres-schema/statements/12-conversation.ts";
 
 /**
  * 全量 schema 语句（严格按迁移阶段顺序）。语句体按阶段切分在
@@ -164,6 +169,7 @@ export function getPostgresSchemaStatements(): string[] {
     ...capabilityMigrationStatements,
     ...contentSkillServiceStatements,
     ...durabilityTailStatements,
+    ...conversationStatements,
   ].map((statement) => statement.trim());
 }
 

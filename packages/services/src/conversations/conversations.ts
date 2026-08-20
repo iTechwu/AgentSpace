@@ -1,0 +1,203 @@
+// 多会话拆分服务层（docs/0820/session-split）。
+// 在 DB 领域访问层之上叠加授权与业务规则：创建、列表、读取、归档、摘要和发送前的 Lane 解析。
+
+import {
+  DEFAULT_WORKSPACE_ID,
+  archiveConversationSync,
+  createConversationSync,
+  ensureExecutionLaneForConversationSync,
+  listConversationParticipantsSync,
+  listConversationsForEmployeeSync,
+  readConversationSync,
+  readExecutionLaneForConversationEmployeeSync,
+  readStoredEmployeeByIdSync,
+  unarchiveConversationSync,
+  updateConversationSync,
+  type ConversationExecutionLaneRecord,
+  type ConversationKind,
+  type ConversationRecord,
+  type ConversationStatus,
+  type ConversationSummarySource,
+} from "@dofe-agent/db";
+import {
+  assertCanUseEmployeeForActorSync,
+  isWorkspaceAdminOrOwnerSync,
+} from "../runtime-access/runtime-access.ts";
+
+export interface CreateConversationForUserInput {
+  workspaceId?: string;
+  employeeId: string;
+  channelId?: string;
+  createdByUserId?: string;
+  kind?: ConversationKind;
+  idempotencyKey?: string;
+}
+
+export interface CreateConversationForUserResult {
+  conversation: ConversationRecord;
+  lane: ConversationExecutionLaneRecord;
+  employeeName: string;
+}
+
+/** /new：创建服务端 Conversation 并同步建立 Execution Lane（docs §5.1）。 */
+export function createConversationForUserSync(input: CreateConversationForUserInput): CreateConversationForUserResult {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employee = readStoredEmployeeByIdSync(input.employeeId, workspaceId);
+  if (!employee) {
+    throw new Error(`Employee "${input.employeeId}" does not exist in this workspace.`);
+  }
+  assertCanUseEmployeeForActorSync({
+    workspaceId,
+    employeeName: employee.name,
+    actorUserId: input.createdByUserId,
+  });
+  const result = createConversationSync({
+    workspaceId,
+    employeeId: input.employeeId,
+    employeeName: employee.name,
+    kind: input.kind ?? "direct",
+    channelId: input.channelId,
+    createdByUserId: input.createdByUserId,
+    idempotencyKey: input.idempotencyKey,
+  });
+  return { conversation: result.conversation, lane: result.lane, employeeName: employee.name };
+}
+
+export interface ListConversationsForUserInput {
+  workspaceId?: string;
+  employeeId: string;
+  actorUserId?: string;
+  statuses?: ConversationStatus[];
+  cursor?: string;
+  limit?: number;
+}
+
+/** 历史会话列表按 employee 范围 + 授权过滤（docs §5.2）。 */
+export function listConversationsForEmployeeForUserSync(input: ListConversationsForUserInput): ConversationRecord[] {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employee = readStoredEmployeeByIdSync(input.employeeId, workspaceId);
+  if (!employee) {
+    throw new Error(`Employee "${input.employeeId}" does not exist in this workspace.`);
+  }
+  assertCanUseEmployeeForActorSync({
+    workspaceId,
+    employeeName: employee.name,
+    actorUserId: input.actorUserId,
+  });
+  return listConversationsForEmployeeSync({
+    workspaceId,
+    employeeId: input.employeeId,
+    statuses: input.statuses,
+    cursor: input.cursor,
+    limit: input.limit,
+  });
+}
+
+export interface ReadConversationForUserInput {
+  workspaceId?: string;
+  conversationId: string;
+  actorUserId?: string;
+}
+
+/** 读取单个 Conversation 并校验工作区归属与参与者权限（docs §9）。 */
+export function readConversationForUserSync(input: ReadConversationForUserInput): ConversationRecord {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const conversation = readConversationSync(input.conversationId);
+  if (!conversation || conversation.workspaceId !== workspaceId) {
+    throw new Error("Conversation not found in this workspace.");
+  }
+  assertCanReadConversationSync(workspaceId, conversation, input.actorUserId);
+  return conversation;
+}
+
+export function archiveConversationForUserSync(input: ReadConversationForUserInput): ConversationRecord {
+  const conversation = readConversationForUserSync(input);
+  // 归档不取消运行中的 task（docs §5.6）；运行结果仍可写入历史与通知。
+  return archiveConversationSync(conversation.id);
+}
+
+export function unarchiveConversationForUserSync(input: ReadConversationForUserInput): ConversationRecord {
+  const conversation = readConversationForUserSync(input);
+  return unarchiveConversationSync(conversation.id);
+}
+
+export interface UpdateConversationSummaryForUserInput {
+  workspaceId?: string;
+  conversationId: string;
+  actorUserId?: string;
+  title?: string;
+  summary?: string;
+  summarySource?: ConversationSummarySource;
+}
+
+/** 用户手动重命名 / 摘要覆盖，summary_source=user 时后台摘要不得覆盖（docs §5.5、§8）。 */
+export function updateConversationSummaryForUserSync(input: UpdateConversationSummaryForUserInput): ConversationRecord {
+  const conversation = readConversationForUserSync({
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    actorUserId: input.actorUserId,
+  });
+  return updateConversationSync({
+    conversationId: conversation.id,
+    title: input.title ?? null,
+    summary: input.summary ?? null,
+    summarySource: input.summarySource,
+  });
+}
+
+export interface ResolveConversationLaneForSendInput {
+  workspaceId?: string;
+  conversationId: string;
+  employeeId: string;
+  actorUserId?: string;
+}
+
+/** 发送前：校验会话权限并 find-or-create 该 Conversation 的 Execution Lane（docs §5.4 步骤 3）。 */
+export function resolveConversationLaneForSendSync(input: ResolveConversationLaneForSendInput): {
+  conversation: ConversationRecord;
+  lane: ConversationExecutionLaneRecord;
+  employeeName: string;
+} {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const conversation = readConversationForUserSync({
+    workspaceId,
+    conversationId: input.conversationId,
+    actorUserId: input.actorUserId,
+  });
+  const employee = readStoredEmployeeByIdSync(input.employeeId, workspaceId);
+  if (!employee) {
+    throw new Error(`Employee "${input.employeeId}" does not exist in this workspace.`);
+  }
+  assertCanUseEmployeeForActorSync({
+    workspaceId,
+    employeeName: employee.name,
+    actorUserId: input.actorUserId,
+  });
+  const lane = ensureExecutionLaneForConversationSync({
+    workspaceId,
+    conversationId: conversation.id,
+    employeeId: input.employeeId,
+    employeeName: employee.name,
+    kind: conversation.kind,
+    channelId: conversation.channelId,
+  });
+  return { conversation, lane, employeeName: employee.name };
+}
+
+function assertCanReadConversationSync(
+  workspaceId: string,
+  conversation: ConversationRecord,
+  actorUserId?: string,
+): void {
+  if (isWorkspaceAdminOrOwnerSync({ workspaceId, userId: actorUserId })) {
+    return;
+  }
+  if (actorUserId) {
+    const isHumanParticipant = listConversationParticipantsSync(conversation.id)
+      .some((participant) => participant.participantType === "human" && participant.userId === actorUserId);
+    if (isHumanParticipant) {
+      return;
+    }
+  }
+  throw new Error("You do not have access to this conversation.");
+}

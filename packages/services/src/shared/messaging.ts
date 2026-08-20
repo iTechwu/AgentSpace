@@ -335,6 +335,8 @@ export function enqueueChannelMentionStepSync(
     requesterDisplayName?: string;
     startNewConversation?: boolean;
     historyFromMessageId?: string;
+    conversationId?: string;
+    executionLaneId?: string;
   },
 ): boolean {
   const agent = state.activeEmployees.find((employee) => sameValue(employee.name, input.step.agentId));
@@ -370,6 +372,8 @@ export function enqueueChannelMentionStepSync(
     triggerType: "mention_chat",
     requestedByUserId: input.requesterUserId,
     requestedByDisplayName: input.requesterDisplayName,
+    conversationId: input.conversationId,
+    executionLaneId: input.executionLaneId,
     metadata: {
       orchestrationRunId: input.step.runId,
       orchestrationStepId: input.step.id,

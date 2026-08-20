@@ -120,6 +120,10 @@
     "./operations": {
       "types": "./dist-types/operations/index.d.ts",
       "default": "./src/operations/index.ts"
+    },
+    "./conversations": {
+      "types": "./dist-types/conversations/index.d.ts",
+      "default": "./src/conversations/index.ts"
     }
   },
   "engines": {
