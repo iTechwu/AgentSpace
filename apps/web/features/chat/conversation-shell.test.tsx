@@ -1080,6 +1080,36 @@ describe("ConversationShell", () => {
     expect(await screen.findByText("当前运行时会话会在下一条消息中自动续接。")).toBeInTheDocument();
   });
 
+  it("opens conversation history when /resume is submitted", async () => {
+    const user = userEvent.setup();
+    const onOpenConversationHistory = vi.fn();
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          composerRuntime={{ employeeId: "Atlas", employeeLabel: "Atlas", provider: "codex" }}
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onOpenConversationHistory={onOpenConversationHistory}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    await user.type(screen.getByRole("textbox"), "/resume{Enter}");
+    expect(onOpenConversationHistory).toHaveBeenCalledTimes(1);
+  });
+
   it("handles /model as a local command instead of sending it as message context", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn(async () => {});

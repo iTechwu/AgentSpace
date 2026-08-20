@@ -335,6 +335,7 @@ describe("ChannelsPageClient", () => {
   beforeEach(() => {
     Array.from(searchParams.keys()).forEach((key) => searchParams.delete(key));
     window.history.replaceState(window.history.state, "", "/");
+    window.localStorage.clear();
     mockMatchMedia(false);
     routerReplaceMock.mockReset();
     routerPushMock.mockReset();
@@ -367,6 +368,29 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByRole("dialog", { name: "创建群组" })).toBeInTheDocument();
   });
 
+  it("archives a conversation with a one-line summary and restores its message snapshot", async () => {
+    const user = userEvent.setup();
+    render(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
+      </TestProviders>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "新开会话" }));
+    const stored = JSON.parse(window.localStorage.getItem("workspace-1:im:conversation-history") ?? "[]") as Array<{
+      summary: string;
+      messages: Array<{ content: string }>;
+    }>;
+    expect(stored[0]?.summary).toBe("请查看附件。");
+    expect(stored[0]?.messages[0]?.content).toBe("请查看附件。");
+
+    await user.click(screen.getByRole("button", { name: "历史会话" }));
+    const history = screen.getByRole("dialog");
+    expect(history).toHaveTextContent("tour visit 的历史会话");
+    await user.click(within(history).getByRole("button", { name: /请查看附件/ }));
+    expect(screen.getByRole("heading", { name: "请查看附件。" })).toBeInTheDocument();
+  });
+
   it("keeps digital direct messages inside the Messages context", async () => {
     searchParams.set("view", "direct");
 
@@ -383,6 +407,43 @@ describe("ChannelsPageClient", () => {
     await waitFor(() => {
       expect(document.querySelector(".chat-model-selector")).not.toHaveClass("chat-model-selector--pending");
     });
+  });
+
+  it("scopes stored conversation history to the selected AI employee", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("workspace-1:im:conversation-history", JSON.stringify([
+      {
+        id: "history-atlas",
+        channelId: "contact:Atlas",
+        employeeKey: "emp-atlas",
+        title: "Atlas",
+        summary: "整理季度销售数据",
+        createdAt: "2026-08-20T08:00:00.000Z",
+        messages: [],
+      },
+      {
+        id: "history-vega",
+        channelId: "contact:Vega",
+        employeeKey: "emp-vega",
+        title: "Vega",
+        summary: "规划新品发布会",
+        createdAt: "2026-08-19T08:00:00.000Z",
+        messages: [],
+      },
+    ]));
+    searchParams.set("view", "direct");
+
+    render(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="techwu" data={digitalContactData} />
+      </TestProviders>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "历史会话" }));
+    const history = screen.getByRole("dialog");
+    expect(history).toHaveTextContent("Atlas 的历史会话");
+    expect(history).toHaveTextContent("整理季度销售数据");
+    expect(history).not.toHaveTextContent("规划新品发布会");
   });
 
   it("renders the canonical digital employee directory without a duplicate chat composer", async () => {
