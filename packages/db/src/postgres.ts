@@ -410,7 +410,7 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "token_usage_billing_event", conflictColumns: ["id"], jsonColumns: ["snapshot_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "token_usage_reconciliation_cursor", conflictColumns: ["workspace_id", "runtime_credential_id"], optionalWhenMissing: true, orderBy: "updated_at ASC, workspace_id ASC, runtime_credential_id ASC" },
   { tableName: "token_usage_retry", conflictColumns: ["id"], jsonColumns: ["payload_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
-  { tableName: "task_commit_journal", conflictColumns: ["task_id", "attempt"], jsonColumns: ["artifact_ids_json"], optionalWhenMissing: true, orderBy: "created_at ASC, task_id ASC, attempt ASC" },
+  { tableName: "task_commit_journal", conflictColumns: ["task_id"], jsonColumns: ["artifact_ids_json"], optionalWhenMissing: true, orderBy: "created_at ASC, task_id ASC" },
   { tableName: "employee_recovery_operation", conflictColumns: ["id"], jsonColumns: ["context_json", "approvers_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "pager_alert_state", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "first_seen_at ASC, id ASC" },
   { tableName: "external_thread_binding", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
