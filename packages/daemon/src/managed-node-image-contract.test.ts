@@ -22,6 +22,10 @@ const selfHostedDockerfile = readFileSync(
   new URL("../../../deploy/self-hosted/Dockerfile", import.meta.url),
   "utf8",
 );
+const workflowWorkerDockerfile = readFileSync(
+  new URL("../../../deploy/workflow-worker/Dockerfile", import.meta.url),
+  "utf8",
+);
 const runtimeBuildScript = readFileSync(
   new URL("../../../deploy/staging/build-managed-runtime-images.sh", import.meta.url),
   "utf8",
@@ -100,7 +104,8 @@ test("CI managed-node lifecycle passes its environment file to every Compose cal
 });
 
 test("managed-node entrypoint repairs state-root ownership before dropping privileges", () => {
-  assert.match(managedNodeEntrypoint, /chown 10001:10001 "\$daemon_state_dir"/);
+  assert.match(managedNodeEntrypoint, /chown -R 10001:10001 "\$daemon_state_dir\/workspaces"/);
+  assert.doesNotMatch(managedNodeEntrypoint, /chown -R 10001:10001 "\$daemon_state_dir"\n/);
   assert.match(managedNodeCompose, /cap_add:\s+\- CHOWN/);
 });
 
@@ -137,12 +142,34 @@ test("local runtime builds include provider probe tools and a pinned Codex CLI",
   );
   assert.match(runtimeBuildScript, /@openai\/codex@0\.145\.0/);
   assert.doesNotMatch(runtimeBuildScript, /codex\).*@openai\/codex@latest/);
+  assert.match(localRuntimeDockerfile, /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*pnpm --filter dofe-agent-daemon run build/);
+});
+
+test("managed-node builds generate Prisma Client before bundling", () => {
+  assert.match(
+    dockerfile,
+    /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*pnpm --filter dofe-agent-daemon run build/,
+  );
 });
 
 test("self-hosted application runtime includes curl for TOS-backed Skill artifacts", () => {
   assert.match(
     selfHostedDockerfile,
     /apt-get install --yes --no-install-recommends ca-certificates curl/,
+  );
+});
+
+test("self-hosted application build generates Prisma Client before bundling", () => {
+  assert.match(
+    selfHostedDockerfile,
+    /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*pnpm --filter dofe-agent-daemon run build/,
+  );
+});
+
+test("workflow worker image generates Prisma Client before startup", () => {
+  assert.match(
+    workflowWorkerDockerfile,
+    /pnpm --filter @dofe-agent\/db run prisma:generate[\s\S]*chown -R node:node/,
   );
 });
 

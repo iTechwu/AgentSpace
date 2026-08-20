@@ -14,6 +14,7 @@ COPY packages ./packages
 
 RUN npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \
+  && pnpm --filter @dofe-agent/db run prisma:generate \
   && chown -R node:node /srv/DofeAgent
 
 USER node
