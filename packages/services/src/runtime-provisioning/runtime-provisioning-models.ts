@@ -84,7 +84,7 @@ export async function rotateManagedRuntimeCredentialAsync(
     // been provisioned. The old credential is intentionally invisible in the
     // new scope, so issue a replacement instead of leaving the runtime unable
     // to load its model catalog forever.
-    if (!isModelsNotFoundError(error)) {
+    if (!isModelsNotFoundError(error) && !isModelsRotationGracePeriodError(error)) {
       throw error;
     }
     reissuedForCurrentScope = true;
@@ -420,4 +420,16 @@ function isModelsNotFoundError(error: unknown): boolean {
     && "status" in error
     && (error as { status?: unknown }).status === 404,
   );
+}
+
+/**
+ * Models deliberately rejects a second rotation while the previous credential
+ * is in its grace period. A replacement create is safe and idempotent here:
+ * it preserves the runtime identity while giving the node a fresh secret.
+ */
+function isModelsRotationGracePeriodError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("status" in error)) return false;
+  const status = (error as { status?: unknown }).status;
+  const message = error instanceof Error ? error.message : String(error);
+  return status === 409 && /rotation grace period/i.test(message);
 }
