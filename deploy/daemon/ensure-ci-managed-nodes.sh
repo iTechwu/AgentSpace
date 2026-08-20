@@ -38,7 +38,22 @@ do
   case "$runner_digest" in
     *[!0-9a-fA-F]*) printf '%s\n' "Skill Runner image digests must be hexadecimal" >&2; exit 1 ;;
   esac
-  docker pull "$runner_image"
+  runner_repository="${runner_image%@*}"
+  # CI hosts may preload an approved runner image under a local tag. Docker
+  # cannot resolve an unqualified repo@sha256 reference to that local tag and
+  # otherwise attempts a public-registry pull. Accept it only when the local
+  # image ID is the exact configured immutable digest.
+  runner_available_locally=false
+  for local_runner_tag in "$runner_repository:local" "$runner_repository:latest"; do
+    local_runner_id="$(docker image inspect "$local_runner_tag" --format '{{.Id}}' 2>/dev/null || true)"
+    if [ "$local_runner_id" = "sha256:$runner_digest" ]; then
+      runner_available_locally=true
+      break
+    fi
+  done
+  if [ "$runner_available_locally" != true ]; then
+    docker pull "$runner_image"
+  fi
 done
 
 case "${DOFE_SKILL_RUNNER_TIMEOUT_MS:-60000}" in
@@ -48,6 +63,13 @@ esac
 state_root="$MANAGED_NODE_DEPLOY_DIR/managed-nodes"
 image_tag="${MANAGED_RUNTIME_IMAGE_TAG:-latest}"
 node_user="${MANAGED_NODE_USER:-0:0}"
+# The CI host terminates the test domain with its local mkcert CA. Carry that
+# CA into every generated node env unless the caller explicitly supplies a
+# different trust bundle.
+managed_node_tls_ca_path="${MANAGED_NODE_TLS_CA_PATH:-}"
+if [ -z "$managed_node_tls_ca_path" ] && [ -r /home/hello/.local/share/mkcert/rootCA.pem ]; then
+  managed_node_tls_ca_path=/home/hello/.local/share/mkcert/rootCA.pem
+fi
 mkdir -p "$state_root"
 chmod 755 "$state_root"
 
@@ -101,7 +123,11 @@ for workspace_id in $workspace_ids; do
   env_file="$node_dir/node.env"
   state_dir="$node_dir/state"
   mkdir -p "$state_dir"
-  chmod 700 "$node_dir"
+  # Rootless Docker maps the container identities to an unprivileged host
+  # identity. The daemon must traverse the node directory and create its own
+  # workspace state after it drops privileges. The token env file remains 0600.
+  chmod 755 "$node_dir"
+  chmod 1777 "$state_dir"
 
   if [ ! -s "$env_file" ]; then
     token="$(docker exec -e DOFE_AGENT_MANAGED_NODE_WORKSPACE_ID="$workspace_id" "$MANAGED_NODE_WEB_CONTAINER" node --experimental-strip-types -e '
@@ -127,8 +153,8 @@ for workspace_id in $workspace_ids; do
       printf '%s\n' "MANAGED_NODE_USER=$node_user"
       printf '%s\n' "MANAGED_RUNTIME_DOCKER_NETWORK=$MANAGED_NODE_DOCKER_NETWORK"
       printf '%s\n' "MANAGED_RUNTIME_IMAGE_TAG=$image_tag"
-      if [ -n "${MANAGED_NODE_TLS_CA_PATH:-}" ]; then
-        printf '%s\n' "MANAGED_NODE_TLS_CA_PATH=$MANAGED_NODE_TLS_CA_PATH"
+      if [ -n "$managed_node_tls_ca_path" ]; then
+        printf '%s\n' "MANAGED_NODE_TLS_CA_PATH=$managed_node_tls_ca_path"
       fi
     } > "$tmp_env"
     mv "$tmp_env" "$env_file"
