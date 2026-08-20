@@ -20,3 +20,4 @@ export * from "./documents/index.ts";
 export * from "./content/index.ts";
 export * from "./finance/index.ts";
 export * from "./operations/index.ts";
+export * from "./conversations/index.ts";

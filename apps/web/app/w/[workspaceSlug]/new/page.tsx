@@ -32,7 +32,9 @@ export default async function NewConversationPage({
       : "";
   const employeeId = employeeName ? resolveStoredEmployeeIdSync(employeeName, workspaceId) : null;
 
+  // redirect() 通过抛异常工作，不能放进 try/catch，否则成功创建也会落入 catch 分支。
   if (employeeId) {
+    let conversationId: string | null = null;
     try {
       const result = createConversationForUserSync({
         workspaceId,
@@ -40,15 +42,18 @@ export default async function NewConversationPage({
         createdByUserId: workspaceContext.currentUser.id,
         kind: "direct",
       });
+      conversationId = result.conversation.id;
+    } catch {
+      // 创建失败：退回 new=1 流程，保留旧会话上下文、不伪造本地历史。
+      conversationId = null;
+    }
+    if (conversationId) {
       redirect(
         buildWorkspacePath(
           workspaceId,
-          `/im?focus=${encodeURIComponent(focus)}&conversation=${result.conversation.id}`,
+          `/im?focus=${encodeURIComponent(focus)}&conversation=${conversationId}`,
         ),
       );
-    } catch {
-      // 创建失败：退回旧流程，保留旧会话上下文。
-      redirect(buildWorkspacePath(workspaceId, "/im?new=1"));
     }
   }
 

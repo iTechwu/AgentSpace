@@ -133,6 +133,19 @@ test("createConversationSync 相同 idempotencyKey 返回同一 Conversation", (
   assert.equal(second.lane.id, first.lane.id);
 });
 
+test("listConversationsForEmployeeSync 按 humanUserId 过滤，隔离跨用户会话", () => {
+  const atlas = createEmployeeId("Atlas");
+  createConversationSync({ employeeId: atlas, employeeName: "Atlas", createdByUserId: "user-1" });
+  createConversationSync({ employeeId: atlas, employeeName: "Atlas", createdByUserId: "user-2" });
+
+  const allForAtlas = listConversationsForEmployeeSync({ employeeId: atlas });
+  assert.equal(allForAtlas.length, 2, "无 humanUserId 时返回全部");
+
+  const user1Only = listConversationsForEmployeeSync({ employeeId: atlas, humanUserId: "user-1" });
+  assert.equal(user1Only.length, 1);
+  assert.equal(user1Only[0]!.createdByUserId, "user-1");
+});
+
 test("listConversationsForEmployeeSync 只返回该员工的会话", () => {
   const atlas = createEmployeeId("Atlas");
   const vega = createEmployeeId("Vega");
@@ -239,4 +252,37 @@ test("同员工不同会话（不同 Lane）可并行 claim，同 Lane 串行", 
 
   const claimedC = claimNextQueuedTaskForRuntimeSync(runtimeId!.id!);
   assert.equal(claimedC, null, "同 Lane 的 C 被运行中的 A 阻塞");
+});
+
+test("同 Lane 互斥跨 runtime 生效（employee 重绑后不并发）", () => {
+  const runtimeA = createRuntimeAndBinding("Atlas");
+  const atlas = createEmployeeId("Atlas");
+  const conv = createConversationSync({ employeeId: atlas, employeeName: "Atlas", createdByUserId: "user-1" });
+  const lane = readExecutionLaneForConversationEmployeeSync("default", conv.conversation.id, atlas)!;
+
+  const enqueueOnLane = (content: string) => enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: content,
+    priority: "medium",
+    triggerType: "channel_chat",
+    requestedByUserId: "user-1",
+    conversationId: conv.conversation.id,
+    executionLaneId: lane.id,
+    metadata: { channelName: "direct-atlas", channelMessage: content },
+  });
+
+  const task1 = enqueueOnLane("任务 A");
+  assert.ok(task1);
+  const claimedOnA = claimNextQueuedTaskForRuntimeSync(runtimeA);
+  assert.equal(claimedOnA?.id, task1!.id, "runtimeA 领取任务 A");
+
+  // 重绑 Atlas 到新 runtimeB（createRuntimeAndBinding 注册新 runtime 并 bindEmployeeRuntimeSync 重绑）。
+  const runtimeB = createRuntimeAndBinding("Atlas");
+  const task2 = enqueueOnLane("任务 B");
+  assert.ok(task2);
+  assert.notEqual(task2!.runtimeId, runtimeA, "任务 B 应落在重绑后的 runtimeB");
+
+  // 任务 A 仍在 runtimeA 上 claimed（同 Lane），任务 B 不应被 runtimeB 领取——跨 runtime 互斥。
+  const claimedOnB = claimNextQueuedTaskForRuntimeSync(runtimeB);
+  assert.equal(claimedOnB, null, "同 Lane 旧任务在另一 runtime 上运行时，新 runtime 不得并发领取");
 });

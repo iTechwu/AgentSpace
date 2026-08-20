@@ -31,8 +31,10 @@ import {
   sendContactMessageAction,
   sendChannelMessageAction,
   createConversationAction,
+  listConversationsAction,
   stopChannelTaskAction,
   acknowledgeMessageAction,
+  type ServerConversationListItem,
 } from "@/features/channels/actions";
 import { CreateChannelModal } from "@/features/channels/create-channel-modal";
 import {
@@ -88,24 +90,7 @@ function summarizeConversationMeta(value: string, fallback: string): string {
   return normalized.length > 64 ? `${normalized.slice(0, 61)}...` : normalized;
 }
 
-type ConversationHistoryRecord = {
-  id: string;
-  channelId: string;
-  employeeKey: string;
-  title: string;
-  summary: string;
-  createdAt: string;
-  messages: ConversationThreadMessage[];
-};
-
 type ConversationHistoryListItem = ConversationListItem & { channelId: string };
-
-function resolveConversationEmployeeKey(channel: ChannelsPageData["channels"][number]): string | null {
-  if (channel.kind !== "direct") {
-    return null;
-  }
-  return channel.agentEmployeeId ?? channel.contactId ?? channel.channelName ?? null;
-}
 
 import {
   CHANNEL_REFRESH_POLL_MS,
@@ -222,8 +207,7 @@ export function ChannelsPageClient({
   );
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showConversationHistory, setShowConversationHistory] = useState(false);
-  const [conversationHistory, setConversationHistory] = useState<ConversationHistoryRecord[]>([]);
-  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  const [serverConversations, setServerConversations] = useState<ServerConversationListItem[]>([]);
   const [showRename, setShowRename] = useState(false);
   const [activeTab, setActiveTab] = useState<ChannelWorkspaceTab>("messages");
   const [documentsView, setDocumentsView] = useState<ChannelDocumentsView>("list");
@@ -271,33 +255,6 @@ export function ChannelsPageClient({
   const transitionPendingRef = useRef(false);
   const documentDraftSourceRef = useRef<string | null>(null);
   const unavailableFeishuChannelNamesRef = useRef(new Set<string>());
-  const conversationHistoryStorageKey = `${data.workspaceId}:im:conversation-history`;
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(conversationHistoryStorageKey);
-      if (!raw) {
-        return;
-      }
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) {
-        setConversationHistory(parsed.filter((entry): entry is ConversationHistoryRecord => (
-          Boolean(entry) && typeof entry === "object" &&
-          typeof (entry as ConversationHistoryRecord).id === "string" &&
-          typeof (entry as ConversationHistoryRecord).channelId === "string" &&
-          typeof (entry as ConversationHistoryRecord).employeeKey === "string" &&
-          typeof (entry as ConversationHistoryRecord).title === "string" &&
-          typeof (entry as ConversationHistoryRecord).summary === "string" &&
-          typeof (entry as ConversationHistoryRecord).createdAt === "string"
-        )).map((entry) => ({
-          ...entry,
-          messages: Array.isArray(entry.messages) ? entry.messages : [],
-        })));
-      }
-    } catch {
-      window.localStorage.removeItem(conversationHistoryStorageKey);
-    }
-  }, [conversationHistoryStorageKey]);
   const markImChannelDetailCacheStale = useCallback((channelName?: string | null) => {
     setDetailDataByChannelName((current) => {
       if (!channelName) {
@@ -560,6 +517,29 @@ export function ChannelsPageClient({
 
   const selectedChannel = selectedChannelId ? visibleChannelById.get(selectedChannelId) ?? null : null;
   const selectedConversationChannelName = resolveSelectedChannelName(selectedChannel);
+  const selectedEmployeeName = selectedChannel?.kind === "direct" ? (selectedChannel.contactId ?? null) : null;
+
+  // 历史面板改读服务端 Conversation（docs §5.2），不再使用 localStorage 快照。
+  useEffect(() => {
+    if (!showConversationHistory || !selectedEmployeeName) {
+      return;
+    }
+    let cancelled = false;
+    listConversationsAction({ employeeName: selectedEmployeeName })
+      .then((items) => {
+        if (!cancelled) {
+          setServerConversations(items);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServerConversations([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmployeeName, showConversationHistory]);
   const selectedFeishuMemberSnapshot = selectedChannel?.feishu
     ? feishuMemberSnapshotByChannelName.get(selectedChannel.name) ?? undefined
     : undefined;
@@ -735,10 +715,12 @@ export function ChannelsPageClient({
     [selectedThread],
   );
   const activeConversationTaskId = useMemo(
-    () => (selectedThread?.messages ?? []).find(
-      (message) => message.status === "pending" && Boolean(message.data?.source_task_queue_id),
-    )?.data?.source_task_queue_id,
-    [selectedThread],
+    () => (selectedThread?.messages ?? [])
+      .filter((message) => !routeState.conversationId || message.conversationId === routeState.conversationId)
+      .find(
+        (message) => message.status === "pending" && Boolean(message.data?.source_task_queue_id),
+      )?.data?.source_task_queue_id,
+    [routeState.conversationId, selectedThread],
   );
   const shouldPollChannelUpdates = useMemo(() => {
     if (isContactDirectoryContext || !selectedChannel || !selectedConversationChannelName) {
@@ -1037,40 +1019,22 @@ export function ChannelsPageClient({
   );
 
   const historyItems = useMemo<ConversationHistoryListItem[]>(() => {
-    if (!selectedChannel || isContactDirectoryContext) {
+    if (!selectedChannel || isContactDirectoryContext || selectedChannel.kind !== "direct") {
       return [];
     }
-    const selectedEmployeeKey = resolveConversationEmployeeKey(selectedChannel) ?? selectedChannel.id;
-    const scopedRecords = conversationHistory
-      .filter((record) => record.employeeKey === selectedEmployeeKey)
-      .map((record) => ({
-        id: record.id,
-        channelId: record.channelId,
-        title: record.title,
-        subtitle: tx("历史会话", "Previous conversation"),
-        meta: record.summary,
-        avatar: selectedChannel.avatarLabel ?? "#",
-        avatarId: selectedChannel.humanContactUserId ?? selectedChannel.contactId ?? selectedChannel.channelName ?? selectedChannel.id,
-        avatarName: record.title,
-        avatarVariant: selectedChannel.directParticipantKind === "human" ? "human" : selectedChannel.kind === "direct" ? "agent" : "channel",
-        dateLabel: formatCompactTimestamp(record.createdAt, { emptyFallback: "" }),
-      } satisfies ConversationHistoryListItem));
-    const recordedChannelIds = new Set(scopedRecords.map((record) => record.channelId));
-    const currentItems = items.filter((item) => {
-      const channel = visibleChannelById.get(item.id);
-      if (!channel) {
-        return false;
-      }
-      const channelName = resolveSelectedChannelName(channel);
-      const hasMessages = Boolean(channelName && (indexes.threadByChannelName.get(channelName)?.messages.length ?? 0) > 0);
-      if (!hasMessages) {
-        return false;
-      }
-      const channelEmployeeKey = resolveConversationEmployeeKey(channel) ?? channel.id;
-      return channelEmployeeKey === selectedEmployeeKey && !recordedChannelIds.has(channel.id);
-    }).map((item) => ({ ...item, channelId: item.id }));
-    return [...scopedRecords, ...currentItems];
-  }, [conversationHistory, indexes.threadByChannelName, isContactDirectoryContext, items, selectedChannel, tx, visibleChannelById]);
+    return serverConversations.map((conversation) => ({
+      id: conversation.id,
+      channelId: selectedChannel.id,
+      title: conversation.title,
+      subtitle: tx("历史会话", "Previous conversation"),
+      meta: conversation.summary,
+      avatar: selectedChannel.avatarLabel ?? "#",
+      avatarId: selectedChannel.humanContactUserId ?? selectedChannel.contactId ?? selectedChannel.channelName ?? selectedChannel.id,
+      avatarName: conversation.title,
+      avatarVariant: selectedChannel.directParticipantKind === "human" ? "human" : "agent",
+      dateLabel: formatCompactTimestamp(conversation.lastActivityAt, { emptyFallback: "" }),
+    } satisfies ConversationHistoryListItem));
+  }, [isContactDirectoryContext, selectedChannel, serverConversations, tx]);
 
   const historyTitle = selectedChannel
     ? tx(`${selectedChannel.displayName ?? selectedChannel.name} 的历史会话`, `${selectedChannel.displayName ?? selectedChannel.name} history`)
@@ -1233,11 +1197,10 @@ export function ChannelsPageClient({
     },
     [isNewConversation, routeState.conversationId, selectedThread, tx],
   );
-  const selectedHistoryRecord = selectedHistoryId
-    ? conversationHistory.find((record) => record.id === selectedHistoryId) ?? null
-    : null;
-  const messages = selectedHistoryRecord?.messages ?? liveMessages;
-  const isViewingHistory = Boolean(selectedHistoryRecord);
+  // 历史会话改由服务端 Conversation 承载：点击历史项直接导航到 conversation=<id>，
+  // 消息由 liveMessages 按会话过滤，不再需要本地快照视图。
+  const messages = liveMessages;
+  const isViewingHistory = false;
   const emptyThreadTitle = selectedChannel
     ? isNewConversation
       ? tx("新会话", "New conversation")
@@ -1316,38 +1279,7 @@ export function ChannelsPageClient({
 
   const startNewConversation = useCallback(async () => {
     const target = selectedChannel ?? visibleChannels[0];
-    if (selectedChannel && liveMessages.length > 0 && !isNewConversation) {
-      const employeeKey = resolveConversationEmployeeKey(selectedChannel) ?? selectedChannel.id;
-      const latestMessage = [...liveMessages].reverse().find((message) => message.role === "human" || message.role === "agent");
-      const summary = summarizeConversationMeta(
-        latestMessage?.content ?? "",
-        tx("新会话", "New conversation"),
-      );
-      const record: ConversationHistoryRecord = {
-        id: `conversation-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        channelId: selectedChannel.id,
-        employeeKey,
-        title: selectedChannel.displayName ?? selectedChannel.name,
-        summary,
-        createdAt: new Date().toISOString(),
-        messages: liveMessages,
-      };
-      setConversationHistory((current) => {
-        const next = [record, ...current].slice(0, 20);
-        try {
-          window.localStorage.setItem(conversationHistoryStorageKey, JSON.stringify(next));
-        } catch {
-          try {
-            window.localStorage.setItem(conversationHistoryStorageKey, JSON.stringify(next.slice(0, 5)));
-          } catch {
-            // The in-memory history remains usable when browser storage is full or unavailable.
-          }
-        }
-        return next;
-      });
-    }
     const focus = target ? buildChannelFocusValue(target, target.id) : null;
-    setSelectedHistoryId(null);
     setShowConversationHistory(false);
 
     // 直接会话：创建服务端 Conversation 并跳转稳定 URL（docs/0820/session-split §2.1）。
@@ -1370,7 +1302,7 @@ export function ChannelsPageClient({
       query.set("focus", focus);
     }
     navigateToWorkspaceModule(`/im?${query.toString()}`);
-  }, [conversationHistoryStorageKey, isNewConversation, liveMessages, navigateToWorkspaceModule, selectedChannel, tx, visibleChannels]);
+  }, [navigateToWorkspaceModule, selectedChannel, visibleChannels]);
 
   async function uploadChannelFiles(files: FileList | null): Promise<void> {
     if (!selectedConversationChannelName || !files || files.length === 0) {
@@ -1919,10 +1851,8 @@ export function ChannelsPageClient({
                   avatarName={selectedChannel.displayName ?? selectedChannel.name}
                   avatarVariant={selectedChannel.directParticipantKind === "human" ? "human" : selectedChannel.kind === "direct" ? "agent" : "channel"}
                   leadingAction={backButton}
-                  subtitle={isViewingHistory
-                    ? tx(`与 ${selectedChannel.displayName ?? selectedChannel.name} 的历史对话`, `Previous conversation with ${selectedChannel.displayName ?? selectedChannel.name}`)
-                    : tx(`发送到 ${selectedChannel.displayName ?? selectedChannel.name}`, `Sending to ${selectedChannel.displayName ?? selectedChannel.name}`)}
-                  title={isViewingHistory ? selectedHistoryRecord?.summary ?? tx("历史会话", "Previous conversation") : tx("新会话", "New conversation")}
+                  subtitle={tx(`发送到 ${selectedChannel.displayName ?? selectedChannel.name}`, `Sending to ${selectedChannel.displayName ?? selectedChannel.name}`)}
+                  title={tx("新会话", "New conversation")}
                 />
               ) : (
                 <ChannelWorkspaceHeader
@@ -2081,15 +2011,15 @@ export function ChannelsPageClient({
                         key={item.id}
                         onClick={() => {
                           setShowConversationHistory(false);
-                          const historyRecord = conversationHistory.find((record) => record.id === item.id);
-                          if (historyRecord?.messages.length) {
-                            setSelectedChannelId(item.channelId);
-                            setSelectedHistoryId(item.id);
-                          } else {
-                            setSelectedHistoryId(null);
-                            setSelectedChannelId(item.channelId);
-                            replaceChannelRoute(item.channelId, { tab: "messages", documentId: null });
+                          if (!selectedChannel) {
+                            return;
                           }
+                          // 点击历史项：进入该 Conversation 的稳定 URL（docs §5 /resume）。
+                          const conversationQuery = new URLSearchParams({
+                            focus: buildChannelFocusValue(selectedChannel, selectedChannel.id),
+                            conversation: item.id,
+                          });
+                          replaceWorkspaceModule(`/im?${conversationQuery.toString()}`);
                         }}
                         type="button"
                       >
@@ -2117,7 +2047,6 @@ export function ChannelsPageClient({
         messages={messages}
         onSelectItem={(channelId) => {
           markInteraction("conversation-switch");
-          setSelectedHistoryId(null);
           setSelectedChannelId(channelId);
           if (activeTab === "documents") {
             setDocumentsView("list");
@@ -2183,8 +2112,7 @@ export function ChannelsPageClient({
 
             formData.set("contactId", selectedChannel.contactId);
             await sendContactMessageAction(formData);
-            if (isViewingHistory || isNewConversation || routeState.conversationId) {
-              setSelectedHistoryId(null);
+            if (isNewConversation || routeState.conversationId) {
               const nextSearch = new URLSearchParams({
                 focus: buildChannelFocusValue(selectedChannel, selectedChannel.id),
               });
@@ -2206,8 +2134,7 @@ export function ChannelsPageClient({
             formData.set("replyToMessageId", replyToMessageId);
           }
           await sendChannelMessageAction(formData);
-          if (isViewingHistory || isNewConversation || routeState.conversationId) {
-            setSelectedHistoryId(null);
+          if (isNewConversation || routeState.conversationId) {
             const nextSearch = new URLSearchParams({
               focus: buildChannelFocusValue(selectedChannel, selectedChannel.id),
             });

@@ -218,6 +218,8 @@ export function useChannelRouteState({
       const nextSearch = readCurrentChannelSearchParams(routeSearch);
       const nextTab = options?.tab ?? activeTab;
       nextSearch.delete("new");
+      // 切换频道/员工时必须清除 conversation，避免把员工 A 的会话 ID 带到员工 B（docs §6）。
+      nextSearch.delete("conversation");
       nextSearch.set("focus", buildChannelFocusValue(targetChannel, channelId));
       if (nextTab === "messages") {
         nextSearch.delete("tab");

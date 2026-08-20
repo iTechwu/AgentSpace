@@ -1087,8 +1087,7 @@ function selectQueuedTaskForRuntime(
          AND NOT EXISTS (
            SELECT 1
            FROM agent_task_queue active
-           WHERE active.runtime_id = queue.runtime_id
-             AND active.id <> queue.id
+           WHERE active.id <> queue.id
              AND active.status IN ('claimed', 'running', 'preparing_commit')
              AND (
                (
@@ -1097,6 +1096,7 @@ function selectQueuedTaskForRuntime(
                )
                OR (
                  queue.execution_lane_id IS NULL
+                 AND active.runtime_id = queue.runtime_id
                  AND (
                    (
                      queue.requested_by_user_id IS NOT NULL

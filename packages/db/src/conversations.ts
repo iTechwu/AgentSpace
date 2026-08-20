@@ -199,6 +199,8 @@ export interface ListConversationsOptions {
   statuses?: ConversationStatus[];
   cursor?: string;
   limit?: number;
+  /** 仅返回该用户创建或参与的会话（跨用户信息隔离）。 */
+  humanUserId?: string;
 }
 
 export function listConversationsForEmployeeSync(options: ListConversationsOptions): ConversationRecord[] {
@@ -210,6 +212,14 @@ export function listConversationsForEmployeeSync(options: ListConversationsOptio
     "conversation.id IN (SELECT conversation_id FROM conversation_participant WHERE employee_id = ?)",
   ];
   const params: unknown[] = [workspaceId, options.employeeId];
+  if (options.humanUserId) {
+    where.push(
+      "(conversation.created_by_user_id = ? OR conversation.id IN (" +
+        "SELECT conversation_id FROM conversation_participant WHERE participant_type = 'human' AND user_id = ?)" +
+      ")",
+    );
+    params.push(options.humanUserId, options.humanUserId);
+  }
   if (options.statuses && options.statuses.length > 0) {
     where.push(`conversation.status IN (${options.statuses.map(() => "?").join(", ")})`);
     params.push(...options.statuses);

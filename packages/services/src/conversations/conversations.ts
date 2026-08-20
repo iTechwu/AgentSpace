@@ -84,12 +84,15 @@ export function listConversationsForEmployeeForUserSync(input: ListConversations
     employeeName: employee.name,
     actorUserId: input.actorUserId,
   });
+  // 跨用户信息隔离：普通用户只看自己创建/参与的会话；管理员/所有者可看全部（docs §9）。
+  const isPrivileged = isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
   return listConversationsForEmployeeSync({
     workspaceId,
     employeeId: input.employeeId,
     statuses: input.statuses,
     cursor: input.cursor,
     limit: input.limit,
+    humanUserId: isPrivileged ? undefined : input.actorUserId,
   });
 }
 
@@ -173,6 +176,13 @@ export function resolveConversationLaneForSendSync(input: ResolveConversationLan
     employeeName: employee.name,
     actorUserId: input.actorUserId,
   });
+  // 目标 employee 必须是该 Conversation 的 participant（docs §3 授权边界）：
+  // 否则会为同一 Conversation 建立第二个 employee Lane，破坏「一会话一泳道」。
+  const isEmployeeParticipant = listConversationParticipantsSync(conversation.id)
+    .some((participant) => participant.participantType === "employee" && participant.employeeId === input.employeeId);
+  if (!isEmployeeParticipant) {
+    throw new Error("This employee is not a participant of the conversation.");
+  }
   const lane = ensureExecutionLaneForConversationSync({
     workspaceId,
     conversationId: conversation.id,

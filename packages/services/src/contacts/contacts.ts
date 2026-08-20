@@ -190,10 +190,16 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       channelName,
       channelMessage: trimmed,
       channelHistory: persistedMessage.state.messages
-        .filter((message) =>
-          sameValue(message.channel ?? "", channelName) &&
-          (!executionOptions?.startNewConversation || message.id === humanMessage.id)
-        )
+        .filter((message) => {
+          if (!sameValue(message.channel ?? "", channelName)) {
+            return false;
+          }
+          // 会话拆分：有 conversationId 时只携带该会话自身消息，不泄漏旧会话上下文。
+          if (executionOptions?.conversationId) {
+            return message.conversationId === executionOptions.conversationId;
+          }
+          return !executionOptions?.startNewConversation || message.id === humanMessage.id;
+        })
         .slice()
         .reverse()
         .map((message) => ({
@@ -207,7 +213,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
           mentions: message.mentions?.map((item) => item.token) ?? [],
           attachments: message.attachments?.map((attachment) => attachment.fileName) ?? [],
         })),
-      channelHistoryPath: executionOptions?.startNewConversation
+      channelHistoryPath: executionOptions?.conversationId || executionOptions?.startNewConversation
         ? undefined
         : getChannelHistoryFilePath(channelName, effectiveWorkspaceId),
       channelSessionId: resumedSessionId,
