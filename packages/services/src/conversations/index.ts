@@ -1,6 +1,7 @@
 // 多会话拆分服务层 barrel（docs/0820/session-split）。
 export {
   archiveConversationForUserSync,
+  backfillLegacyConversationsSync,
   buildConversationSummary,
   createConversationForUserSync,
   listConversationsForChannelForUserSync,
@@ -11,6 +12,7 @@ export {
   resolveConversationLaneForSendSync,
   unarchiveConversationForUserSync,
   updateConversationSummaryForUserSync,
+  type BackfillLegacyConversationsResult,
   type CreateConversationForUserInput,
   type CreateConversationForUserResult,
   type ListConversationsForChannelForUserInput,

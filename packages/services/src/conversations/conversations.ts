@@ -1,6 +1,7 @@
 // 多会话拆分服务层（docs/0820/session-split）。
-// 在 DB 领域访问层之上叠加授权与业务规则：创建、列表、读取、归档、摘要和发送前的 Lane 解析。
+// 在 DB 领域访问层之上叠加授权与业务规则：创建、列表、读取、归档、摘要、legacy 回填和发送前的 Lane 解析。
 
+import { createHash } from "node:crypto";
 import {
   DEFAULT_WORKSPACE_ID,
   archiveConversationSync,
@@ -26,6 +27,8 @@ import {
   assertCanUseEmployeeForActorSync,
   isWorkspaceAdminOrOwnerSync,
 } from "../runtime-access/runtime-access.ts";
+import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
+import { sameValue } from "../shared/helpers.ts";
 
 export interface CreateConversationForUserInput {
   workspaceId?: string;
@@ -344,4 +347,75 @@ function assertCanReadConversationSync(
     }
   }
   throw new Error("You do not have access to this conversation.");
+}
+
+export interface BackfillLegacyConversationsResult {
+  conversationsCreated: number;
+  messagesTagged: number;
+}
+
+/**
+ * Legacy 回填（docs/0820/session-split Phase 5.1）：为每个 channel 的既有消息创建一个确定性
+ * legacy Conversation，并把无 conversationId 的消息打标到该会话，避免根据内容猜测历史边界。
+ * 幂等：同一 channel 的重复运行复用同一 legacy Conversation。
+ */
+export function backfillLegacyConversationsSync(workspaceId = DEFAULT_WORKSPACE_ID): BackfillLegacyConversationsResult {
+  const state = ensureWorkspaceStateSync(workspaceId);
+  let conversationsCreated = 0;
+  let messagesTagged = 0;
+
+  for (const channel of state.channels) {
+    const channelName = channel.name;
+    const kind: ConversationKind = channel.kind === "direct" ? "direct" : "group";
+    const employeeParticipants: Array<{ employeeId: string; employeeName?: string }> = [];
+    for (const employeeName of channel.employeeNames ?? []) {
+      const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+      if (employeeId) {
+        employeeParticipants.push({ employeeId, employeeName });
+      }
+    }
+
+    const legacyMessages = state.messages.filter(
+      (message) => sameValue(message.channel ?? "", channelName) && !message.conversationId,
+    );
+    if (legacyMessages.length === 0) {
+      continue;
+    }
+
+    const legacyId = `conversation-legacy-${createHash("sha256").update(`${workspaceId}\0${channelName}`).digest("hex").slice(0, 32)}`;
+    if (!readConversationSync(legacyId)) {
+      createConversationSync({
+        workspaceId,
+        id: legacyId,
+        kind,
+        channelId: channelName,
+        employeeId: kind === "direct" ? employeeParticipants[0]?.employeeId : undefined,
+        employeeName: kind === "direct" ? employeeParticipants[0]?.employeeName : undefined,
+        employeeParticipants: kind === "group" ? employeeParticipants : undefined,
+      });
+      conversationsCreated += 1;
+    }
+
+    state.messages = state.messages.map((message) =>
+      (sameValue(message.channel ?? "", channelName) && !message.conversationId)
+        ? { ...message, conversationId: legacyId }
+        : message,
+    );
+    messagesTagged += legacyMessages.length;
+    const firstMessage = legacyMessages[0];
+    updateConversationSync({
+      conversationId: legacyId,
+      status: "active",
+      summary: firstMessage?.summary ? buildConversationSummary(firstMessage.summary) : null,
+      summarySource: firstMessage?.summary ? "generated" : undefined,
+      // WorkspaceMessage.time 是展示时间（如 10:00），不能写入 TIMESTAMPTZ；legacy 用回填时刻近似。
+      lastMessageAt: new Date().toISOString(),
+      lastActivityAt: new Date().toISOString(),
+    });
+  }
+
+  if (messagesTagged > 0) {
+    writeWorkspaceStateSync(state, workspaceId);
+  }
+  return { conversationsCreated, messagesTagged };
 }

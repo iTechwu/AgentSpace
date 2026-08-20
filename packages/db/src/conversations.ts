@@ -76,6 +76,8 @@ export interface ConversationProviderSessionRecord {
 export interface CreateConversationInput {
   workspaceId?: string;
   idempotencyKey?: string;
+  /** 显式指定会话 ID（legacy 回填用确定性 ID）。 */
+  id?: string;
   kind?: ConversationKind;
   channelId?: string;
   createdByUserId?: string;
@@ -101,9 +103,10 @@ export function createConversationSync(input: CreateConversationInput): CreateCo
   const now = input.now ?? new Date().toISOString();
   const kind: ConversationKind = input.kind ?? "direct";
   const idempotencyKey = input.idempotencyKey?.trim();
-  const id = idempotencyKey
-    ? `conversation-idem-${createHash("sha256").update(`${workspaceId}\0${idempotencyKey}`).digest("hex").slice(0, 32)}`
-    : `conversation-${randomLikeId()}`;
+  const id = input.id
+    ?? (idempotencyKey
+      ? `conversation-idem-${createHash("sha256").update(`${workspaceId}\0${idempotencyKey}`).digest("hex").slice(0, 32)}`
+      : `conversation-${randomLikeId()}`);
   const employeeParticipants = kind === "direct"
     ? (input.employeeId ? [{ employeeId: input.employeeId, employeeName: input.employeeName }] : [])
     : (input.employeeParticipants ?? []);
