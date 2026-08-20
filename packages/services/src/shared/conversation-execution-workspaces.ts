@@ -28,6 +28,19 @@ export function resolveConversationExecutionWorkspacePath(input: {
   });
 }
 
+export function resolveConversationExecutionResume(input: {
+  startNewConversation?: boolean;
+  existing?: Pick<ConversationExecutionWorkspaceState, "sessionId" | "workDir">;
+  latest?: { sessionId?: string; workDir?: string } | null;
+}): { sessionId?: string; workDir?: string } {
+  return {
+    sessionId: input.startNewConversation
+      ? undefined
+      : (input.existing?.sessionId ?? input.latest?.sessionId),
+    workDir: input.existing?.workDir ?? input.latest?.workDir,
+  };
+}
+
 export function readConversationExecutionWorkspaceState(
   state: DofeAgentState,
   input: {

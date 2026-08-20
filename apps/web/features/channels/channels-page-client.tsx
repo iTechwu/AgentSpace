@@ -2140,12 +2140,11 @@ export function ChannelsPageClient({
           if (!selectedChannel) {
             return;
           }
-          if (isViewingHistory || isNewConversation) {
-            setSelectedHistoryId(null);
-            replaceWorkspaceModule(`/im?focus=${encodeURIComponent(buildChannelFocusValue(selectedChannel, selectedChannel.id))}`);
-          }
           const formData = new FormData();
           formData.set("content", content);
+          if (isNewConversation) {
+            formData.set("newConversation", "1");
+          }
           files.forEach((file) => formData.append("attachments", file));
           referenceAttachmentIds?.forEach((attachmentId) => formData.append("attachmentReferences", attachmentId));
           referenceSkillIds?.forEach((skillId) => formData.append("skillReferences", skillId));
@@ -2160,6 +2159,10 @@ export function ChannelsPageClient({
 
             formData.set("contactId", selectedChannel.contactId);
             await sendContactMessageAction(formData);
+            if (isViewingHistory || isNewConversation) {
+              setSelectedHistoryId(null);
+              replaceWorkspaceModule(`/im?focus=${encodeURIComponent(buildChannelFocusValue(selectedChannel, selectedChannel.id))}`);
+            }
             refreshChannelModule(selectedConversationChannelName);
             return;
           }
@@ -2173,6 +2176,10 @@ export function ChannelsPageClient({
             formData.set("replyToMessageId", replyToMessageId);
           }
           await sendChannelMessageAction(formData);
+          if (isViewingHistory || isNewConversation) {
+            setSelectedHistoryId(null);
+            replaceWorkspaceModule(`/im?focus=${encodeURIComponent(buildChannelFocusValue(selectedChannel, selectedChannel.id))}`);
+          }
           refreshChannelModule(selectedConversationChannelName);
         }}
         onPinMessage={(messageId) => {

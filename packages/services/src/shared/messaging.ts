@@ -31,6 +31,7 @@ import {
 } from "./helpers.ts";
 import {
   readConversationExecutionWorkspaceState,
+  resolveConversationExecutionResume,
   resolveConversationExecutionWorkspacePath,
   upsertConversationExecutionWorkspaceState,
 } from "./conversation-execution-workspaces.ts";
@@ -253,7 +254,11 @@ export function buildMentionCandidates(state: DofeAgentState, channelName: strin
   }));
 }
 
-export function buildChannelHistorySnapshot(state: DofeAgentState, channelName: string): Array<{
+export function buildChannelHistorySnapshot(
+  state: DofeAgentState,
+  channelName: string,
+  fromMessageId?: string,
+): Array<{
   speaker: string;
   role?: string;
   summary: string;
@@ -264,10 +269,15 @@ export function buildChannelHistorySnapshot(state: DofeAgentState, channelName: 
   mentions: string[];
   attachments: string[];
 }> {
-  return state.messages
+  const messages = state.messages
     .filter((message) => sameValue(message.channel ?? "", channelName))
     .slice()
-    .reverse()
+    .reverse();
+  const fromIndex = fromMessageId
+    ? messages.findIndex((message) => message.id === fromMessageId)
+    : -1;
+
+  return (fromIndex >= 0 ? messages.slice(fromIndex) : messages)
     .map((message) => ({
       speaker: message.speaker,
       role: message.role,
@@ -297,6 +307,8 @@ export function enqueueChannelMentionStepSync(
     workspaceId?: string;
     requesterUserId?: string;
     requesterDisplayName?: string;
+    startNewConversation?: boolean;
+    historyFromMessageId?: string;
   },
 ): boolean {
   const agent = state.activeEmployees.find((employee) => sameValue(employee.name, input.step.agentId));
@@ -318,8 +330,11 @@ export function enqueueChannelMentionStepSync(
     agentId: agent.name,
   });
   const lastExecution = readLatestChannelExecutionSync(agent.name, input.channelName, workspaceId);
-  const resumedSessionId = existingExecutionWorkspace?.sessionId ?? lastExecution?.sessionId;
-  const resumedWorkDir = existingExecutionWorkspace?.workDir ?? lastExecution?.workDir;
+  const { sessionId: resumedSessionId, workDir: resumedWorkDir } = resolveConversationExecutionResume({
+    startNewConversation: input.startNewConversation,
+    existing: existingExecutionWorkspace,
+    latest: lastExecution,
+  });
   const queued = enqueueNativeTaskSync({
     workspaceId,
     assignee: agent.name,
@@ -345,8 +360,10 @@ export function enqueueChannelMentionStepSync(
       assigneeMentionToken: input.step.agentLabel,
       channelName: input.channelName,
       channelMessage: input.fullMessage,
-      channelHistory: buildChannelHistorySnapshot(state, input.channelName),
-      channelHistoryPath: getChannelHistoryFilePath(input.channelName, workspaceId),
+      channelHistory: buildChannelHistorySnapshot(state, input.channelName, input.historyFromMessageId),
+      channelHistoryPath: input.startNewConversation
+        ? undefined
+        : getChannelHistoryFilePath(input.channelName, workspaceId),
       channelSessionId: resumedSessionId,
       ...(externalInput ? { externalInput } : {}),
       attachments:
@@ -366,7 +383,7 @@ export function enqueueChannelMentionStepSync(
   upsertConversationExecutionWorkspaceState(state, {
     channelName: input.channelName,
     agentId: agent.name,
-    sessionId: resumedSessionId,
+    sessionId: input.startNewConversation ? null : resumedSessionId,
     workDir: resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
       workspaceId,
       channelName: input.channelName,

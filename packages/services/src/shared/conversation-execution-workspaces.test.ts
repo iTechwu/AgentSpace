@@ -8,6 +8,7 @@ import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
 import {
   buildConversationExecutionWorkspaceKey,
   readConversationExecutionWorkspaceState,
+  resolveConversationExecutionResume,
   resolveConversationExecutionWorkspacePath,
   upsertConversationExecutionWorkspaceState,
 } from "./conversation-execution-workspaces.ts";
@@ -39,6 +40,26 @@ test("buildConversationExecutionWorkspaceKey distinguishes direct and group work
     }),
     "group:mission-control:Atlas",
   );
+});
+
+test("resolveConversationExecutionResume skips old sessions for a new conversation", () => {
+  const fresh = resolveConversationExecutionResume({
+    startNewConversation: true,
+    existing: { sessionId: "session-current", workDir: "/tmp/current" },
+    latest: { sessionId: "session-latest", workDir: "/tmp/latest" },
+  });
+
+  assert.equal(fresh.sessionId, undefined);
+  assert.equal(fresh.workDir, "/tmp/current");
+
+  const resumed = resolveConversationExecutionResume({
+    existing: { sessionId: "session-current" },
+    latest: { sessionId: "session-latest", workDir: "/tmp/latest" },
+  });
+  assert.deepEqual(resumed, {
+    sessionId: "session-current",
+    workDir: "/tmp/latest",
+  });
 });
 
 test("upsertConversationExecutionWorkspaceState stores and updates canonical conversation state", () => {

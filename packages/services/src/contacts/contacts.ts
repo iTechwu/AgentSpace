@@ -15,6 +15,7 @@ import { ensureDirectChannelRecord, resolveCompatibleDirectChannelRecord } from 
 import { ensureWorkspaceStateSync, mutateWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import {
   readConversationExecutionWorkspaceState,
+  resolveConversationExecutionResume,
   resolveConversationExecutionWorkspacePath,
   upsertConversationExecutionWorkspaceState,
 } from "../shared/conversation-execution-workspaces.ts";
@@ -81,6 +82,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
+  executionOptions?: { startNewConversation?: boolean },
 ): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -143,7 +145,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
         {
           contactId: contact.name,
           humanMemberName,
-          sessionId: lastExecution?.sessionId,
+          sessionId: executionOptions?.startNewConversation ? null : lastExecution?.sessionId,
           workDir: lastExecution?.workDir,
         },
         effectiveWorkspaceId,
@@ -151,11 +153,16 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       );
     }
 
+    const resume = resolveConversationExecutionResume({
+      startNewConversation: executionOptions?.startNewConversation,
+      existing: existingExecutionWorkspace,
+      latest: lastExecution,
+    });
     return {
       channelName: directChannel.name,
       humanMessage,
-      resumedSessionId: existingExecutionWorkspace?.sessionId ?? lastExecution?.sessionId,
-      resumedWorkDir: existingExecutionWorkspace?.workDir ?? lastExecution?.workDir,
+      resumedSessionId: resume.sessionId,
+      resumedWorkDir: resume.workDir,
     };
   });
   const {
@@ -179,7 +186,10 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       channelName,
       channelMessage: trimmed,
       channelHistory: persistedMessage.state.messages
-        .filter((message) => sameValue(message.channel ?? "", channelName))
+        .filter((message) =>
+          sameValue(message.channel ?? "", channelName) &&
+          (!executionOptions?.startNewConversation || message.id === humanMessage.id)
+        )
         .slice()
         .reverse()
         .map((message) => ({
@@ -193,7 +203,9 @@ export function sendContactMessageForHumanWithAttachmentsSync(
           mentions: message.mentions?.map((item) => item.token) ?? [],
           attachments: message.attachments?.map((attachment) => attachment.fileName) ?? [],
         })),
-      channelHistoryPath: getChannelHistoryFilePath(channelName, effectiveWorkspaceId),
+      channelHistoryPath: executionOptions?.startNewConversation
+        ? undefined
+        : getChannelHistoryFilePath(channelName, effectiveWorkspaceId),
       channelSessionId: resumedSessionId,
       ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
       attachments:
@@ -256,7 +268,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
         agentId: contact.name,
         contactId: contact.name,
         humanMemberName,
-        sessionId: resumedSessionId,
+        sessionId: executionOptions?.startNewConversation ? null : resumedSessionId,
         workDir: resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
           workspaceId: effectiveWorkspaceId,
           channelName,

@@ -391,6 +391,24 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByRole("heading", { name: "请查看附件。" })).toBeInTheDocument();
   });
 
+  it("marks the first message from /new as a fresh runtime conversation", async () => {
+    const user = userEvent.setup();
+    searchParams.set("new", "1");
+
+    render(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
+      </TestProviders>,
+    );
+
+    await user.type(screen.getByPlaceholderText("发送到 tour visit"), "@Atlas 重新开始");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+    await waitFor(() => expect(sendChannelMessageActionMock).toHaveBeenCalledTimes(1));
+    const formData = sendChannelMessageActionMock.mock.calls[0]?.[0] as FormData;
+    expect(formData.get("newConversation")).toBe("1");
+  });
+
   it("keeps digital direct messages inside the Messages context", async () => {
     searchParams.set("view", "direct");
 

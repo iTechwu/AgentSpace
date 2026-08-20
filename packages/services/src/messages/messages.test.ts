@@ -50,6 +50,7 @@ import {
   writeWorkspaceStateSync,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
+import { buildChannelHistorySnapshot } from "../shared/messaging.ts";
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
@@ -382,6 +383,18 @@ test("sendChannelHumanMessageSync stores untrusted external source metadata on t
   });
 });
 
+test("buildChannelHistorySnapshot can isolate history from a new conversation message", () => {
+  seedWorkspace();
+  sendChannelHumanMessageSync("tour visit", "techwu", "旧会话内容");
+  sendChannelHumanMessageSync("tour visit", "techwu", "新会话内容");
+  const state = readWorkspaceStateSync();
+  const newMessage = state.messages.find((message) => message.summary === "新会话内容");
+  assert.ok(newMessage);
+
+  const history = buildChannelHistorySnapshot(state, "tour visit", newMessage.id);
+  assert.deepEqual(history.map((message) => message.summary), ["新会话内容"]);
+});
+
 test("sendChannelHumanMessageSync stores the requester user id and publishes realtime message events", () => {
   seedWorkspace();
   const suffix = Math.random().toString(36).slice(2, 8);
@@ -662,6 +675,96 @@ test("sendChannelHumanMessageSync starts auto continuation for continuous work d
     ),
     true,
   );
+});
+
+test("sendChannelHumanMessageSync starts /new without the previous session or history", runtimeSkip, () => {
+  seedWorkspace();
+  sendChannelHumanMessageSync("tour visit", "techwu", "旧会话内容");
+  const state = readWorkspaceStateSync();
+  state.conversationExecutionWorkspaces = [{
+    conversationKey: "group:tour visit:Atlas",
+    conversationKind: "group",
+    channelName: "tour visit",
+    agentId: "Atlas",
+    sessionId: "session-old",
+    workDir: "/tmp/tour-visit",
+    updatedAt: new Date().toISOString(),
+  }];
+  writeWorkspaceStateSync(state);
+  bindAtlasRuntime();
+
+  sendChannelHumanMessageSync(
+    "tour visit",
+    "techwu",
+    "@Atlas 新会话内容",
+    undefined,
+    undefined,
+    DEFAULT_WORKSPACE_ID,
+    undefined,
+    undefined,
+    { startNewConversation: true },
+  );
+
+  const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas");
+  assert.ok(queued);
+  const payload = JSON.parse(queued.inputJson) as {
+    channelSessionId?: string;
+    channelHistoryPath?: string;
+    channelHistory: Array<{ summary: string }>;
+  };
+  assert.equal(payload.channelSessionId, undefined);
+  assert.equal(payload.channelHistoryPath, undefined);
+  assert.deepEqual(payload.channelHistory.map((message) => message.summary), ["@Atlas 新会话内容"]);
+  assert.equal(readWorkspaceStateSync().conversationExecutionWorkspaces?.[0]?.sessionId, undefined);
+});
+
+test("sendContactMessageForHumanWithAttachmentsSync starts /new without the previous session or history", runtimeSkip, () => {
+  seedWorkspace();
+  sendContactMessageForHumanWithAttachmentsSync("techwu", "Atlas", "旧私聊内容");
+  const state = readWorkspaceStateSync();
+  const directChannel = state.channels.find((channel) =>
+    channel.kind === "direct" && channel.employeeNames.includes("Atlas")
+  );
+  assert.ok(directChannel);
+  state.conversationExecutionWorkspaces = [{
+    conversationKey: `direct:${directChannel.name}:Atlas`,
+    conversationKind: "direct",
+    channelName: directChannel.name,
+    agentId: "Atlas",
+    contactId: "Atlas",
+    humanMemberName: "techwu",
+    sessionId: "session-old",
+    workDir: "/tmp/direct-atlas",
+    updatedAt: new Date().toISOString(),
+  }];
+  writeWorkspaceStateSync(state);
+  bindAtlasRuntime();
+
+  sendContactMessageForHumanWithAttachmentsSync(
+    "techwu",
+    "Atlas",
+    "新私聊内容",
+    undefined,
+    DEFAULT_WORKSPACE_ID,
+    undefined,
+    undefined,
+    { startNewConversation: true },
+  );
+
+  const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas");
+  assert.ok(queued);
+  const payload = JSON.parse(queued.inputJson) as {
+    channelSessionId?: string;
+    channelHistoryPath?: string;
+    channelHistory: Array<{ summary: string }>;
+  };
+  assert.equal(payload.channelSessionId, undefined);
+  assert.equal(payload.channelHistoryPath, undefined);
+  assert.deepEqual(payload.channelHistory.map((message) => message.summary), ["新私聊内容"]);
+  const executionWorkspace = readWorkspaceStateSync().conversationExecutionWorkspaces?.find((workspace) =>
+    workspace.conversationKey === `direct:${directChannel.name}:Atlas`
+  );
+  assert.equal(executionWorkspace?.sessionId, undefined);
 });
 
 test("sendChannelHumanMessageSync lets channel members mention enabled workspace agents in that channel", runtimeSkip, () => {

@@ -477,6 +477,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   const uploadedAttachments = await persistFormAttachments(formData, "attachments", workspaceContext.currentWorkspace.id);
   const attachmentReferenceIds = getStringValues(formData, "attachmentReferences");
   const skillReferenceIds = getStringValues(formData, "skillReferences");
+  const startNewConversation = formData.get("newConversation") === "1";
 
   if (!channelName.trim()) {
     throw new Error("Missing channel name.");
@@ -527,7 +528,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
     return;
   }
 
-  sendChannelHumanMessageSync(
+  const messageArgs = [
     channelName.trim(),
     workspaceContext.currentUser.displayName.trim() || "你",
     resolvedContent.trim(),
@@ -535,7 +536,12 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
     replyToMessageId?.trim() || undefined,
     workspaceContext.currentWorkspace.id,
     workspaceContext.currentUser.id,
-  );
+  ] as const;
+  if (startNewConversation) {
+    sendChannelHumanMessageSync(...messageArgs, undefined, { startNewConversation: true });
+  } else {
+    sendChannelHumanMessageSync(...messageArgs);
+  }
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
 }
@@ -568,6 +574,7 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   const attachmentReferenceIds = getStringValues(formData, "attachmentReferences");
   const skillReferenceIds = getStringValues(formData, "skillReferences");
   const referenceChannelName = getOptionalStringValue(formData, "referenceChannelName");
+  const startNewConversation = formData.get("newConversation") === "1";
   const humanMemberName = workspaceContext.currentUser.displayName.trim() || "你";
   let referencedAttachments: MessageAttachment[] = [];
   if (attachmentReferenceIds.length > 0) {
@@ -622,14 +629,19 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
     return;
   }
 
-  sendContactMessageForHumanWithAttachmentsSync(
+  const messageArgs = [
     humanMemberName,
     contactId.trim(),
     resolvedContent.trim(),
     attachments,
     workspaceContext.currentWorkspace.id,
     workspaceContext.currentUser.id,
-  );
+  ] as const;
+  if (startNewConversation) {
+    sendContactMessageForHumanWithAttachmentsSync(...messageArgs, undefined, { startNewConversation: true });
+  } else {
+    sendContactMessageForHumanWithAttachmentsSync(...messageArgs);
+  }
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
 }

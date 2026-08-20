@@ -36,6 +36,7 @@ const {
   mockSetSessionModelOverrideForChatCommandSync,
   mockSameValue,
   mockSendChannelHumanMessageSync,
+  mockSendContactMessageForHumanWithAttachmentsSync,
   mockSendHumanDirectMessageSync,
   mockUnpinMessageSync,
   mockValidateSessionModelOverrideForChatCommandAsync,
@@ -75,6 +76,7 @@ const {
   mockSetSessionModelOverrideForChatCommandSync: vi.fn(),
   mockSameValue: vi.fn((left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase()),
   mockSendChannelHumanMessageSync: vi.fn(),
+  mockSendContactMessageForHumanWithAttachmentsSync: vi.fn(),
   mockSendHumanDirectMessageSync: vi.fn(),
   mockUnpinMessageSync: vi.fn(),
   mockValidateSessionModelOverrideForChatCommandAsync: vi.fn(),
@@ -125,7 +127,7 @@ vi.mock("@dofe-agent/services", () => ({
   rejectChannelAccessRequestForActorSync: vi.fn(),
   inviteUserToChannelForActorSync: vi.fn(),
   revokeChannelInvitationForActorSync: vi.fn(),
-  sendContactMessageForHumanWithAttachmentsSync: vi.fn(),
+  sendContactMessageForHumanWithAttachmentsSync: mockSendContactMessageForHumanWithAttachmentsSync,
   upsertChannelDocumentPresenceSync: vi.fn(),
   updateChannelDocumentSync: vi.fn(),
   validateSessionModelOverrideForChatCommandAsync: mockValidateSessionModelOverrideForChatCommandAsync,
@@ -174,6 +176,7 @@ import {
   stopChannelTaskAction,
   saveChannelDocumentAction,
   sendChannelMessageAction,
+  sendContactMessageAction,
   sendHumanDirectMessageAction,
   getChannelDetailDataAction,
 } from "./actions";
@@ -216,6 +219,7 @@ describe("channel actions", () => {
     mockSetSessionModelOverrideForChatCommandSync.mockReset();
     mockSameValue.mockClear();
     mockSendChannelHumanMessageSync.mockReset();
+    mockSendContactMessageForHumanWithAttachmentsSync.mockReset();
     mockSendHumanDirectMessageSync.mockReset();
     mockUnpinMessageSync.mockReset();
     mockValidateSessionModelOverrideForChatCommandAsync.mockReset();
@@ -312,6 +316,51 @@ describe("channel actions", () => {
       undefined,
       "workspace-1",
       "user-1",
+    );
+  });
+
+  it("starts a fresh runtime session for a group message from /new", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+
+    const formData = new FormData();
+    formData.set("channelName", "general");
+    formData.set("content", "@Atlas start fresh");
+    formData.set("newConversation", "1");
+
+    await sendChannelMessageAction(formData);
+
+    expect(mockSendChannelHumanMessageSync).toHaveBeenCalledWith(
+      "general",
+      "techwu",
+      "@Atlas start fresh",
+      [],
+      undefined,
+      "workspace-1",
+      "user-1",
+      undefined,
+      { startNewConversation: true },
+    );
+  });
+
+  it("starts a fresh runtime session for an employee direct message from /new", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+
+    const formData = new FormData();
+    formData.set("contactId", "Atlas");
+    formData.set("content", "start fresh");
+    formData.set("newConversation", "1");
+
+    await sendContactMessageAction(formData);
+
+    expect(mockSendContactMessageForHumanWithAttachmentsSync).toHaveBeenCalledWith(
+      "techwu",
+      "Atlas",
+      "start fresh",
+      [],
+      "workspace-1",
+      "user-1",
+      undefined,
+      { startNewConversation: true },
     );
   });
 

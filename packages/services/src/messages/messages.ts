@@ -14,6 +14,7 @@ import { parseAgentMentions, parseMentionPlan, type MentionCandidate } from "@do
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import {
   readConversationExecutionWorkspaceState,
+  resolveConversationExecutionResume,
   resolveConversationExecutionWorkspacePath,
   upsertConversationExecutionWorkspaceState,
 } from "../shared/conversation-execution-workspaces.ts";
@@ -220,6 +221,7 @@ export function sendChannelHumanMessageSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
+  executionOptions?: { startNewConversation?: boolean },
 ): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -333,6 +335,8 @@ export function sendChannelHumanMessageSync(
         requesterUserId,
         requesterDisplayName: speaker,
         externalInput: governedExternalInput,
+        startNewConversation: executionOptions?.startNewConversation,
+        historyFromMessageId: executionOptions?.startNewConversation ? humanMessage.id : undefined,
       });
 
       if (queued) {
@@ -402,8 +406,11 @@ export function sendChannelHumanMessageSync(
       agentId: agent.name,
     });
     const lastExecution = readLatestChannelExecutionSync(agent.name, channel.name, effectiveWorkspaceId);
-    const resumedSessionId = existingExecutionWorkspace?.sessionId ?? lastExecution?.sessionId;
-    const resumedWorkDir = existingExecutionWorkspace?.workDir ?? lastExecution?.workDir;
+    const { sessionId: resumedSessionId, workDir: resumedWorkDir } = resolveConversationExecutionResume({
+      startNewConversation: executionOptions?.startNewConversation,
+      existing: existingExecutionWorkspace,
+      latest: lastExecution,
+    });
     const autoContinuation = autoContinuationDirective
       ? createAutoContinuationState({
           directive: autoContinuationDirective,
@@ -430,8 +437,14 @@ export function sendChannelHumanMessageSync(
         assigneeMentionToken: mention.token,
         channelName: channel.name,
         channelMessage: trimmed,
-        channelHistory: buildChannelHistorySnapshot(state, channel.name),
-        channelHistoryPath: getChannelHistoryFilePath(channel.name, effectiveWorkspaceId),
+        channelHistory: buildChannelHistorySnapshot(
+          state,
+          channel.name,
+          executionOptions?.startNewConversation ? humanMessage.id : undefined,
+        ),
+        channelHistoryPath: executionOptions?.startNewConversation
+          ? undefined
+          : getChannelHistoryFilePath(channel.name, effectiveWorkspaceId),
         channelSessionId: resumedSessionId,
         ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
         autoContinuation,
@@ -450,7 +463,7 @@ export function sendChannelHumanMessageSync(
       upsertConversationExecutionWorkspaceState(state, {
         channelName: channel.name,
         agentId: agent.name,
-        sessionId: resumedSessionId,
+        sessionId: executionOptions?.startNewConversation ? null : resumedSessionId,
         workDir: resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
           workspaceId: effectiveWorkspaceId,
           channelName: channel.name,
