@@ -564,8 +564,7 @@ server.listen(0, "127.0.0.1", () => {
   // Codex 0.144 ignores OPENAI_BASE_URL for its Responses WebSocket client.
   // Its native model_provider configuration is the supported way to route
   // Responses traffic, so point it at this local attribution proxy.
-  const providerArgs = executable === "codex" && baseUrlKey === "OPENAI_BASE_URL"
-    ? [
+  const codexProviderArgs = [
       "-c", "prefer_websockets=false",
       "-c", "model_provider=\\\"dofe-managed\\\"",
       "-c", "model_providers.dofe-managed.name=\\\"Dofe managed gateway\\\"",
@@ -573,8 +572,15 @@ server.listen(0, "127.0.0.1", () => {
       "-c", "model_providers.dofe-managed.wire_api=\\\"responses\\\"",
       "-c", "model_providers.dofe-managed.supports_websockets=false",
       "-c", "model_providers.dofe-managed.requires_openai_auth=true",
-      ...args,
-    ]
+    ];
+  const providerArgs = executable === "codex" && baseUrlKey === "OPENAI_BASE_URL"
+    // Task-scoped options such as the MCP gateway are appended by the adapter.
+    // Codex may rebuild its effective configuration when it encounters them, so
+    // keep the managed provider overrides last while preserving the prompt as
+    // the final positional argument.
+    ? args[0] === "exec" && args.length > 1
+      ? [...args.slice(0, -1), ...codexProviderArgs, args.at(-1)]
+      : [...codexProviderArgs, ...args]
     : args;
   const child = spawn(executable, providerArgs, { stdio: "inherit", env: process.env });
   for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));

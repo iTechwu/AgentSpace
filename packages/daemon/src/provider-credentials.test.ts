@@ -203,7 +203,7 @@ test("managed credential launchers run the provider inside its dedicated image",
   }
 });
 
-test("managed Codex proxy injects its runtime key when Codex sends no auth header", async () => {
+test("managed Codex proxy injects its runtime key and keeps provider overrides after task config", async () => {
   const root = mkdtempSync(join(tmpdir(), "dofe-agent-managed-codex-proxy-"));
   const binDir = join(root, "bin");
   mkdirSync(binDir, { recursive: true, mode: 0o700 });
@@ -228,8 +228,10 @@ test("managed Codex proxy injects its runtime key when Codex sends no auth heade
     assert.ok(profile);
     const proxyPath = join(profile.profileDir, "attribution-proxy.mjs");
     const fakeCodexPath = join(binDir, "codex");
+    const argvPath = join(root, "codex-argv.json");
     writeFileSync(fakeCodexPath, [
       "#!/usr/bin/env node",
+      'require("node:fs").writeFileSync(process.env.CODEX_ARGV_PATH, JSON.stringify(process.argv.slice(2)));',
       'const http = require("node:http");',
       'const base = new URL(process.env.OPENAI_BASE_URL);',
       'const target = new URL(base.pathname.replace(/\\/$/, "") + "/responses", base);',
@@ -250,11 +252,14 @@ test("managed Codex proxy injects its runtime key when Codex sends no auth heade
       join(profile.profileDir, "runtime-key"),
       "codex",
       "exec",
+      "--config",
+      'mcp_servers={ "dofe-mcp-gateway" = { url = "http://127.0.0.1:1234/mcp" } }',
       "hi",
     ], {
       env: {
         ...process.env,
         OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1`,
+        CODEX_ARGV_PATH: argvPath,
         PATH: `${binDir}:${process.env.PATH ?? ""}`,
       },
       stdio: "ignore",
@@ -263,6 +268,12 @@ test("managed Codex proxy injects its runtime key when Codex sends no auth heade
 
     assert.equal(exitCode, 0);
     assert.equal(receivedAuthorization, "Bearer runtime-only-key");
+    const executedArgs = JSON.parse(readFileSync(argvPath, "utf8")) as string[];
+    const taskConfigIndex = executedArgs.indexOf("--config");
+    const managedProviderIndex = executedArgs.indexOf('model_provider="dofe-managed"');
+    assert.ok(taskConfigIndex >= 0);
+    assert.ok(managedProviderIndex > taskConfigIndex);
+    assert.equal(executedArgs.at(-1), "hi");
   } finally {
     upstream.close();
     resolver.cleanup("runtime-codex");
