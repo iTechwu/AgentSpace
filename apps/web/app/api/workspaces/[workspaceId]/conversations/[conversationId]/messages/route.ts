@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
-import { listConversationMessagesSync } from "@dofe-agent/db";
-import { readConversationForUserSync } from "@dofe-agent/services/conversations";
+import { persistFormAttachments } from "@/features/chat/attachment-actions";
+import { listConversationMessagesSync, listConversationParticipantsSync, readConversationSync, readStoredEmployeeByIdSync } from "@dofe-agent/db";
+import { recordConversationMessageActivitySync, readConversationForUserSync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
+import { sendContactMessageForHumanWithAttachmentsSync } from "@dofe-agent/services/channels";
 import { readWorkspaceStateSync } from "@dofe-agent/services/workspace";
 
 export const runtime = "nodejs";
@@ -87,5 +89,90 @@ function safeParseJson(value: string): Record<string, string> | undefined {
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, string> : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * POST /api/workspaces/:workspaceId/conversations/:conversationId/messages
+ * 独立发送消息 REST 端点（docs/0820/session-split §5.4）：multipart，服务端校验会话参与者与
+ * employee 参与者，解析 Lane 后 enqueue，并刷新会话活动时间。Idempotency-Key 用于任务级去重。
+ */
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ workspaceId: string; conversationId: string }> },
+): Promise<NextResponse> {
+  const workspaceContext = await getCurrentWorkspaceContext();
+  if (!workspaceContext) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  const { workspaceId, conversationId } = await context.params;
+  if (workspaceId !== workspaceContext.currentWorkspace.id) {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  }
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return NextResponse.json({ error: "multipart/form-data is required." }, { status: 400 });
+  }
+  const contentValue = formData.get("content");
+  const content = typeof contentValue === "string" ? contentValue : "";
+  if (!content.trim()) {
+    return NextResponse.json({ error: "content is required." }, { status: 400 });
+  }
+
+  try {
+    const conversation = readConversationForUserSync({
+      workspaceId,
+      conversationId,
+      actorUserId: workspaceContext.currentUser.id,
+    });
+    const employeeParticipant = listConversationParticipantsSync(conversationId)
+      .find((participant) => participant.participantType === "employee" && participant.employeeId);
+    const employeeId = employeeParticipant?.employeeId;
+    if (!employeeId) {
+      return NextResponse.json({ error: "Conversation has no employee participant." }, { status: 400 });
+    }
+    const employee = readStoredEmployeeByIdSync(employeeId, workspaceId);
+    if (!employee) {
+      return NextResponse.json({ error: "Employee not found." }, { status: 400 });
+    }
+    const lane = resolveConversationLaneForSendSync({
+      workspaceId,
+      conversationId,
+      employeeId,
+      actorUserId: workspaceContext.currentUser.id,
+    });
+
+    const attachments = (await persistFormAttachments(formData, "attachments", workspaceId)) ?? [];
+    const idempotencyKey = request.headers.get("idempotency-key")?.trim() || undefined;
+
+    sendContactMessageForHumanWithAttachmentsSync(
+      workspaceContext.currentUser.displayName.trim() || "你",
+      employee.name,
+      content.trim(),
+      attachments,
+      workspaceId,
+      workspaceContext.currentUser.id,
+      undefined,
+      { conversationId, executionLaneId: lane.lane.id, idempotencyKey },
+    );
+    recordConversationMessageActivitySync({
+      workspaceId,
+      conversationId,
+      actorUserId: workspaceContext.currentUser.id,
+      firstMessageText: content.trim(),
+    });
+
+    return NextResponse.json(
+      { conversation: readConversationSync(conversationId), status: "accepted" },
+      { status: 201 },
+    );
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to send message." },
+      { status: 400 },
+    );
   }
 }
