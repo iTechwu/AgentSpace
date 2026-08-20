@@ -1,6 +1,7 @@
 export const MANAGED_NODE_OPERATIONAL_ENV_KEYS = [
   "OPENMONTAGE_MCP_URL",
   "OPENMONTAGE_SERVICE_TOKEN",
+  "MCP_CODEX_EXPERIMENTAL_ENABLED",
   "MCP_EGRESS_ENFORCE",
   "MCP_EGRESS_PROXY_URL",
   "MCP_EGRESS_PROXY_ADMIN_TOKEN",
@@ -29,6 +30,7 @@ export function resolveManagedNodeOperationalEnv(
   const resolved: ManagedNodeOperationalEnv = {
     OPENMONTAGE_MCP_URL: value("OPENMONTAGE_MCP_URL"),
     OPENMONTAGE_SERVICE_TOKEN: value("OPENMONTAGE_SERVICE_TOKEN"),
+    MCP_CODEX_EXPERIMENTAL_ENABLED: value("MCP_CODEX_EXPERIMENTAL_ENABLED", "0"),
     MCP_EGRESS_ENFORCE: value("MCP_EGRESS_ENFORCE", "false"),
     MCP_EGRESS_PROXY_URL: value("MCP_EGRESS_PROXY_URL"),
     MCP_EGRESS_PROXY_ADMIN_TOKEN: value("MCP_EGRESS_PROXY_ADMIN_TOKEN"),
@@ -74,6 +76,10 @@ export function resolveManagedNodeOperationalEnv(
         "OPENMONTAGE_MCP_URL must be a credential-free HTTP(S) URL ending in /mcp.",
       );
     }
+  }
+
+  if (!/^[01]$/.test(resolved.MCP_CODEX_EXPERIMENTAL_ENABLED)) {
+    throw new Error("MCP_CODEX_EXPERIMENTAL_ENABLED must be 0 or 1.");
   }
 
   const proxyUrl = new URL(resolved.MCP_EGRESS_PROXY_URL);

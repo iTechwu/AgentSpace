@@ -152,6 +152,7 @@ test("local managed-node recovery preserves required operational settings", () =
       "MCP_EGRESS_PROXY_URL=http://172.31.240.2:8080",
       "MCP_EGRESS_PROXY_ADMIN_TOKEN=existing-secret",
       "PROXY_RUNTIME_IP=172.31.240.2",
+      "MCP_CODEX_EXPERIMENTAL_ENABLED=1",
       "DOFE_SKILL_RUNNER_TIMEOUT_MS=45000",
       "DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS=720000",
     ].join("\n"),
@@ -164,10 +165,12 @@ test("local managed-node recovery preserves required operational settings", () =
   assert.equal(resolved.MCP_EGRESS_PROXY_URL, "http://127.0.0.1:8080");
   assert.equal(resolved.MCP_EGRESS_PROXY_ADMIN_TOKEN, "existing-secret");
   assert.equal(resolved.MCP_EGRESS_ENFORCE, "true");
+  assert.equal(resolved.MCP_CODEX_EXPERIMENTAL_ENABLED, "1");
   assert.equal(resolved.PROXY_RUNTIME_IP, "172.31.240.2");
   assert.equal(resolved.DOFE_SKILL_RUNNER_TIMEOUT_MS, "45000");
   assert.equal(resolved.DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS, "720000");
   assert.ok(formatManagedNodeOperationalEnv(resolved).includes("MCP_EGRESS_PROXY_ADMIN_TOKEN=existing-secret"));
+  assert.ok(formatManagedNodeOperationalEnv(resolved).includes("MCP_CODEX_EXPERIMENTAL_ENABLED=1"));
   assert.ok(formatManagedNodeOperationalEnv(resolved).includes("DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS=720000"));
 });
 
@@ -199,6 +202,15 @@ test("local managed-node recovery fails closed for partial or unsafe OpenMontage
         "MCP_EGRESS_PROXY_URL=http://127.0.0.1:8080\nMCP_EGRESS_PROXY_ADMIN_TOKEN=secret\nOPENMONTAGE_MCP_URL=http://user:pass@openmontage:8765/mcp\nOPENMONTAGE_SERVICE_TOKEN=secret",
       ),
     /credential-free HTTP\(S\) URL/,
+  );
+});
+
+test("local managed-node recovery validates the Codex MCP canary switch", () => {
+  assert.throws(
+    () => resolveManagedNodeOperationalEnv(
+      "MCP_EGRESS_PROXY_URL=http://127.0.0.1:8080\nMCP_EGRESS_PROXY_ADMIN_TOKEN=secret\nMCP_CODEX_EXPERIMENTAL_ENABLED=true",
+    ),
+    /must be 0 or 1/,
   );
 });
 
