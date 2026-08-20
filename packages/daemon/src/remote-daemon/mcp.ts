@@ -2,7 +2,12 @@
 // 与任务级共享网关池。
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { McpManagedStdioLaunch, McpTaskSessionConnection, ResolvedMcpConnection } from "@dofe-agent/domain";
+import type {
+  McpManagedStdioLaunch,
+  McpManagedStdioProfile,
+  McpTaskSessionConnection,
+  ResolvedMcpConnection,
+} from "@dofe-agent/domain";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import { McpGateway, McpGatewayPool } from "../mcp/gateway.ts";
 import type { McpAuditOutbox } from "../mcp/audit-outbox.ts";
@@ -103,10 +108,11 @@ export function buildManagedStdioLaunch(
     };
   }
   const containerPath = "/dofe-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+  const networkArgs = resolveManagedStdioNetworkArgs(connection.managedStdioProfile, process.env);
   return {
     command: "docker",
     args: [
-      "run", "--rm", "--interactive", "--init", "--pull", "never", "--read-only", "--network", "none",
+      "run", "--rm", "--interactive", "--init", "--pull", "never", "--read-only", ...networkArgs,
       "--tmpfs", "/tmp:rw,nosuid,nodev,noexec", "--tmpfs", "/dev/shm:rw,nosuid,nodev,noexec,size=256m",
       "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
       "--user", `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
@@ -120,6 +126,17 @@ export function buildManagedStdioLaunch(
     ],
     env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
   };
+}
+
+function resolveManagedStdioNetworkArgs(
+  profile: McpManagedStdioProfile | undefined,
+  environment: NodeJS.ProcessEnv,
+): string[] {
+  if (profile?.networkAccess !== "runtime") return ["--network", "none"];
+  if (environment.MCP_EGRESS_ENFORCE === "true") {
+    throw new Error("mcp.managed_stdio_network_requires_supported_egress");
+  }
+  return ["--network", resolveManagedRuntimeDockerNetwork(environment)];
 }
 
 function parseManagedStdioEndpoint(endpoint: string): string {

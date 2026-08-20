@@ -104,6 +104,7 @@ const MINIMAX_TOKEN_PLAN_STDIO_PROFILE: McpManagedStdioProfile = {
   env: {
     MINIMAX_API_HOST: "https://api.minimaxi.com",
   },
+  networkAccess: "runtime",
 };
 
 export function syncOfficialMcpCatalogForWorkspaceSync(workspaceId: string): McpCatalogItemRecord {

@@ -289,6 +289,7 @@ test("official MiniMax Token Plan MCP exposes two tools and a pinned secret-back
   assert.deepEqual(resolveOfficialManagedStdioProfile(catalog)?.env, {
     MINIMAX_API_HOST: "https://api.minimaxi.com",
   });
+  assert.equal(resolveOfficialManagedStdioProfile(catalog)?.networkAccess, "runtime");
 
   const runtimeApp = readRuntimeAppCatalogItemSync("clihub_public", MINIMAX_TOKEN_PLAN_MCP_PACKAGE);
   assert.ok(runtimeApp);

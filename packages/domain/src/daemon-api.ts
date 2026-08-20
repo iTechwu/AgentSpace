@@ -658,6 +658,8 @@ export interface McpManagedStdioProfile {
   args: string[];
   managedArgs?: string[];
   env: Record<string, string>;
+  /** Platform-owned stdio integrations may request the managed Runtime network in non-enforced local environments. */
+  networkAccess?: "runtime";
 }
 
 export interface McpManagedStdioLaunch {

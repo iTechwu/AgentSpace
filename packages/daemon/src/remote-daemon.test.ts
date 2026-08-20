@@ -287,6 +287,47 @@ test("official managed stdio profiles add browser flags without accepting them f
   }
 });
 
+test("trusted managed stdio profiles can use the Runtime network only when egress enforcement is disabled", () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-managed-network-"));
+  try {
+    const connection = {
+      endpoint: "stdio://minimax-coding-plan-mcp",
+      nonSecretParams: {},
+      secrets: { MINIMAX_API_KEY: "secret-value" },
+      managedStdioProfile: {
+        args: [],
+        env: { MINIMAX_API_HOST: "https://api.minimaxi.com" },
+        networkAccess: "runtime" as const,
+      },
+    };
+    const launch = buildManagedStdioLaunch(
+      connection,
+      { stateDir, managedNode: true },
+      { id: "runtime-minimax", provider: "codex" },
+    );
+    assert.equal(launch.args[launch.args.indexOf("--network") + 1], "dofe-managed-egress");
+    assert.equal(launch.args.includes("none"), false);
+
+    const original = process.env.MCP_EGRESS_ENFORCE;
+    process.env.MCP_EGRESS_ENFORCE = "true";
+    try {
+      assert.throws(
+        () => buildManagedStdioLaunch(
+          connection,
+          { stateDir, managedNode: true },
+          { id: "runtime-minimax", provider: "codex" },
+        ),
+        /managed_stdio_network_requires_supported_egress/,
+      );
+    } finally {
+      if (original === undefined) delete process.env.MCP_EGRESS_ENFORCE;
+      else process.env.MCP_EGRESS_ENFORCE = original;
+    }
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("managed stdio MCP rejects shell syntax and reserved environment variables", () => {
   assert.throws(() => buildManagedStdioLaunch({
     endpoint: "stdio://server/path",
