@@ -7,10 +7,13 @@ import {
   createConversationSync,
   ensureExecutionLaneForConversationSync,
   listConversationParticipantsSync,
+  listConversationsForChannelSync,
   listConversationsForEmployeeSync,
   readConversationSync,
   readExecutionLaneForConversationEmployeeSync,
+  readStoredChannelSync,
   readStoredEmployeeByIdSync,
+  resolveStoredEmployeeIdSync,
   unarchiveConversationSync,
   updateConversationSync,
   type ConversationExecutionLaneRecord,
@@ -26,8 +29,11 @@ import {
 
 export interface CreateConversationForUserInput {
   workspaceId?: string;
-  employeeId: string;
+  /** 直接会话：目标员工 ID。 */
+  employeeId?: string;
   channelId?: string;
+  /** 群聊会话：目标频道名（kind=group）。 */
+  channelName?: string;
   createdByUserId?: string;
   kind?: ConversationKind;
   idempotencyKey?: string;
@@ -35,13 +41,46 @@ export interface CreateConversationForUserInput {
 
 export interface CreateConversationForUserResult {
   conversation: ConversationRecord;
-  lane: ConversationExecutionLaneRecord;
-  employeeName: string;
+  /** 直接会话创建即建立 Lane；群聊 Lane 按 employee 惰性建立。 */
+  lane?: ConversationExecutionLaneRecord;
+  employeeName?: string;
 }
 
-/** /new：创建服务端 Conversation 并同步建立 Execution Lane（docs §5.1）。 */
+/** /new：创建服务端 Conversation（docs §5.1）。直接会话同步建立 Lane；群聊只建会话与参与者。 */
 export function createConversationForUserSync(input: CreateConversationForUserInput): CreateConversationForUserResult {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const kind: ConversationKind = input.kind ?? "direct";
+
+  if (kind === "group") {
+    if (!input.channelName) {
+      throw new Error("channelName is required for a group conversation.");
+    }
+    const channel = readStoredChannelSync(input.channelName, workspaceId);
+    if (!channel) {
+      throw new Error(`Channel "${input.channelName}" does not exist in this workspace.`);
+    }
+    const employeeParticipants: Array<{ employeeId: string; employeeName?: string }> = [];
+    for (const employeeName of channel.employeeNames) {
+      const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+      if (employeeId) {
+        assertCanUseEmployeeForActorSync({ workspaceId, employeeName, actorUserId: input.createdByUserId });
+        employeeParticipants.push({ employeeId, employeeName });
+      }
+    }
+    const result = createConversationSync({
+      workspaceId,
+      kind: "group",
+      channelId: input.channelName,
+      createdByUserId: input.createdByUserId,
+      employeeParticipants,
+      idempotencyKey: input.idempotencyKey,
+    });
+    return { conversation: result.conversation };
+  }
+
+  if (!input.employeeId) {
+    throw new Error("employeeId is required for a direct conversation.");
+  }
   const employee = readStoredEmployeeByIdSync(input.employeeId, workspaceId);
   if (!employee) {
     throw new Error(`Employee "${input.employeeId}" does not exist in this workspace.`);
@@ -55,7 +94,7 @@ export function createConversationForUserSync(input: CreateConversationForUserIn
     workspaceId,
     employeeId: input.employeeId,
     employeeName: employee.name,
-    kind: input.kind ?? "direct",
+    kind: "direct",
     channelId: input.channelId,
     createdByUserId: input.createdByUserId,
     idempotencyKey: input.idempotencyKey,
@@ -89,6 +128,33 @@ export function listConversationsForEmployeeForUserSync(input: ListConversations
   return listConversationsForEmployeeSync({
     workspaceId,
     employeeId: input.employeeId,
+    statuses: input.statuses,
+    cursor: input.cursor,
+    limit: input.limit,
+    humanUserId: isPrivileged ? undefined : input.actorUserId,
+  });
+}
+
+export interface ListConversationsForChannelForUserInput {
+  workspaceId?: string;
+  channelName: string;
+  actorUserId?: string;
+  statuses?: ConversationStatus[];
+  cursor?: string;
+  limit?: number;
+}
+
+/** 群聊历史会话列表按 channel 范围 + 授权过滤（docs §5.2 group 场景）。 */
+export function listConversationsForChannelForUserSync(input: ListConversationsForChannelForUserInput): ConversationRecord[] {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const channel = readStoredChannelSync(input.channelName, workspaceId);
+  if (!channel) {
+    throw new Error(`Channel "${input.channelName}" does not exist in this workspace.`);
+  }
+  const isPrivileged = isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
+  return listConversationsForChannelSync({
+    workspaceId,
+    channelId: input.channelName,
     statuses: input.statuses,
     cursor: input.cursor,
     limit: input.limit,

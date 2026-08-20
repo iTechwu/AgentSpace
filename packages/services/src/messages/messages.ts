@@ -1,8 +1,10 @@
 import {
   DEFAULT_WORKSPACE_ID,
+  ensureExecutionLaneForConversationSync,
   enqueueNativeTaskSync,
   listQueuedTasksSync,
   readLatestChannelExecutionSync,
+  resolveStoredEmployeeIdSync,
 } from "@dofe-agent/db";
 import type {
   DofeAgentState,
@@ -423,6 +425,22 @@ export function sendChannelHumanMessageSync(
           sourceMessageId: humanMessage.id,
         })
       : undefined;
+    // 群聊多 Lane：有 conversationId 时，按被提及 employee 各自解析/建立 Lane（docs §2.3）。
+    let mentionLaneId = executionOptions?.executionLaneId;
+    if (executionOptions?.conversationId) {
+      const mentionedEmployeeId = resolveStoredEmployeeIdSync(agent.name, effectiveWorkspaceId);
+      if (mentionedEmployeeId) {
+        const mentionLane = ensureExecutionLaneForConversationSync({
+          workspaceId: effectiveWorkspaceId,
+          conversationId: executionOptions.conversationId,
+          employeeId: mentionedEmployeeId,
+          employeeName: agent.name,
+          kind: "group",
+          channelId: channel.name,
+        });
+        mentionLaneId = mentionLane.id;
+      }
+    }
     const queued = enqueueNativeTaskSync({
       workspaceId: effectiveWorkspaceId,
       assignee: agent.name,
@@ -433,7 +451,7 @@ export function sendChannelHumanMessageSync(
       requestedByUserId: requesterUserId,
       requestedByDisplayName: speaker,
       conversationId: executionOptions?.conversationId,
-      executionLaneId: executionOptions?.executionLaneId,
+      executionLaneId: mentionLaneId,
       metadata: {
         sourceChannel: channel.name,
         sourceMessageId: humanMessage.id,
@@ -504,6 +522,7 @@ export function sendChannelHumanMessageSync(
         role: "agent",
         summary: "Thinking",
         code: "agent.pending",
+        conversationId: executionOptions?.conversationId,
         data: {
           agent_name: agent.name,
           source_message_id: humanMessage.id,

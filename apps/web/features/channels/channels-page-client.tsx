@@ -32,6 +32,7 @@ import {
   sendChannelMessageAction,
   createConversationAction,
   listConversationsAction,
+  listConversationsForChannelAction,
   stopChannelTaskAction,
   acknowledgeMessageAction,
   type ServerConversationListItem,
@@ -520,12 +521,18 @@ export function ChannelsPageClient({
   const selectedEmployeeName = selectedChannel?.kind === "direct" ? (selectedChannel.contactId ?? null) : null;
 
   // 历史面板改读服务端 Conversation（docs §5.2），不再使用 localStorage 快照。
+  // 直接会话按 employee 列表，群聊按 channel 列表。
   useEffect(() => {
-    if (!showConversationHistory || !selectedEmployeeName) {
+    if (!showConversationHistory) {
       return;
     }
     let cancelled = false;
-    listConversationsAction({ employeeName: selectedEmployeeName })
+    const request = selectedEmployeeName
+      ? listConversationsAction({ employeeName: selectedEmployeeName })
+      : selectedConversationChannelName
+        ? listConversationsForChannelAction({ channelName: selectedConversationChannelName })
+        : Promise.resolve([]);
+    request
       .then((items) => {
         if (!cancelled) {
           setServerConversations(items);
@@ -539,7 +546,7 @@ export function ChannelsPageClient({
     return () => {
       cancelled = true;
     };
-  }, [selectedEmployeeName, showConversationHistory]);
+  }, [selectedConversationChannelName, selectedEmployeeName, showConversationHistory]);
   const selectedFeishuMemberSnapshot = selectedChannel?.feishu
     ? feishuMemberSnapshotByChannelName.get(selectedChannel.name) ?? undefined
     : undefined;
@@ -1019,7 +1026,7 @@ export function ChannelsPageClient({
   );
 
   const historyItems = useMemo<ConversationHistoryListItem[]>(() => {
-    if (!selectedChannel || isContactDirectoryContext || selectedChannel.kind !== "direct") {
+    if (!selectedChannel || isContactDirectoryContext) {
       return [];
     }
     return serverConversations.map((conversation) => ({
@@ -1031,7 +1038,7 @@ export function ChannelsPageClient({
       avatar: selectedChannel.avatarLabel ?? "#",
       avatarId: selectedChannel.humanContactUserId ?? selectedChannel.contactId ?? selectedChannel.channelName ?? selectedChannel.id,
       avatarName: conversation.title,
-      avatarVariant: selectedChannel.directParticipantKind === "human" ? "human" : "agent",
+      avatarVariant: selectedChannel.directParticipantKind === "human" ? "human" : selectedChannel.kind === "direct" ? "agent" : "channel",
       dateLabel: formatCompactTimestamp(conversation.lastActivityAt, { emptyFallback: "" }),
     } satisfies ConversationHistoryListItem));
   }, [isContactDirectoryContext, selectedChannel, serverConversations, tx]);
@@ -1294,6 +1301,24 @@ export function ChannelsPageClient({
         return;
       } catch {
         // 创建失败：退回 new=1 流程，保留旧会话上下文。
+      }
+    }
+
+    // 群聊：创建群聊 Conversation（多员工 Lane 惰性建立，docs §2.3）。
+    if (target && target.kind !== "direct") {
+      const channelName = resolveSelectedChannelName(target);
+      if (channelName) {
+        try {
+          const result = await createConversationAction({ channelName, kind: "group" });
+          const conversationQuery = new URLSearchParams({ conversation: result.conversationId });
+          if (focus) {
+            conversationQuery.set("focus", focus);
+          }
+          navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
+          return;
+        } catch {
+          // 创建失败：退回 new=1 流程。
+        }
       }
     }
 

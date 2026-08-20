@@ -79,8 +79,11 @@ export interface CreateConversationInput {
   kind?: ConversationKind;
   channelId?: string;
   createdByUserId?: string;
-  employeeId: string;
+  /** 直接会话：单个员工。 */
+  employeeId?: string;
   employeeName?: string;
+  /** 群聊会话：一个或多个员工参与者（kind=group）。 */
+  employeeParticipants?: Array<{ employeeId: string; employeeName?: string }>;
   title?: string;
   summary?: string;
   now?: string;
@@ -88,7 +91,8 @@ export interface CreateConversationInput {
 
 export interface CreateConversationResult {
   conversation: ConversationRecord;
-  lane: ConversationExecutionLaneRecord;
+  /** 直接会话在创建时即建立 Lane；群聊 Lane 按 employee 惰性建立，故可缺省。 */
+  lane?: ConversationExecutionLaneRecord;
 }
 
 export function createConversationSync(input: CreateConversationInput): CreateConversationResult {
@@ -100,22 +104,34 @@ export function createConversationSync(input: CreateConversationInput): CreateCo
   const id = idempotencyKey
     ? `conversation-idem-${createHash("sha256").update(`${workspaceId}\0${idempotencyKey}`).digest("hex").slice(0, 32)}`
     : `conversation-${randomLikeId()}`;
+  const employeeParticipants = kind === "direct"
+    ? (input.employeeId ? [{ employeeId: input.employeeId, employeeName: input.employeeName }] : [])
+    : (input.employeeParticipants ?? []);
 
   return withTransaction(db, () => {
     const existing = readConversationSync(id);
     if (existing) {
-      return {
-        conversation: existing,
-        lane: ensureExecutionLaneForConversationSync({
-          workspaceId,
+      for (const participant of employeeParticipants) {
+        ensureConversationParticipantSync({
           conversationId: existing.id,
-          employeeId: input.employeeId,
-          employeeName: input.employeeName,
-          kind,
-          channelId: input.channelId,
+          participantType: "employee",
+          employeeId: participant.employeeId,
+          displayNameSnapshot: participant.employeeName,
           now,
-        }),
-      };
+        });
+      }
+      const lane = kind === "direct" && input.employeeId
+        ? ensureExecutionLaneForConversationSync({
+            workspaceId,
+            conversationId: existing.id,
+            employeeId: input.employeeId,
+            employeeName: input.employeeName,
+            kind,
+            channelId: input.channelId,
+            now,
+          })
+        : undefined;
+      return { conversation: existing, lane };
     }
 
     db.prepare(
@@ -143,23 +159,27 @@ export function createConversationSync(input: CreateConversationInput): CreateCo
       displayNameSnapshot: undefined,
       now,
     });
-    ensureConversationParticipantSync({
-      conversationId: id,
-      participantType: "employee",
-      employeeId: input.employeeId,
-      displayNameSnapshot: input.employeeName,
-      now,
-    });
+    for (const participant of employeeParticipants) {
+      ensureConversationParticipantSync({
+        conversationId: id,
+        participantType: "employee",
+        employeeId: participant.employeeId,
+        displayNameSnapshot: participant.employeeName,
+        now,
+      });
+    }
 
-    const lane = ensureExecutionLaneForConversationSync({
-      workspaceId,
-      conversationId: id,
-      employeeId: input.employeeId,
-      employeeName: input.employeeName,
-      kind,
-      channelId: input.channelId,
-      now,
-    });
+    const lane = kind === "direct" && input.employeeId
+      ? ensureExecutionLaneForConversationSync({
+          workspaceId,
+          conversationId: id,
+          employeeId: input.employeeId,
+          employeeName: input.employeeName,
+          kind,
+          channelId: input.channelId,
+          now,
+        })
+      : undefined;
 
     const conversation = readConversationSync(id);
     if (!conversation) {
@@ -212,6 +232,69 @@ export function listConversationsForEmployeeSync(options: ListConversationsOptio
     "conversation.id IN (SELECT conversation_id FROM conversation_participant WHERE employee_id = ?)",
   ];
   const params: unknown[] = [workspaceId, options.employeeId];
+  if (options.humanUserId) {
+    where.push(
+      "(conversation.created_by_user_id = ? OR conversation.id IN (" +
+        "SELECT conversation_id FROM conversation_participant WHERE participant_type = 'human' AND user_id = ?)" +
+      ")",
+    );
+    params.push(options.humanUserId, options.humanUserId);
+  }
+  if (options.statuses && options.statuses.length > 0) {
+    where.push(`conversation.status IN (${options.statuses.map(() => "?").join(", ")})`);
+    params.push(...options.statuses);
+  }
+  if (options.cursor) {
+    where.push("(conversation.last_activity_at < ? OR (conversation.last_activity_at = ? AND conversation.id < ?))");
+    const cursor = decodeConversationCursor(options.cursor);
+    params.push(cursor.lastActivityAt, cursor.lastActivityAt, cursor.id);
+  }
+  const rows = db.prepare(
+    `SELECT
+      conversation.id,
+      conversation.workspace_id AS "workspaceId",
+      conversation.kind,
+      conversation.channel_id AS "channelId",
+      conversation.created_by_user_id AS "createdByUserId",
+      conversation.status,
+      conversation.title,
+      conversation.summary,
+      conversation.summary_source AS "summarySource",
+      conversation.last_message_at AS "lastMessageAt",
+      conversation.last_activity_at AS "lastActivityAt",
+      conversation.created_at AS "createdAt",
+      conversation.updated_at AS "updatedAt",
+      conversation.archived_at AS "archivedAt",
+      conversation.version
+     FROM conversation
+     WHERE ${where.join(" AND ")}
+     ORDER BY conversation.last_activity_at DESC, conversation.id DESC
+     LIMIT ?`,
+  ).all(...params, limit + 1) as Array<Record<string, unknown>>;
+  const records = rows.map(mapConversationRecord).filter((row): row is ConversationRecord => row !== null);
+  return records.slice(0, limit);
+}
+
+export interface ListConversationsForChannelOptions {
+  workspaceId?: string;
+  channelId: string;
+  statuses?: ConversationStatus[];
+  cursor?: string;
+  limit?: number;
+  humanUserId?: string;
+}
+
+/** 群聊 Conversation 按 channel 列表（docs §5.2 的 group 场景）。 */
+export function listConversationsForChannelSync(options: ListConversationsForChannelOptions): ConversationRecord[] {
+  const db = getDatabase();
+  const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const limit = normalizeLimit(options.limit, 30);
+  const where = [
+    "conversation.workspace_id = ?",
+    "conversation.channel_id = ?",
+    "conversation.kind = 'group'",
+  ];
+  const params: unknown[] = [workspaceId, options.channelId];
   if (options.humanUserId) {
     where.push(
       "(conversation.created_by_user_id = ? OR conversation.id IN (" +

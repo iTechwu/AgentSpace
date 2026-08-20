@@ -2,6 +2,7 @@
 export {
   archiveConversationForUserSync,
   createConversationForUserSync,
+  listConversationsForChannelForUserSync,
   listConversationsForEmployeeForUserSync,
   readConversationForUserSync,
   resolveConversationLaneForSendSync,
@@ -9,6 +10,7 @@ export {
   updateConversationSummaryForUserSync,
   type CreateConversationForUserInput,
   type CreateConversationForUserResult,
+  type ListConversationsForChannelForUserInput,
   type ListConversationsForUserInput,
   type ReadConversationForUserInput,
   type ResolveConversationLaneForSendInput,

@@ -48,7 +48,7 @@ export async function POST(
         title: result.conversation.title ?? null,
         employeeId,
         employeeName: result.employeeName,
-        executionLaneId: result.lane.id,
+        executionLaneId: result.lane?.id ?? null,
         createdAt: result.conversation.createdAt,
       },
     });

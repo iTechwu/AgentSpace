@@ -18,7 +18,7 @@ import { reviewApprovalSync, listApprovalsSync } from "@dofe-agent/services/task
 import { reviewApprovalWithWorkflowSync, cancelWorkflowRunSync } from "@dofe-agent/services/workflows";
 import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
 import { FEISHU_PROVIDER_ID, readFeishuChatMemberSnapshot, readFeishuIntegrationCredentials } from "@dofe-agent/services/integrations";
-import { createConversationForUserSync, listConversationsForEmployeeForUserSync, resolveConversationLaneForSendSync, updateConversationSummaryForUserSync } from "@dofe-agent/services/conversations";
+import { createConversationForUserSync, listConversationsForChannelForUserSync, listConversationsForEmployeeForUserSync, resolveConversationLaneForSendSync, updateConversationSummaryForUserSync } from "@dofe-agent/services/conversations";
 import {
   cancelQueuedTaskSync,
   listExternalChannelBindingsSync,
@@ -473,9 +473,27 @@ export async function renameChannelAction(input: {
 }
 
 export async function createConversationAction(input: {
-  employeeName: string;
-}): Promise<{ conversationId: string; executionLaneId: string }> {
+  employeeName?: string;
+  channelName?: string;
+  kind?: "direct" | "group";
+}): Promise<{ conversationId: string; executionLaneId?: string }> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  const kind = input.kind ?? "direct";
+  if (kind === "group") {
+    if (!input.channelName) {
+      throw new Error("channelName is required for a group conversation.");
+    }
+    const result = createConversationForUserSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      channelName: input.channelName,
+      createdByUserId: workspaceContext.currentUser.id,
+      kind: "group",
+    });
+    return { conversationId: result.conversation.id };
+  }
+  if (!input.employeeName) {
+    throw new Error("employeeName is required for a direct conversation.");
+  }
   const employeeId = resolveStoredEmployeeIdSync(input.employeeName, workspaceContext.currentWorkspace.id);
   if (!employeeId) {
     throw new Error("Employee not found.");
@@ -486,7 +504,7 @@ export async function createConversationAction(input: {
     createdByUserId: workspaceContext.currentUser.id,
     kind: "direct",
   });
-  return { conversationId: result.conversation.id, executionLaneId: result.lane.id };
+  return { conversationId: result.conversation.id, executionLaneId: result.lane?.id };
 }
 
 export interface ServerConversationListItem {
@@ -509,6 +527,26 @@ export async function listConversationsAction(input: {
   const conversations = listConversationsForEmployeeForUserSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     employeeId,
+    actorUserId: workspaceContext.currentUser.id,
+    statuses: ["active", "idle", "failed", "archived"],
+  });
+  return conversations.map((conversation) => ({
+    id: conversation.id,
+    title: conversation.title ?? conversation.summary ?? "新会话",
+    summary: conversation.summary ?? "",
+    status: conversation.status,
+    lastActivityAt: conversation.lastActivityAt ?? conversation.updatedAt,
+    createdAt: conversation.createdAt,
+  }));
+}
+
+export async function listConversationsForChannelAction(input: {
+  channelName: string;
+}): Promise<ServerConversationListItem[]> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const conversations = listConversationsForChannelForUserSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    channelName: input.channelName,
     actorUserId: workspaceContext.currentUser.id,
     statuses: ["active", "idle", "failed", "archived"],
   });
@@ -590,8 +628,16 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
     workspaceContext.currentWorkspace.id,
     workspaceContext.currentUser.id,
   ] as const;
+  const executionOptions: { startNewConversation?: boolean; conversationId?: string } = {};
   if (startNewConversation) {
-    sendChannelHumanMessageSync(...messageArgs, undefined, { startNewConversation: true });
+    executionOptions.startNewConversation = true;
+  }
+  const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
+  if (conversationId) {
+    executionOptions.conversationId = conversationId;
+  }
+  if (Object.keys(executionOptions).length > 0) {
+    sendChannelHumanMessageSync(...messageArgs, undefined, executionOptions);
   } else {
     sendChannelHumanMessageSync(...messageArgs);
   }

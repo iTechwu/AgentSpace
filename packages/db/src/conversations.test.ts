@@ -12,6 +12,8 @@ import {
   enqueueNativeTaskSync,
   findActiveProviderSessionForLaneSync,
   getDatabase,
+  listConversationParticipantsSync,
+  listConversationsForChannelSync,
   listConversationsForEmployeeSync,
   readConversationSync,
   readExecutionLaneForConversationEmployeeSync,
@@ -131,6 +133,27 @@ test("createConversationSync 相同 idempotencyKey 返回同一 Conversation", (
   });
   assert.equal(second.conversation.id, first.conversation.id);
   assert.equal(second.lane.id, first.lane.id);
+});
+
+test("createConversationSync 群聊会话不建 Lane，但写入员工参与者并按 channel 可列", () => {
+  const result = createConversationSync({
+    kind: "group",
+    channelId: "general",
+    createdByUserId: "user-1",
+    employeeParticipants: [
+      { employeeId: "emp-atlas", employeeName: "Atlas" },
+      { employeeId: "emp-vega", employeeName: "Vega" },
+    ],
+  });
+  assert.equal(result.conversation.kind, "group");
+  assert.equal(result.lane, undefined, "群聊创建时不建立 Lane");
+
+  const participants = listConversationParticipantsSync(result.conversation.id);
+  const employeeParticipants = participants.filter((participant) => participant.participantType === "employee");
+  assert.equal(employeeParticipants.length, 2, "群聊会话应写入两个员工参与者");
+
+  const byChannel = listConversationsForChannelSync({ channelId: "general" });
+  assert.ok(byChannel.some((conversation) => conversation.id === result.conversation.id));
 });
 
 test("listConversationsForEmployeeSync 按 humanUserId 过滤，隔离跨用户会话", () => {
