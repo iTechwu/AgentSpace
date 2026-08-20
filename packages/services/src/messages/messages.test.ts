@@ -232,6 +232,15 @@ test("failure summaries hide provider diagnostics in user-visible chat text", ()
   });
   assert.match(approvalTimeoutSummary, /等待你的工具审批已超时/);
 
+  const upstream500Summary = formatConversationFailureSummary({
+    agentName: "Codex E2E 员工 0801",
+    channelName: "direct-ms9ratd0-mgwz9n",
+    errorText: "500 Internal Server Error",
+    isDirectConversation: true,
+  });
+  assert.match(upstream500Summary, /上游模型服务暂时不可用/);
+  assert.doesNotMatch(upstream500Summary, /500 Internal Server Error/);
+
   const missingRuntimeImageSummary = formatConversationFailureSummary({
     agentName: "Aim",
     channelName: "direct-aim",

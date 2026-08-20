@@ -449,6 +449,11 @@ export function translateRuntimeFailureSummary(value: string, tx: TxFn = zhTx): 
       "所选模型的执行配置不完整，请切换到已验证的模型后重试。",
       "The selected model configuration is incomplete. Switch to a verified model and retry.",
     );
+  } else if (/(?:\bHTTP\s*)?500\s+Internal Server Error|\bInternal Server Error\b/i.test(detail)) {
+    safeDetail = tx(
+      "上游模型服务暂时不可用，请稍后重试或切换模型；完整错误已保留在执行记录中。",
+      "The upstream model service is temporarily unavailable. Retry shortly or switch models; the full error is retained in the execution record.",
+    );
   }
 
   if (!safeDetail && /(?:provider\.runtime_generic_failure|Codex CLI exited|Claude CLI exited|stderrTail=|exitCode=|provider diagnostic:)/i.test(detail)) {

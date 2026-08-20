@@ -819,16 +819,21 @@ export function ChatAttachmentRow({
       ) : null}
       {previewAttachment ? (
         <AttachmentPreviewDialog
-          downloadHref={`/api/attachments/${previewAttachment.id}`}
+          downloadHref={attachmentHref(previewAttachment)}
           fileName={previewAttachment.fileName}
           mediaType={previewAttachment.mediaType}
           onClose={() => setPreviewAttachment(null)}
-          previewHref={`/api/attachments/${previewAttachment.id}?preview=1`}
+          previewHref={attachmentHref(previewAttachment, true)}
           tx={tx}
         />
       ) : null}
     </div>
   );
+}
+
+function attachmentHref(attachment: MessageAttachment, preview = false): string {
+  if (attachment.localPreviewUrl) return attachment.localPreviewUrl;
+  return `/api/attachments/${attachment.id}${preview ? "?preview=1" : ""}`;
 }
 
 function AttachmentImageCard({
@@ -867,7 +872,7 @@ function AttachmentImageCard({
         loading="lazy"
         onError={() => setFailed(true)}
         onLoad={() => setLoaded(true)}
-        src={`/api/attachments/${attachment.id}`}
+        src={attachmentHref(attachment)}
       />
     </button>
   );

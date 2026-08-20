@@ -569,6 +569,48 @@ describe("ConversationShell", () => {
     expect(await screen.findByLabelText("已发送")).toHaveAttribute("role", "status");
   });
 
+  it("shows submitted file metadata immediately while upload is pending", async () => {
+    const user = userEvent.setup();
+    let resolveSubmit: (() => void) | undefined;
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    }));
+
+    const { container } = render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={onSubmit}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    const fileInput = container.querySelectorAll<HTMLInputElement>('input[type="file"]')[1];
+    expect(fileInput).toBeTruthy();
+    await user.upload(fileInput!, new File(["brief"], "brief.txt", { type: "text/plain" }));
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("brief.txt")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预览 brief.txt" })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveSubmit?.();
+    });
+  });
+
   it("scrolls a submitted message into view when supplementary content follows the message list", async () => {
     const user = userEvent.setup();
     let resolveSubmit: (() => void) | undefined;

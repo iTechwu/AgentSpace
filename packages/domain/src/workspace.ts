@@ -65,6 +65,8 @@ export interface MessageAttachment {
   sizeBytes: number;
   kind: "image" | "file";
   storedPath: string;
+  /** Browser-only object URL used while an optimistic message is uploading. */
+  localPreviewUrl?: string;
   storageProvider?: "tos" | "local";
   storageBucket?: string;
   storageRegion?: string;

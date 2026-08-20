@@ -15,7 +15,7 @@ import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { useResizablePane } from "@/shared/lib/use-resizable-pane";
 import { PaneResizeHandle } from "@/shared/ui/pane-resize-handle";
 import type { GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
-import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
+import type { EmployeeExecutionPolicy, MessageAttachment } from "@dofe-agent/domain/workspace";
 import type {
   ConversationComposerRuntime,
   ConversationListItem,
@@ -156,6 +156,7 @@ export function ConversationShell({
   composerRuntime?: ConversationComposerRuntime;
   onUpdateExecutionPolicy?: (employeeId: string, policy?: EmployeeExecutionPolicy) => Promise<void>;
   onOpenModelSelector?: () => void;
+  onStartNewConversation?: () => void;
 }) {
   const { tx } = useLanguage();
   const router = useRouter();
@@ -196,11 +197,28 @@ export function ConversationShell({
   const initialDraftHydratedRef = useRef(false);
   const hydratedQueueKeyRef = useRef<string | null>(null);
   const autoDispatchedQueueIdRef = useRef<string | null>(null);
+  const optimisticObjectUrlsRef = useRef<Set<string>>(new Set());
   const hasCustomThreadContent = customThreadContent !== undefined && customThreadContent !== null;
   const queueStorageKey = draftStorageKey && selectedItemId
     ? `${draftStorageKey}:queue:${selectedItemId}`
     : undefined;
   const serializedExecutionPolicy = JSON.stringify(composerRuntime?.executionPolicy ?? {});
+
+  useEffect(() => {
+    const activeUrls = new Set(
+      optimisticMessages.flatMap((message) =>
+        (message.attachments ?? []).flatMap((attachment) => attachment.localPreviewUrl ? [attachment.localPreviewUrl] : []),
+      ),
+    );
+    for (const url of optimisticObjectUrlsRef.current) {
+      if (!activeUrls.has(url)) URL.revokeObjectURL(url);
+    }
+    optimisticObjectUrlsRef.current = activeUrls;
+  }, [optimisticMessages]);
+
+  useEffect(() => () => {
+    for (const url of optimisticObjectUrlsRef.current) URL.revokeObjectURL(url);
+  }, []);
 
   useEffect(() => {
     setExecutionPolicyOverride(undefined);
@@ -639,6 +657,7 @@ export function ConversationShell({
     const submittedFiles = pendingFiles;
     const submittedReplyToMessage = replyToMessage;
     const submittedReferences = selectedReferences;
+    const optimisticAttachments = submittedFiles.map((item) => createOptimisticAttachment(item.file));
     const optimisticMessageId = selectedItemId
       ? `optimistic-message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       : null;
@@ -654,6 +673,7 @@ export function ConversationShell({
         status: "completed",
         deliveryStatus: "sending",
         replyToMessageId: submittedReplyToMessage?.id,
+        ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
       };
       pendingMessageScrollRef.current = optimisticMessage;
       setOptimisticMessages((current) => [
@@ -1240,4 +1260,17 @@ export function ConversationShell({
       ) : null}
     </section>
   );
+}
+
+function createOptimisticAttachment(file: File): MessageAttachment {
+  const mediaType = file.type || "application/octet-stream";
+  return {
+    id: `optimistic-attachment-${Math.random().toString(36).slice(2, 10)}`,
+    fileName: file.name || "attachment.bin",
+    mediaType,
+    sizeBytes: file.size,
+    kind: mediaType.startsWith("image/") ? "image" : "file",
+    storedPath: "",
+    localPreviewUrl: URL.createObjectURL(file),
+  };
 }

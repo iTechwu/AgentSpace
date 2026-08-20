@@ -1336,6 +1336,9 @@ function formatUserFacingTaskFailure(errorText: string): string {
   if (/runtime approval timed out|审批等待超时/i.test(trimmed)) {
     return "等待你的工具审批已超时，任务已停止。请重新发送任务，并在出现审批卡片后处理。";
   }
+  if (/(?:\bHTTP\s*)?500\s+Internal Server Error|\bInternal Server Error\b/i.test(trimmed)) {
+    return "上游模型服务暂时不可用，任务未完成。请稍后重试或切换模型；完整错误已保留在执行记录中。";
+  }
   const diagnosticStart = trimmed.search(
     /\s*(?:\((?:code|exitCode|timedOut|events|resultEvent|textEvent|toolEvent|parseErrors|nonJsonLines|stdoutTail|stderrTail|sessionId)=|provider diagnostic:)/i,
   );
