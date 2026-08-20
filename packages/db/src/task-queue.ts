@@ -1139,6 +1139,17 @@ function selectQueuedTaskForRuntime(
              AND ${serializationGuard}
          )
          AND (
+           queue.execution_lane_id IS NULL
+           OR NOT EXISTS (
+             SELECT 1
+             FROM agent_task_queue earlier
+             WHERE earlier.execution_lane_id = queue.execution_lane_id
+               AND earlier.status = 'queued'
+               AND earlier.id <> queue.id
+               AND (earlier.created_at < queue.created_at OR (earlier.created_at = queue.created_at AND earlier.id < queue.id))
+           )
+         )
+         AND (
            runtime.managed_credential_id IS NULL
            OR runtime.provisioning_state IS NULL
            OR runtime.provisioning_state IN ('legacy', 'managed')

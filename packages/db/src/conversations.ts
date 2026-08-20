@@ -464,6 +464,26 @@ export function ensureConversationParticipantSync(input: {
   return record;
 }
 
+export type ConversationRunState = "running" | "queued" | "capacity_wait" | "failed" | "idle";
+
+/** 从任务的 active/queued/failed 投影 Conversation 运行状态（docs 03 §8）。 */
+export function projectConversationRunStateSync(conversationId: string): ConversationRunState {
+  const rows = getDatabase().prepare(
+    "SELECT status FROM agent_task_queue WHERE conversation_id = ? AND status IN ('queued', 'claimed', 'running', 'preparing_commit', 'failed')",
+  ).all(conversationId) as Array<{ status?: string }>;
+  const statuses = new Set(rows.map((row) => row.status).filter((status): status is string => Boolean(status)));
+  if (statuses.has("running") || statuses.has("claimed") || statuses.has("preparing_commit")) {
+    return "running";
+  }
+  if (statuses.has("failed")) {
+    return "failed";
+  }
+  if (statuses.has("queued")) {
+    return "queued";
+  }
+  return "idle";
+}
+
 export function listConversationParticipantsSync(conversationId: string): ConversationParticipantRecord[] {
   const rows = getDatabase().prepare(
     `SELECT

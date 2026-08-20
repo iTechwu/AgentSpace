@@ -24,20 +24,44 @@ export async function POST(
   }
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  const employeeId = typeof body?.employeeId === "string" ? body.employeeId.trim() : "";
-  if (!employeeId) {
-    return NextResponse.json({ error: "employeeId is required." }, { status: 400 });
-  }
   const kind = body?.kind === "group" ? "group" : "direct";
   const idempotencyKey = request.headers.get("idempotency-key")?.trim() || undefined;
 
   try {
+    if (kind === "group") {
+      const channelName = typeof body?.channelName === "string" ? body.channelName.trim() : "";
+      if (!channelName) {
+        return NextResponse.json({ error: "channelName is required for a group conversation." }, { status: 400 });
+      }
+      const result = createConversationForUserSync({
+        workspaceId,
+        channelName,
+        createdByUserId: workspaceContext.currentUser.id,
+        kind: "group",
+        idempotencyKey,
+      });
+      return NextResponse.json({
+        conversation: {
+          id: result.conversation.id,
+          status: result.conversation.status,
+          summary: result.conversation.summary ?? "新会话",
+          title: result.conversation.title ?? null,
+          channelName,
+          createdAt: result.conversation.createdAt,
+        },
+      });
+    }
+
+    const employeeId = typeof body?.employeeId === "string" ? body.employeeId.trim() : "";
+    if (!employeeId) {
+      return NextResponse.json({ error: "employeeId is required." }, { status: 400 });
+    }
     const result = createConversationForUserSync({
       workspaceId,
       employeeId,
       channelId: typeof body?.channelId === "string" ? body.channelId : undefined,
       createdByUserId: workspaceContext.currentUser.id,
-      kind,
+      kind: "direct",
       idempotencyKey,
     });
     return NextResponse.json({

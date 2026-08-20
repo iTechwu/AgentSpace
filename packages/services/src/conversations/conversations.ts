@@ -118,6 +118,12 @@ export interface ListConversationsForUserInput {
 /** 历史会话列表按 employee 范围 + 授权过滤（docs §5.2）。 */
 export function listConversationsForEmployeeForUserSync(input: ListConversationsForUserInput): ConversationRecord[] {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  // legacy 回填生产入口：打开历史时惰性回填既有消息（幂等，docs Phase 5.1）。
+  try {
+    backfillLegacyConversationsSync(workspaceId);
+  } catch {
+    // 回填失败不阻塞历史读取。
+  }
   const employee = readStoredEmployeeByIdSync(input.employeeId, workspaceId);
   if (!employee) {
     throw new Error(`Employee "${input.employeeId}" does not exist in this workspace.`);
@@ -151,6 +157,12 @@ export interface ListConversationsForChannelForUserInput {
 /** 群聊历史会话列表按 channel 范围 + 授权过滤（docs §5.2 group 场景）。 */
 export function listConversationsForChannelForUserSync(input: ListConversationsForChannelForUserInput): ConversationRecord[] {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  // legacy 回填生产入口（幂等）。
+  try {
+    backfillLegacyConversationsSync(workspaceId);
+  } catch {
+    // 回填失败不阻塞历史读取。
+  }
   const channel = readStoredChannelSync(input.channelName, workspaceId);
   if (!channel) {
     throw new Error(`Channel "${input.channelName}" does not exist in this workspace.`);
@@ -384,12 +396,15 @@ export function backfillLegacyConversationsSync(workspaceId = DEFAULT_WORKSPACE_
     }
 
     const legacyId = `conversation-legacy-${createHash("sha256").update(`${workspaceId}\0${channelName}`).digest("hex").slice(0, 32)}`;
+    // 从既有 human 消息抽取 userId，作为 human participant 归属，避免普通成员看不到回填会话（docs §9）。
+    const legacyUserId = legacyMessages.find((message) => message.role === "human" && message.speakerUserId)?.speakerUserId;
     if (!readConversationSync(legacyId)) {
       createConversationSync({
         workspaceId,
         id: legacyId,
         kind,
         channelId: channelName,
+        createdByUserId: legacyUserId,
         employeeId: kind === "direct" ? employeeParticipants[0]?.employeeId : undefined,
         employeeName: kind === "direct" ? employeeParticipants[0]?.employeeName : undefined,
         employeeParticipants: kind === "group" ? employeeParticipants : undefined,

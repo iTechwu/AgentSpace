@@ -87,9 +87,12 @@ const {
   addWorkspaceMembersToChannelActionMock,
   archiveChannelDocumentActionMock,
   createChannelActionMock,
+  createConversationActionMock,
   deleteChannelAttachmentActionMock,
   getChannelDetailDataActionMock,
   getFeishuChannelMemberSnapshotActionMock,
+  listConversationsActionMock,
+  listConversationsForChannelActionMock,
   renameChannelActionMock,
   sendChannelMessageActionMock,
   sendContactMessageActionMock,
@@ -101,6 +104,7 @@ const {
   addWorkspaceMembersToChannelActionMock: vi.fn(async () => {}),
   archiveChannelDocumentActionMock: vi.fn(async () => {}),
   createChannelActionMock: vi.fn(async () => {}),
+  createConversationActionMock: vi.fn(async () => ({ conversationId: "conversation-1" })),
   deleteChannelAttachmentActionMock: vi.fn(async () => {}),
   getChannelDetailDataActionMock: vi.fn(async ({ channelName }: { channelName: string }) => ({
     threads: [],
@@ -111,6 +115,8 @@ const {
     detailScope: [channelName],
   })),
   getFeishuChannelMemberSnapshotActionMock: vi.fn(async () => null as unknown as { chatName: string; userCount: number; botCount: number; members: Array<{ displayName: string }> } | null),
+  listConversationsActionMock: vi.fn(async () => []),
+  listConversationsForChannelActionMock: vi.fn(async () => []),
   renameChannelActionMock: vi.fn(async () => {}),
   sendChannelMessageActionMock: vi.fn<(formData: FormData) => Promise<void>>(async () => {}),
   sendContactMessageActionMock: vi.fn<(formData: FormData) => Promise<void>>(async () => {}),
@@ -158,6 +164,9 @@ vi.mock("@/features/channels/actions", () => ({
   saveChannelDocumentAction: vi.fn(async () => ({ documentId: "doc-1" })),
   sendChannelMessageAction: sendChannelMessageActionMock,
   sendContactMessageAction: sendContactMessageActionMock,
+  listConversationsAction: listConversationsActionMock,
+  listConversationsForChannelAction: listConversationsForChannelActionMock,
+  createConversationAction: createConversationActionMock,
   setChatModelOverrideAction: vi.fn(async () => ({ ok: true })),
 }));
 
@@ -343,7 +352,10 @@ describe("ChannelsPageClient", () => {
     addWorkspaceMembersToChannelActionMock.mockClear();
     archiveChannelDocumentActionMock.mockClear();
     createChannelActionMock.mockClear();
+    createConversationActionMock.mockClear();
     deleteChannelAttachmentActionMock.mockClear();
+    listConversationsActionMock.mockReset().mockResolvedValue([]);
+    listConversationsForChannelActionMock.mockReset().mockResolvedValue([]);
     getChannelDetailDataActionMock.mockClear();
     getFeishuChannelMemberSnapshotActionMock.mockReset();
     getFeishuChannelMemberSnapshotActionMock.mockResolvedValue(null);
@@ -368,7 +380,11 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByRole("dialog", { name: "创建群组" })).toBeInTheDocument();
   });
 
-  it("archives a conversation with a one-line summary and restores its message snapshot", async () => {
+  it("creates a server conversation on /new and lists it in the channel history panel", async () => {
+    createConversationActionMock.mockResolvedValueOnce({ conversationId: "conversation-1" });
+    listConversationsForChannelActionMock.mockResolvedValueOnce([
+      { id: "conversation-1", title: "请查看附件。", summary: "请查看附件。", status: "active", runState: "idle", lastActivityAt: "2026-08-20T08:00:00.000Z", createdAt: "2026-08-20T08:00:00.000Z" },
+    ]);
     const user = userEvent.setup();
     render(
       <TestProviders>
@@ -377,18 +393,12 @@ describe("ChannelsPageClient", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "新开会话" }));
-    const stored = JSON.parse(window.localStorage.getItem("workspace-1:im:conversation-history") ?? "[]") as Array<{
-      summary: string;
-      messages: Array<{ content: string }>;
-    }>;
-    expect(stored[0]?.summary).toBe("请查看附件。");
-    expect(stored[0]?.messages[0]?.content).toBe("请查看附件。");
+    await waitFor(() => expect(createConversationActionMock).toHaveBeenCalledTimes(1));
 
     await user.click(screen.getByRole("button", { name: "历史会话" }));
     const history = screen.getByRole("dialog");
     expect(history).toHaveTextContent("tour visit 的历史会话");
-    await user.click(within(history).getByRole("button", { name: /请查看附件/ }));
-    expect(screen.getByRole("heading", { name: "请查看附件。" })).toBeInTheDocument();
+    await waitFor(() => expect(history).toHaveTextContent("请查看附件。"));
   });
 
   it("marks the first message from /new as a fresh runtime conversation", async () => {
@@ -427,28 +437,11 @@ describe("ChannelsPageClient", () => {
     });
   });
 
-  it("scopes stored conversation history to the selected AI employee", async () => {
+  it("scopes server conversation history to the selected AI employee", async () => {
+    listConversationsActionMock.mockResolvedValueOnce([
+      { id: "conversation-atlas", title: "Atlas", summary: "整理季度销售数据", status: "active", runState: "idle", lastActivityAt: "2026-08-20T08:00:00.000Z", createdAt: "2026-08-20T08:00:00.000Z" },
+    ]);
     const user = userEvent.setup();
-    window.localStorage.setItem("workspace-1:im:conversation-history", JSON.stringify([
-      {
-        id: "history-atlas",
-        channelId: "contact:Atlas",
-        employeeKey: "emp-atlas",
-        title: "Atlas",
-        summary: "整理季度销售数据",
-        createdAt: "2026-08-20T08:00:00.000Z",
-        messages: [],
-      },
-      {
-        id: "history-vega",
-        channelId: "contact:Vega",
-        employeeKey: "emp-vega",
-        title: "Vega",
-        summary: "规划新品发布会",
-        createdAt: "2026-08-19T08:00:00.000Z",
-        messages: [],
-      },
-    ]));
     searchParams.set("view", "direct");
 
     render(
@@ -460,7 +453,7 @@ describe("ChannelsPageClient", () => {
     await user.click(screen.getByRole("button", { name: "历史会话" }));
     const history = screen.getByRole("dialog");
     expect(history).toHaveTextContent("Atlas 的历史会话");
-    expect(history).toHaveTextContent("整理季度销售数据");
+    await waitFor(() => expect(history).toHaveTextContent("整理季度销售数据"));
     expect(history).not.toHaveTextContent("规划新品发布会");
   });
 

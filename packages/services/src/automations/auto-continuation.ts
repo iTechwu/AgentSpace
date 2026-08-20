@@ -174,7 +174,11 @@ export function continueAutoContinuationAfterTaskSync(input: {
     },
   }, workspaceId);
 
-  const sessionId = input.sessionId ?? task.sessionId ?? workspace?.sessionId ?? payload.channelSessionId;
+  // 会话拆分：自动续跑继承原任务的 Conversation/Lane；会话作用域下 Session 由 Router Session 解析。
+  const conversationScoped = Boolean(task.conversationId);
+  const sessionId = conversationScoped
+    ? undefined
+    : (input.sessionId ?? task.sessionId ?? workspace?.sessionId ?? payload.channelSessionId);
   const workDir = input.workDir ?? task.workDir ?? workspace?.workDir ?? resolveConversationExecutionWorkspacePath({
     workspaceId,
     channelName: channel.name,
@@ -189,6 +193,8 @@ export function continueAutoContinuationAfterTaskSync(input: {
     triggerType: payload.contactId ? "channel_chat" : "mention_chat",
     requestedByUserId: autoContinuation.requestedByUserId ?? task.requestedByUserId,
     requestedByDisplayName: autoContinuation.requestedByDisplayName ?? task.requestedByDisplayName,
+    conversationId: task.conversationId,
+    executionLaneId: task.executionLaneId,
     metadata: {
       contactId: payload.contactId,
       sourceChannel: channel.name,

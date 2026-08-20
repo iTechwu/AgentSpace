@@ -11,9 +11,11 @@ import type { ChannelDocumentRunStep } from "@dofe-agent/domain";
 import type { MentionCandidate } from "@dofe-agent/domain";
 import {
   DEFAULT_WORKSPACE_ID,
+  ensureExecutionLaneForConversationSync,
   enqueueNativeTaskSync,
   getWorkspaceChannelHistoryDirPath,
   readLatestChannelExecutionSync,
+  resolveStoredEmployeeIdSync,
   writeConversationMessageSync,
 } from "@dofe-agent/db";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "./state-io.ts";
@@ -348,6 +350,38 @@ export function buildChannelHistorySnapshot(
     }));
 }
 
+export function buildConversationHistorySnapshot(
+  state: DofeAgentState,
+  channelName: string,
+  conversationId: string,
+): Array<{
+  speaker: string;
+  role?: string;
+  summary: string;
+  time?: string;
+  status?: string;
+  kind?: string;
+  processType?: string;
+  mentions: string[];
+  attachments: string[];
+}> {
+  return state.messages
+    .filter((message) => sameValue(message.channel ?? "", channelName) && message.conversationId === conversationId)
+    .slice()
+    .reverse()
+    .map((message) => ({
+      speaker: message.speaker,
+      role: message.role,
+      summary: message.summary,
+      time: message.time,
+      status: message.status,
+      kind: message.kind,
+      processType: message.processType,
+      mentions: message.mentions?.map((item) => item.token) ?? [],
+      attachments: message.attachments?.map((attachment) => attachment.fileName) ?? [],
+    }));
+}
+
 export function enqueueChannelMentionStepSync(
   state: DofeAgentState,
   input: {
@@ -394,6 +428,22 @@ export function enqueueChannelMentionStepSync(
     existing: existingExecutionWorkspace,
     latest: lastExecution,
   });
+  // 会话作用域：按 step 员工解析 Lane；Session/历史按 Conversation 隔离。
+  let stepLaneId = input.executionLaneId;
+  if (input.conversationId && !stepLaneId) {
+    const employeeId = resolveStoredEmployeeIdSync(agent.name, workspaceId);
+    if (employeeId) {
+      const stepLane = ensureExecutionLaneForConversationSync({
+        workspaceId,
+        conversationId: input.conversationId,
+        employeeId,
+        employeeName: agent.name,
+        kind: "group",
+        channelId: input.channelName,
+      });
+      stepLaneId = stepLane.id;
+    }
+  }
   const queued = enqueueNativeTaskSync({
     workspaceId,
     assignee: agent.name,
@@ -404,7 +454,7 @@ export function enqueueChannelMentionStepSync(
     requestedByUserId: input.requesterUserId,
     requestedByDisplayName: input.requesterDisplayName,
     conversationId: input.conversationId,
-    executionLaneId: input.executionLaneId,
+    executionLaneId: stepLaneId,
     metadata: {
       orchestrationRunId: input.step.runId,
       orchestrationStepId: input.step.id,
@@ -421,11 +471,13 @@ export function enqueueChannelMentionStepSync(
       assigneeMentionToken: input.step.agentLabel,
       channelName: input.channelName,
       channelMessage: input.fullMessage,
-      channelHistory: buildChannelHistorySnapshot(state, input.channelName, input.historyFromMessageId),
-      channelHistoryPath: input.startNewConversation
+      channelHistory: input.conversationId
+        ? buildConversationHistorySnapshot(state, input.channelName, input.conversationId)
+        : buildChannelHistorySnapshot(state, input.channelName, input.historyFromMessageId),
+      channelHistoryPath: input.conversationId || input.startNewConversation
         ? undefined
         : getChannelHistoryFilePath(input.channelName, workspaceId),
-      channelSessionId: resumedSessionId,
+      channelSessionId: input.conversationId ? undefined : resumedSessionId,
       ...(externalInput ? { externalInput } : {}),
       attachments:
         input.attachments?.map(toTaskPayloadAttachment) ?? [],

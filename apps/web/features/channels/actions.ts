@@ -18,11 +18,12 @@ import { reviewApprovalSync, listApprovalsSync } from "@dofe-agent/services/task
 import { reviewApprovalWithWorkflowSync, cancelWorkflowRunSync } from "@dofe-agent/services/workflows";
 import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
 import { FEISHU_PROVIDER_ID, readFeishuChatMemberSnapshot, readFeishuIntegrationCredentials } from "@dofe-agent/services/integrations";
-import { createConversationForUserSync, listConversationsForChannelForUserSync, listConversationsForEmployeeForUserSync, recordConversationMessageActivitySync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
+import { createConversationForUserSync, listConversationsForChannelForUserSync, listConversationsForEmployeeForUserSync, readConversationForUserSync, recordConversationMessageActivitySync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
 import {
   cancelQueuedTaskSync,
   listExternalChannelBindingsSync,
   listExternalIntegrationsSync,
+  projectConversationRunStateSync,
   readConversationFeatureFlags,
   readWorkflowDefinitionSync,
   readWorkflowNodeRunByTaskQueueIdSync,
@@ -515,6 +516,7 @@ export interface ServerConversationListItem {
   title: string;
   summary: string;
   status: string;
+  runState: string;
   lastActivityAt: string;
   createdAt: string;
 }
@@ -541,6 +543,7 @@ export async function listConversationsAction(input: {
     title: conversation.title ?? conversation.summary ?? "新会话",
     summary: conversation.summary ?? "",
     status: conversation.status,
+    runState: projectConversationRunStateSync(conversation.id),
     lastActivityAt: conversation.lastActivityAt ?? conversation.updatedAt,
     createdAt: conversation.createdAt,
   }));
@@ -564,6 +567,7 @@ export async function listConversationsForChannelAction(input: {
     title: conversation.title ?? conversation.summary ?? "新会话",
     summary: conversation.summary ?? "",
     status: conversation.status,
+    runState: projectConversationRunStateSync(conversation.id),
     lastActivityAt: conversation.lastActivityAt ?? conversation.updatedAt,
     createdAt: conversation.createdAt,
   }));
@@ -643,19 +647,30 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   }
   const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
   if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
+    // 群聊发送必须绑定 Conversation 与频道：kind=group 且 channelId 与目标频道一致（docs §9）。
+    const conversation = readConversationForUserSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      conversationId,
+      actorUserId: workspaceContext.currentUser.id,
+    });
+    if (conversation.kind !== "group" || (conversation.channelId && !sameValue(conversation.channelId, channelName.trim()))) {
+      throw new Error("Conversation does not match this channel.");
+    }
     executionOptions.conversationId = conversationId;
-    // 刷新会话活动时间；首条消息 draft→active + fallback 摘要。
+  }
+  if (Object.keys(executionOptions).length > 0) {
+    sendChannelHumanMessageSync(...messageArgs, undefined, executionOptions);
+  } else {
+    sendChannelHumanMessageSync(...messageArgs);
+  }
+  // 先持久化消息并入队，成功后再刷新会话状态/摘要（docs §2.3）。
+  if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
     recordConversationMessageActivitySync({
       workspaceId: workspaceContext.currentWorkspace.id,
       conversationId,
       actorUserId: workspaceContext.currentUser.id,
       firstMessageText: resolvedContent,
     });
-  }
-  if (Object.keys(executionOptions).length > 0) {
-    sendChannelHumanMessageSync(...messageArgs, undefined, executionOptions);
-  } else {
-    sendChannelHumanMessageSync(...messageArgs);
   }
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
@@ -769,16 +784,18 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
       });
       executionOptions.conversationId = conversationId;
       executionOptions.executionLaneId = resolved.lane.id;
-      // 刷新会话活动时间；首条消息 draft→active + fallback 摘要（docs §2.1、§8）。
-      recordConversationMessageActivitySync({
-        workspaceId: workspaceContext.currentWorkspace.id,
-        conversationId,
-        actorUserId: workspaceContext.currentUser.id,
-        firstMessageText: resolvedContent,
-      });
     }
   }
+  // 先持久化消息并入队，成功后再刷新会话状态/摘要，避免发送失败留下假 active 会话（docs §2.3）。
   sendContactMessageForHumanWithAttachmentsSync(...messageArgs, undefined, executionOptions);
+  if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
+    recordConversationMessageActivitySync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      conversationId,
+      actorUserId: workspaceContext.currentUser.id,
+      firstMessageText: resolvedContent,
+    });
+  }
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
 }

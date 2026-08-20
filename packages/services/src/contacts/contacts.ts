@@ -160,11 +160,14 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       existing: existingExecutionWorkspace,
       latest: lastExecution,
     });
+    // 会话拆分：有 conversationId 时，Provider Session/workDir 属于 Conversation 的 Router Session/Lane，
+    // 不恢复频道级旧值；daemon 侧按 routerSessionId（conversation:<id>）自行解析，首条消息冷重建（docs §2.4、§4.1）。
+    const conversationScoped = Boolean(executionOptions?.conversationId);
     return {
       channelName: directChannel.name,
       humanMessage,
-      resumedSessionId: resume.sessionId,
-      resumedWorkDir: resume.workDir,
+      resumedSessionId: conversationScoped ? undefined : resume.sessionId,
+      resumedWorkDir: conversationScoped ? undefined : resume.workDir,
     };
   });
   const {
@@ -270,17 +273,21 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       });
     }
     if (taskIsActive) {
+      const conversationScoped = Boolean(executionOptions?.conversationId);
       upsertConversationExecutionWorkspaceState(currentState, {
         channelName,
         agentId: contact.name,
         contactId: contact.name,
         humanMemberName,
-        sessionId: executionOptions?.startNewConversation ? null : resumedSessionId,
-        workDir: resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
-          workspaceId: effectiveWorkspaceId,
-          channelName,
-          agentId: contact.name,
-        }),
+        // 会话作用域：清空频道级 Session/workDir，避免新会话回退到旧 Provider Session。
+        sessionId: conversationScoped || executionOptions?.startNewConversation ? null : resumedSessionId,
+        workDir: conversationScoped || executionOptions?.startNewConversation
+          ? undefined
+          : (resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
+              workspaceId: effectiveWorkspaceId,
+              channelName,
+              agentId: contact.name,
+            })),
         lastTaskQueueId: queued.id,
         lastError: null,
       });

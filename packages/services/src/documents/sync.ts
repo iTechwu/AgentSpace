@@ -1360,6 +1360,7 @@ export function completeChannelDocumentRunStepSync(input: {
         handoffDocumentIds: handoffDocumentId,
         handoffDocumentVersionIds: handoffDocumentVersionId,
         workspaceId,
+        conversationId: sourceMessage?.conversationId,
       });
       pushWorkspaceMessageToChannel(state, run.channelName, {
         speaker: DOC_COORDINATOR,

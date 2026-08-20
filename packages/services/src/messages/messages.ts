@@ -4,6 +4,7 @@ import {
   enqueueNativeTaskSync,
   listQueuedTasksSync,
   readLatestChannelExecutionSync,
+  readQueuedTaskSync,
   resolveStoredEmployeeIdSync,
 } from "@dofe-agent/db";
 import type {
@@ -28,6 +29,7 @@ import {
   assertWorkspaceDataPolicyAllowsExternalMessageInput,
   buildExternalMessageData,
   buildChannelHistorySnapshot,
+  buildConversationHistorySnapshot,
   buildMentionCandidates,
   enqueueChannelMentionStepSync,
   getChannelHistoryFilePath,
@@ -461,15 +463,17 @@ export function sendChannelHumanMessageSync(
         assigneeMentionToken: mention.token,
         channelName: channel.name,
         channelMessage: trimmed,
-        channelHistory: buildChannelHistorySnapshot(
-          state,
-          channel.name,
-          executionOptions?.startNewConversation ? humanMessage.id : undefined,
-        ),
-        channelHistoryPath: executionOptions?.startNewConversation
+        channelHistory: executionOptions?.conversationId
+          ? buildConversationHistorySnapshot(state, channel.name, executionOptions.conversationId)
+          : buildChannelHistorySnapshot(
+              state,
+              channel.name,
+              executionOptions?.startNewConversation ? humanMessage.id : undefined,
+            ),
+        channelHistoryPath: executionOptions?.conversationId || executionOptions?.startNewConversation
           ? undefined
           : getChannelHistoryFilePath(channel.name, effectiveWorkspaceId),
-        channelSessionId: resumedSessionId,
+        channelSessionId: executionOptions?.conversationId ? undefined : resumedSessionId,
         ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
         autoContinuation,
         attachments:
@@ -1163,6 +1167,9 @@ function dispatchAgentOutputMentionsSync(
   const nextDepth = currentDepth + 1;
   const mentionedAgentIds = input.agentMentions.map((mention) => mention.agentId);
   const mentionedAgentLabels = input.agentMentions.map((mention) => mention.label);
+  // 会话拆分：AI 回复里的二次 @员工 继承原任务的 Conversation/Lane。
+  const sourceTask = input.sourceTaskQueueId ? readQueuedTaskSync(input.sourceTaskQueueId) : null;
+  const sourceConversationId = sourceTask?.conversationId;
 
   for (const mention of input.agentMentions) {
     if (queuedTaskIds.length >= AGENT_OUTPUT_MENTION_MAX_DISPATCHES) {
@@ -1231,6 +1238,25 @@ function dispatchAgentOutputMentionsSync(
     const lastExecution = readLatestChannelExecutionSync(agent.name, input.channelName, input.workspaceId);
     const resumedSessionId = existingExecutionWorkspace?.sessionId ?? lastExecution?.sessionId;
     const resumedWorkDir = existingExecutionWorkspace?.workDir ?? lastExecution?.workDir;
+    // 会话作用域：按被提及员工解析 Lane，Session 交由 Router Session 解析。
+    let mentionConversationId = sourceConversationId;
+    let mentionLaneId: string | undefined;
+    if (sourceConversationId) {
+      const employeeId = resolveStoredEmployeeIdSync(agent.name, input.workspaceId);
+      if (employeeId) {
+        const mentionLane = ensureExecutionLaneForConversationSync({
+          workspaceId: input.workspaceId,
+          conversationId: sourceConversationId,
+          employeeId,
+          employeeName: agent.name,
+          kind: "group",
+          channelId: input.channelName,
+        });
+        mentionLaneId = mentionLane.id;
+      } else {
+        mentionConversationId = undefined;
+      }
+    }
     const queued = enqueueNativeTaskSync({
       workspaceId: input.workspaceId,
       ...(input.sourceTaskQueueId ? {
@@ -1243,6 +1269,8 @@ function dispatchAgentOutputMentionsSync(
       triggerType: "mention_chat",
       requestedByUserId: input.requestedByUserId,
       requestedByDisplayName: input.requestedByDisplayName,
+      conversationId: mentionConversationId,
+      executionLaneId: mentionLaneId,
       metadata: {
         mentionSource: "agent_output",
         initiatorAgentId: input.initiatorAgentId,
@@ -1256,8 +1284,8 @@ function dispatchAgentOutputMentionsSync(
         channelName: input.channelName,
         channelMessage: input.sourceMessage.summary,
         channelHistory: buildChannelHistorySnapshot(state, input.channelName),
-        channelHistoryPath: getChannelHistoryFilePath(input.channelName, input.workspaceId),
-        channelSessionId: resumedSessionId,
+        channelHistoryPath: sourceConversationId ? undefined : getChannelHistoryFilePath(input.channelName, input.workspaceId),
+        channelSessionId: sourceConversationId ? undefined : resumedSessionId,
         mentionCascadeDepth: nextDepth,
         mentionRootMessageId,
       },

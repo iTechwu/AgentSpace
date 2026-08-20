@@ -83,6 +83,22 @@ import {
   translateWorkspaceMessageSummary,
 } from "@/features/i18n/presentation";
 
+function conversationRunStateLabel(runState: string, tx: (zh: string, en: string) => string): string {
+  if (runState === "running") {
+    return tx("运行中", "Running");
+  }
+  if (runState === "queued") {
+    return tx("待执行", "Queued");
+  }
+  if (runState === "failed") {
+    return tx("执行失败", "Failed");
+  }
+  if (runState === "capacity_wait") {
+    return tx("等待执行资源", "Waiting for capacity");
+  }
+  return tx("可继续", "Idle");
+}
+
 function summarizeConversationMeta(value: string, fallback: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -1033,7 +1049,9 @@ export function ChannelsPageClient({
       id: conversation.id,
       channelId: selectedChannel.id,
       title: conversation.title,
-      subtitle: tx("历史会话", "Previous conversation"),
+      subtitle: conversation.status === "archived"
+        ? tx("已归档", "Archived")
+        : conversationRunStateLabel(conversation.runState, tx),
       meta: conversation.summary,
       avatar: selectedChannel.avatarLabel ?? "#",
       avatarId: selectedChannel.humanContactUserId ?? selectedChannel.contactId ?? selectedChannel.channelName ?? selectedChannel.id,

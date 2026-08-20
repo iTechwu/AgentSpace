@@ -63,6 +63,12 @@ beforeEach(() => {
 });
 
 after(() => {
+  // 清理：避免随机 id 的 employee 污染共享测试库（task-queue 等测试用 emp-atlas 确定性 id）。
+  try {
+    resetWorkspaceStateSync();
+  } catch {
+    // 忽略清理失败。
+  }
   process.chdir(originalCwd);
 });
 
