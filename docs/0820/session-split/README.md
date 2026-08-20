@@ -1,5 +1,5 @@
 # AI 员工多会话拆分方案
-> **实现状态（本次会话 · dev）**：方案已全面落地并通过测试。已实现：四个领域表、`conversation_message` 表（消息独立持久化）、`runtime_task_capacity` 表、`agent_task_queue` 会话列、DB 领域访问层、Router key `conversation:<id>`、按 Execution Lane 领取（并行/串行/跨 runtime 互斥/legacy 回退）、服务层、完整 REST API（创建/列表/读取/归档/恢复/摘要/加载消息/发送消息）、`/new` 直接+群聊端到端、发送授权、历史服务端化并按用户隔离、fallback + 回复后一句话摘要、legacy 回填、5 个灰度开关、Runtime 容量门控与 `capacity_wait` 文案。无剩余核心项。详见各文档标注。
+> **实现状态（本次会话 · dev）**：方案已全面落地并通过测试，上下文隔离已加固（`/new` 首条消息不再恢复旧 Provider Session、派生任务继承 Conversation/Lane、群聊上下文按会话绑定、同 Lane FIFO、发送失败不残留假 active 会话、legacy 回填有生产入口并按用户归属）。已实现：四个领域表、`conversation_message` 表、`runtime_task_capacity` 表、`agent_task_queue` 会话列、DB 领域访问层、Router key `conversation:<id>`、按 Lane 领取（并行/串行/FIFO/跨 runtime 互斥/legacy 回退）、服务层、完整 REST API、`/new` 直接+群聊端到端、发送授权、历史服务端化 + 运行状态投影、摘要生成、legacy 回填、5 个灰度开关、容量门控与 `capacity_wait` 文案。无剩余核心项。详见各文档标注。
 
 
 ## 1. 结论
