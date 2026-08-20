@@ -1327,8 +1327,16 @@ test("replacePendingChannelMessageSync can stop one task without removing the ne
 
   const state = readWorkspaceStateSync();
   assert.equal(
-    state.messages.some((message) => message.data?.source_task_queue_id === "task-atlas-current"),
+    state.messages.some((message) =>
+      message.data?.source_task_queue_id === "task-atlas-current" && message.status === "pending",
+    ),
     false,
+  );
+  assert.equal(
+    state.messages.some((message) =>
+      message.data?.source_task_queue_id === "task-atlas-current" && message.summary === "Atlas 的执行已停止。",
+    ),
+    true,
   );
   assert.equal(
     state.messages.some((message) => message.data?.source_task_queue_id === "task-atlas-next" && message.status === "pending"),
@@ -1461,6 +1469,57 @@ test("task progress keeps concise summaries and expandable runtime details", () 
   assert.equal(progress.find((message) => message.processType === "thinking")?.data?.execution_detail, "Provider reasoning is available in the detail view.");
   assert.equal(progress.find((message) => message.tool === "web_search")?.processType, "tool_result");
   assert.equal(progress.some((message) => message.status === "pending"), false);
+});
+
+test("failed task replacement preserves progress details and task association", () => {
+  seedWorkspace();
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    status: "pending",
+    data: { source_task_queue_id: "task-progress-failed" },
+  });
+  recordAgentChannelProgressSync({
+    channel: "tour visit",
+    sourceTaskQueueId: "task-progress-failed",
+    speaker: "Atlas",
+    type: "thinking",
+    content: "Preparing the video workflow.",
+    detail: "Preparing the video workflow with deterministic inputs.",
+  });
+  recordAgentChannelProgressSync({
+    channel: "tour visit",
+    sourceTaskQueueId: "task-progress-failed",
+    speaker: "Atlas",
+    type: "tool_use",
+    tool: "openmontage",
+    detail: "Submitting the video generation job.",
+  });
+
+  replacePendingChannelMessageSync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    pendingTaskId: "task-progress-failed",
+    speaker: "系统提示",
+    role: "agent",
+    summary: "Atlas 执行失败。",
+    status: "error",
+  });
+
+  const taskMessages = readWorkspaceStateSync().messages.filter(
+    (message) => message.data?.source_task_queue_id === "task-progress-failed",
+  );
+  const progress = taskMessages.filter((message) => message.kind === "process");
+  const failure = taskMessages.find((message) => message.summary === "Atlas 执行失败。");
+  assert.equal(progress.length, 2);
+  assert.equal(progress.every((message) => message.status === "completed"), true);
+  assert.equal(
+    progress.find((message) => message.processType === "thinking")?.data?.execution_detail,
+    "Preparing the video workflow with deterministic inputs.",
+  );
+  assert.equal(failure?.status, "error");
 });
 
 test("postMessageSync publishes realtime message events", () => {

@@ -1015,25 +1015,36 @@ export function replacePendingChannelMessageSync(input: {
   attachments?: MessageAttachment[];
 }, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
-  const speakerPendingMessages = state.messages.filter((message) =>
+  const speakerPendingReplies = state.messages.filter((message) =>
     sameValue(message.channel ?? "", input.channel) &&
     message.role === "agent" &&
     message.status === "pending" &&
+    message.kind !== "process" &&
     sameValue(message.speaker, input.pendingSpeaker),
   );
   const taskBoundMessages = input.pendingTaskId
-    ? speakerPendingMessages.filter((message) => message.data?.source_task_queue_id === input.pendingTaskId)
+    ? speakerPendingReplies.filter((message) => message.data?.source_task_queue_id === input.pendingTaskId)
     : [];
-  const legacyMessages = speakerPendingMessages.filter((message) => !message.data?.source_task_queue_id);
+  const legacyMessages = speakerPendingReplies.filter((message) => !message.data?.source_task_queue_id);
   const messagesToReplace = taskBoundMessages.length > 0
     ? taskBoundMessages
     : input.pendingTaskId && legacyMessages.length === 1
       ? legacyMessages
       : input.pendingTaskId
         ? []
-        : speakerPendingMessages;
+        : speakerPendingReplies;
   const messageIdsToReplace = new Set(messagesToReplace.map((message) => message.id));
   state.messages = state.messages.filter((message) => !messageIdsToReplace.has(message.id));
+  if (input.pendingTaskId) {
+    state.messages = state.messages.map((message) =>
+      sameValue(message.channel ?? "", input.channel) &&
+      message.kind === "process" &&
+      message.status === "pending" &&
+      message.data?.source_task_queue_id === input.pendingTaskId
+        ? { ...message, status: "completed" }
+        : message,
+    );
+  }
 
   const message = pushWorkspaceMessageToChannel(state, input.channel, {
     speaker: input.speaker,
@@ -1041,6 +1052,7 @@ export function replacePendingChannelMessageSync(input: {
     summary: input.summary,
     status: input.status ?? "completed",
     attachments: input.attachments,
+    ...(input.pendingTaskId ? { data: { source_task_queue_id: input.pendingTaskId } } : {}),
   }, workspaceId);
 
   const nextState = writeWorkspaceStateSync(state, workspaceId);

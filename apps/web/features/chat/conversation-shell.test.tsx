@@ -661,6 +661,59 @@ describe("ConversationShell", () => {
     }
   });
 
+  it("places timestamped supplementary items at their chronological position in the thread", () => {
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[
+            {
+              id: "message-before",
+              speaker: "techwu",
+              role: "human",
+              content: "开始生成视频",
+              timestamp: "10:00",
+              sortTimestamp: "2026-08-20T10:00:00.000Z",
+              status: "completed",
+            },
+            {
+              id: "message-after",
+              speaker: "Atlas",
+              role: "agent",
+              content: "视频处理结果",
+              timestamp: "10:10",
+              sortTimestamp: "2026-08-20T10:10:00.000Z",
+              status: "completed",
+            },
+          ]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+          threadTimelineItems={[
+            {
+              id: "video-job",
+              timestamp: "2026-08-20T10:05:00.000Z",
+              content: <div>视频任务进度</div>,
+            },
+          ]}
+        />
+      </LanguageProvider>,
+    );
+
+    const threadText = document.querySelector(".contacts-chat-thread")?.textContent ?? "";
+    expect(threadText.indexOf("开始生成视频")).toBeLessThan(threadText.indexOf("视频任务进度"));
+    expect(threadText.indexOf("视频任务进度")).toBeLessThan(threadText.indexOf("视频处理结果"));
+  });
+
   it("restores the submitted draft when an optimistic submission fails", async () => {
     const user = userEvent.setup();
 

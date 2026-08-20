@@ -82,6 +82,7 @@ export function ConversationShell({
   customThreadHeader,
   customThreadContent,
   threadAfterMessages,
+  threadTimelineItems = [],
   threadHasSupplementaryContent = false,
   mentionCandidates = [],
   supplementaryPanel,
@@ -136,6 +137,7 @@ export function ConversationShell({
   customThreadHeader?: (input: { backButton: React.ReactNode | null }) => React.ReactNode;
   customThreadContent?: React.ReactNode;
   threadAfterMessages?: React.ReactNode;
+  threadTimelineItems?: Array<{ id: string; timestamp: string; content: React.ReactNode }>;
   threadHasSupplementaryContent?: boolean;
   mentionCandidates?: ConversationMentionCandidate[];
   supplementaryPanel?: React.ReactNode;
@@ -942,6 +944,26 @@ export function ConversationShell({
   );
   const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages]);
   const messageById = useMemo(() => new Map(displayedMessages.map((m) => [m.id, m])), [displayedMessages]);
+  const timelineEntries = useMemo(() => {
+    const entries = [
+      ...displayedMessages.map((message, index) => ({ kind: "message" as const, id: message.id, timestamp: message.sortTimestamp, order: index, message })),
+      ...threadTimelineItems.map((item, index) => ({ kind: "supplementary" as const, id: item.id, timestamp: item.timestamp, order: displayedMessages.length + index, content: item.content })),
+    ];
+    return entries.sort((left, right) => {
+      const leftTime = left.timestamp ? Date.parse(left.timestamp) : Number.NaN;
+      const rightTime = right.timestamp ? Date.parse(right.timestamp) : Number.NaN;
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
+      if (left.kind === "message" && right.kind === "message") {
+        return left.order - right.order;
+      }
+      if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) {
+        return Number.isFinite(leftTime) ? -1 : 1;
+      }
+      return left.order - right.order;
+    });
+  }, [displayedMessages, threadTimelineItems]);
   const showListPane = !isCompactLayout || !selectedHeader || mobilePane === "list";
   const showThreadPane = !isCompactLayout || (Boolean(selectedHeader) && mobilePane === "thread");
   const showSupplementarySheet = Boolean(supplementaryPanel) && isCompactLayout;
@@ -1070,8 +1092,12 @@ export function ConversationShell({
                   ) : null}
 
                   <div className="contacts-chat-thread" onScroll={handleThreadScroll} ref={threadViewportRef}>
-                    {displayedMessages.length > 0 ? (
-                      displayedMessages.map((message) => {
+                    {timelineEntries.length > 0 ? (
+                      timelineEntries.map((entry) => {
+                        if (entry.kind === "supplementary") {
+                          return <div key={entry.id}>{entry.content}</div>;
+                        }
+                        const message = entry.message;
                         const actionMessage = message.executionReply ?? message;
                         return (
                           <ConversationMessageBubble

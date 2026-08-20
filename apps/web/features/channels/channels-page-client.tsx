@@ -56,7 +56,8 @@ import {
   useWorkspaceModuleCacheScope,
 } from "@/features/dashboard/workspace-module-cache";
 import { ChannelDocumentsPanel } from "@/features/channels/channel-documents-panel";
-import { OpenMontageChannelJobs } from "@/features/channels/openmontage-channel-jobs";
+import { useOpenMontageChannelJobs } from "@/features/channels/openmontage-channel-jobs";
+import { OpenMontageJobCard } from "@/features/channels/openmontage-job-card";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import { FeishuChannelSummaryPanel } from "@/features/integrations/feishu/feishu-channel-summary-panel";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -221,7 +222,6 @@ export function ChannelsPageClient({
   const [loadingDetailChannelName, setLoadingDetailChannelName] = useState<string | null>(null);
   const [detailLoadError, setDetailLoadError] = useState<string | null>(null);
   const [openMontageRefreshVersion, setOpenMontageRefreshVersion] = useState(0);
-  const [hasOpenMontageJobs, setHasOpenMontageJobs] = useState(false);
   const [composerExecutionPolicyOverrides, setComposerExecutionPolicyOverrides] = useState<
     Map<string, EmployeeExecutionPolicy | null>
   >(() => new Map());
@@ -597,6 +597,12 @@ export function ChannelsPageClient({
   const selectedThread = selectedConversationChannelName
     ? indexes.threadByChannelName.get(selectedConversationChannelName) ?? null
     : null;
+  const openMontageChannelJobs = useOpenMontageChannelJobs({
+    channelName: selectedConversationChannelName ?? "",
+    enabled: !isContactDirectoryContext && activeTab === "messages" && Boolean(selectedConversationChannelName) && !selectedChannelRequiresAccess,
+    refreshVersion: openMontageRefreshVersion,
+    workspaceId: data.workspaceId,
+  });
   const channelDocuments = selectedConversationChannelName
     ? indexes.documentsByChannelName.get(selectedConversationChannelName) ?? EMPTY_CHANNEL_DOCUMENTS
     : EMPTY_CHANNEL_DOCUMENTS;
@@ -699,10 +705,6 @@ export function ChannelsPageClient({
     onOpenMontageChange: () => setOpenMontageRefreshVersion((version) => version + 1),
     refresh: () => refreshChannelData({ allowWhileInputActive: true }),
   });
-
-  useEffect(() => {
-    setHasOpenMontageJobs(false);
-  }, [selectedConversationChannelName]);
 
   useEffect(() => {
     if (selectedChannel?.kind === "direct" && !selectedConversationChannelName && activeTab !== "messages") {
@@ -1000,6 +1002,22 @@ export function ChannelsPageClient({
             carrierIdByTaskId.set(taskId, messageId);
           }
         }
+        // Older failures and interrupted runs can retain the authoritative
+        // task_message stream while lacking a process WorkspaceMessage. Use
+        // the task-bound final reply as a synthetic carrier in that case.
+        for (const [index, message] of threadMessages.entries()) {
+          const taskId = message.data?.source_task_queue_id;
+          if (
+            message.role !== "agent" ||
+            message.kind === "process" ||
+            !taskId ||
+            !taskExecutions[taskId]?.length ||
+            carrierIdByTaskId.has(taskId)
+          ) {
+            continue;
+          }
+          carrierIdByTaskId.set(taskId, message.id || `${message.speaker}-${message.time}-${index}`);
+        }
       }
 
       const pendingTaskIds = new Set(
@@ -1033,16 +1051,14 @@ export function ChannelsPageClient({
           message.role === "agent" &&
           message.kind !== "process" &&
           taskId &&
-          carrierIdByTaskId.has(taskId)
+          carrierIdByTaskId.has(taskId) &&
+          carrierIdByTaskId.get(taskId) !== id
         ) {
           return [];
         }
         const executionReply = taskId && carrierIdByTaskId.get(taskId) === id
           ? executionReplyByTaskId.get(taskId)
           : undefined;
-        if (executionReply && executionReply.id === id) {
-          return [];
-        }
         const executionRows = taskId && carrierIdByTaskId.get(taskId) === id
           ? taskExecutions?.[taskId]
           : undefined;
@@ -1077,11 +1093,12 @@ export function ChannelsPageClient({
           data: message.data,
           executionDetail: message.data?.execution_detail,
           timestamp: formatCompactTimestamp(message.time, { emptyFallback: message.time }),
+          sortTimestamp: message.time,
           status: message.status ?? "completed",
           attachments: message.attachments,
           mentions: message.mentions,
           acknowledgements: message.acknowledgements,
-          kind: message.kind,
+          kind: executionRows ? "process" : message.kind,
           processType: message.processType,
           tool: message.tool,
           pinned: message.pinned,
@@ -1115,6 +1132,29 @@ export function ChannelsPageClient({
   const emptyThreadBody = selectedChannel
     ? tx("发一条消息开始对话。", "Send a message to start the conversation.")
     : tx("先从左侧选择一个会话。", "Select a conversation from the list first.");
+  const openMontageTimelineItems = useMemo(() => {
+    const items = openMontageChannelJobs.jobs.map((job) => ({
+      id: `openmontage-job-${job.jobId}`,
+      timestamp: job.createdAt,
+      content: <OpenMontageJobCard job={job} onAction={openMontageChannelJobs.submitAction} workspaceId={data.workspaceId} />,
+    }));
+    if (openMontageChannelJobs.loadError) {
+      items.push({
+        id: "openmontage-job-refresh-error",
+        timestamp: openMontageChannelJobs.jobs.at(-1)?.updatedAt ?? new Date().toISOString(),
+        content: (
+          <div className="openmontage-channel-jobs__error" role="alert">
+            <AppIcon name="alertCircle" />
+            <span>{tx("视频任务状态暂时无法更新，已保留最后可信进度。", "Video job status could not be updated. The last trusted progress is retained.")}</span>
+            <button aria-label={tx("重试更新视频任务", "Retry video job update")} onClick={openMontageChannelJobs.retry} type="button">
+              <AppIcon name="refresh" />
+            </button>
+          </div>
+        ),
+      });
+    }
+    return items;
+  }, [data.workspaceId, openMontageChannelJobs, tx]);
 
   useEffect(() => {
     setShowContactRemarkEditor(false);
@@ -1686,17 +1726,8 @@ export function ChannelsPageClient({
         emptyListTitle={isContactDirectoryContext ? tx("暂无数字员工", "No digital employees") : tx("会话为空", "No conversations")}
         emptyThreadBody={emptyThreadBody}
         emptyThreadTitle={emptyThreadTitle}
-        threadHasSupplementaryContent={hasOpenMontageJobs}
-        threadAfterMessages={
-          !isContactDirectoryContext && activeTab === "messages" && selectedConversationChannelName && !selectedChannelRequiresAccess ? (
-            <OpenMontageChannelJobs
-              channelName={selectedConversationChannelName}
-              onPresenceChange={setHasOpenMontageJobs}
-              refreshVersion={openMontageRefreshVersion}
-              workspaceId={data.workspaceId}
-            />
-          ) : undefined
-        }
+        threadHasSupplementaryContent={openMontageTimelineItems.length > 0}
+        threadTimelineItems={openMontageTimelineItems}
         customThreadHeader={
           selectedChannel
             ? ({ backButton }) => isContactDirectoryContext ? (

@@ -433,6 +433,58 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByRole("button", { name: "预览 summary.pdf" })).toBeInTheDocument();
   });
 
+  it("uses a task-bound final reply as the execution timeline carrier when process messages are missing", () => {
+    render(
+      <TestProviders>
+        <ChannelsPageClient
+          currentUserDisplayName="techwu"
+          data={{
+            ...data,
+            threads: [{
+              channelName: "tour visit",
+              messages: [{
+                id: "message-failed-task",
+                channel: "tour visit",
+                speaker: "系统提示",
+                role: "agent",
+                time: "10:05",
+                summary: "视频任务执行失败。",
+                status: "error",
+                data: { source_task_queue_id: "task-video-failed" },
+              }],
+              taskExecutions: {
+                "task-video-failed": [
+                  {
+                    id: "task-message-thinking",
+                    taskId: "task-video-failed",
+                    seq: 1,
+                    type: "thinking",
+                    content: "准备确定性视频生成参数。",
+                    createdAt: "2026-08-20T10:04:00.000Z",
+                  },
+                  {
+                    id: "task-message-tool",
+                    taskId: "task-video-failed",
+                    seq: 2,
+                    type: "tool_use",
+                    tool: "openmontage",
+                    inputJson: JSON.stringify({ command: "generate video" }),
+                    createdAt: "2026-08-20T10:04:01.000Z",
+                  },
+                ],
+              },
+            }],
+          }}
+        />
+      </TestProviders>,
+    );
+
+    expect(document.querySelectorAll(".conversation-process--timeline")).toHaveLength(1);
+    expect(screen.getByText("思考过程")).toBeInTheDocument();
+    expect(screen.getByText("openmontage")).toBeInTheDocument();
+    expect(screen.getByText("视频任务执行失败。")).toBeInTheDocument();
+  });
+
   it("shows Feishu group binding context in the selected channel header", () => {
     render(
       <TestProviders>

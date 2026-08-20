@@ -21,13 +21,54 @@ export function OpenMontageChannelJobs({
   onPresenceChange?: (hasJobs: boolean) => void;
 }) {
   const { tx } = useLanguage();
-  const [jobs, setJobs] = useState<OpenMontageJobProjection[]>([]);
-  const [loadError, setLoadError] = useState(false);
-  const [retryVersion, setRetryVersion] = useState(0);
+  const { jobs, loadError, submitAction, retry } = useOpenMontageChannelJobs({
+    channelName,
+    enabled: true,
+    refreshVersion,
+    workspaceId,
+  });
 
   useEffect(() => {
     onPresenceChange?.(jobs.length > 0);
   }, [jobs.length, onPresenceChange]);
+
+  if (jobs.length === 0 && !loadError) {
+    return null;
+  }
+
+  return (
+    <>
+      {jobs.map((job) => (
+        <OpenMontageJobCard job={job} key={job.jobId} onAction={submitAction} workspaceId={workspaceId} />
+      ))}
+      {loadError ? (
+        <div className="openmontage-channel-jobs__error" role="alert">
+          <AppIcon name="alertCircle" />
+          <span>{tx("视频任务状态暂时无法更新，已保留最后可信进度。", "Video job status could not be updated. The last trusted progress is retained.")}</span>
+          <button aria-label={tx("重试更新视频任务", "Retry video job update")} onClick={retry} type="button">
+            <AppIcon name="refresh" />
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+export function useOpenMontageChannelJobs({
+  workspaceId,
+  channelName,
+  refreshVersion,
+  enabled,
+}: {
+  workspaceId: string;
+  channelName: string;
+  refreshVersion: number;
+  enabled: boolean;
+}) {
+  const { tx } = useLanguage();
+  const [jobs, setJobs] = useState<OpenMontageJobProjection[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  const [retryVersion, setRetryVersion] = useState(0);
 
   const loadJobs = useCallback(async (signal: AbortSignal): Promise<OpenMontageJobProjection[]> => {
     const response = await fetch(
@@ -45,6 +86,11 @@ export function OpenMontageChannelJobs({
   }, [channelName, workspaceId]);
 
   useEffect(() => {
+    if (!enabled || !channelName) {
+      setJobs([]);
+      setLoadError(false);
+      return;
+    }
     const controller = new AbortController();
     void loadJobs(controller.signal).catch((error) => {
       if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) {
@@ -52,7 +98,7 @@ export function OpenMontageChannelJobs({
       }
     });
     return () => controller.abort();
-  }, [loadJobs, refreshVersion, retryVersion]);
+  }, [channelName, enabled, loadJobs, refreshVersion, retryVersion]);
 
   async function submitAction(action: OpenMontageJobAction): Promise<void> {
     const response = await fetch(
@@ -86,26 +132,12 @@ export function OpenMontageChannelJobs({
     await loadJobs(AbortSignal.timeout(10_000));
   }
 
-  if (jobs.length === 0 && !loadError) {
-    return null;
-  }
-
-  return (
-    <>
-      {jobs.map((job) => (
-        <OpenMontageJobCard job={job} key={job.jobId} onAction={submitAction} workspaceId={workspaceId} />
-      ))}
-      {loadError ? (
-        <div className="openmontage-channel-jobs__error" role="alert">
-          <AppIcon name="alertCircle" />
-          <span>{tx("视频任务状态暂时无法更新，已保留最后可信进度。", "Video job status could not be updated. The last trusted progress is retained.")}</span>
-          <button aria-label={tx("重试更新视频任务", "Retry video job update")} onClick={() => setRetryVersion((value) => value + 1)} type="button">
-            <AppIcon name="refresh" />
-          </button>
-        </div>
-      ) : null}
-    </>
-  );
+  return {
+    jobs,
+    loadError,
+    submitAction,
+    retry: () => setRetryVersion((value) => value + 1),
+  };
 }
 
 function parseProjectionList(value: unknown): OpenMontageJobProjection[] {

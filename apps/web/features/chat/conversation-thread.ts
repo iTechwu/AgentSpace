@@ -47,6 +47,8 @@ export interface ConversationThreadMessage {
   pinnedAt?: string;
   replyToMessageId?: string;
   deliveryStatus?: "sending" | "sent" | "failed";
+  /** Stable ISO timestamp used when supplementary content is interleaved. */
+  sortTimestamp?: string;
 }
 
 export interface OptimisticConversationMessage extends ConversationThreadMessage {
