@@ -1,5 +1,5 @@
 # AI 员工多会话拆分方案
-> **实现状态（本次会话 · dev）**：核心后端与直接/群聊前端已落地并通过测试，含 legacy 回填、灰度开关与 Runtime 容量投影。已实现：四个领域表、`agent_task_queue` 会话列、DB 领域访问层、Router key `conversation:<id>`、按 Execution Lane 领取（跨会话并行 / 同 Lane 串行且互斥跨 runtime、legacy 回退）、服务层与 REST API、`/new` 直接+群聊端到端、发送授权、历史面板服务端化并按用户隔离、fallback + 回复后一句话摘要、按会话加载消息 API、legacy 回填、5 个灰度开关（`CONVERSATION_V2_ENABLED`/`CONVERSATION_V2_DUAL_WRITE`/`TASK_QUEUE_BY_CONVERSATION`/`CONVERSATION_HISTORY_SERVER`/`RUNTIME_TASK_CAPACITY_ENABLED`）、`runtime_task_capacity` 表与容量门控/投影。未完成：消息按 `conversation_id` 持久化到独立表（当前存工作区状态 JSON）、独立发送消息 REST API（当前走 server action）、capacity_wait 的前端文案接线。详见各文档标注。
+> **实现状态（本次会话 · dev）**：方案核心已全面收口并通过测试。已实现：四个领域表、`conversation_message` 表（消息独立持久化，双写 + 回填镜像 + API 读表）、`runtime_task_capacity` 表、`agent_task_queue` 会话列、DB 领域访问层、Router key `conversation:<id>`、按 Execution Lane 领取（跨会话并行 / 同 Lane 串行且互斥跨 runtime、legacy 回退）、服务层与 REST API、`/new` 直接+群聊端到端、发送授权、历史面板服务端化并按用户隔离、fallback + 回复后一句话摘要、按会话加载消息 API、legacy 回填、5 个灰度开关、Runtime 容量门控与 `capacity_wait` 前端文案。仅剩：独立发送消息 REST API（当前发送走 server action，功能等价）。详见各文档标注。
 
 
 ## 1. 结论
