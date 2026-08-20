@@ -31052,6 +31052,76 @@ button[aria-disabled="true"] svg {
   gap: 0.5rem;
 }
 
+.conversation-list-actions--with-history {
+  position: relative;
+}
+
+.conversation-history-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.55rem);
+  right: 0;
+  width: min(300px, 72vw);
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  box-shadow: 0 16px 34px rgba(25, 31, 42, 0.16);
+}
+
+.conversation-history-popover__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.25rem 0.35rem 0.55rem;
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.conversation-history-popover__header span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.conversation-history-popover__list {
+  display: grid;
+  gap: 0.25rem;
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+}
+
+.conversation-history-popover__item {
+  display: grid;
+  gap: 0.18rem;
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.conversation-history-popover__item:hover,
+.conversation-history-popover__item:focus-visible {
+  background: var(--panel);
+}
+
+.conversation-history-popover__item-title {
+  overflow: hidden;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-history-popover__item-meta,
+.conversation-history-popover__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
 .container-view-switch {
   display: inline-grid;
   grid-auto-flow: column;

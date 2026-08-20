@@ -120,6 +120,7 @@ export interface ChannelRouteState {
   documentId: string | null;
   conversationView: "all" | "direct";
   communicationContext: "messages" | "contacts";
+  isNewConversation: boolean;
 }
 
 export interface ChannelRouteUpdateOptions {

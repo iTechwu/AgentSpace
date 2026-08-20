@@ -21,6 +21,7 @@ export type AppIconName =
   | "feishu"
   | "fileText"
   | "groups"
+  | "history"
   | "info"
   | "knowledge"
   | "lightbulb"
@@ -429,6 +430,13 @@ function renderIcon(name: AppIconName) {
           <circle cx="6.25" cy="7" r="1.75" stroke="currentColor" strokeWidth="1.6" />
           <circle cx="11.75" cy="7.5" r="1.75" stroke="currentColor" strokeWidth="1.6" />
           <path d="M3.75 13c.55-1.55 1.72-2.5 3.5-2.5S10.2 11.45 10.75 13M9.25 13c.4-1.15 1.3-1.9 2.75-1.9 1.1 0 1.95.35 2.55 1.05" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+        </>
+      );
+    case "history":
+      return (
+        <>
+          <path d="M4.25 8.75A4.75 4.75 0 1 0 6 4.9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+          <path d="M4.25 4.2v4.55H8.8M9 6.25v3l2 1.25" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
         </>
       );
     case "info":

@@ -217,6 +217,7 @@ export function useChannelRouteState({
       const targetChannel = channelById.get(channelId);
       const nextSearch = readCurrentChannelSearchParams(routeSearch);
       const nextTab = options?.tab ?? activeTab;
+      nextSearch.delete("new");
       nextSearch.set("focus", buildChannelFocusValue(targetChannel, channelId));
       if (nextTab === "messages") {
         nextSearch.delete("tab");

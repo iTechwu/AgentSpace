@@ -101,6 +101,7 @@ export function ConversationShell({
   composerRuntime,
   onUpdateExecutionPolicy,
   onOpenModelSelector,
+  onStartNewConversation,
 }: {
   listKicker: string;
   listTitle: string;
@@ -899,6 +900,13 @@ export function ConversationShell({
       setDraftCaretIndex(next.caretIndex);
       setFeedback(tx("当前运行时会话会在下一条消息中自动续接。", "The current runtime session will resume automatically with your next message."));
       scheduleComposerFocus(next.caretIndex);
+      return;
+    }
+    if (command.action === "new") {
+      setDraft(next.value);
+      setDraftCaretIndex(next.caretIndex);
+      setFeedback(null);
+      onStartNewConversation?.();
       return;
     }
     if (command.action === "permissions") {

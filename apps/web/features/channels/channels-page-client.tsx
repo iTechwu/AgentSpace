@@ -41,6 +41,7 @@ import {
   type ConversationMentionCandidate,
   type ConversationThreadMessage,
 } from "@/features/chat/conversation-shell";
+import { ChatHeader } from "@/features/chat/chat-primitives";
 import { updateWorkspaceAgentExecutionPolicyAction } from "@/features/agents/actions";
 import { buildExecutionTimeline } from "@/features/chat/task-execution-timeline";
 import { CommunicationListActions } from "@/features/chat/communication-list-actions";
@@ -192,6 +193,7 @@ export function ChannelsPageClient({
     resolveInitialSelectedChannelId(data.channels, searchParamText),
   );
   const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [showConversationHistory, setShowConversationHistory] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [activeTab, setActiveTab] = useState<ChannelWorkspaceTab>("messages");
   const [documentsView, setDocumentsView] = useState<ChannelDocumentsView>("list");
@@ -299,6 +301,7 @@ export function ChannelsPageClient({
     workspaceHref,
   });
   const conversationView = routeState.conversationView;
+  const isNewConversation = routeState.isNewConversation;
   const isContactDirectoryContext = routeState.communicationContext === "contacts";
   const dataSizeSnapshot = useMemo(
     () => ({
@@ -599,7 +602,7 @@ export function ChannelsPageClient({
     : null;
   const openMontageChannelJobs = useOpenMontageChannelJobs({
     channelName: selectedConversationChannelName ?? "",
-    enabled: !isContactDirectoryContext && activeTab === "messages" && Boolean(selectedConversationChannelName) && !selectedChannelRequiresAccess,
+    enabled: !isNewConversation && !isContactDirectoryContext && activeTab === "messages" && Boolean(selectedConversationChannelName) && !selectedChannelRequiresAccess,
     refreshVersion: openMontageRefreshVersion,
     workspaceId: data.workspaceId,
   });
@@ -978,6 +981,9 @@ export function ChannelsPageClient({
 
   const messages: ConversationThreadMessage[] = useMemo(
     () => {
+      if (isNewConversation) {
+        return [];
+      }
       const threadMessages = selectedThread?.messages ?? [];
       const taskExecutions = selectedThread?.taskExecutions;
 
@@ -1124,13 +1130,17 @@ export function ChannelsPageClient({
         }];
       });
     },
-    [selectedThread, tx],
+    [isNewConversation, selectedThread, tx],
   );
   const emptyThreadTitle = selectedChannel
-    ? tx("还没有消息", "No messages yet")
+    ? isNewConversation
+      ? tx("新会话", "New conversation")
+      : tx("还没有消息", "No messages yet")
     : tx("未选择会话", "No conversation selected");
   const emptyThreadBody = selectedChannel
-    ? tx("发一条消息开始对话。", "Send a message to start the conversation.")
+    ? isNewConversation
+      ? tx("这是一个新的空白会话，原会话已保留在历史记录中。", "This is a blank conversation. The previous one is kept in history.")
+      : tx("发一条消息开始对话。", "Send a message to start the conversation.")
     : tx("先从左侧选择一个会话。", "Select a conversation from the list first.");
   const openMontageTimelineItems = useMemo(() => {
     const items = openMontageChannelJobs.jobs.map((job) => ({
@@ -1197,6 +1207,17 @@ export function ChannelsPageClient({
     const agentReference = selectedChannel.agentEmployeeId ?? selectedChannel.contactId;
     navigateToWorkspaceModule(`/agents?mode=agent&focus=${encodeURIComponent(`agent-${agentReference}`)}`);
   }
+
+  const startNewConversation = useCallback(() => {
+    const target = selectedChannel ?? visibleChannels[0];
+    const focus = target ? buildChannelFocusValue(target, target.id) : null;
+    const query = new URLSearchParams({ new: "1" });
+    if (focus) {
+      query.set("focus", focus);
+    }
+    setShowConversationHistory(false);
+    navigateToWorkspaceModule(`/im?${query.toString()}`);
+  }, [navigateToWorkspaceModule, selectedChannel, visibleChannels]);
 
   async function uploadChannelFiles(files: FileList | null): Promise<void> {
     if (!selectedConversationChannelName || !files || files.length === 0) {
@@ -1738,6 +1759,16 @@ export function ChannelsPageClient({
                   onMessage={openSelectedDigitalConversation}
                   tx={tx}
                 />
+              ) : isNewConversation ? (
+                <ChatHeader
+                  avatar={selectedChannel.avatarLabel ?? "群"}
+                  avatarId={selectedChannel.humanContactUserId ?? selectedChannel.contactId ?? selectedChannel.channelName ?? selectedChannel.id}
+                  avatarName={selectedChannel.displayName ?? selectedChannel.name}
+                  avatarVariant={selectedChannel.directParticipantKind === "human" ? "human" : selectedChannel.kind === "direct" ? "agent" : "channel"}
+                  leadingAction={backButton}
+                  subtitle={tx(`发送到 ${selectedChannel.displayName ?? selectedChannel.name}`, `Sending to ${selectedChannel.displayName ?? selectedChannel.name}`)}
+                  title={tx("新会话", "New conversation")}
+                />
               ) : (
                 <ChannelWorkspaceHeader
                   activeTab={activeTab}
@@ -1842,26 +1873,78 @@ export function ChannelsPageClient({
               ]}
             />
           ) : (
-            <CommunicationListActions
-              action={{
-                label: tx("创建群组", "Create group"),
-                onClick: () => setShowCreateChannel(true),
-              }}
-              activeTab={conversationView === "direct" ? "digital" : "conversations"}
-              ariaLabel={tx("消息类型", "Message type")}
-              tabs={[
-                {
-                  id: "conversations",
-                  label: tx("会话", "Conversations"),
-                  onSelect: () => replaceWorkspaceModule("/im"),
-                },
-                {
-                  id: "digital",
-                  label: tx("数字联系人", "Digital contacts"),
-                  onSelect: () => replaceWorkspaceModule("/im?view=direct"),
-                },
-              ]}
-            />
+            <div className="conversation-list-actions conversation-list-actions--with-history">
+              <CommunicationListActions
+                action={{
+                  label: tx("创建群组", "Create group"),
+                  onClick: () => setShowCreateChannel(true),
+                }}
+                activeTab={conversationView === "direct" ? "digital" : "conversations"}
+                ariaLabel={tx("消息类型", "Message type")}
+                tabs={[
+                  {
+                    id: "conversations",
+                    label: tx("会话", "Conversations"),
+                    onSelect: () => replaceWorkspaceModule("/im"),
+                  },
+                  {
+                    id: "digital",
+                    label: tx("数字联系人", "Digital contacts"),
+                    onSelect: () => replaceWorkspaceModule("/im?view=direct"),
+                  },
+                ]}
+              />
+              <button
+                aria-expanded={showConversationHistory}
+                aria-label={tx("历史会话", "Conversation history")}
+                className="action-button action-button--compact action-button--icon"
+                onClick={() => setShowConversationHistory((current) => !current)}
+                title={tx("历史会话", "Conversation history")}
+                type="button"
+              >
+                <AppIcon name="history" />
+              </button>
+              <button
+                aria-label={tx("新开会话", "New conversation")}
+                className="action-button action-button--compact action-button--icon"
+                onClick={startNewConversation}
+                title={tx("新开会话", "New conversation")}
+                type="button"
+              >
+                <AppIcon name="edit" />
+              </button>
+              {showConversationHistory ? (
+                <div className="conversation-history-popover" role="dialog">
+                  <div className="conversation-history-popover__header">
+                    <strong>{tx("历史会话", "Conversation history")}</strong>
+                    <span>{items.length}</span>
+                  </div>
+                  <div className="conversation-history-popover__list">
+                    {items.length > 0 ? items.map((item) => (
+                      <button
+                        className="conversation-history-popover__item"
+                        key={item.id}
+                        onClick={() => {
+                          setShowConversationHistory(false);
+                          if (isNewConversation) {
+                            replaceWorkspaceModule(`/im?focus=${encodeURIComponent(buildChannelFocusValue(visibleChannelById.get(item.id), item.id))}`);
+                          } else {
+                            setSelectedChannelId(item.id);
+                            replaceChannelRoute(item.id, { tab: "messages", documentId: null });
+                          }
+                        }}
+                        type="button"
+                      >
+                        <span className="conversation-history-popover__item-title">{item.title}</span>
+                        <span className="conversation-history-popover__item-meta">{item.dateLabel || item.meta}</span>
+                      </button>
+                    )) : (
+                      <p className="conversation-history-popover__empty">{tx("暂无历史会话", "No conversation history")}</p>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           )
         }
         listCount={items.length}
@@ -1883,6 +1966,7 @@ export function ChannelsPageClient({
         }}
         composerRuntime={composerRuntime}
         onOpenModelSelector={composerRuntime ? () => setShowModelCommandDialog(true) : undefined}
+        onStartNewConversation={startNewConversation}
         onUpdateExecutionPolicy={async (employeeId, executionPolicy: EmployeeExecutionPolicy | undefined) => {
           let updateSucceeded = false;
           await runToastAction({
@@ -2010,9 +2094,13 @@ export function ChannelsPageClient({
         selectedHeader={
           selectedChannel
             ? {
-                title: selectedChannelWithLiveFeishuMembers?.displayName ?? selectedChannel.displayName ?? selectedChannel.name,
+                title: isNewConversation
+                  ? tx("新会话", "New conversation")
+                  : selectedChannelWithLiveFeishuMembers?.displayName ?? selectedChannel.displayName ?? selectedChannel.name,
                 subtitle:
-                  selectedChannel.kind === "direct"
+                  isNewConversation
+                    ? tx(`发送到 ${selectedChannel.displayName ?? selectedChannel.name}`, `Sending to ${selectedChannel.displayName ?? selectedChannel.name}`)
+                    : selectedChannel.kind === "direct"
                     ? selectedChannel.displaySubtitle ?? tx("私聊", "Direct")
                     : translateMemberLabel((selectedChannelWithLiveFeishuMembers ?? selectedChannel).memberLabel, tx),
                 avatar: selectedChannel.avatarLabel ?? "群",

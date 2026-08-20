@@ -78,7 +78,7 @@ export interface ConversationSlashCommand {
   command: string;
   label: string;
   description: string;
-  action: "model" | "resume" | "clear" | "permissions" | "claude-plan" | "claude-auto" | "codex-review";
+  action: "model" | "resume" | "new" | "clear" | "permissions" | "claude-plan" | "claude-auto" | "codex-review";
 }
 
 export interface SelectedComposerReference {
@@ -240,6 +240,13 @@ export function buildComposerSlashCommands(
     label: tx("清空输入", "Clear composer"),
     description: tx("移除当前草稿与引用", "Remove the current draft and references"),
     action: "clear",
+  });
+  commands.push({
+    id: "new",
+    command: "/new",
+    label: tx("新开会话", "New conversation"),
+    description: tx("保留当前会话并开始一个空白会话", "Keep this conversation and start a blank one"),
+    action: "new",
   });
   return commands;
 }

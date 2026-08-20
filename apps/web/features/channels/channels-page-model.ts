@@ -403,6 +403,7 @@ export function parseChannelRouteState(routeSearch: string): ChannelRouteState {
     documentId,
     conversationView: searchParams.get("view") === "direct" || isDigitalContactsView ? "direct" : "all",
     communicationContext: searchParams.get("context") === "contacts" || isDigitalContactsView ? "contacts" : "messages",
+    isNewConversation: searchParams.get("new") === "1",
   };
 }
 
