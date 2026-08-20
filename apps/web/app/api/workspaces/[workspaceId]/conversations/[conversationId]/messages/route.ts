@@ -178,7 +178,7 @@ export async function POST(
         workspaceId,
         workspaceContext.currentUser.id,
         undefined,
-        { conversationId, executionLaneId: lane.lane.id, idempotencyKey },
+        { conversationId, executionLaneId: lane.lane.id, idempotencyKey, replyToMessageId },
       );
     }
 

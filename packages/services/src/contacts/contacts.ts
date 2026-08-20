@@ -84,7 +84,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
-  executionOptions?: { startNewConversation?: boolean; conversationId?: string; executionLaneId?: string; idempotencyKey?: string },
+  executionOptions?: { startNewConversation?: boolean; conversationId?: string; executionLaneId?: string; idempotencyKey?: string; replyToMessageId?: string },
 ): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -149,7 +149,10 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       status: "completed",
       attachments,
       conversationId: executionOptions?.conversationId,
-      data: buildExternalMessageData(governedExternalInput),
+      replyToMessageId: executionOptions?.replyToMessageId,
+      data: executionOptions?.idempotencyKey
+        ? { ...(buildExternalMessageData(governedExternalInput) ?? {}), idempotency_key: executionOptions.idempotencyKey }
+        : buildExternalMessageData(governedExternalInput),
     }, effectiveWorkspaceId);
     const shell = ensureLegacyContactShell(currentState, contact.name, contact, true, humanMemberName);
     if (shell) {

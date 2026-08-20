@@ -224,6 +224,7 @@ export function continueAutoContinuationAfterTaskSync(input: {
       role: "agent",
       summary: `${agent.name} 当前没有可执行的运行时，自动接管已暂停。`,
       code: "auto_continuation.unavailable",
+      conversationId: task.conversationId,
       data: { agent_name: agent.name },
       status: "error",
     }, workspaceId);
@@ -259,6 +260,7 @@ export function continueAutoContinuationAfterTaskSync(input: {
     role: "agent",
     summary: "Thinking",
     code: "agent.pending",
+    conversationId: task.conversationId,
     data: { agent_name: agent.name },
     status: "pending",
   }, workspaceId);
@@ -322,6 +324,7 @@ export function stopAutoContinuationSync(input: {
     role: "agent",
     summary: `Auto continuation stopped for ${input.agentId}.`,
     code: "auto_continuation.stopped_notice",
+    conversationId: input.conversationId,
     data: {
       agent_name: input.agentId,
       until: stoppedContinuation.until,

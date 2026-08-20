@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { resolveStoredEmployeeIdSync } from "@dofe-agent/db";
 import { createConversationForUserSync } from "@dofe-agent/services/conversations";
+import { readWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,8 @@ export const dynamic = "force-dynamic";
  * - channel-<name> / channel:<name>  → 群聊会话（kind=group）
  * - contact-<employee> / contact:<employee> → 直接会话（kind=direct）
  *
- * 无法解析出员工/频道时重定向回 /im（会话选择点），不伪造本地历史、不回跳旧消息流。
+ * 不带 focus 时选取工作区第一个频道创建草稿会话（与客户端「新开会话」按钮行为一致）。
+ * 工作区为空/创建失败时回 /im，不伪造本地历史、不回跳旧消息流。
  */
 export default async function NewConversationPage({
   params,
@@ -42,6 +44,7 @@ export default async function NewConversationPage({
 
   // redirect() 通过抛异常工作，不能放进 try/catch，否则成功创建也会落入 catch 分支。
   let conversationId: string | null = null;
+  let effectiveFocus = focus;
   try {
     if (channelName) {
       const result = createConversationForUserSync({
@@ -62,6 +65,32 @@ export default async function NewConversationPage({
         });
         conversationId = result.conversation.id;
       }
+    } else {
+      // 不带 focus 的 /new：选工作区第一个频道创建草稿会话，保持与「新开会话」按钮一致。
+      const state = readWorkspaceStateSync(workspaceId);
+      const firstChannel = state.channels[0];
+      if (firstChannel?.kind === "direct" && firstChannel.employeeNames[0]) {
+        const employeeId = resolveStoredEmployeeIdSync(firstChannel.employeeNames[0], workspaceId);
+        if (employeeId) {
+          const result = createConversationForUserSync({
+            workspaceId,
+            employeeId,
+            createdByUserId: workspaceContext.currentUser.id,
+            kind: "direct",
+          });
+          conversationId = result.conversation.id;
+          effectiveFocus = `contact-${firstChannel.employeeNames[0]}`;
+        }
+      } else if (firstChannel) {
+        const result = createConversationForUserSync({
+          workspaceId,
+          channelName: firstChannel.name,
+          createdByUserId: workspaceContext.currentUser.id,
+          kind: "group",
+        });
+        conversationId = result.conversation.id;
+        effectiveFocus = `channel-${firstChannel.name}`;
+      }
     }
   } catch {
     // 创建失败：回落 /im，不伪造本地历史（docs §2.2）。
@@ -72,11 +101,11 @@ export default async function NewConversationPage({
     redirect(
       buildWorkspacePath(
         workspaceId,
-        `/im?focus=${encodeURIComponent(focus)}&conversation=${conversationId}`,
+        `/im?focus=${encodeURIComponent(effectiveFocus)}&conversation=${conversationId}`,
       ),
     );
   }
 
-  // 无法解析员工/频道（含创建失败）：回到会话选择点，不跳旧消息流、不强制 new=1。
+  // 工作区为空/无法创建：回到会话选择点，不跳旧消息流、不强制 new=1。
   redirect(buildWorkspacePath(workspaceId, focus ? `/im?focus=${encodeURIComponent(focus)}` : "/im"));
 }

@@ -113,6 +113,7 @@ export async function POST(
       channelName: payload.channel,
       agentId: payload.assignee ?? task.agentId,
       contactId: payload.contactId,
+      conversationId: payload.conversationId,
       sessionId: body.sessionId,
       workDir: body.workDir,
       lastTaskQueueId: task.id,
@@ -133,6 +134,7 @@ export async function POST(
       channelName: effectiveChannelName ?? payload.channel ?? payload.contactId,
       agentId: payload.contactId,
       contactId: payload.contactId,
+      conversationId: payload.conversationId,
       sessionId: body.sessionId,
       workDir: body.workDir,
       lastTaskQueueId: task.id,
@@ -173,6 +175,7 @@ export async function POST(
     writeConversationExecutionWorkspaceStateSync({
       channelName: payload.channel,
       agentId: payload.assignee ?? task.agentId,
+      conversationId: payload.conversationId,
       sessionId: body.sessionId,
       workDir: body.workDir,
       lastTaskQueueId: task.id,

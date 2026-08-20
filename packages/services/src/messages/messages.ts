@@ -1,5 +1,4 @@
 import {
-  buildTaskQueueId,
   DEFAULT_WORKSPACE_ID,
   ensureExecutionLaneForConversationSync,
   enqueueNativeTaskSync,
@@ -261,10 +260,13 @@ export function sendChannelHumanMessageSync(
   const autoContinuationDirective =
     mentionParse.agentMentions.length === 1 ? parseAutoContinuationDirective(trimmed) : null;
 
-  // 幂等：同一 Idempotency-Key 的重试不重复写入用户消息（任务已按确定性 ID 去重，见 task-queue）。
+  // 幂等：同一 Idempotency-Key 的重试不重复写入用户消息（消息级去重，覆盖无 Agent 提及的普通消息）。
   if (
     executionOptions?.idempotencyKey
-    && readQueuedTaskSync(buildTaskQueueId(effectiveWorkspaceId, executionOptions.idempotencyKey))
+    && state.messages.some((message) =>
+      sameValue(message.channel ?? "", channel.name)
+      && message.data?.idempotency_key === executionOptions.idempotencyKey,
+    )
   ) {
     return state;
   }
@@ -279,7 +281,9 @@ export function sendChannelHumanMessageSync(
     mentions: mentionParse.allMentions,
     replyToMessageId,
     conversationId: executionOptions?.conversationId,
-    data: buildExternalMessageData(governedExternalInput),
+    data: executionOptions?.idempotencyKey
+      ? { ...(buildExternalMessageData(governedExternalInput) ?? {}), idempotency_key: executionOptions.idempotencyKey }
+      : buildExternalMessageData(governedExternalInput),
   }, effectiveWorkspaceId);
 
   if (mentionParse.agentMentions.length === 0) {
@@ -464,7 +468,10 @@ export function sendChannelHumanMessageSync(
       requestedByDisplayName: speaker,
       conversationId: executionOptions?.conversationId,
       executionLaneId: mentionLaneId,
-      idempotencyKey: executionOptions?.idempotencyKey,
+      // 每个被提及 Agent 派生独立幂等键，避免同一 key 在多个 Agent 间产生队列 ID 冲突。
+      idempotencyKey: executionOptions?.idempotencyKey
+        ? `${executionOptions.idempotencyKey}\0${agent.name}`
+        : undefined,
       metadata: {
         sourceChannel: channel.name,
         sourceMessageId: humanMessage.id,

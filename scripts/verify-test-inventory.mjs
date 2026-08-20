@@ -55,7 +55,8 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // test script (3.6-2). Prereq fixes: daemon-task-output.ts 改指 daemon src
 // （dist 内联 services 附件存储代码，测试 mock 注入对 dist 副本失效）；
 // daemon-task-context.test.ts 注入内存 TOS 夹具（此前 reset 会按 --env-file
-// 真实 TOS 配置发起远端删除，本地 403）。Deferred 173-2=171。
+// 真实 TOS 配置发起远端删除，本地 403）。Deferred 173-2=171（历史快照，仅作当时记账；
+// 当前门禁以 EXPECTED_DEFERRED_DIGEST 对应的 172 文件为准）。
 // Re-frozen 2026-08-20 (session-split round): promoted
 // packages/db/src/{conversations,conversation-flags}.test.ts and
 // packages/services/src/conversations/conversations.test.ts to default-owned —
