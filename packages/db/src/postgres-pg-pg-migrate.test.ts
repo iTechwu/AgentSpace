@@ -186,6 +186,13 @@ test("migratePostgresToPostgres 忽略旧库已废弃列并保留业务行", {
         )`,
       );
       await source.query(
+        `INSERT INTO workspace_sso_binding (
+          workspace_id, tenant_id, tenant_name, team_id, team_name, source, synced_at
+        ) VALUES (
+          'ws-pgpg-legacy-column', 'tenant-pgpg', 'PGPG Tenant', 'team-pgpg', 'PGPG Team', 'team', now()
+        )`,
+      );
+      await source.query(
         `INSERT INTO mcp_catalog_item (
           id, workspace_id, slug, transport, display_name, synced_at, created_at, updated_at
         ) VALUES (
@@ -228,15 +235,16 @@ test("migratePostgresToPostgres 忽略旧库已废弃列并保留业务行", {
         "SELECT id FROM workspace WHERE id = 'ws-pgpg-legacy-column'",
       );
       assert.equal(row.rows[0]?.id, "ws-pgpg-legacy-column", "兼容投影后应保留业务行");
-      const mcp = await target.query<{ connection_count: string; secret_count: string }>(
+      const importedDependencies = await target.query<{ connection_count: string; secret_count: string; sso_binding_count: string }>(
         `SELECT
            (SELECT COUNT(*)::text FROM runtime_mcp_connection WHERE id = 'connection-pgpg-mcp') AS connection_count,
-           (SELECT COUNT(*)::text FROM runtime_mcp_secret WHERE connection_id = 'connection-pgpg-mcp') AS secret_count`,
+           (SELECT COUNT(*)::text FROM runtime_mcp_secret WHERE connection_id = 'connection-pgpg-mcp') AS secret_count,
+           (SELECT COUNT(*)::text FROM workspace_sso_binding WHERE workspace_id = 'ws-pgpg-legacy-column' AND team_id = 'team-pgpg') AS sso_binding_count`,
       );
       assert.deepEqual(
-        mcp.rows[0],
-        { connection_count: "1", secret_count: "1" },
-        "MCP 目录、连接与加密密钥必须随运行时完整迁移",
+        importedDependencies.rows[0],
+        { connection_count: "1", secret_count: "1", sso_binding_count: "1" },
+        "托管运行时的 SSO 范围以及 MCP 目录、连接与加密密钥必须完整迁移",
       );
     } finally {
       await target.end();

@@ -169,6 +169,8 @@ interface DerivedAuditLogRow extends MigrationRow {
 
 const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "workspace", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
+  // 托管运行时依赖工作区映射到 SSO tenant/team；必须在 agent_runtime 前导入。
+  { tableName: "workspace_sso_binding", conflictColumns: ["workspace_id"], optionalWhenMissing: true, orderBy: "workspace_id ASC" },
   { tableName: "users", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "auth_identity", conflictColumns: ["id"], jsonColumns: ["profile_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "session", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
