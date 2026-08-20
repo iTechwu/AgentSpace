@@ -819,6 +819,16 @@ export {
   type TaskQueueByConversationMode,
 } from "./conversation-flags.ts";
 
+// Conversation message persistence（会话消息独立持久化）
+export {
+  deleteConversationMessagesSync,
+  listConversationMessagesSync,
+  readConversationMessageSync,
+  writeConversationMessageSync,
+  type ConversationMessageRecord,
+  type WriteConversationMessageInput,
+} from "./conversation-messages.ts";
+
 // Runtime task capacity（显式资源容量与投影）
 export {
   countActiveTasksForRuntimeSync,

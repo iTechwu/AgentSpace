@@ -15,6 +15,7 @@ import {
   readStoredChannelSync,
   readStoredEmployeeByIdSync,
   resolveStoredEmployeeIdSync,
+  writeConversationMessageSync,
   unarchiveConversationSync,
   updateConversationSync,
   type ConversationExecutionLaneRecord,
@@ -402,6 +403,26 @@ export function backfillLegacyConversationsSync(workspaceId = DEFAULT_WORKSPACE_
         : message,
     );
     messagesTagged += legacyMessages.length;
+    // 镜像到 conversation_message 表（docs §2.5）。
+    for (const message of legacyMessages) {
+      writeConversationMessageSync({
+        id: message.id,
+        workspaceId,
+        conversationId: legacyId,
+        channel: message.channel,
+        speaker: message.speaker,
+        speakerUserId: message.speakerUserId,
+        role: message.role,
+        summary: message.summary,
+        status: message.status ?? "completed",
+        kind: message.kind,
+        processType: message.processType,
+        tool: message.tool,
+        code: message.code,
+        data: message.data,
+        time: message.time,
+      });
+    }
     const firstMessage = legacyMessages[0];
     updateConversationSync({
       conversationId: legacyId,

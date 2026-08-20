@@ -134,6 +134,7 @@ export const POSTGRES_TABLE_NAMES = [
   "conversation_participant",
   "conversation_execution_lane",
   "conversation_provider_session",
+  "conversation_message",
   "runtime_task_capacity",
 ] as const;
 

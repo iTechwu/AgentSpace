@@ -660,6 +660,9 @@ function resolvePendingStageLabel(
   message: ConversationThreadMessage,
   tx: (zh: string, en: string) => string,
 ): string {
+  if (message.data?.task_queue_status === "capacity_wait") {
+    return tx("等待执行资源", "Waiting for runtime capacity");
+  }
   if (message.data?.task_queue_status === "queued") {
     return message.data.task_queue_delayed === "true"
       ? tx("等待执行节点", "Waiting for runtime")
@@ -675,6 +678,9 @@ function resolvePendingStageDetail(
   message: ConversationThreadMessage,
   tx: (zh: string, en: string) => string,
 ): string | undefined {
+  if (message.data?.task_queue_status === "capacity_wait") {
+    return tx("Runtime 暂无可用容量，任务保持排队，等待执行资源释放", "The runtime has no available capacity; the task stays queued until resources free up");
+  }
   if (message.data?.task_queue_status === "queued") {
     return message.data.task_queue_delayed === "true"
       ? tx("执行节点响应较慢，任务仍在队列中", "The runtime is responding slowly; the task is still queued")

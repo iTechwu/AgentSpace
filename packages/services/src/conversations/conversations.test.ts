@@ -33,6 +33,7 @@ beforeEach(() => {
   db.exec("DELETE FROM conversation_provider_session");
   db.exec("DELETE FROM conversation_execution_lane");
   db.exec("DELETE FROM conversation_participant");
+  db.exec("DELETE FROM conversation_message");
   db.exec("DELETE FROM conversation");
   resetWorkspaceStateSync();
   initializeOrganizationSync({

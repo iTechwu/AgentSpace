@@ -14,6 +14,7 @@ import {
   findActiveProviderSessionForLaneSync,
   getDatabase,
   isRuntimeAtCapacitySync,
+  listConversationMessagesSync,
   listConversationParticipantsSync,
   listConversationsForChannelSync,
   listConversationsForEmployeeSync,
@@ -25,6 +26,7 @@ import {
   updateConversationSync,
   upsertLaneProviderSessionSync,
   upsertRuntimeTaskCapacitySync,
+  writeConversationMessageSync,
 } from "./index.ts";
 
 const originalCwd = process.cwd();
@@ -47,6 +49,7 @@ beforeEach(() => {
   db.exec("DELETE FROM conversation_provider_session");
   db.exec("DELETE FROM conversation_execution_lane");
   db.exec("DELETE FROM conversation_participant");
+  db.exec("DELETE FROM conversation_message");
   db.exec("DELETE FROM conversation");
   db.exec("DELETE FROM task_message");
   db.exec("DELETE FROM task_execution_event");
@@ -226,6 +229,31 @@ test("Execution Lane 以 conversation+employee 唯一，Provider Session 按 Lan
   upsertLaneProviderSessionSync({ executionLaneId: lane2!.id, provider: "codex", providerSessionId: "p2" });
   assert.equal(findActiveProviderSessionForLaneSync({ executionLaneId: lane1!.id })?.providerSessionId, "p1");
   assert.equal(findActiveProviderSessionForLaneSync({ executionLaneId: lane2!.id })?.providerSessionId, "p2");
+});
+
+test("conversation_message 独立持久化并按会话查询", () => {
+  const conv = createConversationSync({ employeeId: createEmployeeId("Atlas"), employeeName: "Atlas", createdByUserId: "user-1" });
+  writeConversationMessageSync({
+    id: "msg-1",
+    conversationId: conv.conversation.id,
+    channel: "direct-atlas",
+    speaker: "techwu",
+    role: "human",
+    summary: "帮我优化视频脚本",
+    status: "completed",
+  });
+  writeConversationMessageSync({
+    id: "msg-2",
+    conversationId: conv.conversation.id,
+    speaker: "Atlas",
+    role: "agent",
+    summary: "已完成",
+    status: "completed",
+  });
+  const messages = listConversationMessagesSync(conv.conversation.id);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0]!.speaker, "techwu");
+  assert.equal(messages[0]!.conversationId, conv.conversation.id);
 });
 
 test("resolveTaskRouterConversationIdentity 优先使用 conversation:<id>", () => {

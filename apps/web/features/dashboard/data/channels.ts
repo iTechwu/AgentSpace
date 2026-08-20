@@ -2,7 +2,7 @@
 
 import { TASK_QUEUE_DELAY_THRESHOLD_MS, buildChannelListItem, buildChannelWorkspaceArtifacts, buildFeishuChannelSummaryByChannelName, buildMentionUnreadViewer, hasUnreadMentionForViewer, isDirectChannelRecord, isWorkspaceManagerRole, listWorkspaceMemberUsersCached, normalizeChannelScope, resolveDirectChannelForContact, sameText } from "../dashboard-view-builders";
 import type { ChannelDetailPageData, ChannelListItem, ChannelThreadData, ChannelsPageData } from "../data-types";
-import { DEFAULT_WORKSPACE_ID, listTaskMessagesForTasksSync } from "@dofe-agent/db";
+import { DEFAULT_WORKSPACE_ID, isRuntimeAtCapacitySync, listTaskMessagesForTasksSync } from "@dofe-agent/db";
 import type { TaskMessageRecord, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
 import type { ActiveEmployee, ChannelRecord, DofeAgentState, WorkspaceMessage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { getChannelAccessSummaryForActorSync, resolveChannelHumanMemberNames } from "@dofe-agent/services/channels";
@@ -201,6 +201,13 @@ export function getChannelsPageData(
   ];
 
   const queuedTaskById = new Map(queuedTasks.map((task) => [task.id, task]));
+  // 容量投影：对 queued 任务，若其 runtime 已达容量上限，状态投影为 capacity_wait（docs §3.2/§5）。
+  const capacityWaitRuntimeIds = new Set<string>();
+  for (const task of queuedTasks) {
+    if (task.status === "queued" && !capacityWaitRuntimeIds.has(task.runtimeId) && isRuntimeAtCapacitySync(task.runtimeId)) {
+      capacityWaitRuntimeIds.add(task.runtimeId);
+    }
+  }
   const threadsWithQueueState: ChannelThreadData[] = threads.map((thread) => ({
     ...thread,
     messages: thread.messages.map((message) => {
@@ -213,11 +220,14 @@ export function getChannelsPageData(
       const delayed = task.status === "queued"
         && Number.isFinite(queuedAt)
         && Date.now() - queuedAt >= TASK_QUEUE_DELAY_THRESHOLD_MS;
+      const projectedStatus = task.status === "queued" && capacityWaitRuntimeIds.has(task.runtimeId)
+        ? "capacity_wait"
+        : task.status;
       return {
         ...message,
         data: {
           ...(message.data ?? {}),
-          task_queue_status: task.status,
+          task_queue_status: projectedStatus,
           task_queued_at: task.queuedAt,
           task_queue_delayed: delayed ? "true" : "false",
         },

@@ -14,6 +14,7 @@ import {
   enqueueNativeTaskSync,
   getWorkspaceChannelHistoryDirPath,
   readLatestChannelExecutionSync,
+  writeConversationMessageSync,
 } from "@dofe-agent/db";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "./state-io.ts";
 import { publishChannelMessageCreatedEvent } from "../realtime/events.ts";
@@ -223,6 +224,31 @@ export function pushWorkspaceMessageToChannel(
     replyToMessageId: input.replyToMessageId,
   });
   state.messages.unshift(message);
+
+  // 双写：带 conversationId 的消息镜像到 conversation_message 表（docs §2.5）。
+  if (message.conversationId) {
+    try {
+      writeConversationMessageSync({
+        id: message.id,
+        workspaceId,
+        conversationId: message.conversationId,
+        channel: message.channel,
+        speaker: message.speaker,
+        speakerUserId: message.speakerUserId,
+        role: message.role,
+        summary: message.summary,
+        status: message.status ?? "completed",
+        kind: message.kind,
+        processType: message.processType,
+        tool: message.tool,
+        code: message.code,
+        data: message.data,
+        time: message.time,
+      });
+    } catch {
+      // 消息镜像失败不阻塞主消息流（表为读加速镜像，状态 JSON 仍是真相）。
+    }
+  }
 
   if (input.recordInChannelHistory !== false && (input.status ?? "completed") !== "pending") {
     appendChannelHistoryEntry(channel, {

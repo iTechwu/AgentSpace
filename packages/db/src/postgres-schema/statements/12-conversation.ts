@@ -100,4 +100,28 @@ export const conversationStatements: string[] = [
         updated_at TIMESTAMPTZ NOT NULL
       )
     `,
+    `
+      CREATE TABLE IF NOT EXISTS conversation_message (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        channel TEXT,
+        speaker TEXT NOT NULL,
+        speaker_user_id TEXT,
+        role TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'completed',
+        kind TEXT,
+        process_type TEXT,
+        tool TEXT,
+        code TEXT,
+        data_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        time TEXT,
+        created_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_conversation_message_conversation
+        ON conversation_message(conversation_id, created_at)
+    `,
 ];
