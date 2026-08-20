@@ -24,6 +24,8 @@ import { readAgentRuntimeSync } from "./daemons.ts";
 import { deleteMcpTaskSessionGrantSync } from "./mcp-session-grant.ts";
 import { readTaskCommitJournalSync, upsertTaskCommitJournalSync } from "./task-commit-journal.ts";
 import { LEGACY_TASK_ENQUEUE_EVENT_ORDER } from "./task-enqueue-event-contract.ts";
+import { readConversationFeatureFlags } from "./conversation-flags.ts";
+import { isRuntimeAtCapacitySync } from "./runtime-task-capacity.ts";
 
 export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord | null {
   const db = getDatabase();
@@ -350,6 +352,11 @@ export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId
   const db = getDatabase();
   const now = new Date().toISOString();
   let claimedId: string | null = null;
+
+  // Runtime 容量门控：容量满时不领取（task 保持 queued，投影为 capacity_wait）。
+  if (isRuntimeAtCapacitySync(runtimeId)) {
+    return null;
+  }
 
   db.exec("BEGIN");
   try {
@@ -1069,6 +1076,46 @@ function selectQueuedTaskForRuntime(
   runtimeId: string,
   workspaceId?: string,
 ): Record<string, unknown> | undefined {
+  const flags = readConversationFeatureFlags();
+  const laneClaimEnabled = flags.taskQueueByConversation !== "off";
+  // 串行守卫：on/shadow 按 Lane（Lane 跨 runtime 互斥，无 Lane 回退 legacy）；off 回到 legacy（requester+employee）。
+  const serializationGuard = laneClaimEnabled
+    ? `(
+       (
+         queue.execution_lane_id IS NOT NULL
+         AND active.execution_lane_id = queue.execution_lane_id
+       )
+       OR (
+         queue.execution_lane_id IS NULL
+         AND active.runtime_id = queue.runtime_id
+         AND (
+           (
+             queue.requested_by_user_id IS NOT NULL
+             AND active.requested_by_user_id = queue.requested_by_user_id
+             AND COALESCE(active.employee_id, active.agent_id) = COALESCE(queue.employee_id, queue.agent_id)
+           )
+           OR (
+             queue.requested_by_user_id IS NULL
+             AND active.requested_by_user_id IS NULL
+             AND active.router_session_id = queue.router_session_id
+           )
+         )
+       )
+     )`
+    : `active.runtime_id = queue.runtime_id
+       AND (
+         (
+           queue.requested_by_user_id IS NOT NULL
+           AND active.requested_by_user_id = queue.requested_by_user_id
+           AND COALESCE(active.employee_id, active.agent_id) = COALESCE(queue.employee_id, queue.agent_id)
+         )
+         OR (
+           queue.requested_by_user_id IS NULL
+           AND active.requested_by_user_id IS NULL
+           AND active.router_session_id = queue.router_session_id
+         )
+       )`;
+
   return db
     .prepare(
       `SELECT queue.id, COALESCE(queue.employee_id, queue.agent_id) AS "employeeId",
@@ -1089,28 +1136,7 @@ function selectQueuedTaskForRuntime(
            FROM agent_task_queue active
            WHERE active.id <> queue.id
              AND active.status IN ('claimed', 'running', 'preparing_commit')
-             AND (
-               (
-                 queue.execution_lane_id IS NOT NULL
-                 AND active.execution_lane_id = queue.execution_lane_id
-               )
-               OR (
-                 queue.execution_lane_id IS NULL
-                 AND active.runtime_id = queue.runtime_id
-                 AND (
-                   (
-                     queue.requested_by_user_id IS NOT NULL
-                     AND active.requested_by_user_id = queue.requested_by_user_id
-                     AND COALESCE(active.employee_id, active.agent_id) = COALESCE(queue.employee_id, queue.agent_id)
-                   )
-                   OR (
-                     queue.requested_by_user_id IS NULL
-                     AND active.requested_by_user_id IS NULL
-                     AND active.router_session_id = queue.router_session_id
-                   )
-                 )
-               )
-             )
+             AND ${serializationGuard}
          )
          AND (
            runtime.managed_credential_id IS NULL

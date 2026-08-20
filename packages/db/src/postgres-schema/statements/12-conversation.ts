@@ -90,4 +90,14 @@ export const conversationStatements: string[] = [
       CREATE INDEX IF NOT EXISTS idx_task_queue_lane_claim
         ON agent_task_queue(runtime_id, status, execution_lane_id, priority, created_at)
     `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_task_capacity (
+        runtime_id TEXT PRIMARY KEY REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        max_concurrent_tasks INTEGER NOT NULL,
+        max_concurrent_tasks_per_provider_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        source TEXT NOT NULL DEFAULT 'default',
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
 ];

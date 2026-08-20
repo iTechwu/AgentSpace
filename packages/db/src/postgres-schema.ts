@@ -134,6 +134,7 @@ export const POSTGRES_TABLE_NAMES = [
   "conversation_participant",
   "conversation_execution_lane",
   "conversation_provider_session",
+  "runtime_task_capacity",
 ] as const;
 
 export type PostgresTableName = (typeof POSTGRES_TABLE_NAMES)[number];

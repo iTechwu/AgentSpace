@@ -80,7 +80,7 @@ test("postgres schema makes SSO team and tenant scopes unique", () => {
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "123");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "124");
   assert.match(statements, /workspace ADD COLUMN IF NOT EXISTS workflow_run_sequence BIGINT NOT NULL DEFAULT 0/);
   assert.match(statements, /workflow_run ADD COLUMN IF NOT EXISTS history_sequence BIGINT/);
   assert.match(statements, /workflow_run ALTER COLUMN history_sequence DROP IDENTITY IF EXISTS/);

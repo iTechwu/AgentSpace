@@ -812,6 +812,22 @@ export {
   type UpsertLaneProviderSessionInput,
 } from "./conversations.ts";
 
+// Conversation feature flags（灰度开关）
+export {
+  readConversationFeatureFlags,
+  type ConversationFeatureFlags,
+  type TaskQueueByConversationMode,
+} from "./conversation-flags.ts";
+
+// Runtime task capacity（显式资源容量与投影）
+export {
+  countActiveTasksForRuntimeSync,
+  isRuntimeAtCapacitySync,
+  readRuntimeTaskCapacitySync,
+  upsertRuntimeTaskCapacitySync,
+  type RuntimeTaskCapacityRecord,
+} from "./runtime-task-capacity.ts";
+
 // Runtime grants
 export {
   canUserUseRuntimeSync,

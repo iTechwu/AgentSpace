@@ -23,6 +23,7 @@ import {
   cancelQueuedTaskSync,
   listExternalChannelBindingsSync,
   listExternalIntegrationsSync,
+  readConversationFeatureFlags,
   readWorkflowDefinitionSync,
   readWorkflowNodeRunByTaskQueueIdSync,
   readWorkflowRunSync,
@@ -475,7 +476,10 @@ export async function createConversationAction(input: {
   employeeName?: string;
   channelName?: string;
   kind?: "direct" | "group";
-}): Promise<{ conversationId: string; executionLaneId?: string }> {
+}): Promise<{ conversationId: string; executionLaneId?: string } | null> {
+  if (!readConversationFeatureFlags().conversationV2Enabled) {
+    return null;
+  }
   const workspaceContext = await requireCurrentWorkspaceContext();
   const kind = input.kind ?? "direct";
   if (kind === "group") {
@@ -518,6 +522,9 @@ export interface ServerConversationListItem {
 export async function listConversationsAction(input: {
   employeeName: string;
 }): Promise<ServerConversationListItem[]> {
+  if (!readConversationFeatureFlags().conversationHistoryServer) {
+    return [];
+  }
   const workspaceContext = await requireCurrentWorkspaceContext();
   const employeeId = resolveStoredEmployeeIdSync(input.employeeName, workspaceContext.currentWorkspace.id);
   if (!employeeId) {
@@ -542,6 +549,9 @@ export async function listConversationsAction(input: {
 export async function listConversationsForChannelAction(input: {
   channelName: string;
 }): Promise<ServerConversationListItem[]> {
+  if (!readConversationFeatureFlags().conversationHistoryServer) {
+    return [];
+  }
   const workspaceContext = await requireCurrentWorkspaceContext();
   const conversations = listConversationsForChannelForUserSync({
     workspaceId: workspaceContext.currentWorkspace.id,
@@ -632,7 +642,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
     executionOptions.startNewConversation = true;
   }
   const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
-  if (conversationId) {
+  if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
     executionOptions.conversationId = conversationId;
     // 刷新会话活动时间；首条消息 draft→active + fallback 摘要。
     recordConversationMessageActivitySync({
@@ -747,7 +757,7 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
     executionOptions.startNewConversation = true;
   }
   const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
-  if (conversationId) {
+  if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
     const employeeId = resolveStoredEmployeeIdSync(contactId.trim(), workspaceContext.currentWorkspace.id);
     if (employeeId) {
       // 授权：校验当前用户是该 Conversation 的参与者、且该 employee 是该会话 participant。

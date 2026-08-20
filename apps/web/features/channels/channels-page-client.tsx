@@ -1293,12 +1293,15 @@ export function ChannelsPageClient({
     if (target?.kind === "direct" && target.contactId) {
       try {
         const result = await createConversationAction({ employeeName: target.contactId });
-        const conversationQuery = new URLSearchParams({ conversation: result.conversationId });
-        if (focus) {
-          conversationQuery.set("focus", focus);
+        if (result) {
+          const conversationQuery = new URLSearchParams({ conversation: result.conversationId });
+          if (focus) {
+            conversationQuery.set("focus", focus);
+          }
+          navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
+          return;
         }
-        navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
-        return;
+        // result 为 null = V2 开关关闭，回退 new=1。
       } catch {
         // 创建失败：退回 new=1 流程，保留旧会话上下文。
       }
@@ -1310,12 +1313,15 @@ export function ChannelsPageClient({
       if (channelName) {
         try {
           const result = await createConversationAction({ channelName, kind: "group" });
-          const conversationQuery = new URLSearchParams({ conversation: result.conversationId });
-          if (focus) {
-            conversationQuery.set("focus", focus);
+          if (result) {
+            const conversationQuery = new URLSearchParams({ conversation: result.conversationId });
+            if (focus) {
+              conversationQuery.set("focus", focus);
+            }
+            navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
+            return;
           }
-          navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
-          return;
+          // result 为 null = V2 开关关闭，回退 new=1。
         } catch {
           // 创建失败：退回 new=1 流程。
         }

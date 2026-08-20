@@ -10,8 +10,10 @@ import {
   createConversationSync,
   createWorkspaceSync,
   enqueueNativeTaskSync,
+  countActiveTasksForRuntimeSync,
   findActiveProviderSessionForLaneSync,
   getDatabase,
+  isRuntimeAtCapacitySync,
   listConversationParticipantsSync,
   listConversationsForChannelSync,
   listConversationsForEmployeeSync,
@@ -22,6 +24,7 @@ import {
   unarchiveConversationSync,
   updateConversationSync,
   upsertLaneProviderSessionSync,
+  upsertRuntimeTaskCapacitySync,
 } from "./index.ts";
 
 const originalCwd = process.cwd();
@@ -275,6 +278,73 @@ test("同员工不同会话（不同 Lane）可并行 claim，同 Lane 串行", 
 
   const claimedC = claimNextQueuedTaskForRuntimeSync(runtimeId!.id!);
   assert.equal(claimedC, null, "同 Lane 的 C 被运行中的 A 阻塞");
+});
+
+test("Runtime 容量门控：容量满时不领取（不同 Lane 也等待资源）", () => {
+  const runtimeId = createRuntimeAndBinding("Atlas");
+  upsertRuntimeTaskCapacitySync({ runtimeId, maxConcurrentTasks: 1 });
+  process.env.RUNTIME_TASK_CAPACITY_ENABLED = "1";
+  try {
+    const atlas = createEmployeeId("Atlas");
+    const conv1 = createConversationSync({ employeeId: atlas, employeeName: "Atlas", createdByUserId: "user-1" });
+    const conv2 = createConversationSync({ employeeId: atlas, employeeName: "Atlas", createdByUserId: "user-1" });
+    const lane1 = readExecutionLaneForConversationEmployeeSync("default", conv1.conversation.id, atlas)!;
+    const lane2 = readExecutionLaneForConversationEmployeeSync("default", conv2.conversation.id, atlas)!;
+    const enqueueOnLane = (laneId: string, content: string) => enqueueNativeTaskSync({
+      assignee: "Atlas",
+      title: content,
+      priority: "medium",
+      triggerType: "channel_chat",
+      requestedByUserId: "user-1",
+      conversationId: laneId === lane1.id ? conv1.conversation.id : conv2.conversation.id,
+      executionLaneId: laneId,
+      metadata: { channelName: "direct-atlas", channelMessage: content },
+    });
+
+    const task1 = enqueueOnLane(lane1.id, "任务 A");
+    const task2 = enqueueOnLane(lane2.id, "任务 B");
+    assert.ok(task1 && task2);
+
+    const claimed1 = claimNextQueuedTaskForRuntimeSync(runtimeId);
+    assert.equal(claimed1?.id, task1!.id);
+    assert.equal(countActiveTasksForRuntimeSync(runtimeId), 1);
+    assert.equal(isRuntimeAtCapacitySync(runtimeId), true);
+
+    const claimed2 = claimNextQueuedTaskForRuntimeSync(runtimeId);
+    assert.equal(claimed2, null, "容量满时即使不同 Lane 也不得领取");
+  } finally {
+    delete process.env.RUNTIME_TASK_CAPACITY_ENABLED;
+  }
+});
+
+test("TASK_QUEUE_BY_CONVERSATION=off 时回到 legacy claim（不同 Lane 也按员工串行）", () => {
+  const runtimeId = createRuntimeAndBinding("Atlas");
+  const atlas = createEmployeeId("Atlas");
+  const conv1 = createConversationSync({ employeeId: atlas, employeeName: "Atlas", createdByUserId: "user-1" });
+  const conv2 = createConversationSync({ employeeId: atlas, employeeName: "Atlas", createdByUserId: "user-1" });
+  const lane1 = readExecutionLaneForConversationEmployeeSync("default", conv1.conversation.id, atlas)!;
+  const lane2 = readExecutionLaneForConversationEmployeeSync("default", conv2.conversation.id, atlas)!;
+  const task1 = enqueueNativeTaskSync({
+    assignee: "Atlas", title: "任务 A", priority: "medium", triggerType: "channel_chat",
+    requestedByUserId: "user-1", conversationId: conv1.conversation.id, executionLaneId: lane1.id,
+    metadata: { channelName: "direct-atlas", channelMessage: "任务 A" },
+  });
+  const task2 = enqueueNativeTaskSync({
+    assignee: "Atlas", title: "任务 B", priority: "medium", triggerType: "channel_chat",
+    requestedByUserId: "user-1", conversationId: conv2.conversation.id, executionLaneId: lane2.id,
+    metadata: { channelName: "direct-atlas", channelMessage: "任务 B" },
+  });
+  assert.ok(task1 && task2);
+
+  process.env.TASK_QUEUE_BY_CONVERSATION = "off";
+  try {
+    const claimed1 = claimNextQueuedTaskForRuntimeSync(runtimeId);
+    assert.equal(claimed1?.id, task1!.id);
+    const claimed2 = claimNextQueuedTaskForRuntimeSync(runtimeId);
+    assert.equal(claimed2, null, "legacy claim 下同员工不同 Lane 也串行");
+  } finally {
+    delete process.env.TASK_QUEUE_BY_CONVERSATION;
+  }
 });
 
 test("同 Lane 互斥跨 runtime 生效（employee 重绑后不并发）", () => {
