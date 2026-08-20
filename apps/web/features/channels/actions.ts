@@ -13,10 +13,9 @@ import { assertCanUseEmployeeForActorSync, resolveAgentRuntimeMode } from "@dofe
 import { deleteChannelAttachmentSync } from "@dofe-agent/services/content";
 import { acknowledgeMessageSync, sendChannelHumanMessageSync, pinMessageSync, unpinMessageSync, replacePendingChannelMessageSync, setSessionModelOverrideForChatCommandSync, validateSessionModelOverrideForChatCommandAsync, ChatModelOverrideValidationError, resolveChatModelOverrideAsync } from "@dofe-agent/services/messaging";
 import { readWorkspaceStateSync, sameValue } from "@dofe-agent/services/workspace";
-import { updateEmployeeRemarkNameSync, listEmployeeSkillIdsSync } from "@dofe-agent/services/employees";
+import { updateEmployeeRemarkNameSync } from "@dofe-agent/services/employees";
 import { reviewApprovalSync, listApprovalsSync } from "@dofe-agent/services/tasks";
 import { reviewApprovalWithWorkflowSync, cancelWorkflowRunSync } from "@dofe-agent/services/workflows";
-import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
 import { FEISHU_PROVIDER_ID, readFeishuChatMemberSnapshot, readFeishuIntegrationCredentials } from "@dofe-agent/services/integrations";
 import { createConversationForUserSync, listConversationsForChannelForUserSync, listConversationsForEmployeeForUserSync, readConversationForUserSync, recordConversationMessageActivitySync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
 import {
@@ -33,7 +32,7 @@ import {
 } from "@dofe-agent/db";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
 import { parseModelCommand } from "@/features/chat/model-command";
-import { appendReferencedSkillDirective, mergeMessageAttachments, resolveReferencedAttachments } from "@/features/chat/message-composition";
+import { appendReferencedSkillDirective, mergeMessageAttachments, resolveReferencedAttachments, resolveResumeCommand } from "@/features/chat/message-composition";
 import {
   actionToastResult,
   successToast,
@@ -583,6 +582,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   const attachmentReferenceIds = getStringValues(formData, "attachmentReferences");
   const skillReferenceIds = getStringValues(formData, "skillReferences");
   const startNewConversation = formData.get("newConversation") === "1";
+  const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
 
   if (!channelName.trim()) {
     throw new Error("Missing channel name.");
@@ -600,6 +600,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
     workspaceId: workspaceContext.currentWorkspace.id,
     channelName,
     attachmentIds: attachmentReferenceIds,
+    conversationId,
   });
   const attachments = mergeMessageAttachments(uploadedAttachments, referencedAttachments);
   const resolvedContent = appendReferencedSkillDirective({
@@ -646,7 +647,6 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   if (startNewConversation) {
     executionOptions.startNewConversation = true;
   }
-  const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
   if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
     // 群聊发送必须绑定 Conversation 与频道：kind=group 且 channelId 与目标频道一致（docs §9）。
     const conversation = readConversationForUserSync({
@@ -707,6 +707,7 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   const referenceChannelName = getOptionalStringValue(formData, "referenceChannelName");
   const startNewConversation = formData.get("newConversation") === "1";
   const humanMemberName = workspaceContext.currentUser.displayName.trim() || "你";
+  const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
   let referencedAttachments: MessageAttachment[] = [];
   if (attachmentReferenceIds.length > 0) {
     if (!referenceChannelName) {
@@ -726,6 +727,7 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
       workspaceId: workspaceContext.currentWorkspace.id,
       channelName: referenceChannelName,
       attachmentIds: attachmentReferenceIds,
+      conversationId,
     });
   }
   const attachments = mergeMessageAttachments(uploadedAttachments, referencedAttachments);
@@ -772,7 +774,6 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   if (startNewConversation) {
     executionOptions.startNewConversation = true;
   }
-  const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
   if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
     const employeeId = resolveStoredEmployeeIdSync(contactId.trim(), workspaceContext.currentWorkspace.id);
     if (employeeId) {
@@ -1230,16 +1231,6 @@ function getOptionalStringValue(formData: FormData, key: string): string | undef
 
 function getStringValues(formData: FormData, key: string): string[] {
   return dedupeStrings(formData.getAll(key).filter((value): value is string => typeof value === "string"));
-}
-
-function resolveResumeCommand(content: string): string {
-  const isResumeCommand = /^\/resume(?:\s|$)/i.test(content.trim());
-  if (!isResumeCommand) {
-    return content;
-  }
-  // /resume 是导航命令（docs/0820 §5）：打开当前 AI 员工的历史会话面板，不产生聊天消息。
-  // 客户端在提交前拦截并打开历史面板；此处抛错兜底，避免任何路径把 /resume 误发成伪消息。
-  throw new Error("RESUME_COMMAND_IS_NAVIGATION");
 }
 
 function parseQueuedTaskPayload(inputJson: string): Record<string, unknown> {

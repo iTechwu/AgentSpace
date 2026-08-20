@@ -1,4 +1,5 @@
 import {
+  buildTaskQueueId,
   createChannelParticipantSync,
   DEFAULT_WORKSPACE_ID,
   enqueueNativeTaskSync,
@@ -112,6 +113,14 @@ export function sendContactMessageForHumanWithAttachmentsSync(
     hasAttachments: Boolean(attachments && attachments.length > 0),
   });
   assertWorkspaceDataPolicyAllowsExternalMessageInput(governedExternalInput);
+
+  // 幂等：同一 Idempotency-Key 的重试不重复写入用户消息（任务已按确定性 ID 去重，见 task-queue）。
+  if (
+    executionOptions?.idempotencyKey
+    && readQueuedTaskSync(buildTaskQueueId(effectiveWorkspaceId, executionOptions.idempotencyKey))
+  ) {
+    return state;
+  }
 
   const persistedMessage = mutateWorkspaceStateSync(effectiveWorkspaceId, (currentState) => {
     const directChannel = ensureDirectChannelRecord(currentState, {

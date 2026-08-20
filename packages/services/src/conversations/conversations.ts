@@ -322,8 +322,10 @@ export function refreshConversationSummaryAfterReplySync(input: RefreshConversat
   if (!summary || summary === "新会话") {
     return conversation;
   }
+  // CAS：传入本次读取的 version，若期间用户已改标题/摘要则放弃覆盖（docs §8）。
   return updateConversationSync({
     conversationId: conversation.id,
+    expectedVersion: conversation.version,
     summary,
     summarySource: "generated",
   });
@@ -436,67 +438,90 @@ export function backfillLegacyConversationsSync(workspaceId = DEFAULT_WORKSPACE_
       continue;
     }
 
-    // 从既有 human 消息抽取 userId，作为 human participant 归属，避免普通成员看不到回填会话（docs §9）。
-    const legacyUserId = legacyMessages.find((message) => message.role === "human" && message.speakerUserId)?.speakerUserId;
-    // legacy scope = workspace + requester + employee + channel（docs Phase 5.1）：确定性会话 ID 纳入
-    // requester 与 employee，避免不同用户/员工的历史被合并进同一会话。group 的 employee 维度为
-    // 频道内全部员工的稳定排序（群聊以 Lane 区分员工，会话本身跨员工共享）。
+    // 按请求者拆分 legacy 消息：同一频道内不同 human 请求者的历史各自成会话，避免串线与错误授权（docs §9）。
+    const requesterByMessageId = new Map<string, string>();
+    for (const message of legacyMessages) {
+      if (message.role === "human") {
+        requesterByMessageId.set(message.id, message.speakerUserId ?? message.speaker ?? "unknown");
+      }
+    }
+    // legacy scope = workspace + requester + employee + channel（docs Phase 5.1）。
     const employeeScope = kind === "direct"
       ? (employeeParticipants[0]?.employeeId ?? "")
       : employeeParticipants.map((participant) => participant.employeeId).sort().join(",");
-    const legacyId = `conversation-legacy-${createHash("sha256")
-      .update(`${workspaceId}\0${legacyUserId ?? ""}\0${employeeScope}\0${channelName}`)
-      .digest("hex").slice(0, 32)}`;
-    if (!readConversationSync(legacyId)) {
-      createConversationSync({
-        workspaceId,
-        id: legacyId,
-        kind,
-        channelId: channelName,
-        createdByUserId: legacyUserId,
-        employeeId: kind === "direct" ? employeeParticipants[0]?.employeeId : undefined,
-        employeeName: kind === "direct" ? employeeParticipants[0]?.employeeName : undefined,
-        employeeParticipants: kind === "group" ? employeeParticipants : undefined,
-      });
-      conversationsCreated += 1;
+    const groups = new Map<string, { requesterUserId?: string; messages: typeof legacyMessages }>();
+    let currentRequester: string | undefined;
+    for (const message of legacyMessages) {
+      let requester: string;
+      if (message.role === "human") {
+        requester = message.speakerUserId ?? message.speaker ?? "unknown";
+      } else {
+        const sourceId = message.data?.source_message_id;
+        requester = (typeof sourceId === "string" ? requesterByMessageId.get(sourceId) : undefined)
+          ?? currentRequester
+          ?? message.speakerUserId
+          ?? "unknown";
+      }
+      currentRequester = requester;
+      const group = groups.get(requester) ?? { requesterUserId: requester === "unknown" ? undefined : requester, messages: [] };
+      group.messages.push(message);
+      groups.set(requester, group);
     }
 
-    state.messages = state.messages.map((message) =>
-      (sameValue(message.channel ?? "", channelName) && !message.conversationId)
-        ? { ...message, conversationId: legacyId }
-        : message,
-    );
-    messagesTagged += legacyMessages.length;
-    // 镜像到 conversation_message 表（docs §2.5）。
-    for (const message of legacyMessages) {
-      writeConversationMessageSync({
-        id: message.id,
-        workspaceId,
+    for (const [requester, group] of groups) {
+      const legacyId = `conversation-legacy-${createHash("sha256")
+        .update(`${workspaceId}\0${requester}\0${employeeScope}\0${channelName}`)
+        .digest("hex").slice(0, 32)}`;
+      if (!readConversationSync(legacyId)) {
+        createConversationSync({
+          workspaceId,
+          id: legacyId,
+          kind,
+          channelId: channelName,
+          createdByUserId: group.requesterUserId,
+          employeeId: kind === "direct" ? employeeParticipants[0]?.employeeId : undefined,
+          employeeName: kind === "direct" ? employeeParticipants[0]?.employeeName : undefined,
+          employeeParticipants: kind === "group" ? employeeParticipants : undefined,
+        });
+        conversationsCreated += 1;
+      }
+
+      for (const message of group.messages) {
+        state.messages = state.messages.map((candidate) =>
+          candidate.id === message.id ? { ...candidate, conversationId: legacyId } : candidate,
+        );
+      }
+      messagesTagged += group.messages.length;
+      // 镜像到 conversation_message 表（docs §2.5）。
+      for (const message of group.messages) {
+        writeConversationMessageSync({
+          id: message.id,
+          workspaceId,
+          conversationId: legacyId,
+          channel: message.channel,
+          speaker: message.speaker,
+          speakerUserId: message.speakerUserId,
+          role: message.role,
+          summary: message.summary,
+          status: message.status ?? "completed",
+          kind: message.kind,
+          processType: message.processType,
+          tool: message.tool,
+          code: message.code,
+          data: message.data,
+          time: message.time,
+        });
+      }
+      const firstMessage = group.messages[0];
+      updateConversationSync({
         conversationId: legacyId,
-        channel: message.channel,
-        speaker: message.speaker,
-        speakerUserId: message.speakerUserId,
-        role: message.role,
-        summary: message.summary,
-        status: message.status ?? "completed",
-        kind: message.kind,
-        processType: message.processType,
-        tool: message.tool,
-        code: message.code,
-        data: message.data,
-        time: message.time,
+        status: "active",
+        summary: firstMessage?.summary ? buildConversationSummary(firstMessage.summary) : null,
+        summarySource: firstMessage?.summary ? "generated" : undefined,
+        lastMessageAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
       });
     }
-    const firstMessage = legacyMessages[0];
-    updateConversationSync({
-      conversationId: legacyId,
-      status: "active",
-      summary: firstMessage?.summary ? buildConversationSummary(firstMessage.summary) : null,
-      summarySource: firstMessage?.summary ? "generated" : undefined,
-      // WorkspaceMessage.time 是展示时间（如 10:00），不能写入 TIMESTAMPTZ；legacy 用回填时刻近似。
-      lastMessageAt: new Date().toISOString(),
-      lastActivityAt: new Date().toISOString(),
-    });
   }
 
   if (messagesTagged > 0) {

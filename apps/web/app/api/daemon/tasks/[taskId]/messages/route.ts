@@ -57,6 +57,7 @@ export async function POST(
           refId: message.refId,
           content: message.content,
           detail: progressDetail(message),
+          conversationId: task.conversationId ?? payload.conversationId,
         }, task.workspaceId);
       }
     }

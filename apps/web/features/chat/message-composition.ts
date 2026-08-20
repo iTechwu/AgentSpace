@@ -46,6 +46,18 @@ export function resolveReferencedAttachments(input: {
   });
 }
 
+/**
+ * /resume 是导航命令（docs/0820 §5）：打开历史会话面板，不产生聊天消息。
+ * 服务端兜底：任何发送路径（Server Action / REST）都不应把 /resume 误发成消息。
+ */
+export function resolveResumeCommand(content: string): string {
+  const isResumeCommand = /^\/resume(?:\s|$)/i.test(content.trim());
+  if (!isResumeCommand) {
+    return content;
+  }
+  throw new Error("RESUME_COMMAND_IS_NAVIGATION");
+}
+
 export function mergeMessageAttachments(
   uploaded: MessageAttachment[] | undefined,
   referenced: MessageAttachment[],

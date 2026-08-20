@@ -3,7 +3,7 @@ import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
 import { listConversationParticipantsSync, readConversationSync, readStoredChannelSync, readStoredEmployeeByIdSync } from "@dofe-agent/db";
 import { recordConversationMessageActivitySync, readConversationForUserSync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
-import { appendReferencedSkillDirective, mergeMessageAttachments, resolveReferencedAttachments } from "@/features/chat/message-composition";
+import { appendReferencedSkillDirective, mergeMessageAttachments, resolveReferencedAttachments, resolveResumeCommand } from "@/features/chat/message-composition";
 import { sendContactMessageForHumanWithAttachmentsSync } from "@dofe-agent/services/channels";
 import { sendChannelHumanMessageSync } from "@dofe-agent/services/messaging";
 import { readWorkspaceStateSync } from "@dofe-agent/services/workspace";
@@ -112,6 +112,8 @@ export async function POST(
       conversationId,
       actorUserId: workspaceContext.currentUser.id,
     });
+    // /resume 是导航命令：REST 端点同样拒绝，不产生聊天消息（docs/0820 §5）。
+    resolveResumeCommand(content);
     const uploadedAttachments = (await persistFormAttachments(formData, "attachments", workspaceId)) ?? [];
     const referencedAttachments = resolveReferencedAttachments({
       workspaceId,

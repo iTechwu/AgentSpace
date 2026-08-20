@@ -1,4 +1,5 @@
 import {
+  buildTaskQueueId,
   DEFAULT_WORKSPACE_ID,
   ensureExecutionLaneForConversationSync,
   enqueueNativeTaskSync,
@@ -259,6 +260,14 @@ export function sendChannelHumanMessageSync(
   const mentionPlan = parseMentionPlan(trimmed, mentionCandidates);
   const autoContinuationDirective =
     mentionParse.agentMentions.length === 1 ? parseAutoContinuationDirective(trimmed) : null;
+
+  // 幂等：同一 Idempotency-Key 的重试不重复写入用户消息（任务已按确定性 ID 去重，见 task-queue）。
+  if (
+    executionOptions?.idempotencyKey
+    && readQueuedTaskSync(buildTaskQueueId(effectiveWorkspaceId, executionOptions.idempotencyKey))
+  ) {
+    return state;
+  }
 
   const humanMessage = pushWorkspaceMessageToChannel(state, channel.name, {
     speaker,
@@ -920,6 +929,7 @@ export function recordAgentChannelProgressSync(input: {
   refId?: string;
   content?: string;
   detail?: string;
+  conversationId?: string;
 }, workspaceId?: string): WorkspaceMessage | null {
   const sourceTaskQueueId = input.sourceTaskQueueId.trim();
   if (!sourceTaskQueueId) {
@@ -1011,6 +1021,7 @@ export function recordAgentChannelProgressSync(input: {
     role: "agent",
     summary,
     code: "agent.progress",
+    conversationId: input.conversationId,
     data: {
       source_task_queue_id: sourceTaskQueueId,
       ...(input.refId ? { execution_ref_id: input.refId } : {}),
