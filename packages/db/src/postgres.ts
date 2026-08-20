@@ -64,7 +64,38 @@ type JsonColumnName =
   | "non_secret_params_json"
   | "tools_metadata_json"
   | "request_snapshot_json"
-  | "authorization_json";
+  | "authorization_json"
+  | "draft_graph_json"
+  | "graph_json"
+  | "input_schema_json"
+  | "output_schema_json"
+  | "governance_json"
+  | "budget_json"
+  | "artifact_manifest_json"
+  | "retention_policy_json"
+  | "manifest_digest"
+  | "approvers_json"
+  | "context_json"
+  | "stages_json"
+  | "timeouts_json"
+  | "cleanup_result_json"
+  | "resource_profile_json"
+  | "provenance_json"
+  | "resolved_lock_json"
+  | "risk_items_json"
+  | "safe_result_json"
+  | "closure_json"
+  | "target_runtimes_json"
+  | "risk_summary_json"
+  | "resources_json"
+  | "health_json"
+  | "network_json"
+  | "external_dependencies_json"
+  | "cap_drop_json"
+  | "artifact_ids_json"
+  | "protocols_json"
+  | "allowed_models_json"
+  | "config_schema_json";
 
 interface TableMigrationPlan {
   tableName: Exclude<PostgresTableName, "app_metadata" | "attachment" | "audit_log">;
@@ -169,6 +200,14 @@ interface DerivedAuditLogRow extends MigrationRow {
 
 const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "workspace", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "workflow_definition", conflictColumns: ["id"], jsonColumns: ["draft_graph_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "workflow_version", conflictColumns: ["id"], jsonColumns: ["graph_json", "input_schema_json", "output_schema_json", "governance_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "workflow_trigger", conflictColumns: ["id"], jsonColumns: ["config_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "workflow_run", conflictColumns: ["id"], jsonColumns: ["input_json", "budget_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "workflow_node_run", conflictColumns: ["id"], jsonColumns: ["input_json", "result_json", "artifact_manifest_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "workflow_run_event", conflictColumns: ["id"], jsonColumns: ["data_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "workflow_outbox", conflictColumns: ["id"], jsonColumns: ["payload_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "content_blob", conflictColumns: ["workspace_id", "sha256"], optionalWhenMissing: true, orderBy: "created_at ASC, workspace_id ASC, sha256 ASC" },
   // 托管运行时依赖工作区映射到 SSO tenant/team；必须在 agent_runtime 前导入。
   { tableName: "workspace_sso_binding", conflictColumns: ["workspace_id"], optionalWhenMissing: true, orderBy: "workspace_id ASC" },
   { tableName: "users", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
@@ -243,6 +282,11 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "channel_access_request", conflictColumns: ["id"], orderBy: "requested_at ASC, id ASC" },
   { tableName: "channel_invitation", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "workspace_employee", conflictColumns: ["workspace_id", "name"], jsonColumns: ["traits_json"], orderBy: "created_at ASC, workspace_id ASC, name ASC" },
+  { tableName: "employee_workspace_revision", conflictColumns: ["id"], jsonColumns: ["manifest_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "employee_persistent_workspace", conflictColumns: ["id"], jsonColumns: ["retention_policy_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "employee_artifact", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "employee_data_legal_hold", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "workspace_git_credential", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_fork_invitation", conflictColumns: ["id"], jsonColumns: ["options_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_fork_snapshot", conflictColumns: ["id"], jsonColumns: ["snapshot_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "workspace_task", conflictColumns: ["id"], jsonColumns: ["labels_json"], orderBy: "created_at ASC, id ASC" },
@@ -254,7 +298,14 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
     jsonColumns: ["config_json", "encrypted_credentials_json"],
     orderBy: "created_at ASC, id ASC",
   },
+  { tableName: "runtime_provision_request", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_runtime", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "runtime_provisioning_task", conflictColumns: ["id"], jsonColumns: ["protocols_json", "allowed_models_json", "cleanup_result_json", "timeouts_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "runtime_provisioning_task_event", conflictColumns: ["id"], jsonColumns: ["data_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "runtime_credential_recovery_task", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "runtime_credential_reconciliation_target", conflictColumns: ["workspace_id", "runtime_credential_id"], optionalWhenMissing: true, orderBy: "created_at ASC, workspace_id ASC, runtime_credential_id ASC" },
+  { tableName: "runtime_maintenance_run", conflictColumns: ["id"], jsonColumns: ["stages_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "managed_runtime_cleanup_request", conflictColumns: ["id"], jsonColumns: ["result_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   {
     tableName: "mcp_catalog_item",
     conflictColumns: ["id"],
@@ -331,6 +382,22 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "runtime_app_operation", conflictColumns: ["id"], jsonColumns: ["command_plan_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "skill", conflictColumns: ["id"], jsonColumns: ["config_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "skill_file", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_artifact", conflictColumns: ["id"], jsonColumns: ["manifest_json", "provenance_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_artifact_binding", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_artifact_file", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_rollout_plan", conflictColumns: ["id"], jsonColumns: ["closure_json", "target_runtimes_json", "risk_summary_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_installation", conflictColumns: ["id"], jsonColumns: ["resolved_lock_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_installation_component", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "updated_at ASC, id ASC" },
+  { tableName: "skill_installation_operation", conflictColumns: ["id"], jsonColumns: ["request_snapshot_json", "safe_result_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_install_approval", conflictColumns: ["id"], jsonColumns: ["risk_items_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_upgrade_approval", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_rollout_reconcile_item", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_runner_invocation", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_draft", conflictColumns: ["workspace_id", "skill_id"], jsonColumns: ["config_json"], optionalWhenMissing: true, orderBy: "updated_at ASC, workspace_id ASC, skill_id ASC" },
+  { tableName: "skill_service_catalog", conflictColumns: ["id"], jsonColumns: ["resources_json", "health_json", "network_json", "config_schema_json", "secret_fields_json", "external_dependencies_json", "cap_drop_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "managed_skill_service", conflictColumns: ["id"], jsonColumns: ["resource_profile_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "skill_service_binding", conflictColumns: ["installation_id", "service_id"], optionalWhenMissing: true, orderBy: "created_at ASC, installation_id ASC, service_id ASC" },
+  { tableName: "managed_skill_service_operation", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "runtime_app_skill_binding", conflictColumns: ["workspace_id", "runtime_app_id", "skill_id"], orderBy: "created_at ASC, workspace_id ASC, runtime_app_id ASC, skill_id ASC" },
   { tableName: "skill_import_event", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "imported_at ASC, id ASC" },
   { tableName: "agent_skill", conflictColumns: ["workspace_id", "employee_id", "skill_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, skill_id ASC" },
@@ -340,6 +407,12 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "agent_router_session", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_router_provider_session", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_task_queue", conflictColumns: ["id"], jsonColumns: ["input_json", "result_json"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "token_usage_billing_event", conflictColumns: ["id"], jsonColumns: ["snapshot_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "token_usage_reconciliation_cursor", conflictColumns: ["workspace_id", "runtime_credential_id"], optionalWhenMissing: true, orderBy: "updated_at ASC, workspace_id ASC, runtime_credential_id ASC" },
+  { tableName: "token_usage_retry", conflictColumns: ["id"], jsonColumns: ["payload_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "task_commit_journal", conflictColumns: ["task_id", "attempt"], jsonColumns: ["artifact_ids_json"], optionalWhenMissing: true, orderBy: "created_at ASC, task_id ASC, attempt ASC" },
+  { tableName: "employee_recovery_operation", conflictColumns: ["id"], jsonColumns: ["context_json", "approvers_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "pager_alert_state", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "first_seen_at ASC, id ASC" },
   { tableName: "external_thread_binding", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_task_attempt", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_router_event", conflictColumns: ["id"], jsonColumns: ["data_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
