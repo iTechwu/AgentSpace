@@ -1,5 +1,5 @@
 # AI 员工多会话拆分方案
-> **实现状态（本次会话 · dev）**：核心后端与直接会话前端已落地并通过测试。已实现：四个领域表（`conversation` / `conversation_participant` / `conversation_execution_lane` / `conversation_provider_session`）、`agent_task_queue` 新增 `conversation_id`/`execution_lane_id`、DB 领域访问层 `packages/db/src/conversations.ts`、Router key `conversation:<id>`（legacy 回退保留）、按 Execution Lane 领取（跨会话并行 / 同 Lane 串行且互斥跨 runtime、legacy 无 Lane 回退旧规则）、服务层与 REST API（创建/列表/读取/归档/恢复/摘要）、`/new` 直接会话端到端（服务端建会话 → 稳定 URL `conversation=<id>` → 消息透传并过滤 → 发送不回跳）、发送授权（会话参与者 + employee 参与者校验）、历史面板接服务端会话并按用户隔离、首条消息 fallback 摘要。未完成：群聊多 Lane 前端、消息按 `conversation_id` 持久化到独立表、发送/加载消息 API、摘要生成 worker、legacy 回填与 feature flag、Runtime capacity 投影。详见各文档标注。
+> **实现状态（本次会话 · dev）**：核心后端与直接/群聊前端已落地并通过测试。已实现：四个领域表、`agent_task_queue` 会话列、DB 领域访问层、Router key `conversation:<id>`、按 Execution Lane 领取（跨会话并行 / 同 Lane 串行且互斥跨 runtime、legacy 回退）、服务层与 REST API、`/new` 直接会话端到端（稳定 URL + 消息过滤 + 不回跳）、群聊 Conversation（按 channel 建会话、按提及员工惰性建立 Lane、群聊历史服务端化）、发送授权、历史面板服务端化并按用户隔离、fallback 摘要。未完成：消息按 `conversation_id` 持久化到独立表、发送/加载消息 API、异步摘要生成 worker、legacy 回填与 feature flag、Runtime capacity 投影。详见各文档标注。
 
 
 ## 1. 结论
