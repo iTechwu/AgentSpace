@@ -1077,7 +1077,7 @@ describe("ConversationShell", () => {
     expect(screen.getByText("/plan")).toBeInTheDocument();
     await user.keyboard("{ArrowDown}{Enter}");
     expect(composer).toHaveValue("");
-    expect(screen.getByText("当前运行时会话会在下一条消息中自动续接。")).toBeInTheDocument();
+    expect(await screen.findByText("当前运行时会话会在下一条消息中自动续接。")).toBeInTheDocument();
   });
 
   it("handles /model as a local command instead of sending it as message context", async () => {
@@ -1153,7 +1153,7 @@ describe("ConversationShell", () => {
     await user.type(composer, "/res");
     await user.keyboard("{Enter}");
     expect(composer).toHaveValue("");
-    expect(screen.getByText("当前运行时会话会在下一条消息中自动续接。")).toBeInTheDocument();
+    expect(await screen.findByText("当前运行时会话会在下一条消息中自动续接。")).toBeInTheDocument();
   });
 
   it("opens the unified references and attachments menu from the plus button", async () => {
