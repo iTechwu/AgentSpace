@@ -358,6 +358,7 @@ export function projectTaskCompletion(input: {
       channel: payload.channel,
       pendingSpeaker: agentName,
       speaker: payload.assignee ?? runtimeName,
+      conversationId: payload.conversationId,
       summary: input.finalOutputText,
       attachments: input.attachments,
       sourceTaskQueueId: task.id,
@@ -412,6 +413,7 @@ export function projectTaskCompletion(input: {
     const reply = completeAgentChannelReplySync({
       channel: payload.channel,
       speaker: runtimeName,
+      conversationId: payload.conversationId,
       summary: input.finalOutputText,
       attachments: input.attachments,
       sourceTaskQueueId: task.id,

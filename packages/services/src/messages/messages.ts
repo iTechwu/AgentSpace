@@ -265,6 +265,7 @@ export function sendChannelHumanMessageSync(
     attachments,
     mentions: mentionParse.allMentions,
     replyToMessageId,
+    conversationId: executionOptions?.conversationId,
     data: buildExternalMessageData(governedExternalInput),
   }, effectiveWorkspaceId);
 
@@ -668,6 +669,7 @@ export function completeAgentChannelReplySync(input: {
   channel: string;
   pendingSpeaker?: string;
   speaker: string;
+  conversationId?: string;
   summary: string;
   attachments?: MessageAttachment[];
   sourceTaskQueueId?: string;
@@ -753,6 +755,7 @@ export function completeAgentChannelReplySync(input: {
     status: "completed",
     attachments: input.attachments,
     mentions: mentionParse.allMentions,
+    conversationId: input.conversationId,
     ...(sourceTaskQueueId ? { data: { source_task_queue_id: sourceTaskQueueId } } : {}),
   }, effectiveWorkspaceId);
 
@@ -1026,6 +1029,7 @@ export function replacePendingChannelMessageSync(input: {
   summary: string;
   status?: "pending" | "completed" | "error";
   attachments?: MessageAttachment[];
+  conversationId?: string;
 }, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const speakerPendingReplies = state.messages.filter((message) =>
@@ -1065,6 +1069,7 @@ export function replacePendingChannelMessageSync(input: {
     summary: input.summary,
     status: input.status ?? "completed",
     attachments: input.attachments,
+    conversationId: input.conversationId,
     ...(input.pendingTaskId ? { data: { source_task_queue_id: input.pendingTaskId } } : {}),
   }, workspaceId);
 

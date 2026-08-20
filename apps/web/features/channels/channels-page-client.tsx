@@ -30,6 +30,7 @@ import {
   saveChannelDocumentAction,
   sendContactMessageAction,
   sendChannelMessageAction,
+  createConversationAction,
   stopChannelTaskAction,
   acknowledgeMessageAction,
 } from "@/features/channels/actions";
@@ -1080,7 +1081,9 @@ export function ChannelsPageClient({
       if (isNewConversation) {
         return [];
       }
-      const threadMessages = selectedThread?.messages ?? [];
+      const threadMessages = (selectedThread?.messages ?? []).filter((message) =>
+        !routeState.conversationId || message.conversationId === routeState.conversationId,
+      );
       const taskExecutions = selectedThread?.taskExecutions;
 
       // Fold the flat process messages of one task into a single timeline carrier:
@@ -1170,6 +1173,7 @@ export function ChannelsPageClient({
               speaker: executionReply.speaker,
               role: executionReply.role,
               content: executionReply.summary,
+              conversationId: executionReply.conversationId,
               code: executionReply.code,
               data: executionReply.data,
               executionDetail: executionReply.data?.execution_detail,
@@ -1191,6 +1195,7 @@ export function ChannelsPageClient({
           speaker: message.speaker,
           role: message.role,
           content: message.summary,
+          conversationId: message.conversationId,
           code: message.code,
           data: message.data,
           executionDetail: message.data?.execution_detail,
@@ -1226,7 +1231,7 @@ export function ChannelsPageClient({
         }];
       });
     },
-    [isNewConversation, selectedThread, tx],
+    [isNewConversation, routeState.conversationId, selectedThread, tx],
   );
   const selectedHistoryRecord = selectedHistoryId
     ? conversationHistory.find((record) => record.id === selectedHistoryId) ?? null
@@ -1309,7 +1314,7 @@ export function ChannelsPageClient({
     navigateToWorkspaceModule(`/agents?mode=agent&focus=${encodeURIComponent(`agent-${agentReference}`)}`);
   }
 
-  const startNewConversation = useCallback(() => {
+  const startNewConversation = useCallback(async () => {
     const target = selectedChannel ?? visibleChannels[0];
     if (selectedChannel && liveMessages.length > 0 && !isNewConversation) {
       const employeeKey = resolveConversationEmployeeKey(selectedChannel) ?? selectedChannel.id;
@@ -1342,12 +1347,28 @@ export function ChannelsPageClient({
       });
     }
     const focus = target ? buildChannelFocusValue(target, target.id) : null;
+    setSelectedHistoryId(null);
+    setShowConversationHistory(false);
+
+    // 直接会话：创建服务端 Conversation 并跳转稳定 URL（docs/0820/session-split §2.1）。
+    if (target?.kind === "direct" && target.contactId) {
+      try {
+        const result = await createConversationAction({ employeeName: target.contactId });
+        const conversationQuery = new URLSearchParams({ conversation: result.conversationId });
+        if (focus) {
+          conversationQuery.set("focus", focus);
+        }
+        navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
+        return;
+      } catch {
+        // 创建失败：退回 new=1 流程，保留旧会话上下文。
+      }
+    }
+
     const query = new URLSearchParams({ new: "1" });
     if (focus) {
       query.set("focus", focus);
     }
-    setSelectedHistoryId(null);
-    setShowConversationHistory(false);
     navigateToWorkspaceModule(`/im?${query.toString()}`);
   }, [conversationHistoryStorageKey, isNewConversation, liveMessages, navigateToWorkspaceModule, selectedChannel, tx, visibleChannels]);
 
@@ -2145,6 +2166,9 @@ export function ChannelsPageClient({
           if (isNewConversation) {
             formData.set("newConversation", "1");
           }
+          if (routeState.conversationId) {
+            formData.set("conversationId", routeState.conversationId);
+          }
           files.forEach((file) => formData.append("attachments", file));
           referenceAttachmentIds?.forEach((attachmentId) => formData.append("attachmentReferences", attachmentId));
           referenceSkillIds?.forEach((skillId) => formData.append("skillReferences", skillId));
@@ -2159,9 +2183,15 @@ export function ChannelsPageClient({
 
             formData.set("contactId", selectedChannel.contactId);
             await sendContactMessageAction(formData);
-            if (isViewingHistory || isNewConversation) {
+            if (isViewingHistory || isNewConversation || routeState.conversationId) {
               setSelectedHistoryId(null);
-              replaceWorkspaceModule(`/im?focus=${encodeURIComponent(buildChannelFocusValue(selectedChannel, selectedChannel.id))}`);
+              const nextSearch = new URLSearchParams({
+                focus: buildChannelFocusValue(selectedChannel, selectedChannel.id),
+              });
+              if (routeState.conversationId) {
+                nextSearch.set("conversation", routeState.conversationId);
+              }
+              replaceWorkspaceModule(`/im?${nextSearch.toString()}`);
             }
             refreshChannelModule(selectedConversationChannelName);
             return;
@@ -2176,9 +2206,15 @@ export function ChannelsPageClient({
             formData.set("replyToMessageId", replyToMessageId);
           }
           await sendChannelMessageAction(formData);
-          if (isViewingHistory || isNewConversation) {
+          if (isViewingHistory || isNewConversation || routeState.conversationId) {
             setSelectedHistoryId(null);
-            replaceWorkspaceModule(`/im?focus=${encodeURIComponent(buildChannelFocusValue(selectedChannel, selectedChannel.id))}`);
+            const nextSearch = new URLSearchParams({
+              focus: buildChannelFocusValue(selectedChannel, selectedChannel.id),
+            });
+            if (routeState.conversationId) {
+              nextSearch.set("conversation", routeState.conversationId);
+            }
+            replaceWorkspaceModule(`/im?${nextSearch.toString()}`);
           }
           refreshChannelModule(selectedConversationChannelName);
         }}

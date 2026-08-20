@@ -138,6 +138,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       summary: trimmed,
       status: "completed",
       attachments,
+      conversationId: executionOptions?.conversationId,
       data: buildExternalMessageData(governedExternalInput),
     }, effectiveWorkspaceId);
     const shell = ensureLegacyContactShell(currentState, contact.name, contact, true, humanMemberName);
@@ -241,6 +242,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
         role: "agent",
         summary: "Thinking",
         code: "agent.pending",
+        conversationId: executionOptions?.conversationId,
         data: {
           agent_name: contact.name,
           source_message_id: humanMessage.id,

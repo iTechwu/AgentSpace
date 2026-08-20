@@ -24,6 +24,8 @@ export interface ConversationThreadMessage {
   speaker: string;
   role: "human" | "agent";
   content: string;
+  /** 多会话拆分：消息所属 Conversation；按会话过滤消息流时使用。 */
+  conversationId?: string;
   code?: string;
   data?: Record<string, string>;
   /** Raw runtime thinking/tool detail retained for process-message fallback rendering. */

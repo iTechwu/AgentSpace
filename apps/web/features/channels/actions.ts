@@ -18,14 +18,17 @@ import { reviewApprovalSync, listApprovalsSync } from "@dofe-agent/services/task
 import { reviewApprovalWithWorkflowSync, cancelWorkflowRunSync } from "@dofe-agent/services/workflows";
 import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
 import { FEISHU_PROVIDER_ID, readFeishuChatMemberSnapshot, readFeishuIntegrationCredentials } from "@dofe-agent/services/integrations";
+import { createConversationForUserSync } from "@dofe-agent/services/conversations";
 import {
   cancelQueuedTaskSync,
+  ensureExecutionLaneForConversationSync,
   listExternalChannelBindingsSync,
   listExternalIntegrationsSync,
   readWorkflowDefinitionSync,
   readWorkflowNodeRunByTaskQueueIdSync,
   readWorkflowRunSync,
   readQueuedTaskSync,
+  resolveStoredEmployeeIdSync,
 } from "@dofe-agent/db";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
 import { parseModelCommand } from "@/features/chat/model-command";
@@ -469,6 +472,23 @@ export async function renameChannelAction(input: {
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
 }
 
+export async function createConversationAction(input: {
+  employeeName: string;
+}): Promise<{ conversationId: string; executionLaneId: string }> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const employeeId = resolveStoredEmployeeIdSync(input.employeeName, workspaceContext.currentWorkspace.id);
+  if (!employeeId) {
+    throw new Error("Employee not found.");
+  }
+  const result = createConversationForUserSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    employeeId,
+    createdByUserId: workspaceContext.currentUser.id,
+    kind: "direct",
+  });
+  return { conversationId: result.conversation.id, executionLaneId: result.lane.id };
+}
+
 export async function sendChannelMessageAction(formData: FormData): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   const channelName = getRequiredValue(formData, "channelName");
@@ -637,11 +657,25 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
     workspaceContext.currentWorkspace.id,
     workspaceContext.currentUser.id,
   ] as const;
+  const executionOptions: { startNewConversation?: boolean; conversationId?: string; executionLaneId?: string } = {};
   if (startNewConversation) {
-    sendContactMessageForHumanWithAttachmentsSync(...messageArgs, undefined, { startNewConversation: true });
-  } else {
-    sendContactMessageForHumanWithAttachmentsSync(...messageArgs);
+    executionOptions.startNewConversation = true;
   }
+  const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
+  if (conversationId) {
+    const employeeId = resolveStoredEmployeeIdSync(contactId.trim(), workspaceContext.currentWorkspace.id);
+    if (employeeId) {
+      const lane = ensureExecutionLaneForConversationSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        conversationId,
+        employeeId,
+        employeeName: contactId.trim(),
+      });
+      executionOptions.conversationId = conversationId;
+      executionOptions.executionLaneId = lane.id;
+    }
+  }
+  sendContactMessageForHumanWithAttachmentsSync(...messageArgs, undefined, executionOptions);
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
 }

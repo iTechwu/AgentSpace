@@ -104,6 +104,8 @@ export interface MessageAcknowledgement {
 export interface WorkspaceMessage {
   id: string;
   channel?: string;
+  /** 多会话拆分：所属 Conversation 的不可变身份；按会话过滤消息流时使用。 */
+  conversationId?: string;
   speaker: string;
   speakerUserId?: string;
   role: "human" | "agent";

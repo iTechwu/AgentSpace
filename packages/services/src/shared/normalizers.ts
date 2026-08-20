@@ -1182,6 +1182,10 @@ function normalizeWorkspaceMessage(message: unknown): WorkspaceMessage | null {
         ? candidate.id.trim()
         : `message-${createOpaqueId()}`,
     channel: typeof candidate.channel === "string" ? candidate.channel : undefined,
+    conversationId:
+      typeof candidate.conversationId === "string" && candidate.conversationId.trim().length > 0
+        ? candidate.conversationId.trim()
+        : undefined,
     speaker: candidate.speaker,
     speakerUserId:
       typeof candidate.speakerUserId === "string" && candidate.speakerUserId.trim().length > 0

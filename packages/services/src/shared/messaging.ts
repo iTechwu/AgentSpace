@@ -170,6 +170,7 @@ export function pushWorkspaceMessageIfChannel(
     summary: string;
     code?: string;
     data?: Record<string, string>;
+    conversationId?: string;
     attachments?: MessageAttachment[];
     mentions?: MessageMention[];
   },
@@ -196,6 +197,7 @@ export function pushWorkspaceMessageToChannel(
     kind?: "message" | "process";
     processType?: string;
     tool?: string;
+    conversationId?: string;
     recordInChannelHistory?: boolean;
     attachments?: MessageAttachment[];
     mentions?: MessageMention[];
@@ -205,6 +207,7 @@ export function pushWorkspaceMessageToChannel(
 ): WorkspaceMessage {
   const message = createWorkspaceMessageRecord({
     channel,
+    conversationId: input.conversationId,
     speaker: input.speaker,
     speakerUserId: input.speakerUserId,
     role: input.role,
@@ -237,6 +240,7 @@ export function pushWorkspaceMessageToChannel(
 
 export function createWorkspaceMessageRecord(input: {
   channel?: string;
+  conversationId?: string;
   speaker: string;
   speakerUserId?: string;
   role: "human" | "agent";
@@ -254,6 +258,7 @@ export function createWorkspaceMessageRecord(input: {
   return {
     id: `message-${createOpaqueId()}`,
     channel: input.channel,
+    conversationId: input.conversationId,
     speaker: input.speaker,
     speakerUserId: input.speakerUserId,
     role: input.role,
@@ -426,6 +431,7 @@ export function enqueueChannelMentionStepSync(
     code: "agent.pending",
     data: { agent_name: agent.name },
     status: "pending",
+    conversationId: input.conversationId,
   }, workspaceId);
   return true;
 }

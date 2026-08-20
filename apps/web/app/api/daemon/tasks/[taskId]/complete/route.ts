@@ -628,6 +628,7 @@ export async function POST(
         role: "agent",
         summary: failureSummary,
         status: "error",
+        conversationId: payload.conversationId,
       }, task.workspaceId);
       for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
         workspaceId: task.workspaceId,

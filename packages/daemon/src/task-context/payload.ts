@@ -13,6 +13,8 @@ export interface ParsedTaskPayload {
   contactId?: string;
   channelName?: string;
   channelMessage?: string;
+  conversationId?: string;
+  executionLaneId?: string;
   externalInput?: {
     provider: string;
     providerLabel?: string;
@@ -100,6 +102,8 @@ export function parseTaskInputJson(inputJson: string): ParsedTaskPayload {
       contactId: typeof parsed.contactId === "string" ? parsed.contactId : undefined,
       channelName: typeof parsed.channelName === "string" ? parsed.channelName : undefined,
       channelMessage: typeof parsed.channelMessage === "string" ? parsed.channelMessage : undefined,
+      conversationId: typeof parsed.conversationId === "string" ? parsed.conversationId : undefined,
+      executionLaneId: typeof parsed.executionLaneId === "string" ? parsed.executionLaneId : undefined,
       externalInput: parseExternalInputPayload(parsed.externalInput),
       sourceChannel: typeof parsed.sourceChannel === "string" ? parsed.sourceChannel : undefined,
       sourceMessageId: typeof parsed.sourceMessageId === "string" ? parsed.sourceMessageId : undefined,
