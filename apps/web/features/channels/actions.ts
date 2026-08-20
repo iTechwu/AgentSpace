@@ -18,12 +18,11 @@ import { reviewApprovalSync, listApprovalsSync } from "@dofe-agent/services/task
 import { reviewApprovalWithWorkflowSync, cancelWorkflowRunSync } from "@dofe-agent/services/workflows";
 import { listWorkspaceSkillsSync } from "@dofe-agent/services/skills";
 import { FEISHU_PROVIDER_ID, readFeishuChatMemberSnapshot, readFeishuIntegrationCredentials } from "@dofe-agent/services/integrations";
-import { createConversationForUserSync, listConversationsForChannelForUserSync, listConversationsForEmployeeForUserSync, resolveConversationLaneForSendSync, updateConversationSummaryForUserSync } from "@dofe-agent/services/conversations";
+import { createConversationForUserSync, listConversationsForChannelForUserSync, listConversationsForEmployeeForUserSync, recordConversationMessageActivitySync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
 import {
   cancelQueuedTaskSync,
   listExternalChannelBindingsSync,
   listExternalIntegrationsSync,
-  markConversationActiveSync,
   readWorkflowDefinitionSync,
   readWorkflowNodeRunByTaskQueueIdSync,
   readWorkflowRunSync,
@@ -635,6 +634,13 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   const conversationId = (formData.get("conversationId") as string | null)?.trim() || undefined;
   if (conversationId) {
     executionOptions.conversationId = conversationId;
+    // 刷新会话活动时间；首条消息 draft→active + fallback 摘要。
+    recordConversationMessageActivitySync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      conversationId,
+      actorUserId: workspaceContext.currentUser.id,
+      firstMessageText: resolvedContent,
+    });
   }
   if (Object.keys(executionOptions).length > 0) {
     sendChannelHumanMessageSync(...messageArgs, undefined, executionOptions);
@@ -753,17 +759,13 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
       });
       executionOptions.conversationId = conversationId;
       executionOptions.executionLaneId = resolved.lane.id;
-      // 首条消息：draft → active，并以清洗后的首句作为 fallback 摘要（docs §8）。
-      if (resolved.conversation.status === "draft") {
-        markConversationActiveSync(conversationId);
-        updateConversationSummaryForUserSync({
-          workspaceId: workspaceContext.currentWorkspace.id,
-          conversationId,
-          actorUserId: workspaceContext.currentUser.id,
-          summary: buildConversationFallbackSummary(resolvedContent),
-          summarySource: "fallback",
-        });
-      }
+      // 刷新会话活动时间；首条消息 draft→active + fallback 摘要（docs §2.1、§8）。
+      recordConversationMessageActivitySync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        conversationId,
+        actorUserId: workspaceContext.currentUser.id,
+        firstMessageText: resolvedContent,
+      });
     }
   }
   sendContactMessageForHumanWithAttachmentsSync(...messageArgs, undefined, executionOptions);
@@ -1378,12 +1380,6 @@ function assertDocumentChannelAccess(workspaceId: string, currentUserDisplayName
 
 function findConflictDocumentId(workspaceId: string, conflictId: string): string | undefined {
   return readWorkspaceStateSync(workspaceId).channelDocumentConflicts.find((conflict) => sameValue(conflict.id, conflictId))?.documentId;
-}
-
-function buildConversationFallbackSummary(content: string): string {
-  const withoutSlashCommand = content.replace(/^\/(new|resume|clear)\s*/i, "").replace(/\s+/g, " ").trim();
-  const value = withoutSlashCommand || "新会话";
-  return value.length > 60 ? `${value.slice(0, 57)}...` : value;
 }
 
 function buildInlineApprovalInvalidation(workspaceId: string, approvalId: string): WorkspaceInvalidationEvent {

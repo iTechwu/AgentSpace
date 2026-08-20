@@ -214,6 +214,74 @@ export function updateConversationSummaryForUserSync(input: UpdateConversationSu
   });
 }
 
+/** 生成一句话摘要：去 Markdown 标题/列表符号/换行，中文限 60 字（docs §4.2、§8）。 */
+export function buildConversationSummary(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const cleaned = lines
+    .map((line) => line.replace(/^#{1,6}\s+/, "").replace(/^\s*[-*+]\s+/, "").trim())
+    .filter(Boolean);
+  const first = cleaned[0] ?? "";
+  const compact = first.replace(/\s+/g, " ").trim();
+  const value = compact || "新会话";
+  return value.length > 60 ? `${value.slice(0, 57)}...` : value;
+}
+
+export interface RecordConversationMessageActivityInput {
+  workspaceId?: string;
+  conversationId: string;
+  actorUserId?: string;
+  firstMessageText?: string;
+  now?: string;
+}
+
+/** 消息发送后刷新会话活动时间；首条消息同时 draft→active 并写 fallback 摘要（docs §2.1、§5.4）。 */
+export function recordConversationMessageActivitySync(input: RecordConversationMessageActivityInput): ConversationRecord {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const conversation = readConversationForUserSync({
+    workspaceId,
+    conversationId: input.conversationId,
+    actorUserId: input.actorUserId,
+  });
+  const now = input.now ?? new Date().toISOString();
+  const isFirst = conversation.status === "draft";
+  return updateConversationSync({
+    conversationId: conversation.id,
+    status: isFirst ? "active" : conversation.status,
+    summary: isFirst && input.firstMessageText ? buildConversationSummary(input.firstMessageText) : null,
+    summarySource: isFirst && input.firstMessageText ? "fallback" : undefined,
+    lastMessageAt: now,
+    lastActivityAt: now,
+    now,
+  });
+}
+
+export interface RefreshConversationSummaryAfterReplyInput {
+  workspaceId?: string;
+  conversationId: string;
+  replyText: string;
+}
+
+/** 首个 AI 最终回复后生成正式摘要（docs §8）；summary_source=user 不覆盖。 */
+export function refreshConversationSummaryAfterReplySync(input: RefreshConversationSummaryAfterReplyInput): ConversationRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const conversation = readConversationSync(input.conversationId);
+  if (!conversation || conversation.workspaceId !== workspaceId) {
+    return null;
+  }
+  if (conversation.summarySource === "user") {
+    return conversation;
+  }
+  const summary = buildConversationSummary(input.replyText);
+  if (!summary || summary === "新会话") {
+    return conversation;
+  }
+  return updateConversationSync({
+    conversationId: conversation.id,
+    summary,
+    summarySource: "generated",
+  });
+}
+
 export interface ResolveConversationLaneForSendInput {
   workspaceId?: string;
   conversationId: string;

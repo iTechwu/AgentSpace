@@ -1,10 +1,13 @@
 // 多会话拆分服务层 barrel（docs/0820/session-split）。
 export {
   archiveConversationForUserSync,
+  buildConversationSummary,
   createConversationForUserSync,
   listConversationsForChannelForUserSync,
   listConversationsForEmployeeForUserSync,
   readConversationForUserSync,
+  recordConversationMessageActivitySync,
+  refreshConversationSummaryAfterReplySync,
   resolveConversationLaneForSendSync,
   unarchiveConversationForUserSync,
   updateConversationSummaryForUserSync,
@@ -13,6 +16,8 @@ export {
   type ListConversationsForChannelForUserInput,
   type ListConversationsForUserInput,
   type ReadConversationForUserInput,
+  type RecordConversationMessageActivityInput,
+  type RefreshConversationSummaryAfterReplyInput,
   type ResolveConversationLaneForSendInput,
   type UpdateConversationSummaryForUserInput,
 } from "./conversations.ts";

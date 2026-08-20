@@ -2,6 +2,7 @@ import { completeAgentChannelReplySync } from "@dofe-agent/services/messaging";
 import { completeChannelDocumentRunStepSync } from "@dofe-agent/services/documents";
 import { completeWorkflowTaskIfLinkedSync, failWorkflowTaskIfLinkedSync, lockWorkflowRunForTaskIfLinkedSync, prepareWorkflowTaskOutputSync } from "@dofe-agent/services/workflows";
 import { continueAutoContinuationAfterTaskSync } from "@dofe-agent/services/operations";
+import { refreshConversationSummaryAfterReplySync } from "@dofe-agent/services/conversations";
 import { queueFeishuAgentStatusCardOutboxSync, queueFeishuChannelReplyOutboxSync } from "@dofe-agent/services/integrations";
 import { readWorkspaceStateSync, writeConversationExecutionWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
 import { readWorkspaceAttachmentBytesSync } from "@dofe-agent/services/content";
@@ -441,6 +442,19 @@ export function projectTaskCompletion(input: {
       lastTaskQueueId: task.id,
       lastError: null,
     }, task.workspaceId);
+  }
+
+  // 首个 AI 最终回复后生成正式摘要（docs §8）；summary_source=user 不覆盖。
+  if (payload.conversationId && input.finalOutputText) {
+    try {
+      refreshConversationSummaryAfterReplySync({
+        workspaceId: task.workspaceId,
+        conversationId: payload.conversationId,
+        replyText: input.finalOutputText,
+      });
+    } catch {
+      // 摘要生成失败不阻塞任务完成（docs §8）。
+    }
   }
 
   try {
