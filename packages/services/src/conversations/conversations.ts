@@ -30,6 +30,7 @@ import {
   assertCanUseEmployeeInChannelForActorSync,
   isWorkspaceAdminOrOwnerSync,
 } from "../runtime-access/runtime-access.ts";
+import { canReadChannelForActorSync } from "../shared/access-decisions.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue } from "../shared/helpers.ts";
 
@@ -78,6 +79,10 @@ export function createConversationForUserSync(input: CreateConversationForUserIn
         });
         employeeParticipants.push({ employeeId, employeeName });
       }
+    }
+    // 群聊必须至少有一个可解析的员工参与者，否则拒绝创建（docs §2.3 群聊多 Lane）。
+    if (employeeParticipants.length === 0) {
+      throw new Error(`Channel "${input.channelName}" has no resolvable employee participants.`);
     }
     // 频道人类成员快照：除创建者外的成员也作为 human participant，共享历史可见（docs §2.2）。
     const humanParticipantUserIds = listChannelParticipantsSync(workspaceId, input.channelName, { statuses: ["active"] })
@@ -181,6 +186,13 @@ export function listConversationsForChannelForUserSync(input: ListConversationsF
     throw new Error(`Channel "${input.channelName}" does not exist in this workspace.`);
   }
   const isPrivileged = isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
+  // 群聊历史必须校验当前频道成员资格，不能只依赖历史 participant 快照（docs §9）：
+  // 被移出频道的用户不得继续列出旧群聊会话。
+  if (!isPrivileged && input.actorUserId) {
+    if (!canReadChannelForActorSync({ workspaceId, channelName: input.channelName, actor: { userId: input.actorUserId } })) {
+      throw new Error("You do not have access to this channel.");
+    }
+  }
   return listConversationsForChannelSync({
     workspaceId,
     channelId: input.channelName,
@@ -290,17 +302,23 @@ export interface RefreshConversationSummaryAfterReplyInput {
   replyText: string;
 }
 
-/** 首个 AI 最终回复后生成正式摘要（docs §8）；summary_source=user 不覆盖。 */
+/** 首个 AI 最终回复后生成正式摘要（docs §8）；summary_source=user / generated 均不再覆盖（CAS 语义）。 */
 export function refreshConversationSummaryAfterReplySync(input: RefreshConversationSummaryAfterReplyInput): ConversationRecord | null {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const conversation = readConversationSync(input.conversationId);
   if (!conversation || conversation.workspaceId !== workspaceId) {
     return null;
   }
-  if (conversation.summarySource === "user") {
+  // 只在首个最终回复时生成一次；后续回复不覆盖已生成/用户手写的摘要。
+  if (conversation.summarySource === "user" || conversation.summarySource === "generated") {
     return conversation;
   }
-  const summary = buildConversationSummary(input.replyText);
+  // 摘要按会话目标生成：优先取首条用户消息（任务目标），无则退回 AI 最终回复首句（docs §4.2）。
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const goal = state.messages.find(
+    (message) => message.conversationId === conversation.id && message.role === "human",
+  )?.summary?.trim();
+  const summary = buildConversationSummary(goal || input.replyText);
   if (!summary || summary === "新会话") {
     return conversation;
   }
@@ -365,6 +383,16 @@ function assertCanReadConversationSync(
   if (isWorkspaceAdminOrOwnerSync({ workspaceId, userId: actorUserId })) {
     return;
   }
+  // 群聊会话：重新校验当前频道成员资格（docs §9），历史 participant 快照不作为持续授权依据。
+  if (conversation.kind === "group" && conversation.channelId) {
+    if (
+      actorUserId
+      && canReadChannelForActorSync({ workspaceId, channelName: conversation.channelId, actor: { userId: actorUserId } })
+    ) {
+      return;
+    }
+    throw new Error("You do not have access to this conversation.");
+  }
   if (actorUserId) {
     const isHumanParticipant = listConversationParticipantsSync(conversation.id)
       .some((participant) => participant.participantType === "human" && participant.userId === actorUserId);
@@ -408,9 +436,17 @@ export function backfillLegacyConversationsSync(workspaceId = DEFAULT_WORKSPACE_
       continue;
     }
 
-    const legacyId = `conversation-legacy-${createHash("sha256").update(`${workspaceId}\0${channelName}`).digest("hex").slice(0, 32)}`;
     // 从既有 human 消息抽取 userId，作为 human participant 归属，避免普通成员看不到回填会话（docs §9）。
     const legacyUserId = legacyMessages.find((message) => message.role === "human" && message.speakerUserId)?.speakerUserId;
+    // legacy scope = workspace + requester + employee + channel（docs Phase 5.1）：确定性会话 ID 纳入
+    // requester 与 employee，避免不同用户/员工的历史被合并进同一会话。group 的 employee 维度为
+    // 频道内全部员工的稳定排序（群聊以 Lane 区分员工，会话本身跨员工共享）。
+    const employeeScope = kind === "direct"
+      ? (employeeParticipants[0]?.employeeId ?? "")
+      : employeeParticipants.map((participant) => participant.employeeId).sort().join(",");
+    const legacyId = `conversation-legacy-${createHash("sha256")
+      .update(`${workspaceId}\0${legacyUserId ?? ""}\0${employeeScope}\0${channelName}`)
+      .digest("hex").slice(0, 32)}`;
     if (!readConversationSync(legacyId)) {
       createConversationSync({
         workspaceId,

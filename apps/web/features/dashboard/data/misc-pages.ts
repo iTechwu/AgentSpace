@@ -52,6 +52,7 @@ export interface AutoContinuationRunRecord {
   channelName: string;
   agentId: string;
   contactId?: string;
+  conversationId?: string;
   status: "active" | "expired" | "stopped";
   startedAt: string;
   until: string;
@@ -99,10 +100,11 @@ export function getAutomationsPageData(workspaceId = DEFAULT_WORKSPACE_ID): Auto
     .slice()
     .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
     .map((workspace) => ({
-      id: `${workspace.channelName}:${workspace.agentId}:${workspace.contactId ?? ""}:${workspace.autoContinuation!.startedAt}`,
+      id: `${workspace.channelName}:${workspace.agentId}:${workspace.contactId ?? ""}:${workspace.conversationId ?? ""}:${workspace.autoContinuation!.startedAt}`,
       channelName: workspace.channelName,
       agentId: workspace.agentId,
       contactId: workspace.contactId,
+      conversationId: workspace.conversationId,
       status: workspace.autoContinuation!.status,
       startedAt: workspace.autoContinuation!.startedAt,
       until: workspace.autoContinuation!.until,

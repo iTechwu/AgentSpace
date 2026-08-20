@@ -33,6 +33,7 @@ import {
 } from "@dofe-agent/db";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
 import { parseModelCommand } from "@/features/chat/model-command";
+import { appendReferencedSkillDirective, mergeMessageAttachments, resolveReferencedAttachments } from "@/features/chat/message-composition";
 import {
   actionToastResult,
   successToast,
@@ -1231,83 +1232,14 @@ function getStringValues(formData: FormData, key: string): string[] {
   return dedupeStrings(formData.getAll(key).filter((value): value is string => typeof value === "string"));
 }
 
-function resolveReferencedAttachments(input: {
-  workspaceId: string;
-  channelName: string;
-  attachmentIds: string[];
-}): MessageAttachment[] {
-  if (input.attachmentIds.length === 0) {
-    return [];
-  }
-  const requestedIds = new Set(input.attachmentIds);
-  const attachmentsById = new Map<string, MessageAttachment>();
-  for (const message of readWorkspaceStateSync(input.workspaceId).messages) {
-    if (!sameValue(message.channel ?? "", input.channelName)) {
-      continue;
-    }
-    for (const attachment of message.attachments ?? []) {
-      if (requestedIds.has(attachment.id) && !attachment.deletedAt && !attachmentsById.has(attachment.id)) {
-        attachmentsById.set(attachment.id, attachment);
-      }
-    }
-  }
-  return input.attachmentIds.map((attachmentId) => {
-    const attachment = attachmentsById.get(attachmentId);
-    if (!attachment) {
-      throw new Error(`Attachment "${attachmentId}" does not exist in channel "${input.channelName}".`);
-    }
-    const { deletedAt: _deletedAt, deletedByDisplayName: _deletedByDisplayName, deletedByUserId: _deletedByUserId, ...activeAttachment } = attachment;
-    return {
-      ...activeAttachment,
-      id: `att-ref-${crypto.randomUUID()}`,
-    };
-  });
-}
-
-function mergeMessageAttachments(
-  uploaded: MessageAttachment[] | undefined,
-  referenced: MessageAttachment[],
-): MessageAttachment[] | undefined {
-  const attachments = [...(uploaded ?? []), ...referenced];
-  return attachments.length > 0 || uploaded !== undefined ? attachments : undefined;
-}
-
-function appendReferencedSkillDirective(input: {
-  workspaceId: string;
-  employeeNames: string[];
-  content: string;
-  skillIds: string[];
-}): string {
-  if (input.skillIds.length === 0) {
-    return input.content;
-  }
-  const allowedSkillIds = new Set(
-    input.employeeNames.flatMap((employeeName) => listEmployeeSkillIdsSync(employeeName, input.workspaceId)),
-  );
-  const skillsById = new Map(listWorkspaceSkillsSync(input.workspaceId).map((skill) => [skill.id, skill]));
-  const skillNames = input.skillIds.map((skillId) => {
-    const skill = skillsById.get(skillId);
-    if (!skill || !allowedSkillIds.has(skillId)) {
-      throw new Error(`Skill "${skillId}" is not assigned to the selected employee.`);
-    }
-    return skill.name;
-  });
-  return `${input.content.trim()}\n\n[Use assigned skills: ${skillNames.join(", ")}]`;
-}
-
 function resolveResumeCommand(content: string): string {
-  const match = /^\/resume(?:\s+([\s\S]*))?$/i.exec(content.trim());
-  if (!match) {
+  const isResumeCommand = /^\/resume(?:\s|$)/i.test(content.trim());
+  if (!isResumeCommand) {
     return content;
   }
-  const remainingContent = match[1]?.trim() ?? "";
-  if (!remainingContent) {
-    return "请继续上一项任务。";
-  }
-  if (/^@\S+$/.test(remainingContent)) {
-    return `${remainingContent} 请继续上一项任务。`;
-  }
-  return remainingContent;
+  // /resume 是导航命令（docs/0820 §5）：打开当前 AI 员工的历史会话面板，不产生聊天消息。
+  // 客户端在提交前拦截并打开历史面板；此处抛错兜底，避免任何路径把 /resume 误发成伪消息。
+  throw new Error("RESUME_COMMAND_IS_NAVIGATION");
 }
 
 function parseQueuedTaskPayload(inputJson: string): Record<string, unknown> {

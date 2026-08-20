@@ -141,6 +141,48 @@ test("readConversationExecutionWorkspaceState falls back to legacy direct conver
   assert.equal(workspace?.workDir, "/tmp/legacy-atlas");
 });
 
+test("buildConversationExecutionWorkspaceKey isolates by conversationId when present", () => {
+  const legacyKey = buildConversationExecutionWorkspaceKey({
+    conversationKind: "direct",
+    channelName: "direct-atlas",
+    agentId: "Atlas",
+  });
+  const conversationKey = buildConversationExecutionWorkspaceKey({
+    conversationKind: "direct",
+    channelName: "direct-atlas",
+    agentId: "Atlas",
+    conversationId: "conversation-1",
+  });
+  const otherConversationKey = buildConversationExecutionWorkspaceKey({
+    conversationKind: "direct",
+    channelName: "direct-atlas",
+    agentId: "Atlas",
+    conversationId: "conversation-2",
+  });
+  assert.equal(legacyKey, "direct:direct-atlas:Atlas");
+  assert.notEqual(conversationKey, legacyKey);
+  assert.notEqual(conversationKey, otherConversationKey);
+});
+
+test("readConversationExecutionWorkspaceState does not fall back to legacy state when conversation-scoped", () => {
+  const state = createDefaultWorkspaceState();
+  state.directConversations.push({
+    contactId: "Atlas",
+    humanMemberName: "techwu",
+    sessionId: "legacy-session",
+    workDir: "/tmp/legacy-atlas",
+    updatedAt: "2026-04-28T00:00:00.000Z",
+  });
+
+  const conversationScoped = readConversationExecutionWorkspaceState(state, {
+    channelName: "direct-atlas",
+    agentId: "Atlas",
+    contactId: "Atlas",
+    conversationId: "conversation-1",
+  });
+  assert.equal(conversationScoped, undefined);
+});
+
 test("resolveConversationExecutionWorkspacePath uses the conversation-scoped daemon channel root", () => {
   assert.equal(
     resolveConversationExecutionWorkspacePath({

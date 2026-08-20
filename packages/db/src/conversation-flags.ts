@@ -1,6 +1,6 @@
 // 多会话拆分特性开关（docs/0820/session-split §4）。全部由服务端环境变量控制，浏览器不能通过
-// query 参数开启队列规则。默认值反映「已完成的 rollout」状态（对应文档 Phase 2/3/4 已切换）；文档
-// 表格中的「off」是灰度上线起始状态。
+// query 参数开启队列规则。默认值反映「已完成的 rollout」状态（对应文档 Phase 2/3/4 已切换，与
+// 04 文档 Feature flags 表的 on/on/on 默认值一致）；off 是灰度上线起始态。
 
 export type TaskQueueByConversationMode = "off" | "shadow" | "on";
 

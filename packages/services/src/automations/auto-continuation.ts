@@ -123,6 +123,7 @@ export function continueAutoContinuationAfterTaskSync(input: {
     channelName,
     agentId,
     contactId: payload.contactId,
+    conversationId: task.conversationId,
   });
   const autoContinuation = workspace?.autoContinuation ?? payload.autoContinuation;
   if (!autoContinuation || autoContinuation.status !== "active") {
@@ -139,6 +140,7 @@ export function continueAutoContinuationAfterTaskSync(input: {
       channelName,
       agentId,
       contactId: payload.contactId,
+      conversationId: task.conversationId,
       lastTaskQueueId: task.id,
       autoContinuation: {
         ...autoContinuation,
@@ -229,6 +231,7 @@ export function continueAutoContinuationAfterTaskSync(input: {
       channelName: channel.name,
       agentId: agent.name,
       contactId: payload.contactId,
+      conversationId: task.conversationId,
       lastTaskQueueId: task.id,
       lastError: "No executable runtime is bound.",
       autoContinuation: {
@@ -244,6 +247,7 @@ export function continueAutoContinuationAfterTaskSync(input: {
     channelName: channel.name,
     agentId: agent.name,
     contactId: payload.contactId,
+    conversationId: task.conversationId,
     sessionId,
     workDir,
     lastTaskQueueId: queued.id,
@@ -267,6 +271,7 @@ export function stopAutoContinuationSync(input: {
   channelName: string;
   agentId: string;
   contactId?: string;
+  conversationId?: string;
   workspaceId?: string;
   requestedByDisplayName?: string;
 }): StopAutoContinuationResult {
@@ -276,6 +281,7 @@ export function stopAutoContinuationSync(input: {
     channelName: input.channelName,
     agentId: input.agentId,
     contactId: input.contactId,
+    conversationId: input.conversationId,
   });
   if (!workspace?.autoContinuation) {
     return { stopped: false, reason: "missing_target" };
@@ -306,6 +312,7 @@ export function stopAutoContinuationSync(input: {
     channelName: input.channelName,
     agentId: input.agentId,
     contactId: input.contactId,
+    conversationId: input.conversationId,
     lastTaskQueueId: workspace.lastTaskQueueId,
     autoContinuation: stoppedContinuation,
     updatedAt: nowIso,

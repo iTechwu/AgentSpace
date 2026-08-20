@@ -190,6 +190,7 @@ export function AutomationsPageClient({ data, onDataChanged }: { data: Automatio
         channelName: run.channelName,
         agentId: run.agentId,
         contactId: run.contactId,
+        conversationId: run.conversationId,
       });
       refreshWorkspaceModule(onDataChanged, router);
     });

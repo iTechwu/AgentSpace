@@ -56,6 +56,7 @@ export async function stopAutoContinuationAction(input: {
   channelName: string;
   agentId: string;
   contactId?: string;
+  conversationId?: string;
 }): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "member");
@@ -63,6 +64,7 @@ export async function stopAutoContinuationAction(input: {
     channelName: input.channelName,
     agentId: input.agentId,
     contactId: input.contactId,
+    conversationId: input.conversationId,
     workspaceId: workspaceContext.currentWorkspace.id,
     requestedByDisplayName: workspaceContext.currentUser.displayName.trim() || "你",
   });

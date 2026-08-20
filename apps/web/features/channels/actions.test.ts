@@ -428,7 +428,7 @@ describe("channel actions", () => {
     );
   });
 
-  it("turns a group /resume command into a continued task for the selected employee", async () => {
+  it("treats /resume as a navigation command and never sends a message", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
     mockReadWorkspaceStateSync.mockReturnValue({
       channels: [{ name: "general", kind: "group", humanMemberNames: ["techwu"], humanMembers: 1, employeeNames: ["Atlas"] }],
@@ -437,19 +437,10 @@ describe("channel actions", () => {
 
     const formData = new FormData();
     formData.set("channelName", "general");
-    formData.set("content", "/resume @Atlas");
+    formData.set("content", "/resume");
 
-    await sendChannelMessageAction(formData);
-
-    expect(mockSendChannelHumanMessageSync).toHaveBeenCalledWith(
-      "general",
-      "techwu",
-      "@Atlas 请继续上一项任务。",
-      [],
-      undefined,
-      "workspace-1",
-      "user-1",
-    );
+    await expect(sendChannelMessageAction(formData)).rejects.toThrow("RESUME_COMMAND_IS_NAVIGATION");
+    expect(mockSendChannelHumanMessageSync).not.toHaveBeenCalled();
   });
 
   it("validates an admin /model command before persisting its session override", async () => {

@@ -383,6 +383,7 @@ export function projectTaskCompletion(input: {
       channelName: payload.channel,
       agentId: agentName,
       contactId: payload.contactId,
+      conversationId: payload.conversationId,
       sessionId: conversationSessionId,
       workDir: input.workDir,
       lastTaskQueueId: task.id,
@@ -400,6 +401,7 @@ export function projectTaskCompletion(input: {
       channelName: effectiveChannelName ?? payload.channel ?? payload.contactId,
       agentId: payload.contactId,
       contactId: payload.contactId,
+      conversationId: payload.conversationId,
       sessionId: conversationSessionId,
       workDir: input.workDir,
       lastTaskQueueId: task.id,
@@ -437,6 +439,7 @@ export function projectTaskCompletion(input: {
     writeConversationExecutionWorkspaceStateSync({
       channelName: payload.channel,
       agentId: agentName,
+      conversationId: payload.conversationId,
       sessionId: conversationSessionId,
       workDir: input.workDir,
       lastTaskQueueId: task.id,

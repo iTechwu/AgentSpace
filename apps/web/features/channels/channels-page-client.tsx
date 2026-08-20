@@ -2143,6 +2143,11 @@ export function ChannelsPageClient({
           if (!selectedChannel) {
             return;
           }
+          // /resume 是导航命令（docs/0820 §5）：打开当前 AI 员工的历史会话面板，不产生聊天消息。
+          if (/^\/resume(?:\s|$)/i.test(content.trim())) {
+            setShowConversationHistory(true);
+            return;
+          }
           const formData = new FormData();
           formData.set("content", content);
           if (isNewConversation) {

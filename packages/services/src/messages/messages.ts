@@ -412,6 +412,7 @@ export function sendChannelHumanMessageSync(
     const existingExecutionWorkspace = readConversationExecutionWorkspaceState(state, {
       channelName: channel.name,
       agentId: agent.name,
+      conversationId: executionOptions?.conversationId,
     });
     const lastExecution = readLatestChannelExecutionSync(agent.name, channel.name, effectiveWorkspaceId);
     const { sessionId: resumedSessionId, workDir: resumedWorkDir } = resolveConversationExecutionResume({
@@ -484,15 +485,19 @@ export function sendChannelHumanMessageSync(
 
     if (queued) {
       queuedCount += 1;
+      const mentionConversationScoped = Boolean(executionOptions?.conversationId);
       upsertConversationExecutionWorkspaceState(state, {
         channelName: channel.name,
         agentId: agent.name,
-        sessionId: executionOptions?.startNewConversation ? null : resumedSessionId,
-        workDir: resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
-          workspaceId: effectiveWorkspaceId,
-          channelName: channel.name,
-          agentId: agent.name,
-        }),
+        conversationId: executionOptions?.conversationId,
+        sessionId: mentionConversationScoped || executionOptions?.startNewConversation ? null : resumedSessionId,
+        workDir: mentionConversationScoped
+          ? null
+          : (resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
+              workspaceId: effectiveWorkspaceId,
+              channelName: channel.name,
+              agentId: agent.name,
+            })),
         lastTaskQueueId: queued.id,
         lastError: null,
         autoContinuation,
@@ -1235,6 +1240,7 @@ function dispatchAgentOutputMentionsSync(
     const existingExecutionWorkspace = readConversationExecutionWorkspaceState(state, {
       channelName: input.channelName,
       agentId: agent.name,
+      conversationId: sourceConversationId,
     });
     const lastExecution = readLatestChannelExecutionSync(agent.name, input.channelName, input.workspaceId);
     const resumedSessionId = existingExecutionWorkspace?.sessionId ?? lastExecution?.sessionId;
@@ -1304,12 +1310,15 @@ function dispatchAgentOutputMentionsSync(
     upsertConversationExecutionWorkspaceState(state, {
       channelName: input.channelName,
       agentId: agent.name,
-      sessionId: resumedSessionId ?? input.sessionId,
-      workDir: resumedWorkDir ?? input.workDir ?? resolveConversationExecutionWorkspacePath({
-        workspaceId: input.workspaceId,
-        channelName: input.channelName,
-        agentId: agent.name,
-      }),
+      conversationId: mentionConversationId,
+      sessionId: mentionConversationId ? null : (resumedSessionId ?? input.sessionId),
+      workDir: mentionConversationId
+        ? null
+        : (resumedWorkDir ?? input.workDir ?? resolveConversationExecutionWorkspacePath({
+            workspaceId: input.workspaceId,
+            channelName: input.channelName,
+            agentId: agent.name,
+          })),
       lastTaskQueueId: queued.id,
       lastError: null,
     });

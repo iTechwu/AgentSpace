@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
-import { listConversationParticipantsSync, readConversationSync, readStoredEmployeeByIdSync } from "@dofe-agent/db";
+import { listConversationParticipantsSync, readConversationSync, readStoredChannelSync, readStoredEmployeeByIdSync } from "@dofe-agent/db";
 import { recordConversationMessageActivitySync, readConversationForUserSync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
+import { appendReferencedSkillDirective, mergeMessageAttachments, resolveReferencedAttachments } from "@/features/chat/message-composition";
 import { sendContactMessageForHumanWithAttachmentsSync } from "@dofe-agent/services/channels";
 import { sendChannelHumanMessageSync } from "@dofe-agent/services/messaging";
 import { readWorkspaceStateSync } from "@dofe-agent/services/workspace";
@@ -97,6 +98,13 @@ export async function POST(
   if (!content.trim()) {
     return NextResponse.json({ error: "content is required." }, { status: 400 });
   }
+  const attachmentReferenceIds = [...new Set(
+    formData.getAll("attachmentReferences").filter((value): value is string => typeof value === "string"),
+  )];
+  const skillReferenceIds = [...new Set(
+    formData.getAll("skillReferences").filter((value): value is string => typeof value === "string"),
+  )];
+  const replyToMessageId = (formData.get("replyToMessageId") as string | null)?.trim() || undefined;
 
   try {
     const conversation = readConversationForUserSync({
@@ -104,7 +112,13 @@ export async function POST(
       conversationId,
       actorUserId: workspaceContext.currentUser.id,
     });
-    const attachments = (await persistFormAttachments(formData, "attachments", workspaceId)) ?? [];
+    const uploadedAttachments = (await persistFormAttachments(formData, "attachments", workspaceId)) ?? [];
+    const referencedAttachments = resolveReferencedAttachments({
+      workspaceId,
+      conversationId,
+      attachmentIds: attachmentReferenceIds,
+    });
+    const attachments = mergeMessageAttachments(uploadedAttachments, referencedAttachments);
     const idempotencyKey = request.headers.get("idempotency-key")?.trim() || undefined;
     const displayName = workspaceContext.currentUser.displayName.trim() || "你";
 
@@ -113,12 +127,19 @@ export async function POST(
       if (!channelName) {
         return NextResponse.json({ error: "Group conversation has no channel." }, { status: 400 });
       }
+      const channel = readStoredChannelSync(channelName, workspaceId);
+      const resolvedContent = appendReferencedSkillDirective({
+        workspaceId,
+        employeeNames: channel?.employeeNames ?? [],
+        content: content.trim(),
+        skillIds: skillReferenceIds,
+      });
       sendChannelHumanMessageSync(
         channelName,
         displayName,
-        content.trim(),
+        resolvedContent,
         attachments,
-        undefined,
+        replyToMessageId,
         workspaceId,
         workspaceContext.currentUser.id,
         undefined,
@@ -141,10 +162,16 @@ export async function POST(
         employeeId,
         actorUserId: workspaceContext.currentUser.id,
       });
+      const resolvedContent = appendReferencedSkillDirective({
+        workspaceId,
+        employeeNames: [employee.name],
+        content: content.trim(),
+        skillIds: skillReferenceIds,
+      });
       sendContactMessageForHumanWithAttachmentsSync(
         displayName,
         employee.name,
-        content.trim(),
+        resolvedContent,
         attachments,
         workspaceId,
         workspaceContext.currentUser.id,

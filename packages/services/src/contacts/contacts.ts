@@ -122,6 +122,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       channelName: directChannel.name,
       agentId: contact.name,
       contactId: contact.name,
+      conversationId: executionOptions?.conversationId,
     });
     const lastExecution = readLatestConversationExecutionSync(
       contact.name,
@@ -278,16 +279,19 @@ export function sendContactMessageForHumanWithAttachmentsSync(
         channelName,
         agentId: contact.name,
         contactId: contact.name,
+        conversationId: executionOptions?.conversationId,
         humanMemberName,
         // 会话作用域：清空频道级 Session/workDir，避免新会话回退到旧 Provider Session。
         sessionId: conversationScoped || executionOptions?.startNewConversation ? null : resumedSessionId,
-        workDir: conversationScoped || executionOptions?.startNewConversation
-          ? undefined
-          : (resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
-              workspaceId: effectiveWorkspaceId,
-              channelName,
-              agentId: contact.name,
-            })),
+        workDir: conversationScoped
+          ? null
+          : (executionOptions?.startNewConversation
+              ? undefined
+              : (resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
+                  workspaceId: effectiveWorkspaceId,
+                  channelName,
+                  agentId: contact.name,
+                }))),
         lastTaskQueueId: queued.id,
         lastError: null,
       });

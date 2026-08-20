@@ -294,6 +294,8 @@ export interface ConversationExecutionWorkspaceState {
   conversationKind: "direct" | "group";
   channelName: string;
   agentId: string;
+  /** 会话拆分（docs/0820）：会话作用域的 Execution Workspace 用 conversationId 隔离 Lane 级状态。 */
+  conversationId?: string;
   contactId?: string;
   humanMemberName?: string;
   updatedAt: string;

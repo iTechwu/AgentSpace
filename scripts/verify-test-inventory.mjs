@@ -56,7 +56,12 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // （dist 内联 services 附件存储代码，测试 mock 注入对 dist 副本失效）；
 // daemon-task-context.test.ts 注入内存 TOS 夹具（此前 reset 会按 --env-file
 // 真实 TOS 配置发起远端删除，本地 403）。Deferred 173-2=171。
-const EXPECTED_DEFERRED_DIGEST = "4b69d47f45c69f77af7a767c2ef62244daf0ab9e0697c71122e21199ebf0f96f";
+// Re-frozen 2026-08-20 (session-split round): promoted
+// packages/db/src/{conversations,conversation-flags}.test.ts and
+// packages/services/src/conversations/conversations.test.ts to default-owned —
+// all three are now in the db/services package default test commands (docs/0820
+// session-split). Deferred set shrinks by 3.
+const EXPECTED_DEFERRED_DIGEST = "08f3bc5c0526a91a904a2f7e8b1cff3a1e6382d4eeb387d883698b2620458a02";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
@@ -109,6 +114,10 @@ function isDefaultOwned(file) {
     "packages/db/src/skill-runner-invocations.test.ts",
     "packages/db/src/skill-service-operations.test.ts",
     "packages/db/src/skill-services.test.ts",
+    // session-split（docs/0820）：conversations/conversation-flags 已纳入 db 包默认
+    // 测试脚本（src/conversations.test.ts src/conversation-flags.test.ts），属 default-owned。
+    "packages/db/src/conversations.test.ts",
+    "packages/db/src/conversation-flags.test.ts",
   ]).has(file)) return true;
 
   // packages/db/src/prisma/*.test.ts — Phase 2 read-cutover runner unit tests
@@ -128,6 +137,9 @@ function isDefaultOwned(file) {
     "packages/services/src/documents/",
     "packages/services/src/employees/",
     "packages/services/src/knowledge/",
+    // session-split（docs/0820）：conversations/conversations.test.ts 已纳入 services 包
+    // 默认测试脚本，属 default-owned。
+    "packages/services/src/conversations/",
   ]) {
     if (file.startsWith(prefix) && !file.slice(prefix.length).includes("/") && file.endsWith(".test.ts")) {
       return true;

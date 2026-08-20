@@ -11,9 +11,13 @@ export function buildConversationExecutionWorkspaceKey(input: {
   conversationKind?: "direct" | "group";
   channelName: string;
   agentId: string;
+  conversationId?: string;
 }): string {
   const kind = input.conversationKind ?? "group";
-  return `${kind}:${input.channelName}:${input.agentId}`;
+  const base = `${kind}:${input.channelName}:${input.agentId}`;
+  // 会话拆分（docs/0820）：有 conversationId 时按会话隔离 Lane 级状态（lastTaskQueueId/
+  // sessionId/workDir/autoContinuation），避免同员工多会话互相覆盖；无 conversationId 保持 legacy 频道级键。
+  return input.conversationId ? `${base}:${input.conversationId}` : base;
 }
 
 export function resolveConversationExecutionWorkspacePath(input: {
@@ -47,16 +51,23 @@ export function readConversationExecutionWorkspaceState(
     channelName: string;
     agentId: string;
     contactId?: string;
+    conversationId?: string;
   },
 ): ConversationExecutionWorkspaceState | undefined {
   const conversationKey = buildConversationExecutionWorkspaceKey({
     conversationKind: input.contactId ? "direct" : "group",
     channelName: input.channelName,
     agentId: input.agentId,
+    conversationId: input.conversationId,
   });
   const existing = state.conversationExecutionWorkspaces?.find((workspace) => workspace.conversationKey === conversationKey);
   if (existing) {
     return existing;
+  }
+
+  // 会话作用域不继承 legacy 频道级 direct conversation 状态（session/workDir 冷重建）。
+  if (input.conversationId) {
+    return undefined;
   }
 
   const contactId = input.contactId;
@@ -88,6 +99,7 @@ export function upsertConversationExecutionWorkspaceState(
     channelName: string;
     agentId: string;
     contactId?: string;
+    conversationId?: string;
     humanMemberName?: string;
     sessionId?: string | null;
     workDir?: string | null;
@@ -102,6 +114,7 @@ export function upsertConversationExecutionWorkspaceState(
     conversationKind: input.contactId ? "direct" : "group",
     channelName: input.channelName,
     agentId: input.agentId,
+    conversationId: input.conversationId,
   });
   const conversationKind = input.contactId ? "direct" : "group";
   const currentList = state.conversationExecutionWorkspaces ?? [];
@@ -113,6 +126,7 @@ export function upsertConversationExecutionWorkspaceState(
     conversationKind,
     channelName: input.channelName,
     agentId: input.agentId,
+    conversationId: input.conversationId ?? existing?.conversationId,
     contactId: input.contactId ?? existing?.contactId,
     humanMemberName: input.humanMemberName ?? existing?.humanMemberName,
     updatedAt,

@@ -421,6 +421,7 @@ export function enqueueChannelMentionStepSync(
   const existingExecutionWorkspace = readConversationExecutionWorkspaceState(state, {
     channelName: input.channelName,
     agentId: agent.name,
+    conversationId: input.conversationId,
   });
   const lastExecution = readLatestChannelExecutionSync(agent.name, input.channelName, workspaceId);
   const { sessionId: resumedSessionId, workDir: resumedWorkDir } = resolveConversationExecutionResume({
@@ -488,15 +489,19 @@ export function enqueueChannelMentionStepSync(
     return false;
   }
 
+  const stepConversationScoped = Boolean(input.conversationId);
   upsertConversationExecutionWorkspaceState(state, {
     channelName: input.channelName,
     agentId: agent.name,
-    sessionId: input.startNewConversation ? null : resumedSessionId,
-    workDir: resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
-      workspaceId,
-      channelName: input.channelName,
-      agentId: agent.name,
-    }),
+    conversationId: input.conversationId,
+    sessionId: stepConversationScoped || input.startNewConversation ? null : resumedSessionId,
+    workDir: stepConversationScoped
+      ? null
+      : (resumedWorkDir ?? resolveConversationExecutionWorkspacePath({
+          workspaceId,
+          channelName: input.channelName,
+          agentId: agent.name,
+        })),
     lastTaskQueueId: queued.id,
     lastError: null,
   });
