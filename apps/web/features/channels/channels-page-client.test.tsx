@@ -1744,6 +1744,36 @@ describe("ChannelsPageClient", () => {
     );
   });
 
+  it("does not loop route state updates when focused channel data is refreshed", async () => {
+    searchParams.set("view", "direct");
+    searchParams.set("focus", "contact-Atlas");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { rerender } = render(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="techwu" data={digitalContactData} />
+      </TestProviders>,
+    );
+
+    for (let index = 0; index < 5; index += 1) {
+      rerender(
+        <TestProviders>
+          <ChannelsPageClient
+            currentUserDisplayName="techwu"
+            data={{
+              ...digitalContactData,
+              channels: digitalContactData.channels.map((channel) => ({ ...channel })),
+              threads: digitalContactData.threads.map((thread) => ({ ...thread })),
+            }}
+          />
+        </TestProviders>,
+      );
+    }
+
+    await screen.findByPlaceholderText("发送到 Atlas");
+    expect(consoleError.mock.calls.flat().join(" ")).not.toContain("Maximum update depth exceeded");
+    consoleError.mockRestore();
+  });
+
   it("opens channel document workspaces through local history transitions", async () => {
     const user = userEvent.setup();
     const pushStateSpy = vi.spyOn(window.history, "pushState");

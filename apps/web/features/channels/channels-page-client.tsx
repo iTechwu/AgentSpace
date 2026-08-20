@@ -374,6 +374,10 @@ export function ChannelsPageClient({
       window.performance.clearMeasures(`${IM_PERFORMANCE_MARK_PREFIX}.${name}`);
     });
   }, []);
+  const focusedRouteChannelId = routeState.focus
+    ? indexes.channelByFocusKey.get(routeState.focus)?.id ?? null
+    : null;
+
   useEffect(() => {
     transitionPendingRef.current = isPending;
   }, [isPending]);
@@ -464,27 +468,36 @@ export function ChannelsPageClient({
 
   useEffect(() => {
     const nextTab = routeState.tab ?? (routeState.documentId ? "documents" : "messages");
+    const nextDocumentsView = nextTab === "documents" && routeState.documentId ? "workspace" : "list";
     if (!routeState.focus) {
       if (routeState.tab || routeState.documentId) {
-        setActiveTab(nextTab);
-        setDocumentsView(nextTab === "documents" && routeState.documentId ? "workspace" : "list");
+        if (activeTab !== nextTab) setActiveTab(nextTab);
+        if (documentsView !== nextDocumentsView) setDocumentsView(nextDocumentsView);
       }
-      if (routeState.documentId) {
+      if (routeState.documentId && selectedDocumentId !== routeState.documentId) {
         setSelectedDocumentId(routeState.documentId);
       }
       return;
     }
 
-    const focusedChannel = indexes.channelByFocusKey.get(routeState.focus);
-    if (focusedChannel) {
-      setSelectedChannelId(focusedChannel.id);
+    if (focusedRouteChannelId && selectedChannelId !== focusedRouteChannelId) {
+      setSelectedChannelId(focusedRouteChannelId);
     }
-    setActiveTab(nextTab);
-    setDocumentsView(nextTab === "documents" && routeState.documentId ? "workspace" : "list");
-    if (routeState.documentId) {
+    if (activeTab !== nextTab) setActiveTab(nextTab);
+    if (documentsView !== nextDocumentsView) setDocumentsView(nextDocumentsView);
+    if (routeState.documentId && selectedDocumentId !== routeState.documentId) {
       setSelectedDocumentId(routeState.documentId);
     }
-  }, [indexes, routeState]);
+  }, [
+    activeTab,
+    documentsView,
+    focusedRouteChannelId,
+    routeState.documentId,
+    routeState.focus,
+    routeState.tab,
+    selectedChannelId,
+    selectedDocumentId,
+  ]);
 
   const visibleChannels = useMemo(
     () => {
