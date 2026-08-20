@@ -51,7 +51,20 @@ type JsonColumnName =
   | "event_json"
   | "audit_data_json"
   | "data_json"
-  | "source_event_ids_json";
+  | "source_event_ids_json"
+  | "allowed_hosts_json"
+  | "configuration_schema_json"
+  | "declared_tools_json"
+  | "default_approved_tools_json"
+  | "secret_fields_json"
+  | "required_runtime_capabilities_json"
+  | "data_domains_json"
+  | "required_runtime_app_json"
+  | "approved_tools_json"
+  | "non_secret_params_json"
+  | "tools_metadata_json"
+  | "request_snapshot_json"
+  | "authorization_json";
 
 interface TableMigrationPlan {
   tableName: Exclude<PostgresTableName, "app_metadata" | "attachment" | "audit_log">;
@@ -233,7 +246,75 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "workspace_task", conflictColumns: ["id"], jsonColumns: ["labels_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "daemon_connection", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "daemon_api_token", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
+  {
+    tableName: "provider_account",
+    conflictColumns: ["id"],
+    jsonColumns: ["config_json", "encrypted_credentials_json"],
+    orderBy: "created_at ASC, id ASC",
+  },
   { tableName: "agent_runtime", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
+  {
+    tableName: "mcp_catalog_item",
+    conflictColumns: ["id"],
+    jsonColumns: [
+      "allowed_hosts_json",
+      "configuration_schema_json",
+      "declared_tools_json",
+      "default_approved_tools_json",
+      "secret_fields_json",
+      "required_runtime_capabilities_json",
+      "data_domains_json",
+      "required_runtime_app_json",
+    ],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "runtime_mcp_connection",
+    conflictColumns: ["id"],
+    jsonColumns: ["approved_tools_json", "non_secret_params_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "runtime_mcp_secret",
+    conflictColumns: ["connection_id", "field_name"],
+    optionalWhenMissing: true,
+    orderBy: "connection_id ASC, field_name ASC",
+  },
+  {
+    tableName: "runtime_mcp_discovery_snapshot",
+    conflictColumns: ["id"],
+    jsonColumns: ["tools_metadata_json"],
+    optionalWhenMissing: true,
+    orderBy: "discovered_at ASC, id ASC",
+  },
+  {
+    tableName: "runtime_mcp_operation",
+    conflictColumns: ["id"],
+    jsonColumns: ["request_snapshot_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "runtime_mcp_tool_audit",
+    conflictColumns: ["id"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "mcp_task_session_grant",
+    conflictColumns: ["task_id"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, task_id ASC",
+  },
+  {
+    tableName: "mcp_task_audit_authorization",
+    conflictColumns: ["task_id"],
+    jsonColumns: ["authorization_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, task_id ASC",
+  },
   { tableName: "workspace_runtime_display_name", conflictColumns: ["workspace_id", "runtime_id"], orderBy: "created_at ASC, workspace_id ASC, runtime_id ASC" },
   { tableName: "workspace_runtime_grant", conflictColumns: ["workspace_id", "runtime_id", "user_id", "permission"], orderBy: "created_at ASC, id ASC" },
   { tableName: "document_agent_access", conflictColumns: ["workspace_id", "document_id", "subject_type", "subject_id"], orderBy: "created_at ASC, id ASC" },
@@ -492,7 +573,13 @@ export async function migratePostgresToPostgres(
   await sourceClient.connect();
   await targetClient.connect();
   try {
-    const snapshot = await collectPostgresMigrationSnapshot(sourceClient);
+    const sourceSnapshot = await collectPostgresMigrationSnapshot(sourceClient);
+    const projectionWarnings: string[] = [];
+    const snapshot = await projectPostgresMigrationSnapshotToTargetSchema(
+      targetClient,
+      sourceSnapshot,
+      projectionWarnings,
+    );
     const report: PostgresToPostgresMigrationReport = {
       sourceDatabaseUrl: redactPostgresDatabaseUrl(sourceDatabaseUrl),
       targetDatabaseUrl: redactPostgresDatabaseUrl(targetDatabaseUrl),
@@ -501,8 +588,8 @@ export async function migratePostgresToPostgres(
       reset: input.reset === true,
       startedAt,
       finishedAt: startedAt,
-      warnings: [],
-      tables: snapshot.map((table) => ({
+      warnings: projectionWarnings,
+      tables: sourceSnapshot.map((table) => ({
         tableName: table.tableName,
         sourceCount: table.rows.length,
         insertedCount: 0,
@@ -1220,6 +1307,66 @@ async function collectPostgresMigrationSnapshot(client: Client): Promise<TableMi
   }
   filterMigrationTablesToSsoIdentities(tables);
   return tables;
+}
+
+/**
+ * PostgreSQL-to-PostgreSQL imports can be used to recover data from an older
+ * deployment. Schema versions are intentionally forward-only, but historical
+ * databases may still retain columns which have since been removed. Project
+ * every source row onto the target's actual public columns before building an
+ * INSERT so a removed legacy column does not make the entire import fail.
+ */
+async function projectPostgresMigrationSnapshotToTargetSchema(
+  client: Client,
+  snapshot: TableMigrationSnapshot[],
+  warnings: string[],
+): Promise<TableMigrationSnapshot[]> {
+  const tableNames = [...new Set(snapshot.map((table) => table.tableName))];
+  if (tableNames.length === 0) {
+    return snapshot;
+  }
+
+  const result = await client.query<{ table_name: string; column_name: string }>(
+    `SELECT table_name, column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = ANY($1::text[])`,
+    [tableNames],
+  );
+  const targetColumnsByTable = new Map<string, Set<string>>();
+  for (const column of result.rows) {
+    const columns = targetColumnsByTable.get(column.table_name) ?? new Set<string>();
+    columns.add(column.column_name);
+    targetColumnsByTable.set(column.table_name, columns);
+  }
+
+  return snapshot.map((table) => {
+    const targetColumns = targetColumnsByTable.get(table.tableName);
+    if (!targetColumns) {
+      throw new Error(`Target PostgreSQL schema is missing table "${table.tableName}".`);
+    }
+
+    const ignoredColumns = new Set<string>();
+    const rows = table.rows.map((row) => {
+      const projected: MigrationRow = {};
+      for (const [column, value] of Object.entries(row)) {
+        if (targetColumns.has(column)) {
+          projected[column] = value;
+        } else {
+          ignoredColumns.add(column);
+        }
+      }
+      return projected;
+    });
+
+    if (ignoredColumns.size > 0) {
+      warnings.push(
+        `PostgreSQL source table "${table.tableName}" contains legacy columns not present in the target schema; ignored: ${[...ignoredColumns].sort().join(", ")}.`,
+      );
+    }
+
+    return { ...table, rows };
+  });
 }
 
 function filterMigrationTablesToSsoIdentities(tables: TableMigrationSnapshot[]): void {

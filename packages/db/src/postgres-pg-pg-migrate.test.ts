@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { ensurePostgresSchema, migratePostgresToPostgres } from "./postgres.ts";
 import { resolvePostgresDatabaseUrl } from "./postgres-config.ts";
+import { POSTGRES_SCHEMA_VERSION } from "./postgres-schema.ts";
 
 const CLI_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "postgres-cli.ts");
+const newerSchemaVersion = String(Number(POSTGRES_SCHEMA_VERSION) + 1);
 
 /**
  * Spec #7（PG→PG dry-run 误报）：migratePostgresToPostgres 的 dry-run 分支原先在复核目标库版本前
@@ -96,11 +98,11 @@ test("migratePostgresToPostgres dry-run 面对新版目标库报告 skipped_inco
     } finally {
       await sourceSeeder.end();
     }
-    // 抬高目标库版本到 117（> 实例 116）——单调触发器允许升级，使目标库「比实例更新」。
+    // 抬高目标库版本（> 当前实例）——单调触发器允许升级，使目标库「比实例更新」。
     const targetBumper = new Client({ connectionString: dbs.targetUrl });
     await targetBumper.connect();
     try {
-      await targetBumper.query("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'");
+      await targetBumper.query("UPDATE app_metadata SET value = $1 WHERE key = 'schema_version'", [newerSchemaVersion]);
     } finally {
       await targetBumper.end();
     }
@@ -141,7 +143,7 @@ test("migratePostgresToPostgres dry-run 面对兼容目标库报告 completed（
     } finally {
       await sourceSeeder.end();
     }
-    // 目标库版本保持 116（= 实例版本）→ 兼容。
+    // 目标库版本保持当前实例版本 → 兼容。
 
     const report = await migratePostgresToPostgres({
       sourceDatabaseUrl: dbs.sourceUrl,
@@ -155,6 +157,90 @@ test("migratePostgresToPostgres dry-run 面对兼容目标库报告 completed（
     assert.equal(workspaceTable!.sourceCount, 1, "前置：source workspace 有 1 行");
     assert.equal(workspaceTable!.insertedCount, 1, "兼容时 dry-run 报告 insertedCount = sourceCount");
     assert.equal(workspaceTable!.skippedCount, 0, "兼容时 dry-run 不应有 skipped");
+  } finally {
+    await dropTempDbs(dbs);
+  }
+});
+
+test("migratePostgresToPostgres 忽略旧库已废弃列并保留业务行", {
+  skip: !hasTestDatabase,
+}, async () => {
+  const dbs = await createTempDbs();
+  try {
+    await ensurePostgresSchema({ databaseUrl: dbs.sourceUrl });
+    await ensurePostgresSchema({ databaseUrl: dbs.targetUrl });
+    const source = new Client({ connectionString: dbs.sourceUrl });
+    await source.connect();
+    try {
+      // 模拟历史库遗留字段：当前目标 schema 已不再定义 workspace.join_code。
+      await source.query("ALTER TABLE workspace ADD COLUMN join_code TEXT");
+      await source.query(
+        `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at, join_code)
+         VALUES ('ws-pgpg-legacy-column', 'legacy', 'legacy', 'test', now(), now(), 'old-code')`,
+      );
+      await source.query(
+        `INSERT INTO agent_runtime (
+          id, workspace_id, provider, name, created_at, updated_at
+        ) VALUES (
+          'runtime-pgpg-mcp', 'ws-pgpg-legacy-column', 'codex', 'Codex', now(), now()
+        )`,
+      );
+      await source.query(
+        `INSERT INTO mcp_catalog_item (
+          id, workspace_id, slug, transport, display_name, synced_at, created_at, updated_at
+        ) VALUES (
+          'catalog-pgpg-mcp', 'ws-pgpg-legacy-column', 'test-mcp', 'streamable_http', 'Test MCP', now(), now(), now()
+        )`,
+      );
+      await source.query(
+        `INSERT INTO runtime_mcp_connection (
+          id, workspace_id, runtime_id, catalog_item_id, status, endpoint, created_at, updated_at
+        ) VALUES (
+          'connection-pgpg-mcp', 'ws-pgpg-legacy-column', 'runtime-pgpg-mcp', 'catalog-pgpg-mcp', 'ready', 'https://mcp.example.test', now(), now()
+        )`,
+      );
+      await source.query(
+        `INSERT INTO runtime_mcp_secret (
+          connection_id, field_name, encrypted_value, key_version, rotated_at
+        ) VALUES (
+          'connection-pgpg-mcp', 'TOKEN', 'mcp1:fixture', 'mcp1', now()
+        )`,
+      );
+    } finally {
+      await source.end();
+    }
+
+    const report = await migratePostgresToPostgres({
+      sourceDatabaseUrl: dbs.sourceUrl,
+      targetDatabaseUrl: dbs.targetUrl,
+      reset: true,
+    });
+
+    assert.equal(report.status, "completed");
+    assert.ok(
+      report.warnings.some((warning) => /workspace.*join_code/.test(warning)),
+      "报告必须说明已忽略遗留字段",
+    );
+    const target = new Client({ connectionString: dbs.targetUrl });
+    await target.connect();
+    try {
+      const row = await target.query<{ id: string }>(
+        "SELECT id FROM workspace WHERE id = 'ws-pgpg-legacy-column'",
+      );
+      assert.equal(row.rows[0]?.id, "ws-pgpg-legacy-column", "兼容投影后应保留业务行");
+      const mcp = await target.query<{ connection_count: string; secret_count: string }>(
+        `SELECT
+           (SELECT COUNT(*)::text FROM runtime_mcp_connection WHERE id = 'connection-pgpg-mcp') AS connection_count,
+           (SELECT COUNT(*)::text FROM runtime_mcp_secret WHERE connection_id = 'connection-pgpg-mcp') AS secret_count`,
+      );
+      assert.deepEqual(
+        mcp.rows[0],
+        { connection_count: "1", secret_count: "1" },
+        "MCP 目录、连接与加密密钥必须随运行时完整迁移",
+      );
+    } finally {
+      await target.end();
+    }
   } finally {
     await dropTempDbs(dbs);
   }
@@ -175,7 +261,7 @@ test("postgres-cli migrate-from-postgres dry-run 面对新版目标库以退出�
     const targetBumper = new Client({ connectionString: dbs.targetUrl });
     await targetBumper.connect();
     try {
-      await targetBumper.query("UPDATE app_metadata SET value = '117' WHERE key = 'schema_version'");
+      await targetBumper.query("UPDATE app_metadata SET value = $1 WHERE key = 'schema_version'", [newerSchemaVersion]);
     } finally {
       await targetBumper.end();
     }
