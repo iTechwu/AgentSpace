@@ -144,6 +144,13 @@ export function bindEmployeeRuntimeSync(
   if (!employee) {
     throw new Error(`Active employee "${employeeName}" does not exist.`);
   }
+  // Older or externally synchronized workspace snapshots can contain an
+  // employee before the normalized workspace_employee row is materialized.
+  // The binding record is keyed by that row, so repair the missing projection
+  // before entering the lower-level binding transaction.
+  if (!resolveStoredEmployeeIdSync(employee.name, workspaceId)) {
+    createStoredEmployeeSync(employee, workspaceId);
+  }
   if (actorUserId) {
     assertCanManageEmployeeForActorSync({ workspaceId, employeeName: employee.name, actorUserId });
     assertCanUseRuntimeForActorSync({ workspaceId, runtimeId, actorUserId });

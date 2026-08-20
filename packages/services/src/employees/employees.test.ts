@@ -168,6 +168,25 @@ test("bindEmployeeRuntimeSync allows binding a managed runtime when no skill dec
   assert.ok(state);
 });
 
+test("bindEmployeeRuntimeSync repairs a missing normalized employee projection", () => {
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  const runtimeId = createManagedRuntime("codex");
+  createEmployeeSync({ name: "Projection Repair", role: "Planner" }, WORKSPACE_ID);
+  getDatabase().prepare(
+    "DELETE FROM workspace_employee WHERE workspace_id = ? AND name = ?",
+  ).run(WORKSPACE_ID, "Projection Repair");
+
+  const state = bindEmployeeRuntimeSync("Projection Repair", runtimeId, WORKSPACE_ID, TEST_USER_ID);
+
+  assert.equal(state.activeEmployees.some((employee) => employee.name === "Projection Repair"), true);
+  assert.deepEqual(
+    getDatabase().prepare(
+      "SELECT COUNT(*) AS count FROM workspace_employee WHERE workspace_id = ? AND name = ?",
+    ).get(WORKSPACE_ID, "Projection Repair"),
+    { count: 1 },
+  );
+});
+
 test("bindEmployeeRuntimeSync ignores unconfigured declarations when checking credential key collisions", () => {
   process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
   const runtimeId = createManagedRuntime("codex");
