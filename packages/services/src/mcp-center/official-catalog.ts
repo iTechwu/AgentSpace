@@ -266,5 +266,6 @@ function cloneManagedStdioProfile(profile: McpManagedStdioProfile): McpManagedSt
     args: [...profile.args],
     managedArgs: profile.managedArgs ? [...profile.managedArgs] : undefined,
     env: { ...profile.env },
+    networkAccess: profile.networkAccess,
   };
 }
