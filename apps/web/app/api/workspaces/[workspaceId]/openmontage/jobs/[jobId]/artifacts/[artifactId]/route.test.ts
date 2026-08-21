@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Readable } from "node:stream";
 
 const mocks = vi.hoisted(() => ({
   access: vi.fn(),
@@ -56,6 +57,25 @@ describe("OpenMontage published artifact route", () => {
     expect(await response.text()).toBe("ell");
     expect(response.headers.get("content-range")).toBe("bytes 1-3/5");
     expect(response.headers.get("content-type")).toBe("video/mp4");
+  });
+
+  it("streams local artifacts without buffering the whole video", async () => {
+    const createStream = vi.fn().mockReturnValue(Readable.from([Buffer.from("ell")]));
+    mocks.createStorage.mockReturnValue({
+      createReadUrl: vi.fn().mockResolvedValue(null),
+      createContentAddressedBlobReadStream: createStream,
+    });
+
+    const response = await GET(new Request("http://localhost/artifact", { headers: { Range: "bytes=1-3" } }), params());
+
+    expect(response.status).toBe(206);
+    expect(await response.text()).toBe("ell");
+    expect(createStream).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+      start: 1,
+      end: 3,
+    });
   });
 
   it("does not expose an artifact outside the Job channel or immutable manifest", async () => {

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -11,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
-import { Transform, type Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 // 安全说明：2026-08-14 起，@volcengine/tos-sdk（及其传递引入的高危 axios 0.21.4/0.27.2）
 // 已彻底移除。TOS V4 预签名 URL 由自实现 tos-signer.ts 生成（纯 node:crypto HMAC-SHA256，
@@ -81,6 +82,7 @@ export interface AttachmentStorageClient {
   deleteObjectSync(input: AttachmentStorageReadInput): void;
   createReadUrl(input: AttachmentStorageReadInput): Promise<string | null>;
   putContentAddressedBlobStream?(input: ContentAddressedBlobStreamPutInput): Promise<ContentAddressedBlobRef>;
+  createContentAddressedBlobReadStream?(input: ContentAddressedBlobReadStreamInput): Readable;
   putContentAddressedBlobSync(input: ContentAddressedBlobPutInput): ContentAddressedBlobRef;
   getContentAddressedBlobSync(input: ContentAddressedBlobReadInput): Uint8Array;
   contentAddressedBlobExistsSync(input: ContentAddressedBlobReadInput): boolean;
@@ -105,6 +107,11 @@ export interface ContentAddressedBlobStreamPutInput {
 export interface ContentAddressedBlobReadInput {
   workspaceId: string;
   sha256: string;
+}
+
+export interface ContentAddressedBlobReadStreamInput extends ContentAddressedBlobReadInput {
+  start?: number;
+  end?: number;
 }
 
 export interface ContentAddressedBlobRef {
@@ -622,6 +629,14 @@ class LocalAttachmentStorageClient implements AttachmentStorageClient {
   getContentAddressedBlobSync(input: ContentAddressedBlobReadInput): Uint8Array {
     const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
     return new Uint8Array(readFileSync(this.resolveObjectPath(key)));
+  }
+
+  createContentAddressedBlobReadStream(input: ContentAddressedBlobReadStreamInput): Readable {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    return createReadStream(this.resolveObjectPath(key), {
+      ...(input.start === undefined ? {} : { start: input.start }),
+      ...(input.end === undefined ? {} : { end: input.end }),
+    });
   }
 
   contentAddressedBlobExistsSync(input: ContentAddressedBlobReadInput): boolean {

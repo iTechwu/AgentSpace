@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
+import { Readable } from "node:stream";
 import {
   readContentBlobSync,
   readEmployeeArtifactSync,
@@ -79,6 +80,39 @@ export async function GET(
     });
   }
 
+  const range = parseByteRange(request.headers.get("Range"), artifact.sizeBytes);
+  if (range === "invalid") {
+    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${artifact.sizeBytes}` } });
+  }
+  const disposition = new URL(request.url).searchParams.get("download") === "1" ? "attachment" : "inline";
+  const headers = new Headers({
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, no-cache",
+    "Content-Disposition": `${disposition}; filename="${safeFileName(artifact.fileName)}"`,
+    "Content-Length": String(range ? range.end - range.start + 1 : artifact.sizeBytes),
+    "Content-Type": artifact.mediaType,
+    ETag: `"sha256-${artifact.contentDigest}"`,
+    Vary: "Cookie, Authorization",
+  });
+  if (range) headers.set("Content-Range", `bytes ${range.start}-${range.end}/${artifact.sizeBytes}`);
+
+  const streamFactory = storage.createContentAddressedBlobReadStream;
+  if (streamFactory) {
+    try {
+      const stream = streamFactory({
+        workspaceId,
+        sha256: artifact.contentDigest,
+        ...(range ? { start: range.start, end: range.end } : {}),
+      });
+      return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
+        status: range ? 206 : 200,
+        headers,
+      });
+    } catch {
+      return new Response("Artifact not found.", { status: 404 });
+    }
+  }
+
   let bytes: Uint8Array;
   try {
     bytes = storage.getContentAddressedBlobSync({ workspaceId, sha256: artifact.contentDigest });
@@ -91,23 +125,7 @@ export async function GET(
   ) {
     return new Response("Artifact not found.", { status: 404 });
   }
-
-  const range = parseByteRange(request.headers.get("Range"), bytes.byteLength);
-  if (range === "invalid") {
-    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${bytes.byteLength}` } });
-  }
   const body = range ? bytes.slice(range.start, range.end + 1) : bytes;
-  const disposition = new URL(request.url).searchParams.get("download") === "1" ? "attachment" : "inline";
-  const headers = new Headers({
-    "Accept-Ranges": "bytes",
-    "Cache-Control": "private, no-cache",
-    "Content-Disposition": `${disposition}; filename="${safeFileName(artifact.fileName)}"`,
-    "Content-Length": String(body.byteLength),
-    "Content-Type": artifact.mediaType,
-    ETag: `"sha256-${artifact.contentDigest}"`,
-    Vary: "Cookie, Authorization",
-  });
-  if (range) headers.set("Content-Range", `bytes ${range.start}-${range.end}/${bytes.byteLength}`);
   return new Response(Buffer.from(body), { status: range ? 206 : 200, headers });
 }
 

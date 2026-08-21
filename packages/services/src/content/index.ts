@@ -27,6 +27,7 @@ export {
   type AttachmentStoragePutInput,
   type ContentAddressedBlobPutInput,
   type ContentAddressedBlobReadInput,
+  type ContentAddressedBlobReadStreamInput,
   type ContentAddressedBlobRef,
   type StoredAttachmentObject,
 } from "../attachments/storage.ts";
