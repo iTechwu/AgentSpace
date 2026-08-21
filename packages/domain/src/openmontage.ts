@@ -247,8 +247,8 @@ export function parseOpenMontageSubmittedJob(value: unknown): OpenMontageSubmitt
 }
 
 function requireAmount(value: unknown, field: string): string {
-  if (typeof value !== "string" || !/^\d{1,10}(?:\.\d{1,8})?$/.test(value) || Number(value) <= 0) {
-    throw new Error(`${field} must be a positive decimal string.`);
+  if (typeof value !== "string" || !/^\d{1,10}(?:\.\d{1,8})?$/.test(value) || Number(value) < 0) {
+    throw new Error(`${field} must be a non-negative decimal string.`);
   }
   return value;
 }

@@ -73,6 +73,17 @@ test("submitted Job parsing validates the full OpenMontage response and produces
   assert.equal(parsed.snapshot.stages[1]?.approvalStatus, "REQUIRED");
 });
 
+test("submitted Job parsing accepts the zero-cost deterministic workflow budget", () => {
+  const parsed = parseOpenMontageSubmittedJob({
+    ...submittedJob(),
+    request: {
+      ...submittedJob().request,
+      budget: { maxAmount: "0", currency: "CNY" },
+    },
+  });
+  assert.deepEqual(parsed.budget, { maxAmount: "0", currency: "CNY" });
+});
+
 test("submitted Job parsing accepts read-only fields returned by the Job snapshot API", () => {
   const snapshot = submittedJob();
   Object.assign(snapshot, {
