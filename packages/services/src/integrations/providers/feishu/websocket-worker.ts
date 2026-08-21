@@ -7,7 +7,12 @@ import {
 import type { WSConnectionStatus } from "@larksuiteoapi/node-sdk";
 import type { IntegrationRuntimeContext } from "../../core/index.ts";
 import { createFeishuInboundAttachmentDownloader } from "./attachments.ts";
-import { FEISHU_PROVIDER_ID, FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS } from "./constants.ts";
+import {
+  FEISHU_PROVIDER_ID,
+  FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS,
+  FEISHU_WEBSOCKET_HANDSHAKE_TIMEOUT_MS,
+  FEISHU_WEBSOCKET_PING_TIMEOUT_SECONDS,
+} from "./constants.ts";
 import { readFeishuIntegrationCredentials, type FeishuPlainCredentials } from "./credentials.ts";
 import {
   isFeishuApprovalCardActionCallbackPayload,
@@ -97,6 +102,10 @@ export interface FeishuWebSocketWorkerSessionFactoryInput {
   integrationId: string;
   onReady(): void;
   onError(error: unknown): void;
+  onReconnecting?(): void;
+  onReconnected?(): void;
+  pingTimeoutSeconds: number;
+  handshakeTimeoutMs: number;
   onEvent(eventType: string, event: unknown): Promise<void>;
 }
 
@@ -221,6 +230,23 @@ export async function startFeishuWebSocketWorker(input: {
             lastError: workerError.errorMessage,
           }, workerDependencies);
         },
+        onReconnecting() {
+          updateFeishuWorkerHealth({
+            workspaceId: input.workspaceId,
+            integrationId: integration.id,
+            status: "degraded",
+            lastError: "feishu.websocket_worker.reconnecting",
+          }, workerDependencies);
+        },
+        onReconnected() {
+          updateFeishuWorkerHealth({
+            workspaceId: input.workspaceId,
+            integrationId: integration.id,
+            status: "healthy",
+          }, workerDependencies);
+        },
+        pingTimeoutSeconds: FEISHU_WEBSOCKET_PING_TIMEOUT_SECONDS,
+        handshakeTimeoutMs: FEISHU_WEBSOCKET_HANDSHAKE_TIMEOUT_MS,
         async onEvent(eventType, event) {
           await processFeishuWebSocketEvent({
             context,
@@ -493,10 +519,16 @@ async function createFeishuSdkWebSocketWorkerSession(
     domain: input.domain,
     autoReconnect: true,
     source: "dofe-agent-feishu-worker",
+    handshakeTimeoutMs: input.handshakeTimeoutMs,
+    wsConfig: {
+      pingTimeout: input.pingTimeoutSeconds,
+    },
     onReady: input.onReady,
     onError(error) {
       input.onError(error);
     },
+    onReconnecting: input.onReconnecting,
+    onReconnected: input.onReconnected,
   });
   await client.start({ eventDispatcher: dispatcher });
   return {

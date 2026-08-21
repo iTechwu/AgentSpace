@@ -3,6 +3,11 @@ import type { IntegrationProviderDescriptor } from "../../core/index.ts";
 export const FEISHU_PROVIDER_ID = "feishu";
 export const FEISHU_EVENT_CALLBACK_PATH = "/api/integrations/feishu/events";
 
+// The SDK sends server-configured pings. Terminate a half-open socket when no
+// pong or inbound frame arrives in this window so its reconnect loop can run.
+export const FEISHU_WEBSOCKET_PING_TIMEOUT_SECONDS = 30;
+export const FEISHU_WEBSOCKET_HANDSHAKE_TIMEOUT_MS = 20_000;
+
 export const FEISHU_BOT_SMOKE_SCOPES = [
   "im:message",
   "im:message:send_as_bot",

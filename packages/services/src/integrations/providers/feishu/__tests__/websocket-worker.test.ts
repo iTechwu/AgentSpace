@@ -8,8 +8,13 @@ import {
   startFeishuWebSocketWorker,
   startFeishuWebSocketWorkerSupervisor,
   type FeishuWebSocketWorkerMetrics,
+  type FeishuWebSocketWorkerSessionFactoryInput,
 } from "../websocket-worker.ts";
-import { FEISHU_PROVIDER_ID } from "../constants.ts";
+import {
+  FEISHU_PROVIDER_ID,
+  FEISHU_WEBSOCKET_HANDSHAKE_TIMEOUT_MS,
+  FEISHU_WEBSOCKET_PING_TIMEOUT_SECONDS,
+} from "../constants.ts";
 
 test("wraps Feishu SDK message events into the inbound webhook payload shape", () => {
   const payload = buildFeishuWebSocketEventPayload({
@@ -548,6 +553,49 @@ test("startFeishuWebSocketWorker can close and restart sessions with injected de
     integrationId: "integration-ws-1",
     lastHealthStatus: "healthy",
   }]);
+});
+
+test("worker marks reconnecting bindings degraded and healthy after recovery", async () => {
+  const integration = makeIntegration({
+    id: "integration-ws-reconnect",
+    transportMode: "websocket_worker",
+  });
+  const healthUpdates: Array<Record<string, unknown>> = [];
+  let sessionInput: FeishuWebSocketWorkerSessionFactoryInput | undefined;
+
+  const worker = await startFeishuWebSocketWorker({
+    workspaceId: "workspace-1",
+    lockedBy: "worker-1",
+    workerDependencies: {
+      listIntegrations() {
+        return [integration];
+      },
+      readIntegrationCredentials() {
+        return { appSecret: "app-secret" };
+      },
+      updateIntegrationHealth(input) {
+        healthUpdates.push(input as unknown as Record<string, unknown>);
+        return integration;
+      },
+    },
+    async sessionFactory(input) {
+      sessionInput = input;
+      return { close() {} };
+    },
+  });
+
+  assert.equal(sessionInput?.pingTimeoutSeconds, FEISHU_WEBSOCKET_PING_TIMEOUT_SECONDS);
+  assert.equal(sessionInput?.handshakeTimeoutMs, FEISHU_WEBSOCKET_HANDSHAKE_TIMEOUT_MS);
+  sessionInput?.onReconnecting?.();
+  sessionInput?.onReconnected?.();
+  assert.deepEqual(healthUpdates.map((update) => ({
+    lastHealthStatus: update.lastHealthStatus,
+    lastError: update.lastError,
+  })), [
+    { lastHealthStatus: "degraded", lastError: "feishu.websocket_worker.reconnecting" },
+    { lastHealthStatus: "healthy", lastError: undefined },
+  ]);
+  worker.close();
 });
 
 test("worker supervisor refreshes changed bindings and drains outbound replies without a new event", async () => {
