@@ -112,9 +112,10 @@ function parseSchemaColumns(): Map<string, Set<string>> {
   return tables;
 }
 
-const SQL_KEYWORD = /\b(SELECT|INSERT INTO|UPDATE|DELETE FROM|WITH)\b/i;
+const SQL_KEYWORD = /\b(SELECT|INSERT INTO|UPDATE|DELETE FROM|WITH|ALTER TABLE)\b/i;
 const QUALIFIED_REF = /\b([a-z][a-z0-9_]{2,})\.((?:"[a-zA-Z_][a-zA-Z0-9_]*")|[a-z_][a-z0-9_]*)\b/g;
 const INSERT_COLUMNS = /\bINSERT INTO ([a-z0-9_]+)\s*\(([^()]*)\)/gis;
+const SOURCE_ALTER_ADD_COLUMN = /\bALTER TABLE (?:IF EXISTS )?([a-z0-9_]+)\s+ADD COLUMN (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*)\b/gi;
 
 interface Violation {
   location: string;
@@ -129,6 +130,9 @@ function scanSqlText(
   violations: Violation[],
 ): void {
   const stripped = sql.replace(/\$\{[^}]*\}/g, " ");
+  for (const match of stripped.matchAll(SOURCE_ALTER_ADD_COLUMN)) {
+    tables.get(match[1])?.add(match[2]);
+  }
   for (const match of stripped.matchAll(QUALIFIED_REF)) {
     const columns = tables.get(match[1]);
     if (!columns) continue;
@@ -151,6 +155,20 @@ function scanSqlText(
   }
 }
 
+test("allows a legacy fixture column only after the source file adds it", () => {
+  const tables = new Map([["workspace", new Set(["id"])]]);
+  const beforeAlter: Violation[] = [];
+  const insertLegacyColumn = ["INSERT", " INTO workspace (id, join_code) VALUES ('ws', 'old')"].join("");
+  scanSqlText(insertLegacyColumn, 1, "fixture.ts", tables, beforeAlter);
+  assert.equal(beforeAlter.length, 1);
+
+  const afterAlter: Violation[] = [];
+  const addLegacyColumn = ["ALTER", " TABLE workspace ADD COLUMN join_code TEXT"].join("");
+  scanSqlText(addLegacyColumn, 2, "fixture.ts", tables, afterAlter);
+  scanSqlText(insertLegacyColumn, 3, "fixture.ts", tables, afterAlter);
+  assert.deepEqual(afterAlter, []);
+});
+
 test("hand-written SQL references only columns defined in the schema", () => {
   const tables = parseSchemaColumns();
   assert.ok(tables.size >= 100, `应解析出 100+ 张表，实际 ${tables.size}`);
@@ -159,15 +177,14 @@ test("hand-written SQL references only columns defined in the schema", () => {
     if (file.startsWith(STATEMENTS_ROOT)) continue;
     const text = readFileSync(file, "utf8");
     const relativePath = relative(SOURCE_ROOT, file);
-    for (const match of text.matchAll(/`([^`]*)`/g)) {
-      if (!SQL_KEYWORD.test(match[1])) continue;
+    const fileTables = new Map(Array.from(tables, ([table, columns]) => [table, new Set(columns)]));
+    const snippets = [
+      ...Array.from(text.matchAll(/`([^`]*)`/g)),
+      ...Array.from(text.matchAll(/"([^"\n]*)"/g)),
+    ].filter((match) => SQL_KEYWORD.test(match[1])).sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    for (const match of snippets) {
       const baseLine = text.slice(0, match.index ?? 0).split("\n").length;
-      scanSqlText(match[1], baseLine, relativePath, tables, violations);
-    }
-    for (const match of text.matchAll(/"([^"\n]*)"/g)) {
-      if (!SQL_KEYWORD.test(match[1])) continue;
-      const baseLine = text.slice(0, match.index ?? 0).split("\n").length;
-      scanSqlText(match[1], baseLine, relativePath, tables, violations);
+      scanSqlText(match[1], baseLine, relativePath, fileTables, violations);
     }
   }
   assert.deepEqual(
