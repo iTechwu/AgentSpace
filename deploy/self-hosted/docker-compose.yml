@@ -31,11 +31,12 @@ services:
     volumes:
       - web-data:/srv/DofeAgent/data
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:1455/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      # readiness：区分进程存活与数据库可用（见 /api/health/ready）。liveness 用 /api/health/live。
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:1455/api/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 20s
+      start_period: 30s
     init: true
     restart: unless-stopped
 
@@ -54,6 +55,12 @@ services:
     depends_on:
       web:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node --experimental-strip-types deploy/self-hosted/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
     init: true
     restart: unless-stopped
 
@@ -71,6 +78,12 @@ services:
     depends_on:
       db-init:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "node --experimental-strip-types deploy/self-hosted/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
     init: true
     restart: unless-stopped
 
@@ -98,6 +111,12 @@ services:
       - claude-home:/home/node
       - daemon-claude-data:/srv/DofeAgent/data
       - ${DOFE_AGENT_CLAUDE_PROVIDER_CREDENTIAL_DIR:-./credentials/claude}:/run/dofe-agent-provider:ro
+    healthcheck:
+      test: ["CMD-SHELL", "node --experimental-strip-types deploy/self-hosted/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
     init: true
     restart: unless-stopped
 
@@ -125,6 +144,12 @@ services:
       - codex-home:/home/node
       - daemon-codex-data:/srv/DofeAgent/data
       - ${DOFE_AGENT_CODEX_PROVIDER_CREDENTIAL_DIR:-./credentials/codex}:/run/dofe-agent-provider:ro
+    healthcheck:
+      test: ["CMD-SHELL", "node --experimental-strip-types deploy/self-hosted/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
     init: true
     restart: unless-stopped
 

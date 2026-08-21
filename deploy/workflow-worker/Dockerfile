@@ -11,6 +11,9 @@ WORKDIR /srv/DofeAgent
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/workflow-worker ./apps/workflow-worker
 COPY packages ./packages
+# readiness 探针（与 self-hosted 共用同一脚本；本镜像只拷入 worker 子集，
+# 不含整个 deploy/ 目录）
+COPY deploy/self-hosted/healthcheck.mjs ./deploy/self-hosted/healthcheck.mjs
 
 RUN npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \

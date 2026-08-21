@@ -25,7 +25,7 @@ jobs:
     env:
       DEPLOY_DIR: /home/AgentSpace
       SERVICE_NAME: agentspace
-      HEALTHCHECK_URL: http://127.0.0.1:1455/api/health
+      HEALTHCHECK_URL: http://127.0.0.1:1455/api/health/ready
       BACKUP_DIR: /home/AgentSpace/data/backups/deployments
       # Skill Runner egress 门禁三个镜像变量的显式来源：运行时同一份 .env
       # （与 daemon 启动 --env-file 同源）。dofe-skill-runner-e2e-run.sh 据此补齐
