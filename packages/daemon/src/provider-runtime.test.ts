@@ -847,6 +847,13 @@ test("runProviderTask maps Codex employee access levels to CLI approval and sand
   };
 
   try {
+    await runProviderTask(runtime, "use the default access level", root, {
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    let args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+
     await runProviderTask(runtime, "review this change", root, {
       executionPolicy: {
         codexApprovalPolicy: "untrusted",
@@ -855,7 +862,7 @@ test("runProviderTask maps Codex employee access levels to CLI approval and sand
       contextEnv: { CODEX_ARGS_PATH: argsPath },
       taskTimeoutMs: 5_000,
     });
-    let args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
     assert.equal(args.includes('approval_policy="untrusted"'), true);
     assert.equal(args.includes("--sandbox"), true);
     assert.equal(args.includes("workspace-write"), true);

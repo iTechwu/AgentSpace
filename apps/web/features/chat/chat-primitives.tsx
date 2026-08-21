@@ -964,6 +964,7 @@ export function ChatComposer({
   onEditQueuedMessage,
   onGuideQueuedMessage,
   onStop,
+  executionStatus,
   showExecutionPolicyMenu = false,
   onToggleExecutionPolicyMenu,
 }: {
@@ -1008,6 +1009,7 @@ export function ChatComposer({
   onEditQueuedMessage?: (id: string, content: string) => void;
   onGuideQueuedMessage?: (id: string) => void;
   onStop?: () => void;
+  executionStatus?: string;
   showExecutionPolicyMenu?: boolean;
   onToggleExecutionPolicyMenu?: () => void;
 }) {
@@ -1125,6 +1127,15 @@ export function ChatComposer({
   return (
     <div className="inbox-composer">
       {displayedFeedback ? <FeedbackBanner feedback={{ tone: "error", message: displayedFeedback }} /> : null}
+      {isAgentRunning ? (
+        <div aria-live="polite" className="contacts-composer__execution-status" role="status">
+          <span className="contacts-composer__execution-status-icon" aria-hidden="true">
+            <AppIcon className="contacts-composer__execution-status-spinner" name="loader" />
+          </span>
+          <span>{executionStatus ?? tx("正在执行任务", "Working on your request")}</span>
+          <span aria-hidden="true" className="contacts-composer__execution-status-dots">...</span>
+        </div>
+      ) : null}
       {queuedMessages.length > 0 ? (
         <section aria-label={tx("消息队列", "Message queue")} className="conversation-message-queue">
           <div className="conversation-message-queue__header">
@@ -1834,7 +1845,7 @@ function executionPolicySelection(
   policy: EmployeeExecutionPolicy | undefined,
 ): string {
   if (!runtime || !policy) {
-    return "inherit";
+    return runtime?.provider === "claude" ? "auto" : runtime?.provider === "codex" ? "full-access" : "inherit";
   }
   if (runtime.provider === "claude") {
     return policy.claudePermissionMode ?? "inherit";

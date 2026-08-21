@@ -920,6 +920,7 @@ describe("ConversationShell", () => {
           emptyThreadBody="empty"
           emptyThreadTitle="empty"
           isAgentRunning
+          executionStatus="正在调用工具"
           items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
           listCount={1}
           listKicker="Messages"
@@ -934,6 +935,8 @@ describe("ConversationShell", () => {
         />
       </LanguageProvider>,
     );
+
+    expect(screen.getByRole("status")).toHaveTextContent("正在调用工具");
 
     await user.click(screen.getByRole("button", { name: "停止执行" }));
     expect(onStopActiveTask).toHaveBeenCalledTimes(1);
@@ -1309,7 +1312,7 @@ describe("ConversationShell", () => {
       </LanguageProvider>,
     );
 
-    const policyTrigger = screen.getByRole("button", { name: /Runtime 默认/ });
+    const policyTrigger = screen.getByRole("button", { name: /^Auto/ });
     await user.click(policyTrigger);
     expect(screen.getByRole("option", { name: /Manual/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Edit automatically/ })).toBeInTheDocument();
@@ -1355,7 +1358,8 @@ describe("ConversationShell", () => {
       </LanguageProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: /Runtime 默认/ }));
+    const policyTrigger = screen.getByRole("button", { name: /完全访问/ });
+    await user.click(policyTrigger);
     expect(screen.getByRole("option", { name: /请求批准/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /帮我审批/ })).toBeInTheDocument();
     await user.click(screen.getByRole("option", { name: /完全访问/ }));

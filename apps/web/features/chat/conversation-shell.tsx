@@ -97,6 +97,7 @@ export function ConversationShell({
   scrollAnchorStorageKey,
   onDataChanged,
   isAgentRunning = false,
+  executionStatus,
   onStopActiveTask,
   composerRuntime,
   onUpdateExecutionPolicy,
@@ -154,6 +155,7 @@ export function ConversationShell({
   scrollAnchorStorageKey?: string;
   onDataChanged?: () => void;
   isAgentRunning?: boolean;
+  executionStatus?: string;
   onStopActiveTask?: () => Promise<void>;
   composerRuntime?: ConversationComposerRuntime;
   onUpdateExecutionPolicy?: (employeeId: string, policy?: EmployeeExecutionPolicy) => Promise<void>;
@@ -978,6 +980,22 @@ export function ConversationShell({
   );
   const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages]);
   const messageById = useMemo(() => new Map(displayedMessages.map((m) => [m.id, m])), [displayedMessages]);
+  const activeExecutionStatus = useMemo(() => {
+    if (!isAgentRunning) {
+      return undefined;
+    }
+    for (let index = displayedMessages.length - 1; index >= 0; index -= 1) {
+      const message = displayedMessages[index];
+      const runningItem = message.execution?.find((item) => item.status === "running");
+      if (runningItem?.title) {
+        return runningItem.title;
+      }
+      if (message.executionRunning && message.content.trim()) {
+        return message.content.trim();
+      }
+    }
+    return tx("正在执行任务", "Working on your request");
+  }, [displayedMessages, isAgentRunning, tx]);
   const timelineEntries = useMemo(() => {
     const entries = [
       ...displayedMessages.map((message, index) => ({ kind: "message" as const, id: message.id, timestamp: message.sortTimestamp, order: index, message })),
@@ -1165,6 +1183,7 @@ export function ConversationShell({
                     folderInputRef={folderInputRef}
                     isPending={isPending}
                     isAgentRunning={isAgentRunning}
+                    executionStatus={executionStatus ?? activeExecutionStatus}
                     mediaInputRef={mediaInputRef}
                     mentionSuggestions={mentionSuggestions}
                     references={selectedReferences}

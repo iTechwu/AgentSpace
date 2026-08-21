@@ -70,6 +70,9 @@ async function runAgentRouterProviderTask(
   const runtimeToolCapabilities = buildRuntimeToolCapabilities(options);
   const contextEnv = buildAgentRouterProviderEnv(runtime, options.contextEnv);
   const sessionId = resolveAgentRouterSessionId(runtime, options.sessionId);
+  const codexLaunchMode = runtime.provider === "codex"
+    ? resolveCodexLaunchMode(runtime, options.executionPolicy?.codexSandboxMode)
+    : undefined;
   const result = await runAgentRouter({
     version: 1,
     harness,
@@ -77,9 +80,7 @@ async function runAgentRouterProviderTask(
     cwd: workDir,
     executablePath: runtime.metadata.executablePath,
     model: options.modelId ?? resolveModelId(runtime),
-    mode: runtime.provider === "codex"
-      ? resolveCodexLaunchMode(runtime, options.executionPolicy?.codexSandboxMode)
-      : resolveAgentRouterMode(runtime),
+    mode: runtime.provider === "codex" ? codexLaunchMode : resolveAgentRouterMode(runtime),
     sessionId,
     env: contextEnv,
     skillEnvKeys: options.skillEnvKeys,
@@ -92,7 +93,7 @@ async function runAgentRouterProviderTask(
       ? options.executionPolicy?.claudePermissionMode ?? resolveClaudePermissionMode()
       : undefined,
     codexApprovalPolicy: runtime.provider === "codex" ? options.executionPolicy?.codexApprovalPolicy : undefined,
-    codexFullAccess: runtime.provider === "codex" && shouldUseCodexFullAccess(runtime, options.executionPolicy?.codexSandboxMode),
+    codexFullAccess: runtime.provider === "codex" && shouldUseCodexFullAccess(runtime, codexLaunchMode),
     allowedTools: runtime.provider === "claude" ? buildDefaultClaudeAllowedTools() : undefined,
     temporaryAllowedTools: options.temporaryAllowedTools,
     runtimeToolCapabilities,
@@ -202,7 +203,7 @@ async function runAgentRouterProviderTask(
 
 function resolveAgentRouterMode(runtime: ProviderRuntimeRecord): string | undefined {
   if (runtime.provider === "codex") {
-    return process.env.DOFE_AGENT_CODEX_SANDBOX?.trim() || "workspace-write";
+    return process.env.DOFE_AGENT_CODEX_SANDBOX?.trim() || "danger-full-access";
   }
   if (runtime.provider === "openclaw") {
     return process.env.OPENCLAW_THINKING?.trim() || undefined;

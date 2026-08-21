@@ -2628,6 +2628,44 @@ textarea:focus {
   box-shadow: none;
 }
 
+.contacts-composer__execution-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 28px;
+  margin: 0 0 0.55rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.contacts-composer__execution-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #5474e8;
+}
+
+.contacts-composer__execution-status-spinner {
+  width: 15px;
+  height: 15px;
+  animation: contacts-composer-spin 800ms linear infinite;
+}
+
+.contacts-composer__execution-status-dots {
+  width: 1.25rem;
+  overflow: hidden;
+  color: #5474e8;
+  animation: contacts-composer-status-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes contacts-composer-status-dots {
+  0%, 20% { opacity: 0; }
+  40% { opacity: 0.35; }
+  60% { opacity: 0.7; }
+  80%, 100% { opacity: 1; }
+}
+
 .contacts-composer__textarea:focus {
   box-shadow: none;
   border: 0;
