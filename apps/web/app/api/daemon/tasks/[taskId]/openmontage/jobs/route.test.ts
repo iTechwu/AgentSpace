@@ -105,6 +105,26 @@ describe("daemon OpenMontage Job report route", () => {
     const response = await post(submittedJob());
 
     expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "openmontage_connection_invalid",
+      reason: "catalog_mismatch",
+    });
+    expect(mockBindJobDelegation).not.toHaveBeenCalled();
+  });
+
+  it("reports when the selected connection is absent from the task authorization snapshot", async () => {
+    mockReadAuthorization.mockReturnValue({
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      authorizationJson: JSON.stringify({ connections: [] }),
+    });
+
+    const response = await post(submittedJob());
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "openmontage_connection_unavailable",
+      reason: "connection_not_in_task_authorization",
+    });
     expect(mockBindJobDelegation).not.toHaveBeenCalled();
   });
 

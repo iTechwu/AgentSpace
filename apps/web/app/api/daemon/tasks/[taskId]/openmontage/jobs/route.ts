@@ -56,11 +56,26 @@ export async function POST(
     return Response.json({ error: "MCP authorization snapshot is unreadable." }, { status: 422 });
   }
   const connection = grant.connections.find((candidate) => candidate.connectionId === connectionId);
-  if (
-    connection?.catalogItemSlug !== OPENMONTAGE_MCP_CATALOG_SLUG ||
-    !connection.approvedTools.includes("submit_video_job")
-  ) {
-    return Response.json({ error: "Connection is not authorized to submit OpenMontage Jobs." }, { status: 422 });
+  if (!connection) {
+    return Response.json({
+      error: "openmontage_connection_unavailable",
+      reason: "connection_not_in_task_authorization",
+      message: "No OpenMontage connection was authorized for this task. Connect and verify OpenMontage on the selected runtime, then retry the task.",
+    }, { status: 422 });
+  }
+  if (connection.catalogItemSlug !== OPENMONTAGE_MCP_CATALOG_SLUG) {
+    return Response.json({
+      error: "openmontage_connection_invalid",
+      reason: "catalog_mismatch",
+      message: "The selected MCP connection is not the official OpenMontage service.",
+    }, { status: 422 });
+  }
+  if (!connection.approvedTools.includes("submit_video_job")) {
+    return Response.json({
+      error: "openmontage_connection_unavailable",
+      reason: "submit_tool_not_approved",
+      message: "OpenMontage is connected, but submit_video_job is not approved for this task.",
+    }, { status: 422 });
   }
 
   let submitted;

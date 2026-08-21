@@ -13,6 +13,7 @@ import {
 import {
   chooseProviderSessionForTaskSync,
   listAgentRouterEventsSync,
+  listMcpConnectionsSync,
   listAgentTaskAttemptsSync,
   readAgentRouterSessionForTaskSync,
   readLatestAgentRouterContextSnapshotSync,
@@ -183,7 +184,12 @@ export async function GET(
         // This is a non-secret manifest only. The remote endpoint, request
         // configuration, and decrypted credentials stay in the future daemon
         // MCP gateway, never in this Provider-visible task bundle.
-        mcpConnections: buildMcpConnectionsForTaskBundle(prepared.mcpConnections),
+        mcpConnections: buildMcpConnectionsForTaskBundle(
+          prepared.mcpConnections,
+          prepared.mcpConnections.length === 0
+            ? describeMcpConnectionAvailability(task.workspaceId, runtime.id)
+            : undefined,
+        ),
         runtimeToolCapabilities: {
           status: runtimeToolCapabilities.length > 0 ? "available" : "none",
           capabilities: runtimeToolCapabilities,
@@ -315,6 +321,7 @@ export function buildSkillDependencyEnvironmentsForTaskBundle(
  */
 export function buildMcpConnectionsForTaskBundle(
   connections: RuntimeMcpConnectionContextEntry[],
+  reason?: string,
 ): NonNullable<DaemonTaskInputBundle["metadata"]["mcpConnections"]> {
   return {
     status: connections.length > 0 ? "available" : "none",
@@ -334,7 +341,17 @@ export function buildMcpConnectionsForTaskBundle(
         inputSchema: redactToolInputSchema(tool.inputSchema),
       })),
     })),
+    ...(connections.length === 0 && reason ? { reason } : {}),
   };
+}
+
+function describeMcpConnectionAvailability(workspaceId: string, runtimeId: string): string {
+  const connections = listMcpConnectionsSync({ workspaceId, runtimeId, limit: 500 });
+  if (connections.length === 0) {
+    return "No MCP connection is configured for this runtime.";
+  }
+  const statuses = connections.map((connection) => `${connection.id}:${connection.status}`).join(", ");
+  return `MCP connections are configured but none is ready (${statuses}).`;
 }
 
 function buildRuntimeToolCapabilitiesForBundle(

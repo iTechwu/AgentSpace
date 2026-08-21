@@ -56,7 +56,11 @@ describe("buildMcpConnectionsForTaskBundle", () => {
   });
 
   it("reports no MCP capability when there are no ready connections", () => {
-    expect(buildMcpConnectionsForTaskBundle([])).toEqual({ status: "none", connections: [] });
+    expect(buildMcpConnectionsForTaskBundle([], "No MCP connection is configured for this runtime.")).toEqual({
+      status: "none",
+      connections: [],
+      reason: "No MCP connection is configured for this runtime.",
+    });
   });
 });
 

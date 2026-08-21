@@ -367,6 +367,8 @@ export interface DaemonTaskInputBundle {
     mcpConnections?: {
       status: "available" | "none";
       connections: RuntimeMcpConnectionContextEntry[];
+      /** Non-secret control-plane diagnosis when no ready connection is available. */
+      reason?: string;
     };
     routerSession?: {
       routerSessionId: string;
