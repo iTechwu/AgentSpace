@@ -24,6 +24,8 @@ import { createOpaqueId, sameValue, uniqueNames } from "../shared/helpers.ts";
 import {
   applyWorkspaceDataPolicyToExternalMessageInput,
   assertWorkspaceDataPolicyAllowsExternalMessageInput,
+  buildChannelHistorySnapshot,
+  buildConversationHistorySnapshot,
   buildExternalMessageData,
   getChannelHistoryFilePath,
   pushWorkspaceMessageToChannel,
@@ -206,30 +208,13 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       sourceMessageId: humanMessage.id,
       channelName,
       channelMessage: trimmed,
-      channelHistory: persistedMessage.state.messages
-        .filter((message) => {
-          if (!sameValue(message.channel ?? "", channelName)) {
-            return false;
-          }
-          // 会话拆分：有 conversationId 时只携带该会话自身消息，不泄漏旧会话上下文。
-          if (executionOptions?.conversationId) {
-            return message.conversationId === executionOptions.conversationId;
-          }
-          return !executionOptions?.startNewConversation || message.id === humanMessage.id;
-        })
-        .slice()
-        .reverse()
-        .map((message) => ({
-          speaker: message.speaker,
-          role: message.role,
-          summary: message.summary,
-          time: message.time,
-          status: message.status,
-          kind: message.kind,
-          processType: message.processType,
-          mentions: message.mentions?.map((item) => item.token) ?? [],
-          attachments: message.attachments?.map((attachment) => attachment.fileName) ?? [],
-        })),
+      channelHistory: executionOptions?.conversationId
+        ? buildConversationHistorySnapshot(persistedMessage.state, channelName, executionOptions.conversationId)
+        : buildChannelHistorySnapshot(
+            persistedMessage.state,
+            channelName,
+            executionOptions?.startNewConversation ? humanMessage.id : undefined,
+          ),
       channelHistoryPath: executionOptions?.conversationId || executionOptions?.startNewConversation
         ? undefined
         : getChannelHistoryFilePath(channelName, effectiveWorkspaceId),
