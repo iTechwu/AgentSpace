@@ -143,6 +143,8 @@ export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = 
     workflow_event_sequence_gap: ["正在同步缺失事件", "Synchronizing missing events"],
     workflow_outbox_lease_conflict: ["出库事件已被其他进程领取", "An outbox event is already leased by another process"],
     workflow_outbox_payload_invalid: ["出库事件载荷无效", "The outbox event payload is invalid"],
+    workflow_outbox_event_unsupported: ["出库事件类型不受支持", "The outbox event type is not supported"],
+    workflow_outbox_dispatch_failed: ["出库事件投递失败，将按策略重试", "Outbox delivery failed and will retry according to policy"],
     workflow_node_run_not_found: ["未找到步骤运行记录", "Workflow step run not found"],
     workflow_node_not_retryable: ["当前步骤不能重试", "This step cannot be retried"],
     workflow_node_retry_conflict: ["步骤状态已变化，请刷新后重试", "The step state changed. Refresh and try again"],

@@ -85,3 +85,7 @@ test("every registered workflow error code has a non-empty Chinese message", () 
     );
   }
 });
+
+test("registers normalized workflow outbox fallback errors", () => {
+  assert.ok(WORKFLOW_ERROR_CODE_SET.has("workflow_outbox_dispatch_failed"));
+});

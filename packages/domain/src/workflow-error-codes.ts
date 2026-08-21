@@ -115,6 +115,8 @@ export const WORKFLOW_ERROR_CODES = [
   // Outbox
   "workflow_outbox_lease_conflict",
   "workflow_outbox_payload_invalid",
+  "workflow_outbox_event_unsupported",
+  "workflow_outbox_dispatch_failed",
 
   // Run-timeline display labels (not thrown by actions, but rendered in the UI)
   "workflow_run_events_unavailable",
@@ -256,6 +258,8 @@ export const WORKFLOW_ERROR_MESSAGE_ZH: Record<WorkflowErrorCode, string> = {
   // Outbox
   workflow_outbox_lease_conflict: "出库事件已被其他进程领取。",
   workflow_outbox_payload_invalid: "出库事件载荷无效。",
+  workflow_outbox_event_unsupported: "出库事件类型不受支持。",
+  workflow_outbox_dispatch_failed: "出库事件投递失败，将按策略重试。",
 
   // Run-timeline display labels
   workflow_run_events_unavailable: "运行状态同步失败，将自动重试。",
