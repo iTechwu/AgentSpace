@@ -401,6 +401,27 @@ describe("ChannelsPageClient", () => {
     await waitFor(() => expect(history).toHaveTextContent("请查看附件。"));
   });
 
+  it("creates a server conversation when /new is submitted in the composer", async () => {
+    const user = userEvent.setup();
+    searchParams.set("view", "direct");
+    searchParams.set("focus", "contact-Atlas");
+    createConversationActionMock.mockResolvedValueOnce({ conversationId: "conversation-from-slash" });
+
+    render(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="techwu" data={digitalContactData} />
+      </TestProviders>,
+    );
+
+    const composer = await screen.findByPlaceholderText("发送到 Atlas");
+    await user.type(composer, "/new");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+    await waitFor(() => expect(createConversationActionMock).toHaveBeenCalledWith({ employeeName: "Atlas" }));
+    expect(routerPushMock).toHaveBeenCalledWith(expect.stringContaining("conversation=conversation-from-slash"));
+    expect(sendContactMessageActionMock).not.toHaveBeenCalled();
+  });
+
   it("marks the first message from /new as a fresh runtime conversation", async () => {
     const user = userEvent.setup();
     searchParams.set("new", "1");

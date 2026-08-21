@@ -477,10 +477,7 @@ export async function createConversationAction(input: {
   employeeName?: string;
   channelName?: string;
   kind?: "direct" | "group";
-}): Promise<{ conversationId: string; executionLaneId?: string } | null> {
-  if (!readConversationFeatureFlags().conversationV2Enabled) {
-    return null;
-  }
+}): Promise<{ conversationId: string; executionLaneId?: string }> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   const kind = input.kind ?? "direct";
   if (kind === "group") {
@@ -647,7 +644,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   if (startNewConversation) {
     executionOptions.startNewConversation = true;
   }
-  if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
+  if (conversationId) {
     // 群聊发送必须绑定 Conversation 与频道：kind=group 且 channelId 与目标频道一致（docs §9）。
     const conversation = readConversationForUserSync({
       workspaceId: workspaceContext.currentWorkspace.id,
@@ -665,7 +662,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
     sendChannelHumanMessageSync(...messageArgs);
   }
   // 先持久化消息并入队，成功后再刷新会话状态/摘要（docs §2.3）。
-  if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
+  if (conversationId) {
     recordConversationMessageActivitySync({
       workspaceId: workspaceContext.currentWorkspace.id,
       conversationId,
@@ -774,23 +771,24 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   if (startNewConversation) {
     executionOptions.startNewConversation = true;
   }
-  if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
+  if (conversationId) {
     const employeeId = resolveStoredEmployeeIdSync(contactId.trim(), workspaceContext.currentWorkspace.id);
-    if (employeeId) {
-      // 授权：校验当前用户是该 Conversation 的参与者、且该 employee 是该会话 participant。
-      const resolved = resolveConversationLaneForSendSync({
-        workspaceId: workspaceContext.currentWorkspace.id,
-        conversationId,
-        employeeId,
-        actorUserId: workspaceContext.currentUser.id,
-      });
-      executionOptions.conversationId = conversationId;
-      executionOptions.executionLaneId = resolved.lane.id;
+    if (!employeeId) {
+      throw new Error("Employee not found for this conversation.");
     }
+    // 授权：校验当前用户是该 Conversation 的参与者、且该 employee 是该会话 participant。
+    const resolved = resolveConversationLaneForSendSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      conversationId,
+      employeeId,
+      actorUserId: workspaceContext.currentUser.id,
+    });
+    executionOptions.conversationId = conversationId;
+    executionOptions.executionLaneId = resolved.lane.id;
   }
   // 先持久化消息并入队，成功后再刷新会话状态/摘要，避免发送失败留下假 active 会话（docs §2.3）。
   sendContactMessageForHumanWithAttachmentsSync(...messageArgs, undefined, executionOptions);
-  if (conversationId && readConversationFeatureFlags().conversationV2Enabled) {
+  if (conversationId) {
     recordConversationMessageActivitySync({
       workspaceId: workspaceContext.currentWorkspace.id,
       conversationId,

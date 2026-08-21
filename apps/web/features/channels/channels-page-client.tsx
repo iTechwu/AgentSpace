@@ -222,6 +222,7 @@ export function ChannelsPageClient({
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(() =>
     resolveInitialSelectedChannelId(data.channels, searchParamText),
   );
+  const creatingConversationRef = useRef(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showConversationHistory, setShowConversationHistory] = useState(false);
   const [serverConversations, setServerConversations] = useState<ServerConversationListItem[]>([]);
@@ -1316,59 +1317,54 @@ export function ChannelsPageClient({
   }
 
   const startNewConversation = useCallback(async () => {
-    const target = selectedChannel ?? visibleChannels[0];
-    const focus = target ? buildChannelFocusValue(target, target.id) : null;
+    if (creatingConversationRef.current) {
+      return;
+    }
+    creatingConversationRef.current = true;
     setShowConversationHistory(false);
 
-    // 直接会话：创建服务端 Conversation 并跳转稳定 URL（docs/0820/session-split §2.1）。
-    if (target?.kind === "direct" && target.contactId) {
-      try {
-        const result = await createConversationAction({ employeeName: target.contactId });
-        if (result) {
-          const conversationQuery = new URLSearchParams({ conversation: result.conversationId });
-          if (focus) {
-            conversationQuery.set("focus", focus);
-          }
-          navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
-          return;
+    try {
+      // URL focus 是当前页面的事实来源。仅在没有 focus 的工作区入口才允许使用当前选择或首个频道，
+      // 防止 focus 尚未完成异步选中时误把新会话创建给另一个员工。
+      const focusedTarget = focusedRouteChannelId
+        ? visibleChannelById.get(focusedRouteChannelId) ?? null
+        : null;
+      const target = focusedTarget ?? (routeState.focus ? null : selectedChannel ?? visibleChannels[0] ?? null);
+      if (!target) {
+        throw new Error(tx("当前 AI 员工不存在或无权访问，无法创建新会话。", "The current AI employee is unavailable or inaccessible."));
+      }
+      const focus = buildChannelFocusValue(target, target.id);
+
+      // 直接会话：创建服务端 Conversation 并跳转稳定 URL（docs/0820/session-split §2.1）。
+      if (target.kind === "direct") {
+        if (!target.contactId) {
+          throw new Error(tx("当前 AI 员工不存在，无法创建新会话。", "The current AI employee is unavailable."));
         }
-        // result 为 null = V2 开关关闭，回退 new=1。
-      } catch {
-        // 创建失败：留在当前会话并提示，不回退 new=1（docs §2.2）。
-        pushToast({ tone: "error", message: tx("新会话创建失败，请重试", "Failed to create a new conversation. Please try again.") });
+        const result = await createConversationAction({ employeeName: target.contactId });
+        const conversationQuery = new URLSearchParams({ conversation: result.conversationId, focus });
+        navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
         return;
       }
-    }
 
-    // 群聊：创建群聊 Conversation（多员工 Lane 惰性建立，docs §2.3）。
-    if (target && target.kind !== "direct") {
+      // 群聊：创建群聊 Conversation（多员工 Lane 惰性建立，docs §2.3）。
       const channelName = resolveSelectedChannelName(target);
-      if (channelName) {
-        try {
-          const result = await createConversationAction({ channelName, kind: "group" });
-          if (result) {
-            const conversationQuery = new URLSearchParams({ conversation: result.conversationId });
-            if (focus) {
-              conversationQuery.set("focus", focus);
-            }
-            navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
-            return;
-          }
-          // result 为 null = V2 开关关闭，回退 new=1。
-        } catch {
-          // 创建失败：留在当前会话并提示，不回退 new=1（docs §2.2）。
-          pushToast({ tone: "error", message: tx("新会话创建失败，请重试", "Failed to create a new conversation. Please try again.") });
-          return;
-        }
+      if (!channelName) {
+        throw new Error(tx("当前群聊不存在，无法创建新会话。", "The current group is unavailable."));
       }
+      const result = await createConversationAction({ channelName, kind: "group" });
+      const conversationQuery = new URLSearchParams({ conversation: result.conversationId, focus });
+      navigateToWorkspaceModule(`/im?${conversationQuery.toString()}`);
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        message: error instanceof Error
+          ? error.message
+          : tx("新会话创建失败，请重试", "Failed to create a new conversation. Please try again."),
+      });
+    } finally {
+      creatingConversationRef.current = false;
     }
-
-    const query = new URLSearchParams({ new: "1" });
-    if (focus) {
-      query.set("focus", focus);
-    }
-    navigateToWorkspaceModule(`/im?${query.toString()}`);
-  }, [navigateToWorkspaceModule, pushToast, selectedChannel, tx, visibleChannels]);
+  }, [focusedRouteChannelId, navigateToWorkspaceModule, pushToast, routeState.focus, selectedChannel, tx, visibleChannelById, visibleChannels]);
 
   async function uploadChannelFiles(files: FileList | null): Promise<void> {
     if (!selectedConversationChannelName || !files || files.length === 0) {
