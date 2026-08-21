@@ -16,6 +16,10 @@ const nextConfig = {
   ],
   devIndicators: false,
   reactStrictMode: true,
+  // P1-01：产出最小 standalone 产物（.next/standalone/server.js + .next/static + public），
+  // 供镜像 runtime 阶段只复制运行所需文件，避免携带完整 workspace node_modules 与源码。
+  // 仍可用 next start 启动（standalone 是额外产物，不改动既有 dev/start 流程）。
+  output: "standalone",
   typescript: {
     // 保留 Next 内置类型检查作为构建末道防线；prebuild 仍负责更早的依赖和 Web 类型检查。
     ignoreBuildErrors: false,
