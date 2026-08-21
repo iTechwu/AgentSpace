@@ -32,6 +32,7 @@ import { McpAuditOutbox } from "../mcp/audit-outbox.ts";
 import { getManagedRuntimeHomeDir, type ManagedCredentialResolver } from "../managed-provider-credentials.ts";
 import type { RemoteDaemonConfig } from "./config.ts";
 import { attachTaskManagedMcpConnection, getMcpGatewayForTask } from "./mcp.ts";
+import { buildClaudeMcpToolPermissionName } from "../mcp/gateway.ts";
 import {
   createRemoteGatewayUsageReporter,
   mergeRemoteGatewayUsages,
@@ -68,6 +69,7 @@ export async function executeRemoteTask(
   // through its authenticated channel and hosts a task-scoped gateway. The
   // Provider's own MCP config only ever receives the gateway URL.
   let mcpSession: { url: string; revoke: () => void } | undefined;
+  let mcpToolPermissionNames: string[] = [];
   let skillRunner: SkillRunnerBroker | undefined;
   let gatewayUsageReporter: RemoteGatewayUsageReporter | undefined;
   const cancellationController = new AbortController();
@@ -144,6 +146,9 @@ export async function executeRemoteTask(
           || task.id,
         connections: claimed.connections.map((connection) => attachTaskManagedMcpConnection(connection, config, runtime)),
       });
+      mcpToolPermissionNames = claimed.connections.flatMap((connection) =>
+        connection.tools.map((tool) => buildClaudeMcpToolPermissionName(tool.id))
+      );
     }
 
     const managedProfile = await resolveManagedCredentialProfile(runtime, credentialResolver);
@@ -248,6 +253,9 @@ export async function executeRemoteTask(
           ...skillRunner.capabilities,
         ],
         mcpGatewayUrl: mcpSession?.url,
+        // MCP config injection only registers the server. Claude Code also
+        // requires explicit permission rules for each task-authorized tool.
+        temporaryAllowedTools: mcpToolPermissionNames.length > 0 ? mcpToolPermissionNames : undefined,
         codexMcpInjectionEnabled: config.codexMcpExperimentalEnabled,
         onEvent: (event) => {
           if (event.type === "usage" && event.inputJson) {

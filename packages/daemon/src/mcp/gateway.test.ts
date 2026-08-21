@@ -4,10 +4,19 @@ import test, { after, before } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
-import { McpGateway, McpGatewayPool, type McpGatewayTaskSession, type McpToolAuditRecord } from "./gateway.ts";
+import { buildClaudeMcpToolPermissionName, McpGateway, McpGatewayPool, type McpGatewayTaskSession, type McpToolAuditRecord } from "./gateway.ts";
 
 const CONNECTION_ID = "mcp-conn-test-1";
 const TASK_ID = "task-test-1";
+
+test("Claude MCP permission names are stable and use the gateway server namespace", () => {
+  const toolId = `mcp:${"connection-".repeat(10)}:submit_video_job`;
+  const first = buildClaudeMcpToolPermissionName(toolId);
+  const second = buildClaudeMcpToolPermissionName(toolId);
+  assert.equal(first, second);
+  assert.match(first, /^mcp__dofe-mcp-gateway__mcp_connection-/);
+  assert.equal(first.length <= 90, true);
+});
 
 function buildTaskSession(): McpGatewayTaskSession {
   return {

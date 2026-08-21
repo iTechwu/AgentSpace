@@ -435,8 +435,13 @@ function sanitizeToolName(id: string): string {
   // mapping by replacing ':' with '_' and capping the length with a short hash.
   const raw = id.replace(/:/g, "_");
   if (raw.length <= 64) return raw;
-  const hash = randomBytes(4).toString("hex");
+  const hash = createHash("sha256").update(id).digest("hex").slice(0, 8);
   return `${raw.slice(0, 55)}_${hash}`;
+}
+
+/** Claude Code permission-rule name for a tool exposed by this gateway. */
+export function buildClaudeMcpToolPermissionName(toolId: string): string {
+  return `mcp__dofe-mcp-gateway__${sanitizeToolName(toolId)}`;
 }
 
 function formatUrlHost(host: string): string {
