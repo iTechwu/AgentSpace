@@ -59,6 +59,24 @@ describe("OpenMontageJobCard", () => {
     expect(screen.getAllByText("生成制作方案").length).toBeGreaterThan(0);
   });
 
+  it("shows a published artifact as ready when the event omits its status", async () => {
+    const user = userEvent.setup();
+    renderCard(projection({
+      status: "SUCCEEDED",
+      artifacts: [{
+        artifactId: "artifact-published",
+        fileName: "final.mp4",
+        mediaType: "video/mp4",
+        role: "final_video",
+        publishedAt: "2026-08-05T10:00:05Z",
+      }],
+    }));
+
+    await user.click(screen.getByText("任务详情"));
+
+    expect(screen.getByText("可用")).toBeInTheDocument();
+  });
+
   it("does not show a running stage when a legacy projection is already failed", () => {
     renderCard(projection({ status: "FAILED" }));
 

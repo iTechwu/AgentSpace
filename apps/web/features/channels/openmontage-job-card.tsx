@@ -178,7 +178,11 @@ export function OpenMontageJobCard({
                     <div className="openmontage-job-card__artifact-heading">
                       <AppIcon name="fileText" />
                       <span>{readText(artifact.fileName) ?? readText(artifact.name) ?? readText(artifact.label) ?? tx("视频产物", "Video artifact")}</span>
-                      <em>{artifactStatusLabel(readText(artifact.status), tx)}</em>
+                      <em>{artifactStatusLabel(
+                        readText(artifact.status),
+                        readText(artifact.publishedAt),
+                        tx,
+                      )}</em>
                     </div>
                     {isPlayableArtifact(artifact) ? (
                       <div className="openmontage-job-card__artifact-media">
@@ -314,8 +318,12 @@ function readUsageSummary(
   };
 }
 
-function artifactStatusLabel(status: string | undefined, tx: (zh: string, en: string) => string): string {
-  if (status === "READY" || status === "PUBLISHED") return tx("可用", "Ready");
+function artifactStatusLabel(
+  status: string | undefined,
+  publishedAt: string | undefined,
+  tx: (zh: string, en: string) => string,
+): string {
+  if (status === "READY" || status === "PUBLISHED" || publishedAt) return tx("可用", "Ready");
   if (status === "FAILED") return tx("准备失败", "Failed");
   return tx("准备中", "Preparing");
 }
