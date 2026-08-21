@@ -6,7 +6,7 @@
 >
 > 范围：docs/0821/opz 的 Wave 0 —— 修复测试清单漂移、Web lint 504 错误、生产依赖 deepmerge-ts high 漏洞，并新增统一质量门 `ci:verify`。
 >
-> 状态：**已完成，待提交**。Wave 1-3（Node LTS 迁移、镜像不可变化、流式 I/O、readiness 等）未在本轮推进。
+> 状态：**已完成并提交**。Wave 1-3（Node LTS 迁移、镜像不可变化、流式 I/O、readiness 等）未在本轮推进。
 
 ## 1. 完成的改动
 
@@ -43,7 +43,16 @@ pnpm run ci:verify
 
 `packages/daemon/src/managed-node-image-contract.test.ts` 的「Codex MCP canary switch」用例在 `--env-file-if-exists=../../.env` 加载 `.env` 时，`MCP_CODEX_EXPERIMENTAL_ENABLED=1` 会通过 `readEnvValue` 短路遮蔽 `previousSource` 中的 `true`，导致断言不触发。改为显式传 `{}` 环境，隔离 `process.env`，使测试确定性验证 `previousSource`。该问题不在扫描建议清单内，但会阻断「测试全绿」验收，故一并修复。
 
-## 2. 验收证据（本机 Node v26.5.0 / pnpm 10.26.2）
+### 1.4 质量门与浏览器回归发现的问题
+
+完整 `ci:verify` 首轮执行继续发现两处存量问题，均已测试先行修复：
+
+- 工作流 outbox 的 `workflow_outbox_event_unsupported` 与 `workflow_outbox_dispatch_failed` 已被业务抛出，但未登记到领域错误码与 Web 双语展示目录。现已补齐目录及防回归断言。
+- PostgreSQL SQL 列守卫只读取目标 schema，未理解测试夹具中的 `ALTER TABLE ... ADD COLUMN` 历史库建模语句，误报已删除的 `workspace.join_code`。现按同一源码文件的 SQL 顺序应用 `ADD COLUMN`，同时保持文件间 schema 隔离。
+
+隔离 Chromium 回归还发现 `/contacts?view=digital` 首屏把 `URLSearchParams` 实例跨 Server/Client Component 边界传递，序列化后丢失 `view=digital`，页面错误渲染消息工作台。现改为传递可序列化查询字符串，并新增生产构建 E2E 断言：联系人标题与“新建数字员工”入口必须出现，聊天输入框必须不存在。
+
+## 2. 验收证据（本机 Node v25.9.0 / pnpm 10.26.2）
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
@@ -52,25 +61,21 @@ pnpm run ci:verify
 | 类型检查 | `pnpm run typecheck` | ✅ exit 0 |
 | env 模板审计 | `node scripts/audit-env-templates.mjs` | ✅ 11 模板 / 224 键，无漂移 |
 | 生产依赖审计 | `pnpm audit --registry=https://registry.npmjs.org --prod --audit-level=high` | ✅ No known vulnerabilities |
-| daemon 受限测试 | `pnpm --filter dofe-agent-daemon test` | ✅ 235 pass / 13 skip / 0 fail |
+| Node engines 审计 | `node scripts/audit-node-engines.mjs` | ✅ Node 25.9.0；11 个 manifest；仅保留已登记的 `jsdom@30.0.1` 限时例外 |
+| 统一质量门 | `pnpm run ci:verify` | ✅ 9/9 workspace；Web 151 文件 / 1216 用例；daemon 235 pass / 13 skip；CLI 228/228 |
+| 生产构建 | `pnpm run build` | ✅ Next.js 16.3.0 构建与路由生成成功 |
+| 浏览器全量回归 | `pnpm --filter @dofe-agent/web run test:e2e` | ✅ Chromium 30/30（桌面、移动端、键盘、路由、工作流、视频任务） |
+| 联系人目录浏览器审计 | 隔离 Chromium，1440×900 | ✅ HTTP 200；创建入口 1；composer 0；横向溢出 0；console/page/network 错误 0 |
 
-## 3. 未完成项与阻塞
+## 3. 后续范围
 
 ### 3.1 audit-node-engines（P0-02，Wave 1）
 
-`node scripts/audit-node-engines.mjs` 在本机仍失败：本机 Node 已漂移到 `v26.5.0`（Homebrew 自动升级），而根 + 10 个 workspace 均声明 `engines.node: "^25.9.0"`（不覆盖 26.x）。
+当前审计目标仍为 Node 25.9.0，门禁已通过，但 Node 25 的生命周期风险没有消失。P0-02 属于 Wave 1：应建立目标 LTS 兼容矩阵，再同步本机、`engines`、审计目标、esbuild target、README、CONTRIBUTING、`node-runtime-matrix`、provider runtime 准入和全部基础镜像。
 
-这正对应 P0-02「从 Node 25 EOL 迁移到受支持 LTS」——属于 Wave 1，需先建立 Node 24 兼容矩阵，再统一切换本机、engines、审计目标、esbuild target、README/CONTRIBUTING/node-runtime-matrix 与全部基础镜像。本轮不擅自切换 Node 版本，避免与镜像瘦身或业务修改混合提交。
+### 3.2 部署边界
 
-### 3.2 全量测试未跑
-
-根 `pnpm exec turbo run test --concurrency=2` 覆盖全部 workspace 测试，其中含真实 DB/TOS 的集成测试与本机环境强耦合，且耗时较长。本轮以 daemon 受限测试（本次改动的直接相关面）+ typecheck + lint + inventory + audit 作为验证闭环。完整受限并发测试留给 CI（`ci:verify` 已就绪）。
-
-### 3.3 环境提示
-
-- 本机 `pnpm install` 在无 TTY 且 `CI=true` 下默认冻结 lockfile，需 `--no-frozen-lockfile` 更新。
-- 本工作站 DSH 文件沙箱（workspace-write）禁止写 `~/.cache/prisma`，导致 `prisma generate` 默认触发引擎缓存的 `utime` EPERM。验证时用 `PRISMA_SCHEMA_ENGINE_BINARY=<已有缓存二进制>` 绕过；CI/正常本机环境无此限制。
-- 重装后 pnpm 在本工作区生成 `node_modules` 同级的 `.pnpm-store/`（沙箱无法写全局 store 所致），已加入 `.gitignore`，不入库。
+本轮没有 push、没有部署，也没有启动或触发 Jenkins。后续 CI/test 环境部署仍必须从已 push 的目标提交触发匹配 Jenkins 流程，并监控构建与服务健康到明确结论；应用部署不得创建 PostgreSQL、Redis、RabbitMQ 或其初始化 job/container。
 
 ## 4. 后续建议（Wave 1 起）
 
