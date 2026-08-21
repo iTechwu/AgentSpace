@@ -1848,12 +1848,12 @@ function executionPolicySelection(
     return runtime?.provider === "claude" ? "auto" : runtime?.provider === "codex" ? "full-access" : "inherit";
   }
   if (runtime.provider === "claude") {
-    return policy.claudePermissionMode ?? "inherit";
+    return policy.claudePermissionMode ?? "auto";
   }
   if (policy.codexSandboxMode === "danger-full-access" || policy.codexApprovalPolicy === "never") {
     return "full-access";
   }
-  return policy.codexApprovalPolicy === "on-request" ? "on-request" : policy.codexApprovalPolicy === "untrusted" ? "untrusted" : "inherit";
+  return policy.codexApprovalPolicy === "on-request" ? "on-request" : policy.codexApprovalPolicy === "untrusted" ? "untrusted" : "full-access";
 }
 
 function getMentionKey(mention: MessageMention): string {
