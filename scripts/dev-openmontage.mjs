@@ -26,6 +26,11 @@ export function loadOpenMontageDevEnvironment(options = {}) {
     agentEnvironment.OPENMONTAGE_EVENT_SIGNING_SECRET,
     openMontageEnvironment.OPENMONTAGE_EVENT_SIGNING_SECRET,
   );
+  const mcpUrl = firstValue(
+    baseEnvironment.OPENMONTAGE_MCP_URL,
+    agentEnvironment.OPENMONTAGE_MCP_URL,
+    openMontageEnvironment.OPENMONTAGE_MCP_URL,
+  );
   assertSecret("OPENMONTAGE_SERVICE_TOKEN", serviceToken);
   assertSecret("OPENMONTAGE_EVENT_SIGNING_SECRET", eventSigningSecret);
 
@@ -46,6 +51,7 @@ export function loadOpenMontageDevEnvironment(options = {}) {
     ) ?? "http://127.0.0.1:8765",
     OPENMONTAGE_SERVICE_TOKEN: serviceToken,
     OPENMONTAGE_EVENT_SIGNING_SECRET: eventSigningSecret,
+    OPENMONTAGE_MCP_URL: mcpUrl ?? "http://127.0.0.1:8765/mcp",
     DOFE_AGENT_RUNTIME_CREDENTIAL_VAULT_DIR: vaultDir,
   };
 }

@@ -23,6 +23,7 @@ test("OpenMontage dev environment loads sibling secrets without copying them", (
     assert.equal(environment.OPENMONTAGE_SERVICE_TOKEN, "s".repeat(32));
     assert.equal(environment.OPENMONTAGE_EVENT_SIGNING_SECRET, "e".repeat(32));
     assert.equal(environment.OPENMONTAGE_BASE_URL, "http://127.0.0.1:8765");
+    assert.equal(environment.OPENMONTAGE_MCP_URL, "http://127.0.0.1:8765/mcp");
     assert.equal(environment.DOFE_AGENT_RUNTIME_CREDENTIAL_VAULT_DIR, resolve(agentRepo, "data/runtime-vault"));
   } finally {
     rmSync(root, { recursive: true, force: true });
