@@ -25,7 +25,7 @@
 
 | # | 部署面 | 位置 | 适用 | 组成 |
 | --- | --- | --- | --- | --- |
-| A | **self-hosted Compose（单机生产形态）** | `deploy/self-hosted/` | 单台主机跑全套 | web + workflow-worker + db-init + daemon-claude + daemon-codex + runtime-maintenance + release-gate 脚本；外部 PG |
+| A | **self-hosted Compose（单机生产形态）** | `deploy/self-hosted/` | 单台主机跑全套 | web + workflow-worker + daemon-claude + daemon-codex + runtime-maintenance + release-gate 脚本；外部 PG/Redis/RabbitMQ |
 | B | **systemd 裸机** | `deploy/systemd/` | 裸机/VM 不用 Docker 时 | `dofe-agent.service`(web) + `-daemon` + `-feishu-worker` + `-workflow-worker` 四个 unit + env 模板 |
 | C | **开发拓扑（mac + dev-server）** | 仓库本身 | 本机开发 | mac：`pnpm dev`(web) + `scripts/dev-daemons.sh start`(local daemon，内嵌飞书)；dev-server：`docker-compose.remote-images.yml` 跑 4 个 provider runtime 容器回连 mac web |
 | D | **one-runtime-per-container** | `deploy/daemon/docker-compose.runtimes.yml` | 固定 provider 凭据隔离部署 | 每 provider 一个 daemon+runtime 容器，凭据目录只读挂载进唯一容器 |
@@ -33,7 +33,7 @@
 | F | **staging 发布门** | `deploy/staging/` | managed-runtime 发布验证 | 镜像构建/打标 + 出口网络 + 凭据 seed + egress/billing 双门（脚本本体在 `deploy/self-hosted/`） |
 | G | **独立 feishu-worker** | `deploy/feishu-worker/` | 飞书 worker 与 daemon 解耦时 | 单容器长连进程，源码由宿主仓库挂载 |
 
-`deploy/postgres/docker-compose.yml` 是本地开发遗留的 PG 启动器，**不是部署路径**（见 §4 约束 1）。`deploy/daemon/jenkins/` 是指定 CI 环境的 managed-node 对账 job 配置（本工作站不触发 Jenkins）。
+`deploy/postgres/` 只保留外部 PostgreSQL 连接说明，不提供启动器（见 §4 约束 1）。`deploy/daemon/jenkins/` 是指定 CI 环境的 managed-node 对账 job 配置（本工作站不触发 Jenkins）。
 
 ## 3. 组件所有权矩阵
 
@@ -50,7 +50,7 @@
 
 ## 4. 易踩坑约定（升级 / 新增部署面前必读）
 
-1. **基础设施外部化**：所有部署物不得创建、运行或内嵌 PostgreSQL / Redis / RabbitMQ。`deploy/postgres/docker-compose.yml` 仅限本机开发数据库，禁止当作部署组件引用；各 env 里的 DB/中间件地址一律指向 `../docker-helm.dofe.ai` 管理的外部实例。
+1. **基础设施外部化**：所有部署物不得创建、运行或内嵌 PostgreSQL / Redis / RabbitMQ。各 env 里的 DB/中间件地址一律指向 `../docker-helm.dofe.ai` 管理的外部实例；schema 迁移也由该基础设施的获准流程执行。
 2. **飞书 worker 单一所有权**：daemon 托管与独立 `deploy/feishu-worker` **二选一**。同一集成内两个 worker 同跑 = 事件重复消费或互踢。切换所有者时：关掉一侧开关 → 确认 `DOFE_AGENT_FEISHU_WORKER_ID` 在集成内唯一 → 再起另一侧。新增 daemon 服务时保持 `DOFE_AGENT_MANAGE_FEISHU_WORKER=false`，除非明确移交所有权。
 3. **daemon token 绑定首个注册的 daemon**：一个 token 只能属于一个容器/进程，跨容器复用会静默失败；每容器/每 workspace 独立发 token（CI 多 workspace 见 `ensure-ci-managed-nodes.sh`）。
 4. **web 与 workflow-worker 必须同 `DATABASE_URL` 且切流状态一致**：`WORKFLOW_CUTOVER_MODE(S)` 两端不对齐会产生双写/漏写。

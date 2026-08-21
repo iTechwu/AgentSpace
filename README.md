@@ -149,13 +149,13 @@ agent.dofe 为 Agent 组织提供四个关键能力：
 
 两种模式运行同一套产品能力：数字员工、AgentRouter 调度、workspace 权限、审批流、远程 daemon 执行和可审计产物，二者没有功能断层。
 
-需要一次性部署 PostgreSQL、Web/API 和 Claude Code、Codex daemon 时，请使用 [deploy/self-hosted](deploy/self-hosted/README.md)。其中 Claude daemon 会自动托管飞书 Bot worker，无需另行启动 worker。
+需要部署 Web/API、Workflow Worker 和 Claude Code、Codex daemon 时，请使用 [deploy/self-hosted](deploy/self-hosted/README.md)。PostgreSQL、Redis、RabbitMQ 必须使用 `../docker-helm.dofe.ai` 提供的外部服务；其中 Claude daemon 会自动托管飞书 Bot worker，无需另行启动 worker。
 
 ### 环境要求
 
 - 推荐 Node.js 24.19.0（Latest LTS，由根目录 `.node-version` 固定）。remote daemon package 最低要求 Node.js `>=24.19.0`，完整支持范围以各 `package.json` 的 `engines` 字段为准，详见 [docs/0814/node-runtime-matrix.md](docs/0814/node-runtime-matrix.md)。
 - pnpm 10.26.2。
-- 推荐 PostgreSQL 16。仓库内包含本地 Docker Compose 配置。
+- 推荐 PostgreSQL 16。数据库由 `../docker-helm.dofe.ai` 统一管理，本仓库不创建数据库服务或数据卷。
 - 可选 provider CLI：`codex`、`claude`、`agy`（Antigravity）、`gemini`（legacy）、`opencode`、`openclaw`、`nanobot`、`hermes`。
 - 可选飞书自建应用和 Bot 配置。
 
@@ -167,8 +167,8 @@ cd DofeAgent
 
 pnpm run setup
 cp .env.example .env
-docker compose -f deploy/postgres/docker-compose.yml up -d
-pnpm run db:pg:init
+# 将 DATABASE_URL、REDIS_URL 等配置指向 ../docker-helm.dofe.ai 管理的外部服务
+# 由基础设施仓库的获准迁移流程完成 schema 变更
 pnpm dev
 ```
 
@@ -197,11 +197,11 @@ dofe-agent task list --json
 dofe-agent daemon status --json
 ```
 
-数据库命令：
+数据库状态命令（schema 迁移由外部基础设施流程执行）：
 
 ```bash
 pnpm run db:pg:status -- --json
-pnpm run db:pg:init
+pnpm run db:pg:status -- --json
 ```
 
 ### Path C：接入远程 Daemon

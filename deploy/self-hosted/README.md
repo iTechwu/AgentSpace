@@ -1,6 +1,6 @@
 # Self-hosted Docker Stack
 
-This Compose stack starts the Next.js web/API service, Workflow Worker, a database initializer, and two local execution daemons: Claude Code and Codex. PostgreSQL is external to this stack and must be available before startup. The Claude daemon owns the Feishu WebSocket supervisor. It automatically discovers active Feishu Bot bindings, so do not also start `deploy/feishu-worker` for this stack.
+This Compose stack starts the Next.js web/API service, Workflow Worker, and two local execution daemons: Claude Code and Codex. PostgreSQL, Redis, and RabbitMQ are external to this stack and must be available before startup. The Claude daemon owns the Feishu WebSocket supervisor. It automatically discovers active Feishu Bot bindings, so do not also start `deploy/feishu-worker` for this stack.
 
 ## Start
 
@@ -11,7 +11,7 @@ cp deploy/self-hosted/.env.example deploy/self-hosted/.env
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml up --build -d
 ```
 
-The first run initializes the external database schema before the web service and daemons start. The `runtime-maintenance` service always runs the authenticated task-commit reconciliation route, and additionally resumes remote runtime provisioning only when `DOFE_AGENT_RUNTIME_MODE=remote`; OpenMontage reconciliation is enabled only when its credentials are configured. This means local Compose can recover a daemon crash without enabling managed-runtime provisioning. Inspect all long-running components with:
+Before the first run, apply the database schema through the approved external infrastructure migration flow. This application Compose does not create an initializer job. The `runtime-maintenance` service always runs the authenticated task-commit reconciliation route, and additionally resumes remote runtime provisioning only when `DOFE_AGENT_RUNTIME_MODE=remote`; OpenMontage reconciliation is enabled only when its credentials are configured. This means local Compose can recover a daemon crash without enabling managed-runtime provisioning. Inspect all long-running components with:
 
 ```bash
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml ps

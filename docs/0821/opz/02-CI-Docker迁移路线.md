@@ -104,22 +104,22 @@ pnpm exec turbo run test --concurrency=2
 - SPDX 或 CycloneDX SBOM。
 - OS 与 npm 依赖漏洞报告；high/critical 默认阻断，例外必须有 owner、可达性说明和到期日。
 - provenance/attestation。
-- cosign 签名；managed node 除校验签名外，还校验允许的 registry、revision 和目标架构。
+- 先将不可变镜像推送到允许的 registry 并取得 digest，再对该 digest 生成并上传 cosign 签名与 attestation；managed node 部署前必须按 digest 验签，并校验允许的 registry、revision 和目标架构。
 
 建议标签同时保留 `git-<sha>`、语义版本和环境别名，但部署清单只落 digest。生产和测试不得依赖 `latest`。
 
 ### Stage F：部署与回滚
 
-1. CI 推送并验证候选 digest，不在应用 Compose 中创建 PostgreSQL、Redis、RabbitMQ 或任何数据库初始化 job。
+1. CI 推送候选镜像并取得 digest；推送成功后签名、生成 attestation 并执行 verify。不在应用 Compose 中创建 PostgreSQL、Redis、RabbitMQ 或任何数据库初始化 job/container。
 2. 如有 schema 变更，由 `../docker-helm.dofe.ai` 所属的获准外部控制流程完成，并保存版本与结果证据。
 3. 在目标环境更新 digest 清单，启动新 Web/Worker/daemon 实例。
 4. readiness 通过后再接流量；执行 SSO、workspace、任务 claim、blob 小文件和 provider smoke。
 5. 保留旧实例或旧 digest，观察窗口内无异常后再清理。
 6. 失败时恢复上一 digest；数据库变更必须遵循 expand/contract，确保应用回滚兼容。
 
-现有应用 Compose 中的 `db-init -> web` 依赖应移除；生产 Compose 从 `build:` 改为 `image: registry/name@sha256:...`，只连接共享基础设施。
+应用 Compose 中的 `db-init -> web` 依赖已移除；生产 Compose 从 `build:` 改为 `image: registry/name@sha256:...`，只连接共享基础设施。schema migration 必须由 `../docker-helm.dofe.ai` 的获准外部流程执行。
 
-指定 CI/测试环境仍遵循项目既定入口：本机实现并验证后提交，push 到目标分支，触发与该提交匹配的 Jenkins 部署，并持续监控 Jenkins build 与部署后服务健康，直到得到明确成功或失败结论。本工作站不得启动或触发 Jenkins；生产环境切换需使用另行批准的发布流程。
+指定 CI/测试环境仍遵循项目既定入口：本机完成实现与验证后提交并 push 到目标分支；在指定 CI 环境触发与该提交匹配的 Jenkins 部署；持续监控 Jenkins build 与部署后服务健康，直到得到明确成功或失败结论。本工作站不得启动或触发 Jenkins，也不得把未 push 的本地工作当作部署输入；生产环境切换需使用另行批准的发布流程。
 
 现有 systemd 服务在迁移期只作为受控回退路径，禁止继续从宿主源码构建新版本；对应容器稳定后逐项退役。独立飞书 Worker 必须在“独立镜像化”和“由 daemon 托管并删除独立入口”之间做出显式选择。
 
@@ -146,7 +146,7 @@ managed node 是特例：它挂载 Docker socket、默认 root、host network，
 | MCP proxy | HTTP server 可响应 | policy 快照、验签公钥、状态目录可用 |
 | runtime-maintenance | 进程存活 | 最近成功 reconcile 未超过阈值 |
 
-外部模型、飞书、TOS 不应放入高频 readiness，否则第三方抖动会让实例被持续摘流，并可能在错误配置 liveness 时放大为重启；它们应进入独立 dependency health 指标和告警。
+外部模型、飞书、TOS 不应放入高频 readiness，否则第三方抖动会让实例被持续摘流；readiness 本身不会触发容器重启，重启来自 liveness 失败或进程退出。外部依赖应进入独立 dependency health 指标和告警。
 
 ## 6. 缓存与性能预算
 

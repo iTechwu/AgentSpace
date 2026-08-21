@@ -1105,7 +1105,7 @@ export function renderPostgresCutoverPlan(): string {
     "# PostgreSQL Cutover Plan",
     "",
     "1. Prepare the target database",
-    "   - Start PostgreSQL locally or in test using deploy/postgres/docker-compose.yml",
+    "   - Provision an isolated PostgreSQL database through the approved infrastructure environment",
     "   - Run `pnpm run db:pg:init -- --database-url <postgres-url>`",
     "",
     "2. Rehearse migration in dry-run mode",

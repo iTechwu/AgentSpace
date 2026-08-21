@@ -271,10 +271,10 @@
 ### 3.6-11 部署物分散 —— ✅ 完成（统一部署拓扑 + 组件所有权文档）
 
 - **改动**（`9030a87`）：新增 `docs/deployment-topology.md`，不重复各 README 的操作细节，只收敛三件事：
-  - **7 个部署面**：A self-hosted Compose（单机生产）/ B systemd 裸机 / C 开发拓扑（mac web+local daemon，dev-server 4 provider 容器回连）/ D one-runtime-per-container / E managed-node（含 CI 多 workspace）/ F staging 发布门 / G 独立 feishu-worker。`deploy/postgres/` 标注为本地 dev 遗留、非部署路径。
+  - **7 个部署面**：A self-hosted Compose（单机生产）/ B systemd 裸机 / C 开发拓扑（mac web+local daemon，dev-server 4 provider 容器回连）/ D one-runtime-per-container / E managed-node（含 CI 多 workspace）/ F staging 发布门 / G 独立 feishu-worker。`deploy/postgres/` 仅保留外部基础设施连接说明，不是部署路径。
   - **所有权矩阵**：飞书长连、任务执行、Trigger 写入、task-commit 对账、模型出口、DB/中间件各映射唯一所有者进程（按部署面），「其余皆非所有者」列直接回答"能不能再起一个"。
   - **易踩坑约定**：飞书 worker 单一所有权（daemon-claude 托管 vs 独立 compose 二选一）置顶，另含 token 绑定首注册、`WORKFLOW_CUTOVER_MODES` 两端对齐、发布门前置、基础设施一律外部化。
-- **事实核对**：self-hosted compose 服务清单（db-init/web/runtime-maintenance/workflow-worker/daemon-claude/daemon-codex）与 nginx conf 域名（仅 `dofe-agent.local.dofe.ai`，`agentspace.local` 在宿主 nginx）均对照源文件确认后写入。
+- **事实核对**：self-hosted compose 服务清单（web/runtime-maintenance/workflow-worker/daemon-claude/daemon-codex）与 nginx conf 域名（仅 `dofe-agent.local.dofe.ai`，`agentspace.local` 在宿主 nginx）均对照源文件确认后写入。
 
 ### 3.6-12 docs 按日期目录缺乏索引 —— ✅ 完成
 
