@@ -190,6 +190,25 @@ test("listConversationsForEmployeeSync 只返回该员工的会话", () => {
   assert.equal(vegaList.length, 1);
 });
 
+test("listConversationsForEmployeeSync 可返回尚未发送首条消息的 draft 会话", () => {
+  const atlas = createEmployeeId("Atlas");
+  const created = createConversationSync({
+    employeeId: atlas,
+    employeeName: "Atlas",
+    createdByUserId: "user-1",
+  });
+
+  const drafts = listConversationsForEmployeeSync({
+    employeeId: atlas,
+    humanUserId: "user-1",
+    statuses: ["draft"],
+  });
+
+  assert.equal(drafts.length, 1);
+  assert.equal(drafts[0]!.id, created.conversation.id);
+  assert.equal(drafts[0]!.status, "draft");
+});
+
 test("updateConversationSync 归档/恢复不删除会话", () => {
   const result = createConversationSync({
     employeeId: createEmployeeId("Atlas"),

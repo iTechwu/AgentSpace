@@ -533,7 +533,9 @@ export async function listConversationsAction(input: {
     workspaceId: workspaceContext.currentWorkspace.id,
     employeeId,
     actorUserId: workspaceContext.currentUser.id,
-    statuses: ["active", "idle", "failed", "archived"],
+    // 新建会话在首条消息发送前保持 draft，但它已经是持久化 Conversation，
+    // 必须立即出现在当前 AI 员工的历史入口中。
+    statuses: ["draft", "active", "idle", "failed", "archived"],
   });
   return conversations.map((conversation) => ({
     id: conversation.id,
@@ -557,7 +559,8 @@ export async function listConversationsForChannelAction(input: {
     workspaceId: workspaceContext.currentWorkspace.id,
     channelName: input.channelName,
     actorUserId: workspaceContext.currentUser.id,
-    statuses: ["active", "idle", "failed", "archived"],
+    // 群聊同样要展示尚未发送首条消息的持久化 draft 会话。
+    statuses: ["draft", "active", "idle", "failed", "archived"],
   });
   return conversations.map((conversation) => ({
     id: conversation.id,
