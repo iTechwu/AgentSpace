@@ -2,7 +2,6 @@
 // 删除权限元数据、markdown 预览读取与存储文件名还原。
 // readMarkdownAttachmentPreviewText 会读附件存储（readWorkspaceAttachmentBytesSync）。
 import { basename } from "node:path";
-import { inferAttachmentKind, resolveAttachmentMediaType } from "@dofe-agent/services/workspace";
 import { readWorkspaceAttachmentBytesSync } from "@dofe-agent/services/content";
 import type {
   WorkspaceRole,

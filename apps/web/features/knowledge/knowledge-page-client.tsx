@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { KnowledgeDocumentPageRecord, KnowledgeParseTask, KnowledgePageData, KnowledgePageRecord } from "@/features/dashboard/data";
+import type { KnowledgeDocumentPageRecord, KnowledgePageData, KnowledgePageRecord } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import type { KnowledgeAssignmentMode, KnowledgePage } from "@dofe-agent/domain/workspace";
 import { createChannelDocumentFromAttachmentAction } from "@/features/channels/actions";
@@ -16,7 +16,6 @@ import {
 } from "./actions";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { translateSystemSpeaker } from "@/features/i18n/presentation";
-import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";

@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 const SCAN_ROOT = process.cwd();
 const SKIP_DIRS = new Set(["node_modules", ".next", "dist", "coverage", ".turbo"]);
-const CJK = /[㐀-䶿一-鿿　-〿！-～]/;
+const CJK = /[㐀-䶿一-鿿\u3000-〿！-～]/;
 const ASCII_LETTER = /[A-Za-z]/;
 const LOCALE_CODE = /^[a-zA-Z]{2,3}(-[A-Za-z0-9]+)+$/; // zh-CN / en-US 等语言代码
 

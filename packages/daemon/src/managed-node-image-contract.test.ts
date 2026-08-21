@@ -233,9 +233,13 @@ test("local managed-node recovery fails closed for partial or unsafe OpenMontage
 });
 
 test("local managed-node recovery validates the Codex MCP canary switch", () => {
+  // 传入显式空环境，避免 --env-file-if-exists=../../.env 加载的
+  // MCP_CODEX_EXPERIMENTAL_ENABLED=1 遮蔽 previousSource 中的 "true"，
+  // 导致 readEnvValue 短路、验证分支不再触发（确定性回归）。
   assert.throws(
     () => resolveManagedNodeOperationalEnv(
       "MCP_EGRESS_PROXY_URL=http://127.0.0.1:8080\nMCP_EGRESS_PROXY_ADMIN_TOKEN=secret\nMCP_CODEX_EXPERIMENTAL_ENABLED=true",
+      {},
     ),
     /must be 0 or 1/,
   );

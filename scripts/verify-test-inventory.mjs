@@ -97,6 +97,7 @@ function isDefaultOwned(file) {
   }
   if (/^packages\/daemon\/src\/skill-runner.*\.test\.ts$/.test(file)) return true;
   if (new Set([
+    "packages/daemon/src/local-managed-node-env-config.test.ts",
     "packages/daemon/src/managed-node-image-contract.test.ts",
     "packages/daemon/src/resumable-transfer.test.ts",
     "packages/daemon/src/runtime-apps.test.ts",

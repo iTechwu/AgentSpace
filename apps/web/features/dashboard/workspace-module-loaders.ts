@@ -22,7 +22,6 @@ import {
   getChannelsPageData,
   getCostPageDataAsync,
   getDataTablesPageData,
-  getInboxPageData,
   getInboxPageDataAsync,
   getKnowledgePageData,
   getOrgChartPageData,

@@ -4,7 +4,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { KnowledgeAssignmentMode, KnowledgePage } from "@dofe-agent/domain/workspace";
+import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 import type { KnowledgePageData, KnowledgePageRecord } from "@/features/dashboard/data";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon } from "@/shared/ui/app-icon";

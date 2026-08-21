@@ -10,7 +10,6 @@ import type {
 import type {
   ChannelDocumentVersion,
   DofeAgentState,
-  WorkspaceMessage,
 } from "@dofe-agent/domain/workspace";
 import type {
   ChannelDocumentAccessRole,
