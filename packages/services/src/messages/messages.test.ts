@@ -468,6 +468,14 @@ test("history snapshots exclude internal process logs from future model context"
     tool: "openmontage",
     detail: "large internal tool payload that must not reach the next model prompt",
   });
+  postMessageSync({
+    channel: "tour visit",
+    conversationId: "conversation-video",
+    speaker: "系统提示",
+    role: "agent",
+    summary: "Atlas's Bash permission was approved: python3 -c with encoded bytes",
+    code: "approval.created",
+  });
   completeAgentChannelReplySync({
     channel: "tour visit",
     pendingSpeaker: "Atlas",
@@ -478,11 +486,13 @@ test("history snapshots exclude internal process logs from future model context"
 
   const state = readWorkspaceStateSync();
   assert.equal(state.messages.some((message) => message.kind === "process"), true);
-  assert.equal(buildChannelHistorySnapshot(state, "tour visit").some((message) => message.kind === "process"), false);
-  assert.equal(
-    buildConversationHistorySnapshot(state, "tour visit", "conversation-video").some((message) => message.kind === "process"),
-    false,
-  );
+  const channelHistory = buildChannelHistorySnapshot(state, "tour visit");
+  const conversationHistory = buildConversationHistorySnapshot(state, "tour visit", "conversation-video");
+  assert.equal(channelHistory.some((message) => message.kind === "process"), false);
+  assert.equal(channelHistory.some((message) => message.speaker === "系统提示"), false);
+  assert.equal(conversationHistory.some((message) => message.kind === "process"), false);
+  assert.equal(conversationHistory.some((message) => message.speaker === "系统提示"), false);
+  assert.equal(channelHistory.some((message) => message.summary === "视频已生成。"), true);
 });
 
 test("sendChannelHumanMessageSync stores the requester user id and publishes realtime message events", () => {

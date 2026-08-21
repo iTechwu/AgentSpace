@@ -337,7 +337,7 @@ export function buildChannelHistorySnapshot(
     : -1;
 
   return (fromIndex >= 0 ? messages.slice(fromIndex) : messages)
-    .filter((message) => message.kind !== "process")
+    .filter(isModelHistoryMessage)
     .map((message) => ({
       speaker: message.speaker,
       role: message.role,
@@ -370,7 +370,7 @@ export function buildConversationHistorySnapshot(
     .filter((message) => sameValue(message.channel ?? "", channelName) && message.conversationId === conversationId)
     .slice()
     .reverse()
-    .filter((message) => message.kind !== "process")
+    .filter(isModelHistoryMessage)
     .map((message) => ({
       speaker: message.speaker,
       role: message.role,
@@ -382,6 +382,13 @@ export function buildConversationHistorySnapshot(
       mentions: message.mentions?.map((item) => item.token) ?? [],
       attachments: message.attachments?.map((attachment) => attachment.fileName) ?? [],
     }));
+}
+
+function isModelHistoryMessage(message: WorkspaceMessage): boolean {
+  if (message.kind === "process" || message.code === "agent.pending" || message.code?.startsWith("approval.")) {
+    return false;
+  }
+  return !sameValue(message.speaker, "System") && !sameValue(message.speaker, "系统提示");
 }
 
 export function enqueueChannelMentionStepSync(
