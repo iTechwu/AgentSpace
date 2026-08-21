@@ -44,7 +44,8 @@
     "verify:managed-runtime-billing": "node --env-file-if-exists=.env deploy/self-hosted/verify-managed-runtime-billing.mjs",
     "verify:managed-runtime-release": "pnpm run verify:managed-runtime-egress && pnpm run verify:managed-runtime-billing",
     "test:e2e:web": "pnpm --filter @dofe-agent/web run test:e2e",
-    "quality:web": "pnpm --filter @dofe-agent/web run typecheck && pnpm --filter @dofe-agent/web run typecheck:test && pnpm --filter @dofe-agent/web run lint && pnpm --filter @dofe-agent/web run test"
+    "quality:web": "pnpm --filter @dofe-agent/web run typecheck && pnpm --filter @dofe-agent/web run typecheck:test && pnpm --filter @dofe-agent/web run lint && pnpm --filter @dofe-agent/web run test",
+    "ci:verify": "pnpm --filter @dofe-agent/db run prisma:generate && node scripts/verify-test-inventory.mjs && node scripts/audit-node-engines.mjs && node scripts/audit-env-templates.mjs && pnpm run typecheck && pnpm run lint:web && pnpm exec turbo run test --concurrency=2"
   },
   "devDependencies": {
     "semver": "^7.8.5",
@@ -53,7 +54,8 @@
   },
   "pnpm": {
     "overrides": {
-      "hono": "^4.12.34"
+      "hono": "^4.12.34",
+      "deepmerge-ts": "^8.0.1"
     }
   }
 }
