@@ -104,11 +104,11 @@ export type FeishuWebSocketWorkerSessionFactory = (
   input: FeishuWebSocketWorkerSessionFactoryInput
 ) => Promise<FeishuWebSocketWorkerSession>;
 
+// 飞书长连接（WebSocket）只支持"事件订阅"，不支持"回调订阅"。
+// 卡片回传（card.action.trigger 及其别名 im.message.message_card.action_v1 / message_card.action）
+// 属于回调订阅，只能通过 HTTP 回调模式投递，不能在长连接 Worker 中注册为事件处理函数。
 export const FEISHU_WEBSOCKET_WORKER_EVENT_TYPES = [
   "im.message.receive_v1",
-  "card.action.trigger",
-  "im.message.message_card.action_v1",
-  "message_card.action",
   "im.chat.member.bot.added_v1",
 ] as const;
 

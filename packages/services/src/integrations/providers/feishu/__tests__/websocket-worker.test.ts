@@ -57,8 +57,14 @@ test("wraps Feishu SDK message events into the inbound webhook payload shape", (
   });
 });
 
-test("websocket worker subscribes to Feishu bot-added auto-provisioning events", () => {
+test("websocket worker subscribes only to long-connection events, not card callbacks", () => {
+  assert.ok(FEISHU_WEBSOCKET_WORKER_EVENT_TYPES.includes("im.message.receive_v1"));
   assert.ok(FEISHU_WEBSOCKET_WORKER_EVENT_TYPES.includes("im.chat.member.bot.added_v1"));
+
+  const eventTypes = FEISHU_WEBSOCKET_WORKER_EVENT_TYPES as readonly string[];
+  assert.ok(!eventTypes.includes("card.action.trigger"));
+  assert.ok(!eventTypes.includes("im.message.message_card.action_v1"));
+  assert.ok(!eventTypes.includes("message_card.action"));
 });
 
 test("keeps already-normalized Feishu webhook payloads unchanged", () => {
