@@ -35,7 +35,7 @@ describe("OpenMontage channel Jobs route", () => {
     });
     mockCanReadChannelForActorSync.mockReturnValue(true);
     mockListChannelProjections.mockReturnValue([
-      { schemaVersion: 1, jobId: "om_job_1", status: "RUNNING", stages: [] },
+      { schemaVersion: 1, jobId: "om_job_1", conversationId: "conversation-1", status: "RUNNING", stages: [] },
     ]);
   });
 
@@ -46,7 +46,7 @@ describe("OpenMontage channel Jobs route", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      jobs: [{ schemaVersion: 1, jobId: "om_job_1", status: "RUNNING", stages: [] }],
+      jobs: [{ schemaVersion: 1, jobId: "om_job_1", conversationId: "conversation-1", status: "RUNNING", stages: [] }],
     });
     expect(mockListChannelProjections).toHaveBeenCalledWith("workspace-1", "video team");
   });

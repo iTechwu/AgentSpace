@@ -101,11 +101,12 @@ function wrapper(refreshVersion: number) {
   );
 }
 
-function projection(overrides: Partial<OpenMontageJobProjection> = {}): OpenMontageJobProjection {
+function projection(overrides: Partial<OpenMontageJobProjection> = {}): OpenMontageJobProjection & { conversationId: string } {
   const status = overrides.status ?? "RUNNING";
   return {
     schemaVersion: 1,
     jobId: "om_job_1",
+    conversationId: "conversation-1",
     status,
     workflow: { name: "animated-explainer", version: "2.0" },
     stages: [

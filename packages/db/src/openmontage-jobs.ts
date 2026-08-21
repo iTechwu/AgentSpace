@@ -51,6 +51,11 @@ export interface OpenMontageChatBindingRecord {
   updatedAt: string;
 }
 
+/** 频道任务投影在 UI 中展示时必须携带其 Conversation 归属。 */
+export type OpenMontageChannelJobProjection = OpenMontageJobProjection & {
+  conversationId: string;
+};
+
 export interface OpenMontageNotificationOutboxRecord {
   id: string;
   jobId: string;
@@ -399,17 +404,28 @@ export function listOpenMontageChannelProjectionVersionsSync(
 export function listOpenMontageChannelProjectionsSync(
   workspaceId: string,
   channelName: string,
-): OpenMontageJobProjection[] {
+): OpenMontageChannelJobProjection[] {
   const rows = getDatabase().prepare(
-    `SELECT projection.snapshot_json AS "snapshotJson"
+    `SELECT projection.snapshot_json AS "snapshotJson",
+            link.conversation_id AS "conversationId"
        FROM openmontage_job_projection projection
        JOIN openmontage_chat_binding binding ON binding.job_id = projection.job_id
+       JOIN openmontage_job_link link ON link.job_id = projection.job_id
       WHERE projection.workspace_id = ?
         AND binding.workspace_id = ?
         AND binding.channel_name = ?
+        AND link.workspace_id = ?
       ORDER BY projection.created_at ASC, projection.job_id ASC`,
-  ).all(workspaceId, workspaceId, channelName) as Array<{ snapshotJson?: unknown }>;
-  return rows.map((row) => parseJson(row.snapshotJson) as OpenMontageJobProjection);
+  ).all(workspaceId, workspaceId, channelName, workspaceId) as Array<{ snapshotJson?: unknown; conversationId?: unknown }>;
+  return rows.flatMap((row) => {
+    if (typeof row.conversationId !== "string" || row.conversationId.length === 0) {
+      return [];
+    }
+    return [{
+      ...(parseJson(row.snapshotJson) as OpenMontageJobProjection),
+      conversationId: row.conversationId,
+    }];
+  });
 }
 
 export function listOpenMontageSyncingJobIdsSync(options: { limit?: number } = {}): string[] {

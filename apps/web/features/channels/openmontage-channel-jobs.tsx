@@ -9,6 +9,8 @@ import {
 } from "@/features/channels/openmontage-job-card";
 import { AppIcon } from "@/shared/ui/app-icon";
 
+type OpenMontageChannelJob = OpenMontageJobProjection & { conversationId: string };
+
 export function OpenMontageChannelJobs({
   workspaceId,
   channelName,
@@ -66,11 +68,11 @@ export function useOpenMontageChannelJobs({
   enabled: boolean;
 }) {
   const { tx } = useLanguage();
-  const [jobs, setJobs] = useState<OpenMontageJobProjection[]>([]);
+  const [jobs, setJobs] = useState<OpenMontageChannelJob[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
 
-  const loadJobs = useCallback(async (signal: AbortSignal): Promise<OpenMontageJobProjection[]> => {
+  const loadJobs = useCallback(async (signal: AbortSignal): Promise<OpenMontageChannelJob[]> => {
     const response = await fetch(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelName)}/openmontage/jobs`,
       { signal },
@@ -140,7 +142,7 @@ export function useOpenMontageChannelJobs({
   };
 }
 
-function parseProjectionList(value: unknown): OpenMontageJobProjection[] {
+function parseProjectionList(value: unknown): OpenMontageChannelJob[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("OpenMontage projection response is invalid.");
   }
@@ -151,13 +153,14 @@ function parseProjectionList(value: unknown): OpenMontageJobProjection[] {
   return jobs as OpenMontageJobProjection[];
 }
 
-function isProjection(value: unknown): value is OpenMontageJobProjection {
+function isProjection(value: unknown): value is OpenMontageChannelJob {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
   const source = value as Record<string, unknown>;
   return source.schemaVersion === 1
     && typeof source.jobId === "string"
+    && typeof source.conversationId === "string"
     && typeof source.status === "string"
     && Boolean(source.workflow)
     && Array.isArray(source.stages)

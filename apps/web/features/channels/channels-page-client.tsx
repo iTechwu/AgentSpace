@@ -1251,15 +1251,18 @@ export function ChannelsPageClient({
       : tx("发一条消息开始对话。", "Send a message to start the conversation.")
     : tx("先从左侧选择一个会话。", "Select a conversation from the list first.");
   const openMontageTimelineItems = useMemo(() => {
-    const items = openMontageChannelJobs.jobs.map((job) => ({
+    const conversationJobs = routeState.conversationId
+      ? openMontageChannelJobs.jobs.filter((job) => job.conversationId === routeState.conversationId)
+      : openMontageChannelJobs.jobs;
+    const items = conversationJobs.map((job) => ({
       id: `openmontage-job-${job.jobId}`,
       timestamp: job.createdAt,
       content: <OpenMontageJobCard job={job} onAction={openMontageChannelJobs.submitAction} workspaceId={data.workspaceId} />,
     }));
-    if (openMontageChannelJobs.loadError) {
+    if (openMontageChannelJobs.loadError && conversationJobs.length > 0) {
       items.push({
         id: "openmontage-job-refresh-error",
-        timestamp: openMontageChannelJobs.jobs.at(-1)?.updatedAt ?? new Date().toISOString(),
+        timestamp: conversationJobs.at(-1)?.updatedAt ?? new Date().toISOString(),
         content: (
           <div className="openmontage-channel-jobs__error" role="alert">
             <AppIcon name="alertCircle" />
@@ -1272,7 +1275,7 @@ export function ChannelsPageClient({
       });
     }
     return items;
-  }, [data.workspaceId, openMontageChannelJobs, tx]);
+  }, [data.workspaceId, openMontageChannelJobs, routeState.conversationId, tx]);
 
   useEffect(() => {
     setShowContactRemarkEditor(false);
