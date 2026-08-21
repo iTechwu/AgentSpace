@@ -75,7 +75,7 @@ import {
   signMcpEgressLeaseForOperation,
   signMcpEgressLeaseForTaskCall,
 } from "./egress.ts";
-import { OPENMONTAGE_MCP_SLUG, resolveMcpRuntimeAppRequirement, resolveOfficialManagedStdioProfile } from "./official-catalog.ts";
+import { OPENMONTAGE_MCP_SLUG, TOOLS_VIRAL_VIDEO_MCP_SLUG, resolveMcpRuntimeAppRequirement, resolveOfficialManagedStdioProfile } from "./official-catalog.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
 import { callOpenMontageJobActionAsync } from "../openmontage/events.ts";
 import {
@@ -1439,8 +1439,10 @@ function validateConnectionEndpoint(
     // MCP connect to its freshly-deployed container, not a stale pre-existing
     // service (docs/0811/cli-install Phase 5).
     const staticTemplate = catalog.source === "official"
-      && catalog.slug === OPENMONTAGE_MCP_SLUG
-      && catalog.endpointTemplate === "managed-service://openmontage"
+      && (
+        (catalog.slug === OPENMONTAGE_MCP_SLUG && catalog.endpointTemplate === "managed-service://openmontage")
+        || (catalog.slug === TOOLS_VIRAL_VIDEO_MCP_SLUG && catalog.endpointTemplate === "managed-service://tools-viral-video")
+      )
       && endpoint === catalog.endpointTemplate;
     const provisionedContainer = endpoint.startsWith("runtime-private://");
     return (staticTemplate || provisionedContainer)

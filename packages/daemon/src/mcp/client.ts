@@ -416,7 +416,7 @@ function guardEndpoint(connection: ResolvedMcpConnection): { ok: true } | { ok: 
       : { ok: false, code: "mcp.policy_denied", message: "Managed stdio launch is unavailable." };
   }
   if (connection.transport === "managed_service") {
-    return connection.endpoint === "managed-service://openmontage" && Boolean(connection.managedServiceEndpoint)
+    return connection.endpoint.startsWith("managed-service://") && Boolean(connection.managedServiceEndpoint)
       ? { ok: true }
       : { ok: false, code: "mcp.policy_denied", message: "Managed service endpoint is unavailable." };
   }

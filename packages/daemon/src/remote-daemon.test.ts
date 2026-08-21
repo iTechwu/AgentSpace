@@ -51,6 +51,31 @@ test("resolveManagedServiceConnection binds only the official OpenMontage servic
     { OPENMONTAGE_MCP_URL: "http://openmontage:8080/mcp", OPENMONTAGE_SERVICE_TOKEN: "service-token" },
   ), /reference/);
 });
+
+test("resolveManagedServiceConnection binds the official Tools viral-video service without credentials", () => {
+  const connection = {
+    connectionId: "connection-tools",
+    runtimeId: "runtime-1",
+    workspaceId: "workspace-1",
+    transport: "managed_service",
+    endpoint: "managed-service://tools-viral-video",
+    allowedHosts: [],
+    approvedTools: ["viral_video_douyin_tos_url"],
+    secrets: {},
+    nonSecretParams: {},
+  } satisfies ResolvedMcpConnection;
+
+  const resolved = resolveManagedServiceConnection(connection, {
+    TOOLS_VIRAL_VIDEO_MCP_URL: "http://127.0.0.1:13103/mcp/viral-video",
+  });
+
+  assert.equal(resolved.managedServiceEndpoint, "http://127.0.0.1:13103/mcp/viral-video");
+  assert.deepEqual(resolved.secrets, {});
+  assert.throws(() => resolveManagedServiceConnection(connection, {}), /TOOLS_VIRAL_VIDEO_MCP_URL/);
+  assert.throws(() => resolveManagedServiceConnection(connection, {
+    TOOLS_VIRAL_VIDEO_MCP_URL: "http://127.0.0.1:13103/mcp/platform",
+  }), /mcp\/viral-video/);
+});
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError } from "./daemon-client.ts";
 import { isProcessRunning } from "./state.ts";
 

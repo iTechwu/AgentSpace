@@ -16,7 +16,9 @@ export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE = "minimax-coding-plan-mcp";
 export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC = `${MINIMAX_TOKEN_PLAN_MCP_PACKAGE}==${MINIMAX_TOKEN_PLAN_MCP_VERSION}`;
 export const MINIMAX_TOKEN_PLAN_MCP_SDK_SPEC = "mcp==1.29.0";
 export const OPENMONTAGE_MCP_SLUG = OPENMONTAGE_MCP_CATALOG_SLUG;
-export const OPENMONTAGE_MCP_VERSION = "0.3.0";
+export const OPENMONTAGE_MCP_VERSION = "0.3.1";
+export const TOOLS_VIRAL_VIDEO_MCP_SLUG = "official-tools-viral-video";
+export const TOOLS_VIRAL_VIDEO_MCP_VERSION = "1.0.0";
 
 export interface OfficialMcpRuntimeAppRequirement {
   source: "clihub_public";
@@ -72,13 +74,41 @@ const MINIMAX_TOKEN_PLAN_TOOLS = [
 ] as const;
 
 const OPENMONTAGE_TOOLS = [
+  { name: "prepare_reference_clone", description: "Download and analyze a reference-video URL, then prepare a differentiated OpenMontage project.", risk: "high" as const },
   { name: "openmontage_capabilities", description: "Inspect available video production providers and composition capabilities.", risk: "low" as const },
+  { name: "reference_clone_status", description: "Read a prepared reference-clone project's analysis and next pipeline stage.", risk: "low" as const },
   { name: "submit_video_job", description: "Create an asynchronous, attributable video production Job.", risk: "high" as const },
   { name: "get_video_job", description: "Read the durable state of a video production Job.", risk: "low" as const },
   { name: "cancel_video_job", description: "Request cancellation of a running video production Job.", risk: "high" as const },
   { name: "approve_video_stage", description: "Approve or reject a pending video production stage.", risk: "high" as const },
   { name: "list_video_job_events", description: "Replay ordered events for a video production Job.", risk: "low" as const },
   { name: "list_video_artifacts", description: "List durable outputs published for a video production Job.", risk: "low" as const },
+] as const;
+
+const TOOLS_VIRAL_VIDEO_TOOLS = [
+  { name: "viral_video_sources_list", description: "List configured viral-video sources.", risk: "low" as const },
+  { name: "viral_video_search", description: "Search viral-video sources and optionally archive a direct Douyin video.", risk: "medium" as const },
+  { name: "viral_video_discovery_run", description: "Run a confirmed viral-video discovery job.", risk: "high" as const },
+  { name: "viral_video_candidate_advance", description: "Advance a candidate through the viral-video workflow.", risk: "high" as const },
+  { name: "viral_video_workflow_start", description: "Start a confirmed viral-video workflow.", risk: "high" as const },
+  { name: "viral_video_workflow_get", description: "Read a viral-video workflow.", risk: "low" as const },
+  { name: "viral_video_candidates_list", description: "List viral-video candidates.", risk: "low" as const },
+  { name: "viral_video_candidates_export", description: "Export viral-video candidates.", risk: "medium" as const },
+  { name: "viral_video_export_get", description: "Read a viral-video export.", risk: "low" as const },
+  { name: "viral_video_keyword_seeds_upsert", description: "Create or update viral-video keyword seeds.", risk: "medium" as const },
+  { name: "viral_video_account_seeds_upsert", description: "Create or update viral-video account seeds.", risk: "medium" as const },
+  { name: "viral_video_seeds_list", description: "List viral-video seeds.", risk: "low" as const },
+  { name: "viral_video_scheduled_plan_get", description: "Read the viral-video scheduled plan.", risk: "low" as const },
+  { name: "viral_video_dashboard_get", description: "Read the viral-video dashboard.", risk: "low" as const },
+  { name: "viral_video_status_get", description: "Read viral-video service status.", risk: "low" as const },
+  { name: "viral_video_assets_list", description: "List viral-video assets.", risk: "low" as const },
+  { name: "viral_video_assets_process", description: "Process viral-video assets.", risk: "high" as const },
+  { name: "viral_video_asset_url_refresh", description: "Refresh a viral-video asset URL.", risk: "medium" as const },
+  { name: "viral_video_analysis_run", description: "Run viral-video analysis.", risk: "high" as const },
+  { name: "viral_video_analysis_status_get", description: "Read viral-video analysis status.", risk: "low" as const },
+  { name: "viral_video_storyboard_generate", description: "Generate a viral-video storyboard.", risk: "high" as const },
+  { name: "viral_video_storyboards_list", description: "List viral-video storyboards.", risk: "low" as const },
+  { name: "viral_video_douyin_tos_url", description: "Resolve a Douyin share URL to a directly downloadable TOS URL.", risk: "low" as const },
 ] as const;
 
 const CHROME_DEVTOOLS_STDIO_PROFILE: McpManagedStdioProfile = {
@@ -206,13 +236,34 @@ export function syncOfficialMcpCatalogForWorkspaceSync(workspaceId: string): Mcp
     allowedHostsJson: "[]",
     configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, required: [], additionalProperties: false }),
     declaredToolsJson: JSON.stringify(OPENMONTAGE_TOOLS),
-    defaultApprovedToolsJson: JSON.stringify(["openmontage_capabilities", "get_video_job", "list_video_job_events", "list_video_artifacts"]),
+    defaultApprovedToolsJson: JSON.stringify(["openmontage_capabilities", "reference_clone_status", "get_video_job", "list_video_job_events", "list_video_artifacts"]),
     secretFieldsJson: "[]",
     requiredRuntimeCapabilitiesJson: "[]",
     dataDomainsJson: JSON.stringify(["video_inputs", "video_artifacts", "model_usage"]),
     risk: "high",
     endpointTemplate: "managed-service://openmontage",
     documentationUrl: "/docs/0805/montage",
+  });
+
+  readOfficialReleaseOrCreate(workspaceId, TOOLS_VIRAL_VIDEO_MCP_SLUG, TOOLS_VIRAL_VIDEO_MCP_VERSION, {
+    workspaceId,
+    source: "official",
+    slug: TOOLS_VIRAL_VIDEO_MCP_SLUG,
+    version: TOOLS_VIRAL_VIDEO_MCP_VERSION,
+    category: "data_analytics",
+    transport: "managed_service",
+    displayName: "Tools · 爆款视频",
+    description: "Discover, archive, analyze, and storyboard viral videos through tools.dofe.ai.",
+    allowedHostsJson: "[]",
+    configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, required: [], additionalProperties: false }),
+    declaredToolsJson: JSON.stringify(TOOLS_VIRAL_VIDEO_TOOLS),
+    defaultApprovedToolsJson: JSON.stringify(TOOLS_VIRAL_VIDEO_TOOLS.filter((tool) => tool.risk === "low").map((tool) => tool.name)),
+    secretFieldsJson: "[]",
+    requiredRuntimeCapabilitiesJson: "[]",
+    dataDomainsJson: JSON.stringify(["douyin_videos", "viral_video_candidates", "video_assets", "storyboards"]),
+    risk: "high",
+    endpointTemplate: "managed-service://tools-viral-video",
+    documentationUrl: "https://api.tools.dofe.ai/docs",
   });
 
   return chrome;

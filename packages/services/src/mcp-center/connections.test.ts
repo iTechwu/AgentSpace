@@ -33,6 +33,8 @@ import {
   MINIMAX_TOKEN_PLAN_MCP_SDK_SPEC,
   MINIMAX_TOKEN_PLAN_MCP_SLUG,
   OPENMONTAGE_MCP_VERSION,
+  TOOLS_VIRAL_VIDEO_MCP_SLUG,
+  TOOLS_VIRAL_VIDEO_MCP_VERSION,
   resolveOfficialManagedStdioProfile,
   resolveOfficialMcpRuntimeAppRequirement,
   syncOfficialMcpCatalogForWorkspaceSync,
@@ -306,13 +308,14 @@ test("official OpenMontage MCP uses an opaque managed-service reference and need
   syncOfficialMcpCatalogForWorkspaceSync("default");
   const catalog = readMcpCatalogItemBySlugSync("official-openmontage", "default");
   assert.ok(catalog);
+  assert.equal(OPENMONTAGE_MCP_VERSION, "0.3.1");
   assert.equal(catalog.version, OPENMONTAGE_MCP_VERSION);
   assert.equal(catalog.transport, "managed_service");
   assert.equal(catalog.endpointTemplate, "managed-service://openmontage");
   assert.deepEqual(JSON.parse(catalog.secretFieldsJson), []);
   assert.deepEqual(
     (JSON.parse(catalog.declaredToolsJson) as Array<{ name: string }>).map((tool) => tool.name),
-    ["openmontage_capabilities", "submit_video_job", "get_video_job", "cancel_video_job", "approve_video_stage", "list_video_job_events", "list_video_artifacts"],
+    ["prepare_reference_clone", "openmontage_capabilities", "reference_clone_status", "submit_video_job", "get_video_job", "cancel_video_job", "approve_video_stage", "list_video_job_events", "list_video_artifacts"],
   );
   assert.equal(resolveOfficialMcpRuntimeAppRequirement(catalog), undefined);
 
@@ -329,6 +332,36 @@ test("official OpenMontage MCP uses an opaque managed-service reference and need
   const claimed = resolveClaimedMcpOperationSync({ workspaceId: "default", operation: requested.operation });
   assert.equal(claimed?.transport, "managed_service");
   assert.equal(claimed?.endpoint, "managed-service://openmontage");
+  assert.equal(claimed?.egressProxyLease, undefined);
+});
+
+test("official Tools viral-video MCP exposes the complete managed-service toolset", () => {
+  syncOfficialMcpCatalogForWorkspaceSync("default");
+  const catalog = readMcpCatalogItemBySlugSync(TOOLS_VIRAL_VIDEO_MCP_SLUG, "default");
+  assert.ok(catalog);
+  assert.equal(catalog.version, TOOLS_VIRAL_VIDEO_MCP_VERSION);
+  assert.equal(catalog.transport, "managed_service");
+  assert.equal(catalog.endpointTemplate, "managed-service://tools-viral-video");
+  assert.deepEqual(JSON.parse(catalog.secretFieldsJson), []);
+  const declaredTools = JSON.parse(catalog.declaredToolsJson) as Array<{ name: string }>;
+  assert.equal(declaredTools.length, 23);
+  assert.equal(declaredTools.some((tool) => tool.name === "viral_video_douyin_tos_url"), true);
+  assert.equal(declaredTools.some((tool) => tool.name === "viral_video_storyboard_generate"), true);
+  assert.equal(resolveOfficialMcpRuntimeAppRequirement(catalog), undefined);
+
+  const runtimeId = createRuntime();
+  const requested = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: catalog.endpointTemplate,
+    approvedTools: ["viral_video_douyin_tos_url", "viral_video_sources_list"],
+    confirmHighRisk: true,
+  });
+  const claimed = resolveClaimedMcpOperationSync({ workspaceId: "default", operation: requested.operation });
+  assert.equal(claimed?.transport, "managed_service");
+  assert.equal(claimed?.endpoint, "managed-service://tools-viral-video");
   assert.equal(claimed?.egressProxyLease, undefined);
 });
 

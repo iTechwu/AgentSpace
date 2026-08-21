@@ -53,35 +53,50 @@ export function resolveManagedServiceConnection<T extends McpTaskSessionConnecti
   environment: Record<string, string | undefined> = process.env,
 ): T & { managedServiceEndpoint?: string } {
   if (connection.transport !== "managed_service") return connection;
-  if (connection.endpoint !== "managed-service://openmontage") {
-    throw new Error("OpenMontage managed service reference is not trusted.");
+  if (connection.endpoint === "managed-service://tools-viral-video") {
+    const rawEndpoint = environment.TOOLS_VIRAL_VIDEO_MCP_URL?.trim();
+    if (!rawEndpoint) throw new Error("TOOLS_VIRAL_VIDEO_MCP_URL is required for the Tools viral-video managed service.");
+    return {
+      ...connection,
+      managedServiceEndpoint: parseManagedServiceEndpoint(
+        rawEndpoint,
+        "/mcp/viral-video",
+        "TOOLS_VIRAL_VIDEO_MCP_URL",
+      ),
+    };
   }
+  if (connection.endpoint !== "managed-service://openmontage") throw new Error("Managed service reference is not trusted.");
   const rawEndpoint = environment.OPENMONTAGE_MCP_URL?.trim();
   if (!rawEndpoint) throw new Error("OPENMONTAGE_MCP_URL is required for the OpenMontage managed service.");
   const token = environment.OPENMONTAGE_SERVICE_TOKEN?.trim();
   if (!token) throw new Error("OPENMONTAGE_SERVICE_TOKEN is required for the OpenMontage managed service.");
+  const managedServiceEndpoint = parseManagedServiceEndpoint(rawEndpoint, "/mcp", "OPENMONTAGE_MCP_URL");
+  return {
+    ...connection,
+    managedServiceEndpoint,
+    secrets: { Authorization: `Bearer ${token}` },
+  };
+}
+
+function parseManagedServiceEndpoint(rawEndpoint: string, pathname: string, environmentKey: string): string {
   let endpoint: URL;
   try {
     endpoint = new URL(rawEndpoint);
   } catch {
-    throw new Error("OPENMONTAGE_MCP_URL must be a valid HTTP URL ending in /mcp.");
+    throw new Error(`${environmentKey} must be a valid HTTP URL ending in ${pathname}.`);
   }
   if (
     !["http:", "https:"].includes(endpoint.protocol)
     || !endpoint.hostname
-    || endpoint.pathname !== "/mcp"
+    || endpoint.pathname !== pathname
     || endpoint.search
     || endpoint.hash
     || endpoint.username
     || endpoint.password
   ) {
-    throw new Error("OPENMONTAGE_MCP_URL must be a credential-free HTTP URL ending in /mcp.");
+    throw new Error(`${environmentKey} must be a credential-free HTTP URL ending in ${pathname}.`);
   }
-  return {
-    ...connection,
-    managedServiceEndpoint: endpoint.toString(),
-    secrets: { Authorization: `Bearer ${token}` },
-  };
+  return endpoint.toString();
 }
 
 export function buildManagedStdioLaunch(

@@ -1,6 +1,7 @@
 export const MANAGED_NODE_OPERATIONAL_ENV_KEYS = [
   "OPENMONTAGE_MCP_URL",
   "OPENMONTAGE_SERVICE_TOKEN",
+  "TOOLS_VIRAL_VIDEO_MCP_URL",
   "MCP_CODEX_EXPERIMENTAL_ENABLED",
   "MCP_EGRESS_ENFORCE",
   "MCP_EGRESS_PROXY_URL",
@@ -30,6 +31,7 @@ export function resolveManagedNodeOperationalEnv(
   const resolved: ManagedNodeOperationalEnv = {
     OPENMONTAGE_MCP_URL: value("OPENMONTAGE_MCP_URL"),
     OPENMONTAGE_SERVICE_TOKEN: value("OPENMONTAGE_SERVICE_TOKEN"),
+    TOOLS_VIRAL_VIDEO_MCP_URL: value("TOOLS_VIRAL_VIDEO_MCP_URL"),
     MCP_CODEX_EXPERIMENTAL_ENABLED: value("MCP_CODEX_EXPERIMENTAL_ENABLED", "0"),
     MCP_EGRESS_ENFORCE: value("MCP_EGRESS_ENFORCE", "false"),
     MCP_EGRESS_PROXY_URL: value("MCP_EGRESS_PROXY_URL"),
@@ -74,6 +76,22 @@ export function resolveManagedNodeOperationalEnv(
     ) {
       throw new Error(
         "OPENMONTAGE_MCP_URL must be a credential-free HTTP(S) URL ending in /mcp.",
+      );
+    }
+  }
+
+  if (resolved.TOOLS_VIRAL_VIDEO_MCP_URL) {
+    const toolsUrl = new URL(resolved.TOOLS_VIRAL_VIDEO_MCP_URL);
+    if (
+      !/^https?:$/.test(toolsUrl.protocol) ||
+      toolsUrl.pathname !== "/mcp/viral-video" ||
+      toolsUrl.search ||
+      toolsUrl.hash ||
+      toolsUrl.username ||
+      toolsUrl.password
+    ) {
+      throw new Error(
+        "TOOLS_VIRAL_VIDEO_MCP_URL must be a credential-free HTTP(S) URL ending in /mcp/viral-video.",
       );
     }
   }
