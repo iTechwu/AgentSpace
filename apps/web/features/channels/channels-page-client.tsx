@@ -174,7 +174,7 @@ export function ChannelsPageClient({
 }: {
   data: ChannelsPageData;
   currentUserDisplayName: string;
-  moduleSearchParams?: URLSearchParams;
+  moduleSearchParams?: URLSearchParams | string;
   onDataChanged?: () => void;
   onInvalidation?: (event: WorkspaceInvalidationEvent) => void;
 }) {

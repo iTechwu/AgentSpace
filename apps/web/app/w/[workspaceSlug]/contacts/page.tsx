@@ -86,7 +86,7 @@ export default async function WorkspaceContactsPage({
         <ChannelsPageClient
           currentUserDisplayName={result.data.currentUserDisplayName}
           data={result.data.data}
-          moduleSearchParams={moduleQuery}
+          moduleSearchParams={moduleQuery.toString()}
         />
       ) : (
         <HumanContactsPageClient
