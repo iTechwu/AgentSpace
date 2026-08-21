@@ -48,6 +48,7 @@ const ATTRIBUTION_KEYS = [
   "workspaceId",
 ] as const;
 const DELEGATION_TTL_MS = 23 * 60 * 60 * 1000;
+const MINIMUM_MODELS_DELEGATION_SPEND_LIMIT = "0.01";
 const OPENMONTAGE_MODEL_CAPABILITIES = ["image", "video", "tts", "music", "stt"] as const;
 
 export class OpenMontageDelegationAuthenticationError extends Error {}
@@ -162,6 +163,7 @@ export async function bindOpenMontageJobDelegationAsync(
         })
       ).teamId;
   const expiresAt = new Date(new Date(input.snapshot.createdAt).getTime() + DELEGATION_TTL_MS).toISOString();
+  const delegationSpendLimit = resolveModelsDelegationSpendLimit(input.budget.maxAmount);
   const request: CreateDelegationRequest = {
     runtimeCredentialId: input.runtimeCredentialId,
     tenantId: scope.tenantId,
@@ -175,10 +177,14 @@ export async function bindOpenMontageJobDelegationAsync(
     externalJobId: input.snapshot.jobId,
     allowedCapabilities: [...OPENMONTAGE_MODEL_CAPABILITIES],
     allowedModels: [],
-    spendLimit: input.budget.maxAmount,
+    spendLimit: delegationSpendLimit,
     currency: input.budget.currency,
     expiresAt,
-    metadata: { runtimeId: input.runtimeId, traceId: input.traceId },
+    metadata: {
+      runtimeId: input.runtimeId,
+      traceId: input.traceId,
+      openMontageBudgetMaxAmount: input.budget.maxAmount,
+    },
   };
   const intentStore = options.intentStore ?? databaseDelegationIntentStore;
   intentStore.create({
@@ -234,7 +240,7 @@ export async function bindOpenMontageJobDelegationAsync(
     modelsTeamId,
     mcpConnectionId: input.connectionId,
     secretRef,
-    spendLimit: input.budget.maxAmount,
+    spendLimit: delegationSpendLimit,
     currency: input.budget.currency,
     status: provision.delegation.status,
     expiresAt,
@@ -291,6 +297,12 @@ export async function bindOpenMontageJobDelegationAsync(
     link,
     delegation: { jobId: link.jobId, ...delegationInput, createdAt: link.createdAt, updatedAt: link.createdAt },
   };
+}
+
+export function resolveModelsDelegationSpendLimit(openMontageBudgetMaxAmount: string): string {
+  return Number(openMontageBudgetMaxAmount) === 0
+    ? MINIMUM_MODELS_DELEGATION_SPEND_LIMIT
+    : openMontageBudgetMaxAmount;
 }
 
 export interface OpenMontageModelCredentialDocument {

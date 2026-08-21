@@ -7,6 +7,7 @@ import {
   drainPendingOpenMontageJobDelegationsAsync,
   issueOpenMontageModelCredential,
   OpenMontageDelegationAuthenticationError,
+  resolveModelsDelegationSpendLimit,
 } from "./delegations.ts";
 
 const IDS = {
@@ -72,6 +73,46 @@ test("binds a models delegation to the immutable Job and escrows only its one-ti
   assert.equal((persisted?.delegation as Record<string, unknown>).modelsTeamId, IDS.modelsTeam);
   assert.doesNotMatch(JSON.stringify(persisted), /delegated-api-key/);
   assert.equal(result.delegation.delegationId, IDS.delegation);
+});
+
+test("maps a zero-cost OpenMontage job to the minimum positive models delegation", async () => {
+  let modelsBody: Record<string, unknown> | undefined;
+  await bindOpenMontageJobDelegationAsync({
+    ...ATTRIBUTION,
+    runtimeCredentialId: IDS.credential,
+    connectionId: "connection-1",
+    channelName: "direct:employee-1",
+    budget: { maxAmount: "0.00", currency: "CNY" },
+    snapshot: snapshot(),
+  }, {
+    resolveScope: () => ({ tenantId: IDS.tenant, teamId: IDS.team }),
+    resolveModelsTeamId: async () => IDS.modelsTeam,
+    createDelegation: async (input) => {
+      modelsBody = input;
+      return provisionResponse(IDS.modelsTeam, "0.01");
+    },
+    intentStore: noOpIntentStore(),
+    vault: {
+      store: () => ({ secretRef: "vault://delegation/zero-cost" }),
+      retrieve: () => undefined,
+      forget: () => undefined,
+    },
+    createLink: (input) => ({
+      jobId: input.snapshot.jobId,
+      ...input,
+      workflowName: "animated-explainer",
+      workflowVersion: "2.0",
+      createdAt: input.snapshot.createdAt,
+    }),
+  });
+
+  assert.equal(modelsBody?.spendLimit, "0.01");
+  assert.deepEqual(modelsBody?.metadata, {
+    runtimeId: "runtime-1",
+    traceId: "task-1",
+    openMontageBudgetMaxAmount: "0.00",
+  });
+  assert.equal(resolveModelsDelegationSpendLimit("20.00"), "20.00");
 });
 
 test("binding failure preserves a durable drain retry when models is unavailable", async () => {
@@ -339,7 +380,7 @@ function snapshot() {
   };
 }
 
-function provisionResponse(teamId = IDS.team) {
+function provisionResponse(teamId = IDS.team, spendLimit = "20.00") {
   return {
     delegation: {
       id: IDS.delegation,
@@ -354,7 +395,7 @@ function provisionResponse(teamId = IDS.team) {
       externalJobId: "om_job_1",
       allowedCapabilities: ["image", "video", "tts", "music", "stt"],
       allowedModels: [],
-      spendLimit: "20.00",
+      spendLimit,
       currency: "CNY",
       status: "active",
       expiresAt: "2026-08-06T09:00:01.000Z",
