@@ -508,11 +508,11 @@ describe("ChannelsPageClient", () => {
       "/w/workspace-1/agents?mode=agent&focus=agent-emp-atlas",
     );
 
-    await user.click(screen.getAllByRole("button", { name: /发消息|继续对话/ })[0]!);
-    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/im?view=direct&focus=contact-Atlas");
-
     await user.click(screen.getByRole("button", { name: "新建数字员工" }));
     expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/agents?mode=agent&create=agent");
+
+    await user.click(screen.getAllByRole("button", { name: /发消息|继续对话/ })[0]!);
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-1/im?view=direct&focus=contact-Atlas");
   });
 
   it("renders preview controls for channel attachments", () => {
