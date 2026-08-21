@@ -49,7 +49,7 @@ import { ChatHeader } from "@/features/chat/chat-primitives";
 import { updateWorkspaceAgentExecutionPolicyAction } from "@/features/agents/actions";
 import { buildExecutionTimeline } from "@/features/chat/task-execution-timeline";
 import { CommunicationListActions } from "@/features/chat/communication-list-actions";
-import { ChatModelCommandDialog, ChatModelSelector } from "@/features/chat/chat-model-selector";
+import { ChatModelCommandDialog } from "@/features/chat/chat-model-selector";
 import type { ChannelsPageData } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useWorkspaceModuleNavigation } from "@/features/dashboard/workspace-module-navigation";
@@ -64,14 +64,9 @@ import { ChannelDocumentsPanel } from "@/features/channels/channel-documents-pan
 import { useOpenMontageChannelJobs } from "@/features/channels/openmontage-channel-jobs";
 import { OpenMontageJobCard } from "@/features/channels/openmontage-job-card";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
-import { FeishuChannelSummaryPanel } from "@/features/integrations/feishu/feishu-channel-summary-panel";
 import { useLanguage } from "@/features/i18n/language-provider";
-import { HoverTooltip } from "@/shared/ui/hover-tooltip";
-import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { isDocumentInputActive } from "@/shared/lib/use-auto-refresh";
 import { AppIcon } from "@/shared/ui/app-icon";
-import { EmptyState } from "@/shared/ui/empty-state";
-import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { runToastAction } from "@/shared/lib/toast-action";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
@@ -79,8 +74,6 @@ import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
 import {
   translateMemberLabel,
   translateRuntimeFailureSummary,
-  translateSystemSpeaker,
-  translateWorkspaceMessageSummary,
 } from "@/features/i18n/presentation";
 
 function conversationRunStateLabel(runState: string, tx: (zh: string, en: string) => string): string {

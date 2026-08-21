@@ -150,7 +150,7 @@ function parseProjectionList(value: unknown): OpenMontageChannelJob[] {
   if (!Array.isArray(jobs) || jobs.some((job) => !isProjection(job))) {
     throw new Error("OpenMontage projection response is invalid.");
   }
-  return jobs as OpenMontageJobProjection[];
+  return jobs as OpenMontageChannelJob[];
 }
 
 function isProjection(value: unknown): value is OpenMontageChannelJob {
