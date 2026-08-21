@@ -44,6 +44,8 @@ export interface CreateConversationForUserInput {
   createdByUserId?: string;
   kind?: ConversationKind;
   idempotencyKey?: string;
+  /** /new 应复用同一范围内已有的完全空 draft。 */
+  reuseEmptyDraft?: boolean;
 }
 
 export interface CreateConversationForUserResult {
@@ -96,6 +98,7 @@ export function createConversationForUserSync(input: CreateConversationForUserIn
       employeeParticipants,
       humanParticipantUserIds,
       idempotencyKey: input.idempotencyKey,
+      reuseEmptyDraft: input.reuseEmptyDraft,
     });
     return { conversation: result.conversation };
   }
@@ -120,6 +123,7 @@ export function createConversationForUserSync(input: CreateConversationForUserIn
     channelId: input.channelId,
     createdByUserId: input.createdByUserId,
     idempotencyKey: input.idempotencyKey,
+    reuseEmptyDraft: input.reuseEmptyDraft,
   });
   return { conversation: result.conversation, lane: result.lane, employeeName: employee.name };
 }

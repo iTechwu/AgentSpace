@@ -489,6 +489,7 @@ export async function createConversationAction(input: {
       channelName: input.channelName,
       createdByUserId: workspaceContext.currentUser.id,
       kind: "group",
+      reuseEmptyDraft: true,
     });
     return { conversationId: result.conversation.id };
   }
@@ -504,6 +505,7 @@ export async function createConversationAction(input: {
     employeeId,
     createdByUserId: workspaceContext.currentUser.id,
     kind: "direct",
+    reuseEmptyDraft: true,
   });
   return { conversationId: result.conversation.id, executionLaneId: result.lane?.id };
 }

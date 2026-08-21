@@ -91,6 +91,8 @@ export interface CreateConversationInput {
   humanParticipantUserIds?: string[];
   title?: string;
   summary?: string;
+  /** /new 使用：复用同一范围内最新的完全空 draft，并归并重复空 draft。 */
+  reuseEmptyDraft?: boolean;
   now?: string;
 }
 
@@ -115,6 +117,70 @@ export function createConversationSync(input: CreateConversationInput): CreateCo
     : (input.employeeParticipants ?? []);
 
   return withTransaction(db, () => {
+    if (input.reuseEmptyDraft && input.createdByUserId) {
+      const reusableWhere = [
+        "conversation.workspace_id = ?",
+        "conversation.status = 'draft'",
+        "conversation.last_message_at IS NULL",
+        "conversation.created_by_user_id = ?",
+        "NOT EXISTS (SELECT 1 FROM conversation_message message WHERE message.conversation_id = conversation.id)",
+      ];
+      const reusableParams: unknown[] = [workspaceId, input.createdByUserId];
+      if (kind === "direct") {
+        reusableWhere.push("conversation.kind = 'direct'");
+        reusableWhere.push(
+          "conversation.id IN (SELECT conversation_id FROM conversation_participant WHERE participant_type = 'employee' AND employee_id = ?)",
+        );
+        reusableParams.push(input.employeeId ?? "");
+      } else {
+        reusableWhere.push("conversation.kind = 'group'");
+        reusableWhere.push("conversation.channel_id = ?");
+        reusableParams.push(input.channelId ?? "");
+      }
+      const emptyDrafts = db.prepare(
+        `SELECT conversation.id AS id
+           FROM conversation
+          WHERE ${reusableWhere.join(" AND ")}
+          ORDER BY conversation.created_at DESC, conversation.id DESC`,
+      ).all(...reusableParams) as Array<{ id?: unknown }>;
+      const reusableId = typeof emptyDrafts[0]?.id === "string" ? emptyDrafts[0].id : undefined;
+      if (reusableId) {
+        for (const row of emptyDrafts.slice(1)) {
+          if (typeof row.id !== "string") {
+            continue;
+          }
+          db.prepare(
+            `UPDATE conversation
+                SET status = 'abandoned', archived_at = ?, updated_at = ?, version = version + 1
+              WHERE id = ? AND status = 'draft'`,
+          ).run(now, now, row.id);
+        }
+        const existing = readConversationSync(reusableId);
+        if (existing) {
+          for (const participant of employeeParticipants) {
+            ensureConversationParticipantSync({
+              conversationId: existing.id,
+              participantType: "employee",
+              employeeId: participant.employeeId,
+              displayNameSnapshot: participant.employeeName,
+              now,
+            });
+          }
+          const lane = kind === "direct" && input.employeeId
+            ? ensureExecutionLaneForConversationSync({
+                workspaceId,
+                conversationId: existing.id,
+                employeeId: input.employeeId,
+                employeeName: input.employeeName,
+                kind,
+                channelId: input.channelId,
+                now,
+              })
+            : undefined;
+          return { conversation: existing, lane };
+        }
+      }
+    }
     const existing = readConversationSync(id);
     if (existing) {
       for (const participant of employeeParticipants) {

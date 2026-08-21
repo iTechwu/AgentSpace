@@ -209,6 +209,37 @@ test("listConversationsForEmployeeSync 可返回尚未发送首条消息的 draf
   assert.equal(drafts[0]!.status, "draft");
 });
 
+test("createConversationSync /new 复用最新空 draft 并归并重复空 draft", () => {
+  const atlas = createEmployeeId("Atlas");
+  const older = createConversationSync({
+    employeeId: atlas,
+    employeeName: "Atlas",
+    createdByUserId: "user-1",
+    now: "2026-08-21T10:00:00.000Z",
+  });
+  const newer = createConversationSync({
+    employeeId: atlas,
+    employeeName: "Atlas",
+    createdByUserId: "user-1",
+    now: "2026-08-21T10:01:00.000Z",
+  });
+
+  const reused = createConversationSync({
+    employeeId: atlas,
+    employeeName: "Atlas",
+    createdByUserId: "user-1",
+    reuseEmptyDraft: true,
+  });
+
+  assert.equal(reused.conversation.id, newer.conversation.id);
+  assert.equal(readConversationSync(older.conversation.id)?.status, "abandoned");
+  assert.equal(readConversationSync(newer.conversation.id)?.status, "draft");
+  assert.equal(
+    listConversationsForEmployeeSync({ employeeId: atlas, humanUserId: "user-1", statuses: ["draft"] }).length,
+    1,
+  );
+});
+
 test("updateConversationSync 归档/恢复不删除会话", () => {
   const result = createConversationSync({
     employeeId: createEmployeeId("Atlas"),
