@@ -250,6 +250,8 @@ export interface FeishuIntegrationSetupGuide {
 export interface FeishuIntegrationCreationGuide {
   requiredCredentialFields: string[];
   requiredEvents: string[];
+  requiredEventSubscriptions: string[];
+  requiredCallbackSubscriptions: string[];
   requiredScopes: string[];
   eventCallbackPath: string;
   publicAppUrlStatus: "configured" | "missing";

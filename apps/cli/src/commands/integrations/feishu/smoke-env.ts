@@ -4,7 +4,7 @@ import {
   listExternalIntegrationsSync,
   type ExternalIntegrationRecord
 } from "@dofe-agent/db";
-import { FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS, FEISHU_BOT_SMOKE_SCOPES, FEISHU_DATA_PLANE_SMOKE_SCOPES, FEISHU_OPEN_PLATFORM_CONSOLE_URLS, FEISHU_OPEN_PLATFORM_SETUP_STEPS, FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS, FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS, FEISHU_PROVIDER_ID, FEISHU_REQUIRED_CREDENTIAL_FIELDS, FEISHU_REQUIRED_EVENTS } from "@dofe-agent/services/integrations";
+import { FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS, FEISHU_BOT_SMOKE_SCOPES, FEISHU_DATA_PLANE_SMOKE_SCOPES, FEISHU_OPEN_PLATFORM_CONSOLE_URLS, FEISHU_OPEN_PLATFORM_SETUP_STEPS, FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS, FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS, FEISHU_PROVIDER_ID, FEISHU_REQUIRED_CREDENTIAL_FIELDS, resolveFeishuRequiredEventTypes, resolveFeishuEventSubscriptionSetupRequirements } from "@dofe-agent/services/integrations";
 import { hasNonEmptyString } from "./evidence.ts";
 import { buildFeishuCliEventCallbackUrl, normalizeFeishuCliPublicAppUrl } from "./readiness.ts";
 import { FEISHU_CLI_PLACEHOLDERS } from "./types.ts";
@@ -350,6 +350,7 @@ export function buildFeishuOpenPlatformSetupSummary(input: {
   hasIntegration: boolean;
   hasAppUrl: boolean;
   callbackUrl?: string;
+  transportMode?: string;
   requiredCredentialFields?: readonly string[];
 }): FeishuOpenPlatformSetupSummary {
   return {
@@ -361,10 +362,10 @@ export function buildFeishuOpenPlatformSetupSummary(input: {
     ...(input.callbackUrl ? { callbackUrl: input.callbackUrl } : {}),
     developerConsoleUrl: FEISHU_OPEN_PLATFORM_CONSOLE_URLS.appList,
     requiredCredentialFields: [...(input.requiredCredentialFields ?? FEISHU_REQUIRED_CREDENTIAL_FIELDS)],
-    requiredEvents: [...FEISHU_REQUIRED_EVENTS],
+    requiredEvents: [...resolveFeishuRequiredEventTypes(input.transportMode)],
     botScopes: [...FEISHU_BOT_SMOKE_SCOPES],
     dataPlaneScopes: [...FEISHU_DATA_PLANE_SMOKE_SCOPES],
-    setupSteps: buildFeishuOpenPlatformSetupSteps(),
+    setupSteps: buildFeishuOpenPlatformSetupSteps(input.transportMode),
   };
 }
 export function resolveFeishuCliOpenPlatformRequiredCredentialFields(
@@ -375,11 +376,13 @@ export function resolveFeishuCliOpenPlatformRequiredCredentialFields(
   }
   return FEISHU_REQUIRED_CREDENTIAL_FIELDS;
 }
-export function buildFeishuOpenPlatformSetupSteps(): FeishuOpenPlatformSetupStep[] {
+export function buildFeishuOpenPlatformSetupSteps(transportMode?: string): FeishuOpenPlatformSetupStep[] {
   return FEISHU_OPEN_PLATFORM_SETUP_STEPS.map((step) => ({
     id: step.id,
     consoleUrl: step.consoleUrl,
-    required: [...step.required],
+    required: step.id === "configure_event_subscription"
+      ? [...resolveFeishuEventSubscriptionSetupRequirements(transportMode)]
+      : [...step.required],
   }));
 }
 export function buildFeishuRuntimeSetupSummary(env: Record<string, string | undefined> = process.env): FeishuRuntimeSetupSummary {

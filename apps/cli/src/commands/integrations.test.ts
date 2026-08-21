@@ -294,7 +294,7 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
     "app_secret",
     "verification_token",
   ]);
-  assert.deepEqual(report.openPlatformSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"]);
+  assert.deepEqual(report.openPlatformSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1"]);
   assert.deepEqual(report.openPlatformSetup.botScopes, [
     "im:message",
     "im:message:send_as_bot",
@@ -8434,7 +8434,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     "app_id",
     "app_secret",
   ]);
-  assert.deepEqual(report.appSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"]);
+  assert.deepEqual(report.appSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1"]);
   assert.deepEqual(report.appSetup.botScopes, [
     "im:message",
     "im:message:send_as_bot",

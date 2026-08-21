@@ -97,6 +97,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     hasIntegration: hasActiveIntegration,
     hasAppUrl: Boolean(smokeHarness.appUrl),
     callbackUrl: smokeHarness.callbackUrl,
+    transportMode: setupCandidate?.transportMode,
     requiredCredentialFields: resolveFeishuCliOpenPlatformRequiredCredentialFields(setupCandidate),
   });
   const runtimeSetup = buildFeishuRuntimeSetupSummary(input.runtimeEnv);

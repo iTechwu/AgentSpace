@@ -20,8 +20,12 @@ export {
   FEISHU_PROVIDER_DESCRIPTOR,
   FEISHU_PROVIDER_ID,
   FEISHU_RECOMMENDED_CREDENTIAL_FIELDS,
+  FEISHU_REQUIRED_CALLBACK_SUBSCRIPTIONS,
   FEISHU_REQUIRED_CREDENTIAL_FIELDS,
+  FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS,
   FEISHU_REQUIRED_EVENTS,
+  resolveFeishuRequiredEventTypes,
+  resolveFeishuEventSubscriptionSetupRequirements,
 } from "./constants.ts";
 export {
   checkFeishuAgentBotHealth,

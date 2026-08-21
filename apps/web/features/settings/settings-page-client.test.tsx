@@ -1049,6 +1049,8 @@ describe("SettingsPageClient", () => {
       feishuIntegrationCreationGuide: {
         requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key", "tenant_key"],
         requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger", "custom.integration.event"],
+        requiredEventSubscriptions: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "custom.integration.event"],
+        requiredCallbackSubscriptions: ["card.action.trigger"],
         requiredScopes: ["im:message", "docx:document", "custom.integration.scope"],
         eventCallbackPath: "/api/integrations/feishu/events",
         publicAppUrlStatus: "configured",
@@ -1114,6 +1116,8 @@ describe("SettingsPageClient", () => {
       feishuIntegrationCreationGuide: {
         requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key", "tenant_key"],
         requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger", "custom.integration.event"],
+        requiredEventSubscriptions: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "custom.integration.event"],
+        requiredCallbackSubscriptions: ["card.action.trigger"],
         requiredScopes: ["im:message", "docx:document", "custom.integration.scope"],
         eventCallbackPath: "/api/integrations/feishu/events",
         publicAppUrlStatus: "configured",
@@ -1892,6 +1896,8 @@ function buildFeishuCreationGuide(): NonNullable<
   return {
     requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
     requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+    requiredEventSubscriptions: ["im.message.receive_v1", "im.chat.member.bot.added_v1"],
+    requiredCallbackSubscriptions: ["card.action.trigger"],
     requiredScopes: [
       "im:message",
       "im:message:send_as_bot",

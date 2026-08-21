@@ -41,7 +41,11 @@ export function FeishuCreateIntegrationDialog({
   const requiresVerificationToken = transportMode === "http_webhook";
   const canCreateIntegration = Boolean(appId.trim() && appSecret.trim() && (!requiresVerificationToken || verificationToken.trim()));
   const requiredCredentialFields = creationGuide?.requiredCredentialFields ?? [];
-  const requiredEvents = creationGuide?.requiredEvents ?? [];
+  const requiredEventSubscriptions = creationGuide?.requiredEventSubscriptions ?? [];
+  const requiredCallbackSubscriptions = creationGuide?.requiredCallbackSubscriptions ?? [];
+  const requiredEvents = transportMode === "http_webhook"
+    ? [...requiredEventSubscriptions, ...requiredCallbackSubscriptions]
+    : requiredEventSubscriptions;
   const requiredScopes = creationGuide?.requiredScopes ?? [];
   const eventCallbackPath = creationGuide?.eventCallbackPath;
   const publicAppUrlStatus = creationGuide?.publicAppUrlStatus;

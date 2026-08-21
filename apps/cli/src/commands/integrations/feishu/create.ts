@@ -5,7 +5,7 @@ import {
   createExternalIntegrationSync,
   type ExternalIntegrationRecord
 } from "@dofe-agent/db";
-import { buildEncryptedFeishuCredentials, FEISHU_DEFAULT_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_PROVIDER_ID, FEISHU_REQUIRED_CREDENTIAL_FIELDS, FEISHU_REQUIRED_EVENTS } from "@dofe-agent/services/integrations";
+import { buildEncryptedFeishuCredentials, FEISHU_DEFAULT_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_PROVIDER_ID, FEISHU_REQUIRED_CREDENTIAL_FIELDS, resolveFeishuRequiredEventTypes } from "@dofe-agent/services/integrations";
 import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services/workspace";
 import { getStringFlag } from "../../../lib/args.ts";
 import { normalizeOptionalText, parseFeishuCliEnvFile, parseFeishuCliTransportMode, readStringFlagOrEnv, requireNonEmpty, requireNonPlaceholderFeishuCreateValue, requireStringFlagOrEnv, validateOptionalFeishuCreateValue } from "./cli-shared.ts";
@@ -114,12 +114,13 @@ export function createFeishuIntegrationForCli(
       encryptKey: Boolean(encryptKey),
     },
     requiredCredentialFields: [...FEISHU_REQUIRED_CREDENTIAL_FIELDS],
-    requiredEvents: [...FEISHU_REQUIRED_EVENTS],
+    requiredEvents: [...resolveFeishuRequiredEventTypes(transportMode)],
     requiredScopeCount: FEISHU_DEFAULT_SCOPES.length,
     openPlatformSetup: buildFeishuOpenPlatformSetupSummary({
       hasIntegration: true,
       hasAppUrl: Boolean(smokeHarness.appUrl),
       callbackUrl: smokeHarness.callbackUrl,
+      transportMode,
     }),
     secretRedacted: true,
     auditRecorded,

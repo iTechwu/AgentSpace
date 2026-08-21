@@ -21,15 +21,41 @@ export const FEISHU_DEFAULT_SCOPES = [
   ...FEISHU_DATA_PLANE_SMOKE_SCOPES,
 ] as const;
 
-// HTTP 回调/事件订阅（EventDispatcher + event_callback_url）所需的订阅类型。
-// im.message.receive_v1 / im.chat.member.bot.added_v1 是"事件订阅"，HTTP 与长连接均可投递；
-// card.action.trigger 是"回调订阅"，仅 HTTP 回调模式可投递，长连接（WebSocket）不支持。
-// 长连接 Worker 的实际订阅列表见 websocket-worker.ts 的 FEISHU_WEBSOCKET_WORKER_EVENT_TYPES。
-export const FEISHU_REQUIRED_EVENTS = [
+// 事件订阅：长连接（WebSocket）与 HTTP 回调均可投递。
+export const FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS = [
   "im.message.receive_v1",
   "im.chat.member.bot.added_v1",
+] as const;
+
+// 回调订阅：仅 HTTP 回调模式可投递；长连接（WebSocket）不支持卡片回传。
+export const FEISHU_REQUIRED_CALLBACK_SUBSCRIPTIONS = [
   "card.action.trigger",
 ] as const;
+
+// HTTP 回调/事件订阅（EventDispatcher + event_callback_url）所需的全部订阅类型。
+// 长连接模式只订阅 FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS。
+export const FEISHU_REQUIRED_EVENTS = [
+  ...FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS,
+  ...FEISHU_REQUIRED_CALLBACK_SUBSCRIPTIONS,
+] as const;
+
+// 按传输模式解析需要配置的订阅类型：
+// - websocket_worker：仅事件订阅（长连接不支持回调订阅）；
+// - http_webhook / 其他：事件订阅 + 回调订阅。
+export function resolveFeishuRequiredEventTypes(transportMode?: string | null): readonly string[] {
+  if (transportMode === "websocket_worker") {
+    return FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS;
+  }
+  return FEISHU_REQUIRED_EVENTS;
+}
+
+// "事件订阅"配置步骤在长连接模式下不需要 event_callback_url，也不配置卡片回调。
+export function resolveFeishuEventSubscriptionSetupRequirements(transportMode?: string | null): readonly string[] {
+  if (transportMode === "websocket_worker") {
+    return FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS;
+  }
+  return ["event_callback_url", ...FEISHU_REQUIRED_EVENTS];
+}
 
 export const FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS = [
   "app_id",

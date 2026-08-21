@@ -7,7 +7,7 @@ import {
 import type { WSConnectionStatus } from "@larksuiteoapi/node-sdk";
 import type { IntegrationRuntimeContext } from "../../core/index.ts";
 import { createFeishuInboundAttachmentDownloader } from "./attachments.ts";
-import { FEISHU_PROVIDER_ID } from "./constants.ts";
+import { FEISHU_PROVIDER_ID, FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS } from "./constants.ts";
 import { readFeishuIntegrationCredentials, type FeishuPlainCredentials } from "./credentials.ts";
 import {
   isFeishuApprovalCardActionCallbackPayload,
@@ -105,11 +105,9 @@ export type FeishuWebSocketWorkerSessionFactory = (
 ) => Promise<FeishuWebSocketWorkerSession>;
 
 // 飞书长连接（WebSocket）只支持"事件订阅"，不支持"回调订阅"。
-// 卡片回传（card.action.trigger 及其别名 im.message.message_card.action_v1 / message_card.action）
-// 属于回调订阅，只能通过 HTTP 回调模式投递，不能在长连接 Worker 中注册为事件处理函数。
+// 与 constants.ts 的 FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS 保持单一事实源。
 export const FEISHU_WEBSOCKET_WORKER_EVENT_TYPES = [
-  "im.message.receive_v1",
-  "im.chat.member.bot.added_v1",
+  ...FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS,
 ] as const;
 
 export interface FeishuWebSocketWorkerDependencies {

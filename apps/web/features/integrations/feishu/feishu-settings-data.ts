@@ -12,7 +12,7 @@ import {
   type ExternalResourceBindingRecord,
   type WorkspaceRole,
 } from "@dofe-agent/db";
-import { FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS, FEISHU_DEFAULT_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS, FEISHU_OPEN_PLATFORM_CONSOLE_URLS, FEISHU_OPEN_PLATFORM_SETUP_STEPS, FEISHU_PROVIDER_ID, FEISHU_REQUIRED_CREDENTIAL_FIELDS, FEISHU_REQUIRED_EVENTS, sanitizeFeishuOperationResponseSummary } from "@dofe-agent/services/integrations";
+import { FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS, FEISHU_DEFAULT_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS, FEISHU_OPEN_PLATFORM_CONSOLE_URLS, FEISHU_OPEN_PLATFORM_SETUP_STEPS, FEISHU_PROVIDER_ID, FEISHU_REQUIRED_CALLBACK_SUBSCRIPTIONS, FEISHU_REQUIRED_CREDENTIAL_FIELDS, FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS, FEISHU_REQUIRED_EVENTS, resolveFeishuRequiredEventTypes, resolveFeishuEventSubscriptionSetupRequirements, sanitizeFeishuOperationResponseSummary } from "@dofe-agent/services/integrations";
 import { listActiveEmployeesSync } from "@dofe-agent/services/employees";
 import { listWorkspaceMembershipsAsync } from "@dofe-agent/services/workspace";
 import { buildPublicAppUrl } from "@/features/auth/public-app-url";
@@ -348,6 +348,8 @@ export function buildFeishuIntegrationCreationGuide(input: {
   return {
     requiredCredentialFields: [...FEISHU_REQUIRED_CREDENTIAL_FIELDS],
     requiredEvents: [...FEISHU_REQUIRED_EVENTS],
+    requiredEventSubscriptions: [...FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS],
+    requiredCallbackSubscriptions: [...FEISHU_REQUIRED_CALLBACK_SUBSCRIPTIONS],
     requiredScopes: [...FEISHU_DEFAULT_SCOPES],
     eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
     publicAppUrlStatus: appUrl ? "configured" : "missing",
@@ -361,11 +363,11 @@ export function buildFeishuIntegrationCreationGuide(input: {
 export function buildFeishuAgentBotSetupReference(): FeishuAgentBotSetupReference {
   return {
     requiredCredentialFields: [...FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS],
-    requiredEvents: [...FEISHU_REQUIRED_EVENTS],
+    requiredEvents: [...FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS],
     requiredScopes: [...FEISHU_DEFAULT_SCOPES],
     eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
     developerConsoleUrl: FEISHU_OPEN_PLATFORM_CONSOLE_URLS.appList,
-    openPlatformSetupSteps: buildFeishuOpenPlatformSetupSteps(),
+    openPlatformSetupSteps: buildFeishuOpenPlatformSetupSteps("websocket_worker"),
   };
 }
 
@@ -475,11 +477,11 @@ function buildFeishuIntegrationSetupGuide(input: {
       agentId: input.agentId,
       transportMode: input.transportMode,
     }),
-    requiredEvents: [...FEISHU_REQUIRED_EVENTS],
+    requiredEvents: [...resolveFeishuRequiredEventTypes(input.transportMode)],
     requiredScopes: [...FEISHU_DEFAULT_SCOPES],
     eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
     developerConsoleUrl: FEISHU_OPEN_PLATFORM_CONSOLE_URLS.appList,
-    openPlatformSetupSteps: buildFeishuOpenPlatformSetupSteps(),
+    openPlatformSetupSteps: buildFeishuOpenPlatformSetupSteps(input.transportMode),
     checks: input.checks,
     evidenceGates: buildFeishuEvidenceGates(input.transportMode),
     commands: {
@@ -507,11 +509,13 @@ function buildFeishuIntegrationSetupGuide(input: {
   };
 }
 
-function buildFeishuOpenPlatformSetupSteps(): FeishuIntegrationSetupGuide["openPlatformSetupSteps"] {
+function buildFeishuOpenPlatformSetupSteps(transportMode?: string): FeishuIntegrationSetupGuide["openPlatformSetupSteps"] {
   return FEISHU_OPEN_PLATFORM_SETUP_STEPS.map((step) => ({
     id: step.id,
     consoleUrl: step.consoleUrl,
-    required: [...step.required],
+    required: step.id === "configure_event_subscription"
+      ? [...resolveFeishuEventSubscriptionSetupRequirements(transportMode)]
+      : [...step.required],
   }));
 }
 

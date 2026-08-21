@@ -75,6 +75,16 @@ vi.mock("@dofe-agent/services", () => ({
   FEISHU_PROVIDER_ID: "feishu",
   FEISHU_REQUIRED_CREDENTIAL_FIELDS: ["app_id", "app_secret", "verification_token"],
   FEISHU_REQUIRED_EVENTS: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+  FEISHU_REQUIRED_EVENT_SUBSCRIPTIONS: ["im.message.receive_v1", "im.chat.member.bot.added_v1"],
+  FEISHU_REQUIRED_CALLBACK_SUBSCRIPTIONS: ["card.action.trigger"],
+  resolveFeishuRequiredEventTypes: (transportMode?: string | null) =>
+    transportMode === "websocket_worker"
+      ? ["im.message.receive_v1", "im.chat.member.bot.added_v1"]
+      : ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+  resolveFeishuEventSubscriptionSetupRequirements: (transportMode?: string | null) =>
+    transportMode === "websocket_worker"
+      ? ["im.message.receive_v1", "im.chat.member.bot.added_v1"]
+      : ["event_callback_url", "im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
   listActiveEmployeesSync: mockListActiveEmployeesSync,
   sanitizeFeishuOperationResponseSummary: (summary: Record<string, unknown> | undefined) => summary,
   summarizeFeishuStoredCredentials: () => ({
@@ -222,6 +232,8 @@ describe("Feishu settings data", () => {
     })).toEqual({
       requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
       requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+      requiredEventSubscriptions: ["im.message.receive_v1", "im.chat.member.bot.added_v1"],
+      requiredCallbackSubscriptions: ["card.action.trigger"],
       requiredScopes: [
         "im:message",
         "im:message:send_as_bot",
