@@ -337,6 +337,7 @@ export function buildChannelHistorySnapshot(
     : -1;
 
   return (fromIndex >= 0 ? messages.slice(fromIndex) : messages)
+    .filter((message) => message.kind !== "process")
     .map((message) => ({
       speaker: message.speaker,
       role: message.role,
@@ -369,6 +370,7 @@ export function buildConversationHistorySnapshot(
     .filter((message) => sameValue(message.channel ?? "", channelName) && message.conversationId === conversationId)
     .slice()
     .reverse()
+    .filter((message) => message.kind !== "process")
     .map((message) => ({
       speaker: message.speaker,
       role: message.role,

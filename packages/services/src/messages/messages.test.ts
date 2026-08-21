@@ -51,7 +51,11 @@ import {
   writeWorkspaceStateSync,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
-import { buildChannelHistorySnapshot, toTaskPayloadAttachment } from "../shared/messaging.ts";
+import {
+  buildChannelHistorySnapshot,
+  buildConversationHistorySnapshot,
+  toTaskPayloadAttachment,
+} from "../shared/messaging.ts";
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
@@ -441,6 +445,44 @@ test("buildChannelHistorySnapshot can isolate history from a new conversation me
 
   const history = buildChannelHistorySnapshot(state, "tour visit", newMessage.id);
   assert.deepEqual(history.map((message) => message.summary), ["新会话内容"]);
+});
+
+test("history snapshots exclude internal process logs from future model context", () => {
+  seedWorkspace();
+  sendChannelHumanMessageSync("tour visit", "techwu", "生成一个短视频");
+  postMessageSync({
+    channel: "tour visit",
+    conversationId: "conversation-video",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    status: "pending",
+    data: { source_task_queue_id: "task-video" },
+  });
+  recordAgentChannelProgressSync({
+    channel: "tour visit",
+    conversationId: "conversation-video",
+    sourceTaskQueueId: "task-video",
+    speaker: "Atlas",
+    type: "tool_use",
+    tool: "openmontage",
+    detail: "large internal tool payload that must not reach the next model prompt",
+  });
+  completeAgentChannelReplySync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    speaker: "Atlas",
+    sourceTaskQueueId: "task-video",
+    summary: "视频已生成。",
+  });
+
+  const state = readWorkspaceStateSync();
+  assert.equal(state.messages.some((message) => message.kind === "process"), true);
+  assert.equal(buildChannelHistorySnapshot(state, "tour visit").some((message) => message.kind === "process"), false);
+  assert.equal(
+    buildConversationHistorySnapshot(state, "tour visit", "conversation-video").some((message) => message.kind === "process"),
+    false,
+  );
 });
 
 test("sendChannelHumanMessageSync stores the requester user id and publishes realtime message events", () => {
