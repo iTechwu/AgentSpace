@@ -24,6 +24,7 @@
 - [02-CI-Docker迁移路线.md](./02-CI-Docker迁移路线.md)：从本机原生环境迁移到 CI 构建 Docker 的推荐拓扑、流水线、镜像策略和实施顺序。
 - [03-Wave0-验收记录.md](./03-Wave0-验收记录.md)：Wave 0 已完成改动的逐项验收证据、未完成项与阻塞说明。
 - [04-Wave1-Node24迁移.md](./04-Wave1-Node24迁移.md)：P0-02 Node 24 LTS 迁移的决策、改动清单与兼容矩阵验收。
+- [05-Wave1-P1-01-P1-06-CI.md](./05-Wave1-P1-01-P1-06-CI.md)：P1-06 readiness 分离、P1-01 统一 .dockerignore 与 Web standalone、CI verify workflow（不部署）。
 
 ## 建议实施顺序
 
