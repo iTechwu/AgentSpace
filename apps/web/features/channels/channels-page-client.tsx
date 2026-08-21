@@ -200,18 +200,26 @@ export function ChannelsPageClient({
   );
   const navigateToWorkspaceModule = useCallback((path: string) => {
     const href = workspaceHref(path);
+    const nextUrl = new URL(href, "https://dofe-agent.local");
+    if (nextUrl.pathname.endsWith("/im") || nextUrl.pathname.endsWith("/contacts")) {
+      setRouteSearch(nextUrl.searchParams.toString());
+    }
     if (navigateWorkspaceModule(href)) {
       return;
     }
     router.push(href);
-  }, [navigateWorkspaceModule, router, workspaceHref]);
+  }, [navigateWorkspaceModule, router, setRouteSearch, workspaceHref]);
   const replaceWorkspaceModule = useCallback((path: string) => {
     const href = workspaceHref(path);
+    const nextUrl = new URL(href, "https://dofe-agent.local");
+    if (nextUrl.pathname.endsWith("/im") || nextUrl.pathname.endsWith("/contacts")) {
+      setRouteSearch(nextUrl.searchParams.toString());
+    }
     if (navigateWorkspaceModule(href, { replace: true })) {
       return;
     }
     router.replace(href, { scroll: false });
-  }, [navigateWorkspaceModule, router, workspaceHref]);
+  }, [navigateWorkspaceModule, router, setRouteSearch, workspaceHref]);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(() =>
     resolveInitialSelectedChannelId(data.channels, searchParamText),
   );
