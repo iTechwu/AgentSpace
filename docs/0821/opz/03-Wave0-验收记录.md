@@ -73,6 +73,8 @@ pnpm run ci:verify
 
 当前审计目标仍为 Node 25.9.0，门禁已通过，但 Node 25 的生命周期风险没有消失。P0-02 属于 Wave 1：应建立目标 LTS 兼容矩阵，再同步本机、`engines`、审计目标、esbuild target、README、CONTRIBUTING、`node-runtime-matrix`、provider runtime 准入和全部基础镜像。
 
+> ✅ 已在 Wave 1 完成：见 [04-Wave1-Node24迁移.md](./04-Wave1-Node24迁移.md)。迁移后 `engines.node` 为 `^24.19.0`，`jsdom@30.0.1` 例外已移除，`audit-node-engines.mjs` 在 Node 24.19.0 下 0 违规。
+
 ### 3.2 部署边界
 
 本轮没有 push、没有部署，也没有启动或触发 Jenkins。后续 CI/test 环境部署仍必须从已 push 的目标提交触发匹配 Jenkins 流程，并监控构建与服务健康到明确结论；应用部署不得创建 PostgreSQL、Redis、RabbitMQ 或其初始化 job/container。

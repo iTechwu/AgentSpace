@@ -5,7 +5,7 @@ ARG PROVIDER_BASE_IMAGE
 
 # Build the daemon package from the checked-out source so approved runtime
 # images never depend on a manually staged tarball in deploy/daemon.
-FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
+FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim AS daemon-build
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \

@@ -153,7 +153,7 @@ agent.dofe 为 Agent 组织提供四个关键能力：
 
 ### 环境要求
 
-- 推荐 Node.js 25.9.0。remote daemon package 最低要求 Node.js `>=25.9.0`，完整支持范围以各 `package.json` 的 `engines` 字段为准，详见 [docs/0814/node-runtime-matrix.md](docs/0814/node-runtime-matrix.md)。
+- 推荐 Node.js 24.19.0（Latest LTS，由根目录 `.node-version` 固定）。remote daemon package 最低要求 Node.js `>=24.19.0`，完整支持范围以各 `package.json` 的 `engines` 字段为准，详见 [docs/0814/node-runtime-matrix.md](docs/0814/node-runtime-matrix.md)。
 - pnpm 10.26.2。
 - 推荐 PostgreSQL 16。仓库内包含本地 Docker Compose 配置。
 - 可选 provider CLI：`codex`、`claude`、`agy`（Antigravity）、`gemini`（legacy）、`opencode`、`openclaw`、`nanobot`、`hermes`。

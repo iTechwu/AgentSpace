@@ -13,7 +13,7 @@
 优先处理以下五项：
 
 1. **恢复质量门**：`verify-test-inventory` 已漂移，Web lint 有 504 个错误。当前 build 会忽略 lint 失败并正常生成产物。
-2. **迁移出 Node 25**：本机、所有 workspace 和主要运行镜像都锁定 Node 25.9.0；Node 官方已将 25 标记为 EOL，当前 LTS 是 24.19.0。应先做 Node 24 兼容矩阵，再统一切换本机与 CI 镜像。
+2. **迁移出 Node 25**（✅ 已完成）：本机、所有 workspace 和主要运行镜像原锁定 Node 25.9.0；Node 官方已将 25 标记为 EOL。已迁移到 Node 24.19.0（Latest LTS）并通过兼容矩阵验证，见 [04-Wave1-Node24迁移.md](./04-Wave1-Node24迁移.md)。
 3. **改为不可变 Docker 交付**：现有生产 workflow 在部署机原地 `git reset`、安装依赖和构建，既不是 Docker 发布，也不能保证“构建一次、原样晋级、按 digest 回滚”。
 4. **消除大对象同步阻塞**：workspace blob 路由可把 512 MiB 请求整体读入内存，并调用同步 `curl`；这在内存受限容器中容易阻塞 Node 事件循环或 OOM。
 5. **修复生产依赖 high 漏洞**：官方 npm audit 发现 `prisma -> @prisma/config -> deepmerge-ts` 的 high 漏洞。Prisma CLI 当前被放在生产依赖中，扩大了每个消费者的镜像与攻击面。
@@ -23,6 +23,7 @@
 - [01-全项目扫描与优化建议.md](./01-全项目扫描与优化建议.md)：范围、证据、P0-P2 建议及逐项验收标准。
 - [02-CI-Docker迁移路线.md](./02-CI-Docker迁移路线.md)：从本机原生环境迁移到 CI 构建 Docker 的推荐拓扑、流水线、镜像策略和实施顺序。
 - [03-Wave0-验收记录.md](./03-Wave0-验收记录.md)：Wave 0 已完成改动的逐项验收证据、未完成项与阻塞说明。
+- [04-Wave1-Node24迁移.md](./04-Wave1-Node24迁移.md)：P0-02 Node 24 LTS 迁移的决策、改动清单与兼容矩阵验收。
 
 ## 建议实施顺序
 

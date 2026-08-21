@@ -1,4 +1,4 @@
-FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS build
+FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim AS build
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
@@ -23,7 +23,7 @@ RUN pnpm --filter @dofe-agent/db run prisma:generate \
   && pnpm --filter dofe-agent-daemon run build \
   && pnpm --filter @dofe-agent/web run build
 
-FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS runtime
+FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim AS runtime
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \

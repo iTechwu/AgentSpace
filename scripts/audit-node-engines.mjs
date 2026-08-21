@@ -36,9 +36,12 @@ const repoRoot = rootIdx !== -1 && process.argv[rootIdx + 1]
   : path.resolve(__dirname, "..");
 
 // 已记录在 docs/0814/node-runtime-matrix.md 的限时例外。精确钉版本：
-// jsdom 升级后若仍排除 Node 25，会重新 exit 1，强制重新核对该例外；
-// 若新版本纳入了 25，脚本会提示例外已失效、可从清单移除。
-const KNOWN_EXCEPTIONS = new Set(["jsdom@30.0.1"]);
+// jsdom 升级后若仍排除目标 Node，会重新 exit 1，强制重新核对该例外；
+// 若新版本纳入了目标 Node，脚本会提示例外已失效、可从清单移除。
+// 2026-08-21 迁移到 Node 24 LTS（^24.19.0）后，jsdom@30.0.1 的
+// engines.node（^22.22.2 || ^24.15.0 || >=26.0.0）已覆盖 Node 24，
+// 此前针对 Node 25 的限时例外随之移除，清单暂留空。
+const KNOWN_EXCEPTIONS = new Set([]);
 
 function targetNodeVersion() {
   const idx = process.argv.indexOf("--node");

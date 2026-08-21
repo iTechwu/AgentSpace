@@ -12,7 +12,7 @@ Thank you for your interest in contributing to DofeAgent! We appreciate communit
 
 Please follow the setup instructions in the project's **README.md** and any additional guidance in **AGENTS.md** to prepare your local development environment.
 
-**Node 版本**：本地与生产运行时均为 Node 25.9.0。`engines.node` 声明为 `^25.9.0`（`>=25.9.0 <26.0.0`，仅实测验证的生产版本），请勿随意升级主版本。完整运行时矩阵与 jsdom@30 的 advisory 例外见 [docs/0814/node-runtime-matrix.md](docs/0814/node-runtime-matrix.md)。
+**Node 版本**：本地与生产运行时均为 Node 24.19.0（Latest LTS）。`engines.node` 声明为 `^24.19.0`（`>=24.19.0 <25.0.0`，仅实测验证的生产版本），请勿随意升级主版本。版本通过 `.node-version` 与根 engines、CI 基础镜像同源。完整运行时矩阵见 [docs/0814/node-runtime-matrix.md](docs/0814/node-runtime-matrix.md)。
 
 ## Ways to Contribute
 

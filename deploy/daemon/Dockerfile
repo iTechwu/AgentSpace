@@ -1,4 +1,4 @@
-FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
+FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim AS daemon-build
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
@@ -18,7 +18,7 @@ RUN --mount=type=cache,id=dofe-local-runtime-pnpm,target=/pnpm/store \
   && mkdir -p /opt/daemon-package \
   && npm_config_ignore_scripts=true pnpm --filter dofe-agent-daemon pack --pack-destination /opt/daemon-package
 
-FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
+FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
