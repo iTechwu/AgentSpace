@@ -250,6 +250,9 @@ function presentRuntimeState(
   if (state === "draining") return { label: "停止结算中", detail: "已禁止新任务，正在等待结算", tone: "stopped" };
   if (state === "needs_attention") return { label: "需要处理", detail: "需要管理员介入", tone: "attention" };
   if (state === "legacy") return { label: "已停止", detail: "不再接收新任务", tone: "stopped" };
+  if (status === "offline") {
+    return { label: "离线", detail: providerHealth?.providerHealthReason || "等待节点心跳", tone: "attention" };
+  }
   if (providerHealth?.providerUsable === "unusable") {
     return { label: "供应商不可用", detail: providerHealth.providerHealthReason || "供应商健康检查失败，新任务已暂停", tone: "attention" };
   }
@@ -259,9 +262,7 @@ function presentRuntimeState(
   if (providerHealth?.providerHealth === "unknown") {
     return { label: "待验证", detail: "尚未完成供应商健康检查，新任务暂不放行", tone: "attention" };
   }
-  return status === "online"
-    ? { label: "可用", detail: "可以接收任务", tone: "available" }
-    : { label: "离线", detail: "等待节点心跳", tone: "attention" };
+  return { label: "可用", detail: "可以接收任务", tone: "available" };
 }
 
 function formatHeartbeat(value?: string): string {

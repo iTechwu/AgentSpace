@@ -130,6 +130,7 @@ function runtimeStatusFilter(runtime: ManagedRuntimeListItem): string {
   if (runtime.provisioningState === "credential_recovering") return "recovering";
   if (runtime.provisioningState === "needs_attention") return "attention";
   if (runtime.provisioningState === "legacy") return "stopped";
+  if (runtime.status === "offline") return "offline";
   if (runtime.providerHealth?.providerUsable === "unusable") return "attention";
   if (runtime.providerHealth?.providerHealth === "degraded") return "attention";
   if (runtime.providerHealth?.providerHealth === "unknown") return "attention";
@@ -183,6 +184,14 @@ function presentRuntimeState(runtime: ManagedRuntimeListItem, tx: (zh: string, e
       tone: "stopped",
     };
   }
+  if (runtime.status === "offline") {
+    return {
+      label: tx("离线", "Offline"),
+      detail: runtime.providerHealth?.providerHealthReason
+        || tx("正在等待托管节点心跳。", "Waiting for the managed node heartbeat."),
+      tone: "offline",
+    };
+  }
   if (runtime.providerHealth?.providerUsable === "unusable") {
     return {
       label: tx("供应商不可用", "Provider unavailable"),
@@ -206,15 +215,9 @@ function presentRuntimeState(runtime: ManagedRuntimeListItem, tx: (zh: string, e
       tone: "attention",
     };
   }
-  return runtime.status === "online"
-    ? {
-        label: tx("可用", "Available"),
-        detail: tx("凭证已验证，可以接受调度。", "Credential verified and ready for scheduling."),
-        tone: "available",
-      }
-    : {
-        label: tx("离线", "Offline"),
-        detail: tx("正在等待托管节点心跳。", "Waiting for the managed node heartbeat."),
-        tone: "offline",
-      };
+  return {
+    label: tx("可用", "Available"),
+    detail: tx("凭证已验证，可以接受调度。", "Credential verified and ready for scheduling."),
+    tone: "available",
+  };
 }

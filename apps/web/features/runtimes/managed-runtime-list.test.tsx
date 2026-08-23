@@ -146,3 +146,28 @@ it("marks a usable but degraded provider as attention without blocking its row",
   expect(within(table).getByText("Provider degraded")).toBeInTheDocument();
   expect(within(table).getByText("DeepSeek health probe is slow.")).toBeInTheDocument();
 });
+
+it("keeps an offline runtime in the offline state even when health is unusable", () => {
+  render(<ManagedRuntimeList pending={false} onRotate={vi.fn()} runtimes={[{
+    id: "deepseek-offline",
+    name: "DeepSeek Harness",
+    provider: "deepseek-harness",
+    managedCredentialId: "c-deepseek-offline",
+    status: "offline",
+    provisioningState: "managed",
+    protocols: ["openai"],
+    assignedEmployeeCount: 0,
+    periodActualCostUsd: 0,
+    unallocatedCostUsd: 0,
+    providerHealth: {
+      runtimeStatus: "offline",
+      providerHealth: "unknown",
+      providerUsable: "unusable",
+      providerHealthReason: "Runtime is offline; provider usability cannot be checked.",
+    },
+  }]} />);
+
+  const table = screen.getByRole("table", { name: "Managed runtimes" });
+  expect(within(table).getByText("Offline")).toBeInTheDocument();
+  expect(within(table).getByText("Runtime is offline; provider usability cannot be checked.")).toBeInTheDocument();
+});
