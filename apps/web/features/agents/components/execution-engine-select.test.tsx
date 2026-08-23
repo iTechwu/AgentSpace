@@ -89,3 +89,41 @@ it("disables a managed runtime while its credential is recovering", async () => 
   expect(screen.getByRole("option", { name: /Recovering Codex/ })).toBeDisabled();
   expect(screen.getByText("Credential recovery in progress")).toBeInTheDocument();
 });
+
+it("disables a managed runtime when its provider is known to be unavailable", async () => {
+  const user = userEvent.setup();
+  render(
+    <LanguageProvider initialLanguage="en">
+      <ExecutionEngineSelect
+        label="Execution engine"
+        name="runtimeId"
+        onChange={vi.fn()}
+        options={[{
+          id: "runtime-broken",
+          label: "DeepSeek Harness",
+          provider: "deepseek-harness",
+          status: "online",
+          providerHealth: {
+            runtimeStatus: "online",
+            providerHealth: "broken",
+            providerUsable: "unusable",
+            providerHealthReason: "DeepSeek provider verification failed.",
+          },
+          serverName: "Managed",
+          daemonKey: "",
+          mode: "remote",
+          managed: true,
+          provisioningState: "managed",
+          bindable: false,
+        }]}
+        placeholder="Select an execution engine"
+        value=""
+      />
+    </LanguageProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Execution engine" }));
+
+  expect(screen.getByRole("option", { name: /DeepSeek Harness/ })).toBeDisabled();
+  expect(screen.getByText("DeepSeek provider verification failed.")).toBeInTheDocument();
+});

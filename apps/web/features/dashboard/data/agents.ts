@@ -188,7 +188,9 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         mode: "remote" as const,
         managed: true,
         provisioningState: managedRuntime.provisioningState,
-        bindable: managedRuntime.provisioningState === "managed" && managedRuntime.status === "online",
+        bindable: managedRuntime.provisioningState === "managed"
+          && managedRuntime.status === "online"
+          && managedRuntime.providerHealth?.providerUsable !== "unusable",
         defaultModel: managedRuntime.defaultModel,
         protocols: managedRuntime.protocols,
         assignedEmployeeCount: managedRuntime.assignedEmployeeCount,

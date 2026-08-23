@@ -171,6 +171,12 @@ function formatBindingUnavailableReason(
   if (option.provisioningState === "legacy") {
     return tx("旧版 Runtime 不可绑定", "Legacy runtime cannot be bound");
   }
+  if (option.providerHealth?.providerUsable === "unusable") {
+    return tx(
+      option.providerHealth.providerHealthReason || "供应商不可用，修复后才能绑定",
+      option.providerHealth.providerHealthReason || "Provider is unavailable and must be fixed before binding",
+    );
+  }
   return tx("Runtime 离线，暂不可绑定", "Runtime is offline and cannot be bound");
 }
 
