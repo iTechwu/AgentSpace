@@ -25,7 +25,7 @@
 - [03-Wave0-验收记录.md](./03-Wave0-验收记录.md)：Wave 0 已完成改动的逐项验收证据、未完成项与阻塞说明。
 - [04-Wave1-Node24迁移.md](./04-Wave1-Node24迁移.md)：P0-02 Node 24 LTS 迁移的决策、改动清单与兼容矩阵验收。
 - [05-Wave1-P1-01-P1-06-CI.md](./05-Wave1-P1-01-P1-06-CI.md)：P1-06 readiness 分离、P1-01 统一 .dockerignore 与 Web standalone、CI verify workflow（不部署）。
-- [06-GEO-MCP-浏览器验收记录.md](./06-GEO-MCP-浏览器验收记录.md)：GEO 管理 AI 员工创建、Docker GEOFlow MCP 六工具业务闭环、历史夹具安全回收、models embedding、审计和桌面/移动端验收证据。
+- [06-GEO-MCP-浏览器验收记录.md](./06-GEO-MCP-浏览器验收记录.md)：GEO 管理 AI 员工创建、Docker GEOFlow MCP 七工具业务闭环、无需人工 ID 的历史夹具安全回收、models embedding、审计和桌面/移动端验收证据。
 
 ## 建议实施顺序
 

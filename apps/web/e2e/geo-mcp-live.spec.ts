@@ -216,8 +216,9 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   await catalogDialog.getByLabel(/数据域|Data domains/i).fill("enterprise-knowledge, geo");
 
   const tools = [
+    ["geoflow.enterprise_knowledge.list", "List tenant enterprise knowledge project metadata", "low"],
     ["geoflow.enterprise_knowledge.create", "Create an enterprise knowledge project", "medium"],
-    ["geoflow.enterprise_knowledge.status", "Read project generation status", "medium"],
+    ["geoflow.enterprise_knowledge.status", "Read project generation status", "low"],
     ["geoflow.enterprise_knowledge.autosave", "Save the generated draft", "medium"],
     ["geoflow.enterprise_knowledge.validate", "Validate the generated draft", "medium"],
     ["geoflow.enterprise_knowledge.publish", "Publish the approved knowledge base", "high"],

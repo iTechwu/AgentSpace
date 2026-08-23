@@ -15,7 +15,8 @@ import { McpGateway } from "../src/mcp/gateway.ts";
 const workspaceId = process.env.DOFE_AGENT_LIVE_WORKSPACE_ID ?? "sso-team-c8c8d97ffcb845311387e967";
 const employeeName = requiredEnv("DOFE_AGENT_LIVE_GEO_EMPLOYEE_NAME");
 const serviceName = requiredEnv("DOFE_AGENT_LIVE_GEO_SERVICE_NAME");
-const cleanupProjectIds = parseProjectIds(process.env.DOFE_AGENT_LIVE_GEO_CLEANUP_PROJECT_IDS);
+const requestedCleanupProjectIds = parseProjectIds(process.env.DOFE_AGENT_LIVE_GEO_CLEANUP_PROJECT_IDS);
+const regressionProjectPattern = /^AgentSpace GEO regression mt[a-z0-9]+$/;
 const suffix = Date.now().toString(36);
 const taskId = `task-geo-live-${suffix}`;
 const attemptId = `attempt-geo-live-${suffix}`;
@@ -103,14 +104,16 @@ const client = new Client({ name: "dofe-geo-live-regression", version: "1" }, { 
 await client.connect(new StreamableHTTPClientTransport(new URL(session.url)));
 let flowSucceeded = false;
 let completedProjectId: number | null = null;
+let discoveredCleanupProjectIds: number[] = [];
 const deletedProjectIds: number[] = [];
 
 try {
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 6, "The employee task gateway must expose exactly the approved GEO tools.");
+  assert.equal(listed.tools.length, 7, "The employee task gateway must expose exactly the approved GEO tools.");
   assert.equal(connection.tools.length, listed.tools.length, "Gateway and grant tool counts must match.");
   const toolNames = new Map(connection.tools.map((tool, index) => [tool.name, listed.tools[index]!.name]));
   for (const required of [
+    "geoflow.enterprise_knowledge.list",
     "geoflow.enterprise_knowledge.create",
     "geoflow.enterprise_knowledge.status",
     "geoflow.enterprise_knowledge.autosave",
@@ -120,6 +123,20 @@ try {
   ]) {
     assert.ok(toolNames.has(required), `Task gateway did not expose ${required}.`);
   }
+
+  const projectList = await callGeoTool("geoflow.enterprise_knowledge.list", {
+    search: "AgentSpace GEO regression",
+    limit: 100,
+  });
+  const projectItems = Array.isArray(projectList.items) ? projectList.items : [];
+  discoveredCleanupProjectIds = projectItems.flatMap((item) => {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) return [];
+    const project = item as Record<string, unknown>;
+    return typeof project.name === "string" && regressionProjectPattern.test(project.name) && isProjectId(project.id)
+      ? [project.id]
+      : [];
+  }).sort((left, right) => left - right);
+  const cleanupProjectIds = [...new Set([...requestedCleanupProjectIds, ...discoveredCleanupProjectIds])];
 
   for (const projectId of cleanupProjectIds) {
     const deleted = await callGeoTool("geoflow.enterprise_knowledge.delete", {
@@ -169,6 +186,7 @@ try {
     .filter((audit) => audit.taskId === taskId && audit.outcome === "succeeded")
     .map((audit) => audit.toolName));
   const invokedTools = [
+    "geoflow.enterprise_knowledge.list",
     "geoflow.enterprise_knowledge.create",
     "geoflow.enterprise_knowledge.status",
     "geoflow.enterprise_knowledge.autosave",
@@ -187,6 +205,7 @@ try {
     generationStatus: status.status,
     knowledgeBaseId: Number(published.knowledge_base_id),
     chunkCount: Number(published.chunk_count),
+    discoveredCleanupProjectIds,
     deletedProjectIds,
     auditedTools: [...succeededNames].sort(),
   }));
@@ -235,4 +254,8 @@ function parseProjectIds(value: string | undefined): number[] {
   const ids = value.split(",").map((part) => Number(part.trim()));
   assert.ok(ids.every((id) => Number.isSafeInteger(id) && id > 0), "Cleanup project ids must be positive integers.");
   return [...new Set(ids)];
+}
+
+function isProjectId(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
 }
