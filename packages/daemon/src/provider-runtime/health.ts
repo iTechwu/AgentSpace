@@ -45,6 +45,31 @@ export function inspectProviderCliHealth(
     env: environment ? { ...process.env, ...environment } : undefined,
   });
   if (!result.error && result.status === 0) {
+    if (runtime.provider === "deepseek-harness") {
+      const profileResult = spawnSync(executablePath, ["--profile", "headless", "--help"], {
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+        env: environment ? { ...process.env, ...environment } : undefined,
+      });
+      if (profileResult.error || profileResult.status !== 0) {
+        const message = profileResult.error?.message
+          || profileResult.stderr?.trim()
+          || `DeepSeek Harness headless profile exited with status ${profileResult.status ?? "unknown"}.`;
+        return {
+          status: "broken",
+          checkedAt,
+          verificationKind: "cli_preflight",
+          reason: message,
+          error: {
+            code: "provider.profile_missing",
+            category: "profile",
+            provider: runtime.provider,
+            message,
+          },
+        };
+      }
+    }
     const providerRequest = inspectProviderCredentialRequest(runtime.provider, environment, checkedAt);
     if (providerRequest) return providerRequest;
     return {

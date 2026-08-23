@@ -403,6 +403,39 @@ test("buildProviderRuntimeMetadata classifies a DeepSeek catalog auth rejection"
   }
 });
 
+test("buildProviderRuntimeMetadata rejects a DeepSeek Harness with a broken headless profile", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-profile-probe-"));
+  const executablePath = join(binDir, "dsh");
+  try {
+    writeFileSync(
+      executablePath,
+      [
+        "#!/bin/sh",
+        "if [ \"$1\" = '--profile' ]; then printf '%s\\n' 'headless profile unavailable' >&2; exit 1; fi",
+        "printf '%s\\n' 'dsh 0.1.1-rc.2'",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "deepseek-harness",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; error?: { code?: string; category?: string } } | undefined;
+    assert.equal(health?.status, "broken");
+    assert.equal(health?.error?.code, "provider.profile_missing");
+    assert.equal(health?.error?.category, "profile");
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
 test("buildProviderRuntimeMetadata reports invalid provider probe configuration without interrupting the daemon", () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-probe-config-"));
   const executablePath = join(binDir, "claude");
