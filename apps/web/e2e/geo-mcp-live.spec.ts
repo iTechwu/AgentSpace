@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { createSessionSync, getDatabase } from "@dofe-agent/db";
+import { createSessionSync, deleteMcpCatalogItemSync, deleteSessionByTokenHashSync, getDatabase } from "@dofe-agent/db";
+import { deleteEmployeeSync } from "@dofe-agent/services/employees";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
@@ -10,6 +11,28 @@ const workspaceId = process.env.DOFE_AGENT_LIVE_WORKSPACE_ID ?? "sso-team-c8c8d9
 const endpoint = process.env.DOFE_AGENT_LIVE_GEOFLOW_ENDPOINT ?? "http://127.0.0.1:18080/mcp";
 const mcpToken = process.env.DOFE_AGENT_LIVE_GEOFLOW_TOKEN ?? "";
 const evidenceDir = resolve(process.cwd(), "../../docs/0821/opz/evidence");
+const employeeFixturePattern = /^GEO Manager mt[a-z0-9]+$/;
+const catalogFixturePattern = /^GEOFlow Docker Live mt[a-z0-9]+$/;
+
+function pruneHistoricalGeoFixtures(db: ReturnType<typeof getDatabase>) {
+  const employees = (db.prepare(
+    "SELECT name FROM workspace_employee WHERE workspace_id = ? AND name LIKE ?",
+  ).all(workspaceId, "GEO Manager mt%") as Array<{ name: string }>)
+    .filter((row) => employeeFixturePattern.test(row.name));
+  for (const employee of employees) {
+    deleteEmployeeSync(employee.name, workspaceId);
+  }
+
+  const catalogItems = (db.prepare(
+    "SELECT id, display_name AS name FROM mcp_catalog_item WHERE workspace_id = ? AND display_name LIKE ?",
+  ).all(workspaceId, "GEOFlow Docker Live mt%") as Array<{ id: string; name: string }>)
+    .filter((row) => catalogFixturePattern.test(row.name));
+  for (const catalogItem of catalogItems) {
+    deleteMcpCatalogItemSync(catalogItem.id, workspaceId);
+  }
+
+  return { employees: employees.length, catalogItems: catalogItems.length };
+}
 
 type PageQuality = {
   cls: number;
@@ -131,12 +154,20 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
     ).get() as { userId?: string } | undefined;
   expect(workspace?.slug).toBeTruthy();
   expect(owner?.userId).toBeTruthy();
+  const prunedFixtures = pruneHistoricalGeoFixtures(db);
+  expect(db.prepare(
+    "SELECT COUNT(*) AS count FROM workspace_employee WHERE workspace_id = ? AND name LIKE ?",
+  ).get(workspaceId, "GEO Manager mt%")).toMatchObject({ count: 0 });
+  expect(db.prepare(
+    "SELECT COUNT(*) AS count FROM mcp_catalog_item WHERE workspace_id = ? AND display_name LIKE ?",
+  ).get(workspaceId, "GEOFlow Docker Live mt%")).toMatchObject({ count: 0 });
 
   const token = `live-${randomBytes(24).toString("hex")}`;
+  const tokenHash = createHash("sha256").update(token).digest("hex");
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
   createSessionSync({
     userId: owner!.userId!,
-    tokenHash: createHash("sha256").update(token).digest("hex"),
+    tokenHash,
     expiresAt: expiresAt.toISOString(),
   });
   await page.context().addCookies([
@@ -320,5 +351,6 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   expect(mobileAccessibility.violations).toEqual([]);
   await page.screenshot({ path: resolve(evidenceDir, "geo-mcp-live-mobile.png"), fullPage: true });
   expect(browserIssues).toEqual([]);
-  console.log(JSON.stringify({ serviceName, employeeName, employeeDisplayName, navigation, desktopQuality, mobileQuality }));
+  expect(deleteSessionByTokenHashSync(tokenHash)).toBe(true);
+  console.log(JSON.stringify({ serviceName, employeeName, employeeDisplayName, prunedFixtures, navigation, desktopQuality, mobileQuality }));
 });

@@ -20,29 +20,30 @@
 最终 Chromium 回归执行了以下真实操作：
 
 1. 以本地测试管理员会话打开 MCP 市场。
-2. 发布 `GEOFlow Docker Live mt694mi8` 私有目录项，Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
+2. 清理名称严格匹配 live E2E 约定的历史测试夹具，再发布 `GEOFlow Docker Live mt69js5r` 私有目录项；Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
 3. 配置加密保存的 Authorization 凭据，选择在线 Codex Runtime，并等待连接状态变为 `ready`。
 4. 声明并发现五个带命名空间的工具：`create`、`status`、`autosave`、`validate`、`publish`。
-5. 通过 `create=agent` 深链接打开创建页，以空白模板创建 `GEO Manager mt694mi8`，备注名为 `GEO 管理员工 mt694mi8`，绑定同一 Runtime，并显式选中本次新员工核对详情。
+5. 通过 `create=agent` 深链接打开创建页，以空白模板创建 `GEO Manager mt69js5r`，备注名为 `GEO 管理员工 mt69js5r`，绑定同一 Runtime，并显式选中本次新员工核对详情。
 6. 在桌面和 390 x 844 移动视口检查员工目录、标题语义、文本布局、图标可见性和横向溢出，并分别运行 WCAG A/AA 与 best-practice Axe 扫描。
 
 | 检查 | 最终结果 |
 | --- | --- |
 | MCP 目录发布、凭据配置和连接验证 | 通过，连接进入 `ready` |
 | AI 员工创建与 Runtime 绑定 | 通过，数据库记录与 UI 一致 |
+| live E2E 测试夹具 | 首轮清理 14 名员工 / 18 个目录项；次轮清理 1 / 1，最终保留 1 / 1 |
 | 浏览器 console error / warning | 0 / 0 |
 | `requestfailed` | 0 |
 | HTTP 4xx / 5xx | 0 / 0 |
 | 移动端横向溢出 | 0 px |
-| 页面 DCL / load | 1981 ms / 1985 ms |
-| 桌面 / 移动 LCP | 1844 ms / 1976 ms |
-| 桌面 INP | 56 ms；移动端截图阶段未产生可计量交互 |
+| 页面 DCL / load | 1930 ms / 2004 ms |
+| 桌面 / 移动 LCP | 1876 ms / 1460 ms |
+| 桌面 INP | 40 ms；移动端截图阶段未产生可计量交互 |
 | 桌面 / 移动 CLS | 0 / 0 |
 | 最大长任务 | 0 ms |
 | 无名称交互控件 / 空标题 | 0 / 0；创建结果由 `role=status` 宣告 |
 | Axe | 桌面 / 移动均为 0 violations |
 | 移动顶部图标 | 两个控件均满足至少 3:1 图形对比度 |
-| Playwright | 1 passed，37.1 s（总耗时 37.9 s） |
+| Playwright | 1 passed，34.1 s（总耗时 34.8 s） |
 
 证据：
 
@@ -66,9 +67,9 @@
 
 | 业务实体 / 证据 | 值 |
 | --- | --- |
-| AgentSpace task | `task-geo-live-mt695omm` |
-| GEOFlow enterprise project | `11`，发布前状态 `reviewing` |
-| Knowledge base | `10` |
+| AgentSpace task | `task-geo-live-mt69krz7` |
+| GEOFlow enterprise project | `13`，发布前状态 `reviewing` |
+| Knowledge base | `12` |
 | Knowledge chunks | `3` |
 | Embedding | models `embedding-vision` 实际路由返回，provider `dofe-models-api-local`，原始维度 `2048`；三个分块均写入 `vector(3072)` |
 | 成功工具审计 | 五个工具全部存在 `succeeded` 记录 |
@@ -89,12 +90,13 @@
 10. SSO 登录后的前端误用 `document.cookie` 验证生产 HttpOnly Cookie，成功登录也会输出 warning。修复改为调用后端 `/auth/session` 验证；真实隔离 Chromium 已完成手机号登录、OAuth authorize、AgentSpace callback 和工作区落地，所有关键响应成功。
 11. 中央 PostgreSQL 18 镜像声明创建 `vector` 扩展，但镜像实际未包含 pgvector，且备份和初始化脚本仍残留旧 `pardx` 契约。现由 `docker-helm.dofe.ai` 固定安装 PGDG `postgresql-18-pgvector=0.8.6-1.pgdg13+1`，补齐全实例备份、隔离镜像烟测、`geo_dofe` 扩展对账和新环境幂等初始化；GeoFlow 以新迁移恢复 `embedding_vector vector(3072)`。
 12. MCP 无效 Bearer 原会直接进入远端 SSO userinfo，并使用交互登录的长超时与重试，足以占满 PHP-FPM worker，表现为连接验证 `mcp.protocol_invalid` 超时。现先本地校验 SSO JWT 的三段格式、issuer 和 audience，仅候选令牌才访问 userinfo，同时为 MCP 单独设置 1 秒连接、3 秒总超时且不重试；真实环境无效令牌 0.30 秒返回 401，正确令牌 0.12 秒返回 initialize 200。
-13. 浏览器证据原只断言新员工存在，桌面截图却仍展示旧员工详情。用例现显式点击本次创建员工并验证详情面板后截图，桌面和移动端证据均直接显示本次新建的 `GEO 管理员工 mt67wfpo`。
+13. 浏览器证据原只断言新员工存在，桌面截图却仍展示旧员工详情。用例现显式点击本次创建员工并验证详情面板后截图，桌面和移动端证据均直接显示本次新建的员工。
 14. 3072 维 `vector` 超过 pgvector 常规 ANN `vector` 运算类的维度上限，原检索只能精确排序。现新增 `halfvec(3072)` 余弦 HNSW 表达式索引，迁移以 `CREATE INDEX CONCURRENTLY` 在事务外执行；两个检索入口复用同一契约。真实 PostgreSQL 执行计划命中 `knowledge_chunks_embedding_halfvec_hnsw`，新知识库 8 的 3/3 分块均保留原始 2048 维 embedding 并返回 0.580077、0.303907、0.261949 的检索分数。
 15. AI 员工 `create=agent` 深链接原先在打开弹窗的同一 effect 中立即清理 URL，真实 Next.js 导航重挂载后会丢失弹窗状态。现将参数作为一次性打开信号，仅在取消、关闭或创建成功后清理，并以组件测试和真实 Chromium 回归覆盖。
 16. 增加 Axe 后发现员工页存在四处 AA 对比度不足、页面缺少 `h1`、员工详情从 `h1` 跳到 `h3`。现修正搜索提示、面板计数、成功状态、标签颜色，并将目录和详情主标题调整为 `h1` / `h2` 语义层级；桌面和移动扫描均为零违规。
 17. 移动顶部栏继承了深色侧栏按钮颜色，浅色背景上的菜单和搜索图标几乎不可见。现为移动栏设置独立的浅色按钮契约，并新增两个图标控件至少 3:1 对比度的浏览器断言。
 18. 成功 toast 默认显示 3.6 秒，原新增断言在详情加载后才读取，造成对短生命周期通知的误判。验收现于提交完成、弹窗关闭后立即核对 `role=status`，再继续详情和性能检查。
+19. live E2E 原先每轮永久保留唯一员工、目录项、连接和密钥，失败重试也会留下半成品；实际已累积 14 名测试员工和 18 个测试目录项，拖长移动页面并污染性能基线。现测试启动时仅匹配严格的 `GEO Manager mt[a-z0-9]+` / `GEOFlow Docker Live mt[a-z0-9]+` 命名契约，通过员工业务删除和目录外键级联回收历史夹具，结束时注销临时登录会话；连续两轮真实 Chromium 分别验证 14/18 和 1/1 清理，最终数据库只保留本轮 1/1 对象。
 
 GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布竞态保护）、`41cb1c6`（无 pgvector 列兼容）、`0015eb5`（URL 导入并发保护）、`308c62f`（工具发现权限过滤）、`94c220e`（恢复 pgvector 存储列）、`bfcbcd5`（限制 MCP SSO 回退超时）、`a045cac`（提前拒绝无效身份令牌）、`380a319`（3072 维 halfvec HNSW 检索）。中央基础设施对应提交：`fd60ab7`（PostgreSQL 18 pgvector 镜像、备份和扩展对账）。SSO 对应提交：`736cebc`（HttpOnly 会话验证）。
 
@@ -111,7 +113,7 @@ GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布
 | AgentSpace 员工管理组件 | 56 passed（含创建深链接与标题语义回归） |
 | AgentSpace daemon typecheck | 通过 |
 | 真实 AgentSpace -> GEOFlow MCP | 通过，五工具、3 chunks、五条成功审计 |
-| Chromium 桌面/移动端 | 1 passed，37.1 s；LCP 1844/1976 ms；桌面 INP 56 ms；CLS 0/0；Axe 0 violations；0 console issue；0 failed request；0 HTTP 4xx/5xx；0 overflow |
+| Chromium 桌面/移动端 | 连续两轮通过；最终 1 passed，34.1 s；LCP 1876/1460 ms；桌面 INP 40 ms；CLS 0/0；Axe 0 violations；0 console issue；0 failed request；0 HTTP 4xx/5xx；0 overflow；夹具最终 1/1 |
 | 外部 SSO 隔离 Chromium | 登录 POST 200；authorize 302；callback 307；工作区 200 |
 | GeoFlow MCP 权限目录 | 写令牌 51 个；只读令牌 26 个且隐藏写工具 |
 | GeoFlow URL 导入并发 | 5 路并发：3 创建、2 限流；清理后 0 条测试记录 |
