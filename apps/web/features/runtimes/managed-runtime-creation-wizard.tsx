@@ -8,12 +8,12 @@ import {
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
 import { useLanguage } from "@/features/i18n/language-provider";
 import {
-  DAEMON_PROVIDER_IDS,
   formatDaemonProviderLabel,
   resolveProviderDefaultModel,
   type DaemonProvider,
 } from "@dofe-agent/domain";
 import type { ManagedRuntimeCreationPreflightResult } from "@dofe-agent/services/runtime";
+import { listCreatableManagedRuntimeProviders } from "@/features/runtimes/runtime-feature-flags";
 
 export function ManagedRuntimeCreationWizard({
   onResolved,
@@ -26,12 +26,13 @@ export function ManagedRuntimeCreationWizard({
   targetServers?: Array<{ deviceName: string; status: "online" | "offline" }>;
 }) {
   const { tx } = useLanguage();
+  const creatableProviders = listCreatableManagedRuntimeProviders();
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [provider, setProvider] = useState<DaemonProvider>(DAEMON_PROVIDER_IDS[0] ?? "claude");
+  const [provider, setProvider] = useState<DaemonProvider>(creatableProviders[0] ?? "claude");
   const [name, setName] = useState("");
   const [targetServer, setTargetServer] = useState("");
   const [defaultModel, setDefaultModel] = useState(
-    resolveProviderDefaultModel(DAEMON_PROVIDER_IDS[0] ?? "claude") ?? "",
+    resolveProviderDefaultModel(creatableProviders[0] ?? "claude") ?? "",
   );
   const [allowNewEmployeeSharing, setAllowNewEmployeeSharing] = useState(true);
   const [forceProvisioning, setForceProvisioning] = useState(false);
@@ -123,7 +124,7 @@ export function ManagedRuntimeCreationWizard({
                 invalidatePreflight();
               }}
             >
-              {DAEMON_PROVIDER_IDS.map((id) => (
+              {creatableProviders.map((id) => (
                 <option key={id} value={id}>{formatDaemonProviderLabel(id)}</option>
               ))}
             </select>

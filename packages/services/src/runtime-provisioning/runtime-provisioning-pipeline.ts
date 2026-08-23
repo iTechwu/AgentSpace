@@ -25,6 +25,7 @@ import type {
   RuntimeProvisioningTaskRecord,
 } from "@dofe-agent/db";
 import {
+  resolveLocalModelsForProtocols,
   resolveProviderProtocols,
 } from "@dofe-agent/domain";
 import type {
@@ -635,6 +636,13 @@ export async function assertManagedRuntimeModelSelectionAsync(input: {
   protocols: string[];
   requestedModel?: string;
 }): Promise<void> {
+  const localModels = resolveLocalModelsForProtocols(input.protocols);
+  if (localModels.length > 0) {
+    if (input.requestedModel && !localModels.some((model) => model.id === input.requestedModel)) {
+      throw new Error("managed_runtime.model_unavailable");
+    }
+    return;
+  }
   const response = await input.client.models.list({ query: { tenantId: input.tenantId } });
   const available = response.list.filter((item) => {
     const model = item as {

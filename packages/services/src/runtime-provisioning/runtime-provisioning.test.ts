@@ -65,6 +65,7 @@ import {
   reconcileRuntimeCredentialUsageEntrySync,
 } from "../models/usage-sync.ts";
 import { resetRuntimeCredentialVaultForTests, getRuntimeCredentialVault } from "./credential-vault.ts";
+import { resolveManagedRuntimeAllowedModels } from "./runtime-provisioning-capacity.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-provisioning-svc-"));
@@ -867,6 +868,32 @@ test("Codex preflight accepts a protocol-compatible Responses model before verif
   // Selection is filtered by runtime protocol, not by the independent
   // verification stamp. Gateway verification remains visible as evidence.
   assert.equal(preflight.allowed, true);
+});
+
+test("DeepSeek Harness preflight uses its strict runtime-local native model catalog", async () => {
+  activeClient = createMockClient({ modelList: [] });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const accepted = await preflightManagedRuntimeCreationAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-v4-pro",
+  });
+  const rejected = await preflightManagedRuntimeCreationAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-chat",
+  });
+
+  assert.equal(accepted.allowed, true);
+  assert.equal(rejected.allowed, false);
+  assert.equal(rejected.code, "managed_runtime.model_unavailable");
+  assert.deepEqual(resolveManagedRuntimeAllowedModels("deepseek-harness"), [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+  ]);
 });
 
 test("usage reconciliation restores task attribution from a signed root task snapshot", () => {

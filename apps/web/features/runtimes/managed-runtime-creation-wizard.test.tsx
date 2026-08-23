@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { render as testingRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ManagedRuntimeCreationWizard } from "@/features/runtimes/managed-runtime-creation-wizard";
 import {
   createManagedRuntimeAction,
@@ -34,6 +34,10 @@ beforeEach(() => {
     availableBalance: "42.00",
     currency: "USD",
   });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 it("configures capacity with infrastructure controls hidden under advanced settings", async () => {
@@ -116,6 +120,22 @@ it("uses Terra as the Codex default without sending a single-model allowlist", a
     defaultModel: "gpt-5.6-terra",
   }));
   expect(createInput).not.toHaveProperty("allowedModels");
+});
+
+it("exposes DeepSeek Harness behind its canary flag with the Flash default", async () => {
+  vi.stubEnv("NEXT_PUBLIC_DEEPSEEK_HARNESS_RUNTIME_ENABLED", "1");
+  const user = userEvent.setup();
+  render(<ManagedRuntimeCreationWizard onResolved={vi.fn()} />);
+
+  await user.selectOptions(screen.getByLabelText("Capacity type"), "deepseek-harness");
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+  await user.click(screen.getByRole("button", { name: "Review" }));
+
+  expect(preflightManagedRuntimeAction).toHaveBeenCalledWith({
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-v4-flash",
+    forceProvisioning: false,
+  });
 });
 
 it("uses a new idempotency key after a failed request is reconfigured", async () => {
