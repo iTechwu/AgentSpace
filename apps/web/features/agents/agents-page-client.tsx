@@ -1,7 +1,7 @@
 "use client";
 
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   acceptAgentForkInvitationAction,
@@ -161,6 +161,7 @@ export function AgentsPageClient({
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
     () => resolveAgentUrlReference(data.agents, searchParams.get("focus")).selectedId ?? data.agents[0]?.id ?? null,
   );
+  const createAgentDeepLinkHandled = useRef(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [requestingShowcaseAgent, setRequestingShowcaseAgent] = useState<AgentsPageData["showcaseAgents"][number] | null>(null);
   const [generatedInstallCommand, setGeneratedInstallCommand] = useState<{
@@ -474,6 +475,24 @@ export function AgentsPageClient({
     router.replace(nextHref, { scroll: false });
   }
 
+  function closeCreateAgent(): void {
+    setShowCreateAgent(false);
+    if (searchParams.get("create") !== "agent") {
+      return;
+    }
+
+    const nextHref = workspaceHref("/agents?mode=agent");
+    if (navigateWorkspaceModule(nextHref, { replace: true })) {
+      return;
+    }
+    if (moduleSearchParams && typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", nextHref);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      return;
+    }
+    router.replace(nextHref, { scroll: false });
+  }
+
   function handleCreateContainerCommand(): void {
     if (!data.canConnectRuntimes) {
       return;
@@ -547,23 +566,15 @@ export function AgentsPageClient({
 
   useEffect(() => {
     if (mode !== "agent" || searchParams.get("create") !== "agent") {
+      createAgentDeepLinkHandled.current = false;
       return;
     }
 
-    if (data.canCreateAgent) {
+    if (data.canCreateAgent && !createAgentDeepLinkHandled.current) {
+      createAgentDeepLinkHandled.current = true;
       setShowCreateAgent(true);
     }
-    const nextHref = workspaceHref("/agents?mode=agent");
-    if (navigateWorkspaceModule(nextHref, { replace: true })) {
-      return;
-    }
-    if (moduleSearchParams && typeof window !== "undefined") {
-      window.history.replaceState(window.history.state, "", nextHref);
-      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
-      return;
-    }
-    router.replace(nextHref, { scroll: false });
-  }, [data.canCreateAgent, mode, moduleSearchParams, navigateWorkspaceModule, router, searchParams, workspaceHref]);
+  }, [data.canCreateAgent, mode, searchParams]);
 
   useEffect(() => {
     if (mode !== "container" || searchParams.get("create") !== "server" || generatedInstallCommand || isGeneratingContainerCommand) {
@@ -609,7 +620,7 @@ export function AgentsPageClient({
           pending={isPending}
           requiresRuntime={!data.canManageAllAgents}
           workspaceSkills={data.workspaceSkills}
-          onClose={() => setShowCreateAgent(false)}
+          onClose={closeCreateAgent}
           onSubmit={(input) =>
             runAction(
               () =>
@@ -622,7 +633,7 @@ export function AgentsPageClient({
                   defaultModel: input.defaultModel,
                   templateId: input.templateId,
                 }),
-              () => setShowCreateAgent(false),
+              closeCreateAgent,
             )
           }
         />
@@ -681,12 +692,12 @@ export function AgentsPageClient({
               <div className="panel-header">
                 <div className="agents-pane__header-main">
                   <div className="agents-pane__title-row">
-                    <h3>{data.canManageAllAgents ? tx("全部 AI员工", "All AI employees") : tx("我的 AI员工", "My AI employees")}</h3>
+                    <h1>{data.canManageAllAgents ? tx("全部 AI员工", "All AI employees") : tx("我的 AI员工", "My AI employees")}</h1>
                     <div className="agents-pane__create-actions">
                       <button
                         className={`action-button${showCreateAgent ? " action-button--active" : ""}`}
                         disabled={!data.canCreateAgent}
-                        onClick={() => setShowCreateAgent((value) => !value)}
+                        onClick={() => (showCreateAgent ? closeCreateAgent() : setShowCreateAgent(true))}
                         type="button"
                       >
                         {tx("新建 AI员工", "New AI employee")}
@@ -1048,7 +1059,7 @@ export function AgentsPageClient({
             <aside className="page-panel agents-pane">
               <div className="panel-header agents-pane__list-header agents-pane__list-header--container">
                 <div className="agents-pane__container-heading">
-                  <h3 className="agents-pane__container-title">{tx("在线执行引擎", "Online execution engines")}</h3>
+                  <h1 className="agents-pane__container-title">{tx("在线执行引擎", "Online execution engines")}</h1>
                   <div className="agents-pane__container-summary" aria-label={tx(`${serverCount} 台服务器，${data.daemonTokens.length} 个令牌`, `${serverCount} servers, ${data.daemonTokens.length} tokens`)}>
                     <span><strong>{serverCount}</strong>{tx("服务器", "servers")}</span>
                     <span><strong>{data.daemonTokens.length}</strong>{tx("令牌", "tokens")}</span>

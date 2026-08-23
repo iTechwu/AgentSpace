@@ -20,11 +20,11 @@
 最终 Chromium 回归执行了以下真实操作：
 
 1. 以本地测试管理员会话打开 MCP 市场。
-2. 发布 `GEOFlow Docker Live mt67wfpo` 私有目录项，Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
+2. 发布 `GEOFlow Docker Live mt694mi8` 私有目录项，Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
 3. 配置加密保存的 Authorization 凭据，选择在线 Codex Runtime，并等待连接状态变为 `ready`。
 4. 声明并发现五个带命名空间的工具：`create`、`status`、`autosave`、`validate`、`publish`。
-5. 打开 AI 员工创建页，以空白模板创建 `GEO Manager mt67wfpo`，备注名为 `GEO 管理员工 mt67wfpo`，绑定同一 Runtime，并显式选中本次新员工核对详情。
-6. 在桌面和 390 x 844 移动视口检查员工目录、文本布局和横向溢出。
+5. 通过 `create=agent` 深链接打开创建页，以空白模板创建 `GEO Manager mt694mi8`，备注名为 `GEO 管理员工 mt694mi8`，绑定同一 Runtime，并显式选中本次新员工核对详情。
+6. 在桌面和 390 x 844 移动视口检查员工目录、标题语义、文本布局、图标可见性和横向溢出，并分别运行 WCAG A/AA 与 best-practice Axe 扫描。
 
 | 检查 | 最终结果 |
 | --- | --- |
@@ -32,13 +32,17 @@
 | AI 员工创建与 Runtime 绑定 | 通过，数据库记录与 UI 一致 |
 | 浏览器 console error / warning | 0 / 0 |
 | `requestfailed` | 0 |
+| HTTP 4xx / 5xx | 0 / 0 |
 | 移动端横向溢出 | 0 px |
-| 页面 DCL / load | 829 ms / 829 ms |
-| 桌面 / 移动 LCP | 692 ms / 1560 ms |
+| 页面 DCL / load | 1981 ms / 1985 ms |
+| 桌面 / 移动 LCP | 1844 ms / 1976 ms |
+| 桌面 INP | 56 ms；移动端截图阶段未产生可计量交互 |
 | 桌面 / 移动 CLS | 0 / 0 |
-| 最大长任务 | 93 ms |
-| 无名称交互控件 / 空标题 | 0 / 0；键盘焦点通过 |
-| Playwright | 1 passed，32.1 s（总耗时 32.9 s） |
+| 最大长任务 | 0 ms |
+| 无名称交互控件 / 空标题 | 0 / 0；创建结果由 `role=status` 宣告 |
+| Axe | 桌面 / 移动均为 0 violations |
+| 移动顶部图标 | 两个控件均满足至少 3:1 图形对比度 |
+| Playwright | 1 passed，37.1 s（总耗时 37.9 s） |
 
 证据：
 
@@ -62,9 +66,9 @@
 
 | 业务实体 / 证据 | 值 |
 | --- | --- |
-| AgentSpace task | `task-geo-live-mt67xnap` |
-| GEOFlow enterprise project | `9`，发布前状态 `reviewing` |
-| Knowledge base | `8` |
+| AgentSpace task | `task-geo-live-mt695omm` |
+| GEOFlow enterprise project | `11`，发布前状态 `reviewing` |
+| Knowledge base | `10` |
 | Knowledge chunks | `3` |
 | Embedding | models `embedding-vision` 实际路由返回，provider `dofe-models-api-local`，原始维度 `2048`；三个分块均写入 `vector(3072)` |
 | 成功工具审计 | 五个工具全部存在 `succeeded` 记录 |
@@ -87,6 +91,10 @@
 12. MCP 无效 Bearer 原会直接进入远端 SSO userinfo，并使用交互登录的长超时与重试，足以占满 PHP-FPM worker，表现为连接验证 `mcp.protocol_invalid` 超时。现先本地校验 SSO JWT 的三段格式、issuer 和 audience，仅候选令牌才访问 userinfo，同时为 MCP 单独设置 1 秒连接、3 秒总超时且不重试；真实环境无效令牌 0.30 秒返回 401，正确令牌 0.12 秒返回 initialize 200。
 13. 浏览器证据原只断言新员工存在，桌面截图却仍展示旧员工详情。用例现显式点击本次创建员工并验证详情面板后截图，桌面和移动端证据均直接显示本次新建的 `GEO 管理员工 mt67wfpo`。
 14. 3072 维 `vector` 超过 pgvector 常规 ANN `vector` 运算类的维度上限，原检索只能精确排序。现新增 `halfvec(3072)` 余弦 HNSW 表达式索引，迁移以 `CREATE INDEX CONCURRENTLY` 在事务外执行；两个检索入口复用同一契约。真实 PostgreSQL 执行计划命中 `knowledge_chunks_embedding_halfvec_hnsw`，新知识库 8 的 3/3 分块均保留原始 2048 维 embedding 并返回 0.580077、0.303907、0.261949 的检索分数。
+15. AI 员工 `create=agent` 深链接原先在打开弹窗的同一 effect 中立即清理 URL，真实 Next.js 导航重挂载后会丢失弹窗状态。现将参数作为一次性打开信号，仅在取消、关闭或创建成功后清理，并以组件测试和真实 Chromium 回归覆盖。
+16. 增加 Axe 后发现员工页存在四处 AA 对比度不足、页面缺少 `h1`、员工详情从 `h1` 跳到 `h3`。现修正搜索提示、面板计数、成功状态、标签颜色，并将目录和详情主标题调整为 `h1` / `h2` 语义层级；桌面和移动扫描均为零违规。
+17. 移动顶部栏继承了深色侧栏按钮颜色，浅色背景上的菜单和搜索图标几乎不可见。现为移动栏设置独立的浅色按钮契约，并新增两个图标控件至少 3:1 对比度的浏览器断言。
+18. 成功 toast 默认显示 3.6 秒，原新增断言在详情加载后才读取，造成对短生命周期通知的误判。验收现于提交完成、弹窗关闭后立即核对 `role=status`，再继续详情和性能检查。
 
 GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布竞态保护）、`41cb1c6`（无 pgvector 列兼容）、`0015eb5`（URL 导入并发保护）、`308c62f`（工具发现权限过滤）、`94c220e`（恢复 pgvector 存储列）、`bfcbcd5`（限制 MCP SSO 回退超时）、`a045cac`（提前拒绝无效身份令牌）、`380a319`（3072 维 halfvec HNSW 检索）。中央基础设施对应提交：`fd60ab7`（PostgreSQL 18 pgvector 镜像、备份和扩展对账）。SSO 对应提交：`736cebc`（HttpOnly 会话验证）。
 
@@ -100,9 +108,10 @@ GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布
 | GeoFlow MCP / SSO 鉴权回归 | 50 passed，149 assertions；无效令牌 0.30 s 返回 401 |
 | AgentSpace MCP security/client/connections | 65 passed |
 | AgentSpace MCP 市场组件 | 33 passed |
+| AgentSpace 员工管理组件 | 56 passed（含创建深链接与标题语义回归） |
 | AgentSpace daemon typecheck | 通过 |
 | 真实 AgentSpace -> GEOFlow MCP | 通过，五工具、3 chunks、五条成功审计 |
-| Chromium 桌面/移动端 | 1 passed，32.1 s；LCP 692/1560 ms；CLS 0/0；0 console issue；0 failed request；0 overflow；可访问名称和键盘焦点通过 |
+| Chromium 桌面/移动端 | 1 passed，37.1 s；LCP 1844/1976 ms；桌面 INP 56 ms；CLS 0/0；Axe 0 violations；0 console issue；0 failed request；0 HTTP 4xx/5xx；0 overflow |
 | 外部 SSO 隔离 Chromium | 登录 POST 200；authorize 302；callback 307；工作区 200 |
 | GeoFlow MCP 权限目录 | 写令牌 51 个；只读令牌 26 个且隐藏写工具 |
 | GeoFlow URL 导入并发 | 5 路并发：3 创建、2 限流；清理后 0 条测试记录 |

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { createSessionSync, getDatabase } from "@dofe-agent/db";
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 const enabled = process.env.DOFE_AGENT_LIVE_GEO_MCP === "1";
@@ -13,7 +14,9 @@ const evidenceDir = resolve(process.cwd(), "../../docs/0821/opz/evidence");
 type PageQuality = {
   cls: number;
   lcpMs: number;
+  inpMs: number;
   maxLongTaskMs: number;
+  supportedMetrics: string[];
   interactiveWithoutName: string[];
   headingsWithoutName: string[];
   documentLanguage: string;
@@ -21,24 +24,34 @@ type PageQuality = {
 
 async function installPerformanceObservers(page: import("@playwright/test").Page) {
   await page.addInitScript(() => {
-    const quality = { cls: 0, lcpMs: 0, longTasks: [] as number[] };
+    const supportedMetrics = PerformanceObserver.supportedEntryTypes;
+    const quality = { cls: 0, lcpMs: 0, interactionDurations: [] as number[], longTasks: [] as number[], supportedMetrics };
     Object.defineProperty(window, "__geoLiveQuality", { value: quality });
 
-    try {
+    if (supportedMetrics.includes("layout-shift")) {
       new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
           const shift = entry as PerformanceEntry & { hadRecentInput?: boolean; value?: number };
           if (!shift.hadRecentInput) quality.cls += Number(shift.value ?? 0);
         }
       }).observe({ type: "layout-shift", buffered: true });
+    }
+    if (supportedMetrics.includes("largest-contentful-paint")) {
       new PerformanceObserver((list) => {
         quality.lcpMs = Math.max(quality.lcpMs, ...list.getEntries().map((entry) => entry.startTime));
       }).observe({ type: "largest-contentful-paint", buffered: true });
+    }
+    if (supportedMetrics.includes("event")) {
+      new PerformanceObserver((list) => {
+        quality.interactionDurations.push(...list.getEntries()
+          .filter((entry) => Number((entry as PerformanceEventTiming).interactionId ?? 0) > 0)
+          .map((entry) => entry.duration));
+      }).observe({ type: "event", buffered: true, durationThreshold: 16 } as PerformanceObserverInit & { durationThreshold: number });
+    }
+    if (supportedMetrics.includes("longtask")) {
       new PerformanceObserver((list) => {
         quality.longTasks.push(...list.getEntries().map((entry) => entry.duration));
       }).observe({ type: "longtask", buffered: true });
-    } catch {
-      // Unsupported entry types remain at zero and are reported with the evidence.
     }
   });
 }
@@ -46,8 +59,8 @@ async function installPerformanceObservers(page: import("@playwright/test").Page
 async function collectPageQuality(page: import("@playwright/test").Page): Promise<PageQuality> {
   return page.evaluate(() => {
     const quality = (window as unknown as {
-      __geoLiveQuality?: { cls: number; lcpMs: number; longTasks: number[] };
-    }).__geoLiveQuality ?? { cls: 0, lcpMs: 0, longTasks: [] };
+      __geoLiveQuality?: { cls: number; lcpMs: number; interactionDurations: number[]; longTasks: number[]; supportedMetrics: string[] };
+    }).__geoLiveQuality ?? { cls: 0, lcpMs: 0, interactionDurations: [], longTasks: [], supportedMetrics: [] };
     const isVisible = (element: Element) => {
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
@@ -84,7 +97,9 @@ async function collectPageQuality(page: import("@playwright/test").Page): Promis
     return {
       cls: Number(quality.cls.toFixed(4)),
       lcpMs: Math.round(quality.lcpMs),
+      inpMs: Math.round(Math.max(0, ...quality.interactionDurations)),
       maxLongTaskMs: Math.round(Math.max(0, ...quality.longTasks)),
+      supportedMetrics: quality.supportedMetrics,
       interactiveWithoutName,
       headingsWithoutName,
       documentLanguage: document.documentElement.lang,
@@ -137,6 +152,11 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   page.on("requestfailed", (request) => {
     const url = new URL(request.url());
     browserIssues.push(`requestfailed:${request.method()}:${url.origin}${url.pathname}:${request.failure()?.errorText ?? "unknown"}`);
+  });
+  page.on("response", (response) => {
+    if (response.status() < 400) return;
+    const url = new URL(response.url());
+    browserIssues.push(`response:${response.status()}:${response.request().method()}:${url.origin}${url.pathname}`);
   });
 
   const suffix = Date.now().toString(36);
@@ -219,6 +239,9 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   await expect(engineTrigger).toContainText(/codex/i);
   await employeeDialog.getByRole("button", { name: /^创建$|^Create$/i }).click();
   await expect(employeeDialog).toBeHidden();
+  const creationAnnouncement = page.getByText(/AI员工 已创建|AI employee created/i).last();
+  await expect(creationAnnouncement).toBeVisible();
+  await expect(creationAnnouncement.locator('xpath=ancestor-or-self::*[@role="status" or @role="alert" or @aria-live][1]')).toHaveCount(1);
   const createdEmployeeButton = page.getByRole("button", { name: new RegExp(employeeDisplayName) });
   await expect(createdEmployeeButton).toBeVisible();
   await createdEmployeeButton.click();
@@ -243,9 +266,17 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   expect(desktopQuality.documentLanguage).toMatch(/^(zh|en)/i);
   expect(desktopQuality.interactiveWithoutName).toEqual([]);
   expect(desktopQuality.headingsWithoutName).toEqual([]);
+  expect(desktopQuality.supportedMetrics).toEqual(expect.arrayContaining(["event", "largest-contentful-paint", "layout-shift", "longtask"]));
   expect(desktopQuality.cls).toBeLessThanOrEqual(0.1);
+  expect(desktopQuality.lcpMs).toBeGreaterThan(0);
   expect(desktopQuality.lcpMs).toBeLessThanOrEqual(2_500);
+  expect(desktopQuality.inpMs).toBeGreaterThan(0);
+  expect(desktopQuality.inpMs).toBeLessThanOrEqual(200);
   expect(desktopQuality.maxLongTaskMs).toBeLessThanOrEqual(200);
+  const desktopAccessibility = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "best-practice"])
+    .analyze();
+  expect(desktopAccessibility.violations).toEqual([]);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload({ waitUntil: "networkidle" });
@@ -259,9 +290,34 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   expect(mobileQuality.documentLanguage).toMatch(/^(zh|en)/i);
   expect(mobileQuality.interactiveWithoutName).toEqual([]);
   expect(mobileQuality.headingsWithoutName).toEqual([]);
+  expect(mobileQuality.supportedMetrics).toEqual(expect.arrayContaining(["event", "largest-contentful-paint", "layout-shift", "longtask"]));
   expect(mobileQuality.cls).toBeLessThanOrEqual(0.1);
+  expect(mobileQuality.lcpMs).toBeGreaterThan(0);
   expect(mobileQuality.lcpMs).toBeLessThanOrEqual(2_500);
   expect(mobileQuality.maxLongTaskMs).toBeLessThanOrEqual(200);
+  const mobileControlContrast = await page.locator(".workspace-mobile-bar__button").evaluateAll((buttons) => {
+    const luminance = (color: string) => {
+      const channels = color.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      if (channels.length !== 3) return 0;
+      const linear = channels.map((channel) => {
+        const value = channel / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+    };
+    return buttons.map((button) => {
+      const style = getComputedStyle(button);
+      const foreground = luminance(style.color);
+      const background = luminance(style.backgroundColor);
+      return Number(((Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)).toFixed(2));
+    });
+  });
+  expect(mobileControlContrast).toHaveLength(2);
+  expect(Math.min(...mobileControlContrast)).toBeGreaterThanOrEqual(3);
+  const mobileAccessibility = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "best-practice"])
+    .analyze();
+  expect(mobileAccessibility.violations).toEqual([]);
   await page.screenshot({ path: resolve(evidenceDir, "geo-mcp-live-mobile.png"), fullPage: true });
   expect(browserIssues).toEqual([]);
   console.log(JSON.stringify({ serviceName, employeeName, employeeDisplayName, navigation, desktopQuality, mobileQuality }));

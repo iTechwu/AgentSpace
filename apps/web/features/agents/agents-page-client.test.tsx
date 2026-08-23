@@ -804,13 +804,20 @@ describe("AgentsPageClient", () => {
   });
 
   it("opens the new agent flow from a directory create deep link", async () => {
+    const user = userEvent.setup();
     searchParams.set("mode", "agent");
     searchParams.set("create", "agent");
 
     renderAgentsPage();
 
+    expect(screen.getByRole("heading", { name: "Planner", level: 2 })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "执行引擎" })).toBeInTheDocument();
+    expect(mockReplace).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "取消" }));
+
     expect(mockReplace).toHaveBeenCalledWith("/w/workspace-alpha/agents?mode=agent", { scroll: false });
+    expect(screen.queryByRole("dialog", { name: "创建 AI员工" })).not.toBeInTheDocument();
   });
 
   it("shows agent knowledge assignments", async () => {

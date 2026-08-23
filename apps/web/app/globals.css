@@ -11505,6 +11505,14 @@ textarea:focus {
 
 .workspace-mobile-bar__button {
   flex: none;
+  border-color: #d5d0ca;
+  background: #ffffff;
+  color: #4e5358;
+}
+
+.workspace-mobile-bar__button:hover {
+  background: #f4f2ef;
+  color: #24272b;
 }
 
 .workspace-mobile-bar__title {
@@ -11521,7 +11529,7 @@ textarea:focus {
 }
 
 .workspace-mobile-bar__title span {
-  color: rgba(23, 24, 29, 0.48);
+  color: #686664;
   font-size: 0.78rem;
 }
 
@@ -14833,7 +14841,11 @@ textarea:focus {
 
 .status-chip--positive {
   background: rgba(52, 199, 89, 0.12);
-  color: #248a3d;
+  color: #166f2d;
+}
+
+.workspace-layout .tag-pill:not(.tag-pill--muted) {
+  color: #006b45;
 }
 
 .status-chip--warning {
@@ -22375,7 +22387,7 @@ textarea:focus {
     border-bottom: 1px solid var(--console-border-strong);
   }
 
-  .agents-pane .panel-header h3,
+  .agents-pane .panel-header :is(h1, h3),
   .skills-studio__sidebar .panel-header h3,
   .workspace-main--conversation .inbox-list-pane__header h2,
   .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contacts-list-pane__header h2 {
@@ -22723,7 +22735,7 @@ textarea:focus {
     box-shadow: none;
   }
 
-  .agents-detail-pane .agent-profile-card__copy h3,
+  .agents-detail-pane .agent-profile-card__copy h2,
   .agents-detail-pane .panel-header h3,
   .skills-studio__editor .skills-editor__assigned strong,
   .workspace-main--conversation .inbox-chat-header h3,
@@ -30913,10 +30925,14 @@ button[aria-disabled="true"] svg {
 .workspace-search__label {
   min-width: 0;
   overflow: hidden;
-  color: #858d99;
+  color: #59636f;
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agents-pane > .panel-header .panel-note {
+  color: #756f6b;
 }
 
 .workspace-sidebar__signal,
