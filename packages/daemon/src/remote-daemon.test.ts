@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import {
   resolveRemoteTaskExecutionSessionId,
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
+  resolveRemoteTaskWorkDir,
   runRemoteDaemonCommand,
   watchRemoteTaskCancellation,
 } from "./remote-daemon.ts";
@@ -78,6 +79,7 @@ test("resolveManagedServiceConnection binds the official Tools viral-video servi
 });
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError } from "./daemon-client.ts";
 import { isProcessRunning } from "./state.ts";
+import { executeRemoteTask } from "./remote-daemon/task-execution.ts";
 
 test("isProcessRunning treats an inaccessible existing process as running", () => {
   assert.equal(isProcessRunning(1), true);
@@ -108,6 +110,89 @@ test("watchRemoteTaskCancellation aborts after the control plane cancels a task"
     assert.equal(reads, 2);
   } finally {
     stop();
+  }
+});
+
+test("executeRemoteTask routes DeepSeek output through runtime-output upload and cleanup", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-task-smoke-"));
+  const dshPath = join(stateDir, "dsh");
+  const uploaded: Array<Record<string, unknown>> = [];
+  const completed: Array<Record<string, unknown>> = [];
+  const messages: Array<Record<string, unknown>> = [];
+  const task = {
+    id: "task-deepseek-smoke",
+    workspaceId: "workspace-1",
+    agentId: "employee-1",
+    runtimeId: "runtime-deepseek",
+    triggerType: "manual",
+    priority: 1,
+    status: "claimed",
+    inputJson: "{}",
+    queuedAt: "2026-08-23T00:00:00.000Z",
+  };
+  const runtime = {
+    id: "runtime-deepseek",
+    workspaceId: "workspace-1",
+    provider: "deepseek-harness" as const,
+    name: "DeepSeek Harness",
+    status: "online" as const,
+    metadata: { executablePath: dshPath, mode: "remote" as const },
+  };
+  const config = buildRemoteDaemonConfig({ "state-dir": stateDir }, { environment: { HOME: stateDir } });
+  const client = {
+    startTask: async () => undefined,
+    getInputBundle: async () => ({
+      version: 1 as const,
+      format: "json-inline-v1" as const,
+      taskId: task.id,
+      runtimeId: runtime.id,
+      prompt: "produce an artifact",
+      metadata: { taskTriggerType: task.triggerType },
+      files: [],
+    }),
+    getTaskStatus: async () => ({ task: { id: task.id, status: "running", updatedAt: new Date().toISOString() } }),
+    reportMessages: async (_taskId: string, body: { messages: Array<Record<string, unknown>> }) => {
+      messages.push(...body.messages);
+    },
+    uploadOutputBundle: async (_taskId: string, bundle: Record<string, unknown>) => {
+      uploaded.push(bundle);
+    },
+    completeTask: async (_taskId: string, body: Record<string, unknown>) => {
+      completed.push(body);
+    },
+    failTask: async (_taskId: string, body: Record<string, unknown>) => {
+      throw new Error(`unexpected failure: ${JSON.stringify(body)}`);
+    },
+  };
+
+  try {
+    writeFileSync(
+      dshPath,
+      [
+        "#!/bin/sh",
+        "mkdir -p runtime-output/artifacts",
+        "printf '%s' 'artifact body' > runtime-output/artifacts/result.txt",
+        "printf '%s' '{\"text\":\"artifact result\",\"attachments\":[{\"path\":\"runtime-output/artifacts/result.txt\",\"name\":\"result.txt\",\"mediaType\":\"text/plain\"}]}' > runtime-output/agent-output.json",
+        "printf '%s\\n' 'deepseek task completed'",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(dshPath, 0o755);
+
+    await executeRemoteTask(client as never, config, runtime, task, undefined, undefined);
+
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0]?.outputText, "deepseek task completed");
+    assert.equal(uploaded.length, 1);
+    const bundle = uploaded[0];
+    const files = bundle.files as Array<{ path?: string }>;
+    assert.ok(files.some((file) => file.path === "runtime-output/agent-output.json"));
+    assert.ok(files.some((file) => file.path === "runtime-output/artifacts/result.txt"));
+    assert.ok(messages.some((message) => String(message.content).includes("DeepSeek Harness started")));
+    const workDir = resolveRemoteTaskWorkDir(config, task);
+    assert.equal(existsSync(workDir), false);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
   }
 });
 
