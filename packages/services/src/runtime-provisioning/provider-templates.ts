@@ -35,6 +35,7 @@ const PROVIDER_CREDENTIAL_ENV_KEYS: Record<DaemonProvider, string> = {
   openclaw: "OPENAI_API_KEY",
   nanobot: "OPENAI_API_KEY",
   hermes: "OPENAI_API_KEY",
+  "deepseek-harness": "DEEPSEEK_API_KEY",
 };
 
 const PROVIDER_EXECUTABLES: Record<DaemonProvider, string> = {
@@ -46,6 +47,7 @@ const PROVIDER_EXECUTABLES: Record<DaemonProvider, string> = {
   openclaw: "openclaw",
   nanobot: "nanobot",
   hermes: "/opt/hermes/.venv/bin/hermes-agent",
+  "deepseek-harness": "dsh",
 };
 
 export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): string {
@@ -75,6 +77,7 @@ const PROVIDER_GATEWAY_BASE_URLS: Record<DaemonProvider, string> = {
   openclaw: "{{gatewayBaseUrl}}/v1",
   nanobot: "{{gatewayBaseUrl}}/v1",
   hermes: "{{gatewayBaseUrl}}/v1",
+  "deepseek-harness": "{{gatewayBaseUrl}}/v1",
 };
 
 export interface ManagedRuntimeProviderTemplate {
@@ -207,6 +210,7 @@ export const MANAGED_RUNTIME_TEMPLATES: Record<DaemonProvider, ManagedRuntimePro
   openclaw: buildDockerTemplate("openclaw", "openclaw"),
   nanobot: buildDockerTemplate("nanobot", "nanobot"),
   hermes: buildDockerTemplate("hermes", "hermes"),
+  "deepseek-harness": buildDockerTemplate("deepseek-harness", "deepseek-harness"),
 };
 
 function buildDockerTemplate(

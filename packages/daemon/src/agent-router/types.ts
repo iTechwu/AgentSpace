@@ -1,7 +1,7 @@
 import type { RuntimeToolCapability } from "@dofe-agent/domain";
 import type { ProviderHealthSnapshot } from "@dofe-agent/domain";
 
-export const AGENT_ROUTER_HARNESSES = ["claude", "codex", "antigravity", "opencode", "openclaw", "hermes"] as const;
+export const AGENT_ROUTER_HARNESSES = ["claude", "codex", "antigravity", "opencode", "openclaw", "hermes", "deepseek-harness"] as const;
 
 export type AgentRouterHarness = typeof AGENT_ROUTER_HARNESSES[number];
 

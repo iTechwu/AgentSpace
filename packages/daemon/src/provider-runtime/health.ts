@@ -432,6 +432,16 @@ function buildProviderCredentialProbe(
       headers: [`Authorization: Bearer ${apiKey}`, "accept: application/json"],
     };
   }
+  if (provider === "deepseek-harness") {
+    const apiKey = environment.DEEPSEEK_API_KEY?.trim();
+    if (!apiKey) return null;
+    assertSafeProviderCredential(apiKey);
+    const baseUrl = normalizeProviderApiBase(environment.DEEPSEEK_BASE_URL, "https://api.deepseek.com/v1");
+    return {
+      url: `${baseUrl}/models`,
+      headers: [`Authorization: Bearer ${apiKey}`, "accept: application/json"],
+    };
+  }
   return null;
 }
 

@@ -18,6 +18,7 @@ const DEFAULT_MODEL_IDS = {
   gemini: "gemini-2.0-flash-lite",
   opencode: "opencode-default",
   nanobot: "nanobot-default",
+  "deepseek-harness": "deepseek-v4-flash",
 } as const;
 
 const PROVIDER_CATALOG: Array<{
@@ -70,6 +71,12 @@ const PROVIDER_CATALOG: Array<{
     commands: ["hermes-agent", "hermes"],
     versionArgs: [["--version"], ["version"]],
   },
+  {
+    provider: "deepseek-harness",
+    label: formatDaemonProviderLabel("deepseek-harness"),
+    command: "dsh",
+    defaultModelId: DEFAULT_MODEL_IDS["deepseek-harness"],
+  },
 ];
 
 export function detectProviders(): DetectedProvider[] {
@@ -118,5 +125,6 @@ export function resolveModelId(runtime: ProviderRuntimeRecord): string | undefin
   if (runtime.provider === "openclaw") return readRuntimeMetadataString(runtime, "openClawModel", "openclawModel") || process.env.OPENCLAW_MODEL?.trim() || undefined;
   if (runtime.provider === "nanobot") return process.env.NANOBOT_MODEL || providerDefinition?.defaultModelId || DEFAULT_MODEL_IDS.nanobot;
   if (runtime.provider === "hermes") return process.env.HERMES_MODEL?.trim() || process.env.HERMES_INFERENCE_MODEL?.trim() || undefined;
+  if (runtime.provider === "deepseek-harness") return process.env.DSH_MODEL?.trim() || providerDefinition?.defaultModelId || DEFAULT_MODEL_IDS["deepseek-harness"];
   return providerDefinition?.defaultModelId;
 }

@@ -7,6 +7,7 @@ export const DAEMON_PROVIDER_IDS = [
   "openclaw",
   "nanobot",
   "hermes",
+  "deepseek-harness",
 ] as const;
 
 export type DaemonProvider = typeof DAEMON_PROVIDER_IDS[number];
@@ -20,6 +21,7 @@ const DAEMON_PROVIDER_LABELS: Record<DaemonProvider, string> = {
   openclaw: "OpenClaw",
   nanobot: "NanoBot",
   hermes: "Hermes Agent",
+  "deepseek-harness": "DeepSeek Harness",
 };
 
 export function isDaemonProvider(value: string): value is DaemonProvider {
@@ -47,10 +49,12 @@ export const DAEMON_PROVIDER_PROTOCOLS: Record<DaemonProvider, string[]> = {
   openclaw: ["openai"],
   nanobot: ["openai"],
   hermes: ["openai"],
+  "deepseek-harness": ["deepseek_native"],
 };
 
 const DAEMON_PROVIDER_DEFAULT_MODELS: Partial<Record<DaemonProvider, string>> = {
   codex: "gpt-5.6-terra",
+  "deepseek-harness": "deepseek-v4-flash",
 };
 
 export function resolveProviderProtocols(provider: DaemonProvider): string[] {

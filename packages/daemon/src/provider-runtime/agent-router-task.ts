@@ -48,6 +48,9 @@ export async function runProviderTask(
   if (runtime.provider === "hermes") {
     return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
   }
+  if (runtime.provider === "deepseek-harness") {
+    return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
+  }
   if (runtime.provider === "nanobot") {
     return runNanoBotProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
   }
@@ -69,7 +72,15 @@ async function runAgentRouterProviderTask(
   const harness = runtime.provider as AgentRouterHarness;
   const runtimeToolCapabilities = buildRuntimeToolCapabilities(options);
   const contextEnv = buildAgentRouterProviderEnv(runtime, options.contextEnv);
-  const sessionId = resolveAgentRouterSessionId(runtime, options.sessionId);
+  const requestedSessionId = resolveAgentRouterSessionId(runtime, options.sessionId);
+  const sessionId = runtime.provider === "deepseek-harness" ? undefined : requestedSessionId;
+  if (runtime.provider === "deepseek-harness" && requestedSessionId) {
+    options.onEvent?.({
+      type: "provider_session_unsupported",
+      content: "DeepSeek Harness headless mode starts a fresh session for this task; session resume is not available.",
+      inputJson: { provider: runtime.provider, runtimeId: runtime.id, sessionId: requestedSessionId },
+    });
+  }
   const codexLaunchMode = runtime.provider === "codex"
     ? resolveCodexLaunchMode(runtime, options.executionPolicy?.codexSandboxMode)
     : undefined;

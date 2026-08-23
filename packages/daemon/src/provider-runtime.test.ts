@@ -14,7 +14,7 @@ import {
 } from "./provider-runtime.ts";
 import { inspectOpenClawDaemonAuthHealth, normalizeOpenClawProviderError } from "./openclaw-health.ts";
 
-test("detectProviders includes antigravity, opencode, openclaw, nanobot, and hermes when their CLIs are on PATH", () => {
+test("detectProviders includes expanded providers when their CLIs are on PATH", () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
   const originalPath = process.env.PATH;
 
@@ -34,6 +34,9 @@ test("detectProviders includes antigravity, opencode, openclaw, nanobot, and her
       "utf8",
     );
     chmodSync(hermesPath, 0o755);
+    const dshPath = join(binDir, "dsh");
+    writeFileSync(dshPath, "#!/bin/sh\necho dsh 0.1.1-rc.2\n", "utf8");
+    chmodSync(dshPath, 0o755);
 
     process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
 
@@ -47,9 +50,51 @@ test("detectProviders includes antigravity, opencode, openclaw, nanobot, and her
     const hermes = detected.find((provider) => provider.provider === "hermes");
     assert.equal(Boolean(hermes), true);
     assert.equal(hermes?.version, "hermes 0.2.0");
+    const deepSeekHarness = detected.find((provider) => provider.provider === "deepseek-harness");
+    assert.equal(deepSeekHarness?.version, "dsh 0.1.1-rc.2");
   } finally {
     process.env.PATH = originalPath;
     rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask routes DeepSeek Harness through AgentRouter with the selected native model", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-harness-provider-"));
+  const binPath = join(workDir, "dsh");
+  const argsPath = join(workDir, "dsh-args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$DSH_ARGS_PATH\"",
+      "printf '%s\\n' 'deepseek provider output'",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-deepseek-harness-test",
+    workspaceId: "default",
+    provider: "deepseek-harness",
+    name: "DeepSeek Harness",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "write a short reply", workDir, {
+      modelId: "deepseek-v4-pro",
+      contextEnv: { DSH_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "deepseek provider output");
+    assert.deepEqual(args.slice(0, 3), ["--profile", "headless", "--patch"]);
+    assert.equal(args.at(-1), "write a short reply");
+    assert.match(readFileSync(args[3], "utf8"), /model: deepseek-v4-pro/);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
   }
 });
 

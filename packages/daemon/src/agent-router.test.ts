@@ -19,6 +19,7 @@ test("listAgentRouterHarnesses exposes the MVP native harnesses", () => {
     { id: "opencode", label: "OpenCode" },
     { id: "openclaw", label: "OpenClaw" },
     { id: "hermes", label: "Hermes Agent" },
+    { id: "deepseek-harness", label: "DeepSeek Harness" },
   ]);
 });
 
@@ -35,6 +36,7 @@ test("detectAgentRouterHarnesses reports available and missing CLIs", async () =
       join(binDir, "hermes-agent"),
       "#!/bin/sh\nif [ \"$1\" = 'version' ]; then echo hermes 0.2.0; else echo unknown option >&2; exit 2; fi\n",
     );
+    writeExecutable(join(binDir, "dsh"), "#!/bin/sh\necho dsh 0.1.1-rc.2\n");
     process.env.PATH = binDir;
 
     const detected = await detectAgentRouterHarnesses();
@@ -47,11 +49,83 @@ test("detectAgentRouterHarnesses reports available and missing CLIs", async () =
         { id: "opencode", status: "available", version: "opencode 0.3.0" },
         { id: "openclaw", status: "missing", version: undefined },
         { id: "hermes", status: "available", version: "hermes 0.2.0" },
+        { id: "deepseek-harness", status: "available", version: "dsh 0.1.1-rc.2" },
       ],
     );
   } finally {
     process.env.PATH = originalPath;
     rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter launches DeepSeek Harness headless with an isolated profile and model patch", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-harness-"));
+  const binDir = join(workDir, "bin");
+  const dshPath = join(binDir, "dsh");
+  const argsPath = join(workDir, "dsh-args.txt");
+  const homePath = join(workDir, "dsh-home.txt");
+
+  try {
+    writeExecutable(
+      dshPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' \"$@\" > \"$DSH_ARGS_PATH\"",
+        "printf '%s' \"$DSH_HOME\" > \"$DSH_HOME_PATH\"",
+        "printf '%s\\n' 'deepseek harness output'",
+      ].join("\n"),
+    );
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "hello deepseek",
+      cwd: workDir,
+      executablePath: dshPath,
+      model: "deepseek-v4-pro",
+      env: {
+        DSH_ARGS_PATH: argsPath,
+        DSH_HOME_PATH: homePath,
+      },
+      timeoutMs: 1_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    const patchIndex = args.indexOf("--patch");
+    const modelPatchPath = args[patchIndex + 1];
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.outputText, "deepseek harness output");
+    assert.deepEqual(args.slice(0, 2), ["--profile", "headless"]);
+    assert.equal(patchIndex, 2);
+    assert.equal(args.at(-1), "hello deepseek");
+    assert.equal(readFileSync(homePath, "utf8"), join(workDir, ".dofe-deepseek-harness"));
+    assert.match(readFileSync(modelPatchPath, "utf8"), /provider: deepseek-official/);
+    assert.match(readFileSync(modelPatchPath, "utf8"), /model: deepseek-v4-pro/);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter rejects DeepSeek Harness session resume in headless mode", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-session-"));
+  const dshPath = join(workDir, "dsh");
+
+  try {
+    writeExecutable(dshPath, "#!/bin/sh\nprintf '%s\\n' unexpected\n");
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "resume",
+      cwd: workDir,
+      executablePath: dshPath,
+      sessionId: "existing-session",
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === "harness.session_missing"), true);
+    assert.equal(result.outputText, undefined);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
   }
 });
 

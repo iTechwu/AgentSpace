@@ -13,12 +13,42 @@ import {
   buildManagedRuntimeAttributionHeaders,
   createManagedCredentialResolver,
   extractManagedGatewayUsage,
+  getManagedProviderCredentialEnvironmentKey,
   parseManagedRuntimeDockerGateway,
   resolveManagedRuntimeDockerNetwork,
   resolveManagedRuntimeInstallDockerNetwork,
 } from "./managed-provider-credentials.ts";
 
 process.env.MANAGED_RUNTIME_DOCKER_NETWORK = "dofe-models-egress";
+
+test("managed DeepSeek Harness credentials use their native environment and dsh launcher", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-managed-deepseek-"));
+  const resolver = createManagedCredentialResolver(root, async () => ({
+    version: 1,
+    credentialId: "credential-deepseek",
+    environment: {
+      DEEPSEEK_API_KEY: "deepseek-runtime-key",
+      DEEPSEEK_BASE_URL: "http://model.local.dofe.ai/api/v1",
+    },
+    files: {},
+  }));
+
+  try {
+    assert.equal(getManagedProviderCredentialEnvironmentKey("deepseek-harness"), "DEEPSEEK_API_KEY");
+    const profile = await resolver.resolve("runtime-deepseek", "credential-deepseek");
+    const launcherPath = resolver.getExecutablePath("runtime-deepseek", "deepseek-harness");
+    const launcher = readFileSync(launcherPath, "utf8");
+
+    assert.equal(profile?.environment.DEEPSEEK_API_KEY, "deepseek-runtime-key");
+    assert.match(launcher, /dofe\/agent-runtime-deepseek-harness:latest/);
+    assert.match(launcher, /--env DEEPSEEK_BASE_URL/);
+    assert.match(launcher, /'dsh' \"\$@\"/);
+    assert.doesNotMatch(launcher, /deepseek-runtime-key/);
+  } finally {
+    resolver.cleanup("runtime-deepseek");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("resolves account-scoped provider files and environment without exposing references", () => {
   const root = mkdtempSync(join(tmpdir(), "dofe-agent-provider-credentials-"));
