@@ -112,7 +112,76 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
     assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-subagent\n  disabled: true/);
     assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-workflow\n  disabled: true/);
     assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-ralph\n  disabled: true/);
-    assert.equal(existsSync(join(workDir, ".dofe-deepseek-harness.patch.yml")), false);
+    assert.equal(existsSync(modelPatchPath), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter isolates concurrent DeepSeek Harness overlays in one workdir", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-concurrent-"));
+  const dshPath = join(workDir, "dsh");
+  const firstCopyPath = join(workDir, "first-patch.yml");
+  const secondCopyPath = join(workDir, "second-patch.yml");
+  const firstArgsPath = join(workDir, "first-args.txt");
+  const secondArgsPath = join(workDir, "second-args.txt");
+
+  try {
+    writeExecutable(
+      dshPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' \"$@\" > \"$DSH_ARGS_PATH\"",
+        "cat \"$4\" > \"$DSH_PATCH_COPY_PATH\"",
+        "sleep 0.1",
+        "printf '%s\\n' \"$DSH_OUTPUT\"",
+      ].join("\n"),
+    );
+
+    const [first, second] = await Promise.all([
+      runAgentRouter({
+        version: 1,
+        harness: "deepseek-harness",
+        prompt: "first",
+        cwd: workDir,
+        executablePath: dshPath,
+        model: "deepseek-v4-flash",
+        env: {
+          DSH_ARGS_PATH: firstArgsPath,
+          DSH_PATCH_COPY_PATH: firstCopyPath,
+          DSH_OUTPUT: "first output",
+        },
+        timeoutMs: 5_000,
+      }),
+      runAgentRouter({
+        version: 1,
+        harness: "deepseek-harness",
+        prompt: "second",
+        cwd: workDir,
+        executablePath: dshPath,
+        model: "deepseek-v4-pro",
+        env: {
+          DSH_ARGS_PATH: secondArgsPath,
+          DSH_PATCH_COPY_PATH: secondCopyPath,
+          DSH_OUTPUT: "second output",
+        },
+        timeoutMs: 5_000,
+      }),
+    ]);
+
+    assert.equal(first.status, "completed", JSON.stringify(first));
+    assert.equal(second.status, "completed", JSON.stringify(second));
+    assert.match(readFileSync(firstCopyPath, "utf8"), /model: deepseek-v4-flash/);
+    assert.match(readFileSync(secondCopyPath, "utf8"), /model: deepseek-v4-pro/);
+    const firstArgs = readFileSync(firstArgsPath, "utf8").trim().split(/\r?\n/);
+    const secondArgs = readFileSync(secondArgsPath, "utf8").trim().split(/\r?\n/);
+    const firstPatchPath = firstArgs[firstArgs.indexOf("--patch") + 1];
+    const secondPatchPath = secondArgs[secondArgs.indexOf("--patch") + 1];
+    assert.ok(firstPatchPath);
+    assert.ok(secondPatchPath);
+    assert.notEqual(firstPatchPath, secondPatchPath);
+    assert.equal(existsSync(firstPatchPath), false);
+    assert.equal(existsSync(secondPatchPath), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

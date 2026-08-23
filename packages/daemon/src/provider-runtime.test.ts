@@ -95,7 +95,7 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
     assert.deepEqual(args.slice(0, 3), ["--profile", "headless", "--patch"]);
     assert.equal(args.at(-1), "write a short reply");
     assert.match(readFileSync(patchCopyPath, "utf8"), /model: deepseek-v4-pro/);
-    assert.equal(existsSync(join(workDir, ".dofe-deepseek-harness.patch.yml")), false);
+    assert.equal(existsSync(args[3]!), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

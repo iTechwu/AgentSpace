@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
@@ -75,7 +76,7 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
       throw new Error(`DeepSeek Harness model "${input.model}" is not supported.`);
     }
   }
-  const patchPath = join(input.cwd, ".dofe-deepseek-harness.patch.yml");
+  const patchPath = join(input.cwd, `.dofe-deepseek-harness.patch-${randomUUID()}.yml`);
   const patch = input.model
     ? [
       "- id: agent-default-model",
