@@ -25,6 +25,7 @@ import {
   watchRemoteTaskCancellation,
 } from "./remote-daemon.ts";
 import type { ResolvedMcpConnection } from "@dofe-agent/domain";
+import { pollRemoteTasks } from "./remote-daemon/poll.ts";
 
 test("resolveManagedServiceConnection binds only the official OpenMontage service from daemon environment", () => {
   const connection = {
@@ -191,6 +192,39 @@ test("executeRemoteTask routes DeepSeek output through runtime-output upload and
     assert.ok(messages.some((message) => String(message.content).includes("DeepSeek Harness started")));
     const workDir = resolveRemoteTaskWorkDir(config, task);
     assert.equal(existsSync(workDir), false);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("pollRemoteTasks does not claim DeepSeek tasks while provider health is broken", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-poll-gate-"));
+  const config = buildRemoteDaemonConfig({ "state-dir": stateDir }, { environment: { HOME: stateDir } });
+  const activity = createRemoteRuntimeActivity();
+  activity.nextOperationClaimAt.set("runtime-deepseek-broken", Date.now() + 60_000);
+  const runtime = {
+    id: "runtime-deepseek-broken",
+    workspaceId: "workspace-1",
+    provider: "deepseek-harness" as const,
+    name: "DeepSeek Harness",
+    status: "online" as const,
+    metadata: {
+      executablePath: "/missing/dsh",
+      mode: "remote" as const,
+      providerHealth: { status: "broken", reason: "provider.model_unavailable" },
+    },
+  };
+  let taskClaims = 0;
+  const client = {
+    claimTask: async () => {
+      taskClaims += 1;
+      return { task: null };
+    },
+  };
+
+  try {
+    await pollRemoteTasks(client as never, config, [runtime], activity, undefined as never, undefined as never);
+    assert.equal(taskClaims, 0);
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }

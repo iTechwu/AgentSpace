@@ -155,6 +155,10 @@ export async function pollRemoteTasks(
         }
       }
 
+      if (!canClaimRemoteRuntimeTask(runtime)) {
+        continue;
+      }
+
       const claimed = await claimRemoteQueue({
         runtimeId: runtime.id,
         queue: "task",
@@ -194,4 +198,12 @@ export async function pollRemoteTasks(
       throw error;
     }
   }
+}
+
+/** A failed DeepSeek health gate must stop new user work while repair operations remain claimable. */
+export function canClaimRemoteRuntimeTask(runtime: RemoteRuntimeRecord): boolean {
+  if (runtime.provider !== "deepseek-harness") return true;
+  const health = runtime.metadata.providerHealth;
+  if (!health || typeof health !== "object" || Array.isArray(health)) return true;
+  return (health as { status?: unknown }).status !== "broken";
 }
