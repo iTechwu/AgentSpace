@@ -23,6 +23,7 @@ import {
   listRuntimeCredentialReconciliationTargetsSync,
   listTokenUsageBillingEventsSync,
   listRuntimeProvisioningTaskEventsSync,
+  listAuditLogsSync,
   readAgentRuntimeSync,
   readRuntimeProvisioningTaskSync,
   markManagedRuntimeCleanupRequestRunningSync,
@@ -632,6 +633,29 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal(managed.periodOutputTokens, 60);
   assert.equal(managed.periodActualCostUsd, 2.5);
   assert.equal(managed.unallocatedCostUsd, 0);
+});
+
+test("DeepSeek provisioning audit preserves native protocol and model metadata", async () => {
+  activeClient = createMockClient({ modelList: [] });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-v4-pro",
+    idempotencyKey: "deepseek-audit-metadata",
+  });
+  const final = await awaitTaskTerminal(task.id);
+
+  assert.equal(final.status, "succeeded");
+  const credentialAudit = listAuditLogsSync(TEAM_WS, { code: "runtime_credential.created" })
+    .find((entry) => entry.dataJson.includes("deepseek-audit-metadata") || entry.dataJson.includes(final.runtimeCredentialId ?? ""));
+  assert.ok(credentialAudit);
+  const auditData = JSON.parse(credentialAudit!.dataJson) as Record<string, string>;
+  assert.equal(auditData.runtimeType, "deepseek-harness");
+  assert.equal(auditData.protocols, "deepseek_native");
+  assert.equal(auditData.defaultModel, "deepseek-v4-pro");
 });
 
 test("local usage correlation never recalculates models charges", () => {
