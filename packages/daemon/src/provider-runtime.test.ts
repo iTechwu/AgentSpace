@@ -159,7 +159,7 @@ test("runProviderTask refuses a DeepSeek task when health breaks after claim", a
       mode: "remote",
       providerHealth: {
         status: "broken",
-        reason: "provider.auth_invalid",
+        reason: "provider.auth_invalid secret=should-not-leak",
         modelIds: ["deepseek-v4-flash", "deepseek-v4-pro"],
       },
     },
@@ -176,6 +176,7 @@ test("runProviderTask refuses a DeepSeek task when health breaks after claim", a
         assert.equal(metadata?.providerError?.code, "provider.runtime_generic_failure");
         assert.equal(metadata?.providerError?.category, "runtime");
         assert.match(metadata?.providerError?.message ?? "", /provider health is broken/);
+        assert.doesNotMatch(metadata?.providerError?.message ?? "", /should-not-leak/);
         return true;
       },
     );
