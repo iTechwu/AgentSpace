@@ -1370,4 +1370,39 @@ describe("ConversationShell", () => {
     }));
     expect(screen.getByRole("button", { name: /完全访问/ })).toBeInTheDocument();
   });
+
+  it("keeps DeepSeek Harness permissions on the runtime default", async () => {
+    const user = userEvent.setup();
+    const onUpdateExecutionPolicy = vi.fn(async () => {});
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          composerRuntime={{ employeeId: "DeepSeek", employeeLabel: "DeepSeek", provider: "deepseek-harness" }}
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-deepseek", title: "DeepSeek", subtitle: "Agent", meta: "meta", avatar: "D" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          onUpdateExecutionPolicy={onUpdateExecutionPolicy}
+          placeholder="Send a message"
+          selectedHeader={{ title: "DeepSeek", subtitle: "Agent", avatar: "D" }}
+          selectedItemId="direct-deepseek"
+        />
+      </LanguageProvider>,
+    );
+
+    const policyTrigger = screen.getByRole("button", { name: /Runtime 默认/ });
+    await user.click(policyTrigger);
+    expect(screen.getByText(/DeepSeek Harness.*执行权限/)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Runtime 默认/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /完全访问/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /帮我审批/ })).not.toBeInTheDocument();
+  });
 });

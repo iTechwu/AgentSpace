@@ -29,6 +29,7 @@ import type {
   ChannelDocumentRunStep,
   RuntimeProviderHealth,
 } from "@dofe-agent/domain";
+import type { DaemonProvider } from "@dofe-agent/domain";
 import type {
   FeishuAgentBotSetupReference,
   FeishuIntegrationSettingsItem,
@@ -247,7 +248,7 @@ export interface ChannelsPageData {
   composerAgents?: Array<{
     id: string;
     label: string;
-    provider?: string;
+    provider?: DaemonProvider;
     executionPolicy?: import("@dofe-agent/domain/workspace").EmployeeExecutionPolicy;
     skills: Array<{
       id: string;
