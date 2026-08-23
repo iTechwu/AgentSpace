@@ -104,6 +104,45 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
   }
 });
 
+test("runProviderTask refuses a DeepSeek model absent from the verified health catalog", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-model-gate-"));
+  const binPath = join(workDir, "dsh");
+  writeFileSync(binPath, "#!/bin/sh\nprintf '%s' 'must not launch'\n", "utf8");
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-deepseek-health-gate",
+    workspaceId: "default",
+    provider: "deepseek-harness",
+    name: "DeepSeek Harness",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+      providerHealth: {
+        status: "broken",
+        modelIds: ["deepseek-v4-flash"],
+      },
+    },
+  };
+
+  try {
+    await assert.rejects(
+      () => runProviderTask(runtime, "should not launch", workDir, {
+        modelId: "deepseek-v4-pro",
+        taskTimeoutMs: 5_000,
+      }),
+      (error: unknown) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.code, "provider.model_unavailable");
+        assert.equal(metadata?.providerError?.category, "model");
+        return true;
+      },
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("detectProviders allows Claude Code when the daemon is running as root", async () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
   const originalPath = process.env.PATH;

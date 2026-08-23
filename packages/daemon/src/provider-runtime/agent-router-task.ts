@@ -21,7 +21,7 @@ import {
 } from "./router-diagnostics.ts";
 import { runGeminiProviderTask, runNanoBotProviderTask } from "./legacy-runtime.ts";
 import { buildRuntimeToolCapabilities } from "./tool-capabilities.ts";
-import type { ProviderRuntimeRecord, ProviderTaskOptions } from "./types.ts";
+import { ProviderTaskExecutionError, type ProviderRuntimeRecord, type ProviderTaskOptions } from "./types.ts";
 
 export async function runProviderTask(
   runtime: ProviderRuntimeRecord,
@@ -68,6 +68,8 @@ async function runAgentRouterProviderTask(
   taskTimeoutMs: number,
   options: ProviderTaskOptions,
 ): Promise<{ output: string; sessionId?: string }> {
+  const modelId = options.modelId ?? resolveModelId(runtime);
+  assertDeepSeekModelAvailable(runtime, modelId, workDir);
   clearTaskOutputArtifacts(workDir);
   const harness = runtime.provider as AgentRouterHarness;
   const runtimeToolCapabilities = buildRuntimeToolCapabilities(options);
@@ -90,7 +92,7 @@ async function runAgentRouterProviderTask(
     prompt,
     cwd: workDir,
     executablePath: runtime.metadata.executablePath,
-    model: options.modelId ?? resolveModelId(runtime),
+    model: modelId,
     mode: runtime.provider === "codex" ? codexLaunchMode : resolveAgentRouterMode(runtime),
     sessionId,
     env: contextEnv,
@@ -210,6 +212,31 @@ async function runAgentRouterProviderTask(
   }
 
   return { output, sessionId: result.sessionId };
+}
+
+function assertDeepSeekModelAvailable(
+  runtime: ProviderRuntimeRecord,
+  modelId: string | undefined,
+  workDir: string,
+): void {
+  if (runtime.provider !== "deepseek-harness" || !modelId) return;
+  const health = runtime.metadata.providerHealth;
+  const modelIds = health && typeof health === "object" && !Array.isArray(health)
+    ? (health as { modelIds?: unknown }).modelIds
+    : undefined;
+  if (!Array.isArray(modelIds) || !modelIds.every((value): value is string => typeof value === "string")) return;
+  if (modelIds.includes(modelId)) return;
+
+  const message = `DeepSeek Harness model "${modelId}" is absent from the verified provider catalog.`;
+  throw new ProviderTaskExecutionError(message, {
+    workDir,
+    providerError: {
+      provider: runtime.provider,
+      code: "provider.model_unavailable",
+      category: "model",
+      message,
+    },
+  });
 }
 
 function resolveAgentRouterMode(runtime: ProviderRuntimeRecord): string | undefined {
