@@ -187,6 +187,7 @@ export async function executeRemoteTask(
         }
       : runtime;
     const effectiveModelId = resolveRemoteTaskExecutionModel(bundle);
+    const runtimeProtocol = resolveProviderProtocols(runtime.provider)[0] || undefined;
     let usages: RemoteTaskUsageEntry[] = [];
     let queuedMessageReports = Promise.resolve();
     const reportTaskMessage = (message: ProviderTaskEvent): void => {
@@ -207,6 +208,7 @@ export async function executeRemoteTask(
           modelId: effectiveModelId,
           runtimeCredentialId: managedCredentialId,
           routerSessionId: task.routerSessionId,
+          protocol: runtimeProtocol,
         },
         report: (reportedUsages) => client.reportTaskUsages(task.id, { usages: reportedUsages }),
         onError: (error) => {
@@ -266,6 +268,7 @@ export async function executeRemoteTask(
                 modelId: effectiveModelId,
                 runtimeCredentialId: managedCredentialId,
                 routerSessionId: task.routerSessionId,
+                protocol: runtimeProtocol,
                 gatewayRequestId: typeof event.inputJson.gateway_request_id === "string"
                   ? event.inputJson.gateway_request_id.trim() || undefined
                   : undefined,
@@ -287,6 +290,7 @@ export async function executeRemoteTask(
         modelId: effectiveModelId,
         runtimeCredentialId: managedCredentialId,
         routerSessionId: task.routerSessionId,
+        protocol: runtimeProtocol,
       });
     }
     rmSync(gatewayRequestLogPath, { force: true });

@@ -23,7 +23,7 @@ export interface RemoteGatewayUsageReporter {
 export function mergeRemoteGatewayUsages(
   providerUsages: RemoteTaskUsageEntry[],
   gatewayUsages: RemoteGatewayUsageEntry[],
-  context: Pick<RemoteTaskUsageEntry, "modelId" | "runtimeCredentialId" | "routerSessionId">,
+  context: Pick<RemoteTaskUsageEntry, "modelId" | "runtimeCredentialId" | "routerSessionId" | "protocol">,
 ): RemoteTaskUsageEntry[] {
   const usagesByRequestId = new Map<string, RemoteTaskUsageEntry>();
   for (const usage of providerUsages) {
@@ -37,7 +37,7 @@ export function mergeRemoteGatewayUsages(
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheTokens: usage.cacheTokens,
-      protocol: usage.protocol,
+      protocol: usage.protocol ?? context.protocol,
       requestStartedAt: usage.requestStartedAt,
       requestEndedAt: usage.requestEndedAt,
     });
@@ -52,7 +52,7 @@ export function mergeRemoteGatewayUsages(
  */
 export function createRemoteGatewayUsageReporter(input: {
   path: string;
-  context: Pick<RemoteTaskUsageEntry, "modelId" | "runtimeCredentialId" | "routerSessionId">;
+  context: Pick<RemoteTaskUsageEntry, "modelId" | "runtimeCredentialId" | "routerSessionId" | "protocol">;
   report: (usages: RemoteTaskUsageEntry[]) => Promise<unknown>;
   pollIntervalMs?: number;
   onError?: (error: unknown) => void;

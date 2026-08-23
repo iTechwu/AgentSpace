@@ -687,6 +687,7 @@ test("managed task usage is driven by billable gateway responses, not provider e
       modelId: "gpt-5",
       runtimeCredentialId: "credential-1",
       routerSessionId: "session-1",
+      protocol: "deepseek_native",
     },
   );
 
@@ -694,6 +695,11 @@ test("managed task usage is driven by billable gateway responses, not provider e
     ["gateway-explicit", 5, 1],
     ["gateway-1", 10, 2],
     ["gateway-2", 20, 4],
+  ]);
+  assert.deepEqual(usages.map((usage) => usage.protocol), [
+    undefined,
+    "deepseek_native",
+    "deepseek_native",
   ]);
 });
 
@@ -710,6 +716,7 @@ test("incremental gateway usage reporter retries failed delivery and acknowledge
       modelId: "gpt-5",
       runtimeCredentialId: "credential-1",
       routerSessionId: "session-1",
+      protocol: "deepseek_native",
     },
     report: async (usages) => {
       attempts += 1;
