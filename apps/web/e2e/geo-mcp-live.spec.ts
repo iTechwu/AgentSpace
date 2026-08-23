@@ -136,7 +136,10 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   await expect(engineTrigger).toContainText(/codex/i);
   await employeeDialog.getByRole("button", { name: /^创建$|^Create$/i }).click();
   await expect(employeeDialog).toBeHidden();
-  await expect(page.getByText(employeeDisplayName, { exact: true }).first()).toBeVisible();
+  const createdEmployeeButton = page.getByRole("button", { name: new RegExp(employeeDisplayName) });
+  await expect(createdEmployeeButton).toBeVisible();
+  await createdEmployeeButton.click();
+  await expect(page.locator(".agents-detail-pane").getByText(employeeDisplayName, { exact: true })).toBeVisible();
   const employee = db.prepare(
     `SELECT e.name, e.remark_name AS "remarkName", b.runtime_id AS "runtimeId"
        FROM workspace_employee e
