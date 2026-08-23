@@ -51,6 +51,7 @@ export {
 
 export {
   normalizeRuntimeProviderHealth,
+  sanitizeRuntimeHealthText,
   type NormalizeRuntimeProviderHealthInput,
 } from "../runtime-health/runtime-health.ts";
 

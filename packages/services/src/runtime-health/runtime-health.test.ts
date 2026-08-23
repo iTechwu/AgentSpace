@@ -38,4 +38,25 @@ describe("runtime health", () => {
     expect(health.providerUsable).toBe("unverified");
     expect(health.providerHealthReason).toBe("Provider health has not been checked yet.");
   });
+
+  it("redacts credential-shaped values from provider health diagnostics", () => {
+    const health = normalizeRuntimeProviderHealth({
+      runtimeStatus: "online",
+      runtimeMetadata: {
+        providerHealth: {
+          status: "broken",
+          reason: "request failed authorization=Bearer secret-token-123",
+          error: {
+            code: "provider.auth_invalid",
+            message: "DEEPSEEK_API_KEY=sk-secret-value",
+          },
+        },
+      },
+    });
+
+    expect(health.providerHealthReason).toContain("authorization=Bearer [REDACTED]");
+    expect(health.lastProviderErrorMessage).toBe("DEEPSEEK_API_KEY=[REDACTED]");
+    expect(JSON.stringify(health)).not.toContain("secret-token-123");
+    expect(JSON.stringify(health)).not.toContain("sk-secret-value");
+  });
 });

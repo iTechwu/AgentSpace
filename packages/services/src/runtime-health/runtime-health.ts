@@ -13,23 +13,42 @@ export interface NormalizeRuntimeProviderHealthInput {
   lastError?: string;
 }
 
+const MAX_PUBLIC_HEALTH_TEXT_LENGTH = 240;
+
+/** Keep operator diagnostics useful without allowing credential-shaped values through UI projections. */
+export function sanitizeRuntimeHealthText(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  const normalized = value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/((?:deepseek[_-]?api[_-]?key|api[_-]?key|authorization|bearer|token|secret|password)\s*[:=]\s*(?:bearer\s+)?)([^\s,;.]+)/gi, "$1[REDACTED]")
+    .replace(/(https?:\/\/[^\s?]+[?&](?:api[_-]?key|key|token)=)([^&\s]+)/gi, "$1[REDACTED]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized.length > MAX_PUBLIC_HEALTH_TEXT_LENGTH
+    ? `${normalized.slice(0, MAX_PUBLIC_HEALTH_TEXT_LENGTH - 1)}…`
+    : normalized;
+}
+
 export function normalizeRuntimeProviderHealth(input: NormalizeRuntimeProviderHealthInput): RuntimeProviderHealth {
   const healthMetadata = readHealthMetadata(input.runtimeMetadata);
   const providerHealth = healthMetadata.status ?? "unknown";
   const providerUsable = resolveProviderUsable(input.runtimeStatus, providerHealth);
-  const lastProviderErrorMessage =
+  const lastProviderErrorMessage = sanitizeRuntimeHealthText(
     healthMetadata.errorMessage
-    ?? (providerUsable === "unusable" ? input.lastError : undefined);
+    ?? (providerUsable === "unusable" ? input.lastError : undefined),
+  );
 
   return {
     runtimeStatus: input.runtimeStatus,
     providerHealth,
     providerUsable,
-    providerHealthReason: healthMetadata.reason ?? defaultProviderHealthReason(input.runtimeStatus, providerHealth),
+    providerHealthReason: sanitizeRuntimeHealthText(
+      healthMetadata.reason ?? defaultProviderHealthReason(input.runtimeStatus, providerHealth),
+    ),
     lastHealthCheckedAt: healthMetadata.checkedAt,
     lastProviderErrorCode: healthMetadata.errorCode,
     lastProviderErrorMessage,
-    rawProviderMessage: healthMetadata.rawProviderMessage,
+    rawProviderMessage: sanitizeRuntimeHealthText(healthMetadata.rawProviderMessage),
   };
 }
 

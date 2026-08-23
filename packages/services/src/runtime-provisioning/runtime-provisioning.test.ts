@@ -676,7 +676,7 @@ test("public runtime details expose structured health without raw provider text"
     JSON.stringify({
       providerHealth: {
         status: "broken",
-        reason: "DeepSeek provider verification failed.",
+        reason: "DeepSeek provider verification failed authorization=Bearer sk-secret-reason.",
         checkedAt: "2026-08-23T00:00:00.000Z",
         error: {
           code: "provider.auth_invalid",
@@ -695,7 +695,9 @@ test("public runtime details expose structured health without raw provider text"
   });
   assert.equal(detail.runtime?.providerHealth?.providerHealth, "broken");
   assert.equal(detail.runtime?.providerHealth?.lastProviderErrorCode, "provider.auth_invalid");
+  assert.equal(detail.runtime?.providerHealth?.providerHealthReason, "DeepSeek provider verification failed authorization=Bearer [REDACTED].");
   assert.equal(JSON.stringify(detail).includes("sk-secret-must-not-leak"), false);
+  assert.equal(JSON.stringify(detail).includes("sk-secret-reason"), false);
   assert.equal(JSON.stringify(detail).includes("credential rejected"), false);
 });
 
