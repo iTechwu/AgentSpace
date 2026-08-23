@@ -80,7 +80,8 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
       throw new Error(`DeepSeek Harness model "${input.model}" is not supported.`);
     }
   }
-  const patchPath = join(input.cwd, `.dofe-deepseek-harness.patch-${randomUUID()}.yml`);
+  const invocationId = randomUUID();
+  const patchPath = join(input.cwd, `.dofe-deepseek-harness.patch-${invocationId}.yml`);
   const patch = input.model
     ? [
       "- id: agent-default-model",
@@ -102,7 +103,12 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
     buildCapabilityEnv(input.env ?? {}, input.runtimeToolCapabilities),
     buildCapabilityPathDirs(input.runtimeToolCapabilities),
   );
-  env.DSH_HOME = env.DSH_HOME?.trim() || join(input.cwd, ".dofe-deepseek-harness");
+  const configuredHome = env.DSH_HOME?.trim();
+  const runtimeHomePath = join(
+    configuredHome || input.cwd,
+    `.dofe-deepseek-harness-${invocationId}`,
+  );
+  env.DSH_HOME = runtimeHomePath;
   env.DSH_PERMISSION_MODE = "workspace-write";
   env.DSH_TELEMETRY_DISABLED = "1";
   env.DSH_TOOLS_MODE = "";
@@ -113,7 +119,7 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
     args,
     cwd: input.cwd,
     env,
-    metadata: { modelPatchPath: patchPath },
+    metadata: { modelPatchPath: patchPath, runtimeHomePath },
     timeoutMs: resolveTimeoutMs(input.timeoutMs),
     redactions: buildRedactions(env),
   };
@@ -157,6 +163,8 @@ async function runDeepSeekHarness(
   } finally {
     const patchPath = plan.metadata?.modelPatchPath;
     if (patchPath) rmSync(patchPath, { force: true });
+    const runtimeHomePath = plan.metadata?.runtimeHomePath;
+    if (runtimeHomePath) rmSync(runtimeHomePath, { recursive: true, force: true });
   }
 }
 

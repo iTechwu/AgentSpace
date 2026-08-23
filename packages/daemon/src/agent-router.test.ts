@@ -104,7 +104,9 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
     assert.deepEqual(args.slice(0, 2), ["--profile", "headless"]);
     assert.equal(patchIndex, 2);
     assert.equal(args.at(-1), "hello deepseek");
-    assert.equal(readFileSync(homePath, "utf8"), join(workDir, ".dofe-deepseek-harness"));
+    const runtimeHomePath = readFileSync(homePath, "utf8");
+    assert.match(runtimeHomePath, new RegExp(`^${workDir.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}/\\.dofe-deepseek-harness-`));
+    assert.equal(existsSync(runtimeHomePath), false);
     assert.equal(readFileSync(policyPath, "utf8"), "workspace-write\n1");
     assert.match(readFileSync(patchCopyPath, "utf8"), /provider: deepseek-official/);
     assert.match(readFileSync(patchCopyPath, "utf8"), /model: deepseek-v4-pro/);
@@ -125,6 +127,8 @@ test("runAgentRouter isolates concurrent DeepSeek Harness overlays in one workdi
   const secondCopyPath = join(workDir, "second-patch.yml");
   const firstArgsPath = join(workDir, "first-args.txt");
   const secondArgsPath = join(workDir, "second-args.txt");
+  const firstHomePath = join(workDir, "first-home.txt");
+  const secondHomePath = join(workDir, "second-home.txt");
 
   try {
     writeExecutable(
@@ -132,6 +136,7 @@ test("runAgentRouter isolates concurrent DeepSeek Harness overlays in one workdi
       [
         "#!/bin/sh",
         "printf '%s\\n' \"$@\" > \"$DSH_ARGS_PATH\"",
+        "printf '%s' \"$DSH_HOME\" > \"$DSH_HOME_PATH\"",
         "cat \"$4\" > \"$DSH_PATCH_COPY_PATH\"",
         "sleep 0.1",
         "printf '%s\\n' \"$DSH_OUTPUT\"",
@@ -148,6 +153,7 @@ test("runAgentRouter isolates concurrent DeepSeek Harness overlays in one workdi
         model: "deepseek-v4-flash",
         env: {
           DSH_ARGS_PATH: firstArgsPath,
+          DSH_HOME_PATH: firstHomePath,
           DSH_PATCH_COPY_PATH: firstCopyPath,
           DSH_OUTPUT: "first output",
         },
@@ -162,6 +168,7 @@ test("runAgentRouter isolates concurrent DeepSeek Harness overlays in one workdi
         model: "deepseek-v4-pro",
         env: {
           DSH_ARGS_PATH: secondArgsPath,
+          DSH_HOME_PATH: secondHomePath,
           DSH_PATCH_COPY_PATH: secondCopyPath,
           DSH_OUTPUT: "second output",
         },
@@ -182,6 +189,11 @@ test("runAgentRouter isolates concurrent DeepSeek Harness overlays in one workdi
     assert.notEqual(firstPatchPath, secondPatchPath);
     assert.equal(existsSync(firstPatchPath), false);
     assert.equal(existsSync(secondPatchPath), false);
+    const firstHome = readFileSync(firstHomePath, "utf8");
+    const secondHome = readFileSync(secondHomePath, "utf8");
+    assert.notEqual(firstHome, secondHome);
+    assert.equal(existsSync(firstHome), false);
+    assert.equal(existsSync(secondHome), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
