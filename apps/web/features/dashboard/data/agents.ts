@@ -179,7 +179,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         label: managedRuntime.name,
         provider: managedRuntime.provider,
         status: managedRuntime.status === "online" ? "online" as const : "offline" as const,
-        providerHealth: normalizeRuntimeProviderHealth({
+        providerHealth: managedRuntime.providerHealth ?? normalizeRuntimeProviderHealth({
           runtimeStatus: managedRuntime.status,
           runtimeMetadata: {},
         }),

@@ -412,6 +412,40 @@ describe("dashboard data", () => {
     });
   });
 
+  it("preserves managed provider health in employee runtime options", () => {
+    const owner = createUserSync({
+      displayName: "Managed Runtime Owner",
+      primaryEmail: `managed-runtime-owner-${Date.now()}@example.com`,
+    });
+    createWorkspaceMembershipSync({ workspaceId: "default", userId: owner.id, role: "owner" });
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: `managed-health-node-${Date.now()}`,
+      deviceName: "Managed health node",
+      metadata: { managedNode: true },
+      runtimes: [{ provider: "deepseek-harness", name: "DeepSeek Harness" }],
+    }).runtimes[0];
+    expect(runtime?.id).toBeTruthy();
+    getDatabase().prepare("UPDATE agent_runtime SET managed_credential_id = ?, provisioning_state = 'managed', metadata_json = ? WHERE id = ?")
+      .run("credential-deepseek", JSON.stringify({
+        providerHealth: {
+          status: "broken",
+          reason: "DeepSeek provider verification failed.",
+          checkedAt: "2026-08-23T08:00:00.000Z",
+        },
+      }), runtime!.id);
+    process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+
+    const agentsPage = getAgentsPageData({
+      currentUserId: owner.id,
+      currentMembershipRole: "owner",
+    });
+    expect(agentsPage.containerOptions.find((option) => option.id === runtime!.id)?.providerHealth).toMatchObject({
+      providerHealth: "broken",
+      providerUsable: "unusable",
+      providerHealthReason: "DeepSeek provider verification failed.",
+    });
+  });
+
   it("exposes provider usability separately from runtime online state", () => {
     createEmployeeSync({ name: "Claw Agent", remarkName: "Claw Agent" });
     const runtime = registerDaemonRuntimesSync({
