@@ -221,19 +221,37 @@ function assertDeepSeekModelAvailable(
 ): void {
   if (runtime.provider !== "deepseek-harness" || !modelId) return;
   const health = runtime.metadata.providerHealth;
-  const modelIds = health && typeof health === "object" && !Array.isArray(health)
-    ? (health as { modelIds?: unknown }).modelIds
+  const healthRecord = health && typeof health === "object" && !Array.isArray(health)
+    ? health as { status?: unknown; modelIds?: unknown; reason?: unknown }
     : undefined;
-  if (!Array.isArray(modelIds) || !modelIds.every((value): value is string => typeof value === "string")) return;
-  if (modelIds.includes(modelId)) return;
+  const modelIds = healthRecord?.modelIds;
+  if (Array.isArray(modelIds) && modelIds.every((value): value is string => typeof value === "string")) {
+    if (!modelIds.includes(modelId)) {
+      const message = `DeepSeek Harness model "${modelId}" is absent from the verified provider catalog.`;
+      throw new ProviderTaskExecutionError(message, {
+        workDir,
+        providerError: {
+          provider: runtime.provider,
+          code: "provider.model_unavailable",
+          category: "model",
+          message,
+        },
+      });
+    }
+  }
 
-  const message = `DeepSeek Harness model "${modelId}" is absent from the verified provider catalog.`;
+  if (healthRecord?.status !== "broken") return;
+
+  const reason = typeof healthRecord.reason === "string" && healthRecord.reason.trim()
+    ? ` ${healthRecord.reason.trim()}`
+    : "";
+  const message = `DeepSeek Harness provider health is broken.${reason}`;
   throw new ProviderTaskExecutionError(message, {
     workDir,
     providerError: {
       provider: runtime.provider,
-      code: "provider.model_unavailable",
-      category: "model",
+      code: "provider.runtime_generic_failure",
+      category: "runtime",
       message,
     },
   });
