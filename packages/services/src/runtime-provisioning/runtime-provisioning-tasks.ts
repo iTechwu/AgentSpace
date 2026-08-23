@@ -51,7 +51,18 @@ export interface PublicManagedRuntimeRecord {
   protocols: string[];
   defaultModel?: string;
   credentialConfigured: boolean;
+  providerHealth?: PublicRuntimeProviderHealth;
 }
+
+export type PublicRuntimeProviderHealth = Pick<
+  RuntimeProviderHealth,
+  | "runtimeStatus"
+  | "providerHealth"
+  | "providerUsable"
+  | "providerHealthReason"
+  | "lastHealthCheckedAt"
+  | "lastProviderErrorCode"
+>;
 
 export interface RuntimeProvisioningTaskDetail {
   task: PublicRuntimeProvisioningTaskRecord;
@@ -179,6 +190,11 @@ function toPublicRuntimeProvisioningTask(
 }
 
 function toPublicManagedRuntime(runtime: AgentRuntimeRecord): PublicManagedRuntimeRecord {
+  const providerHealth = normalizeRuntimeProviderHealth({
+    runtimeStatus: runtime.status,
+    runtimeMetadata: parseRuntimeMetadata(runtime.metadataJson),
+    lastError: runtime.lastError,
+  });
   return {
     id: runtime.id,
     status: runtime.status,
@@ -186,6 +202,18 @@ function toPublicManagedRuntime(runtime: AgentRuntimeRecord): PublicManagedRunti
     protocols: runtime.protocols ?? [],
     defaultModel: runtime.defaultModel,
     credentialConfigured: Boolean(runtime.credentialSecretRef || runtime.credentialConfigRef),
+    providerHealth: toPublicRuntimeProviderHealth(providerHealth),
+  };
+}
+
+function toPublicRuntimeProviderHealth(health: RuntimeProviderHealth): PublicRuntimeProviderHealth {
+  return {
+    runtimeStatus: health.runtimeStatus,
+    providerHealth: health.providerHealth,
+    providerUsable: health.providerUsable,
+    providerHealthReason: health.providerHealthReason,
+    lastHealthCheckedAt: health.lastHealthCheckedAt,
+    lastProviderErrorCode: health.lastProviderErrorCode,
   };
 }
 
@@ -254,11 +282,11 @@ export function listManagedRuntimesForWorkspaceSync(
       provider: row.provider,
       managedCredentialId: row.managedCredentialId!,
       status: row.status === "online" ? "online" : "offline",
-      providerHealth: normalizeRuntimeProviderHealth({
+      providerHealth: toPublicRuntimeProviderHealth(normalizeRuntimeProviderHealth({
         runtimeStatus: row.status,
         runtimeMetadata: parseRuntimeMetadata(row.metadataJson),
         lastError: row.lastError,
-      }),
+      })),
       provisioningState: normalizeManagedRuntimeLifecycleState(row.provisioningState),
       protocols: row.protocols ?? [],
       defaultModel: row.defaultModel,
@@ -287,7 +315,7 @@ export interface ManagedRuntimeListItem {
   provider: DaemonProvider;
   managedCredentialId: string;
   status: "online" | "offline";
-  providerHealth?: RuntimeProviderHealth;
+  providerHealth?: PublicRuntimeProviderHealth;
   provisioningState: "managed" | "draining" | "credential_recovering" | "needs_attention" | "legacy";
   protocols: string[];
   defaultModel?: string;

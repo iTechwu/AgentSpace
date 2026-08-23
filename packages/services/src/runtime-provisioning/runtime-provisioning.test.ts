@@ -658,6 +658,47 @@ test("DeepSeek provisioning audit preserves native protocol and model metadata",
   assert.equal(auditData.defaultModel, "deepseek-v4-pro");
 });
 
+test("public runtime details expose structured health without raw provider text", async () => {
+  activeClient = createMockClient({ modelList: [] });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-v4-flash",
+    idempotencyKey: "deepseek-public-health",
+  });
+  const final = await awaitTaskTerminal(task.id);
+  assert.ok(final.runtimeId);
+
+  getDatabase().prepare("UPDATE agent_runtime SET metadata_json = ? WHERE id = ?").run(
+    JSON.stringify({
+      providerHealth: {
+        status: "broken",
+        reason: "DeepSeek provider verification failed.",
+        checkedAt: "2026-08-23T00:00:00.000Z",
+        error: {
+          code: "provider.auth_invalid",
+          message: "credential rejected",
+          rawProviderMessage: "Authorization: Bearer sk-secret-must-not-leak",
+        },
+      },
+    }),
+    final.runtimeId,
+  );
+
+  const detail = getRuntimeProvisioningTaskDetailSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    taskId: task.id,
+  });
+  assert.equal(detail.runtime?.providerHealth?.providerHealth, "broken");
+  assert.equal(detail.runtime?.providerHealth?.lastProviderErrorCode, "provider.auth_invalid");
+  assert.equal(JSON.stringify(detail).includes("sk-secret-must-not-leak"), false);
+  assert.equal(JSON.stringify(detail).includes("credential rejected"), false);
+});
+
 test("local usage correlation never recalculates models charges", () => {
   recordTokenUsageSync({
     workspaceId: TEAM_WS,

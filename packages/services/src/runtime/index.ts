@@ -102,6 +102,7 @@ export {
   type ManagedRuntimeCreationPreflightResult,
   type ManagedRuntimeActor,
   type PublicManagedRuntimeRecord,
+  type PublicRuntimeProviderHealth,
   type PublicRuntimeProvisioningTaskRecord,
   type RequestManagedRuntimeInput,
   type RotateManagedRuntimeCredentialInput,

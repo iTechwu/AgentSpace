@@ -20,6 +20,7 @@ export {
 export type {
   ManagedRuntimeListItem,
   PublicManagedRuntimeRecord,
+  PublicRuntimeProviderHealth,
   PublicRuntimeProvisioningTaskRecord,
   RuntimeProvisioningTaskDetail,
 } from "./runtime-provisioning-tasks.ts";
