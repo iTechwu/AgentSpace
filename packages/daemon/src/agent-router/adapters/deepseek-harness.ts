@@ -122,8 +122,42 @@ async function runDeepSeekHarness(
     emptyMessage: "DeepSeek Harness returned an empty response.",
     nonZeroMessage: (exitCode) => `DeepSeek Harness exited with code ${exitCode}.`,
     timeoutMessage: (timeoutMs) => `DeepSeek Harness timed out after ${timeoutMs}ms.`,
+    failureDiagnostics: (processResult) => buildDeepSeekHarnessFailureDiagnostics(
+      processResult.stdout,
+      processResult.stderr,
+    ),
     parseEvents: (stdout) => ({ outputText: stdout.trim() }),
   });
+}
+
+function buildDeepSeekHarnessFailureDiagnostics(stdout: string, stderr: string) {
+  const rawProviderMessage = `${stderr}\n${stdout}`.trim();
+  const normalized = rawProviderMessage.toLowerCase();
+  if (/deepseek_api_key.*(?:required|missing|not set|undefined)/i.test(rawProviderMessage)) {
+    return [createDiagnostic("harness.auth_required", "DeepSeek API credentials are required.", {
+      rawProviderMessage,
+      stderrTail: stderr.trim(),
+    })];
+  }
+  if (/\b(?:401|403)\b|unauthori[sz]ed|forbidden|invalid api key/.test(normalized)) {
+    return [createDiagnostic("harness.auth_invalid", "DeepSeek API credentials were rejected.", {
+      rawProviderMessage,
+      stderrTail: stderr.trim(),
+    })];
+  }
+  if (/model.*(?:not found|unavailable|unsupported)|(?:not found|unavailable|unsupported).*model/.test(normalized)) {
+    return [createDiagnostic("harness.model_unavailable", "The selected DeepSeek model is unavailable.", {
+      rawProviderMessage,
+      stderrTail: stderr.trim(),
+    })];
+  }
+  if (/profile.*(?:missing|not found)|cordis.*(?:invalid|failed)/.test(normalized)) {
+    return [createDiagnostic("harness.profile_missing", "DeepSeek Harness headless profile is unavailable or invalid.", {
+      rawProviderMessage,
+      stderrTail: stderr.trim(),
+    })];
+  }
+  return [];
 }
 
 function normalizeDeepSeekHarnessError(error: unknown, context: HarnessErrorContext) {

@@ -137,6 +137,38 @@ test("runAgentRouter rejects DeepSeek Harness session resume in headless mode", 
   }
 });
 
+test("runAgentRouter classifies DeepSeek Harness auth failures, empty output, and timeout", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-failures-"));
+  const dshPath = join(workDir, "dsh");
+  const request = {
+    version: 1 as const,
+    harness: "deepseek-harness" as const,
+    prompt: "test failure",
+    cwd: workDir,
+    executablePath: dshPath,
+    model: "deepseek-v4-flash",
+  };
+
+  try {
+    writeExecutable(dshPath, "#!/bin/sh\nprintf '%s\\n' 'DEEPSEEK_API_KEY is required' >&2\nexit 1\n");
+    const authFailure = await runAgentRouter(request);
+    assert.equal(authFailure.status, "failed");
+    assert.equal(authFailure.diagnostics.some((diagnostic) => diagnostic.code === "harness.auth_required"), true);
+
+    writeExecutable(dshPath, "#!/bin/sh\nexit 0\n");
+    const empty = await runAgentRouter(request);
+    assert.equal(empty.status, "failed");
+    assert.equal(empty.diagnostics.some((diagnostic) => diagnostic.code === "harness.empty_response"), true);
+
+    writeExecutable(dshPath, "#!/bin/sh\nsleep 1\n");
+    const timeout = await runAgentRouter({ ...request, timeoutMs: 50 });
+    assert.equal(timeout.status, "timeout");
+    assert.equal(timeout.diagnostics.some((diagnostic) => diagnostic.code === "harness.timeout"), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runAgentRouter launches Hermes in headless text mode with model and runtime tool PATH", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "agent-router-hermes-"));
   const providerBinDir = join(workDir, "provider-bin");
