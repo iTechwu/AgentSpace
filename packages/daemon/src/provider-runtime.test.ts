@@ -63,6 +63,7 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
   const binPath = join(workDir, "dsh");
   const argsPath = join(workDir, "dsh-args.txt");
   const patchCopyPath = join(workDir, "dsh-patch-copy.yml");
+  const events: Array<{ type: string; content?: string }> = [];
   writeFileSync(
     binPath,
     [
@@ -88,6 +89,7 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
       modelId: "deepseek-v4-pro",
       contextEnv: { DSH_ARGS_PATH: argsPath, DSH_PATCH_COPY_PATH: patchCopyPath },
       taskTimeoutMs: 5_000,
+      onEvent: (event) => events.push(event),
     });
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
 
@@ -96,6 +98,7 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
     assert.equal(args.at(-1), "write a short reply");
     assert.match(readFileSync(patchCopyPath, "utf8"), /model: deepseek-v4-pro/);
     assert.equal(existsSync(args[3]!), false);
+    assert.ok(events.some((event) => event.type === "status" && event.content?.includes("DeepSeek Harness")));
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

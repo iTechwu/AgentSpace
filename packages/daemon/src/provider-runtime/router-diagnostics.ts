@@ -12,6 +12,14 @@ const CODEX_STALLED_RESUME_PATTERN = /falling back from websockets to https tran
 const OPENCLAW_MISSING_RESUME_SESSION_PATTERN = /session .*not found|session.*missing|conversation .*not found|conversation.*missing|agent .*not found|agent.*missing|unknown session/i;
 
 export function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[] {
+  if (event.type === "harness_started") {
+    const label = event.harness === "deepseek-harness" ? "DeepSeek Harness" : event.harness;
+    return [{
+      type: "status",
+      content: `${label} started; executing the task.`,
+      inputJson: { harness: event.harness, pid: event.pid },
+    }];
+  }
   if (event.type === "text_delta") {
     return event.text.trim() ? [{ type: "text", content: event.text }] : [];
   }
