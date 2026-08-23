@@ -1,4 +1,4 @@
-import { heartbeatDaemonSync, listPendingManagedRuntimeCleanupRequestsForDaemonSync, markManagedRuntimeCleanupRequestRunningSync } from "@dofe-agent/db";
+import { heartbeatDaemonSync, listPendingManagedRuntimeCleanupRequestsForDaemonSync, markManagedRuntimeCleanupRequestRunningSync, readDaemonSnapshotSync, recordAuditLogSync } from "@dofe-agent/db";
 import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@dofe-agent/domain";
 import { buildManagedCleanupCommands, resolveAgentRuntimeMode, resumePendingRuntimeCredentialRecoveriesAsync } from "@dofe-agent/services/runtime";
 import { readDaemonConnectionForDaemon, requireDaemonAuth, requireManagedNodeBootstrapToken } from "../_lib/auth";
@@ -34,6 +34,7 @@ export async function POST(request: Request): Promise<Response> {
     return daemon;
   }
 
+  const previousSnapshot = readDaemonSnapshotSync(daemon.daemonKey);
   const snapshot = heartbeatDaemonSync(daemon.daemonKey, {
     metadata: isRecord(body.metadata) ? body.metadata : undefined,
     runtimes: Array.isArray(body.runtimes)
@@ -46,6 +47,7 @@ export async function POST(request: Request): Promise<Response> {
           }))
       : undefined,
   });
+  recordProviderHealthTransitions(previousSnapshot, snapshot);
 
   const cleanupRequests = isRemoteMode
     ? listPendingManagedRuntimeCleanupRequestsForDaemonSync(daemon.id)
@@ -97,6 +99,74 @@ export async function POST(request: Request): Promise<Response> {
   };
 
   return Response.json(response);
+}
+
+function recordProviderHealthTransitions(
+  previous: ReturnType<typeof readDaemonSnapshotSync>,
+  current: ReturnType<typeof heartbeatDaemonSync>,
+): void {
+  const previousHealthByRuntimeId = new Map(
+    previous.runtimes.map((runtime) => [runtime.id, readProviderHealth(runtime.metadataJson)?.status ?? "unknown"]),
+  );
+  for (const runtime of current.runtimes) {
+    if (!runtime.managedCredentialId) continue;
+    const health = readProviderHealth(runtime.metadataJson);
+    if (!health || health.status === "unknown") continue;
+    const previousStatus = previousHealthByRuntimeId.get(runtime.id) ?? "unknown";
+    if (previousStatus === health.status) continue;
+    try {
+      recordAuditLogSync({
+        workspaceId: runtime.workspaceId,
+        title: "Managed runtime provider health changed",
+        note: `Runtime ${runtime.id} provider health changed from ${previousStatus} to ${health.status}.`,
+        code: "runtime.provider_health_changed",
+        source: "runtime_lifecycle",
+        data: {
+          runtimeId: runtime.id,
+          runtimeType: runtime.provider,
+          previousStatus,
+          status: health.status,
+          errorCode: health.errorCode,
+          verificationKind: health.verificationKind,
+          checkedAt: health.checkedAt,
+          protocols: runtime.protocols?.join(",") ?? "",
+          defaultModel: runtime.defaultModel ?? "",
+        },
+      });
+    } catch {
+      // Health reporting must remain available even if audit persistence is unavailable.
+    }
+  }
+}
+
+function readProviderHealth(metadataJson: string): {
+  status: "healthy" | "degraded" | "broken" | "unknown";
+  errorCode?: string;
+  verificationKind?: string;
+  checkedAt?: string;
+} | undefined {
+  try {
+    const metadata = JSON.parse(metadataJson) as { providerHealth?: unknown };
+    if (!metadata.providerHealth || typeof metadata.providerHealth !== "object" || Array.isArray(metadata.providerHealth)) {
+      return undefined;
+    }
+    const health = metadata.providerHealth as Record<string, unknown>;
+    const status = health.status;
+    if (status !== "healthy" && status !== "degraded" && status !== "broken" && status !== "unknown") {
+      return undefined;
+    }
+    const error = health.error && typeof health.error === "object" && !Array.isArray(health.error)
+      ? health.error as Record<string, unknown>
+      : undefined;
+    return {
+      status,
+      errorCode: typeof error?.code === "string" ? error.code : undefined,
+      verificationKind: typeof health.verificationKind === "string" ? health.verificationKind : undefined,
+      checkedAt: typeof health.checkedAt === "string" ? health.checkedAt : undefined,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
