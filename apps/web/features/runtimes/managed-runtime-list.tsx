@@ -130,6 +130,9 @@ function runtimeStatusFilter(runtime: ManagedRuntimeListItem): string {
   if (runtime.provisioningState === "credential_recovering") return "recovering";
   if (runtime.provisioningState === "needs_attention") return "attention";
   if (runtime.provisioningState === "legacy") return "stopped";
+  if (runtime.providerHealth?.providerUsable === "unusable") return "attention";
+  if (runtime.providerHealth?.providerHealth === "degraded") return "attention";
+  if (runtime.providerHealth?.providerHealth === "unknown") return "attention";
   return runtime.status === "online" ? "available" : "offline";
 }
 
@@ -178,6 +181,29 @@ function presentRuntimeState(runtime: ManagedRuntimeListItem, tx: (zh: string, e
       label: tx("已停止", "Stopped"),
       detail: tx("此执行引擎不再接收新任务。", "This runtime is not accepting new tasks."),
       tone: "stopped",
+    };
+  }
+  if (runtime.providerHealth?.providerUsable === "unusable") {
+    return {
+      label: tx("供应商不可用", "Provider unavailable"),
+      detail: runtime.providerHealth.providerHealthReason
+        || tx("供应商健康检查失败，新任务已暂停。", "Provider health check failed; new tasks are paused."),
+      tone: "attention",
+    };
+  }
+  if (runtime.providerHealth?.providerHealth === "degraded") {
+    return {
+      label: tx("供应商降级", "Provider degraded"),
+      detail: runtime.providerHealth.providerHealthReason
+        || tx("供应商仍可用，但健康检查报告降级。", "The provider is usable but its health check reports degradation."),
+      tone: "attention",
+    };
+  }
+  if (runtime.providerHealth?.providerHealth === "unknown") {
+    return {
+      label: tx("待验证", "Verification pending"),
+      detail: tx("尚未完成供应商健康检查，新任务暂不放行。", "Provider health has not been verified; new tasks are not yet allowed."),
+      tone: "attention",
     };
   }
   return runtime.status === "online"

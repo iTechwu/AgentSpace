@@ -90,3 +90,59 @@ it("flags runtimes that have closed sharing to new AI employees", () => {
   expect(within(lockedRow).getByText("Sharing closed to new AI employees")).toBeInTheDocument();
   expect(within(openRow).queryByText("Sharing closed to new AI employees")).not.toBeInTheDocument();
 });
+
+it("surfaces provider health failures and keeps them in the attention filter", async () => {
+  const user = userEvent.setup();
+  render(<ManagedRuntimeList pending={false} onRotate={vi.fn()} runtimes={[
+    {
+      id: "deepseek-broken",
+      name: "DeepSeek Harness",
+      provider: "deepseek-harness",
+      managedCredentialId: "c-deepseek",
+      status: "online",
+      provisioningState: "managed",
+      protocols: ["openai"],
+      defaultModel: "deepseek-v4-flash",
+      assignedEmployeeCount: 0,
+      periodActualCostUsd: 0,
+      unallocatedCostUsd: 0,
+      providerHealth: {
+        runtimeStatus: "online",
+        providerHealth: "broken",
+        providerUsable: "unusable",
+        providerHealthReason: "DeepSeek provider verification failed.",
+      },
+    },
+  ]} />);
+
+  const table = screen.getByRole("table", { name: "Managed runtimes" });
+  expect(within(table).getByText("Provider unavailable")).toBeInTheDocument();
+  expect(within(table).getByText("DeepSeek provider verification failed.")).toBeInTheDocument();
+  await user.selectOptions(screen.getByLabelText("Status"), "attention");
+  expect(within(table).getAllByText("DeepSeek Harness").length).toBeGreaterThan(0);
+});
+
+it("marks a usable but degraded provider as attention without blocking its row", () => {
+  render(<ManagedRuntimeList pending={false} onRotate={vi.fn()} runtimes={[{
+    id: "deepseek-degraded",
+    name: "DeepSeek Harness",
+    provider: "deepseek-harness",
+    managedCredentialId: "c-deepseek-degraded",
+    status: "online",
+    provisioningState: "managed",
+    protocols: ["openai"],
+    assignedEmployeeCount: 0,
+    periodActualCostUsd: 0,
+    unallocatedCostUsd: 0,
+    providerHealth: {
+      runtimeStatus: "online",
+      providerHealth: "degraded",
+      providerUsable: "usable",
+      providerHealthReason: "DeepSeek health probe is slow.",
+    },
+  }]} />);
+
+  const table = screen.getByRole("table", { name: "Managed runtimes" });
+  expect(within(table).getByText("Provider degraded")).toBeInTheDocument();
+  expect(within(table).getByText("DeepSeek health probe is slow.")).toBeInTheDocument();
+});

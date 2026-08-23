@@ -621,6 +621,9 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   });
   const managed = listManagedRuntimesForWorkspaceSync({ workspaceId: TEAM_WS, actorUserId: OWNER })[0]!;
   assert.equal(managed.displayName, "Nightly render runtime");
+  assert.equal(managed.providerHealth?.runtimeStatus, "online");
+  assert.equal(managed.providerHealth?.providerHealth, "unknown");
+  assert.equal(managed.providerHealth?.providerUsable, "unverified");
   assert.deepEqual(managed.protocols, ["anthropic"]);
   assert.equal(managed.defaultModel, "claude-sonnet");
   assert.equal(managed.assignedEmployeeCount, 1);

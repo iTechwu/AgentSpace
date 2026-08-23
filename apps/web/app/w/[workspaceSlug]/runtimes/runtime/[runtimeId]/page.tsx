@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { formatDaemonProviderLabel } from "@dofe-agent/domain";
+import { formatDaemonProviderLabel, type RuntimeProviderHealth } from "@dofe-agent/domain";
 import { getModelsTenantBillingReportAsync, isModelsInternalConfigured, type ModelsTenantBillingReport } from "@dofe-agent/services/models";
 import { listManagedRuntimesForWorkspaceSync, resolveAgentRuntimeMode, resolveManagedRuntimeScopeSync } from "@dofe-agent/services/runtime";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
@@ -59,7 +59,7 @@ export default async function ManagedRuntimeDetailPage({
     actorUserId: workspaceContext.currentUser.id,
   });
 
-  const presentation = presentRuntimeState(runtime.provisioningState, runtime.status);
+  const presentation = presentRuntimeState(runtime.provisioningState, runtime.status, runtime.providerHealth);
 
   return (
     <section className="page-shell runtime-detail runtime-detail--stable">
@@ -244,11 +244,21 @@ function RuntimeMetric({ label, value, warning = false }: { label: string; value
 function presentRuntimeState(
   state: "managed" | "draining" | "credential_recovering" | "needs_attention" | "legacy",
   status: "online" | "offline",
+  providerHealth?: RuntimeProviderHealth,
 ): { label: string; detail: string; tone: "available" | "recovering" | "attention" | "stopped" } {
   if (state === "credential_recovering") return { label: "凭据恢复中", detail: "正在更新安全访问凭据", tone: "recovering" };
   if (state === "draining") return { label: "停止结算中", detail: "已禁止新任务，正在等待结算", tone: "stopped" };
   if (state === "needs_attention") return { label: "需要处理", detail: "需要管理员介入", tone: "attention" };
   if (state === "legacy") return { label: "已停止", detail: "不再接收新任务", tone: "stopped" };
+  if (providerHealth?.providerUsable === "unusable") {
+    return { label: "供应商不可用", detail: providerHealth.providerHealthReason || "供应商健康检查失败，新任务已暂停", tone: "attention" };
+  }
+  if (providerHealth?.providerHealth === "degraded") {
+    return { label: "供应商降级", detail: providerHealth.providerHealthReason || "供应商仍可用，但健康检查报告降级", tone: "attention" };
+  }
+  if (providerHealth?.providerHealth === "unknown") {
+    return { label: "待验证", detail: "尚未完成供应商健康检查，新任务暂不放行", tone: "attention" };
+  }
   return status === "online"
     ? { label: "可用", detail: "可以接收任务", tone: "available" }
     : { label: "离线", detail: "等待节点心跳", tone: "attention" };

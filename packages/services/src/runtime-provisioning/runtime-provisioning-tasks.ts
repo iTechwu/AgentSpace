@@ -21,6 +21,7 @@ import type {
 } from "@dofe-agent/db";
 import type {
   DaemonProvider,
+  RuntimeProviderHealth,
 } from "@dofe-agent/domain";
 import {
   tryRecordWorkspaceAuditEventSync,
@@ -29,6 +30,7 @@ import {
   assertCanManageManagedRuntimes,
   assertRemoteRuntimeMode,
 } from "./runtime-provisioning-capacity.ts";
+import { normalizeRuntimeProviderHealth } from "../runtime-health/runtime-health.ts";
 import type {
   ManagedRuntimeActor,
 } from "./runtime-provisioning-capacity.ts";
@@ -252,6 +254,11 @@ export function listManagedRuntimesForWorkspaceSync(
       provider: row.provider,
       managedCredentialId: row.managedCredentialId!,
       status: row.status === "online" ? "online" : "offline",
+      providerHealth: normalizeRuntimeProviderHealth({
+        runtimeStatus: row.status,
+        runtimeMetadata: parseRuntimeMetadata(row.metadataJson),
+        lastError: row.lastError,
+      }),
       provisioningState: normalizeManagedRuntimeLifecycleState(row.provisioningState),
       protocols: row.protocols ?? [],
       defaultModel: row.defaultModel,
@@ -280,6 +287,7 @@ export interface ManagedRuntimeListItem {
   provider: DaemonProvider;
   managedCredentialId: string;
   status: "online" | "offline";
+  providerHealth?: RuntimeProviderHealth;
   provisioningState: "managed" | "draining" | "credential_recovering" | "needs_attention" | "legacy";
   protocols: string[];
   defaultModel?: string;
@@ -297,6 +305,17 @@ export interface ManagedRuntimeListItem {
   unallocatedUsageCount?: number;
   unpricedUsageCount?: number;
   unallocatedCostUsd: number;
+}
+
+function parseRuntimeMetadata(value: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 function normalizeManagedRuntimeLifecycleState(value: string | null | undefined): ManagedRuntimeListItem["provisioningState"] {
