@@ -20,8 +20,8 @@ export function sanitizeRuntimeHealthText(value: string | undefined): string | u
   if (!value?.trim()) return undefined;
   const normalized = value
     .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/((?:deepseek[_-]?api[_-]?key|api[_-]?key|authorization|bearer|token|secret|password)\s*[:=]\s*(?:bearer\s+)?)([^\s,;.]+)/gi, "$1[REDACTED]")
-    .replace(/(https?:\/\/[^\s?]+[?&](?:api[_-]?key|key|token)=)([^&\s]+)/gi, "$1[REDACTED]")
+    .replace(/((["']?(?:deepseek[_-]?api[_-]?key|api[_-]?key|authorization|bearer|token|secret|password)["']?)\s*[:=]\s*["']?(?:bearer\s+)?)([^"'\s,;.}]+)/gi, "$1[REDACTED]")
+    .replace(/(https?:\/\/[^\s?]+[?&](?:api[_-]?key|key|token)=)([^&\s"'}]+)/gi, "$1[REDACTED]")
     .replace(/\s+/g, " ")
     .trim();
   return normalized.length > MAX_PUBLIC_HEALTH_TEXT_LENGTH

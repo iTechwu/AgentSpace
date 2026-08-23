@@ -59,4 +59,21 @@ describe("runtime health", () => {
     expect(JSON.stringify(health)).not.toContain("secret-token-123");
     expect(JSON.stringify(health)).not.toContain("sk-secret-value");
   });
+
+  it("redacts quoted JSON credentials and URL query credentials", () => {
+    const health = normalizeRuntimeProviderHealth({
+      runtimeStatus: "online",
+      runtimeMetadata: {
+        providerHealth: {
+          status: "broken",
+          reason: '{"error":"unauthorized","api_key":"sk-json-value"} https://deepseek.test/models?api_key=sk-query-value',
+        },
+      },
+    });
+
+    expect(health.providerHealthReason).toContain('"api_key":"[REDACTED]"');
+    expect(health.providerHealthReason).toContain("api_key=[REDACTED]");
+    expect(JSON.stringify(health)).not.toContain("sk-json-value");
+    expect(JSON.stringify(health)).not.toContain("sk-query-value");
+  });
 });
