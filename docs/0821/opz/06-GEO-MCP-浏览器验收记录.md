@@ -12,17 +12,18 @@
 - AgentSpace Runtime：Docker 管理节点 `dofe-agentspace-yootun-managed-node-managed-node-1`，健康状态为 `healthy`。
 - GEOFlow：`geoflow-app-prod`、`geoflow-web-prod`、`geoflow-queue-prod`、`geoflow-scheduler-prod`、`geoflow-reverb-prod` 全部为 `healthy`。
 - PostgreSQL、Redis、RabbitMQ：继续使用 `../docker-helm.dofe.ai` 管理的外部容器；本轮未创建、重建或初始化这些依赖。
-- GEOFlow 应用镜像从提交归档构建，避免未提交工作区内容进入镜像；最终本机镜像 manifest 为 `sha256:ba11c9c7101975dd01eb1ec72d0ce9f29b4be55eeb874c72f906d425892ebb66`。
+- GEOFlow 已按停机排空、外部迁移、启动和 readiness 顺序升级到提交 `308c62f`；app 镜像 manifest 为 `sha256:a96bae4ffdabeb779e6fd8aba6518b700e954acf8f855ebed25d971c6aedc72f`，web 为 `sha256:1aab4a139e8f57c97f5eeaf6b057a96d2d9b2059012ed6f3e900ef1c3ec5a19a`。
+- AgentSpace managed-node 使用本机 recovery overlay 运行 Node `24.19.0`，镜像 manifest 为 `sha256:336f371fb08132bc5acbeda1ff7b2b52d0d830d8334a0d101a222c251fa02d75`；容器健康检查和 daemon status 均通过。
 
 ## 2. 浏览器全流程
 
 最终 Chromium 回归执行了以下真实操作：
 
 1. 以本地测试管理员会话打开 MCP 市场。
-2. 发布 `GEOFlow Docker Live mt64arnt` 私有目录项，Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
+2. 发布 `GEOFlow Docker Live mt65gmkx` 私有目录项，Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
 3. 配置加密保存的 Authorization 凭据，选择在线 Codex Runtime，并等待连接状态变为 `ready`。
 4. 声明并发现五个带命名空间的工具：`create`、`status`、`autosave`、`validate`、`publish`。
-5. 打开 AI 员工创建页，以空白模板创建 `GEO Manager mt64arnt`，备注名为 `GEO 管理员工 mt64arnt`，绑定同一 Runtime。
+5. 打开 AI 员工创建页，以空白模板创建 `GEO Manager mt65gmkx`，备注名为 `GEO 管理员工 mt65gmkx`，绑定同一 Runtime。
 6. 在桌面和 390 x 844 移动视口检查员工目录、文本布局和横向溢出。
 
 | 检查 | 最终结果 |
@@ -32,8 +33,8 @@
 | 浏览器 console error / warning | 0 / 0 |
 | `requestfailed` | 0 |
 | 移动端横向溢出 | 0 px |
-| 页面 DCL / load | 807 ms / 807 ms |
-| Playwright | 1 passed，35.0 s |
+| 页面 DCL / load | 663 ms / 763 ms |
+| Playwright | 1 passed，32.6 s |
 
 证据：
 
@@ -57,11 +58,11 @@
 
 | 业务实体 / 证据 | 值 |
 | --- | --- |
-| AgentSpace task | `task-geo-live-mt647r33` |
-| GEOFlow enterprise project | `5`，发布前状态 `reviewing` |
-| Knowledge base | `4` |
+| AgentSpace task | `task-geo-live-mt65dq96` |
+| GEOFlow enterprise project | `6`，发布前状态 `reviewing` |
+| Knowledge base | `5` |
 | Knowledge chunks | `3` |
-| Embedding | models 实际路由返回，model id `7`，维度 `2048` |
+| Embedding | models `embedding-vision` 实际路由返回，provider `dofe-models-api-local`，维度 `2048` |
 | 成功工具审计 | 五个工具全部存在 `succeeded` 记录 |
 
 这条链路不是直接调用 GeoFlow service：请求实际经过 AgentSpace 目录、连接密钥解密、任务级授权、daemon gateway、Streamable HTTP MCP、GeoFlow queue 和 models embedding 调用。
@@ -75,8 +76,11 @@
 5. 企业知识 AI 生成约 30-63 秒，旧验收在 60 秒超时后继续发布，后台任务可能覆盖人工稿。现业务端在 queued/processing 状态拒绝保存、校验和发布，队列任务使用原子状态条件写回；验收必须等待 `reviewing`。
 6. 浏览器表单的 HTML pattern 对 `-` 转义不完整，且工具名不允许点号。现已修正 slug、版本和工具名 pattern，并补充组件测试。
 7. 审计验收原用分页总数差切片，历史达到 25 条上限后误报空审计。现将查询上限提高到 100，并按本次 `taskId` 精确过滤。
+8. GeoFlow URL 导入原先先计数再创建，并发请求可能越过每租户上限。现按租户哈希锁串行化计数与创建；真实容器 5 路并发验证为 3 个创建成功、2 个稳定限流，测试记录随后清零。
+9. GeoFlow `tools/list` 原先向只读令牌暴露写工具名称。现按令牌 scope 过滤目录；真实容器验证写令牌可见 51 个工具，只读令牌仅见 26 个且不包含任务创建和文章发布。
+10. SSO 登录后的前端误用 `document.cookie` 验证生产 HttpOnly Cookie，成功登录也会输出 warning。修复改为调用后端 `/auth/session` 验证；真实隔离 Chromium 已完成手机号登录、OAuth authorize、AgentSpace callback 和工作区落地，所有关键响应成功。
 
-GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布竞态保护）、`41cb1c6`（无 pgvector 列兼容）。
+GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布竞态保护）、`41cb1c6`（无 pgvector 列兼容）、`0015eb5`（URL 导入并发保护）、`308c62f`（工具发现权限过滤）。SSO 对应提交：`736cebc`（HttpOnly 会话验证）。
 
 ## 5. 自动化回归结果
 
@@ -88,9 +92,14 @@ GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布
 | AgentSpace daemon typecheck | 通过 |
 | 真实 AgentSpace -> GEOFlow MCP | 通过，五工具、3 chunks、五条成功审计 |
 | Chromium 桌面/移动端 | 1 passed；0 console issue；0 failed request；0 overflow |
+| 外部 SSO 隔离 Chromium | 登录 POST 200；authorize 302；callback 307；工作区 200 |
+| GeoFlow MCP 权限目录 | 写令牌 51 个；只读令牌 26 个且隐藏写工具 |
+| GeoFlow URL 导入并发 | 5 路并发：3 创建、2 限流；清理后 0 条测试记录 |
+| managed-node Node 基线 | `v24.19.0`；daemon healthy；真实五工具任务通过 |
 
 ## 6. 保留限制
 
-- 宿主机当前为 Node `25.9.0`，仓库契约为 Node `24.19.0`，因此 pnpm 会正确发出 engine warning。正式 CI 和发布镜像仍必须使用 Node 24.19.0；本机 managed-node overlay 仅用于这次 Docker 联调，不作为发布镜像。
-- 本轮外部 SSO 登录页按钮没有产生回调请求，因此浏览器验收使用数据库创建的本地短期测试会话。MCP、员工、Runtime 和业务数据均为真实本地/测试环境数据，但外部 SSO provider 登录仍需在其可用环境单独回归。
+- 宿主机仍为 Node `25.9.0`，因此宿主 pnpm 会正确发出 engine warning；真实 managed-node 已使用官方发行包和固定 SHA-256 运行 Node `24.19.0`。正式 CI 仍必须发布批准的私有 `node:24.19-bookworm-slim` 基础镜像，本机 recovery overlay 不作为发布镜像。
+- 中央 PostgreSQL 当前没有 pgvector ANN 列。正确性路径已验证使用 `embedding_json` 保存 2048 维真实向量并完成发布；大规模检索的 ANN 性能优化仍属于集中数据库能力建设。
+- SSO 源码修复已在 `sso.dofe.ai` 本地提交并通过单测、ESLint、Web TypeScript；本机没有远端 SSO 的非 Jenkins 部署入口，因此线上页面仍可能输出旧 warning，但真实登录和 AgentSpace callback 已成功。
 - 本机没有启动或触发 Jenkins，也没有 push。GeoFlow Docker 部署仅为用户明确要求的本机真实环境回归。
