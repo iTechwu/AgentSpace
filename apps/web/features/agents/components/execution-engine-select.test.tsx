@@ -127,3 +127,40 @@ it("disables a managed runtime when its provider is known to be unavailable", as
   expect(screen.getByRole("option", { name: /DeepSeek Harness/ })).toBeDisabled();
   expect(screen.getByText("DeepSeek provider verification failed.")).toBeInTheDocument();
 });
+
+it("explains the DeepSeek headless session boundary in the runtime option", async () => {
+  const user = userEvent.setup();
+  render(
+    <LanguageProvider initialLanguage="en">
+      <ExecutionEngineSelect
+        label="Execution engine"
+        name="runtimeId"
+        onChange={vi.fn()}
+        options={[{
+          id: "runtime-deepseek",
+          label: "DeepSeek Harness",
+          provider: "deepseek-harness",
+          status: "online",
+          providerHealth: {
+            runtimeStatus: "online",
+            providerHealth: "healthy",
+            providerUsable: "usable",
+          },
+          serverName: "Managed",
+          daemonKey: "runtime-deepseek",
+          mode: "remote",
+          managed: true,
+          provisioningState: "managed",
+          bindable: true,
+          defaultModel: "deepseek-v4-flash",
+        }]}
+        placeholder="Select an execution engine"
+        value=""
+      />
+    </LanguageProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Execution engine" }));
+
+  expect(screen.getByText("Headless · no resume")).toBeInTheDocument();
+});
