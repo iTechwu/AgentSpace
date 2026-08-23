@@ -58,6 +58,7 @@ import {
   encryptMcpGrant,
   encryptMcpSecret,
   getMcpSecretKeyVersion,
+  mcpEndpointValidationOptionsFromEnv,
   validateMcpConnectionConfiguration,
   validateMcpEndpoint,
   validateManagedStdioEndpoint,
@@ -206,7 +207,7 @@ export function materializeMcpConnectionSync(input: RequestMcpConnectionInput): 
     source: "user_verify",
     requestedByUserId: input.actorUserId,
     requestSnapshotJson: JSON.stringify({
-      endpoint: endpointCheck.host ? `https://${endpointCheck.host}` : undefined,
+      endpoint: endpointCheck.host ? new URL(input.endpoint).origin : undefined,
       host: endpointCheck.host,
       transport: catalog.transport,
       approvedToolCount: approvedTools.length,
@@ -1439,7 +1440,9 @@ function validateConnectionEndpoint(
   endpoint: string,
   allowedHosts: string[],
 ) {
-  if (catalog.transport === "streamable_http") return validateMcpEndpoint(endpoint, allowedHosts);
+  if (catalog.transport === "streamable_http") {
+    return validateMcpEndpoint(endpoint, allowedHosts, mcpEndpointValidationOptionsFromEnv());
+  }
   if (catalog.transport === "managed_stdio") {
     const validation = validateManagedStdioEndpoint(endpoint);
     if (!validation.ok) return validation;

@@ -149,6 +149,57 @@ test("requestMcpConnection creates a connection and queues a verify operation", 
   assert.equal(detail?.secretFields[0]?.configured, true);
 });
 
+test("requestMcpConnection permits only an explicitly gated local Docker endpoint", () => {
+  const endpoint = "http://127.0.0.1:18080/mcp";
+  const originalAllowLocal = process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL;
+  const originalLocalEndpoints = process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
+  delete process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL;
+  delete process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
+  const runtimeId = createRuntime();
+  const catalog = createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: `local-geoflow-${Math.random().toString(36).slice(2)}`,
+    displayName: "Local GEOFlow MCP",
+    transport: "streamable_http",
+    allowedHosts: ["127.0.0.1"],
+    configurationSchema: { type: "object", properties: {}, additionalProperties: false },
+    declaredTools: [{ name: "geoflow_catalog", description: "Read GEOFlow catalog", risk: "low" }],
+    defaultApprovedTools: ["geoflow_catalog"],
+    secretFields: [],
+    risk: "low",
+  });
+
+  assert.throws(() => requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint,
+    confirmHighRisk: true,
+  }), /mcp\.policy_denied/);
+
+  process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL = "1";
+  process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS = JSON.stringify([endpoint]);
+  try {
+    const { operation } = requestMcpConnectionSync({
+      workspaceId: "default",
+      actorUserId: ADMIN_USER_ID,
+      runtimeId,
+      catalogItemId: catalog.id,
+      endpoint,
+      confirmHighRisk: true,
+    });
+    assert.equal(operation.status, "pending");
+    assert.equal(JSON.parse(operation.requestSnapshotJson).endpoint, "http://127.0.0.1:18080");
+  } finally {
+    if (originalAllowLocal === undefined) delete process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL;
+    else process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL = originalAllowLocal;
+    if (originalLocalEndpoints === undefined) delete process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
+    else process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS = originalLocalEndpoints;
+  }
+});
+
 test("requestMcpConnection rejects a provider without MCP gateway support", () => {
   process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED = "1";
   const runtimeId = createRuntime("deepseek-harness");
@@ -413,6 +464,22 @@ test("workspace catalog cannot claim the platform-managed service transport", ()
     configurationSchema: { type: "object" },
     declaredTools: [{ name: "submit_video_job", description: "Submit", risk: "high" }],
   }), /managed_service_not_supported/);
+});
+
+test("workspace catalog accepts namespaced MCP tool names", () => {
+  const catalog = createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: "namespaced-tools",
+    displayName: "Namespaced tools",
+    transport: "streamable_http",
+    allowedHosts: ["mcp.example.test"],
+    configurationSchema: { type: "object" },
+    declaredTools: [{ name: "geoflow.enterprise_knowledge.publish", description: "Publish knowledge", risk: "high" }],
+  });
+
+  const declaredTools = JSON.parse(catalog.declaredToolsJson) as Array<{ name: string }>;
+  assert.equal(declaredTools[0]?.name, "geoflow.enterprise_knowledge.publish");
 });
 
 test("managed stdio catalog rejects untrusted commands and reserved environment names", () => {

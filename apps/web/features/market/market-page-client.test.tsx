@@ -224,8 +224,11 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("button", { name: "添加 MCP 服务" }));
     const dialog = screen.getByRole("dialog", { name: "添加 MCP 服务" });
     const catalogForm = within(dialog);
+    expect(catalogForm.getByLabelText("Slug")).toHaveAttribute("pattern", "[a-z0-9][a-z0-9\\-]{0,62}");
+    expect(catalogForm.getByLabelText("版本")).toHaveAttribute("pattern", "\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.\\-]+)?");
+    expect(catalogForm.getByLabelText("工具 1")).toHaveAttribute("pattern", "[A-Za-z][A-Za-z0-9_.\\-]{0,63}");
     await user.type(catalogForm.getByLabelText("服务名称", { selector: "input" }), "Internal Search");
-    await user.type(catalogForm.getByLabelText("Endpoint (HTTPS)"), "https://mcp.internal.example/mcp");
+    await user.type(catalogForm.getByLabelText("Endpoint (HTTPS or approved local address)"), "https://mcp.internal.example/mcp");
     await user.type(catalogForm.getByLabelText("工具 1"), "search_records");
     await user.type(catalogForm.getByLabelText("说明", { selector: "input" }), "Search internal records");
     await user.click(catalogForm.getByRole("button", { name: "发布到目录" }));

@@ -55,7 +55,7 @@ export function assertCanManageMcpCenterSync(input: { workspaceId: string; actor
   }
 }
 
-const VALID_TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_\-]{0,63}$/;
+const VALID_TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_.\-]{0,63}$/;
 
 export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpCatalogItemRecord {
   assertCanManageMcpCenterSync({ workspaceId: input.workspaceId, actorUserId: input.actorUserId });

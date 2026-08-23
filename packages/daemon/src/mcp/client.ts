@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { McpDiscoveredTool, McpErrorCode, McpVerificationResult, ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
-import { redactMcpText, redactToolInputSchema, validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services/mcp-center";
+import { isMcpInsecureLocalEndpointAllowed, mcpEndpointValidationOptionsFromEnv, redactMcpText, redactToolInputSchema, validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services/mcp-center";
 import { buildMcpEgressProxyRequestHeaders, createMcpEgressProxyClient } from "./egress-client.ts";
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -149,9 +149,14 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
       await client.close().catch(() => undefined);
     }
   }
-  const useProxy = Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
+  const localValidationOptions = mcpEndpointValidationOptionsFromEnv();
+  const useInsecureLocalEndpoint = isMcpInsecureLocalEndpointAllowed(connection.endpoint, localValidationOptions);
+  const useProxy = !useInsecureLocalEndpoint && Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
   const enforceEgress = process.env.MCP_EGRESS_ENFORCE === "true";
 
+  if (enforceEgress && useInsecureLocalEndpoint) {
+    throw new Error("Insecure local MCP endpoints are disabled while MCP egress enforcement is active.");
+  }
   if (enforceEgress && !useProxy) {
     throw new Error("MCP egress is enforced but no proxy lease is available for this connection.");
   }
@@ -170,7 +175,9 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
     customFetch = (input, init) => proxyFetch(proxyClient, input, init);
   } else {
     transportUrl = endpointUrl;
-    customFetch = (input, init) => timeoutFetch(input, init);
+    customFetch = useInsecureLocalEndpoint
+      ? (input, init) => timeoutFetch(input, init, { fetchImpl: globalThis.fetch })
+      : (input, init) => timeoutFetch(input, init);
   }
 
   const transport = new StreamableHTTPClientTransport(transportUrl, {
@@ -384,7 +391,7 @@ export function normalizeDiscoveredTools(rawTools: unknown[]):
     }
     const tool = rawTool as { name?: unknown; description?: unknown; inputSchema?: unknown };
     const name = typeof tool.name === "string" ? tool.name : "";
-    if (!/^[a-zA-Z][a-zA-Z0-9_\-]{0,63}$/.test(name)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_.\-]{0,63}$/.test(name)) {
       return { ok: false, message: "Server advertised an invalid MCP tool name." };
     }
     if (names.has(name)) {
@@ -423,7 +430,7 @@ function guardEndpoint(connection: ResolvedMcpConnection): { ok: true } | { ok: 
   if (connection.transport !== "streamable_http") {
     return { ok: false, code: "mcp.policy_denied", message: "MCP transport is not supported." };
   }
-  const check = validateMcpEndpoint(connection.endpoint, connection.allowedHosts);
+  const check = validateMcpEndpoint(connection.endpoint, connection.allowedHosts, mcpEndpointValidationOptionsFromEnv());
   if (!check.ok) {
     return { ok: false, code: check.code ?? "mcp.policy_denied", message: check.message ?? "Endpoint rejected." };
   }

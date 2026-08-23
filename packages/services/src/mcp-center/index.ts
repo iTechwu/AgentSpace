@@ -63,10 +63,13 @@ export {
   encryptMcpGrant,
   encryptMcpSecret,
   getMcpSecretKeyVersion,
+  isMcpInsecureLocalEndpointAllowed,
+  mcpEndpointValidationOptionsFromEnv,
   redactMcpText,
   redactToolInputSchema,
   validateMcpEndpoint,
   validateMcpResolvedAddresses,
+  type McpEndpointValidationOptions,
 } from "./security.ts";
 
 export {

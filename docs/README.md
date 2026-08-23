@@ -63,7 +63,7 @@
 | 目录 | 主题 |
 | --- | --- |
 | `0814/release-preflight-checklist.md` | 发布前置检查清单（活文档，最近修订 2026-08-14） |
-| [0821/opz](./0821/opz/README.md) | 全项目扫描、优化建议与本机原生开发到 CI Docker 的迁移路线（提案） |
+| [0821/opz](./0821/opz/README.md) | 全项目扫描、优化建议与本机原生开发到 CI Docker 的迁移路线；GEOFlow MCP 真实 Docker 全链验收已完成 🟡 |
 | `0823/` | DeepSeek Harness Runtime 接入产品、架构、实施与验收方案（提案） |
 
 ### 其他

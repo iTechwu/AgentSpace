@@ -7,11 +7,13 @@ import { McpGateway } from "./gateway.ts";
 test("normalizeDiscoveredTools accepts bounded unique tool definitions", () => {
   const result = normalizeDiscoveredTools([
     { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" } },
+    { name: "geoflow.enterprise_knowledge.publish", description: "Publish knowledge", inputSchema: { type: "object" } },
   ]);
   assert.equal(result.ok, true);
   if (result.ok) {
-    assert.equal(result.tools.length, 1);
+    assert.equal(result.tools.length, 2);
     assert.equal(result.tools[0]?.name, "search_repos");
+    assert.equal(result.tools[1]?.name, "geoflow.enterprise_knowledge.publish");
   }
 });
 
