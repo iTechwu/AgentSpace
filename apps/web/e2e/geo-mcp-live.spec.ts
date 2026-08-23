@@ -10,6 +10,88 @@ const endpoint = process.env.DOFE_AGENT_LIVE_GEOFLOW_ENDPOINT ?? "http://127.0.0
 const mcpToken = process.env.DOFE_AGENT_LIVE_GEOFLOW_TOKEN ?? "";
 const evidenceDir = resolve(process.cwd(), "../../docs/0821/opz/evidence");
 
+type PageQuality = {
+  cls: number;
+  lcpMs: number;
+  maxLongTaskMs: number;
+  interactiveWithoutName: string[];
+  headingsWithoutName: string[];
+  documentLanguage: string;
+};
+
+async function installPerformanceObservers(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    const quality = { cls: 0, lcpMs: 0, longTasks: [] as number[] };
+    Object.defineProperty(window, "__geoLiveQuality", { value: quality });
+
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          const shift = entry as PerformanceEntry & { hadRecentInput?: boolean; value?: number };
+          if (!shift.hadRecentInput) quality.cls += Number(shift.value ?? 0);
+        }
+      }).observe({ type: "layout-shift", buffered: true });
+      new PerformanceObserver((list) => {
+        quality.lcpMs = Math.max(quality.lcpMs, ...list.getEntries().map((entry) => entry.startTime));
+      }).observe({ type: "largest-contentful-paint", buffered: true });
+      new PerformanceObserver((list) => {
+        quality.longTasks.push(...list.getEntries().map((entry) => entry.duration));
+      }).observe({ type: "longtask", buffered: true });
+    } catch {
+      // Unsupported entry types remain at zero and are reported with the evidence.
+    }
+  });
+}
+
+async function collectPageQuality(page: import("@playwright/test").Page): Promise<PageQuality> {
+  return page.evaluate(() => {
+    const quality = (window as unknown as {
+      __geoLiveQuality?: { cls: number; lcpMs: number; longTasks: number[] };
+    }).__geoLiveQuality ?? { cls: 0, lcpMs: 0, longTasks: [] };
+    const isVisible = (element: Element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    };
+    const accessibleName = (element: Element) => {
+      const labelledBy = element.getAttribute("aria-labelledby")
+        ?.split(/\s+/)
+        .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+        .filter(Boolean)
+        .join(" ") ?? "";
+      const labels = element instanceof HTMLInputElement
+        || element instanceof HTMLSelectElement
+        || element instanceof HTMLTextAreaElement
+        ? Array.from(element.labels ?? []).map((label) => label.textContent?.trim() ?? "").filter(Boolean).join(" ")
+        : "";
+      return [
+        element.getAttribute("aria-label"),
+        labelledBy,
+        labels,
+        element.getAttribute("alt"),
+        element.getAttribute("title"),
+        element.textContent,
+      ].find((value) => value?.trim())?.trim() ?? "";
+    };
+    const selector = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="link"]';
+    const interactiveWithoutName = Array.from(document.querySelectorAll(selector))
+      .filter((element) => isVisible(element) && element.getAttribute("aria-hidden") !== "true" && accessibleName(element) === "")
+      .map((element) => `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}`);
+    const headingsWithoutName = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6"))
+      .filter((element) => isVisible(element) && accessibleName(element) === "")
+      .map((element) => element.tagName.toLowerCase());
+
+    return {
+      cls: Number(quality.cls.toFixed(4)),
+      lcpMs: Math.round(quality.lcpMs),
+      maxLongTaskMs: Math.round(Math.max(0, ...quality.longTasks)),
+      interactiveWithoutName,
+      headingsWithoutName,
+      documentLanguage: document.documentElement.lang,
+    };
+  });
+}
+
 test.skip(!enabled, "Set DOFE_AGENT_LIVE_GEO_MCP=1 to run the Docker-backed GEOFlow regression.");
 
 test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", async ({ page }) => {
@@ -46,6 +128,7 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
     { name: "dofe_agent_session", value: token, domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax", expires: Math.floor(expiresAt.getTime() / 1000) },
     { name: "dofe_agent_workspace", value: workspace!.slug!, domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax", expires: Math.floor(expiresAt.getTime() / 1000) },
   ]);
+  await installPerformanceObservers(page);
 
   const browserIssues: string[] = [];
   page.on("console", (message) => {
@@ -156,13 +239,30 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
     return entry ? { domContentLoadedMs: Math.round(entry.domContentLoadedEventEnd), loadMs: Math.round(entry.loadEventEnd), transferBytes: entry.transferSize } : null;
   });
   expect(navigation).not.toBeNull();
+  const desktopQuality = await collectPageQuality(page);
+  expect(desktopQuality.documentLanguage).toMatch(/^(zh|en)/i);
+  expect(desktopQuality.interactiveWithoutName).toEqual([]);
+  expect(desktopQuality.headingsWithoutName).toEqual([]);
+  expect(desktopQuality.cls).toBeLessThanOrEqual(0.1);
+  expect(desktopQuality.lcpMs).toBeLessThanOrEqual(2_500);
+  expect(desktopQuality.maxLongTaskMs).toBeLessThanOrEqual(200);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload({ waitUntil: "networkidle" });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await expect(page.getByText(employeeDisplayName, { exact: true }).first()).toBeVisible();
+  await page.keyboard.press("Tab");
+  const hasKeyboardFocus = await page.evaluate(() => document.activeElement !== document.body && document.activeElement !== null);
+  expect(hasKeyboardFocus).toBe(true);
+  const mobileQuality = await collectPageQuality(page);
+  expect(mobileQuality.documentLanguage).toMatch(/^(zh|en)/i);
+  expect(mobileQuality.interactiveWithoutName).toEqual([]);
+  expect(mobileQuality.headingsWithoutName).toEqual([]);
+  expect(mobileQuality.cls).toBeLessThanOrEqual(0.1);
+  expect(mobileQuality.lcpMs).toBeLessThanOrEqual(2_500);
+  expect(mobileQuality.maxLongTaskMs).toBeLessThanOrEqual(200);
   await page.screenshot({ path: resolve(evidenceDir, "geo-mcp-live-mobile.png"), fullPage: true });
   expect(browserIssues).toEqual([]);
-  console.log(JSON.stringify({ serviceName, employeeName, employeeDisplayName, navigation }));
+  console.log(JSON.stringify({ serviceName, employeeName, employeeDisplayName, navigation, desktopQuality, mobileQuality }));
 });
