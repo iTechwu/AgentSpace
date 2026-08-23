@@ -30,6 +30,7 @@ export {
   enableMcpConnectionSync,
   failMcpConnectionOperationWithHealthScheduleSync,
   findMissingApprovedMcpTools,
+  isMcpRuntimeProviderEligible,
   listMcpConnectionActivitySync,
   listMcpConnectionsForRuntimeServiceSync,
   listReadyMcpConnectionsForTaskSync,

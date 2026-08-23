@@ -96,6 +96,8 @@ beforeEach(() => {
   delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION;
   delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS;
   process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64");
+  process.env.MCP_CODEX_EXPERIMENTAL_ENABLED = "1";
+  delete process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED;
   ADMIN_USER_ID = createUserSync({ displayName: "MCP Admin", isAdmin: true }).id;
 });
 
@@ -145,6 +147,40 @@ test("requestMcpConnection creates a connection and queues a verify operation", 
   assert.equal(detail?.secretFields.length, 1);
   assert.equal(detail?.secretFields[0]?.fieldName, "api_key");
   assert.equal(detail?.secretFields[0]?.configured, true);
+});
+
+test("requestMcpConnection rejects a provider without MCP gateway support", () => {
+  process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED = "1";
+  const runtimeId = createRuntime("deepseek-harness");
+  const catalogId = seedCatalog();
+
+  assert.throws(() => requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "sk-test-value" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  }), /mcp\.runtime_provider_not_eligible/);
+});
+
+test("requestMcpConnection rejects an MCP-capable provider while its experiment is disabled", () => {
+  delete process.env.MCP_CODEX_EXPERIMENTAL_ENABLED;
+  const runtimeId = createRuntime("codex");
+  const catalogId = seedCatalog();
+
+  assert.throws(() => requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "sk-test-value" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  }), /mcp\.runtime_provider_not_eligible/);
 });
 
 test("managed stdio catalog connects an installed Runtime entrypoint without an egress lease", () => {
@@ -1460,11 +1496,11 @@ function seedInstalledPrivateRuntimeApp(runtimeId: string, entryPoint: string) {
   return release;
 }
 
-function createRuntime(): string {
+function createRuntime(provider: "codex" | "deepseek-harness" = "codex"): string {
   const snapshot = registerDaemonRuntimesSync({
     daemonKey: `daemon-${Math.random().toString(36).slice(2)}`,
     deviceName: "Build Box",
-    runtimes: [{ provider: "codex", name: "Remote Codex", version: "test" }],
+    runtimes: [{ provider, name: `Remote ${provider}`, version: "test" }],
   });
   return snapshot.runtimes[0]!.id;
 }

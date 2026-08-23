@@ -41,6 +41,7 @@ import {
 import type {
   ClaimMcpTaskSessionResponse,
   ClaimedMcpConnectionOperation,
+  DaemonProvider,
   McpConnectionOperationSource,
   McpConnectionStatus,
   McpDiscoveredTool,
@@ -106,6 +107,11 @@ export interface RequestMcpConnectionResult {
   operation: RuntimeMcpOperationRecord;
 }
 
+export function isMcpRuntimeProviderEligible(provider: DaemonProvider): boolean {
+  return (provider === "claude" && process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED === "1")
+    || (provider === "codex" && process.env.MCP_CODEX_EXPERIMENTAL_ENABLED === "1");
+}
+
 /**
  * Admin-gated MCP connection entry point. The capability_request completion
  * flow uses {@link materializeMcpConnectionSync} (internal to the module) after
@@ -133,6 +139,9 @@ export function materializeMcpConnectionSync(input: RequestMcpConnectionInput): 
   }
   if (runtime.status !== "online") {
     throw new Error("runtime.offline");
+  }
+  if (!isMcpRuntimeProviderEligible(runtime.provider)) {
+    throw new Error("mcp.runtime_provider_not_eligible");
   }
 
   const catalog = readMcpCatalogItemSync(input.catalogItemId, input.workspaceId);
