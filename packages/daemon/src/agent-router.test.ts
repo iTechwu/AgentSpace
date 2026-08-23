@@ -64,6 +64,7 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
   const dshPath = join(binDir, "dsh");
   const argsPath = join(workDir, "dsh-args.txt");
   const homePath = join(workDir, "dsh-home.txt");
+  const policyPath = join(workDir, "dsh-policy.txt");
 
   try {
     writeExecutable(
@@ -72,6 +73,7 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
         "#!/bin/sh",
         "printf '%s\\n' \"$@\" > \"$DSH_ARGS_PATH\"",
         "printf '%s' \"$DSH_HOME\" > \"$DSH_HOME_PATH\"",
+        "printf '%s\\n%s' \"$DSH_PERMISSION_MODE\" \"$DSH_TELEMETRY_DISABLED\" > \"$DSH_POLICY_PATH\"",
         "printf '%s\\n' 'deepseek harness output'",
       ].join("\n"),
     );
@@ -86,8 +88,9 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
       env: {
         DSH_ARGS_PATH: argsPath,
         DSH_HOME_PATH: homePath,
+        DSH_POLICY_PATH: policyPath,
       },
-      timeoutMs: 1_000,
+      timeoutMs: 5_000,
     });
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
     const patchIndex = args.indexOf("--patch");
@@ -99,8 +102,13 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
     assert.equal(patchIndex, 2);
     assert.equal(args.at(-1), "hello deepseek");
     assert.equal(readFileSync(homePath, "utf8"), join(workDir, ".dofe-deepseek-harness"));
+    assert.equal(readFileSync(policyPath, "utf8"), "workspace-write\n1");
     assert.match(readFileSync(modelPatchPath, "utf8"), /provider: deepseek-official/);
     assert.match(readFileSync(modelPatchPath, "utf8"), /model: deepseek-v4-pro/);
+    assert.match(readFileSync(modelPatchPath, "utf8"), /id: tool-web\n  disabled: true/);
+    assert.match(readFileSync(modelPatchPath, "utf8"), /id: tool-subagent\n  disabled: true/);
+    assert.match(readFileSync(modelPatchPath, "utf8"), /id: tool-workflow\n  disabled: true/);
+    assert.match(readFileSync(modelPatchPath, "utf8"), /id: tool-ralph\n  disabled: true/);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

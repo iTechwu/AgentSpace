@@ -23,6 +23,17 @@ import { runVersionCommand } from "./versions.ts";
 
 const SUPPORTED_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
 const SESSION_UNSUPPORTED_MESSAGE = "DeepSeek Harness headless mode does not support session resume.";
+const DISABLED_P0_TOOL_ROWS = [
+  "web-search-deepseek",
+  "tool-web",
+  "tool-subagent-control",
+  "tool-subagent-list-agents",
+  "tool-subagent",
+  "tool-subagent-fork",
+  "tool-subagent-report",
+  "tool-workflow",
+  "tool-ralph",
+] as const;
 
 export const deepSeekHarnessAdapter: HarnessAdapter = {
   id: "deepseek-harness",
@@ -63,16 +74,22 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
     if (!SUPPORTED_MODELS.has(input.model)) {
       throw new Error(`DeepSeek Harness model "${input.model}" is not supported.`);
     }
-    const patchPath = join(input.cwd, `.dofe-deepseek-harness-${input.model}.patch.yml`);
-    writeFileSync(patchPath, [
+  }
+  const patchPath = join(input.cwd, ".dofe-deepseek-harness.patch.yml");
+  const patch = input.model
+    ? [
       "- id: agent-default-model",
       "  config:",
       "    provider: deepseek-official",
       `    model: ${input.model}`,
-      "",
-    ].join("\n"), { encoding: "utf8", mode: 0o600 });
-    args.push("--patch", patchPath);
+    ]
+    : [];
+  for (const id of DISABLED_P0_TOOL_ROWS) {
+    patch.push(`- id: ${id}`, "  disabled: true");
   }
+  patch.push("");
+  writeFileSync(patchPath, patch.join("\n"), { encoding: "utf8", mode: 0o600 });
+  args.push("--patch", patchPath);
   args.push(input.prompt);
 
   const env = buildBaseEnv(
@@ -81,6 +98,9 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
     buildCapabilityPathDirs(input.runtimeToolCapabilities),
   );
   env.DSH_HOME = env.DSH_HOME?.trim() || join(input.cwd, ".dofe-deepseek-harness");
+  env.DSH_PERMISSION_MODE = "workspace-write";
+  env.DSH_TELEMETRY_DISABLED = "1";
+  env.DSH_TOOLS_MODE = "";
   mkdirSync(env.DSH_HOME, { recursive: true, mode: 0o700 });
 
   return {
