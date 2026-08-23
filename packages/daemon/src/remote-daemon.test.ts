@@ -433,6 +433,8 @@ test("official managed stdio profiles add browser flags without accepting them f
 
 test("trusted managed stdio profiles can use the Runtime network only when egress enforcement is disabled", () => {
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-managed-network-"));
+  const originalNetwork = process.env.MANAGED_RUNTIME_DOCKER_NETWORK;
+  process.env.MANAGED_RUNTIME_DOCKER_NETWORK = "dofe-managed-egress";
   try {
     const connection = {
       endpoint: "stdio://minimax-coding-plan-mcp",
@@ -468,6 +470,8 @@ test("trusted managed stdio profiles can use the Runtime network only when egres
       else process.env.MCP_EGRESS_ENFORCE = original;
     }
   } finally {
+    if (originalNetwork === undefined) delete process.env.MANAGED_RUNTIME_DOCKER_NETWORK;
+    else process.env.MANAGED_RUNTIME_DOCKER_NETWORK = originalNetwork;
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
