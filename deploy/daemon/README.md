@@ -1,9 +1,9 @@
 # One Runtime Per Container
 
-This deployment model creates one remote daemon and one DofeAgent runtime per container. It deliberately does not combine Codex, Claude Code, OpenClaw, and Hermes credentials in the same process or filesystem.
+This deployment model creates one remote daemon and one DofeAgent runtime per container. It deliberately does not combine Codex, Claude Code, OpenClaw, Hermes, and DeepSeek Harness credentials in the same process or filesystem.
 
 1. Copy `.env.example` to `.env` and pin the approved installation command for each provider.
-2. Create a Provider Account for the workspace, with a node-local `file://` `secretRef` or `configRef`. Copy `runtimes/runtime.env.example` to `runtimes/codex.env`, `runtimes/claude.env`, `runtimes/openclaw.env`, and `runtimes/hermes.env`; set `DOFE_AGENT_RUNTIME_PROVIDER`, the matching `DOFE_AGENT_PROVIDER_ACCOUNT_ID`, and references below that runtime's mounted credential root.
+2. Create a Provider Account for the workspace, with a node-local `file://` `secretRef` or `configRef`. Copy `runtimes/runtime.env.example` to the provider-specific env file (`codex.env`, `claude.env`, `openclaw.env`, `hermes.env`, or `deepseek-harness.env`); set `DOFE_AGENT_RUNTIME_PROVIDER`, the matching `DOFE_AGENT_PROVIDER_ACCOUNT_ID`, and references below that runtime's mounted credential root. DeepSeek Harness can start from `runtimes/deepseek-harness.env.example`.
 3. Create a distinct daemon token and daemon ID for every file. A token binds to its first registered daemon and cannot claim another container's runtime.
 4. Put each provider's non-interactive authentication files and API keys in that runtime's credential directory before enabling production traffic.
 5. Start the selected runtimes with `docker compose --env-file .env -f docker-compose.runtimes.yml up -d`.
@@ -85,7 +85,10 @@ MANAGED_RUNTIME_IMAGE_TAG=latest \
 
 docker image inspect dofe/agent-runtime-codex:latest
 docker image inspect dofe/agent-runtime-claude:latest
+docker image inspect dofe/agent-runtime-deepseek-harness:latest
 ```
+
+The DeepSeek wrapper installs the exact published package `@deepseek-ai/dsh@0.1.1-rc.2` and verifies that version during the image build. Its npm integrity at implementation time is `sha512-UP1UIh6q3Gme/yXRn/QL2P8IsVlv8Shpg22TRJIZPsCRWLm4CBiA1MUvXmJAfsOEETBMLAl+xWPtFw6ICsN3wg==`. Publish the resulting approved wrapper by immutable digest before enabling the web canary flag.
 
 For the local Docker Desktop managed node, select the Mac-published provider
 images explicitly. The current managed-node compose service runs `linux/amd64`,

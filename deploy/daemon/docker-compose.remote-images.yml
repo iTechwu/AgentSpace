@@ -119,6 +119,36 @@ services:
     healthcheck: *daemon-healthcheck
     restart: unless-stopped
 
+  runtime-deepseek-harness:
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile.provider-runtime
+      args:
+        PROVIDER_BASE_IMAGE: ${DEEPSEEK_HARNESS_PROVIDER_BASE_IMAGE:-uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim}
+        PROVIDER_INSTALL_COMMAND: npm install --global @deepseek-ai/dsh@0.1.1-rc.2
+        PROVIDER_VERIFY_COMMAND: dsh --version | grep -F 0.1.1-rc.2
+    image: dofe/agent-runtime-deepseek-harness:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
+    env_file: ./runtimes/deepseek-harness.env
+    environment:
+      DSH_HOME: /home/dofe-agent/.dsh
+      MANAGED_RUNTIME_IMAGE_TAG: ${MANAGED_RUNTIME_IMAGE_TAG:-latest}
+    extra_hosts:
+      - dofe-agent.local.dofe.ai:172.30.140.30
+    volumes:
+      - ./certs/rootCA.pem:/run/certs/rootCA.pem:ro
+      - deepseek-harness-auth:/home/dofe-agent
+      - deepseek-harness-state:/var/lib/dofe-agent-daemon
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck: *daemon-healthcheck
+    restart: unless-stopped
+
 volumes:
   codex-auth:
   codex-state:
@@ -128,3 +158,5 @@ volumes:
   openclaw-state:
   hermes-auth:
   hermes-state:
+  deepseek-harness-auth:
+  deepseek-harness-state:

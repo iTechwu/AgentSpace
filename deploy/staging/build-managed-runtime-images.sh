@@ -10,7 +10,7 @@
 #
 # Usage:
 #   MANAGED_RUNTIME_IMAGE_TAG=latest ./deploy/staging/build-managed-runtime-images.sh [provider...]
-#   # provider defaults to all four: codex claude openclaw hermes
+#   # provider defaults to all five: codex claude openclaw hermes deepseek-harness
 #
 # Provider install commands are taken from *_PROVIDER_INSTALL_COMMAND env vars
 # (see deploy/daemon/.env.example). If unset, sensible pnpm defaults are used.
@@ -20,8 +20,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 IMAGE_TAG="${MANAGED_RUNTIME_IMAGE_TAG:-latest}"
 DAEMON_COMPOSE="$REPO_ROOT/deploy/daemon/docker-compose.runtimes.yml"
 
-PROVIDERS=("${@:-codex claude openclaw hermes}")
-if [ $# -eq 0 ]; then PROVIDERS=(codex claude openclaw hermes); fi
+PROVIDERS=("${@:-codex claude openclaw hermes deepseek-harness}")
+if [ $# -eq 0 ]; then PROVIDERS=(codex claude openclaw hermes deepseek-harness); fi
 
 default_install_command() {
   case "$1" in
@@ -29,6 +29,7 @@ default_install_command() {
     claude)   echo "pnpm add --global @anthropic-ai/claude-code@latest" ;;
     openclaw) echo "pnpm add --global @openai/codex@latest" ;; # placeholder; replace with real openclaw package
     hermes)   echo "pip install --break-system-packages dofe-hermes" ;; # placeholder; replace with real hermes install
+    deepseek-harness) echo "npm install --global @deepseek-ai/dsh@0.1.1-rc.2" ;;
     *) echo ""; return 1 ;;
   esac
 }
@@ -37,7 +38,7 @@ echo "==> Building managed-runtime images for: ${PROVIDERS[*]} (tag: $IMAGE_TAG)
 
 # Export the install commands the compose file reads.
 for provider in "${PROVIDERS[@]}"; do
-  var="$(printf '%s_PROVIDER_INSTALL_COMMAND' "$provider" | tr '[:lower:]' '[:upper:]')"
+  var="$(printf '%s_PROVIDER_INSTALL_COMMAND' "$provider" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
   if [ -z "${!var:-}" ]; then
     default="$(default_install_command "$provider")" || { echo "Unknown provider: $provider" >&2; exit 1; }
     export "$var=$default"

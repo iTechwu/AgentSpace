@@ -269,6 +269,55 @@ test("buildProviderRuntimeMetadata performs an authenticated provider request wi
   }
 });
 
+test("buildProviderRuntimeMetadata verifies DeepSeek Harness through its native models endpoint", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-provider-probe-"));
+  const executablePath = join(binDir, "dsh");
+  const fakeProbePath = join(binDir, "node");
+  const originalExecPath = process.execPath;
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho dsh 0.1.1-rc.2\n", "utf8");
+    writeFileSync(
+      fakeProbePath,
+      [
+        "#!/bin/sh",
+        "input=$(cat)",
+        "case \"$input\" in",
+        "  *\"https://native.deepseek.test/v1/models\"*\"deepseek-managed-key\"*) printf '%s' '{\"ok\":true,\"status\":200}' ;;",
+        "  *) printf '%s' '{\"ok\":false,\"error\":\"unexpected request\"}' ;;",
+        "esac",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    chmodSync(fakeProbePath, 0o755);
+    process.execPath = fakeProbePath;
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "deepseek-harness",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        managedCredentialId: "credential-managed-deepseek",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: {
+        DEEPSEEK_API_KEY: "deepseek-managed-key",
+        DEEPSEEK_BASE_URL: "https://native.deepseek.test/v1",
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; verificationKind?: unknown } | undefined;
+    assert.equal(health?.status, "healthy");
+    assert.equal(health?.verificationKind, "provider_request");
+    assert.equal(JSON.stringify(metadata).includes("deepseek-managed-key"), false);
+  } finally {
+    process.execPath = originalExecPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
 test("buildProviderRuntimeMetadata reports invalid provider probe configuration without interrupting the daemon", () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-probe-config-"));
   const executablePath = join(binDir, "claude");

@@ -110,6 +110,33 @@ services:
       ALL_PROXY: ""
       NO_PROXY: ""
 
+  runtime-deepseek-harness:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${DEEPSEEK_HARNESS_PROVIDER_INSTALL_COMMAND}
+    image: dofe-agent-runtime-deepseek-harness:local
+    env_file: ./runtimes/deepseek-harness.env
+    volumes:
+      - deepseek-harness-auth:/home/dofe-agent
+      - deepseek-harness-state:/var/lib/dofe-agent-daemon
+      - ${DEEPSEEK_HARNESS_PROVIDER_CREDENTIAL_DIR:-./credentials/deepseek-harness}:/run/dofe-agent-provider:ro
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      <<: *mcp-egress-environment
+      DSH_HOME: /home/dofe-agent/.dsh
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
+
 volumes:
   codex-auth:
   codex-state:
@@ -119,6 +146,8 @@ volumes:
   openclaw-state:
   hermes-auth:
   hermes-state:
+  deepseek-harness-auth:
+  deepseek-harness-state:
 
 networks:
   dofe-runtime-restricted:
