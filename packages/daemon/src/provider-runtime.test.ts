@@ -62,11 +62,13 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-harness-provider-"));
   const binPath = join(workDir, "dsh");
   const argsPath = join(workDir, "dsh-args.txt");
+  const patchCopyPath = join(workDir, "dsh-patch-copy.yml");
   writeFileSync(
     binPath,
     [
       "#!/bin/sh",
       "printf '%s\\n' \"$@\" > \"$DSH_ARGS_PATH\"",
+      "cat \"$4\" > \"$DSH_PATCH_COPY_PATH\"",
       "printf '%s\\n' 'deepseek provider output'",
     ].join("\n"),
     "utf8",
@@ -84,7 +86,7 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
   try {
     const result = await runProviderTask(runtime, "write a short reply", workDir, {
       modelId: "deepseek-v4-pro",
-      contextEnv: { DSH_ARGS_PATH: argsPath },
+      contextEnv: { DSH_ARGS_PATH: argsPath, DSH_PATCH_COPY_PATH: patchCopyPath },
       taskTimeoutMs: 5_000,
     });
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
@@ -92,7 +94,8 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
     assert.equal(result.output, "deepseek provider output");
     assert.deepEqual(args.slice(0, 3), ["--profile", "headless", "--patch"]);
     assert.equal(args.at(-1), "write a short reply");
-    assert.match(readFileSync(args[3], "utf8"), /model: deepseek-v4-pro/);
+    assert.match(readFileSync(patchCopyPath, "utf8"), /model: deepseek-v4-pro/);
+    assert.equal(existsSync(join(workDir, ".dofe-deepseek-harness.patch.yml")), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
@@ -283,7 +286,7 @@ test("buildProviderRuntimeMetadata verifies DeepSeek Harness through its native 
         "#!/bin/sh",
         "input=$(cat)",
         "case \"$input\" in",
-        "  *\"https://native.deepseek.test/v1/models\"*\"deepseek-managed-key\"*) printf '%s' '{\"ok\":true,\"status\":200}' ;;",
+        "  *\"https://native.deepseek.test/v1/models\"*\"deepseek-managed-key\"*) printf '%s' '{\"ok\":true,\"status\":200,\"models\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]}' ;;",
         "  *) printf '%s' '{\"ok\":false,\"error\":\"unexpected request\"}' ;;",
         "esac",
       ].join("\n"),
@@ -308,10 +311,89 @@ test("buildProviderRuntimeMetadata verifies DeepSeek Harness through its native 
       },
     });
 
-    const health = metadata.providerHealth as { status?: unknown; verificationKind?: unknown } | undefined;
+    const health = metadata.providerHealth as { status?: unknown; verificationKind?: unknown; modelIds?: string[] } | undefined;
     assert.equal(health?.status, "healthy");
     assert.equal(health?.verificationKind, "provider_request");
+    assert.deepEqual(health?.modelIds, ["deepseek-v4-flash", "deepseek-v4-pro"]);
     assert.equal(JSON.stringify(metadata).includes("deepseek-managed-key"), false);
+  } finally {
+    process.execPath = originalExecPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata rejects a DeepSeek catalog missing a native model", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-model-probe-"));
+  const executablePath = join(binDir, "dsh");
+  const fakeProbePath = join(binDir, "node");
+  const originalExecPath = process.execPath;
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho dsh 0.1.1-rc.2\n", "utf8");
+    writeFileSync(
+      fakeProbePath,
+      "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"ok\":true,\"status\":200,\"models\":[\"deepseek-v4-flash\"]}'\n",
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    chmodSync(fakeProbePath, 0o755);
+    process.execPath = fakeProbePath;
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "deepseek-harness",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: {
+        DEEPSEEK_API_KEY: "deepseek-model-probe-key",
+        DEEPSEEK_BASE_URL: "https://native.deepseek.test/v1",
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; modelIds?: string[]; error?: { code?: string } } | undefined;
+    assert.equal(health?.status, "broken");
+    assert.deepEqual(health?.modelIds, ["deepseek-v4-flash"]);
+    assert.equal(health?.error?.code, "provider.model_unavailable");
+  } finally {
+    process.execPath = originalExecPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata classifies a DeepSeek catalog auth rejection", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-auth-probe-"));
+  const executablePath = join(binDir, "dsh");
+  const fakeProbePath = join(binDir, "node");
+  const originalExecPath = process.execPath;
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho dsh 0.1.1-rc.2\n", "utf8");
+    writeFileSync(fakeProbePath, "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"ok\":true,\"status\":401}'\n", "utf8");
+    chmodSync(executablePath, 0o755);
+    chmodSync(fakeProbePath, 0o755);
+    process.execPath = fakeProbePath;
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "deepseek-harness",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: {
+        DEEPSEEK_API_KEY: "deepseek-auth-probe-key",
+        DEEPSEEK_BASE_URL: "https://native.deepseek.test/v1",
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; error?: { code?: string; category?: string } } | undefined;
+    assert.equal(health?.status, "broken");
+    assert.equal(health?.error?.code, "provider.auth_invalid");
+    assert.equal(health?.error?.category, "auth");
   } finally {
     process.execPath = originalExecPath;
     rmSync(binDir, { recursive: true, force: true });

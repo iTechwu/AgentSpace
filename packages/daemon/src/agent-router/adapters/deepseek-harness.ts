@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   AgentRouterObserver,
@@ -108,6 +108,7 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
     args,
     cwd: input.cwd,
     env,
+    metadata: { modelPatchPath: patchPath },
     timeoutMs: resolveTimeoutMs(input.timeoutMs),
     redactions: buildRedactions(env),
   };
@@ -118,16 +119,21 @@ async function runDeepSeekHarness(
   observer: AgentRouterObserver,
   request: AgentRouterRunRequest,
 ): Promise<AgentRouterRunResult> {
-  return runNativeHarness("deepseek-harness", plan, observer, request, {
-    emptyMessage: "DeepSeek Harness returned an empty response.",
-    nonZeroMessage: (exitCode) => `DeepSeek Harness exited with code ${exitCode}.`,
-    timeoutMessage: (timeoutMs) => `DeepSeek Harness timed out after ${timeoutMs}ms.`,
-    failureDiagnostics: (processResult) => buildDeepSeekHarnessFailureDiagnostics(
-      processResult.stdout,
-      processResult.stderr,
-    ),
-    parseEvents: (stdout) => ({ outputText: stdout.trim() }),
-  });
+  try {
+    return await runNativeHarness("deepseek-harness", plan, observer, request, {
+      emptyMessage: "DeepSeek Harness returned an empty response.",
+      nonZeroMessage: (exitCode) => `DeepSeek Harness exited with code ${exitCode}.`,
+      timeoutMessage: (timeoutMs) => `DeepSeek Harness timed out after ${timeoutMs}ms.`,
+      failureDiagnostics: (processResult) => buildDeepSeekHarnessFailureDiagnostics(
+        processResult.stdout,
+        processResult.stderr,
+      ),
+      parseEvents: (stdout) => ({ outputText: stdout.trim() }),
+    });
+  } finally {
+    const patchPath = plan.metadata?.modelPatchPath;
+    if (patchPath) rmSync(patchPath, { force: true });
+  }
 }
 
 function buildDeepSeekHarnessFailureDiagnostics(stdout: string, stderr: string) {

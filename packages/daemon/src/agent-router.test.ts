@@ -65,6 +65,7 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
   const argsPath = join(workDir, "dsh-args.txt");
   const homePath = join(workDir, "dsh-home.txt");
   const policyPath = join(workDir, "dsh-policy.txt");
+  const patchCopyPath = join(workDir, "dsh-patch-copy.yml");
 
   try {
     writeExecutable(
@@ -74,6 +75,7 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
         "printf '%s\\n' \"$@\" > \"$DSH_ARGS_PATH\"",
         "printf '%s' \"$DSH_HOME\" > \"$DSH_HOME_PATH\"",
         "printf '%s\\n%s' \"$DSH_PERMISSION_MODE\" \"$DSH_TELEMETRY_DISABLED\" > \"$DSH_POLICY_PATH\"",
+        "cat \"$4\" > \"$DSH_PATCH_COPY_PATH\"",
         "printf '%s\\n' 'deepseek harness output'",
       ].join("\n"),
     );
@@ -89,6 +91,7 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
         DSH_ARGS_PATH: argsPath,
         DSH_HOME_PATH: homePath,
         DSH_POLICY_PATH: policyPath,
+        DSH_PATCH_COPY_PATH: patchCopyPath,
       },
       timeoutMs: 5_000,
     });
@@ -103,12 +106,13 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
     assert.equal(args.at(-1), "hello deepseek");
     assert.equal(readFileSync(homePath, "utf8"), join(workDir, ".dofe-deepseek-harness"));
     assert.equal(readFileSync(policyPath, "utf8"), "workspace-write\n1");
-    assert.match(readFileSync(modelPatchPath, "utf8"), /provider: deepseek-official/);
-    assert.match(readFileSync(modelPatchPath, "utf8"), /model: deepseek-v4-pro/);
-    assert.match(readFileSync(modelPatchPath, "utf8"), /id: tool-web\n  disabled: true/);
-    assert.match(readFileSync(modelPatchPath, "utf8"), /id: tool-subagent\n  disabled: true/);
-    assert.match(readFileSync(modelPatchPath, "utf8"), /id: tool-workflow\n  disabled: true/);
-    assert.match(readFileSync(modelPatchPath, "utf8"), /id: tool-ralph\n  disabled: true/);
+    assert.match(readFileSync(patchCopyPath, "utf8"), /provider: deepseek-official/);
+    assert.match(readFileSync(patchCopyPath, "utf8"), /model: deepseek-v4-pro/);
+    assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-web\n  disabled: true/);
+    assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-subagent\n  disabled: true/);
+    assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-workflow\n  disabled: true/);
+    assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-ralph\n  disabled: true/);
+    assert.equal(existsSync(join(workDir, ".dofe-deepseek-harness.patch.yml")), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
@@ -165,6 +169,33 @@ test("runAgentRouter classifies DeepSeek Harness auth failures, empty output, an
     assert.equal(timeout.status, "timeout");
     assert.equal(timeout.diagnostics.some((diagnostic) => diagnostic.code === "harness.timeout"), true);
   } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter cancels DeepSeek Harness by terminating the child process", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-cancel-"));
+  const dshPath = join(workDir, "dsh");
+  const controller = new AbortController();
+
+  try {
+    writeExecutable(dshPath, "#!/bin/sh\ntrap 'exit 143' TERM\nwhile true; do sleep 1; done\n");
+    const pending = runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "cancel me",
+      cwd: workDir,
+      executablePath: dshPath,
+      model: "deepseek-v4-flash",
+      signal: controller.signal,
+      timeoutMs: 5_000,
+    });
+    setTimeout(() => controller.abort(), 50);
+    const result = await pending;
+    assert.equal(result.status, "cancelled");
+    assert.equal(result.signal, "SIGTERM");
+  } finally {
+    controller.abort();
     rmSync(workDir, { recursive: true, force: true });
   }
 });

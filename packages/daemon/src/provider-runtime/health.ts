@@ -142,7 +142,19 @@ const PROVIDER_API_PROBE_SCRIPT = `
       redirect: "manual",
       signal: AbortSignal.timeout(10_000),
     });
-    process.stdout.write(JSON.stringify({ ok: true, status: response.status }));
+    const body = await response.text();
+    let models;
+    try {
+      const parsed = JSON.parse(body);
+      const rows = Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed?.models) ? parsed.models : [];
+      models = rows
+        .map((row) => typeof row === "string" ? row : row && typeof row === "object" ? row.id ?? row.model ?? row.name : undefined)
+        .filter((value) => typeof value === "string")
+        .slice(0, 128);
+    } catch {
+      models = undefined;
+    }
+    process.stdout.write(JSON.stringify({ ok: true, status: response.status, models }));
   } catch (error) {
     process.stdout.write(JSON.stringify({ ok: false, error: error && error.message ? error.message : String(error) }));
   }
@@ -164,11 +176,15 @@ function executeProviderApiRequest(
   });
   let probeStatus: number | undefined;
   let probeError: string | undefined;
+  let modelIds: string[] | undefined;
   if (!result.error && result.status === 0 && typeof result.stdout === "string") {
     try {
-      const parsed = JSON.parse(result.stdout.trim()) as { ok?: boolean; status?: number; error?: string };
+      const parsed = JSON.parse(result.stdout.trim()) as { ok?: boolean; status?: number; error?: string; models?: unknown };
       if (parsed?.ok) {
         probeStatus = parsed.status;
+        if (Array.isArray(parsed.models)) {
+          modelIds = parsed.models.filter((value): value is string => typeof value === "string");
+        }
       } else {
         probeError = parsed?.error;
       }
@@ -177,11 +193,32 @@ function executeProviderApiRequest(
     }
   }
   if (probeStatus !== undefined && probeStatus >= 200 && probeStatus < 300) {
+    if (provider === "deepseek-harness") {
+      const requiredModels = ["deepseek-v4-flash", "deepseek-v4-pro"];
+      const missingModels = requiredModels.filter((model) => !modelIds?.includes(model));
+      if (missingModels.length > 0) {
+        const message = `DeepSeek Harness model catalog is missing: ${missingModels.join(", ")}.`;
+        return {
+          status: "broken",
+          checkedAt,
+          verificationKind: "provider_request",
+          reason: message,
+          modelIds,
+          error: {
+            code: "provider.model_unavailable",
+            category: "model",
+            provider,
+            message,
+          },
+        };
+      }
+    }
     return {
       status: "healthy",
       checkedAt,
       verificationKind: "provider_request",
       reason: `${formatDaemonProviderLabel(provider)} authenticated provider request passed.`,
+      modelIds,
     };
   }
   const message = result.error?.message
@@ -196,8 +233,12 @@ function executeProviderApiRequest(
     verificationKind: "provider_request",
     reason: message,
     error: {
-      code: "provider.runtime_generic_failure",
-      category: result.error ? "runtime" : "provider",
+      code: provider === "deepseek-harness" && (probeStatus === 401 || probeStatus === 403)
+        ? "provider.auth_invalid"
+        : "provider.runtime_generic_failure",
+      category: provider === "deepseek-harness" && (probeStatus === 401 || probeStatus === 403)
+        ? "auth"
+        : result.error ? "runtime" : "provider",
       provider,
       message,
     },
