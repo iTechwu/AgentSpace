@@ -19,7 +19,7 @@
 - 原生模型 ID 保持 `deepseek-v4-pro`、`deepseek-v4-flash`，凭据使用 `DEEPSEEK_API_KEY`，可选 `DEEPSEEK_BASE_URL`；模型目录与 runtime provider 的协议能力必须分开建模。
 - 现有 `agent_task_queue` 不需要复制或新增队列表；任务仍按 `runtime_id` claim，新增的是 provider/harness 适配和 runtime provisioning 能力。
 - `../deepseek-harness` 的 `origin` 已切换为 `git@github.com:iTechwu/deepseek-harness.git`。该 remote 配置不进入 Git tree，因此没有额外 commit 可记录。
-- 实现位于分支 `techwu/deepseek-harness-runtime`。代码和静态配置已完成本地验证，但由于批准的 Node 24.19 基础镜像不存在、且未提供真实 DeepSeek key，当前不可发布，Web 灰度开关默认关闭。
+- 实现位于分支 `techwu/deepseek-harness-runtime`。代码和静态配置已完成本地验证；托管 usage 已保留 `deepseek_native` 协议语义，但由于批准的 Node 24.19 基础镜像不存在、未提供真实 DeepSeek key，且真实 billing/canary/rollback 尚未执行，当前不可发布，Web 灰度开关默认关闭。
 
 ## 依据
 
