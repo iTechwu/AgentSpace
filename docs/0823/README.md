@@ -7,21 +7,21 @@
 | 文档 | 状态 | 用途 |
 | --- | --- | --- |
 | [01-产品需求与范围.md](./01-产品需求与范围.md) | P0 已实现，发布阻断 | 明确用户价值、模型与能力边界、非目标和发布策略 |
-| [02-架构设计与接入契约.md](./02-架构设计与接入契约.md) | P0 Accepted，P2 Proposed | 定义 runtime/provider/harness、进程协议、凭据、事件与数据流 |
-| [03-实施路径与改动清单.md](./03-实施路径与改动清单.md) | W1 完成，W0/W2/W3 部分完成 | 按阶段拆解代码、镜像、配置、测试和迁移工作 |
+| [02-架构设计与接入契约.md](./02-架构设计与接入契约.md) | P0 Accepted，P2 重新分期 | 定义 runtime/provider/harness、进程协议、凭据、事件与数据流 |
+| [03-实施路径与改动清单.md](./03-实施路径与改动清单.md) | W1 完成，W0/W2/W3 部分完成，W4 有上游阻断 | 按阶段拆解代码、镜像、配置、测试和迁移工作 |
 | [04-验收矩阵与风险决策.md](./04-验收矩阵与风险决策.md) | Release blocked | 验收门禁、回滚策略、风险及 ADR 决策 |
 | [05-实施记录与验证证据.md](./05-实施记录与验证证据.md) | As built | 记录分支、提交、实际改动、测试结果、阻断项和后续路径 |
 
 ## 当前结论
 
 - `deepseek-harness` 应作为独立的 AgentRouter harness/provider 接入，标识建议为 `deepseek-harness`；不要伪装成 `codex`、`opencode` 或通用 OpenAI provider。
-- Phase 1 使用官方 `dsh --profile headless "<task>"`，以 stdout/stderr + exit code 作为最小稳定边界；Phase 2 再接 JSON-RPC/ACP 以支持持久会话和更丰富事件。
+- Phase 1 使用官方 `dsh --profile headless "<task>"`，以 stdout/stderr + exit code 作为最小稳定边界。Phase 2a 只能在独立 JSON-RPC runtime 载体、握手和通知流验证后开放同进程多轮与流式事件；跨进程 resume、turn cancel 和 approval 需要上游先扩展 wire，不能由 AgentSpace 单方面宣称支持。
 - 原生模型 ID 保持 `deepseek-v4-pro`、`deepseek-v4-flash`，凭据使用 `DEEPSEEK_API_KEY`，可选 `DEEPSEEK_BASE_URL`；模型目录与 runtime provider 的协议能力必须分开建模。
 - 现有 `agent_task_queue` 不需要复制或新增队列表；任务仍按 `runtime_id` claim，新增的是 provider/harness 适配和 runtime provisioning 能力。
 - `../deepseek-harness` 的 `origin` 已切换为 `git@github.com:iTechwu/deepseek-harness.git`。该 remote 配置不进入 Git tree，因此没有额外 commit 可记录。
-- 实现位于分支 `techwu/deepseek-harness-runtime`。代码和静态配置已完成本地验证；托管 usage 已保留 `deepseek_native` 协议语义，但由于批准的 Node 24.19 基础镜像不存在、未提供真实 DeepSeek key，且真实 billing/canary/rollback 尚未执行，当前不可发布，Web 灰度开关默认关闭。
+- 实现位于分支 `techwu/deepseek-harness-runtime`。Provider 账户入口已接入同一 canary flag；MCP 在创建、任务投影、session claim 和 gateway 校验四层对 DeepSeek fail-closed。代码和静态配置已完成本地验证；托管 usage 已保留 `deepseek_native` 协议语义，但由于批准的 Node 24.19 基础镜像不存在、未提供真实 DeepSeek key，且真实 billing/canary/rollback 尚未执行，当前不可发布，Web 灰度开关默认关闭。
 
 ## 依据
 
 - 本仓库：`packages/daemon/src/agent-router/*`、`packages/daemon/src/provider-runtime/*`、`packages/domain/src/daemon-provider.ts`、`packages/services/src/runtime-provisioning/*`。
-- DeepSeek Harness：`apps/cli/README.md`、`packages/bundle/headless/README.md`、`examples/jsonrpc-agent/README.md`、`docs/user/guide/providers.md`、`examples/headless-agent/cordis.yml`。
+- DeepSeek Harness：`apps/cli/README.md`、`packages/bundle/headless/README.md`、`packages/sdk/{client,protocol,server}/README.md`、`packages/sdk/server/src/server.ts`、`python/sdk-runtime/README.md`、`examples/jsonrpc-agent/README.md`。
