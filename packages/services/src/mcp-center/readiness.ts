@@ -1,5 +1,6 @@
 import {
   listMcpConnectionsSync,
+  readAgentRuntimeSync,
   readLatestMcpDiscoverySnapshotSync,
   readMcpCatalogItemSync,
   readMcpConnectionSync,
@@ -10,6 +11,7 @@ import {
 import type { McpDiscoveredTool, RuntimeMcpConnectionContextEntry, RuntimeMcpTool } from "@dofe-agent/domain";
 import type { McpDeclaredTool } from "./catalog.ts";
 import { redactToolInputSchema } from "./security.ts";
+import { isMcpRuntimeProviderEligible } from "./provider-eligibility.ts";
 
 export interface ResolvedReadyMcpConnection {
   connectionId: string;
@@ -72,12 +74,26 @@ export function listReadyMcpConnectionsForTaskSync(input: {
   workspaceId: string;
   runtimeId: string;
 }): RuntimeMcpConnectionContextEntry[] {
-  return listMcpConnectionsSync({
+  const connections = listMcpConnectionsSync({
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
     status: "ready",
     limit: 500,
-  }).flatMap((connection) => {
+  });
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId || !isMcpRuntimeProviderEligible(runtime.provider)) {
+    for (const connection of connections) {
+      updateMcpConnectionStatusSync({
+        connectionId: connection.id,
+        workspaceId: input.workspaceId,
+        status: "degraded",
+        lastErrorCode: "mcp.runtime_provider_not_eligible",
+        lastErrorMessage: "The runtime provider is not eligible for MCP gateway injection.",
+      });
+    }
+    return [];
+  }
+  return connections.flatMap((connection) => {
     const resolved = resolveReadyMcpConnectionForTask({
       workspaceId: input.workspaceId,
       connection,

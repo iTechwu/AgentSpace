@@ -711,6 +711,54 @@ test("listReadyMcpConnectionsForTask exposes only approved∩discovered tools wi
   assert.equal("encryptedSecretBundle" in (entries[0] ?? {}), false);
 });
 
+test("legacy ready connections fail closed after their runtime provider becomes ineligible", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+  getDatabase().prepare("UPDATE agent_runtime SET provider = 'deepseek-harness' WHERE id = ?").run(runtimeId);
+
+  assert.deepEqual(listReadyMcpConnectionsForTaskSync({ workspaceId: "default", runtimeId }), []);
+  assert.equal(readMcpConnectionSync(connection.id, "default")?.status, "degraded");
+
+  getDatabase().prepare("UPDATE runtime_mcp_connection SET status = 'ready' WHERE id = ?").run(connection.id);
+  assert.throws(
+    () => claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "legacy-task", attemptId: "attempt-1" }),
+    /mcp\.runtime_provider_not_eligible/,
+  );
+
+  assert.equal(validateMcpConnectionForGatewaySync({
+    workspaceId: "default",
+    runtimeId,
+    taskId: "legacy-task",
+    connectionId: connection.id,
+    toolName: "search_repos",
+  }).ok, false);
+});
+
 test("claimed operations reject legacy connection configuration that no longer satisfies policy", () => {
   const runtimeId = createRuntime();
   const catalogId = seedCatalog();

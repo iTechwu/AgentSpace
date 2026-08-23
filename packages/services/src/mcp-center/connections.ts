@@ -41,7 +41,6 @@ import {
 import type {
   ClaimMcpTaskSessionResponse,
   ClaimedMcpConnectionOperation,
-  DaemonProvider,
   McpConnectionOperationSource,
   McpConnectionStatus,
   McpDiscoveredTool,
@@ -78,6 +77,7 @@ import {
 } from "./egress.ts";
 import { OPENMONTAGE_MCP_SLUG, TOOLS_VIRAL_VIDEO_MCP_SLUG, resolveMcpRuntimeAppRequirement, resolveOfficialManagedStdioProfile } from "./official-catalog.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
+import { isMcpRuntimeProviderEligible } from "./provider-eligibility.ts";
 import { callOpenMontageJobActionAsync } from "../openmontage/events.ts";
 import {
   assertOpenMontageMcpPurgeableAsync,
@@ -105,11 +105,6 @@ export interface RequestMcpConnectionInput {
 export interface RequestMcpConnectionResult {
   connection: RuntimeMcpConnectionRecord;
   operation: RuntimeMcpOperationRecord;
-}
-
-export function isMcpRuntimeProviderEligible(provider: DaemonProvider): boolean {
-  return (provider === "claude" && process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED === "1")
-    || (provider === "codex" && process.env.MCP_CODEX_EXPERIMENTAL_ENABLED === "1");
 }
 
 /**
@@ -1142,6 +1137,13 @@ export function claimMcpTaskSessionSync(input: {
   taskId: string;
   attemptId: string;
 }): ClaimMcpTaskSessionResponse {
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId) {
+    throw new Error("runtime.not_found");
+  }
+  if (!isMcpRuntimeProviderEligible(runtime.provider)) {
+    throw new Error("mcp.runtime_provider_not_eligible");
+  }
   const attemptId = input.attemptId?.trim() ?? "";
   if (!attemptId) {
     // A missing attempt id must never replay another caller's persisted grant.
@@ -1286,6 +1288,10 @@ export function validateMcpConnectionForGatewaySync(input: {
   egressProxyLease?: string;
   egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
 } | { ok: false } {
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId || !isMcpRuntimeProviderEligible(runtime.provider)) {
+    return { ok: false };
+  }
   const connection = readMcpConnectionSync(input.connectionId, input.workspaceId);
   if (!connection || connection.runtimeId !== input.runtimeId || connection.status !== "ready") {
     return { ok: false };

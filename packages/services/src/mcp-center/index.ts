@@ -30,7 +30,6 @@ export {
   enableMcpConnectionSync,
   failMcpConnectionOperationWithHealthScheduleSync,
   findMissingApprovedMcpTools,
-  isMcpRuntimeProviderEligible,
   listMcpConnectionActivitySync,
   listMcpConnectionsForRuntimeServiceSync,
   listReadyMcpConnectionsForTaskSync,
@@ -55,6 +54,8 @@ export {
   type RequestMcpConnectionResult,
   type UpdateMcpConnectionConfigServiceInput,
 } from "./connections.ts";
+
+export { isMcpRuntimeProviderEligible } from "./provider-eligibility.ts";
 
 export {
   decryptMcpGrant,
