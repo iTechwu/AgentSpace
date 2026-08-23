@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   AgentRouterObserver,
@@ -24,6 +24,8 @@ import { runVersionCommand } from "./versions.ts";
 
 const SUPPORTED_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
 const SESSION_UNSUPPORTED_MESSAGE = "DeepSeek Harness headless mode does not support session resume.";
+const STALE_PATCH_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+const PATCH_FILE_PATTERN = /^\.dofe-deepseek-harness\.patch-[0-9a-f-]+\.yml$/i;
 const DISABLED_P0_TOOL_ROWS = [
   "web-search-deepseek",
   "tool-web",
@@ -70,6 +72,8 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
     throw new Error("DeepSeek Harness CLI was not found on PATH.");
   }
 
+  cleanupStalePatchFiles(input.cwd);
+
   const args = ["--profile", "headless"];
   if (input.model) {
     if (!SUPPORTED_MODELS.has(input.model)) {
@@ -113,6 +117,25 @@ async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise
     timeoutMs: resolveTimeoutMs(input.timeoutMs),
     redactions: buildRedactions(env),
   };
+}
+
+function cleanupStalePatchFiles(cwd: string): void {
+  const cutoff = Date.now() - STALE_PATCH_MAX_AGE_MS;
+  let entries;
+  try {
+    entries = readdirSync(cwd, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !PATCH_FILE_PATTERN.test(entry.name)) continue;
+    const path = join(cwd, entry.name);
+    try {
+      if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true });
+    } catch {
+      // A concurrent task may have already removed or replaced the file.
+    }
+  }
 }
 
 async function runDeepSeekHarness(

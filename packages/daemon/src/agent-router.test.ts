@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -182,6 +182,37 @@ test("runAgentRouter isolates concurrent DeepSeek Harness overlays in one workdi
     assert.notEqual(firstPatchPath, secondPatchPath);
     assert.equal(existsSync(firstPatchPath), false);
     assert.equal(existsSync(secondPatchPath), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter removes stale DeepSeek Harness overlays without touching recent files", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-stale-"));
+  const dshPath = join(workDir, "dsh");
+  const stalePath = join(workDir, ".dofe-deepseek-harness.patch-00000000-0000-4000-8000-000000000001.yml");
+  const recentPath = join(workDir, ".dofe-deepseek-harness.patch-00000000-0000-4000-8000-000000000002.yml");
+  const oldTime = new Date(Date.now() - 48 * 60 * 60 * 1_000);
+
+  try {
+    writeFileSync(stalePath, "stale", "utf8");
+    utimesSync(stalePath, oldTime, oldTime);
+    writeFileSync(recentPath, "recent", "utf8");
+    writeExecutable(dshPath, "#!/bin/sh\nprintf '%s\\n' 'deepseek output'\n");
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "cleanup stale overlays",
+      cwd: workDir,
+      executablePath: dshPath,
+      model: "deepseek-v4-flash",
+      timeoutMs: 5_000,
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(existsSync(stalePath), false);
+    assert.equal(existsSync(recentPath), true);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
