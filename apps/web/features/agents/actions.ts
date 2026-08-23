@@ -50,6 +50,7 @@ import type { TaskRecord } from "@dofe-agent/domain/workspace";
 import { isDaemonProvider, type DaemonProvider, type EmployeeExecutionPolicy } from "@dofe-agent/domain";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
+import { assertManagedRuntimeProviderEnabled } from "@/features/runtimes/runtime-feature-flags";
 import {
   actionToastResult,
   errorToast,
@@ -79,6 +80,7 @@ export async function createProviderAccountAction(input: {
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "admin");
   if (!isDaemonProvider(input.provider)) throw new Error("Unsupported provider.");
+  assertManagedRuntimeProviderEnabled(input.provider);
   const account = createProviderAccountSync({
     workspaceId: context.currentWorkspace.id,
     provider: input.provider,
@@ -110,6 +112,7 @@ export async function requestRuntimeProvisionAction(input: {
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "admin");
   if (!isDaemonProvider(input.provider)) throw new Error("Unsupported provider.");
+  assertManagedRuntimeProviderEnabled(input.provider);
   const request = createRuntimeProvisionRequestSync({
     workspaceId: context.currentWorkspace.id,
     providerAccountId: input.providerAccountId,

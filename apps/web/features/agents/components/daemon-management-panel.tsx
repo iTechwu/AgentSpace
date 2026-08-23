@@ -12,6 +12,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { runToastAction } from "@/shared/lib/toast-action";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
+import { listCreatableManagedRuntimeProviders } from "@/features/runtimes/runtime-feature-flags";
 import type {
   DaemonSnapshotView,
   DaemonTokenView,
@@ -46,6 +47,7 @@ export function DaemonManagementPanel({
     token: string;
     installCommand?: string;
   } | null>(null);
+  const providerAccountProviders = listCreatableManagedRuntimeProviders();
 
   return (
     <>
@@ -70,7 +72,7 @@ export function DaemonManagementPanel({
             });
           });
         }}>
-          <label className="form-field"><span>Provider</span><select defaultValue="claude" name="provider"><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="gemini">Gemini CLI</option><option value="antigravity">Antigravity CLI</option><option value="openclaw">OpenClaw</option><option value="opencode">OpenCode</option><option value="nanobot">NanoBot</option><option value="hermes">Hermes</option></select></label>
+          <label className="form-field"><span>Provider</span><select defaultValue="claude" name="provider">{providerAccountProviders.map((provider) => <option key={provider} value={provider}>{formatDaemonProviderLabel(provider)}</option>)}</select></label>
           <label className="form-field"><span>{tx("账户名称", "Account name")}</span><input name="name" required type="text" /></label>
           <label className="form-field"><span>{tx("账单账户标识", "Billing account ID")}</span><input name="billingAccountId" type="text" /></label>
           <label className="form-field"><span>{tx("密钥引用", "Secret reference")}</span><input name="secretRef" placeholder="file:///run/dofe-agent-provider/secret.json" type="text" /></label>
