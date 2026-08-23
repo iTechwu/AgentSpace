@@ -13,6 +13,14 @@ const mcpToken = process.env.DOFE_AGENT_LIVE_GEOFLOW_TOKEN ?? "";
 const evidenceDir = resolve(process.cwd(), "../../docs/0821/opz/evidence");
 const employeeFixturePattern = /^GEO Manager mt[a-z0-9]+$/;
 const catalogFixturePattern = /^GEOFlow Docker Live mt[a-z0-9]+$/;
+let liveSessionTokenHash: string | null = null;
+
+test.afterEach(() => {
+  if (!liveSessionTokenHash) return;
+  const tokenHash = liveSessionTokenHash;
+  liveSessionTokenHash = null;
+  expect(deleteSessionByTokenHashSync(tokenHash)).toBe(true);
+});
 
 function pruneHistoricalGeoFixtures(db: ReturnType<typeof getDatabase>) {
   const employees = (db.prepare(
@@ -170,6 +178,7 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
     tokenHash,
     expiresAt: expiresAt.toISOString(),
   });
+  liveSessionTokenHash = tokenHash;
   await page.context().addCookies([
     { name: "dofe_agent_session", value: token, domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax", expires: Math.floor(expiresAt.getTime() / 1000) },
     { name: "dofe_agent_workspace", value: workspace!.slug!, domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax", expires: Math.floor(expiresAt.getTime() / 1000) },
@@ -207,11 +216,12 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   await catalogDialog.getByLabel(/数据域|Data domains/i).fill("enterprise-knowledge, geo");
 
   const tools = [
-    ["geoflow.enterprise_knowledge.create", "Create an enterprise knowledge project"],
-    ["geoflow.enterprise_knowledge.status", "Read project generation status"],
-    ["geoflow.enterprise_knowledge.autosave", "Save the generated draft"],
-    ["geoflow.enterprise_knowledge.validate", "Validate the generated draft"],
-    ["geoflow.enterprise_knowledge.publish", "Publish the approved knowledge base"],
+    ["geoflow.enterprise_knowledge.create", "Create an enterprise knowledge project", "medium"],
+    ["geoflow.enterprise_knowledge.status", "Read project generation status", "medium"],
+    ["geoflow.enterprise_knowledge.autosave", "Save the generated draft", "medium"],
+    ["geoflow.enterprise_knowledge.validate", "Validate the generated draft", "medium"],
+    ["geoflow.enterprise_knowledge.publish", "Publish the approved knowledge base", "high"],
+    ["geoflow.enterprise_knowledge.delete", "Delete a confirmed enterprise knowledge project", "high"],
   ] as const;
   for (let index = 1; index < tools.length; index += 1) {
     await catalogDialog.getByRole("button", { name: /添加工具|Add tool/i }).click();
@@ -221,7 +231,7 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
     const row = toolRows.nth(index);
     await row.locator("input").nth(0).fill(tools[index]![0]);
     await row.locator("input").nth(1).fill(tools[index]![1]);
-    await row.locator("select").selectOption(index === tools.length - 1 ? "high" : "medium");
+    await row.locator("select").selectOption(tools[index]![2]);
     await row.locator('input[type="checkbox"]').check();
   }
   await catalogDialog.getByRole("button", { name: /发布到目录|Publish to catalog/i }).click();
@@ -351,6 +361,5 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   expect(mobileAccessibility.violations).toEqual([]);
   await page.screenshot({ path: resolve(evidenceDir, "geo-mcp-live-mobile.png"), fullPage: true });
   expect(browserIssues).toEqual([]);
-  expect(deleteSessionByTokenHashSync(tokenHash)).toBe(true);
   console.log(JSON.stringify({ serviceName, employeeName, employeeDisplayName, prunedFixtures, navigation, desktopQuality, mobileQuality }));
 });

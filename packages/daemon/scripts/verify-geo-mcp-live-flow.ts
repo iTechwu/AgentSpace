@@ -15,6 +15,7 @@ import { McpGateway } from "../src/mcp/gateway.ts";
 const workspaceId = process.env.DOFE_AGENT_LIVE_WORKSPACE_ID ?? "sso-team-c8c8d97ffcb845311387e967";
 const employeeName = requiredEnv("DOFE_AGENT_LIVE_GEO_EMPLOYEE_NAME");
 const serviceName = requiredEnv("DOFE_AGENT_LIVE_GEO_SERVICE_NAME");
+const cleanupProjectIds = parseProjectIds(process.env.DOFE_AGENT_LIVE_GEO_CLEANUP_PROJECT_IDS);
 const suffix = Date.now().toString(36);
 const taskId = `task-geo-live-${suffix}`;
 const attemptId = `attempt-geo-live-${suffix}`;
@@ -101,10 +102,12 @@ const session = gateway.createTaskSession({
 const client = new Client({ name: "dofe-geo-live-regression", version: "1" }, { capabilities: {} });
 await client.connect(new StreamableHTTPClientTransport(new URL(session.url)));
 let flowSucceeded = false;
+let completedProjectId: number | null = null;
+const deletedProjectIds: number[] = [];
 
 try {
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 5, "The employee task gateway must expose exactly the approved GEO tools.");
+  assert.equal(listed.tools.length, 6, "The employee task gateway must expose exactly the approved GEO tools.");
   assert.equal(connection.tools.length, listed.tools.length, "Gateway and grant tool counts must match.");
   const toolNames = new Map(connection.tools.map((tool, index) => [tool.name, listed.tools[index]!.name]));
   for (const required of [
@@ -113,8 +116,20 @@ try {
     "geoflow.enterprise_knowledge.autosave",
     "geoflow.enterprise_knowledge.validate",
     "geoflow.enterprise_knowledge.publish",
+    "geoflow.enterprise_knowledge.delete",
   ]) {
     assert.ok(toolNames.has(required), `Task gateway did not expose ${required}.`);
+  }
+
+  for (const projectId of cleanupProjectIds) {
+    const deleted = await callGeoTool("geoflow.enterprise_knowledge.delete", {
+      project_id: projectId,
+      confirmation: "DELETE",
+      idempotency_key: `agentspace-geo-delete-${projectId}-${suffix}`,
+    });
+    assert.equal(deleted.deleted, true, `Project ${projectId} must be deleted.`);
+    assert.equal(Number(deleted.project_id), projectId);
+    deletedProjectIds.push(projectId);
   }
 
   const created = await callGeoTool("geoflow.enterprise_knowledge.create", {
@@ -125,6 +140,7 @@ try {
   });
   const projectId = Number(created.id);
   assert.ok(Number.isInteger(projectId) && projectId > 0, "Create must return a project id.");
+  completedProjectId = projectId;
 
   let status = await callGeoTool("geoflow.enterprise_knowledge.status", { project_id: projectId });
   const deadline = Date.now() + 120_000;
@@ -152,7 +168,15 @@ try {
   const succeededNames = new Set(activity.audits
     .filter((audit) => audit.taskId === taskId && audit.outcome === "succeeded")
     .map((audit) => audit.toolName));
-  for (const required of toolNames.keys()) assert.ok(succeededNames.has(required), `Missing succeeded audit for ${required}.`);
+  const invokedTools = [
+    "geoflow.enterprise_knowledge.create",
+    "geoflow.enterprise_knowledge.status",
+    "geoflow.enterprise_knowledge.autosave",
+    "geoflow.enterprise_knowledge.validate",
+    "geoflow.enterprise_knowledge.publish",
+    ...(cleanupProjectIds.length > 0 ? ["geoflow.enterprise_knowledge.delete"] : []),
+  ];
+  for (const required of invokedTools) assert.ok(succeededNames.has(required), `Missing succeeded audit for ${required}.`);
 
   console.log(JSON.stringify({
     workspaceId,
@@ -163,6 +187,7 @@ try {
     generationStatus: status.status,
     knowledgeBaseId: Number(published.knowledge_base_id),
     chunkCount: Number(published.chunk_count),
+    deletedProjectIds,
     auditedTools: [...succeededNames].sort(),
   }));
   flowSucceeded = true;
@@ -190,7 +215,7 @@ try {
       WHERE id = ? AND workspace_id = ?`,
   ).run(
     flowSucceeded ? "completed" : "failed",
-    JSON.stringify({ liveRegression: true, serviceName }),
+    JSON.stringify({ liveRegression: true, serviceName, projectId: completedProjectId, deletedProjectIds }),
     flowSucceeded ? null : "Docker GEOFlow MCP live regression failed.",
     finishedAt,
     finishedAt,
@@ -203,4 +228,11 @@ function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required.`);
   return value;
+}
+
+function parseProjectIds(value: string | undefined): number[] {
+  if (!value?.trim()) return [];
+  const ids = value.split(",").map((part) => Number(part.trim()));
+  assert.ok(ids.every((id) => Number.isSafeInteger(id) && id > 0), "Cleanup project ids must be positive integers.");
+  return [...new Set(ids)];
 }
