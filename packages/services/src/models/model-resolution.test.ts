@@ -428,6 +428,56 @@ test("chat overrides are validated against the enabled bound Runtime catalog", a
   );
 });
 
+test("DeepSeek native model overrides use the runtime-local catalog", async () => {
+  mockModelsClient([]);
+  createManagedRuntime("deepseek-v4-flash");
+  getDatabase().prepare("UPDATE agent_runtime SET provider = 'deepseek-harness', protocols_json = ? WHERE id = ?")
+    .run(JSON.stringify(["deepseek_native"]), RUNTIME_ID);
+  createEmployee();
+  bindEmployeeRuntimeSync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+    runtimeId: RUNTIME_ID,
+  });
+
+  const accepted = await validateModelOverrideForBoundEmployeeAsync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+    modelId: "deepseek-v4-pro",
+  });
+  assert.equal(accepted.modelId, "deepseek-v4-pro");
+
+  await assert.rejects(
+    validateModelOverrideForBoundEmployeeAsync({
+      workspaceId: WORKSPACE_ID,
+      employeeName: EMPLOYEE_NAME,
+      modelId: "gpt-5",
+    }),
+    /model_resolution.model_unavailable/,
+  );
+});
+
+test("DeepSeek effective model resolution does not require a Models catalog", async () => {
+  mockModelsClient([]);
+  createManagedRuntime("deepseek-v4-pro");
+  getDatabase().prepare("UPDATE agent_runtime SET provider = 'deepseek-harness', protocols_json = ? WHERE id = ?")
+    .run(JSON.stringify(["deepseek_native"]), RUNTIME_ID);
+  createEmployee();
+  bindEmployeeRuntimeSync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+    runtimeId: RUNTIME_ID,
+  });
+
+  const result = await resolve({ employeeName: EMPLOYEE_NAME });
+  assert.deepEqual(result, {
+    modelId: "deepseek-v4-pro",
+    source: "runtime_default",
+    runtimeCredentialId: CREDENTIAL_ID,
+    validated: false,
+  });
+});
+
 test("chat overrides reject non-LLM models", async () => {
   mockModelsClient([{ alias: "image-generator", modelType: "image" }]);
   createManagedRuntime();
