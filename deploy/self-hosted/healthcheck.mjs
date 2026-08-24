@@ -8,7 +8,9 @@
 // 说明：每个探针是独立进程，getDatabase() 会各自拉起 worker thread 并复用
 // schema 校验 memo；DB 不可达时由迁移守卫/连接超时抛错 → 非 0 退出。
 // 该同步路径的事件循环阻塞属 P1-02「DB 异步切流」既有限制（见 docs/0821/opz P1-06）。
-import { getDatabase, readMetadataValue } from "@dofe-agent/db";
+// The production image keeps workspace dependencies scoped under each package,
+// so this probe must not rely on a root-level pnpm workspace symlink.
+import { getDatabase, readMetadataValue } from "../../packages/db/src/index.ts";
 
 try {
   const db = getDatabase();
