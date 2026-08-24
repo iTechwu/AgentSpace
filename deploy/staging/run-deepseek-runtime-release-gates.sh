@@ -22,6 +22,7 @@ required DEEPSEEK_RUNTIME_COSIGN_PUBLIC_KEY
 required DEEPSEEK_RUNTIME_COSIGN_PUBLIC_KEY_SHA256
 required DEEPSEEK_MODEL_CANARY_EVIDENCE_OUTPUT
 required MODELS_BASE_URL
+required MODELS_GATEWAY_BASE_URL
 required STAGING_MODELS_TENANT_ID
 required STAGING_RUNTIME_CREDENTIAL_ID
 required STAGING_RUNTIME_ID
@@ -39,16 +40,22 @@ case "$STAGING_EXPECTED_MODEL" in
     ;;
 esac
 
-if [ -n "${DEEPSEEK_BASE_URL:-}" ]; then
-  python3 - "$DEEPSEEK_BASE_URL" <<'PY'
+MODELS_DEEPSEEK_BASE_URL="$(python3 - "$MODELS_GATEWAY_BASE_URL" <<'PY'
 from urllib.parse import urlsplit
 import sys
 
-url = urlsplit(sys.argv[1])
+url = urlsplit(sys.argv[1].strip())
 if url.scheme != "https" or not url.hostname or url.username or url.password or url.query or url.fragment:
-    raise SystemExit("DEEPSEEK_BASE_URL must be credential-free HTTPS without query or fragment")
+    raise SystemExit("MODELS_GATEWAY_BASE_URL must be credential-free HTTPS without query or fragment")
+base = url.geturl().rstrip("/")
+print(f"{base}/v1")
 PY
+)"
+if [ -n "${DEEPSEEK_BASE_URL:-}" ] && [ "$DEEPSEEK_BASE_URL" != "$MODELS_DEEPSEEK_BASE_URL" ]; then
+  echo "DEEPSEEK_BASE_URL must equal MODELS_GATEWAY_BASE_URL/v1 in the managed release gate." >&2
+  exit 1
 fi
+export DEEPSEEK_BASE_URL="$MODELS_DEEPSEEK_BASE_URL"
 
 "$REPO_ROOT/deploy/staging/deploy-deepseek-runtime.sh"
 
