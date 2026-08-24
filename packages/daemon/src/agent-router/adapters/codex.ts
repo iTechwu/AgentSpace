@@ -81,7 +81,12 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   if (input.mode && !input.sessionId) {
     baseArgs.push("--sandbox", input.mode);
   }
-  if (input.codexFullAccess && !input.sessionId) {
+  // `exec resume` starts a fresh CLI process. Its previous thread does not
+  // retain launch-time approval or sandbox flags, so apply the employee's
+  // full-access policy on resumed tasks as well. Omitting it makes MCP calls
+  // prompt in a non-interactive process and Codex cancels them before they
+  // reach the task-scoped gateway.
+  if (input.codexFullAccess) {
     baseArgs.push("--dangerously-bypass-approvals-and-sandbox");
   }
   // Task-scoped MCP gateway: inject the loopback gateway URL as one

@@ -1397,7 +1397,7 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
     assert.equal(args.includes("--model"), false);
     assert.equal(args.includes("--sandbox"), false);
     assert.equal(args.includes("workspace-write"), false);
-    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
     assert.deepEqual(events.filter((event) => event.type === "tool_use" || event.type === "tool_result").map((event) => event.refId), [
       "codex-tool-1",
       "codex-tool-1",
