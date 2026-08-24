@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeepSeekJsonRpcWorker, mintDeepSeekSessionId } from "./deepseek-jsonrpc-worker.ts";
+import { DeepSeekJsonRpcWorker, isDeepSeekBoundedWorkerEnabled, mintDeepSeekSessionId } from "./deepseek-jsonrpc-worker.ts";
 
 function writeExecutable(path: string, content: string): void {
   writeFileSync(path, content, "utf8");
@@ -24,6 +24,8 @@ const FAKE_RUNTIME = [
   "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.status', params: { sessionId: sid, status: 'running' } }));",
   "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: sid, event: { type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text: 'reply-' + sid }] } } } } }));",
   "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.status', params: { sessionId: sid, status: 'idle' } }));",
+  "  } else if (req.method === 'session/resume') {",
+  "    console.log(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: { sessionId: req.params.sessionId, resumed: true } }));",
   "  } else if (req.method === 'session/close') {",
   "    console.log(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: { sessionId: req.params.sessionId, closed: true } }));",
   "  } else if (req.method === 'shutdown') {",
@@ -84,4 +86,35 @@ test("DeepSeekJsonRpcWorker rejects a third session at its bound", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("DeepSeekJsonRpcWorker resumes a persisted session (provider session mapping)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dofe-jsonrpc-worker-resume-"));
+  const executable = join(dir, "dsh-jsonrpc-agent");
+  writeExecutable(executable, FAKE_RUNTIME);
+  const worker = new DeepSeekJsonRpcWorker({
+    executablePath: executable,
+    cwd: dir,
+    env: { PATH: process.env.PATH ?? "" },
+    model: "deepseek-v4-flash",
+    maxSessions: 2,
+  });
+
+  try {
+    await worker.start();
+    const sessionId = "dofe-provider-session-1";
+    await worker.resumeSession(sessionId);
+    const output = await worker.runSession(sessionId, "continue");
+    assert.equal(output, "reply-dofe-provider-session-1");
+    await worker.stop();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isDeepSeekBoundedWorkerEnabled defaults off and requires strict 1", () => {
+  assert.equal(isDeepSeekBoundedWorkerEnabled({}), false);
+  assert.equal(isDeepSeekBoundedWorkerEnabled({ DOFE_AGENT_DEEPSEEK_BOUNDED_WORKER_ENABLED: "0" }), false);
+  assert.equal(isDeepSeekBoundedWorkerEnabled({ DOFE_AGENT_DEEPSEEK_BOUNDED_WORKER_ENABLED: "true" }), false);
+  assert.equal(isDeepSeekBoundedWorkerEnabled({ DOFE_AGENT_DEEPSEEK_BOUNDED_WORKER_ENABLED: "1" }), true);
 });

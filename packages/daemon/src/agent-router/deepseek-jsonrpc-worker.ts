@@ -147,6 +147,15 @@ export class DeepSeekJsonRpcWorker {
     return turnPromise;
   }
 
+  /** Resume one persisted session into this worker's process (crash recovery). */
+  async resumeSession(sessionId: string): Promise<void> {
+    await this.start();
+    const result = await this.request("session/resume", { sessionId });
+    if ((result as { resumed?: unknown }).resumed !== true) {
+      throw new Error(`DeepSeek Harness JSON-RPC session/resume returned no resume receipt: ${JSON.stringify(result)}`);
+    }
+  }
+
   /** Cancel the active turn for one session, keeping the runtime alive. */
   async cancelSession(sessionId: string, reason: "user" | "timeout" | "parent" | "operator" = "operator"): Promise<void> {
     await this.request("session/cancel", { sessionId, reason, keepInbox: false });
@@ -263,4 +272,13 @@ export class DeepSeekJsonRpcWorker {
 /** Mint a fresh, opaque DeepSeek session id (matches the one-shot path). */
 export function mintDeepSeekSessionId(): string {
   return `dofe-task-${randomUUID()}`;
+}
+
+/**
+ * Whether the bounded-worker path may replace one-shot JSON-RPC execution.
+ * Defaults off; the production queue stays one-shot until real carrier evidence
+ * and provider-session mapping land end-to-end.
+ */
+export function isDeepSeekBoundedWorkerEnabled(environment: NodeJS.ProcessEnv = process.env): boolean {
+  return environment.DOFE_AGENT_DEEPSEEK_BOUNDED_WORKER_ENABLED === "1";
 }
