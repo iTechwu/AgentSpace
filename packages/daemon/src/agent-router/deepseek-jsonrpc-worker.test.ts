@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeepSeekJsonRpcWorker, isDeepSeekBoundedWorkerEnabled, mintDeepSeekSessionId } from "./deepseek-jsonrpc-worker.ts";
+import { DeepSeekJsonRpcWorker, DeepSeekJsonRpcWorkerPool, isDeepSeekBoundedWorkerEnabled, mintDeepSeekSessionId } from "./deepseek-jsonrpc-worker.ts";
+import { runDeepSeekJsonRpcBoundedWorkerTask } from "./deepseek-jsonrpc-bounded-run.ts";
 
 function writeExecutable(path: string, content: string): void {
   writeFileSync(path, content, "utf8");
@@ -117,4 +118,33 @@ test("isDeepSeekBoundedWorkerEnabled defaults off and requires strict 1", () => 
   assert.equal(isDeepSeekBoundedWorkerEnabled({ DOFE_AGENT_DEEPSEEK_BOUNDED_WORKER_ENABLED: "0" }), false);
   assert.equal(isDeepSeekBoundedWorkerEnabled({ DOFE_AGENT_DEEPSEEK_BOUNDED_WORKER_ENABLED: "true" }), false);
   assert.equal(isDeepSeekBoundedWorkerEnabled({ DOFE_AGENT_DEEPSEEK_BOUNDED_WORKER_ENABLED: "1" }), true);
+});
+
+test("runDeepSeekJsonRpcBoundedWorkerTask runs a session through the pool and emits events", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dofe-jsonrpc-bounded-run-"));
+  const executable = join(dir, "dsh-jsonrpc-agent");
+  writeExecutable(executable, FAKE_RUNTIME);
+  const pool = new DeepSeekJsonRpcWorkerPool();
+  const events: string[] = [];
+
+  try {
+    const result = await runDeepSeekJsonRpcBoundedWorkerTask(pool, {
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "hello",
+      cwd: dir,
+      executablePath: executable,
+      model: "deepseek-v4-flash",
+      env: { PATH: process.env.PATH ?? "", DEEPSEEK_API_KEY: "task-key" },
+    }, { emit: (event) => { events.push(event.type); } });
+
+    assert.equal(result.status, "completed");
+    assert.match(result.outputText ?? "", /^reply-dofe-task-/);
+    assert.match(result.sessionId ?? "", /^dofe-task-/);
+    assert.ok(events.includes("harness_started"));
+    assert.ok(events.includes("text_delta"));
+  } finally {
+    await pool.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

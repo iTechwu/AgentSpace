@@ -46,6 +46,7 @@ interface PendingRequest {
 interface ActiveTurn {
   sessionId: string;
   outputText: string;
+  onEvent?: (event: AgentRouterEvent) => void;
   idleResolve: () => void;
   idleReject: (error: Error) => void;
 }
@@ -106,7 +107,7 @@ export class DeepSeekJsonRpcWorker {
   }
 
   /** Run one prompt on one session and resolve with the final assistant text. */
-  async runSession(sessionId: string, prompt: string, environment?: Readonly<Record<string, string>>): Promise<string> {
+  async runSession(sessionId: string, prompt: string, environment?: Readonly<Record<string, string>>, cwd?: string, onEvent?: (event: AgentRouterEvent) => void): Promise<string> {
     // Bound check and reservation run synchronously before any await, so
     // concurrent callers cannot oversubscribe the worker.
     if (this.closed) throw new Error("DeepSeek Harness JSON-RPC worker is closed");
@@ -122,6 +123,7 @@ export class DeepSeekJsonRpcWorker {
       const reserved: ActiveTurn = {
         sessionId,
         outputText: "",
+        onEvent,
         idleResolve: () => {
           this.activeTurns.delete(sessionId);
           resolve(reserved.outputText);
@@ -140,6 +142,7 @@ export class DeepSeekJsonRpcWorker {
         sessionId,
         contentBlocks: [{ type: "text", text: prompt }],
         ...(environment === undefined ? {} : { environment }),
+        ...(cwd === undefined ? {} : { cwd }),
       });
       if ((receipt as { messageId?: unknown }).messageId === undefined) {
         throw new Error(`DeepSeek Harness JSON-RPC session/prompt returned no message id: ${JSON.stringify(receipt)}`);
@@ -238,11 +241,14 @@ export class DeepSeekJsonRpcWorker {
             .map((block) => block.text)
             .join("");
           const turn = sessionId !== undefined ? this.activeTurns.get(sessionId) : undefined;
-          if (turn !== undefined) turn.outputText = text;
-          if (text) this.options.onEvent?.({ type: "text_delta", text });
+          if (turn !== undefined) {
+            turn.outputText = text;
+            if (text) turn.onEvent?.({ type: "text_delta", text });
+          }
         }
       } else if (method === "approval.request") {
-        this.options.onEvent?.({
+        const turn = sessionId !== undefined ? this.activeTurns.get(sessionId) : undefined;
+        turn?.onEvent?.({
           type: "approval_requested",
           toolName: typeof params?.toolName === "string" ? params.toolName : "tool",
           contentPreview: typeof params?.reason === "string" ? params.reason : "",
@@ -292,4 +298,28 @@ export function mintDeepSeekSessionId(): string {
  */
 export function isDeepSeekBoundedWorkerEnabled(environment: NodeJS.ProcessEnv = process.env): boolean {
   return environment.DOFE_AGENT_DEEPSEEK_BOUNDED_WORKER_ENABLED === "1";
+}
+
+/**
+ * A process pool for bounded workers, keyed by (executable, model, cwd). Tasks
+ * that share a work directory reuse one runtime process; tasks in different
+ * directories get their own worker (per-session `cwd` isolation remains
+ * available for a future shared-base pool).
+ */
+export class DeepSeekJsonRpcWorkerPool {
+  private readonly workers = new Map<string, DeepSeekJsonRpcWorker>();
+
+  acquire(key: string, options: DeepSeekJsonRpcWorkerOptions): DeepSeekJsonRpcWorker {
+    let worker = this.workers.get(key);
+    if (worker === undefined) {
+      worker = new DeepSeekJsonRpcWorker(options);
+      this.workers.set(key, worker);
+    }
+    return worker;
+  }
+
+  async stop(): Promise<void> {
+    await Promise.all([...this.workers.values()].map((worker) => worker.stop()));
+    this.workers.clear();
+  }
 }

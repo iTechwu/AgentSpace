@@ -23,6 +23,14 @@ import { runGeminiProviderTask, runNanoBotProviderTask } from "./legacy-runtime.
 import { buildRuntimeToolCapabilities } from "./tool-capabilities.ts";
 import { resolveDeepSeekJsonRpcReleaseConfig } from "./deepseek-jsonrpc-release.ts";
 import { ProviderTaskExecutionError, type ProviderRuntimeRecord, type ProviderTaskOptions } from "./types.ts";
+import { DeepSeekJsonRpcWorkerPool, isDeepSeekBoundedWorkerEnabled } from "../agent-router/deepseek-jsonrpc-worker.ts";
+import { runDeepSeekJsonRpcBoundedWorkerTask } from "../agent-router/deepseek-jsonrpc-bounded-run.ts";
+
+let deepSeekJsonRpcWorkerPool: DeepSeekJsonRpcWorkerPool | undefined;
+
+function getDeepSeekJsonRpcWorkerPool(): DeepSeekJsonRpcWorkerPool {
+  return deepSeekJsonRpcWorkerPool ??= new DeepSeekJsonRpcWorkerPool();
+}
 
 export async function runProviderTask(
   runtime: ProviderRuntimeRecord,
@@ -81,6 +89,31 @@ async function runAgentRouterProviderTask(
   }
   const requestedSessionId = resolveAgentRouterSessionId(runtime, options.sessionId);
   const sessionId = runtime.provider === "deepseek-harness" ? undefined : requestedSessionId;
+  if (runtime.provider === "deepseek-harness" && deepSeekJsonRpcRelease && isDeepSeekBoundedWorkerEnabled()) {
+    return runDeepSeekJsonRpcBoundedWorkerTask(
+      getDeepSeekJsonRpcWorkerPool(),
+      {
+        version: 1,
+        harness,
+        prompt,
+        cwd: workDir,
+        executablePath: deepSeekJsonRpcRelease.executablePath,
+        model: modelId,
+        sessionId: requestedSessionId,
+        env: contextEnv,
+      },
+      { emit: (event) => { for (const mapped of mapAgentRouterEvent(event)) options.onEvent?.(mapped); } },
+    ).then((result) => {
+      if (result.status !== "completed") {
+        throw buildRouterProviderFailure(runtime.provider, buildRouterFailureMessage(runtime.provider, result), result, workDir);
+      }
+      const output = result.outputText?.trim();
+      if (!output) {
+        throw buildRouterProviderFailure(runtime.provider, `${runtime.provider} returned an empty response.`, result, workDir);
+      }
+      return { output, sessionId: result.sessionId };
+    });
+  }
   if (runtime.provider === "deepseek-harness" && requestedSessionId) {
     const modeLabel = deepSeekJsonRpcRelease ? "one-shot JSON-RPC" : "headless";
     options.onEvent?.({
