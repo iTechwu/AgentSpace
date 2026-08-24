@@ -344,10 +344,13 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   expect(desktopAccessibility.violations).toEqual([]);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload({ waitUntil: "networkidle" });
+  // The agents page keeps a live stream open; DOM readiness plus the actual
+  // employee content is the stable mobile gate and avoids compression-stream
+  // listener churn from waiting for a never-idle network.
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByText(employeeDisplayName, { exact: true }).first()).toBeVisible({ timeout: 60_000 });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
-  await expect(page.getByText(employeeDisplayName, { exact: true }).first()).toBeVisible();
   await page.keyboard.press("Tab");
   const hasKeyboardFocus = await page.evaluate(() => document.activeElement !== document.body && document.activeElement !== null);
   expect(hasKeyboardFocus).toBe(true);
