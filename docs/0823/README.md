@@ -20,7 +20,7 @@
 - 发布部署使用 `deploy-deepseek-runtime.sh`：同一环境先完成签名与双模型 canary，再以 `--pull never --no-build` 启动专用结构化 digest Compose；通用 `docker-compose.remote-images.yml` 不要求 DeepSeek 变量，本地构建使用 `docker-compose.runtimes.yml`。
 - 现有 `agent_task_queue` 不需要复制或新增队列表；任务仍按 `runtime_id` claim，新增的是 provider/harness 适配和 runtime provisioning 能力。
 - `../deepseek-harness` 的 `origin` 已切换为 `git@github.com:iTechwu/deepseek-harness.git`。该 remote 配置不进入 Git tree，因此没有额外 commit 可记录。
-- 实现位于分支 `techwu/deepseek-harness-runtime`。Provider 账户入口已接入同一 canary flag；MCP 在创建、任务投影、session claim 和 gateway 校验四层对 DeepSeek fail-closed。代码和静态配置已完成本地验证；托管 usage 已保留 `deepseek_native` 协议语义，但由于批准的 Node 24.19 基础镜像不存在、未提供真实 DeepSeek key，且真实 billing/canary/rollback 尚未执行，当前不可发布，Web 灰度开关默认关闭。
+- 实现位于分支 `techwu/deepseek-harness-runtime`，已于 2026-08-24 合并到 `dev`（合并提交 `1e8af517`）。Provider 账户入口已接入同一 canary flag；MCP 在创建、任务投影、session claim 和 gateway 校验四层对 DeepSeek fail-closed。代码和静态配置已完成本地验证；托管 usage 已保留 `deepseek_native` 协议语义，但由于批准的 Node 24.19 基础镜像不存在、未提供真实 DeepSeek key，且真实 billing/canary/rollback 尚未执行，当前不可发布，Web 灰度开关默认关闭。
 
 ## 依据
 
