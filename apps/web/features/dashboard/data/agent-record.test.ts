@@ -35,12 +35,11 @@ function pendingApproval(): ApprovalRequest {
 }
 
 describe("statusForWorkspaceAgent", () => {
-  it("does not let an old blocked task override a later completed conversation", () => {
+  it("does not let historical failed work mark a healthy employee as blocked", () => {
     expect(statusForWorkspaceAgent(
-      [task("blocked"), task("done")],
+      [task("blocked")],
       [
         workArea({ queueStatus: "failed", taskStatus: "blocked", updatedAtEpochMs: 100 }),
-        workArea({ queueStatus: "completed", taskStatus: "done", updatedAtEpochMs: 200 }),
       ],
       [],
       employeeName,
@@ -48,24 +47,34 @@ describe("statusForWorkspaceAgent", () => {
     )).toBe("online");
   });
 
-  it("keeps the employee blocked when its latest execution remains blocked", () => {
-    expect(statusForWorkspaceAgent(
-      [task("blocked")],
-      [workArea({ queueStatus: "failed", taskStatus: "blocked", updatedAtEpochMs: 200 })],
-      [],
-      employeeName,
-      "linked",
-    )).toBe("blocked");
-  });
-
-  it("keeps a latest queue failure visible even when no legacy task is linked", () => {
+  it("keeps a terminal queue failure in execution history without blocking the employee", () => {
     expect(statusForWorkspaceAgent(
       [],
       [workArea({ queueStatus: "failed", updatedAtEpochMs: 200 })],
       [],
       employeeName,
       "linked",
-    )).toBe("blocked");
+    )).toBe("online");
+  });
+
+  it("reports an active execution as busy", () => {
+    expect(statusForWorkspaceAgent(
+      [],
+      [workArea({ queueStatus: "running", updatedAtEpochMs: 200 })],
+      [],
+      employeeName,
+      "linked",
+    )).toBe("busy");
+  });
+
+  it("reports an unavailable execution engine as an error", () => {
+    expect(statusForWorkspaceAgent(
+      [],
+      [workArea({ queueStatus: "failed", updatedAtEpochMs: 200 })],
+      [],
+      employeeName,
+      "error",
+    )).toBe("error");
   });
 
   it("reports a persisted approval as awaiting confirmation", () => {

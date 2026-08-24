@@ -481,20 +481,11 @@ export function statusForWorkspaceAgent(
     return "awaiting_confirmation";
   }
 
-  // A task board keeps historical failures for audit. Only the newest execution
-  // workspace represents the employee's current operational state; otherwise a
-  // later successful conversation could never clear an earlier failure.
-  const latestWorkArea = workAreas.reduce<AgentWorkAreaRecord | undefined>((latest, area) => (
-    !latest || (area.updatedAtEpochMs ?? Number.NEGATIVE_INFINITY) > (latest.updatedAtEpochMs ?? Number.NEGATIVE_INFINITY)
-      ? area
-      : latest
-  ), undefined);
-  if (latestWorkArea?.taskStatus === "blocked" || latestWorkArea?.queueStatus === "failed") {
-    return "blocked";
-  }
-  if (workAreas.length === 0 && tasks.some((task) => task.status === "blocked")) {
-    return "blocked";
-  }
+  // A failed or blocked task is a terminal execution record, not a durable
+  // employee-health signal. Keep it in the work area and task history, while
+  // deriving the directory status from the live runtime and active work only.
+  // Otherwise one transient failure would leave a healthy employee permanently
+  // marked as blocked.
   return "online";
 }
 export function latestTimestampMs(...values: Array<string | undefined>): number {
