@@ -46,7 +46,11 @@ export function FeishuAgentBotAgentSettingsPanel({
 }: FeishuAgentBotAgentSettingsPanelProps) {
   const { tx } = useLanguage();
   const [isPending, startTransition] = useTransition();
-  const [currentIntegration, setCurrentIntegration] = useState(integration);
+  // A disabled binding is historical state, not a live binding. Treat it as
+  // unbound so an operator can immediately configure a replacement Bot.
+  const [currentIntegration, setCurrentIntegration] = useState(
+    integration?.status === "disabled" ? undefined : integration,
+  );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [bindingAvailability, setBindingAvailability] = useState<FeishuAgentBotBindingAvailability | null>(null);
   const [transferConfirmed, setTransferConfirmed] = useState(false);
@@ -65,7 +69,7 @@ export function FeishuAgentBotAgentSettingsPanel({
   const [guestPermissionProfile, setGuestPermissionProfile] = useState<"none" | "channel_context_only" | "channel_readonly">("channel_context_only");
 
   useEffect(() => {
-    setCurrentIntegration(integration);
+    setCurrentIntegration(integration?.status === "disabled" ? undefined : integration);
     setFeedback(null);
     setBindingAvailability(null);
     setTransferConfirmed(false);
@@ -90,9 +94,11 @@ export function FeishuAgentBotAgentSettingsPanel({
   };
 
   const handleUpdated = (updated: FeishuIntegrationSettingsItem) => {
-    setCurrentIntegration(updated);
+    setCurrentIntegration(updated.status === "disabled" ? undefined : updated);
     onUpdated?.(updated);
   };
+
+  const disabledIntegration = integration?.status === "disabled" ? integration : undefined;
 
   const inspectBindingAvailability = async () => {
     const availability = await inspectFeishuAgentBotBindingAvailabilityAction({
@@ -135,6 +141,15 @@ export function FeishuAgentBotAgentSettingsPanel({
           setupSteps={setupReference.openPlatformSetupSteps}
           tx={tx}
         />
+      ) : null}
+
+      {!currentIntegration && disabledIntegration ? (
+        <p className="settings-panel-note" role="status">
+          {tx(
+            `“${disabledIntegration.displayName}”已停用，不会阻止为 ${agentName} 绑定新的飞书应用。请在下方填写新应用凭据。`,
+            `“${disabledIntegration.displayName}” is disabled and does not block binding a new Feishu app for ${agentName}. Enter the replacement app credentials below.`,
+          )}
+        </p>
       ) : null}
 
       {currentIntegration ? (
