@@ -109,6 +109,17 @@ export class DeepSeekSessionProtocol {
       && this.idle;
   }
 
+  /** Human-readable reasons the turn is not yet complete (empty when complete). */
+  completionMissingReasons(): string[] {
+    if (this.isTurnComplete()) return [];
+    const reasons: string[] = [];
+    if (!this.promptAccepted) reasons.push("prompt was not acknowledged");
+    if (!this.promptReceiptSeen) reasons.push("prompt receipt was not observed");
+    if (!this.turnEndKind) reasons.push("turn did not emit a valid turn/end reason");
+    if (!this.idle) reasons.push("session did not reach idle");
+    return reasons;
+  }
+
   private write(method: string, id: string, params?: Record<string, unknown>): void {
     const message: Record<string, unknown> = { jsonrpc: JSONRPC_VERSION, id, method };
     if (params !== undefined) message.params = params;
