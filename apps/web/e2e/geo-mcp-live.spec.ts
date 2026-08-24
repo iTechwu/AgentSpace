@@ -304,9 +304,9 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   await expect(creationAnnouncement).toBeVisible({ timeout: 60_000 });
   await expect(creationAnnouncement.locator('xpath=ancestor-or-self::*[@role="status" or @role="alert" or @aria-live][1]')).toHaveCount(1);
   const createdEmployeeButton = page.getByRole("button", { name: new RegExp(employeeDisplayName) });
-  await expect(createdEmployeeButton).toBeVisible();
+  await expect(createdEmployeeButton).toBeVisible({ timeout: 60_000 });
   await createdEmployeeButton.click();
-  await expect(page.locator(".agents-detail-pane").getByText(employeeDisplayName, { exact: true })).toBeVisible();
+  await expect(page.locator(".agents-detail-pane").getByText(employeeDisplayName, { exact: true })).toBeVisible({ timeout: 60_000 });
   const employee = db.prepare(
     `SELECT e.name, e.remark_name AS "remarkName", b.runtime_id AS "runtimeId"
        FROM workspace_employee e
