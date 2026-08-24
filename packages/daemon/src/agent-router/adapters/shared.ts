@@ -8,8 +8,7 @@ import type {
   HarnessErrorContext,
   HarnessLaunchPlan,
 } from "../types.ts";
-import type { ExecController } from "@dofe-agent/sandbox";
-import { runLaunchPlan, type SubprocessRunResult } from "../subprocess.ts";
+import { runLaunchPlan, type HarnessProcessController, type SubprocessRunResult } from "../subprocess.ts";
 import {
   createDiagnostic,
   extractSessionId,
@@ -27,9 +26,14 @@ export interface NativeRunOptions {
   emptyMessage: string;
   nonZeroMessage: (exitCode: number | null) => string;
   timeoutMessage: (timeoutMs: number) => string;
-  onReady?: (controller: ExecController, observer: AgentRouterObserver) => void;
+  onReady?: (controller: HarnessProcessController, observer: AgentRouterObserver) => void;
   onStdout?: (chunk: string, observer: AgentRouterObserver) => void;
   onStderr?: (chunk: string, observer: AgentRouterObserver) => void;
+  /** Best-effort protocol cancellation before the subprocess ladder starts. */
+  onAbort?: () => void;
+  acceptNonZeroExit?: (processResult: SubprocessRunResult) => boolean;
+  /** Protocol transports may contain private reasoning frames that must never be copied into diagnostics. */
+  includeStdoutInFailureDiagnostic?: boolean;
 }
 
 export interface ParsedHarnessOutput {
@@ -62,6 +66,7 @@ export async function runNativeHarness(
       onStdout: options.onStdout ? (chunk) => options.onStdout?.(chunk, teeObserver) : undefined,
       onStderr: options.onStderr ? (chunk) => options.onStderr?.(chunk, teeObserver) : undefined,
       signal: request.signal,
+      onAbort: options.onAbort,
     });
   } catch (error) {
     const diagnostic = createDiagnostic("harness.unknown_failure", error instanceof Error ? error.message : String(error));
@@ -106,10 +111,12 @@ export async function runNativeHarness(
   const parsed = options.parseEvents(processResult.stdout, processResult.stderr, teeObserver);
   const diagnostics = [...(parsed.diagnostics ?? [])];
 
-  if (processResult.exitCode !== 0) {
+  if (processResult.exitCode !== 0 && options.acceptNonZeroExit?.(processResult) !== true) {
     diagnostics.push(...(options.failureDiagnostics?.(processResult, parsed) ?? []));
     diagnostics.push(createDiagnostic("harness.exited_nonzero", options.nonZeroMessage(processResult.exitCode), {
-      rawProviderMessage: tailText(`${processResult.stderr}\n${processResult.stdout}`),
+      rawProviderMessage: options.includeStdoutInFailureDiagnostic === false
+        ? stderrTail || undefined
+        : tailText(`${processResult.stderr}\n${processResult.stdout}`),
       stderrTail,
     }));
     return {

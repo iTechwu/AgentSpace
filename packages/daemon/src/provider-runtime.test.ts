@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
@@ -100,6 +102,395 @@ test("runProviderTask routes DeepSeek Harness through AgentRouter with the selec
     assert.equal(existsSync(args[3]!), false);
     assert.ok(events.some((event) => event.type === "status" && event.content?.includes("DeepSeek Harness")));
   } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask admits pinned standalone and attested managed DeepSeek JSON-RPC runtimes", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-release-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const runtimeEnvPath = join(workDir, "runtime-env.json");
+  const provenancePath = join(workDir, "provenance.json");
+  const wheelSha256 = "1".repeat(64);
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(
+    releaseKeys.map((key) => [key, process.env[key]]),
+  );
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-deepseek-jsonrpc-release",
+    workspaceId: "default",
+    provider: "deepseek-harness",
+    name: "DeepSeek Harness JSON-RPC",
+    status: "online",
+    metadata: { executablePath: runtimePath, mode: "remote" },
+  };
+
+  try {
+    writeApprovedDeepSeekCordisConfig(configPath);
+    writeFileSync(
+      runtimePath,
+      [
+        `#!${process.execPath}`,
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        "fs.writeFileSync(process.env.RUNTIME_ENV_PATH, JSON.stringify({ operatorKeys: Object.keys(process.env).filter((key) => key.startsWith('DOFE_AGENT_DEEPSEEK_JSONRPC_')), config: process.env.DSH_CORDIS_CONFIG, ldPreload: process.env.LD_PRELOAD ?? null, nodeOptions: process.env.NODE_OPTIONS ?? null, pythonPath: process.env.PYTHONPATH ?? null, bashEnv: process.env.BASH_ENV ?? null, path: process.env.PATH }));",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (message) => process.stdout.write(`${JSON.stringify(message)}\\n`);",
+        "const sendEvent = (sessionId, event) => send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event } });",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') { send({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } }); return; }",
+        "  if (message.method === 'session/prompt') {",
+        "    const sessionId = message.params.sessionId;",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { messageId: 'message-1' } });",
+        "    sendEvent(sessionId, { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { inserted: [{ id: 'message-1' }] } });",
+        "    sendEvent(sessionId, { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } });",
+        "    sendEvent(sessionId, { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } });",
+        "    sendEvent(sessionId, { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'queue jsonrpc output' }] } } });",
+        "    sendEvent(sessionId, { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } });",
+        "    sendEvent(sessionId, { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'shutdown') { send({ jsonrpc: '2.0', id: message.id, result: {} }); rl.close(); }",
+        "});",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(runtimePath, 0o755);
+    configureDeepSeekRuntimeSidecarPins(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = runtimePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+
+    const result = await runProviderTask(runtime, "run through queue", workDir, {
+      modelId: "deepseek-v4-flash",
+      contextEnv: {
+        RUNTIME_ENV_PATH: runtimeEnvPath,
+        DSH_CORDIS_CONFIG: join(workDir, "task-controlled-cordis.yml"),
+        LD_PRELOAD: join(workDir, "task-controlled.so"),
+        NODE_OPTIONS: `--require=${join(workDir, "task-controlled.cjs")}`,
+        PYTHONPATH: join(workDir, "task-controlled-python"),
+        BASH_ENV: join(workDir, "task-controlled-bash-env"),
+        PATH: join(workDir, "task-controlled-bin"),
+      },
+      taskTimeoutMs: 5_000,
+    });
+
+    assert.equal(result.output, "queue jsonrpc output");
+    assert.equal(result.sessionId, undefined);
+    const runtimeEnvironment = JSON.parse(readFileSync(runtimeEnvPath, "utf8")) as Record<string, unknown>;
+    assert.deepEqual({ ...runtimeEnvironment, path: undefined }, {
+      operatorKeys: [],
+      config: realpathSync(configPath),
+      ldPreload: null,
+      nodeOptions: null,
+      pythonPath: null,
+      bashEnv: null,
+      path: undefined,
+    });
+    assert.equal(String(runtimeEnvironment.path).includes("task-controlled-bin"), false);
+
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE = "1";
+    writeDeepSeekRuntimeProvenance(provenancePath, runtimePath, wheelSha256);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = provenancePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256 = wheelSha256;
+    const managedResult = await runProviderTask({
+      ...runtime,
+      id: "runtime-deepseek-jsonrpc-managed-release",
+      metadata: {
+        ...runtime.metadata,
+        managedCredentialId: "credential-deepseek-jsonrpc-managed-release",
+        provisioningState: "managed",
+      },
+    }, "run through managed queue", workDir, {
+      modelId: "deepseek-v4-flash",
+      contextEnv: { RUNTIME_ENV_PATH: runtimeEnvPath },
+      taskTimeoutMs: 5_000,
+    });
+    assert.equal(managedResult.output, "queue jsonrpc output");
+    assert.equal(managedResult.sessionId, undefined);
+  } finally {
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask rejects managed DeepSeek JSON-RPC launchers before spawn", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-managed-gate-"));
+  const runtimePath = join(workDir, "run-provider");
+  const configPath = join(workDir, "cordis.yml");
+  const startedPath = join(workDir, "started.txt");
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(
+    releaseKeys.map((key) => [key, process.env[key]]),
+  );
+
+  try {
+    writeApprovedDeepSeekCordisConfig(configPath);
+    writeFileSync(runtimePath, `#!/bin/sh\nprintf '%s' started > '${startedPath}'\n`, "utf8");
+    chmodSync(runtimePath, 0o755);
+    configureDeepSeekRuntimeSidecarPins(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = runtimePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+
+    for (const managedMetadata of [
+      { managedCredentialId: "credential-deepseek-jsonrpc-managed" },
+      { provisioningState: "managed" },
+    ]) {
+      await assert.rejects(
+        () => runProviderTask({
+          id: "runtime-deepseek-jsonrpc-managed",
+          workspaceId: "default",
+          provider: "deepseek-harness",
+          name: "Managed DeepSeek Harness",
+          status: "online",
+          metadata: {
+            executablePath: runtimePath,
+            mode: "remote",
+            ...managedMetadata,
+          },
+        }, "must not launch", workDir, { modelId: "deepseek-v4-flash", taskTimeoutMs: 1_000 }),
+        /requires an attested in-image bundle/,
+      );
+    }
+    assert.equal(existsSync(startedPath), false);
+
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE = "1";
+    await assert.rejects(
+      () => runProviderTask({
+        id: "runtime-deepseek-jsonrpc-managed-without-provenance",
+        workspaceId: "default",
+        provider: "deepseek-harness",
+        name: "Managed DeepSeek Harness",
+        status: "online",
+        metadata: {
+          executablePath: runtimePath,
+          mode: "remote",
+          managedCredentialId: "credential-deepseek-jsonrpc-managed",
+          provisioningState: "managed",
+        },
+      }, "must reject missing provenance", workDir, { modelId: "deepseek-v4-flash", taskTimeoutMs: 1_000 }),
+      /requires DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE/,
+    );
+    assert.equal(existsSync(startedPath), false);
+
+    const provenancePath = join(workDir, "provenance.json");
+    const wheelSha256 = "1".repeat(64);
+    writeDeepSeekRuntimeProvenance(provenancePath, runtimePath, wheelSha256);
+    const tampered = JSON.parse(readFileSync(provenancePath, "utf8")) as {
+      source: { commit: string };
+    };
+    tampered.source.commit = "0".repeat(40);
+    writeFileSync(provenancePath, JSON.stringify(tampered), "utf8");
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = provenancePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256 = wheelSha256;
+    await assert.rejects(
+      () => runProviderTask({
+        id: "runtime-deepseek-jsonrpc-managed-tampered-provenance",
+        workspaceId: "default",
+        provider: "deepseek-harness",
+        name: "Managed DeepSeek Harness",
+        status: "online",
+        metadata: {
+          executablePath: runtimePath,
+          mode: "remote",
+          managedCredentialId: "credential-deepseek-jsonrpc-managed",
+        },
+      }, "must reject tampered provenance", workDir, { modelId: "deepseek-v4-flash", taskTimeoutMs: 1_000 }),
+      /managed provenance did not match the pinned runtime release/,
+    );
+    assert.equal(existsSync(startedPath), false);
+
+    const detachedDirectory = join(workDir, "detached");
+    const detachedProvenancePath = join(detachedDirectory, "provenance.json");
+    mkdirSync(detachedDirectory);
+    writeDeepSeekRuntimeProvenance(detachedProvenancePath, runtimePath, wheelSha256);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = detachedProvenancePath;
+    await assert.rejects(
+      () => runProviderTask({
+        id: "runtime-deepseek-jsonrpc-managed-detached-provenance",
+        workspaceId: "default",
+        provider: "deepseek-harness",
+        name: "Managed DeepSeek Harness",
+        status: "online",
+        metadata: {
+          executablePath: runtimePath,
+          mode: "remote",
+          provisioningState: "managed",
+        },
+      }, "must reject detached provenance", workDir, { modelId: "deepseek-v4-flash", taskTimeoutMs: 1_000 }),
+      /managed provenance must be adjacent to the runtime executable/,
+    );
+    assert.equal(existsSync(startedPath), false);
+  } finally {
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("detectProviders discovers the operator-pinned standalone DeepSeek JSON-RPC carrier", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-detect-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const invokedPath = join(workDir, "invoked.txt");
+  const configPath = join(workDir, "cordis.yml");
+  const originalPath = process.env.PATH;
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(releaseKeys.map((key) => [key, process.env[key]]));
+
+  try {
+    writeFileSync(runtimePath, `#!/bin/sh\nprintf '%s' invoked > '${invokedPath}'\n`, "utf8");
+    writeApprovedDeepSeekCordisConfig(configPath);
+    chmodSync(runtimePath, 0o755);
+    configureDeepSeekRuntimeSidecarPins(runtimePath);
+    process.env.PATH = "";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = runtimePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+
+    const deepSeek = detectProviders().find((provider) => provider.provider === "deepseek-harness");
+
+    assert.equal(deepSeek?.executablePath, runtimePath);
+    assert.equal(deepSeek?.version, "jsonrpc-release-configured");
+    assert.equal(existsSync(invokedPath), false);
+  } finally {
+    process.env.PATH = originalPath;
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("detectProviders fails closed without executing PATH fallback when the DeepSeek JSON-RPC release gate is incomplete", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-incomplete-detect-"));
+  const dshPath = join(workDir, "dsh");
+  const configPath = join(workDir, "cordis.yml");
+  const provenancePath = join(workDir, "provenance.json");
+  const invokedPath = join(workDir, "invoked.txt");
+  const originalPath = process.env.PATH;
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(releaseKeys.map((key) => [key, process.env[key]]));
+
+  try {
+    writeFileSync(dshPath, `#!/bin/sh\nprintf '%s' invoked > '${invokedPath}'\n`, "utf8");
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    chmodSync(dshPath, 0o755);
+    process.env.PATH = workDir;
+    const invalidConfigurations: Array<Record<string, string>> = [
+      {},
+      { DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: dshPath },
+      {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: dshPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: "not-a-digest",
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+      },
+      {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: "dsh",
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(dshPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: "0".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: "0".repeat(64),
+      },
+      {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: dshPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(dshPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: "0".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: "0".repeat(64),
+      },
+      {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: dshPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(dshPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: "0".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: "0".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE: "1",
+        DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE: provenancePath,
+      },
+    ];
+    for (const configuration of invalidConfigurations) {
+      for (const key of releaseKeys) delete process.env[key];
+      process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+      Object.assign(process.env, configuration);
+      assert.equal(detectProviders().some((provider) => provider.provider === "deepseek-harness"), false);
+      assert.equal(existsSync(invokedPath), false);
+    }
+  } finally {
+    process.env.PATH = originalPath;
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     rmSync(workDir, { recursive: true, force: true });
   }
 });
@@ -262,6 +653,277 @@ test("buildProviderRuntimeMetadata runs a requested provider verification", () =
     assert.equal(typeof health?.checkedAt, "string");
   } finally {
     rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata handshakes only after DeepSeek JSON-RPC release pins pass", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-health-"));
+  const executablePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const provenancePath = join(workDir, "provenance.json");
+  const invokedPath = join(workDir, "invoked.txt");
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(releaseKeys.map((key) => [key, process.env[key]]));
+
+  try {
+    writeFileSync(
+      executablePath,
+      [
+        `#!${process.execPath}`,
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        `fs.appendFileSync(${JSON.stringify(invokedPath)}, '1');`,
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } })}\\n`);",
+        "  if (message.method === 'shutdown') { process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} })}\\n`); rl.close(); }",
+        "});",
+      ].join("\n"),
+      "utf8",
+    );
+    writeApprovedDeepSeekCordisConfig(configPath);
+    chmodSync(executablePath, 0o755);
+    configureDeepSeekRuntimeSidecarPins(executablePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = executablePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(executablePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+
+    const runtime = {
+      provider: "deepseek-harness" as const,
+      metadata: {
+        executablePath,
+        mode: "remote" as const,
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    };
+    const verified = buildProviderRuntimeMetadata(runtime, {
+      environment: {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED: "1",
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: join(workDir, "credential-controlled-carrier"),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: "f".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: join(workDir, "credential-controlled-config"),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: "f".repeat(64),
+      },
+    });
+    assert.equal((verified.providerHealth as { status?: unknown })?.status, "degraded");
+    assert.equal(readFileSync(invokedPath, "utf8"), "1");
+
+    const wheelSha256 = "1".repeat(64);
+    writeDeepSeekRuntimeProvenance(provenancePath, executablePath, wheelSha256);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = provenancePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256 = wheelSha256;
+    const managedRuntime = {
+      ...runtime,
+      metadata: {
+        ...runtime.metadata,
+        managedCredentialId: "credential-deepseek-jsonrpc-managed-health",
+        provisioningState: "managed" as const,
+      },
+    };
+    const managedVerified = buildProviderRuntimeMetadata(managedRuntime);
+    assert.equal((managedVerified.providerHealth as { status?: unknown })?.status, "degraded");
+    assert.equal(readFileSync(invokedPath, "utf8"), "11");
+
+    const tamperedProvenance = JSON.parse(readFileSync(provenancePath, "utf8")) as {
+      wheel: { sha256: string };
+    };
+    tamperedProvenance.wheel.sha256 = "0".repeat(64);
+    writeFileSync(provenancePath, JSON.stringify(tamperedProvenance), "utf8");
+    const managedRejected = buildProviderRuntimeMetadata(managedRuntime);
+    assert.equal((managedRejected.providerHealth as { status?: unknown })?.status, "broken");
+    assert.equal(readFileSync(invokedPath, "utf8"), "11");
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE;
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE;
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT;
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256;
+
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = "0".repeat(64);
+    const rejected = buildProviderRuntimeMetadata(runtime);
+    assert.equal((rejected.providerHealth as { status?: unknown })?.status, "broken");
+    assert.equal(readFileSync(invokedPath, "utf8"), "11");
+
+    const incompatibleRuntime = readFileSync(executablePath, "utf8")
+      .replace("version: '0.0.1'", "version: '9.9.9'");
+    writeFileSync(executablePath, incompatibleRuntime, "utf8");
+    chmodSync(executablePath, 0o755);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(executablePath);
+    const incompatible = buildProviderRuntimeMetadata(runtime);
+    const incompatibleHealth = incompatible.providerHealth as {
+      status?: unknown;
+      error?: { code?: unknown };
+    };
+    assert.equal(incompatibleHealth.status, "broken");
+    assert.equal(incompatibleHealth.error?.code, "provider.protocol_parse_failed");
+    assert.equal(readFileSync(invokedPath, "utf8"), "111");
+
+    writeFileSync(
+      executablePath,
+      [
+        `#!${process.execPath}`,
+        "const fs = require('node:fs');",
+        `fs.appendFileSync(${JSON.stringify(invokedPath)}, '1');`,
+        "process.stdin.resume();",
+        "setInterval(() => {}, 1_000);",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(executablePath);
+    const startedAt = Date.now();
+    const unresponsive = buildProviderRuntimeMetadata(runtime);
+    const elapsedMs = Date.now() - startedAt;
+    const unresponsiveHealth = unresponsive.providerHealth as {
+      status?: unknown;
+      error?: { code?: unknown };
+    };
+    assert.equal(unresponsiveHealth.status, "broken");
+    assert.equal(unresponsiveHealth.error?.code, "provider.protocol_parse_failed");
+    assert.ok(elapsedMs < 5_500, `expected bounded health probe, observed ${elapsedMs}ms`);
+    assert.equal(readFileSync(invokedPath, "utf8"), "1111");
+  } finally {
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("daemon CLI verifies both native DeepSeek models without leaking unrelated credentials", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-model-canary-"));
+  const executablePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const provenancePath = join(workDir, "provenance.json");
+  const modelsPath = join(workDir, "models.txt");
+  const wheelSha256 = "1".repeat(64);
+  const imageDigest = `sha256:${"2".repeat(64)}`;
+
+  try {
+    writeFileSync(
+      executablePath,
+      [
+        `#!${process.execPath}`,
+        "if (!process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY) process.exit(41);",
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (value) => process.stdout.write(`${JSON.stringify(value)}\\n`);",
+        "rl.on('line', (line) => {",
+        "  const request = JSON.parse(line);",
+        "  if (request.method === 'initialize') {",
+        `    fs.appendFileSync(${JSON.stringify(modelsPath)}, request.params.model + '\\n');`,
+        "    send({ jsonrpc: '2.0', id: request.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } });",
+        "    return;",
+        "  }",
+        "  if (request.method === 'session/prompt') {",
+        "    const sessionId = request.params.sessionId;",
+        "    const usage = { inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1, reasoningTokens: 1 };",
+        "    const event = (type, seq, data) => send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type, seq, time: seq + 1, data } } });",
+        "    send({ jsonrpc: '2.0', id: request.id, result: { messageId: 'canary-message' } });",
+        "    event('agent/inbox/spliced', 0, { target: 'next-turn', start: 0, inserted: [{ id: 'canary-message' }] });",
+        "    event('turn/start', 1, { turn: 1 });",
+        "    event('step/start', 2, { turn: 1, step: 1 });",
+        "    event('assistant/chunk', 3, { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } });",
+        "    event('assistant/chunk', 4, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'DOFE_DEEPSEEK_CANARY_OK' } });",
+        "    event('assistant/chunk', 5, { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: 'DOFE_DEEPSEEK_CANARY_OK' } } });",
+        "    event('assistant/chunk', 6, { turn: 1, step: 1, chunk: { type: 'usage', usage } });",
+        "    event('assistant/chunk', 7, { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'stop' } } });",
+        "    event('assistant/message', 8, { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'DOFE_DEEPSEEK_CANARY_OK' }] }, usage });",
+        "    event('step/end', 9, { turn: 1, step: 1 });",
+        "    event('turn/end', 10, { turn: 1, reason: { kind: 'completed' } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (request.method === 'shutdown') { send({ jsonrpc: '2.0', id: request.id, result: {} }); rl.close(); }",
+        "});",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    writeApprovedDeepSeekCordisConfig(configPath);
+    configureDeepSeekRuntimeSidecarPins(executablePath);
+    writeDeepSeekRuntimeProvenance(provenancePath, executablePath, wheelSha256);
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        join(process.cwd(), "packages/daemon/src/cli.ts"),
+        "verify-deepseek-model-canary",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: "deepseek-secret-must-not-appear",
+          DEEPSEEK_BASE_URL: "",
+          OPENAI_API_KEY: "unrelated-secret-must-not-reach-carrier",
+          DOFE_AGENT_DEEPSEEK_RUNTIME_IMAGE_DIGEST: imageDigest,
+          DOFE_AGENT_DEEPSEEK_COSIGN_PUBLIC_KEY_SHA256: "3".repeat(64),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED: "1",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE: "1",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: executablePath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(executablePath),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: sha256File(`${executablePath}-rg`),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: process.platform === "darwin"
+            ? sha256File(`${executablePath}-spawn-helper`)
+            : "",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE: provenancePath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256: wheelSha256,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout.includes("deepseek-secret-must-not-appear"), false);
+    assert.equal(result.stdout.includes("unrelated-secret-must-not-reach-carrier"), false);
+    assert.equal(result.stdout.includes("DOFE_DEEPSEEK_CANARY_OK"), false);
+    const evidence = JSON.parse(result.stdout) as Record<string, unknown>;
+    assert.equal(evidence.schemaVersion, 1);
+    assert.equal(evidence.kind, "deepseek-native-model-canary-evidence");
+    assert.equal(evidence.imageDigest, imageDigest);
+    assert.equal(typeof evidence.checkedAt, "string");
+    assert.deepEqual(evidence.endpoint, { kind: "official" });
+    assert.deepEqual(evidence.attestation, { kind: "cosign-public-key", publicKeySha256: "3".repeat(64) });
+    assert.deepEqual(evidence.models, [
+      {
+        id: "deepseek-v4-flash",
+        status: "passed",
+        usage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1, reasoningTokens: 1 },
+      },
+      {
+        id: "deepseek-v4-pro",
+        status: "passed",
+        usage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1, reasoningTokens: 1 },
+      },
+    ]);
+    assert.deepEqual(readFileSync(modelsPath, "utf8").trim().split(/\r?\n/), [
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+    ]);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
   }
 });
 
@@ -2806,4 +3468,58 @@ function createOpenClawRuntime(binPath: string): ProviderRuntimeRecord {
       mode: "local",
     },
   };
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function writeApprovedDeepSeekCordisConfig(path: string): void {
+  writeFileSync(
+    path,
+    readFileSync(new URL("../../../deploy/daemon/runtimes/deepseek-jsonrpc/cordis.yml", import.meta.url)),
+  );
+}
+
+function configureDeepSeekRuntimeSidecarPins(runtimePath: string): void {
+  const ripgrepPath = `${runtimePath}-rg`;
+  writeFileSync(ripgrepPath, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(ripgrepPath, 0o755);
+  process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256 = sha256File(ripgrepPath);
+  if (process.platform !== "darwin") {
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256;
+    return;
+  }
+  const spawnHelperPath = `${runtimePath}-spawn-helper`;
+  writeFileSync(spawnHelperPath, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(spawnHelperPath, 0o755);
+  process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256 = sha256File(spawnHelperPath);
+}
+
+function writeDeepSeekRuntimeProvenance(path: string, runtimePath: string, wheelSha256: string): void {
+  writeFileSync(path, JSON.stringify({
+    schemaVersion: 1,
+    source: {
+      repository: "https://github.com/iTechwu/deepseek-harness",
+      ref: "dsh-v0.1.1-rc.2",
+      commit: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+    },
+    wheel: {
+      filename: "deepseek_harness_runtime_bin-0.1.1rc2-py3-none-manylinux_2_28_x86_64.whl",
+      sha256: wheelSha256,
+      distribution: "deepseek-harness-runtime-bin",
+      version: "0.1.1rc2",
+      tag: "py3-none-manylinux_2_28_x86_64",
+    },
+    artifacts: {
+      "dsh-jsonrpc-agent": {
+        source: "deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-linux-x64",
+        sha256: sha256File(runtimePath),
+      },
+      "dsh-jsonrpc-agent-rg": {
+        source: "deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-linux-x64-rg",
+        sha256: sha256File(`${runtimePath}-rg`),
+      },
+    },
+  }), "utf8");
 }

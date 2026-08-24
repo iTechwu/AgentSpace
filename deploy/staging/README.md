@@ -18,6 +18,7 @@ AgentSpace's gateway URL composition (`{base}/v1`, `{base}/anthropic`,
 | `setup-egress-network.sh` | Create the labelled isolated Docker network (`dofe.managed-egress=restricted`) the daemon + egress gate require. |
 | `seed-credential.mjs` | Validate the AgentSpace→models wiring (HMAC + service allowlist + contract) by creating a RuntimeCredential; prints a `STAGING_*` env fragment. |
 | `run-gates.sh` | Run the egress + billing release gates with the staging env. |
+| `run-deepseek-runtime-release-gates.sh` | Run the signed DeepSeek canary/deploy and reconcile one real native-model billing request. |
 | `.env.staging.example` | Full env template (models, network, vault, STAGING_* evidence). |
 
 The verify gates themselves are in `deploy/self-hosted/`
@@ -115,6 +116,8 @@ employee id, conversation id, and model. Put them in `.env.staging` as the
 
 Evidence JSON is written to `MANAGED_RUNTIME_EVIDENCE_DIR`
 (default `artifacts/managed-runtime`, mode `0600`).
+
+For the DeepSeek release path, load a private environment containing the immutable image repository/digest, cosign key and digest, release/canary evidence paths, `DEEPSEEK_API_KEY`, and the `STAGING_*` attribution for one real `deepseek-v4-flash` or `deepseek-v4-pro` task, then run `./deploy/staging/run-deepseek-runtime-release-gates.sh`. It runs the signed two-model canary, deploys the exact digest with `--pull never --no-build`, and only then queries models usage by `STAGING_GATEWAY_REQUEST_ID`.
 
 ## Honest scope notes
 

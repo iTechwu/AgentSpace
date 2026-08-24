@@ -1,0 +1,107 @@
+ARG PROVIDER_BASE_IMAGE
+
+FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim AS daemon-build
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    PNPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    PNPM_CONFIG_REPLACE_REGISTRY_HOST=always \
+    npm_config_registry=https://registry.npmmirror.com \
+    npm_config_replace_registry_host=always
+
+WORKDIR /workspace
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/cli ./apps/cli
+COPY packages ./packages
+
+RUN --mount=type=cache,id=dofe-deepseek-runtime-pnpm,target=/pnpm/store \
+  npm install --global pnpm@10.26.2 \
+  && pnpm install --frozen-lockfile --ignore-scripts \
+  && pnpm --filter @dofe-agent/db run prisma:generate \
+  && pnpm --filter dofe-agent-daemon run build \
+  && mkdir -p /opt/daemon-package \
+  && npm_config_ignore_scripts=true pnpm --filter dofe-agent-daemon pack --pack-destination /opt/daemon-package
+
+FROM ${PROVIDER_BASE_IMAGE}
+
+USER root
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH
+
+ARG DEEPSEEK_JSONRPC_EXECUTABLE_SHA256=""
+ARG DEEPSEEK_JSONRPC_RIPGREP_SHA256=""
+ARG DEEPSEEK_RUNTIME_WHEEL_SHA256=""
+ARG DEEPSEEK_RUNTIME_SOURCE_COMMIT=""
+
+LABEL ai.dofe.deepseek-harness.source-ref="dsh-v0.1.1-rc.2" \
+      ai.dofe.deepseek-harness.source-commit="${DEEPSEEK_RUNTIME_SOURCE_COMMIT}" \
+      ai.dofe.deepseek-harness.wheel-sha256="${DEEPSEEK_RUNTIME_WHEEL_SHA256}" \
+      ai.dofe.deepseek-jsonrpc.executable-sha256="${DEEPSEEK_JSONRPC_EXECUTABLE_SHA256}" \
+      ai.dofe.deepseek-jsonrpc.ripgrep-sha256="${DEEPSEEK_JSONRPC_RIPGREP_SHA256}" \
+      ai.dofe.deepseek-jsonrpc.cordis-sha256="048031be7331f2b68c81b3cbfacacc06ee767dae1e8f00cbdc3137c1e55001af"
+
+RUN groupadd --gid 10001 dofe-agent \
+  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent \
+  && apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates chromium curl git python3 python3-pip \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install --global @deepseek-ai/dsh@0.1.1-rc.2 \
+  && dsh --version | grep -F 0.1.1-rc.2
+
+COPY --from=deepseek-runtime-bundle /dsh-jsonrpc-agent /usr/local/lib/deepseek-harness/dsh-jsonrpc-agent
+COPY --from=deepseek-runtime-bundle /dsh-jsonrpc-agent-rg /usr/local/lib/deepseek-harness/dsh-jsonrpc-agent-rg
+COPY --from=deepseek-runtime-bundle /provenance.json /usr/local/lib/deepseek-harness/provenance.json
+COPY deploy/daemon/runtimes/deepseek-jsonrpc/cordis.yml /etc/dofe-agent/deepseek-jsonrpc/cordis.yml
+COPY deploy/staging/verify-deepseek-runtime-bundle.py /usr/local/sbin/verify-deepseek-runtime-bundle.py
+
+RUN test "$(printf '%s' "$DEEPSEEK_JSONRPC_EXECUTABLE_SHA256" | grep -E '^[a-f0-9]{64}$')" \
+  && test "$(printf '%s' "$DEEPSEEK_JSONRPC_RIPGREP_SHA256" | grep -E '^[a-f0-9]{64}$')" \
+  && test "$(printf '%s' "$DEEPSEEK_RUNTIME_WHEEL_SHA256" | grep -E '^[a-f0-9]{64}$')" \
+  && test "$(printf '%s' "$DEEPSEEK_RUNTIME_SOURCE_COMMIT" | grep -E '^[a-f0-9]{40}$')" \
+  && python3 /usr/local/sbin/verify-deepseek-runtime-bundle.py \
+    --context /usr/local/lib/deepseek-harness \
+    --wheel-sha256 "$DEEPSEEK_RUNTIME_WHEEL_SHA256" \
+    --executable-sha256 "$DEEPSEEK_JSONRPC_EXECUTABLE_SHA256" \
+    --ripgrep-sha256 "$DEEPSEEK_JSONRPC_RIPGREP_SHA256" \
+    --source-commit "$DEEPSEEK_RUNTIME_SOURCE_COMMIT" \
+  && printf '%s  %s\n' "$DEEPSEEK_JSONRPC_EXECUTABLE_SHA256" /usr/local/lib/deepseek-harness/dsh-jsonrpc-agent \
+    | sha256sum --check --strict \
+  && printf '%s  %s\n' "$DEEPSEEK_JSONRPC_RIPGREP_SHA256" /usr/local/lib/deepseek-harness/dsh-jsonrpc-agent-rg \
+    | sha256sum --check --strict \
+  && printf '%s  %s\n' 048031be7331f2b68c81b3cbfacacc06ee767dae1e8f00cbdc3137c1e55001af /etc/dofe-agent/deepseek-jsonrpc/cordis.yml \
+    | sha256sum --check --strict \
+  && chmod 0555 /usr/local/lib/deepseek-harness/dsh-jsonrpc-agent /usr/local/lib/deepseek-harness/dsh-jsonrpc-agent-rg \
+  && chmod 0444 /etc/dofe-agent/deepseek-jsonrpc/cordis.yml /usr/local/lib/deepseek-harness/provenance.json \
+  && rm /usr/local/sbin/verify-deepseek-runtime-bundle.py \
+  && ln -s /usr/local/lib/deepseek-harness/dsh-jsonrpc-agent /usr/local/bin/dsh-jsonrpc-agent
+
+COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
+
+RUN mkdir -p /opt/dofe-agent-daemon /var/lib/dofe-agent-daemon \
+  && tar -xzf /tmp/dofe-agent-daemon-*.tgz -C /opt/dofe-agent-daemon --strip-components=1 \
+  && rm /tmp/dofe-agent-daemon-*.tgz \
+  && ln -s /opt/dofe-agent-daemon/bin/agent-router.js /usr/local/bin/agent-router \
+  && ln -s /opt/dofe-agent-daemon/bin/dofe-agent.js /usr/local/bin/dofe-agent \
+  && ln -s /opt/dofe-agent-daemon/bin/dofe-agent-daemon.js /usr/local/bin/dofe-agent-daemon \
+  && chown -R dofe-agent:dofe-agent /home/dofe-agent /var/lib/dofe-agent-daemon \
+  && chmod 0755 /opt/dofe-agent-daemon/bin/*.js
+
+ENV HOME=/home/dofe-agent \
+    DOFE_AGENT_DAEMON_STATE_DIR=/var/lib/dofe-agent-daemon \
+    NODE_ENV=production \
+    DSH_HOME=/home/dofe-agent/.dsh \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE=1 \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE=/usr/local/lib/deepseek-harness/dsh-jsonrpc-agent \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256=${DEEPSEEK_JSONRPC_EXECUTABLE_SHA256} \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG=/etc/dofe-agent/deepseek-jsonrpc/cordis.yml \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256=048031be7331f2b68c81b3cbfacacc06ee767dae1e8f00cbdc3137c1e55001af \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256=${DEEPSEEK_JSONRPC_RIPGREP_SHA256} \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE=/usr/local/lib/deepseek-harness/provenance.json \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT=${DEEPSEEK_RUNTIME_SOURCE_COMMIT} \
+    DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256=${DEEPSEEK_RUNTIME_WHEEL_SHA256}
+
+USER dofe-agent
+
+ENTRYPOINT ["dofe-agent-daemon", "start", "--foreground"]

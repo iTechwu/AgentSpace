@@ -44,7 +44,7 @@ export async function resolveExecutablePath(command: string, executablePath?: st
 
 /** Daemon-only MCP egress controls must never cross into a Provider process. */
 export function isDaemonOnlyProviderEnvironmentKey(key: string): boolean {
-  return key.startsWith("MCP_EGRESS_");
+  return key.startsWith("MCP_EGRESS_") || key.startsWith("DOFE_AGENT_DEEPSEEK_JSONRPC_");
 }
 
 export function buildBaseEnv(

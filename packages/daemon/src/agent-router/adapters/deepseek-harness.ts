@@ -21,6 +21,7 @@ import {
 } from "../utils.ts";
 import { normalizeAdapterError, runNativeHarness } from "./shared.ts";
 import { runVersionCommand } from "./versions.ts";
+import { buildDeepSeekJsonRpcLaunch, runDeepSeekJsonRpc } from "./deepseek-jsonrpc.ts";
 
 const SUPPORTED_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
 const SESSION_UNSUPPORTED_MESSAGE = "DeepSeek Harness headless mode does not support session resume.";
@@ -44,11 +45,12 @@ export const deepSeekHarnessAdapter: HarnessAdapter = {
   detect: detectDeepSeekHarness,
   buildLaunch: buildDeepSeekHarnessLaunch,
   run: runDeepSeekHarness,
+  disposeLaunch: disposeDeepSeekLaunch,
   normalizeError: normalizeDeepSeekHarnessError,
 };
 
 async function detectDeepSeekHarness(): Promise<HarnessDetectionResult> {
-  const executable = await findExecutableOnPath("dsh");
+  const executable = await findExecutableOnPath("dsh") ?? await findExecutableOnPath("dsh-jsonrpc-agent");
   if (!executable) {
     return { id: "deepseek-harness", label: "DeepSeek Harness", status: "missing" };
   }
@@ -62,6 +64,12 @@ async function detectDeepSeekHarness(): Promise<HarnessDetectionResult> {
 }
 
 async function buildDeepSeekHarnessLaunch(input: AgentRouterRunRequest): Promise<HarnessLaunchPlan> {
+  if (input.mode === "jsonrpc") {
+    if (input.deepSeekJsonRpcEnabled !== true) {
+      throw new Error("DeepSeek Harness JSON-RPC protocol spike is disabled by its explicit feature gate.");
+    }
+    return buildDeepSeekJsonRpcLaunch(input);
+  }
   if (input.sessionId?.trim()) {
     throw new Error(SESSION_UNSUPPORTED_MESSAGE);
   }
@@ -150,6 +158,9 @@ async function runDeepSeekHarness(
   request: AgentRouterRunRequest,
 ): Promise<AgentRouterRunResult> {
   try {
+    if (plan.metadata?.executionMode === "jsonrpc") {
+      return await runDeepSeekJsonRpc(plan, observer, request);
+    }
     return await runNativeHarness("deepseek-harness", plan, observer, request, {
       emptyMessage: "DeepSeek Harness returned an empty response.",
       nonZeroMessage: (exitCode) => `DeepSeek Harness exited with code ${exitCode}.`,
@@ -161,11 +172,15 @@ async function runDeepSeekHarness(
       parseEvents: (stdout) => ({ outputText: stdout.trim() }),
     });
   } finally {
-    const patchPath = plan.metadata?.modelPatchPath;
-    if (patchPath) rmSync(patchPath, { force: true });
-    const runtimeHomePath = plan.metadata?.runtimeHomePath;
-    if (runtimeHomePath) rmSync(runtimeHomePath, { recursive: true, force: true });
+    disposeDeepSeekLaunch(plan);
   }
+}
+
+function disposeDeepSeekLaunch(plan: HarnessLaunchPlan): void {
+  const patchPath = plan.metadata?.modelPatchPath;
+  if (patchPath) rmSync(patchPath, { force: true });
+  const runtimeHomePath = plan.metadata?.runtimeHomePath;
+  if (runtimeHomePath) rmSync(runtimeHomePath, { recursive: true, force: true });
 }
 
 function buildDeepSeekHarnessFailureDiagnostics(stdout: string, stderr: string) {
@@ -200,11 +215,24 @@ function buildDeepSeekHarnessFailureDiagnostics(stdout: string, stderr: string) 
 
 function normalizeDeepSeekHarnessError(error: unknown, context: HarnessErrorContext) {
   const message = error instanceof Error ? error.message : String(error);
-  if (message === SESSION_UNSUPPORTED_MESSAGE) {
+  if (message === SESSION_UNSUPPORTED_MESSAGE || message.includes("one-shot JSON-RPC mode does not support")) {
     return createDiagnostic("harness.session_missing", message);
   }
   if (message.includes("model") && message.includes("not supported")) {
     return createDiagnostic("harness.model_unavailable", message);
+  }
+  if (message.includes("JSON-RPC") && (
+    message.includes("Cordis config")
+    || message.includes("DSH_CORDIS_CONFIG")
+    || message.includes("feature gate")
+  )) {
+    return createDiagnostic("harness.profile_missing", message);
+  }
+  if (message.includes("JSON-RPC runtime was not found")) {
+    return createDiagnostic("harness.cli_missing", message);
+  }
+  if (message.includes("JSON-RPC runtime executable") && message.includes("SHA-256")) {
+    return createDiagnostic("harness.cli_missing", message);
   }
   return normalizeAdapterError("deepseek-harness", error, context);
 }

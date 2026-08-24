@@ -15,6 +15,20 @@ export interface AgentRouterRunRequest {
   executablePath?: string;
   model?: string;
   mode?: string;
+  /** Explicit JSON-RPC gate. Production queue callers set it only with a verified release policy. */
+  deepSeekJsonRpcEnabled?: boolean;
+  /** Trusted operator pins used by the provider queue. Exact file bytes are verified before the runtime is spawned. */
+  deepSeekJsonRpcReleasePolicy?: {
+    executableSha256: string;
+    cordisConfigSha256: string;
+    ripgrepSha256: string;
+    spawnHelperSha256?: string;
+    provenancePath?: string;
+    sourceCommit?: string;
+    wheelSha256?: string;
+  };
+  /** Release-verification only: discard inherited process credentials before spawning the pinned carrier. */
+  deepSeekJsonRpcIsolatedEnvironment?: boolean;
   sessionId?: string;
   env?: Record<string, string>;
   /** Keys in `env` that were injected from per-employee Skill configuration. Their values are always redacted from logs, even when the key name does not look like a secret. */
@@ -157,6 +171,7 @@ export interface HarnessAdapter {
   detect(): Promise<HarnessDetectionResult>;
   buildLaunch(input: AgentRouterRunRequest): Promise<HarnessLaunchPlan>;
   run(plan: HarnessLaunchPlan, observer: AgentRouterObserver, request: AgentRouterRunRequest): Promise<AgentRouterRunResult>;
+  disposeLaunch?(plan: HarnessLaunchPlan): void | Promise<void>;
   normalizeError(error: unknown, context: HarnessErrorContext): AgentRouterDiagnostic;
 }
 

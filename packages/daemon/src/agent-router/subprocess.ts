@@ -17,10 +17,15 @@ export interface SubprocessRunResult {
 
 export interface SubprocessRunOptions {
   observer?: AgentRouterObserver;
-  onReady?: (controller: ExecController) => void;
+  onReady?: (controller: HarnessProcessController) => void;
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
   signal?: AbortSignal;
+  onAbort?: () => void;
+}
+
+export interface HarnessProcessController extends ExecController {
+  terminate(): void;
 }
 
 export async function runLaunchPlan(
@@ -46,12 +51,21 @@ export async function runLaunchPlan(
     command: [plan.executable, ...redactArgs(plan.args, plan)],
   } satisfies AgentRouterEvent);
 
+  let killTimer: NodeJS.Timeout | undefined;
+  let protocolAbortTimer: NodeJS.Timeout | undefined;
+  const terminateChild = (): void => {
+    child.kill("SIGTERM");
+    killTimer ??= setTimeout(() => {
+      child.kill("SIGKILL");
+    }, KILL_GRACE_PERIOD_MS);
+  };
+
   if (child.stdin) {
     child.stdin.on("error", () => {
       // The harness may exit before reading stdin. stderr/stdout still carry
       // the relevant diagnostic, so the runner should not fail separately here.
     });
-    const stdinController: ExecController = {
+    const stdinController: HarnessProcessController = {
       writeStdin: (data: string): void => {
         if (!child.stdin?.destroyed && child.stdin?.writable) {
           child.stdin.write(data);
@@ -61,6 +75,9 @@ export async function runLaunchPlan(
         if (!child.stdin?.destroyed && child.stdin?.writable) {
           child.stdin.end();
         }
+      },
+      terminate: (): void => {
+        terminateChild();
       },
     };
     options.onReady?.(stdinController);
@@ -78,18 +95,21 @@ export async function runLaunchPlan(
   let timedOut = false;
   let aborted = false;
   let timeout: NodeJS.Timeout | undefined;
-  let killTimer: NodeJS.Timeout | undefined;
 
   return await new Promise<SubprocessRunResult>((resolve, reject) => {
-    const terminate = (): void => {
-      child.kill("SIGTERM");
-      killTimer ??= setTimeout(() => {
-        child.kill("SIGKILL");
-      }, KILL_GRACE_PERIOD_MS);
-    };
     const abortHandler = (): void => {
       aborted = true;
-      terminate();
+      options.onAbort?.();
+      // Give a protocol adapter a short, bounded window to flush its cancel
+      // request before the subprocess termination ladder starts.
+      if (options.onAbort) {
+        protocolAbortTimer ??= setTimeout(() => {
+          protocolAbortTimer = undefined;
+          terminateChild();
+        }, 50);
+      } else {
+        terminateChild();
+      }
     };
     if (options.signal?.aborted) {
       abortHandler();
@@ -112,13 +132,14 @@ export async function runLaunchPlan(
     if (plan.timeoutMs > 0) {
       timeout = setTimeout(() => {
         timedOut = true;
-        terminate();
+        terminateChild();
       }, plan.timeoutMs);
     }
 
     child.on("error", (error) => {
       clearTimeout(timeout);
       clearTimeout(killTimer);
+      clearTimeout(protocolAbortTimer);
       options.signal?.removeEventListener("abort", abortHandler);
       reject(error);
     });
@@ -126,6 +147,7 @@ export async function runLaunchPlan(
     child.on("close", (exitCode, signal) => {
       clearTimeout(timeout);
       clearTimeout(killTimer);
+      clearTimeout(protocolAbortTimer);
       options.signal?.removeEventListener("abort", abortHandler);
       const normalizedSignal = normalizeSignal(signal);
       options.observer?.emit({

@@ -21,6 +21,7 @@ import {
 } from "./router-diagnostics.ts";
 import { runGeminiProviderTask, runNanoBotProviderTask } from "./legacy-runtime.ts";
 import { buildRuntimeToolCapabilities } from "./tool-capabilities.ts";
+import { resolveDeepSeekJsonRpcReleaseConfig } from "./deepseek-jsonrpc-release.ts";
 import { ProviderTaskExecutionError, type ProviderRuntimeRecord, type ProviderTaskOptions } from "./types.ts";
 
 export async function runProviderTask(
@@ -70,16 +71,21 @@ async function runAgentRouterProviderTask(
 ): Promise<{ output: string; sessionId?: string }> {
   const modelId = options.modelId ?? resolveModelId(runtime);
   assertDeepSeekModelAvailable(runtime, modelId, workDir);
+  const deepSeekJsonRpcRelease = resolveDeepSeekJsonRpcReleaseConfig(runtime);
   clearTaskOutputArtifacts(workDir);
   const harness = runtime.provider as AgentRouterHarness;
   const runtimeToolCapabilities = buildRuntimeToolCapabilities(options);
   const contextEnv = buildAgentRouterProviderEnv(runtime, options.contextEnv);
+  if (deepSeekJsonRpcRelease) {
+    contextEnv.DSH_CORDIS_CONFIG = deepSeekJsonRpcRelease.cordisConfigPath;
+  }
   const requestedSessionId = resolveAgentRouterSessionId(runtime, options.sessionId);
   const sessionId = runtime.provider === "deepseek-harness" ? undefined : requestedSessionId;
   if (runtime.provider === "deepseek-harness" && requestedSessionId) {
+    const modeLabel = deepSeekJsonRpcRelease ? "one-shot JSON-RPC" : "headless";
     options.onEvent?.({
       type: "provider_session_unsupported",
-      content: "DeepSeek Harness headless mode starts a fresh session for this task; session resume is not available.",
+      content: `DeepSeek Harness ${modeLabel} mode starts a fresh session for this task; session resume is not available.`,
       inputJson: { provider: runtime.provider, runtimeId: runtime.id, sessionId: requestedSessionId },
     });
   }
@@ -91,9 +97,23 @@ async function runAgentRouterProviderTask(
     harness,
     prompt,
     cwd: workDir,
-    executablePath: runtime.metadata.executablePath,
+    executablePath: deepSeekJsonRpcRelease?.executablePath ?? runtime.metadata.executablePath,
     model: modelId,
-    mode: runtime.provider === "codex" ? codexLaunchMode : resolveAgentRouterMode(runtime),
+    mode: deepSeekJsonRpcRelease
+      ? "jsonrpc"
+      : runtime.provider === "codex" ? codexLaunchMode : resolveAgentRouterMode(runtime),
+    deepSeekJsonRpcEnabled: Boolean(deepSeekJsonRpcRelease),
+    deepSeekJsonRpcReleasePolicy: deepSeekJsonRpcRelease
+      ? {
+          executableSha256: deepSeekJsonRpcRelease.executableSha256,
+          cordisConfigSha256: deepSeekJsonRpcRelease.cordisConfigSha256,
+          ripgrepSha256: deepSeekJsonRpcRelease.ripgrepSha256,
+          spawnHelperSha256: deepSeekJsonRpcRelease.spawnHelperSha256,
+          provenancePath: deepSeekJsonRpcRelease.provenancePath,
+          sourceCommit: deepSeekJsonRpcRelease.sourceCommit,
+          wheelSha256: deepSeekJsonRpcRelease.wheelSha256,
+        }
+      : undefined,
     sessionId,
     env: contextEnv,
     skillEnvKeys: options.skillEnvKeys,

@@ -2,7 +2,7 @@
 // shell、去重等基础工具，供 catalog/工具能力/env 等模块复用。
 import { accessSync, constants } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { delimiter, isAbsolute, join } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
 
 export function detectProviderVersion(executablePath: string, versionArgs: string[][] = [["--version"]]): string {
@@ -25,6 +25,9 @@ export function detectProviderVersion(executablePath: string, versionArgs: strin
 }
 
 export function findExecutableOnPath(command: string): string | null {
+  if (isPathLike(command)) {
+    return isExecutableCandidate(command) ? resolve(command) : null;
+  }
   const pathValue = process.env.PATH;
   if (!pathValue) {
     return null;

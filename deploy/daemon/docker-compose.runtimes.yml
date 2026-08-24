@@ -113,9 +113,15 @@ services:
   runtime-deepseek-harness:
     build:
       context: ../..
-      dockerfile: deploy/daemon/Dockerfile
+      dockerfile: deploy/daemon/Dockerfile.deepseek-harness-runtime
+      additional_contexts:
+        deepseek-runtime-bundle: ${DEEPSEEK_HARNESS_RUNTIME_BUNDLE_CONTEXT:-./runtimes/deepseek-jsonrpc/artifacts/linux-amd64}
       args:
-        PROVIDER_INSTALL_COMMAND: ${DEEPSEEK_HARNESS_PROVIDER_INSTALL_COMMAND}
+        PROVIDER_BASE_IMAGE: ${DEEPSEEK_HARNESS_PROVIDER_BASE_IMAGE:-uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim}
+        DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: ${DEEPSEEK_JSONRPC_EXECUTABLE_SHA256:-}
+        DEEPSEEK_JSONRPC_RIPGREP_SHA256: ${DEEPSEEK_JSONRPC_RIPGREP_SHA256:-}
+        DEEPSEEK_RUNTIME_WHEEL_SHA256: ${DEEPSEEK_RUNTIME_WHEEL_SHA256:-}
+        DEEPSEEK_RUNTIME_SOURCE_COMMIT: ${DEEPSEEK_RUNTIME_SOURCE_COMMIT:-}
     image: dofe-agent-runtime-deepseek-harness:local
     env_file: ./runtimes/deepseek-harness.env
     volumes:

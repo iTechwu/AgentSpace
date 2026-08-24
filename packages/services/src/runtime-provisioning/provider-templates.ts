@@ -47,7 +47,7 @@ const PROVIDER_EXECUTABLES: Record<DaemonProvider, string> = {
   openclaw: "openclaw",
   nanobot: "nanobot",
   hermes: "/opt/hermes/.venv/bin/hermes-agent",
-  "deepseek-harness": "dsh",
+  "deepseek-harness": "dsh-jsonrpc-agent",
 };
 
 export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): string {

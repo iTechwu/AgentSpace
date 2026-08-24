@@ -9,6 +9,7 @@ import {
   warnClaudeRootRuntimeIfNeeded,
 } from "./executables.ts";
 import { readRuntimeMetadataString } from "./metadata.ts";
+import { readConfiguredDeepSeekJsonRpcExecutable } from "./deepseek-jsonrpc-release.ts";
 import type { DetectedProvider, ProviderRuntimeRecord } from "./types.ts";
 
 // 默认模型名单点（构建/版本漂移治理）：目录定义与 resolveModelId 兜底共用，
@@ -84,7 +85,17 @@ export function detectProviders(): DetectedProvider[] {
   return PROVIDER_CATALOG
     .filter((candidate) => !allowedProviders || allowedProviders.has(candidate.provider))
     .map((candidate) => {
-      const executablePath = findFirstExecutableOnPath(resolveProviderCommands(candidate));
+      let releaseExecutable: string | undefined;
+      if (candidate.provider === "deepseek-harness") {
+        try {
+          releaseExecutable = readConfiguredDeepSeekJsonRpcExecutable();
+        } catch {
+          return null;
+        }
+      }
+      const executablePath = findFirstExecutableOnPath(
+        releaseExecutable ? [releaseExecutable] : resolveProviderCommands(candidate),
+      );
       if (!executablePath) {
         return null;
       }
@@ -96,7 +107,9 @@ export function detectProviders(): DetectedProvider[] {
         provider: candidate.provider,
         label: candidate.label,
         executablePath,
-        version: detectProviderVersion(executablePath, candidate.versionArgs),
+        version: releaseExecutable
+          ? "jsonrpc-release-configured"
+          : detectProviderVersion(executablePath, candidate.versionArgs),
       } satisfies DetectedProvider;
     })
     .filter((value): value is DetectedProvider => value !== null);

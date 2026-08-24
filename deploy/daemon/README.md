@@ -88,7 +88,120 @@ docker image inspect dofe/agent-runtime-claude:latest
 docker image inspect dofe/agent-runtime-deepseek-harness:latest
 ```
 
-The DeepSeek wrapper installs the exact published package `@deepseek-ai/dsh@0.1.1-rc.2` and verifies that version during the image build. Its npm integrity at implementation time is `sha512-UP1UIh6q3Gme/yXRn/QL2P8IsVlv8Shpg22TRJIZPsCRWLm4CBiA1MUvXmJAfsOEETBMLAl+xWPtFw6ICsN3wg==`. Publish the resulting approved wrapper by immutable digest before enabling the web canary flag.
+The DeepSeek wrapper uses `Dockerfile.deepseek-harness-runtime`. It keeps the
+exact npm `dsh@0.1.1-rc.2` CLI only for the default-disabled headless fallback;
+the JSON-RPC carrier is never sourced from that package. Provide a fixed-tag
+production wheel from the fork release and independently recorded wheel,
+carrier, and ripgrep digests. Importing verifies the wheel distribution,
+version, Linux x86_64 tag, exact carrier set, fixed source commit, and artifact
+bytes before atomically writing the Docker context:
+
+```sh
+python3 deploy/staging/prepare-deepseek-runtime-bundle.py \
+  --wheel /absolute/path/to/deepseek_harness_runtime_bin-0.1.1rc2-py3-none-manylinux_2_28_x86_64.whl \
+  --wheel-sha256 <recorded-wheel-sha256> \
+  --executable-sha256 <recorded-carrier-sha256> \
+  --ripgrep-sha256 <recorded-ripgrep-sha256> \
+  --source-commit b150a551b8d465e31e418e1b2eaf5e79bbb7d28e \
+  --output-dir /absolute/path/to/linux-amd64-bundle
+```
+
+Build only from the resulting directory, which contains the two executables and
+`provenance.json`:
+
+```sh
+DEEPSEEK_HARNESS_RUNTIME_BUNDLE_CONTEXT=/absolute/path/to/linux-amd64-bundle \
+DEEPSEEK_RUNTIME_SOURCE_COMMIT=b150a551b8d465e31e418e1b2eaf5e79bbb7d28e \
+DEEPSEEK_RUNTIME_WHEEL_SHA256=<recorded-wheel-sha256> \
+DEEPSEEK_JSONRPC_EXECUTABLE_SHA256=<recorded-carrier-sha256> \
+DEEPSEEK_JSONRPC_RIPGREP_SHA256=<recorded-ripgrep-sha256> \
+DEEPSEEK_RUNTIME_EVIDENCE_OUTPUT=/absolute/path/to/deepseek-release-evidence.json \
+MANAGED_RUNTIME_IMAGE_TAG=latest \
+  docker compose -f docker-compose.runtimes.yml build runtime-deepseek-harness
+```
+
+The staging build script validates the structured provenance before Docker. The
+image repeats that verification, copies the repository-approved Cordis config,
+checks its fixed digest, bakes a managed-bundle attestation marker, and records
+the source tag, source commit, wheel digest, and runtime digests as
+`ai.dofe.deepseek-*` image labels. It also exposes the in-image provenance path,
+fixed source commit, and wheel digest to the daemon. Managed catalog discovery,
+task launch, and provider health all parse that file again and require its exact
+schema, source identity, wheel metadata, and carrier/sidecar digests to match the
+runtime pins before spawning the carrier. Missing, tampered, or detached
+provenance therefore fails closed even when the attestation marker is present.
+Standalone runtimes do not set or require these managed-only provenance values.
+Use `build-managed-runtime-images.sh` for a releasable local image rather than
+the raw Compose command shown above. In addition to bundle preflight and image
+build, it runs the image's packaged daemon with
+`verify-deepseek-release`, validates the deterministic JSON, and atomically
+writes `DEEPSEEK_RUNTIME_EVIDENCE_OUTPUT` before applying the managed-runtime
+tag:
+
+```sh
+DEEPSEEK_HARNESS_RUNTIME_BUNDLE_CONTEXT=/absolute/path/to/linux-amd64-bundle \
+DEEPSEEK_RUNTIME_SOURCE_COMMIT=b150a551b8d465e31e418e1b2eaf5e79bbb7d28e \
+DEEPSEEK_RUNTIME_WHEEL_SHA256=<recorded-wheel-sha256> \
+DEEPSEEK_JSONRPC_EXECUTABLE_SHA256=<recorded-carrier-sha256> \
+DEEPSEEK_JSONRPC_RIPGREP_SHA256=<recorded-ripgrep-sha256> \
+DEEPSEEK_RUNTIME_EVIDENCE_OUTPUT=/absolute/path/to/deepseek-release-evidence.json \
+MANAGED_RUNTIME_IMAGE_TAG=<release-tag> \
+  ./deploy/staging/build-managed-runtime-images.sh deepseek-harness
+```
+
+This evidence proves pinned in-image files, exact server identity, NDJSON stdout
+purity, and bounded initialize/shutdown. It contains no credential or host path
+and is not a model canary or registry attestation. After publishing the wrapper,
+run both native models from the immutable registry digest:
+
+```sh
+export DEEPSEEK_API_KEY="$(read-test-secret-from-your-secret-store)"
+DEEPSEEK_RUNTIME_IMAGE=registry.example/dofe/agent-runtime-deepseek-harness@sha256:<image-digest> \
+DEEPSEEK_RUNTIME_IMAGE_REPOSITORY=registry.example/dofe/agent-runtime-deepseek-harness \
+DEEPSEEK_RUNTIME_IMAGE_SHA256=<image-digest-without-sha256-prefix> \
+DEEPSEEK_RUNTIME_RELEASE_EVIDENCE=/absolute/path/to/deepseek-release-evidence.json \
+DEEPSEEK_RUNTIME_COSIGN_PUBLIC_KEY=/absolute/path/to/deepseek-runtime-cosign.pub \
+DEEPSEEK_RUNTIME_COSIGN_PUBLIC_KEY_SHA256=<approved-public-key-sha256> \
+DEEPSEEK_MODEL_CANARY_EVIDENCE_OUTPUT=/absolute/path/to/deepseek-model-canary-evidence.json \
+  ./deploy/staging/run-deepseek-runtime-canary.sh
+```
+
+Before Docker can receive the API key, the runner requires the image repository to
+match the separately approved repository and verifies the exact digest-pinned image
+with `cosign verify --key` in a scrubbed environment. The public key must be an
+absolute, bounded, non-symlink PEM file whose bytes match the separately approved
+SHA-256. The runner snapshots that key and the release evidence into a private
+directory, then uses the same immutable snapshots for cosign and final evidence
+verification. It then uses `--pull=never`,
+overrides the managed image's daemon entrypoint, and passes the key to Docker by
+environment-variable name, never as an argument.
+It applies independent cosign and container deadlines, bounds evidence stdout, and
+always force-removes the uniquely named container through a bounded client cleanup
+ladder. The container executes one complete pinned JSON-RPC turn for
+`deepseek-v4-flash` and `deepseek-v4-pro`; its isolated carrier environment
+keeps unrelated provider credentials out. The verifier binds model results and
+canonical usage, a bounded-fresh timestamp, the signing public-key digest, and an
+official/configured endpoint identity hash to the release evidence and image digest, then atomically
+publishes evidence containing no prompt, response, key, or host path. A failed
+run preserves the previous valid evidence. Keep the runtime JSON-RPC and Web
+canary flags disabled until this real evidence exists.
+
+The dedicated `docker-compose.deepseek-runtime.yml` service constructs its image
+as `${DEEPSEEK_RUNTIME_IMAGE_REPOSITORY}@sha256:${DEEPSEEK_RUNTIME_IMAGE_SHA256}`.
+The canary runner requires those fields to reconstruct the exact
+`DEEPSEEK_RUNTIME_IMAGE`; it has no DeepSeek `build:` or mutable-tag fallback.
+Use the controlled deployment entrypoint so the same shell environment completes
+signature verification and both model turns before Compose starts the image:
+
+```sh
+set -a
+. /absolute/path/to/deepseek-release.env
+set +a
+./deploy/staging/deploy-deepseek-runtime.sh
+```
+
+The general `docker-compose.remote-images.yml` remains usable for other
+providers without requiring DeepSeek release variables.
 
 For the local Docker Desktop managed node, select the Mac-published provider
 images explicitly. The current managed-node compose service runs `linux/amd64`,
@@ -102,7 +215,8 @@ MANAGED_RUNTIME_IMAGE_TAG=latest \
   docker compose -f docker-compose.remote-images.yml build runtime-codex runtime-claude
 ```
 
-The remote-images Compose file now applies this canonical image name directly.
+The dedicated DeepSeek Compose file applies the canary-verified digest directly;
+the remote-images Compose file remains provider-generic.
 Do not pre-pull only the provider base images: they do not include the
 `dofe-agent-daemon` runtime wrapper required by managed provisioning.
 

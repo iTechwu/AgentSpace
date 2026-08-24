@@ -30,7 +30,7 @@ test("managed credential bundles use the gateway endpoint required by each proto
   }
 });
 
-test("DeepSeek Harness install stage verifies dsh in its approved image", () => {
+test("DeepSeek Harness install stage verifies the JSON-RPC carrier in its approved image", () => {
   const commands = buildManagedProvisioningStageCommands("deepseek-harness", "install_cli", {
     runtimeId: "runtime-deepseek-harness",
     runtimeCredentialId: "credential-deepseek-harness",
@@ -39,7 +39,7 @@ test("DeepSeek Harness install stage verifies dsh in its approved image", () => 
   });
 
   assert.equal(commands[0]?.args[6], "dofe/agent-runtime-deepseek-harness:stable");
-  assert.equal(commands[0]?.args.at(-1), "command -v dsh");
+  assert.equal(commands[0]?.args.at(-1), "command -v dsh-jsonrpc-agent");
 });
 
 test("install stage verifies the provider CLI inside the pulled runtime image", () => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -52,6 +53,26 @@ test("detectAgentRouterHarnesses reports available and missing CLIs", async () =
         { id: "deepseek-harness", status: "available", version: "dsh 0.1.1-rc.2" },
       ],
     );
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("detectAgentRouterHarnesses recognizes a standalone DeepSeek JSON-RPC runtime", async () => {
+  const binDir = mkdtempSync(join(tmpdir(), "agent-router-detect-deepseek-jsonrpc-"));
+  const originalPath = process.env.PATH;
+
+  try {
+    writeExecutable(join(binDir, "dsh-jsonrpc-agent"), "#!/bin/sh\necho deepseek-jsonrpc 0.0.1\n");
+    process.env.PATH = binDir;
+
+    const detected = await detectAgentRouterHarnesses();
+    const deepSeek = detected.harnesses.find((harness) => harness.id === "deepseek-harness");
+
+    assert.equal(deepSeek?.status, "available");
+    assert.equal(deepSeek?.version, "deepseek-jsonrpc 0.0.1");
+    assert.equal(deepSeek?.path, join(binDir, "dsh-jsonrpc-agent"));
   } finally {
     process.env.PATH = originalPath;
     rmSync(binDir, { recursive: true, force: true });
@@ -115,6 +136,800 @@ test("runAgentRouter launches DeepSeek Harness headless with an isolated profile
     assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-workflow\n  disabled: true/);
     assert.match(readFileSync(patchCopyPath, "utf8"), /id: tool-ralph\n  disabled: true/);
     assert.equal(existsSync(modelPatchPath), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter executes a DeepSeek Harness JSON-RPC turn and streams owned session events", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const requestsPath = join(workDir, "requests.jsonl");
+  const runtimeEnvPath = join(workDir, "runtime-env.json");
+
+  try {
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        "const requests = process.env.REQUESTS_PATH;",
+        "fs.writeFileSync(process.env.RUNTIME_ENV_PATH, JSON.stringify({ home: process.env.DSH_HOME, sessionRoot: process.env.DSH_SESSION_ROOT, cwd: process.env.DSH_CWD, config: process.env.DSH_CORDIS_CONFIG }));",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (value) => process.stdout.write(`${JSON.stringify(value)}\\n`);",
+        "rl.on('line', (line) => {",
+        "  fs.appendFileSync(requests, `${line}\\n`);",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') {",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'session/prompt') {",
+        "    const sessionId = message.params.sessionId;",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: 'other-session', event: { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'ignore me' }] } } } } });",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { messageId: 'message-1' } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { target: 'next-turn', start: 0, inserted: [{ id: 'message-1' }] } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'tool/call', seq: 3, time: 4, data: { turn: 1, step: 1, callId: 'call-1', name: 'bash', arguments: '{\"command\":\"pwd\"}' } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'tool/result', seq: 4, time: 5, data: { turn: 1, step: 1, message: { source: { kind: 'tool', callId: 'call-1' }, content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: '/workspace' }] }] } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 5, time: 6, data: { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 6, time: 7, data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'private reasoning' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 7, time: 8, data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'private reasoning' } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 8, time: 9, data: { turn: 1, step: 1, chunk: { type: 'block-start', index: 1, blockType: 'text' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 9, time: 10, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'hello from ' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 10, time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'jsonrpc' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 11, time: 12, data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 1, block: { type: 'text', text: 'hello from jsonrpc' } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 12, time: 13, data: { turn: 1, step: 1, chunk: { type: 'block-start', index: 2, blockType: 'tool-call' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 13, time: 14, data: { turn: 1, step: 1, chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', name: 'bash', argumentsDelta: '{}' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 14, time: 15, data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 2, block: { type: 'tool-call', id: 'call-1', name: 'bash', arguments: '{}' } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 15, time: 16, data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 12, outputTokens: 4, cacheReadTokens: 3, cacheWriteTokens: 1, reasoningTokens: 2 } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 16, time: 17, data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'stop' } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/message', seq: 17, time: 18, data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: 'private reasoning' }, { type: 'text', text: 'hello from jsonrpc' }] }, usage: { inputTokens: 12, outputTokens: 4, cacheReadTokens: 3, cacheWriteTokens: 1, reasoningTokens: 2 } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/end', seq: 18, time: 19, data: { turn: 1, step: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/end', seq: 19, time: 20, data: { turn: 1, reason: { kind: 'completed' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'shutdown') {",
+        "    send({ jsonrpc: '2.0', id: message.id, result: {} });",
+        "    rl.close();",
+        "  }",
+        "});",
+      ].join("\n"),
+    );
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "inspect the workspace",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-pro",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: {
+        DSH_CORDIS_CONFIG: configPath,
+        REQUESTS_PATH: requestsPath,
+        RUNTIME_ENV_PATH: runtimeEnvPath,
+      },
+      timeoutMs: 5_000,
+    });
+
+    assert.equal(result.status, "completed", JSON.stringify(result));
+    assert.equal(result.outputText, "hello from jsonrpc");
+    assert.equal(result.sessionId, undefined, "one-shot JSON-RPC must not advertise resumable sessions");
+    assert.ok(result.events.some((event) => event.type === "tool_started" && event.toolUseId === "call-1"));
+    assert.ok(result.events.some((event) => event.type === "tool_output" && event.output === "/workspace"));
+    assert.ok(result.events.some((event) => event.type === "tool_finished" && event.status === "completed"));
+    assert.deepEqual(
+      result.events.filter((event) => event.type === "text_delta").map((event) => event.text),
+      ["hello from ", "jsonrpc"],
+    );
+    assert.equal(JSON.stringify(result.events).includes("private reasoning"), false);
+    assert.ok(result.events.some((event) =>
+      event.type === "tool_output"
+      && event.tool === "usage"
+      && (event.metadata as { input_tokens?: number }).input_tokens === 12
+      && (event.metadata as { cache_read_tokens?: number }).cache_read_tokens === 3
+      && (event.metadata as { cache_write_tokens?: number }).cache_write_tokens === 1
+      && (event.metadata as { reasoning_tokens?: number }).reasoning_tokens === 2
+    ));
+    assert.equal(result.events.filter((event) => event.type === "tool_output" && event.tool === "usage").length, 1);
+    assert.equal(result.events.some((event) => event.type === "session_updated"), false);
+    assert.equal(result.events.some((event) => event.type === "narration_delta" && event.text === "ignore me"), false);
+
+    const requests = readFileSync(requestsPath, "utf8")
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(requests.map((request) => request.method), ["initialize", "session/prompt", "shutdown"]);
+    assert.deepEqual(requests[0]?.params, {
+      cwd: realpathSync(workDir),
+      provider: "deepseek-official",
+      model: "deepseek-v4-pro",
+    });
+    assert.deepEqual((requests[1]?.params as { contentBlocks?: unknown }).contentBlocks, [
+      { type: "text", text: "inspect the workspace" },
+    ]);
+    const runtimeEnv = JSON.parse(readFileSync(runtimeEnvPath, "utf8")) as Record<string, string>;
+    assert.equal(runtimeEnv.cwd, realpathSync(workDir));
+    assert.equal(runtimeEnv.config, realpathSync(configPath));
+    assert.match(runtimeEnv.home, /\.dofe-deepseek-harness-jsonrpc-/);
+    assert.equal(runtimeEnv.sessionRoot, join(runtimeEnv.home, "sessions"));
+    assert.equal(existsSync(runtimeEnv.home), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter verifies pinned DeepSeek JSON-RPC carrier and Cordis config digests before spawn", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-release-gate-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const startedPath = join(workDir, "started.txt");
+
+  try {
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/bin/sh",
+        "printf '%s' started > \"$STARTED_PATH\"",
+      ].join("\n"),
+    );
+    const executableSha256 = sha256File(runtimePath);
+    let cordisConfigSha256 = sha256File(configPath);
+    const sidecarPins = writeDeepSeekRuntimeSidecars(runtimePath);
+
+    for (const releasePolicy of [
+      { executableSha256: "0".repeat(64), cordisConfigSha256, ...sidecarPins },
+      { executableSha256, cordisConfigSha256: "f".repeat(64), ...sidecarPins },
+    ]) {
+      rmSync(startedPath, { force: true });
+      const result = await runAgentRouter({
+        version: 1,
+        harness: "deepseek-harness",
+        prompt: "must not start",
+        cwd: workDir,
+        executablePath: runtimePath,
+        model: "deepseek-v4-flash",
+        mode: "jsonrpc",
+        deepSeekJsonRpcEnabled: true,
+        deepSeekJsonRpcReleasePolicy: releasePolicy,
+        env: { DSH_CORDIS_CONFIG: configPath, STARTED_PATH: startedPath },
+        timeoutMs: 1_000,
+      });
+
+      assert.equal(result.status, "failed");
+      assert.equal(existsSync(startedPath), false);
+      assert.match(result.diagnostics[0]?.message ?? "", /SHA-256 digest mismatch/);
+    }
+
+    rmSync(startedPath, { force: true });
+    const unapprovedComposition = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "must not start an unapproved composition",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      deepSeekJsonRpcReleasePolicy: {
+        executableSha256,
+        cordisConfigSha256,
+        ...sidecarPins,
+      },
+      env: { DSH_CORDIS_CONFIG: configPath, STARTED_PATH: startedPath },
+      timeoutMs: 1_000,
+    });
+    assert.equal(unapprovedComposition.status, "failed");
+    assert.equal(existsSync(startedPath), false);
+    assert.match(unapprovedComposition.diagnostics[0]?.message ?? "", /not the approved .* composition/);
+
+    writeApprovedDeepSeekCordisConfig(configPath);
+    cordisConfigSha256 = sha256File(configPath);
+
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/usr/bin/env node",
+        "require('node:fs').writeFileSync(process.env.STARTED_PATH, 'started');",
+      ].join("\n"),
+    );
+    rmSync(startedPath, { force: true });
+    const indirectInterpreter = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "must not start through env",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      deepSeekJsonRpcReleasePolicy: {
+        executableSha256: sha256File(runtimePath),
+        cordisConfigSha256,
+        ...sidecarPins,
+      },
+      env: { DSH_CORDIS_CONFIG: configPath, STARTED_PATH: startedPath },
+      timeoutMs: 1_000,
+    });
+    assert.equal(indirectInterpreter.status, "failed");
+    assert.equal(existsSync(startedPath), false);
+    assert.match(indirectInterpreter.diagnostics[0]?.message ?? "", /fixed absolute interpreter/);
+
+    writeExecutable(runtimePath, "#!/bin/sh\nprintf '%s' started > \"$STARTED_PATH\"\n");
+    rmSync(`${runtimePath}-rg`, { force: true });
+    rmSync(startedPath, { force: true });
+    const missingSidecar = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "must not start without its pinned bundle",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      deepSeekJsonRpcReleasePolicy: {
+        executableSha256: sha256File(runtimePath),
+        cordisConfigSha256,
+        ...sidecarPins,
+      },
+      env: { DSH_CORDIS_CONFIG: configPath, STARTED_PATH: startedPath },
+      timeoutMs: 1_000,
+    });
+    assert.equal(missingSidecar.status, "failed");
+    assert.equal(existsSync(startedPath), false);
+    assert.match(missingSidecar.diagnostics[0]?.message ?? "", /ripgrep sidecar/);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter resets attempt state when DeepSeek JSON-RPC retries the same step", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-retry-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+
+  try {
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/usr/bin/env node",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (value) => process.stdout.write(`${JSON.stringify(value)}\\n`);",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') {",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'session/prompt') {",
+        "    const sessionId = message.params.sessionId;",
+        "    const failure = { message: 'retry me', code: 'UPSTREAM' };",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { messageId: 'message-1' } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { inserted: [{ id: 'message-1' }] } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 4, time: 5, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'discarded attempt' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 5, time: 6, data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: 'discarded attempt' } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 6, time: 7, data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'error', failure } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'llm/retry', seq: 7, time: 8, data: { retryId: 'retry-1', turn: 1, step: 1, provider: 'deepseek-official', mode: 'normal', policyKey: 'default', retry: 1, maxRetries: 2, delayMs: 0, failure } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'llm/retry-started', seq: 8, time: 9, data: { retryId: 'retry-1', turn: 1, step: 1, retry: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 9, time: 10, data: { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 10, time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'after retry' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 11, time: 12, data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: 'after retry' } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 12, time: 13, data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'stop' } } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/message', seq: 13, time: 14, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'after retry' }] } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/end', seq: 14, time: 15, data: { turn: 1, step: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/end', seq: 15, time: 16, data: { turn: 1, reason: { kind: 'completed' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'shutdown') { send({ jsonrpc: '2.0', id: message.id, result: {} }); rl.close(); }",
+        "});",
+      ].join("\n"),
+    );
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "retry once",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: configPath },
+      timeoutMs: 5_000,
+    });
+
+    assert.equal(result.status, "completed", JSON.stringify(result));
+    assert.equal(result.outputText, "after retry");
+    assert.deepEqual(
+      result.events.filter((event) => event.type === "text_delta").map((event) => event.text),
+      ["after retry"],
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter fail-closes an incompatible DeepSeek Harness JSON-RPC server", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-identity-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+
+  try {
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/usr/bin/env node",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'not-deepseek', version: '1' } } })}\\n`);",
+        "});",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "must fail closed",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: configPath },
+      timeoutMs: 5_000,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.signal, "SIGTERM");
+    assert.equal(result.outputText, undefined);
+    assert.ok(result.diagnostics.some((diagnostic) =>
+      diagnostic.code === "harness.protocol_parse_failed"
+      && diagnostic.severity === "error"
+      && diagnostic.message.includes("incompatible server identity")
+    ));
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter classifies invalid DeepSeek Harness JSON-RPC launch contracts", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-contract-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configDirectory = join(workDir, "cordis-directory");
+
+  try {
+    writeExecutable(runtimePath, "#!/bin/sh\nprintf '%s\\n' unexpected\n");
+    mkdirSync(configDirectory);
+    const disabled = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "disabled",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+    });
+    const missingConfig = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "missing config",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+    });
+    const invalidModel = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "invalid model",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-chat",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: join(workDir, "missing.yml") },
+    });
+    const unsupportedSession = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "resume",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      sessionId: "existing-session",
+    });
+    const invalidConfig = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "config must be a file",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: configDirectory },
+    });
+
+    assert.equal(disabled.diagnostics[0]?.code, "harness.profile_missing");
+    assert.equal(missingConfig.diagnostics[0]?.code, "harness.profile_missing");
+    assert.equal(invalidModel.diagnostics[0]?.code, "harness.model_unavailable");
+    assert.equal(unsupportedSession.diagnostics[0]?.code, "harness.session_missing");
+    assert.equal(invalidConfig.diagnostics[0]?.code, "harness.profile_missing");
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter disposes a DeepSeek JSON-RPC launch rejected by capability diagnostics", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-dispose-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const startedPath = join(workDir, "started");
+
+  try {
+    writeExecutable(runtimePath, `#!/bin/sh\ntouch "${startedPath}"\n`);
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "must not start",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: configPath },
+      runtimeToolCapabilities: [{
+        id: "denied-tool",
+        command: "denied-tool",
+        allowedShellPatterns: ["denied-tool *"],
+        diagnosticCommands: [],
+        source: "workspace",
+        status: "denied",
+      }],
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.diagnostics[0]?.code, "harness.tool_unauthorized");
+    assert.equal(existsSync(startedPath), false);
+    assert.deepEqual(
+      readdirSync(workDir).filter((name) => name.startsWith(".dofe-deepseek-harness-jsonrpc-")),
+      [],
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter fail-closes malformed known events and root subagent notifications", async () => {
+  for (const scenario of [
+    "malformed-message",
+    "malformed-chunk",
+    "malformed-tool-call",
+    "orphan-tool-result",
+    "negative-usage",
+    "fractional-usage",
+    "usage-conflict",
+    "post-finish",
+    "turn-mismatch",
+    "unknown-required",
+    "malformed-turn-end",
+    "subagent",
+    "oversized-frame",
+  ] as const) {
+    const workDir = mkdtempSync(join(tmpdir(), `agent-router-deepseek-jsonrpc-${scenario}-`));
+    const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+    const configPath = join(workDir, "cordis.yml");
+
+    try {
+      writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+      writeExecutable(
+        runtimePath,
+        [
+          "#!/usr/bin/env node",
+          "const readline = require('node:readline');",
+          "const rl = readline.createInterface({ input: process.stdin });",
+          "const send = (message) => process.stdout.write(`${JSON.stringify(message)}\\n`);",
+          "rl.on('line', (line) => {",
+          "  const message = JSON.parse(line);",
+          "  if (message.method === 'initialize') {",
+          "    send({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } });",
+          "    return;",
+          "  }",
+          "  if (message.method !== 'session/prompt') return;",
+          "  const sessionId = message.params.sessionId;",
+          "  send({ jsonrpc: '2.0', id: message.id, result: { messageId: 'message-1' } });",
+          "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { inserted: [{ id: 'message-1' }] } } } });",
+          "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } } } });",
+          "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } } } });",
+          scenario === "oversized-frame"
+            ? "  process.stdout.write('x'.repeat(1024 * 1024 + 1));"
+            : scenario === "malformed-message"
+            ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, message: { content: 'not-an-array' } } } } });"
+            : scenario === "malformed-chunk"
+              ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } } } } }); send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 4, time: 5, data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'private failure reasoning' } } } } }); send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 5, time: 6, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: -1, text: 'bad' } } } } }); send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 6, time: 7, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'should-not-emit' } } } } });"
+              : scenario === "malformed-tool-call"
+                ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'tool/call', seq: 3, time: 4, data: { turn: 1, step: 1, callId: '', name: 'bash', arguments: '{}' } } } });"
+                : scenario === "orphan-tool-result"
+                  ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'tool/result', seq: 3, time: 4, data: { turn: 1, step: 1, message: { source: { kind: 'tool', callId: 'missing-call' }, content: [] } } } } });"
+                  : scenario === "negative-usage"
+                    ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'bad usage' }] }, usage: { inputTokens: -1, outputTokens: 1 } } } } });"
+                    : scenario === "fractional-usage"
+                      ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 1.5, outputTokens: 1 } } } } } });"
+                      : scenario === "usage-conflict"
+                        ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } } } } } }); send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 4, time: 5, data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'stop' } } } } } }); send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/message', seq: 5, time: 6, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'bad usage' }] }, usage: { inputTokens: 2, outputTokens: 1 } } } } });"
+                        : scenario === "post-finish"
+                          ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'stop' } } } } } }); send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/chunk', seq: 4, time: 5, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'late' } } } } });"
+                          : scenario === "turn-mismatch"
+                            ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/message', seq: 3, time: 4, data: { turn: 2, step: 1, message: { content: [{ type: 'text', text: 'wrong turn' }] } } } } });"
+                            : scenario === "unknown-required"
+                              ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'future/required', seq: 3, time: 4, data: {} } } });"
+                              : scenario === "malformed-turn-end"
+                                ? "  send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/end', seq: 3, time: 4, data: { turn: 0, reason: { kind: 'completed' } } } } }); send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });"
+                                : "  send({ jsonrpc: '2.0', method: 'subagent.started', params: { parentSessionId: sessionId, sessionId: 'child-1' } });",
+          "});",
+          "setInterval(() => {}, 1000);",
+        ].join("\n"),
+      );
+
+      const result = await runAgentRouter({
+        version: 1,
+        harness: "deepseek-harness",
+        prompt: scenario,
+        cwd: workDir,
+        executablePath: runtimePath,
+        model: "deepseek-v4-flash",
+        mode: "jsonrpc",
+        deepSeekJsonRpcEnabled: true,
+        env: { DSH_CORDIS_CONFIG: configPath },
+        timeoutMs: 5_000,
+      });
+
+      assert.equal(result.status, "failed");
+      assert.equal(result.signal, "SIGTERM", `${scenario}: ${JSON.stringify(result)}`);
+      assert.equal(JSON.stringify(result.diagnostics).includes("private failure reasoning"), false);
+      assert.equal(result.events.some((event) => event.type === "text_delta" && event.text === "should-not-emit"), false);
+      assert.ok(result.diagnostics.some((diagnostic) =>
+        diagnostic.code === "harness.protocol_parse_failed"
+        && diagnostic.message.includes(
+          scenario === "oversized-frame"
+            ? "size limit"
+            : scenario === "malformed-message"
+            ? "assistant/message"
+            : scenario === "malformed-chunk"
+              ? "assistant/chunk"
+              : scenario === "malformed-tool-call"
+                ? "tool/call"
+                : scenario === "orphan-tool-result"
+                  ? "tool/result"
+                  : scenario === "negative-usage" || scenario === "fractional-usage" || scenario === "usage-conflict"
+                    ? "usage"
+                    : scenario === "post-finish"
+                      ? "finish"
+                      : scenario === "turn-mismatch"
+                        ? "turn"
+                        : scenario === "unknown-required"
+                          ? "unsupported"
+                          : scenario === "malformed-turn-end"
+                            ? "turn/end"
+                            : "subagent",
+        )
+      ), `${scenario}: ${JSON.stringify(result.diagnostics)}`);
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("runAgentRouter cancels the whole DeepSeek Harness JSON-RPC process", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-cancel-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const cancelAtPath = join(workDir, "cancel-at.txt");
+  const controller = new AbortController();
+
+  try {
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/usr/bin/env node",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') {",
+        "    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } })}\\n`);",
+        "    return;",
+        "  }",
+        "  if (message.method === 'session/prompt') {",
+        "    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { messageId: 'message-1' } })}\\n`);",
+        "    return;",
+        "  }",
+        "  if (message.method === 'session/cancel') {",
+        "    require('node:fs').writeFileSync(process.env.CANCEL_AT_PATH, String(message.params.reason));",
+        "  }",
+        "});",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    setTimeout(() => controller.abort(), 1_000);
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "wait",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: configPath, CANCEL_AT_PATH: cancelAtPath },
+      signal: controller.signal,
+      timeoutMs: 5_000,
+    });
+
+    assert.equal(result.status, "cancelled");
+    assert.equal(result.signal, "SIGTERM");
+    assert.equal(result.sessionId, undefined);
+    assert.equal(readFileSync(cancelAtPath, "utf8"), "operator");
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter terminates a DeepSeek JSON-RPC runtime that acknowledges shutdown but ignores EOF", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-shutdown-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const shutdownAtPath = join(workDir, "shutdown-at.txt");
+
+  try {
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (message) => process.stdout.write(`${JSON.stringify(message)}\\n`);",
+        "process.on('SIGTERM', () => {});",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') {",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'session/prompt') {",
+        "    const sessionId = message.params.sessionId;",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { messageId: 'message-1' } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { inserted: [{ id: 'message-1' }] } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'done' }] } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'shutdown') {",
+        "    fs.writeFileSync(process.env.SHUTDOWN_AT_PATH, String(Date.now()));",
+        "    send({ jsonrpc: '2.0', id: message.id, result: {} });",
+        "  }",
+        "});",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "finish",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: configPath, SHUTDOWN_AT_PATH: shutdownAtPath },
+      timeoutMs: 10_000,
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.outputText, "done");
+    assert.equal(result.signal, "SIGKILL");
+    const shutdownElapsedMs = Date.now() - Number(readFileSync(shutdownAtPath, "utf8"));
+    assert.ok(shutdownElapsedMs >= 5_900);
+    assert.ok(shutdownElapsedMs < 8_000);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter bounds shutdown when a DeepSeek JSON-RPC runtime never acknowledges it", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-shutdown-timeout-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const shutdownAtPath = join(workDir, "shutdown-at.txt");
+
+  try {
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (message) => process.stdout.write(`${JSON.stringify(message)}\\n`);",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') {",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'session/prompt') {",
+        "    const sessionId = message.params.sessionId;",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { messageId: 'message-1' } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { inserted: [{ id: 'message-1' }] } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'done' }] } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'shutdown') fs.writeFileSync(process.env.SHUTDOWN_AT_PATH, String(Date.now()));",
+        "});",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "finish",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: configPath, SHUTDOWN_AT_PATH: shutdownAtPath },
+      timeoutMs: 10_000,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.signal, "SIGTERM");
+    assert.ok(result.diagnostics.some((diagnostic) =>
+      diagnostic.code === "harness.protocol_parse_failed"
+      && diagnostic.message.includes("shutdown response timed out")
+    ));
+    const shutdownElapsedMs = Date.now() - Number(readFileSync(shutdownAtPath, "utf8"));
+    assert.ok(shutdownElapsedMs >= 1_900);
+    assert.ok(shutdownElapsedMs < 4_000);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
@@ -1475,8 +2290,202 @@ test("agent-router CLI emits Hermes result JSONL in --json-events mode", () => {
   }
 });
 
+test("daemon CLI emits portable evidence for an attested DeepSeek release", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-release-evidence-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const provenancePath = join(workDir, "provenance.json");
+  const wheelSha256 = "1".repeat(64);
+
+  try {
+    writeExecutable(
+      runtimePath,
+      [
+        `#!${process.execPath}`,
+        "if (process.env.DEEPSEEK_API_KEY) process.exit(41);",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "rl.on('line', (line) => {",
+        "  const request = JSON.parse(line);",
+        "  if (request.method === 'initialize') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } }) + '\\n');",
+        "  if (request.method === 'shutdown') { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} }) + '\\n'); rl.close(); }",
+        "});",
+      ].join("\n"),
+    );
+    writeApprovedDeepSeekCordisConfig(configPath);
+    const sidecars = writeDeepSeekRuntimeSidecars(runtimePath);
+    writeDeepSeekRuntimeProvenance(provenancePath, runtimePath, sidecars.ripgrepSha256, wheelSha256);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        join(process.cwd(), "packages/daemon/src/cli.ts"),
+        "verify-deepseek-release",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: "must-not-appear-in-evidence",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED: "1",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE: "1",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: runtimePath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(runtimePath),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: sidecars.ripgrepSha256,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: sidecars.spawnHelperSha256 ?? "",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE: provenancePath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256: wheelSha256,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout.includes("must-not-appear-in-evidence"), false);
+    assert.equal(result.stdout.includes(workDir), false);
+    const evidence = JSON.parse(result.stdout) as Record<string, unknown>;
+    assert.deepEqual(evidence, {
+      schemaVersion: 1,
+      kind: "deepseek-jsonrpc-release-evidence",
+      source: {
+        repository: "https://github.com/iTechwu/deepseek-harness",
+        ref: "dsh-v0.1.1-rc.2",
+        commit: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+      },
+      wheel: {
+        filename: "deepseek_harness_runtime_bin-0.1.1rc2-py3-none-manylinux_2_28_x86_64.whl",
+        sha256: wheelSha256,
+        distribution: "deepseek-harness-runtime-bin",
+        version: "0.1.1rc2",
+        tag: "py3-none-manylinux_2_28_x86_64",
+      },
+      artifacts: {
+        "dsh-jsonrpc-agent": sha256File(runtimePath),
+        "dsh-jsonrpc-agent-rg": sidecars.ripgrepSha256,
+        ...(sidecars.spawnHelperSha256
+          ? { "dsh-jsonrpc-agent-spawn-helper": sidecars.spawnHelperSha256 }
+          : {}),
+      },
+      composition: {
+        id: "dsh-v0.1.1-rc.2-default",
+        sha256: sha256File(configPath),
+      },
+      wire: {
+        protocol: "jsonrpc-2.0-ndjson",
+        serverInfo: { name: "deepseek-harness-sdk-runtime", version: "0.0.1" },
+        initialize: true,
+        shutdown: true,
+        stdoutPurity: true,
+      },
+    });
+
+    const tampered = JSON.parse(readFileSync(provenancePath, "utf8")) as {
+      source: { commit: string };
+    };
+    tampered.source.commit = "0".repeat(40);
+    writeFileSync(provenancePath, JSON.stringify(tampered), "utf8");
+    const rejected = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        join(process.cwd(), "packages/daemon/src/cli.ts"),
+        "verify-deepseek-release",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: "must-not-appear-in-evidence",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED: "1",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE: "1",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: runtimePath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(runtimePath),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: sidecars.ripgrepSha256,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: sidecars.spawnHelperSha256 ?? "",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE: provenancePath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256: wheelSha256,
+        },
+      },
+    );
+    assert.notEqual(rejected.status, 0);
+    assert.equal(rejected.stdout, "");
+    assert.equal(rejected.stderr.includes("must-not-appear-in-evidence"), false);
+    assert.equal(rejected.stderr.includes(workDir), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 function writeExecutable(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content, "utf8");
   chmodSync(path, 0o755);
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function writeApprovedDeepSeekCordisConfig(path: string): void {
+  writeFileSync(
+    path,
+    readFileSync(new URL("../../../deploy/daemon/runtimes/deepseek-jsonrpc/cordis.yml", import.meta.url)),
+  );
+}
+
+function writeDeepSeekRuntimeSidecars(runtimePath: string): {
+  ripgrepSha256: string;
+  spawnHelperSha256?: string;
+} {
+  const ripgrepPath = `${runtimePath}-rg`;
+  writeExecutable(ripgrepPath, "#!/bin/sh\nexit 0\n");
+  if (process.platform !== "darwin") {
+    return { ripgrepSha256: sha256File(ripgrepPath) };
+  }
+  const spawnHelperPath = `${runtimePath}-spawn-helper`;
+  writeExecutable(spawnHelperPath, "#!/bin/sh\nexit 0\n");
+  return {
+    ripgrepSha256: sha256File(ripgrepPath),
+    spawnHelperSha256: sha256File(spawnHelperPath),
+  };
+}
+
+function writeDeepSeekRuntimeProvenance(
+  path: string,
+  runtimePath: string,
+  ripgrepSha256: string,
+  wheelSha256: string,
+): void {
+  writeFileSync(path, JSON.stringify({
+    schemaVersion: 1,
+    source: {
+      repository: "https://github.com/iTechwu/deepseek-harness",
+      ref: "dsh-v0.1.1-rc.2",
+      commit: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+    },
+    wheel: {
+      filename: "deepseek_harness_runtime_bin-0.1.1rc2-py3-none-manylinux_2_28_x86_64.whl",
+      sha256: wheelSha256,
+      distribution: "deepseek-harness-runtime-bin",
+      version: "0.1.1rc2",
+      tag: "py3-none-manylinux_2_28_x86_64",
+    },
+    artifacts: {
+      "dsh-jsonrpc-agent": {
+        source: "deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-linux-x64",
+        sha256: sha256File(runtimePath),
+      },
+      "dsh-jsonrpc-agent-rg": {
+        source: "deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-linux-x64-rg",
+        sha256: ripgrepSha256,
+      },
+    },
+  }), "utf8");
 }
