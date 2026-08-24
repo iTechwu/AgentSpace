@@ -7,7 +7,8 @@
 // using the one-shot headless/JSON-RPC path until real carrier evidence exists.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { AgentRouterEvent } from "./types.ts";
+import type { AgentRouterEvent, AgentRouterObserver } from "./types.ts";
+import { DeepSeekSessionProtocol } from "./deepseek-jsonrpc-protocol.ts";
 
 const JSONRPC_VERSION = "2.0";
 const SERVER_INFO = { name: "deepseek-harness-sdk-runtime", version: "0.0.1" } as const;
@@ -42,11 +43,11 @@ interface PendingRequest {
   reject: (error: Error) => void;
 }
 
-/** One turn's accumulation state: final assistant text + idle receipt. */
+/** One active session turn: its protocol state machine plus completion hooks. */
 interface ActiveTurn {
   sessionId: string;
-  outputText: string;
-  onEvent?: (event: AgentRouterEvent) => void;
+  protocol: DeepSeekSessionProtocol;
+  observer: AgentRouterObserver;
   idleResolve: () => void;
   idleReject: (error: Error) => void;
 }
@@ -118,39 +119,30 @@ export class DeepSeekJsonRpcWorker {
     if (this.activeTurns.size >= this.options.maxSessions) {
       throw new Error(`DeepSeek Harness JSON-RPC worker is at its session bound (${this.options.maxSessions}).`);
     }
-    let turn: ActiveTurn | undefined;
+    let protocol: DeepSeekSessionProtocol | undefined;
     const turnPromise = new Promise<string>((resolve, reject) => {
-      const reserved: ActiveTurn = {
-        sessionId,
-        outputText: "",
-        onEvent,
-        idleResolve: () => {
-          this.activeTurns.delete(sessionId);
-          resolve(reserved.outputText);
-        },
-        idleReject: (error) => {
-          this.activeTurns.delete(sessionId);
-          reject(error);
-        },
+      const idleResolve = (): void => {
+        this.activeTurns.delete(sessionId);
+        resolve(protocol?.outputText ?? "");
       };
-      turn = reserved;
+      const idleReject = (error: Error): void => {
+        this.activeTurns.delete(sessionId);
+        reject(error);
+      };
+      protocol = new DeepSeekSessionProtocol({
+        sessionId,
+        prompt,
+        ...(environment === undefined ? {} : { environment }),
+        ...(cwd === undefined ? {} : { cwd }),
+        writeStdin: (data) => this.writeRaw(data),
+        fail: (message) => idleReject(new Error(message)),
+      });
+      const observer: AgentRouterObserver = { emit: (event) => onEvent?.(event) };
+      const reserved: ActiveTurn = { sessionId, protocol, observer, idleResolve, idleReject };
       this.activeTurns.set(sessionId, reserved);
     });
     await this.start();
-    try {
-      const receipt = await this.request("session/prompt", {
-        sessionId,
-        contentBlocks: [{ type: "text", text: prompt }],
-        ...(environment === undefined ? {} : { environment }),
-        ...(cwd === undefined ? {} : { cwd }),
-      });
-      if ((receipt as { messageId?: unknown }).messageId === undefined) {
-        throw new Error(`DeepSeek Harness JSON-RPC session/prompt returned no message id: ${JSON.stringify(receipt)}`);
-      }
-    } catch (error) {
-      this.activeTurns.delete(sessionId);
-      throw error;
-    }
+    protocol?.sendPrompt();
     return turnPromise;
   }
 
@@ -204,14 +196,14 @@ export class DeepSeekJsonRpcWorker {
         this.failActive(new Error("DeepSeek Harness JSON-RPC frame exceeded the 1 MiB size limit."));
         return;
       }
+      if (this.routeToSession(line)) continue;
       let message: Record<string, unknown>;
       try {
         const parsed = JSON.parse(line) as unknown;
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("frame is not an object");
         message = parsed as Record<string, unknown>;
-      } catch (error) {
-        this.failActive(error instanceof Error ? error : new Error(String(error)));
-        return;
+      } catch {
+        continue;
       }
       if ("id" in message) {
         const id = String(message.id);
@@ -220,42 +212,41 @@ export class DeepSeekJsonRpcWorker {
         this.pending.delete(id);
         if (message.error !== undefined) pending.reject(new Error(String((message.error as { message?: unknown })?.message ?? message.error)));
         else pending.resolve(message.result);
-        continue;
       }
-      if (typeof message.method !== "string") continue;
-      this.onNotification(message.method, message.params as Record<string, unknown> | undefined);
     }
   }
 
-  private onNotification(method: string, params: Record<string, unknown> | undefined): void {
-    const sessionId = typeof params?.sessionId === "string" ? params.sessionId : undefined;
-    if (sessionId !== undefined) {
-      this.options.onNotification?.({ sessionId, method, params });
-      if (method === "session.status" && params?.status === "idle") {
-        this.activeTurns.get(sessionId)?.idleResolve();
-      } else if (method === "session.event") {
-        const event = params?.event as { type?: string; data?: { message?: { content?: { type?: string; text?: string }[] } } } | undefined;
-        if (event?.type === "assistant/message") {
-          const text = (event.data?.message?.content ?? [])
-            .filter((block): block is { type: "text"; text: string } => block.type === "text")
-            .map((block) => block.text)
-            .join("");
-          const turn = sessionId !== undefined ? this.activeTurns.get(sessionId) : undefined;
-          if (turn !== undefined) {
-            turn.outputText = text;
-            if (text) turn.onEvent?.({ type: "text_delta", text });
-          }
+  /** Route one frame to the owning session protocol when it belongs to one. */
+  private routeToSession(line: string): boolean {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      return false;
+    }
+    if (typeof parsed.id === "string") {
+      for (const turn of this.activeTurns.values()) {
+        if (turn.protocol.ownsResponse(parsed.id)) {
+          turn.protocol.consumeLine(line, turn.observer);
+          if (turn.protocol.isTurnComplete()) turn.idleResolve();
+          return true;
         }
-      } else if (method === "approval.request") {
-        const turn = sessionId !== undefined ? this.activeTurns.get(sessionId) : undefined;
-        turn?.onEvent?.({
-          type: "approval_requested",
-          toolName: typeof params?.toolName === "string" ? params.toolName : "tool",
-          contentPreview: typeof params?.reason === "string" ? params.reason : "",
-        });
+      }
+      return false;
+    }
+    if (typeof parsed.method === "string") {
+      const params = parsed.params as Record<string, unknown> | undefined;
+      const sessionId = typeof params?.sessionId === "string" ? params.sessionId : undefined;
+      if (sessionId !== undefined) {
+        const turn = this.activeTurns.get(sessionId);
+        if (turn !== undefined) {
+          turn.protocol.consumeLine(line, turn.observer);
+          if (turn.protocol.isTurnComplete()) turn.idleResolve();
+          return true;
+        }
       }
     }
-    this.options.onNotification?.({ method, params });
+    return false;
   }
 
   private request(method: string, params?: object): Promise<unknown> {
@@ -273,8 +264,12 @@ export class DeepSeekJsonRpcWorker {
   }
 
   private writeFrame(message: Record<string, unknown>): void {
+    this.writeRaw(`${JSON.stringify(message)}\n`);
+  }
+
+  private writeRaw(data: string): void {
     if (!this.child?.stdin?.writable || this.child.stdin.destroyed) return;
-    this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    this.child.stdin.write(data);
   }
 
   private failActive(error: Error): void {

@@ -23,7 +23,12 @@ const FAKE_RUNTIME = [
   "    const sid = req.params.sessionId;",
   "    console.log(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: { messageId: 'msg-' + sid } }));",
   "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.status', params: { sessionId: sid, status: 'running' } }));",
-  "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: sid, event: { type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text: 'reply-' + sid }] } } } } }));",
+  "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: sid, event: { type: 'agent/inbox/spliced', seq: 0, time: 0, data: { inserted: [{ id: 'msg-' + sid }] } } } }));",
+  "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: sid, event: { type: 'turn/start', seq: 1, time: 0, data: { turn: 1 } } } }));",
+  "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: sid, event: { type: 'step/start', seq: 2, time: 0, data: { turn: 1, step: 1 } } } }));",
+  "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: sid, event: { type: 'assistant/message', seq: 3, time: 0, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'reply-' + sid }] } } } } }));",
+  "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: sid, event: { type: 'step/end', seq: 4, time: 0, data: { turn: 1, step: 1 } } } }));",
+  "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: sid, event: { type: 'turn/end', seq: 5, time: 0, data: { turn: 1, reason: { kind: 'completed' } } } } }));",
   "    console.log(JSON.stringify({ jsonrpc: '2.0', method: 'session.status', params: { sessionId: sid, status: 'idle' } }));",
   "  } else if (req.method === 'session/resume') {",
   "    console.log(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: { sessionId: req.params.sessionId, resumed: true } }));",
@@ -142,7 +147,7 @@ test("runDeepSeekJsonRpcBoundedWorkerTask runs a session through the pool and em
     assert.match(result.outputText ?? "", /^reply-dofe-task-/);
     assert.match(result.sessionId ?? "", /^dofe-task-/);
     assert.ok(events.includes("harness_started"));
-    assert.ok(events.includes("text_delta"));
+    assert.ok(events.includes("narration_delta"));
   } finally {
     await pool.stop();
     rmSync(dir, { recursive: true, force: true });
