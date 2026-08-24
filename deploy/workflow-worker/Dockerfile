@@ -8,6 +8,10 @@ ENV PNPM_HOME=/pnpm \
 
 WORKDIR /srv/DofeAgent
 
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/workflow-worker ./apps/workflow-worker
 COPY packages ./packages

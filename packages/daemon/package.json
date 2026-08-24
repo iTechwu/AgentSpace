@@ -31,7 +31,7 @@
     "package.json"
   ],
   "engines": {
-    "node": "^24.19.0"
+    "node": "^25.9.0"
   },
   "scripts": {
     "test": "sh -c 'node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/agent-router/capabilities.test.ts src/daemon-client.test.ts src/dist-smoke.test.ts src/local-managed-node-env-config.test.ts src/managed-node-image-contract.test.ts src/resumable-transfer.test.ts src/runtime-apps.test.ts src/skill-install/*.test.ts src/skill-service/*.test.ts src/skill-environment.test.ts src/skill-runner*.test.ts src/task-context-skill-env.test.ts' --",

@@ -7,6 +7,10 @@ ENV PNPM_HOME=/pnpm \
 
 WORKDIR /srv/DofeAgent
 
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY tsconfig.base.json ./
 COPY apps ./apps
@@ -35,7 +39,7 @@ WORKDIR /srv/DofeAgent
 # the shared runtime stage so web, maintenance, and daemon processes fail the
 # same way at build time rather than discovering a missing binary in production.
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends ca-certificates curl \
+  && apt-get install --yes --no-install-recommends ca-certificates curl openssl \
   && rm -rf /var/lib/apt/lists/* \
   && npm install --global pnpm@10.26.2
 
