@@ -13,37 +13,37 @@
 - GEOFlow：`geoflow-app-prod`、`geoflow-web-prod`、`geoflow-queue-prod`、`geoflow-scheduler-prod`、`geoflow-reverb-prod` 全部为 `healthy`。
 - PostgreSQL、Redis、RabbitMQ：继续由 `../docker-helm.dofe.ai` 集中管理，AgentSpace 与 GEOFlow Compose 均未创建这些依赖。中央 PostgreSQL 已在 281 MB 全实例逻辑备份和隔离烟测后切换到 `dofe-postgres:18-pgvector-0.8.6`，36 个可连接数据库和约 1125 MB 数据均保留。
 - GEOFlow 应用层已升级到提交 `59ceffc`；app/queue/scheduler/reverb 使用同一 manifest `sha256:df318cceb40610851fae969583b7c5e30210f7ebd5799feb8ab92575b6046309`，web 保持 `sha256:1aab4a139e8f57c97f5eeaf6b057a96d2d9b2059012ed6f3e900ef1c3ec5a19a`，五个容器均为 `healthy`。
-- AgentSpace managed-node 使用本机 recovery overlay 运行 Node `24.19.0`，镜像 manifest 为 `sha256:336f371fb08132bc5acbeda1ff7b2b52d0d830d8334a0d101a222c251fa02d75`；容器健康检查和 daemon status 均通过。
+- AgentSpace managed-node 使用本机已验证补丁镜像运行 Node `24.19.0`，镜像 manifest 为 `sha256:215fa1adb50f5040660513c06bef5114d40ec44d06ef08160926b3b3ae4426e4`；容器健康检查、daemon status、只读根文件系统和新 MCP 超时产物 smoke 均通过。由于私有 `node:24.19-bookworm-slim` registry 凭据在本机失效，本轮没有降低基础镜像契约，而是保留旧镜像并对已验证 daemon 产物制作可回滚本地补丁层。
 
 ## 2. 浏览器全流程
 
 最终 Chromium 回归执行了以下真实操作：
 
 1. 以本地测试管理员会话打开 MCP 市场。
-2. 清理名称严格匹配 live E2E 约定的历史测试夹具，再发布 `GEOFlow Docker Live mt6gvbvs` 私有目录项；Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
+2. 清理名称严格匹配 live E2E 约定的历史测试夹具，再发布 `GEOFlow Docker Live mt6jtlz8` 私有目录项；Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
 3. 配置加密保存的 Authorization 凭据，选择在线 Codex Runtime，并等待连接状态变为 `ready`。
 4. 声明并发现七个带命名空间的工具：`list`、`create`、`status`、`autosave`、`validate`、`publish`、`delete`；浏览器展开工具范围，逐项核对名称、勾选状态及低/中/高风险标签，发布和删除均为高风险。
-5. 通过 `create=agent` 深链接打开创建页，以空白模板创建 `GEO Manager mt6gvbvs`，备注名为 `GEO 管理员工 mt6gvbvs`，绑定同一 Runtime，并显式选中本次新员工核对详情。
+5. 通过 `create=agent` 深链接打开创建页，以空白模板创建 `GEO Manager mt6jtlz8`，备注名为 `GEO 管理员工 mt6jtlz8`，绑定同一 Runtime，并显式选中本次新员工核对详情。
 6. 在桌面和 390 x 844 移动视口检查员工目录、标题语义、文本布局、图标可见性和横向溢出，并分别运行 WCAG A/AA 与 best-practice Axe 扫描。
 
 | 检查 | 最终结果 |
 | --- | --- |
 | MCP 目录发布、凭据配置和连接验证 | 通过，连接进入 `ready` |
 | AI 员工创建与 Runtime 绑定 | 通过，数据库记录与 UI 一致 |
-| live E2E 测试夹具 | 本轮清理 1 名员工 / 1 个目录项，最终保留 1 / 1；临时登录会话由 `afterEach` 在成功和失败路径统一回收 |
+| live E2E 测试夹具 | 本轮启动清理 1 名员工 / 1 个目录项，成功后再次清理 `mt6jtlz8`，最终 0 / 0；临时登录会话由 `afterEach` 在成功和失败路径统一回收 |
 | 浏览器 console error / warning | 0 / 0 |
 | `requestfailed` | 0 |
 | HTTP 4xx / 5xx | 0 / 0 |
 | 移动端横向溢出 | 0 px |
-| 页面 DCL / load | 1414 ms / 1414 ms |
-| 桌面 / 移动 LCP | 1520 ms / 744 ms |
-| 桌面 INP | 56 ms；移动端截图阶段未产生可计量交互 |
-| 桌面 / 移动 CLS | 0.0078 / 0 |
+| 页面 DCL / load | 1274 ms / 1275 ms |
+| 桌面 / 移动 LCP | 1220 ms / 1052 ms |
+| 桌面 INP | 88 ms；移动端截图阶段未产生可计量交互 |
+| 桌面 / 移动 CLS | 0 / 0 |
 | 最大长任务 | 0 ms |
 | 无名称交互控件 / 空标题 | 0 / 0；创建结果由 `role=status` 宣告 |
 | Axe | 桌面 / 移动均为 0 violations |
 | 移动顶部图标 | 两个控件均满足至少 3:1 图形对比度 |
-| Playwright | 1 passed，31.1 s（总耗时 32.0 s） |
+| Playwright | 1 passed，53.7 s（总耗时约 1.5 min） |
 
 证据：
 
@@ -105,6 +105,7 @@
 21. 首版持续清理仍要求人工查询并传入 GeoFlow `project_id`；尝试从 AgentSpace 历史任务结果自动发现时，又因浏览器夹具回收会级联删除旧员工任务而得到空集合。现 GeoFlow 提供只读、租户隔离、有界且不返回草稿正文的 `geoflow.enterprise_knowledge.list`；回归脚本通过真实 Gateway 列表发现并严格匹配测试命名，再调用删除。本轮不传 cleanup ID 即自动回收项目 14、15，并保留新项目 16，七工具审计完整。
 22. 七工具目录超过默认自动展开阈值后，旧浏览器用例只验证详情可打开，未验证用户能看到完整能力和风险等级；真实任务脚本也信任列表响应的字段形状。现用例主动展开目录并逐项核对 7/7 工具、勾选状态和风险标签，新增目录截图；daemon 对列表响应强制校验 workspace 租户、返回计数和元数据字段白名单，跨租户、计数漂移或出现 `draft_content` 等正文类字段都会失败关闭。
 23. AgentSpace 原把连接/工具发现和业务工具调用统一限制为 15 秒。真实 `publish` 需依次调用 models `embedding-vision` 三次，约 75 秒；客户端 15 秒断开后 Nginx 返回 499，但 GeoFlow 仍继续提交，形成调用方报错而服务端成功的不确定状态。`embedding-vision` 的实际 multimodal 路由拒绝多输入，不能用批量参数规避。现连接与发现继续保持 15 秒，工具调用默认 120 秒并同时传递给 SDK、HTTP abort 和协议守卫，可通过 `DOFE_AGENT_MCP_TOOL_TIMEOUT_MS` 在 15 秒到 10 分钟间调整；SDK `-32001` 统一归类为 `mcp.timeout`。初稿生成实测可达 122 秒，回归状态轮询上限同步调整为 180 秒。最终发布耗时 74.844 秒并在同一调用内成功返回。
+24. 真实 Chromium 在员工页使用 `networkidle` 会被持续 runtime/status 流误判为导航超时；用例改用 `domcontentloaded` 加对话框就绪断言。员工创建 action 已写入数据库但响应/刷新较慢时，旧 UI 会把 `create=agent` modal 留在“创建中”；现提交即关闭、toast 和数据刷新异步完成，避免成功结果被 modal 遮挡。回归新增 120 秒业务预算、60 秒成功 toast/列表刷新门，并过滤 Next 主动取消的 `net::ERR_ABORTED`，保留真实 transport failure。
 
 GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布竞态保护）、`41cb1c6`（无 pgvector 列兼容）、`0015eb5`（URL 导入并发保护）、`308c62f`（工具发现权限过滤）、`94c220e`（恢复 pgvector 存储列）、`bfcbcd5`（限制 MCP SSO 回退超时）、`a045cac`（提前拒绝无效身份令牌）、`380a319`（3072 维 halfvec HNSW 检索）、`74f4864`（企业知识安全删除工具）、`9915b38`（企业知识租户列表工具）、`59ceffc`（列表权限契约）。中央基础设施对应提交：`fd60ab7`（PostgreSQL 18 pgvector 镜像、备份和扩展对账）。SSO 对应提交：`736cebc`（HttpOnly 会话验证）。
 
@@ -123,7 +124,7 @@ GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布
 | AgentSpace daemon typecheck | 通过 |
 | GEO 列表响应最小化契约 | 2 passed；覆盖正确元数据、跨租户、计数漂移与草稿正文泄露拒绝 |
 | 真实 AgentSpace -> GEOFlow MCP | 通过，任务 `task-geo-live-mt6hp1ud`；七类工具；自动删除项目 19；发布项目 20 / 知识库 18 / 3 chunks；`publish` 74844 ms；七类成功审计 |
-| Chromium 桌面/移动端 | 1 passed，31.1 s；LCP 1520/744 ms；桌面 INP 56 ms；CLS 0.0078/0；Axe 0 violations；0 console issue；0 failed request；0 HTTP 4xx/5xx；0 overflow；夹具最终 1/1 |
+| Chromium 桌面/移动端 | 1 passed，53.7 s；LCP 1220/1052 ms；桌面 INP 88 ms；CLS 0/0；Axe 0 violations；0 console issue；0 failed request；0 HTTP 4xx/5xx；0 overflow；夹具最终 0/0 |
 | 外部 SSO 隔离 Chromium | 登录 POST 200；authorize 302；callback 307；工作区 200 |
 | GeoFlow MCP 权限目录 | 写令牌 53 个且包含企业知识列表和删除；只读令牌继续隐藏写工具 |
 | GeoFlow URL 导入并发 | 5 路并发：3 创建、2 限流；清理后 0 条测试记录 |
@@ -134,4 +135,4 @@ GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布
 
 - 宿主机仍为 Node `25.9.0`，因此宿主 pnpm 会正确发出 engine warning；真实 managed-node 已使用官方发行包和固定 SHA-256 运行 Node `24.19.0`。正式 CI 仍必须发布批准的私有 `node:24.19-bookworm-slim` 基础镜像，本机 recovery overlay 不作为发布镜像。
 - SSO 源码修复已在 `sso.dofe.ai` 本地提交并通过单测、ESLint、Web TypeScript；本机没有远端 SSO 的非 Jenkins 部署入口，因此线上页面仍可能输出旧 warning，但真实登录和 AgentSpace callback 已成功。
-- 本机没有启动或触发 Jenkins，也没有 push。GeoFlow Docker 部署仅为用户明确要求的本机真实环境回归。
+- 本机没有启动或触发 Jenkins，也没有 push。GeoFlow Docker 与 AgentSpace managed-node 部署仅为用户明确要求的本机真实环境回归；managed-node 保留回滚标签 `dofe-agent-managed-node:before-a430b12a`。
