@@ -1,4 +1,4 @@
-FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim AS proxy-build
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS proxy-build
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
@@ -13,7 +13,7 @@ RUN npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \
   && pnpm --filter @dofe-agent/mcp-egress-proxy build
 
-FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
 
 RUN groupadd --gid 10001 dofe-agent \
   && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent \

@@ -117,7 +117,7 @@ services:
       additional_contexts:
         deepseek-runtime-bundle: ${DEEPSEEK_HARNESS_RUNTIME_BUNDLE_CONTEXT:-./runtimes/deepseek-jsonrpc/artifacts/linux-amd64}
       args:
-        PROVIDER_BASE_IMAGE: ${DEEPSEEK_HARNESS_PROVIDER_BASE_IMAGE:-uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim}
+        PROVIDER_BASE_IMAGE: ${DEEPSEEK_HARNESS_PROVIDER_BASE_IMAGE:-uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim}
         DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: ${DEEPSEEK_JSONRPC_EXECUTABLE_SHA256:-}
         DEEPSEEK_JSONRPC_RIPGREP_SHA256: ${DEEPSEEK_JSONRPC_RIPGREP_SHA256:-}
         DEEPSEEK_RUNTIME_WHEEL_SHA256: ${DEEPSEEK_RUNTIME_WHEEL_SHA256:-}

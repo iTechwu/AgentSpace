@@ -1,6 +1,6 @@
 ARG PROVIDER_BASE_IMAGE
 
-FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim AS daemon-build
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \

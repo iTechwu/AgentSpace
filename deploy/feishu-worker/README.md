@@ -12,7 +12,7 @@
 ## 前置条件
 
 - Docker + Docker Compose v2。
-- 可拉取基础镜像 `uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim`（私有仓库，
+- 可拉取基础镜像 `uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim`（私有仓库，
   需预先登录或在内网节点上构建）。
 - **外部托管的基础设施**：PostgreSQL / Redis / RabbitMQ 一律由
   `../docker-helm.dofe.ai` 集中管理，本 compose **不创建、不运行、不内嵌**这些服务。

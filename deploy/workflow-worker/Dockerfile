@@ -1,4 +1,4 @@
-FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \

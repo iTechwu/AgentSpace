@@ -8,7 +8,7 @@
 # （与根 package.json 的 packageManager 字段、deploy/daemon/Dockerfile 的做法一致），
 # 避免每次容器启动都联网安装。源码由 docker-compose.yml 在运行时挂载到
 # /srv/DofeAgent，本镜像只负责提供 node + pnpm，不内嵌源码。
-FROM uhub.service.ucloud.cn/techwu/node:24.19-bookworm-slim
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
