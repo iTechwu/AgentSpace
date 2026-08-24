@@ -54,7 +54,7 @@ beforeEach(() => {
   `);
 });
 
-test("Feishu agent bot binding defaults to websocket worker with only app credentials", databaseTestOptions, () => {
+test("Feishu agent bot binding defaults to an event callback with callback credentials", databaseTestOptions, () => {
   const workspace = createWorkspaceSync({
     slug: "feishu-agent-bot-basic",
     name: "Feishu Agent Bot Basic",
@@ -66,19 +66,20 @@ test("Feishu agent bot binding defaults to websocket worker with only app creden
     agentId: "Codex",
     appId: "cli_codex_bot",
     appSecret: "super-secret",
+    verificationToken: "verification-token",
   });
 
   assert.equal(binding.agentId, "Codex");
-  assert.equal(binding.transportMode, "websocket_worker");
+  assert.equal(binding.transportMode, "http_webhook");
   assert.equal(binding.displayName, "Codex Feishu Bot");
   assert.deepEqual(summarizeFeishuStoredCredentials(binding), {
     hasAppSecret: true,
-    hasVerificationToken: false,
+    hasVerificationToken: true,
     hasEncryptKey: false,
   });
   assert.deepEqual(readFeishuIntegrationCredentials(binding), {
     appSecret: "super-secret",
-    verificationToken: "",
+    verificationToken: "verification-token",
     encryptKey: undefined,
   });
   assert.equal(readFeishuAgentBotBindingByAgentSync({

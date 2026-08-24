@@ -573,7 +573,7 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
 export function printFeishuIntegrationHelp(): void {
   console.log(`Usage:
   dofe-agent integrations feishu create --workspace-id <id> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--name <name>] [--transport http_webhook|websocket_worker] [--app-url <url>] [--json]
-  dofe-agent integrations feishu bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET [--transport websocket_worker|http_webhook] [--verification-token-env FEISHU_VERIFICATION_TOKEN] [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--json]
+  dofe-agent integrations feishu bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN [--transport http_webhook|websocket_worker] [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--json]
   dofe-agent integrations feishu rotate-agent-bot-secret --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--env-file scripts/feishu/.env] --app-secret-env FEISHU_APP_SECRET [--app-id-env FEISHU_APP_ID] [--json]
   dofe-agent integrations feishu disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
   dofe-agent integrations feishu auto-provision-policy --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--bot-added-policy auto_create_channel|pending_admin_review|disabled] [--first-message-policy auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled] [--review-status approved|pending_admin_review|needs_identity_binding] [--unbound-user-mode ignore|reply_on_mention|reply_all|require_identity] [--guest-permission-profile none|channel_context_only|channel_readonly] [--require-identity-for writes,approvals] [--json]
@@ -638,7 +638,7 @@ Options:
   --include-webhook        Include http_webhook integrations in dry-run/start selection
   --drain-outbox, --once   Drain due Feishu outbox messages once without opening WebSocket connections
   create                   Create a workspace-level DofeAgent Feishu integration with encrypted credentials
-  bind-agent-bot           Bind one DofeAgent agent to one Feishu bot; default transport only needs App ID + App Secret
+  bind-agent-bot           Bind one DofeAgent agent to one Feishu bot; defaults to EventCallback and requires Verification Token
   rotate-agent-bot-secret  Rotate an existing agent bot binding secret without exposing it in output
   disable-agent-bot        Disable an existing agent bot binding
   auto-provision-policy    View/update agent bot auto-provisioning and external guest policy

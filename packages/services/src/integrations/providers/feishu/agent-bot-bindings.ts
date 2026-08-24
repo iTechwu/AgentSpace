@@ -156,7 +156,9 @@ export function createFeishuAgentBotBindingSync(
   const agentId = requireText(input.agentId, "feishu.agent_bot_binding.missing_agent_id");
   const appId = requireText(input.appId, "feishu.agent_bot_binding.missing_app_id");
   const appSecret = requireText(input.appSecret, "feishu.agent_bot_binding.missing_app_secret");
-  const transportMode = input.transportMode ?? "websocket_worker";
+  // Event callbacks work for both formal and self-built Feishu apps. Long
+  // connections are an opt-in for self-built apps only.
+  const transportMode = input.transportMode ?? "http_webhook";
   const tenantKey = optionalText(input.tenantKey);
   const verificationToken = optionalText(input.verificationToken);
   const encryptKey = optionalText(input.encryptKey);

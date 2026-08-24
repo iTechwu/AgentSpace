@@ -54,7 +54,7 @@ export function FeishuAgentBotAgentSettingsPanel({
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [transportMode, setTransportMode] = useState<"websocket_worker" | "http_webhook">("websocket_worker");
+  const [transportMode, setTransportMode] = useState<"websocket_worker" | "http_webhook">("http_webhook");
   const [tenantKey, setTenantKey] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
   const [encryptKey, setEncryptKey] = useState("");
@@ -392,10 +392,15 @@ export function FeishuAgentBotAgentSettingsPanel({
                   onChange={(event) => setTransportMode(event.currentTarget.value as "websocket_worker" | "http_webhook")}
                   value={transportMode}
                 >
-                  <option value="websocket_worker">{tx("长连接", "WebSocket worker")}</option>
-                  <option value="http_webhook">{tx("事件回调", "Event callback")}</option>
+                  <option value="http_webhook">{tx("事件回调（正式应用、自建应用）", "Event callback (formal or self-built app)")}</option>
+                  <option value="websocket_worker">{tx("长连接（仅自建应用）", "WebSocket worker (self-built app only)")}</option>
                 </select>
               </label>
+              <p className="settings-panel-note">
+                {transportMode === "http_webhook"
+                  ? tx("正式应用必须使用事件回调；请在飞书开发者后台填写本页面生成的回调地址，并使用同一组 Verification Token 和 Encrypt Key。", "Formal apps must use event callbacks. Configure the callback URL shown on this page in Feishu, with the same Verification Token and Encrypt Key.")
+                  : tx("长连接只支持自建应用。正式应用选择长连接会在飞书后台显示“连接失败”。", "Persistent connection is supported only by self-built apps. A formal app will show Connection failed in Feishu.")}
+              </p>
               <label className="form-field">
                 <span>{tx("Tenant Key", "Tenant Key")}</span>
                 <input

@@ -30,7 +30,7 @@ export function FeishuCreateIntegrationDialog({
   tx: SettingsTx;
 }) {
   const [displayName, setDisplayName] = useState("Feishu");
-  const [transportMode, setTransportMode] = useState<"http_webhook" | "websocket_worker">("websocket_worker");
+  const [transportMode, setTransportMode] = useState<"http_webhook" | "websocket_worker">("http_webhook");
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
@@ -126,8 +126,8 @@ export function FeishuCreateIntegrationDialog({
                     onChange={(event) => setTransportMode(event.currentTarget.value as "http_webhook" | "websocket_worker")}
                     value={transportMode}
                   >
-                    <option value="websocket_worker">{tx("长连接", "WebSocket worker")}</option>
-                    <option value="http_webhook">{tx("事件回调", "Event callback")}</option>
+                    <option value="http_webhook">{tx("事件回调（正式应用、自建应用）", "Event callback (formal or self-built app)")}</option>
+                    <option value="websocket_worker">{tx("长连接（仅自建应用）", "WebSocket worker (self-built app only)")}</option>
                   </select>
                 </label>
 

@@ -48,7 +48,7 @@ export function FeishuAgentBotsPanel({
   const firstUnboundAgentId = agentOptions.find((agent) => !boundAgentIds.has(agent.id))?.id ?? "";
   const [agentId, setAgentId] = useState(firstUnboundAgentId);
   const [displayName, setDisplayName] = useState("");
-  const [transportMode, setTransportMode] = useState<"websocket_worker" | "http_webhook">("websocket_worker");
+  const [transportMode, setTransportMode] = useState<"websocket_worker" | "http_webhook">("http_webhook");
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
@@ -175,10 +175,15 @@ export function FeishuAgentBotsPanel({
                 onChange={(event) => setTransportMode(event.currentTarget.value as "websocket_worker" | "http_webhook")}
                 value={transportMode}
               >
-                <option value="websocket_worker">{tx("长连接", "WebSocket worker")}</option>
-                <option value="http_webhook">{tx("事件回调", "Event callback")}</option>
+                <option value="http_webhook">{tx("事件回调（正式应用、自建应用）", "Event callback (formal or self-built app)")}</option>
+                <option value="websocket_worker">{tx("长连接（仅自建应用）", "WebSocket worker (self-built app only)")}</option>
               </select>
             </label>
+            <p className="settings-panel-note">
+              {transportMode === "http_webhook"
+                ? tx("正式应用请使用事件回调，并在飞书后台配置同一组 Verification Token 和 Encrypt Key。", "Formal apps must use event callbacks with the same Verification Token and Encrypt Key configured in Feishu.")
+                : tx("长连接仅适用于自建应用；正式应用会被飞书拒绝连接。", "Persistent connection is for self-built apps only; Feishu rejects it for formal apps.")}
+            </p>
 
             <label className="form-field">
               <span>{tx("Tenant Key", "Tenant Key")}</span>

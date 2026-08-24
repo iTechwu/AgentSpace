@@ -547,7 +547,15 @@ test("startFeishuWebSocketWorker can close and restart sessions with injected de
   })), [{
     workspaceId: "workspace-1",
     integrationId: "integration-ws-1",
+    lastHealthStatus: "unknown",
+  }, {
+    workspaceId: "workspace-1",
+    integrationId: "integration-ws-1",
     lastHealthStatus: "healthy",
+  }, {
+    workspaceId: "workspace-1",
+    integrationId: "integration-ws-1",
+    lastHealthStatus: "unknown",
   }, {
     workspaceId: "workspace-1",
     integrationId: "integration-ws-1",
@@ -592,9 +600,45 @@ test("worker marks reconnecting bindings degraded and healthy after recovery", a
     lastHealthStatus: update.lastHealthStatus,
     lastError: update.lastError,
   })), [
+    { lastHealthStatus: "unknown", lastError: undefined },
     { lastHealthStatus: "degraded", lastError: "feishu.websocket_worker.reconnecting" },
     { lastHealthStatus: "healthy", lastError: undefined },
   ]);
+  worker.close();
+});
+
+test("worker reports a rejected persistent connection as degraded instead of healthy", async () => {
+  const integration = makeIntegration({
+    id: "integration-ws-formal-app",
+    transportMode: "websocket_worker",
+  });
+  const healthUpdates: Array<Record<string, unknown>> = [];
+
+  const worker = await startFeishuWebSocketWorker({
+    workspaceId: "workspace-1",
+    lockedBy: "worker-1",
+    workerDependencies: {
+      listIntegrations() {
+        return [integration];
+      },
+      readIntegrationCredentials() {
+        return { appSecret: "app-secret" };
+      },
+      updateIntegrationHealth(input) {
+        healthUpdates.push(input as unknown as Record<string, unknown>);
+        return integration;
+      },
+    },
+    async sessionFactory(input) {
+      input.onError(new Error("receive events through persistent connection only available in self-build Feishu app"));
+      return { close() {} };
+    },
+  });
+
+  assert.equal(worker.summary.startedCount, 1);
+  assert.equal(worker.summary.integrations[0]?.healthStatus, "degraded");
+  assert.equal(worker.summary.errors[0]?.errorCode, "feishu.websocket_worker.unsupported_app_type");
+  assert.deepEqual(healthUpdates.map((update) => update.lastHealthStatus), ["unknown", "degraded"]);
   worker.close();
 });
 

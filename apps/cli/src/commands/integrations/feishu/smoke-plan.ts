@@ -169,7 +169,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         detail: hasActiveIntegration
           ? "An active Feishu agent bot binding already exists; use smoke-env for workspace-specific live smoke resources."
           : hasScopedSourceIntegration
-            ? "Existing Feishu records are not usable as active agent bot bindings. Keep the env file ready so you can bind a fresh active DofeAgent agent bot with App ID + App Secret."
+            ? "Existing Feishu records are not usable as active agent bot bindings. Keep the env file ready so you can bind a fresh active DofeAgent agent bot with App ID, App Secret, and Verification Token."
             : "Create scripts/feishu/.env from the checked-in template, then replace the Feishu app credential placeholders before binding an DofeAgent agent to its Feishu bot.",
         command: hasActiveIntegration
           ? undefined
@@ -195,10 +195,10 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
           ? `Found ${activeReadinessItems.length} active Feishu agent bot binding record(s) in this workspace.`
           : hasScopedSourceIntegration
             ? "Feishu records exist, but none are usable active agent bot bindings. Bind a concrete DofeAgent agent to its Feishu bot before live smoke."
-          : "Create a Feishu custom app for a specific DofeAgent agent, then bind it with App ID + App Secret. WebSocket worker is the default quick start; EventCallback verification token/encrypt key stay in advanced setup.",
+          : "Create a Feishu app for a specific DofeAgent agent, then bind it with App ID, App Secret, and Verification Token. EventCallback is the default because it works for formal and self-built apps; use WebSocket only for self-built apps.",
         command: hasActiveIntegration
           ? undefined
-          : `dofe-agent integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+          : `dofe-agent integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN --json`,
         issues: hasActiveIntegration
           ? []
           : uniqueStrings([...activeIntegrationIssues, ...credentialEncryptionIssues]),
@@ -210,7 +210,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         status: prereqStatus(hasActiveIntegration, hasConfiguredAppCredentials),
         detail: hasConfiguredAppCredentials
           ? "DofeAgent has a Feishu app id plus required secret configuration for at least one agent bot binding."
-          : "For quick start, save only App ID and App Secret on the agent bot binding. Add verification token and encrypt key only when using EventCallback.",
+          : "For the default EventCallback transport, save App ID, App Secret, and Verification Token on the agent bot binding. Add Encrypt Key when encrypted events are enabled.",
         issues: hasActiveIntegration
           ? collectSetupIssues(setupCandidate, ["app_id_missing", "credentials_incomplete"])
           : activeIntegrationIssues,
@@ -334,7 +334,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
           : "Create a second active Feishu custom app, such as HermesAgent Bot, and bind it to a different DofeAgent agent with app credentials, bot scopes, healthy/degraded health, and no unresolved outbox failures before testing same-group reuse and thread collaboration.",
         command: hasSecondAgentBot
           ? undefined
-          : `dofe-agent integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
+          : `dofe-agent integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --transport websocket_worker --json`,
         issues: hasSecondAgentBot
           ? []
           : hasIntegration

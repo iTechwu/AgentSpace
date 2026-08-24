@@ -1200,7 +1200,7 @@ describe("AgentsPageClient", () => {
     expect(healthCard).toContainElement(screen.getByText("异常"));
   });
 
-  it("binds a Feishu bot from agent settings with only App ID and App Secret", async () => {
+  it("binds a self-built Feishu bot with long connection only when explicitly selected", async () => {
     const user = userEvent.setup();
 
     renderAgentsPage({
@@ -1223,6 +1223,8 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("sheets:spreadsheet")).not.toBeVisible();
     await user.type(screen.getByLabelText("App ID"), "cli_planner");
     await user.type(screen.getByLabelText("App Secret"), "secret_planner");
+    await user.click(screen.getByText("自定义高级功能"));
+    await user.selectOptions(screen.getByLabelText("连接方式"), "websocket_worker");
     await user.click(screen.getByRole("button", { name: "绑定 Bot 并启用工作区" }));
 
     await waitFor(() => {
@@ -1273,7 +1275,6 @@ describe("AgentsPageClient", () => {
     await user.type(screen.getByLabelText("App Secret"), "secret_planner_event");
     await user.click(screen.getByText("自定义高级功能"));
     await user.type(screen.getByLabelText("名称"), "Planner Event Bot");
-    await user.selectOptions(screen.getByLabelText("连接方式"), "http_webhook");
     await user.type(screen.getByLabelText("Tenant Key"), "tenant_planner");
     await user.type(screen.getByLabelText(/Verification Token/), "verify_planner");
     await user.type(screen.getByLabelText("Encrypt Key"), "encrypt_planner");

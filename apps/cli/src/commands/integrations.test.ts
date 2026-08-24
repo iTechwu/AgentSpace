@@ -354,13 +354,14 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
   assert.match(serialized, /bitable:app/);
 });
 
-test("Feishu agent bot CLI defaults to websocket worker and redacts credentials", () => {
+test("Feishu agent bot CLI defaults to event callback and redacts credentials", () => {
   const input = buildFeishuAgentBotCliInputFromFlags({
     workspaceId: "workspace-1",
     flags: {
       "agent": "Codex",
       "app-id": "cli_codex_bot",
       "app-secret": "secret_codex_bot",
+      "verification-token": "verify_codex_bot",
     },
     actorUserId: "admin-1",
     env: {},
@@ -382,12 +383,12 @@ test("Feishu agent bot CLI defaults to websocket worker and redacts credentials"
     },
   });
 
-  assert.equal(input.transportMode, "websocket_worker");
+  assert.equal(input.transportMode, "http_webhook");
   assert.equal(report.kind, "agent_bot");
   assert.equal(report.operation, "created");
   assert.equal(report.integrationId, "agent-bot-codex");
   assert.equal(report.agentId, "Codex");
-  assert.equal(report.transportMode, "websocket_worker");
+  assert.equal(report.transportMode, "http_webhook");
   assert.deepEqual(report.credentials, {
     hasAppSecret: true,
     hasVerificationToken: false,
@@ -399,11 +400,11 @@ test("Feishu agent bot CLI defaults to websocket worker and redacts credentials"
     workspaceId: "workspace-1",
     agentId: "Codex",
     displayName: undefined,
-    transportMode: "websocket_worker",
+    transportMode: "http_webhook",
     appId: "cli_codex_bot",
     appSecret: "secret_codex_bot",
     tenantKey: undefined,
-    verificationToken: undefined,
+    verificationToken: "verify_codex_bot",
     encryptKey: undefined,
     createdByUserId: "admin-1",
   }]);
@@ -416,6 +417,7 @@ test("Feishu agent bot CLI accepts auto-provision and guest policy flags", () =>
       "agent": "Codex",
       "app-id": "cli_codex_bot",
       "app-secret": "secret_codex_bot",
+      "verification-token": "verify_codex_bot",
       "bot-added-policy": "pending_admin_review",
       "first-message-policy": "reply_with_setup_card",
       "review-status": "pending_admin_review",
@@ -446,11 +448,11 @@ test("Feishu agent bot CLI accepts auto-provision and guest policy flags", () =>
     workspaceId: "workspace-1",
     agentId: "Codex",
     displayName: undefined,
-    transportMode: "websocket_worker",
+    transportMode: "http_webhook",
     appId: "cli_codex_bot",
     appSecret: "secret_codex_bot",
     tenantKey: undefined,
-    verificationToken: undefined,
+    verificationToken: "verify_codex_bot",
     encryptKey: undefined,
     createdByUserId: "admin-1",
     channelAutoProvisioning: {
@@ -6691,7 +6693,7 @@ test("Feishu agent bot CLI returns redacted JSON for successful bindings", () =>
       verifyBotAddedPayload: "pnpm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
       smokePlan: "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration agent-bot-codex --app-url CHANGE_ME_PUBLIC_DOFE_AGENT_URL",
       finalEvidence: "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration agent-bot-codex --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
-      bindSecondAgentBot: "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+      bindSecondAgentBot: "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --transport websocket_worker --json",
     },
   });
   assert.equal(JSON.stringify(result).includes("secret_agent_bot"), false);
@@ -9358,14 +9360,14 @@ test("Feishu smoke plan includes CLI agent bot bind command when no integration 
   assert.match(createEnvStep?.detail ?? "", /replace the Feishu app credential placeholders/);
   assert.equal(createStep?.status, "blocked");
   assert.ok(createStep?.issues?.includes("credential_encryption_key_missing"));
-  assert.match(createStep?.detail ?? "", /App ID \+ App Secret/);
-  assert.match(createStep?.detail ?? "", /WebSocket worker/);
+  assert.match(createStep?.detail ?? "", /App ID, App Secret, and Verification Token/);
+  assert.match(createStep?.detail ?? "", /EventCallback/);
   assert.match(createStep?.command ?? "", /dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1/);
   assert.match(createStep?.command ?? "", /--agent CHANGE_ME_AGENT_NAME/);
   assert.match(createStep?.command ?? "", /--env-file scripts\/feishu\/\.env/);
   assert.match(createStep?.command ?? "", /--app-id-env FEISHU_APP_ID/);
   assert.match(createStep?.command ?? "", /--app-secret-env FEISHU_APP_SECRET/);
-  assert.doesNotMatch(createStep?.command ?? "", /--verification-token-env/);
+  assert.match(createStep?.command ?? "", /--verification-token-env FEISHU_VERIFICATION_TOKEN/);
   assert.doesNotMatch(createStep?.command ?? "", /--encrypt-key-env/);
   assert.equal(liveFirstMessageAutoProvision?.status, "blocked");
   assert.deepEqual(liveFirstMessageAutoProvision?.issues, ["integration_missing"]);

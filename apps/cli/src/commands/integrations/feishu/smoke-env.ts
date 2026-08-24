@@ -122,7 +122,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: false,
         required: false,
         source: "placeholder",
-        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second disposable Feishu app id. After filling it, bind the second app with: dofe-agent integrations feishu bind-agent-bot --workspace-id <id> --agent <second-agent> --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second disposable Feishu app id. After filling it, bind the self-built second app with: dofe-agent integrations feishu bind-agent-bot --workspace-id <id> --agent <second-agent> --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --transport websocket_worker --json",
       },
       {
         key: "FEISHU_SECOND_AGENT_APP_SECRET",

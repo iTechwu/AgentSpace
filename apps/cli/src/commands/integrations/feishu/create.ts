@@ -133,7 +133,7 @@ export function createFeishuIntegrationForCli(
       verifyOpenApiEvidence: smokeHarness.verifyEvidenceCommand,
       verifyBotAddedPayload: smokeHarness.verifyBotAddedPayloadCommand,
       finalEvidence: `dofe-agent integrations feishu evidence ${flags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
-      bindSecondAgentBot: `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
+      bindSecondAgentBot: `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --transport websocket_worker --json`,
       bindChannel: `dofe-agent integrations feishu bind-channel ${flags} --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
       bindUser: `dofe-agent integrations feishu bind-user ${flags} --user-id ${FEISHU_CLI_PLACEHOLDERS.dofeAgentUserId} --open-id ${FEISHU_CLI_PLACEHOLDERS.feishuOpenId} --json`,
       bindResourceDoc: `dofe-agent integrations feishu bind-resource ${flags} --type doc --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --dofe-agent-type channel_document --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --allow-write --json`,

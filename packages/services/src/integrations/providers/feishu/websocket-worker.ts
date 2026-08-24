@@ -191,6 +191,7 @@ export async function startFeishuWebSocketWorker(input: {
       continue;
     }
 
+    let summaryItem: FeishuWebSocketWorkerIntegrationSummary | undefined;
     try {
       const readCredentials = workerDependencies.readIntegrationCredentials ?? readFeishuIntegrationCredentials;
       const credentials = readCredentials(integration);
@@ -198,6 +199,21 @@ export async function startFeishuWebSocketWorker(input: {
       if (!appId || !credentials.appSecret.trim()) {
         throw new Error("feishu.websocket_worker.credentials_missing");
       }
+      // `WSClient.start()` resolves after it starts its connection loop, not
+      // after Feishu accepts the persistent connection. Reset stale health
+      // before starting and only report healthy from the SDK's `onReady`.
+      summaryItem = {
+        integrationId: integration.id,
+        displayName: integration.displayName,
+        status: "started",
+        healthStatus: "unknown",
+      };
+      summaryItems.push(summaryItem);
+      updateFeishuWorkerHealth({
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        status: "unknown",
+      }, workerDependencies);
       const context: IntegrationRuntimeContext = {
         workspaceId: input.workspaceId,
         integrationId: integration.id,
@@ -213,6 +229,7 @@ export async function startFeishuWebSocketWorker(input: {
         integrationId: integration.id,
         onReady() {
           metrics.connectionReadyCount += 1;
+          summaryItem!.healthStatus = "healthy";
           updateFeishuWorkerHealth({
             workspaceId: input.workspaceId,
             integrationId: integration.id,
@@ -223,6 +240,8 @@ export async function startFeishuWebSocketWorker(input: {
           const workerError = normalizeFeishuWorkerError(integration.id, error);
           metrics.connectionErrorCount += 1;
           metrics.errors.push(workerError);
+          errors.push(workerError);
+          summaryItem!.healthStatus = "degraded";
           updateFeishuWorkerHealth({
             workspaceId: input.workspaceId,
             integrationId: integration.id,
@@ -231,6 +250,7 @@ export async function startFeishuWebSocketWorker(input: {
           }, workerDependencies);
         },
         onReconnecting() {
+          summaryItem!.healthStatus = "degraded";
           updateFeishuWorkerHealth({
             workspaceId: input.workspaceId,
             integrationId: integration.id,
@@ -239,6 +259,7 @@ export async function startFeishuWebSocketWorker(input: {
           }, workerDependencies);
         },
         onReconnected() {
+          summaryItem!.healthStatus = "healthy";
           updateFeishuWorkerHealth({
             workspaceId: input.workspaceId,
             integrationId: integration.id,
@@ -265,23 +286,23 @@ export async function startFeishuWebSocketWorker(input: {
         },
       });
       sessions.push({ integrationId: integration.id, session });
-      summaryItems.push({
-        integrationId: integration.id,
-        displayName: integration.displayName,
-        status: "started",
-        healthStatus: "healthy",
-      });
     } catch (error) {
       const workerError = normalizeFeishuWorkerError(integration.id, error);
       errors.push(workerError);
       metrics.errors.push(workerError);
-      summaryItems.push({
-        integrationId: integration.id,
-        displayName: integration.displayName,
-        status: "failed",
-        reasonCode: workerError.errorCode,
-        healthStatus: "degraded",
-      });
+      if (summaryItem) {
+        summaryItem.status = "failed";
+        summaryItem.reasonCode = workerError.errorCode;
+        summaryItem.healthStatus = "degraded";
+      } else {
+        summaryItems.push({
+          integrationId: integration.id,
+          displayName: integration.displayName,
+          status: "failed",
+          reasonCode: workerError.errorCode,
+          healthStatus: "degraded",
+        });
+      }
       updateFeishuWorkerHealth({
         workspaceId: input.workspaceId,
         integrationId: integration.id,
@@ -724,6 +745,9 @@ function normalizeFeishuWorkerError(
 function resolveFeishuWorkerErrorCode(message: string): string {
   if (message.startsWith("feishu.")) {
     return message.split(/\s+/)[0] ?? "feishu.websocket_worker.failed";
+  }
+  if (/persistent connection.*only available.*self-build|long connection.*self-build/i.test(message)) {
+    return "feishu.websocket_worker.unsupported_app_type";
   }
   if (/credential|secret|app id/i.test(message)) {
     return "feishu.websocket_worker.credentials_invalid";

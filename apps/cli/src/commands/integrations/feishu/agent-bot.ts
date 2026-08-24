@@ -221,7 +221,7 @@ export function buildFeishuAgentBotNextCommands(binding: FeishuAgentBotBinding):
     verifyBotAddedPayload: smokeHarness.verifyBotAddedPayloadCommand,
     smokePlan: `dofe-agent integrations feishu smoke-plan ${integrationFlags} --app-url ${FEISHU_CLI_PLACEHOLDERS.publicAppUrl}`,
     finalEvidence: `dofe-agent integrations feishu evidence ${integrationFlags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
-    bindSecondAgentBot: `dofe-agent integrations feishu bind-agent-bot --workspace-id ${binding.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
+    bindSecondAgentBot: `dofe-agent integrations feishu bind-agent-bot --workspace-id ${binding.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --transport websocket_worker --json`,
   };
 }
 export function buildFeishuAgentBotCliInputFromFlags(input: {
@@ -276,7 +276,7 @@ export function buildFeishuAgentBotCliInputFromFlags(input: {
     workspaceId: input.workspaceId,
     agentId,
     displayName: getStringFlag(input.flags, "name") ?? getStringFlag(input.flags, "display-name"),
-    transportMode: getStringFlag(input.flags, "transport") ?? getStringFlag(input.flags, "mode") ?? "websocket_worker",
+    transportMode: getStringFlag(input.flags, "transport") ?? getStringFlag(input.flags, "mode") ?? "http_webhook",
     appId,
     appSecret,
     verificationToken,
@@ -579,7 +579,7 @@ export function buildFeishuCliAgentBotErrorReport(error: unknown): FeishuCliErro
 }
 export function parseFeishuAgentBotCliTransportMode(value: string | undefined): ExternalIntegrationTransportMode {
   try {
-    return parseFeishuCliTransportMode(value ?? "websocket_worker");
+    return parseFeishuCliTransportMode(value ?? "http_webhook");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message === "feishu.create.invalid_transport_mode") {
