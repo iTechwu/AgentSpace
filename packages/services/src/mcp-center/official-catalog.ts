@@ -1,7 +1,12 @@
 import {
+  cancelUnfinishedMcpOperationsForConnectionSync,
+  createMcpOperationSync,
+  listMcpConnectionsSync,
+  readMcpCatalogItemSync,
   readMcpCatalogItemReleaseSync,
   upsertMcpCatalogItemSync,
   upsertRuntimeAppCatalogItemsSync,
+  updateMcpConnectionApprovedToolsSync,
   type McpCatalogItemRecord,
   type RuntimeAppCatalogSource,
 } from "@dofe-agent/db";
@@ -249,6 +254,7 @@ export function syncOfficialMcpCatalogForWorkspaceSync(workspaceId: string): Mcp
     endpointTemplate: "managed-service://openmontage",
     documentationUrl: "/docs/0805/montage",
   });
+  reconcileOpenMontageConnectionTools(workspaceId);
 
   readOfficialReleaseOrCreate(workspaceId, TOOLS_VIRAL_VIDEO_MCP_SLUG, TOOLS_VIRAL_VIDEO_MCP_VERSION, {
     workspaceId,
@@ -312,9 +318,37 @@ function readOfficialReleaseOrCreate(
   input: Parameters<typeof upsertMcpCatalogItemSync>[0],
 ): McpCatalogItemRecord {
   const existing = readMcpCatalogItemReleaseSync(slug, version, workspaceId);
-  if (existing?.source === "official") return existing;
+  if (existing?.source === "official") return upsertMcpCatalogItemSync(input);
   if (existing) throw new Error("mcp_catalog.reserved_release_conflict");
   return upsertMcpCatalogItemSync(input);
+}
+
+function reconcileOpenMontageConnectionTools(workspaceId: string): void {
+  const approvedToolsJson = JSON.stringify(OPENMONTAGE_DEFAULT_APPROVED_TOOLS);
+  for (const connection of listMcpConnectionsSync({ workspaceId, limit: 500 })) {
+    const catalog = readMcpCatalogItemSync(connection.catalogItemId, workspaceId);
+    if (
+      catalog?.source !== "official"
+      || catalog.slug !== OPENMONTAGE_MCP_SLUG
+      || connection.approvedToolsJson === approvedToolsJson
+    ) continue;
+    cancelUnfinishedMcpOperationsForConnectionSync({ connectionId: connection.id, workspaceId });
+    const updated = updateMcpConnectionApprovedToolsSync({
+      connectionId: connection.id,
+      workspaceId,
+      approvedToolsJson,
+      reverify: connection.status !== "disabled",
+    });
+    if (updated.status !== "disabled") {
+      createMcpOperationSync({
+        workspaceId,
+        runtimeId: updated.runtimeId,
+        connectionId: updated.id,
+        operation: "verify",
+        source: "config_change",
+      });
+    }
+  }
 }
 
 function cloneManagedStdioProfile(profile: McpManagedStdioProfile): McpManagedStdioProfile {

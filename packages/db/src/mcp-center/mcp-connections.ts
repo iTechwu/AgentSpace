@@ -28,6 +28,14 @@ export interface UpdateMcpConnectionConfigInput {
   endpointFingerprint?: string;
 }
 
+export interface UpdateMcpConnectionApprovedToolsInput {
+  connectionId: string;
+  workspaceId?: string;
+  approvedToolsJson: string;
+  /** Re-validation is required for an active connection after its tool surface changes. */
+  reverify?: boolean;
+}
+
 export interface UpdateMcpConnectionStatusInput {
   connectionId: string;
   workspaceId?: string;
@@ -149,6 +157,46 @@ export function updateMcpConnectionConfigSync(input: UpdateMcpConnectionConfigIn
   const result = db.prepare(
     `UPDATE runtime_mcp_connection SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
   ).run(...params);
+  if (result.changes === 0) {
+    throw new Error(`MCP connection "${input.connectionId}" does not exist in this workspace.`);
+  }
+  const record = readMcpConnectionSync(input.connectionId, workspaceId);
+  if (!record) {
+    throw new Error(`MCP connection "${input.connectionId}" does not exist in this workspace.`);
+  }
+  return record;
+}
+
+/**
+ * Reconciles a connection's service-level tool set without changing endpoint or
+ * secrets. Disabled connections deliberately remain disabled; active ones can
+ * be fenced until the caller queues a fresh verification operation.
+ */
+export function updateMcpConnectionApprovedToolsSync(input: UpdateMcpConnectionApprovedToolsInput): RuntimeMcpConnectionRecord {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  const reverify = input.reverify === true;
+  const result = db.prepare(
+    `UPDATE runtime_mcp_connection
+     SET approved_tools_json = ?, updated_at = ?,
+         status = CASE WHEN ? AND status <> 'disabled' THEN 'queued_verification' ELSE status END,
+         last_verified_at = CASE WHEN ? AND status <> 'disabled' THEN NULL ELSE last_verified_at END,
+         endpoint_fingerprint = CASE WHEN ? AND status <> 'disabled' THEN NULL ELSE endpoint_fingerprint END,
+         next_health_check_at = CASE WHEN ? AND status <> 'disabled' THEN NULL ELSE next_health_check_at END,
+         health_check_consecutive_failures = CASE WHEN ? AND status <> 'disabled' THEN 0 ELSE health_check_consecutive_failures END
+     WHERE id = ? AND workspace_id = ?`,
+  ).run(
+    input.approvedToolsJson,
+    now,
+    reverify,
+    reverify,
+    reverify,
+    reverify,
+    reverify,
+    input.connectionId,
+    workspaceId,
+  );
   if (result.changes === 0) {
     throw new Error(`MCP connection "${input.connectionId}" does not exist in this workspace.`);
   }

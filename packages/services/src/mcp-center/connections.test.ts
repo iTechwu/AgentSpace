@@ -431,6 +431,15 @@ test("official OpenMontage MCP uses an opaque managed-service reference and need
   assert.equal(claimed?.transport, "managed_service");
   assert.equal(claimed?.endpoint, "managed-service://openmontage");
   assert.equal(claimed?.egressProxyLease, undefined);
+
+  // A prior service-level confirmation must converge old partial tool sets to
+  // the complete official OpenMontage surface without requiring manual
+  // per-tool edits.
+  syncOfficialMcpCatalogForWorkspaceSync("default");
+  const reconciled = readMcpConnectionSync(requested.connection.id, "default");
+  assert.ok(reconciled);
+  assert.deepEqual(JSON.parse(reconciled.approvedToolsJson), JSON.parse(catalog.defaultApprovedToolsJson));
+  assert.equal(reconciled.status, "queued_verification");
 });
 
 test("official Tools viral-video MCP exposes the complete managed-service toolset", () => {

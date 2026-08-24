@@ -19,11 +19,13 @@ export {
   listMcpConnectionsSync,
   listReadyMcpConnectionsForRuntimeSync,
   readMcpConnectionSync,
+  updateMcpConnectionApprovedToolsSync,
   updateMcpConnectionConfigSync,
   updateMcpConnectionStatusSync,
 } from "./mcp-center/mcp-connections.ts";
 export type {
   CreateMcpConnectionInput,
+  UpdateMcpConnectionApprovedToolsInput,
   UpdateMcpConnectionConfigInput,
   UpdateMcpConnectionStatusInput,
 } from "./mcp-center/mcp-connections.ts";
