@@ -6,6 +6,10 @@ ENV PNPM_HOME=/pnpm \
 
 WORKDIR /workspace
 
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/cli ./apps/cli
 COPY packages ./packages
