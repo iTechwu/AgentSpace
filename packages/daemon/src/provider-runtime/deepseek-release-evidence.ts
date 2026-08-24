@@ -34,6 +34,7 @@ export interface DeepSeekJsonRpcReleaseEvidence {
   };
   wire: {
     protocol: "jsonrpc-2.0-ndjson";
+    protocolVersion: "2.0";
     serverInfo: { name: "deepseek-harness-sdk-runtime"; version: "0.0.1" };
     initialize: true;
     shutdown: true;
@@ -95,6 +96,7 @@ export function generateDeepSeekJsonRpcReleaseEvidence(): DeepSeekJsonRpcRelease
     },
     wire: {
       protocol: "jsonrpc-2.0-ndjson",
+      protocolVersion: "2.0",
       serverInfo: { name: "deepseek-harness-sdk-runtime", version: "0.0.1" },
       initialize: true,
       shutdown: true,

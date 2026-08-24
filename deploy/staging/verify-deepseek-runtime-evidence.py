@@ -80,6 +80,7 @@ def main() -> None:
         },
         "wire": {
             "protocol": "jsonrpc-2.0-ndjson",
+            "protocolVersion": "2.0",
             "serverInfo": {
                 "name": "deepseek-harness-sdk-runtime",
                 "version": "0.0.1",

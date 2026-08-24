@@ -100,7 +100,7 @@ def validate_release_evidence(release: dict[str, Any]) -> dict[str, str]:
     require_exact_keys("release wheel", wheel, {"filename", "sha256", "distribution", "version", "tag"})
     require_exact_keys("release artifacts", artifacts, {"dsh-jsonrpc-agent", "dsh-jsonrpc-agent-rg"})
     require_exact_keys("release composition", composition, {"id", "sha256"})
-    require_exact_keys("release wire", wire, {"protocol", "serverInfo", "initialize", "shutdown", "stdoutPurity"})
+    require_exact_keys("release wire", wire, {"protocol", "protocolVersion", "serverInfo", "initialize", "shutdown", "stdoutPurity"})
     if source != {"repository": SOURCE_REPOSITORY, "ref": SOURCE_REF, "commit": SOURCE_COMMIT}:
         raise ValueError("release source does not match the approved fork ref")
     if wheel.get("filename") != "deepseek_harness_runtime_bin-0.1.1rc2-py3-none-manylinux_2_28_x86_64.whl" \
@@ -112,6 +112,7 @@ def validate_release_evidence(release: dict[str, Any]) -> dict[str, str]:
         raise ValueError("release Cordis composition is invalid")
     if wire != {
         "protocol": "jsonrpc-2.0-ndjson",
+        "protocolVersion": "2.0",
         "serverInfo": {"name": "deepseek-harness-sdk-runtime", "version": "0.0.1"},
         "initialize": True,
         "shutdown": True,

@@ -260,6 +260,7 @@ test("managed runtime build preflight verifies DeepSeek bundle bytes before Dock
       },
       wire: {
         protocol: "jsonrpc-2.0-ndjson",
+        protocolVersion: "2.0",
         serverInfo: { name: "deepseek-harness-sdk-runtime", version: "0.0.1" },
         initialize: true,
         shutdown: true,
@@ -387,6 +388,7 @@ test("DeepSeek model canary requires an immutable image and atomically publishes
     composition: { id: "dsh-v0.1.1-rc.2-default", sha256: cordisConfigSha256 },
     wire: {
       protocol: "jsonrpc-2.0-ndjson",
+      protocolVersion: "2.0",
       serverInfo: { name: "deepseek-harness-sdk-runtime", version: "0.0.1" },
       initialize: true,
       shutdown: true,

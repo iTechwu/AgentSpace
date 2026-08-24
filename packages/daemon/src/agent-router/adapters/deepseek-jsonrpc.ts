@@ -187,6 +187,7 @@ export async function runDeepSeekJsonRpc(
         cwd: plan.env.DSH_CWD,
         provider: "deepseek-official",
         model: request.model,
+        protocolVersions: [JSONRPC_VERSION],
       });
     },
     onStdout: (chunk, runObserver) => {
@@ -355,7 +356,8 @@ function createProtocolState(request: AgentRouterRunRequest, plan: HarnessLaunch
       }
       const name = readNestedString(message.result, ["serverInfo", "name"]);
       const version = readNestedString(message.result, ["serverInfo", "version"]);
-      if (name !== SERVER_INFO.name || version !== SERVER_INFO.version) {
+      const protocolVersion = readNestedString(message.result, ["protocolVersion"]);
+      if (name !== SERVER_INFO.name || version !== SERVER_INFO.version || protocolVersion !== JSONRPC_VERSION) {
         failProtocol("DeepSeek Harness JSON-RPC initialization returned an incompatible server identity.");
         return;
       }

@@ -49,7 +49,12 @@ process.stdin.on("end", () => {
     jsonrpc: "2.0",
     id: "health-initialize",
     method: "initialize",
-    params: { cwd: spec.cwd, provider: "deepseek-official", model: "deepseek-v4-flash" },
+    params: {
+      cwd: spec.cwd,
+      provider: "deepseek-official",
+      model: "deepseek-v4-flash",
+      protocolVersions: ["2.0"],
+    },
   }) + "\n");
 
   function consume(line) {
@@ -58,7 +63,10 @@ process.stdin.on("end", () => {
     try { frame = JSON.parse(line); } catch { fail("invalid-json-frame"); return; }
     if (frame.jsonrpc !== "2.0") { fail("invalid-jsonrpc-version"); return; }
     if (phase === "initialize" && frame.id === "health-initialize") {
-      if (frame.error || frame.result?.serverInfo?.name !== "deepseek-harness-sdk-runtime" || frame.result?.serverInfo?.version !== "0.0.1") {
+      if (frame.error
+        || frame.result?.serverInfo?.name !== "deepseek-harness-sdk-runtime"
+        || frame.result?.serverInfo?.version !== "0.0.1"
+        || frame.result?.protocolVersion !== "2.0") {
         fail("incompatible-server-identity");
         return;
       }

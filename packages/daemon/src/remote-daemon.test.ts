@@ -295,7 +295,7 @@ test("executeRemoteTask preserves DeepSeek JSON-RPC cache usage through output u
         "const event = (sessionId, type, seq, data) => send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type, seq, time: seq + 1, data } } });",
         "rl.on('line', (line) => {",
         "  const request = JSON.parse(line);",
-        "  if (request.method === 'initialize') { send({ jsonrpc: '2.0', id: request.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } }); return; }",
+        "  if (request.method === 'initialize') { send({ jsonrpc: '2.0', id: request.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' }, protocolVersion: '2.0' } }); return; }",
         "  if (request.method === 'session/prompt') {",
         "    fs.mkdirSync('runtime-output/artifacts', { recursive: true });",
         "    fs.writeFileSync('runtime-output/artifacts/result.txt', 'jsonrpc artifact body');",
