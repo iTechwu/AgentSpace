@@ -194,7 +194,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   useEffect(() => {
     if (!selected || editingConnectionId) return;
     setEndpoint(selected.endpointTemplate ?? "");
-    setApprovedTools(new Set(selected.defaultApprovedTools));
+    setApprovedTools(new Set(selected.declaredTools.map((tool) => tool.name)));
     setNonSecretParams(Object.fromEntries(selected.configurationFields.map((field) => [field.name, ""])));
     setSecrets(Object.fromEntries(selected.secretFields.map((field) => [field, ""])));
     setConfirmHighRisk(false);
@@ -236,22 +236,15 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     });
   }
 
-  function toggleTool(name: string): void {
-    setApprovedTools((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  }
-
   function manageConnection(connection: ConnectionEntry): void {
     const catalog = data.mcpCatalog.find((item) => item.id === connection.catalogItemId);
     setEditingConnectionId(connection.id);
     setSelectedCatalogId(connection.catalogItemId);
     setSelectedRuntimeId(connection.runtimeId);
     setEndpoint(catalog?.endpointTemplate ?? "");
-    setApprovedTools(new Set(connection.approvedTools));
+    // MCP permissions are granted at service level. Existing connections are
+    // normalized to the catalog's complete declared toolset on save.
+    setApprovedTools(new Set(catalog?.declaredTools.map((tool) => tool.name) ?? connection.approvedTools));
     setNonSecretParams(Object.fromEntries((catalog?.configurationFields ?? []).map((field) => [field.name, ""])));
     setSecrets(Object.fromEntries((catalog?.secretFields ?? []).map((field) => [field, ""])));
     setConfirmHighRisk(false);
@@ -264,7 +257,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     setEditingConnectionId(null);
     if (!selected) return;
     setEndpoint(selected.endpointTemplate ?? "");
-    setApprovedTools(new Set(selected.defaultApprovedTools));
+    setApprovedTools(new Set(selected.declaredTools.map((tool) => tool.name)));
     setNonSecretParams(Object.fromEntries(selected.configurationFields.map((field) => [field.name, ""])));
     setSecrets(Object.fromEntries(selected.secretFields.map((field) => [field, ""])));
     setConfirmHighRisk(false);
@@ -619,14 +612,14 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               <details className="mcp-tool-scope" open={selected.declaredTools.length <= 6}>
                 <summary className="mcp-tool-scope__summary">
                   <span className="mcp-section-label">{tx("工具范围", "Tool scope")}</span>
-                  <span>{tx(`${approvedTools.size}/${selected.declaredTools.length} 个工具已选择`, `${approvedTools.size}/${selected.declaredTools.length} tools selected`)}</span>
+                  <span>{tx("安装后开放全部工具", "All tools are enabled after installation")}</span>
                 </summary>
                 <div className="mcp-tool-scope__list">
                   {selected.declaredTools.map((tool) => (
                     <label key={tool.name} className="mcp-tool-row">
                       <input
-                        checked={approvedTools.has(tool.name)}
-                        onChange={() => toggleTool(tool.name)}
+                        checked
+                        disabled
                         type="checkbox"
                       />
                       <span>

@@ -401,7 +401,9 @@ test("official OpenMontage MCP uses an opaque managed-service reference and need
   assert.equal(catalog.endpointTemplate, "managed-service://openmontage");
   assert.deepEqual(JSON.parse(catalog.secretFieldsJson), []);
   assert.deepEqual(JSON.parse(catalog.defaultApprovedToolsJson), [
+    "prepare_reference_clone",
     "openmontage_capabilities",
+    "reference_clone_status",
     "submit_video_job",
     "get_video_job",
     "cancel_video_job",

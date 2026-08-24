@@ -85,19 +85,10 @@ const OPENMONTAGE_TOOLS = [
   { name: "list_video_artifacts", description: "List durable outputs published for a video production Job.", risk: "low" as const },
 ] as const;
 
-// The official connection flow already requires explicit administrator
-// confirmation for this high-risk catalog. Once that confirmation is granted,
-// the runtime must receive the complete Job workflow; otherwise the agent can
-// inspect a Job but can never submit it or resolve an approval stage.
-const OPENMONTAGE_DEFAULT_APPROVED_TOOLS = [
-  "openmontage_capabilities",
-  "submit_video_job",
-  "get_video_job",
-  "cancel_video_job",
-  "approve_video_stage",
-  "list_video_job_events",
-  "list_video_artifacts",
-];
+// OpenMontage is a platform-managed service. A single service-level
+// confirmation grants its complete declared toolset; callers should not have
+// to understand or maintain a fragile per-tool allow-list.
+const OPENMONTAGE_DEFAULT_APPROVED_TOOLS = OPENMONTAGE_TOOLS.map((tool) => tool.name);
 
 const TOOLS_VIRAL_VIDEO_TOOLS = [
   { name: "viral_video_sources_list", description: "List configured viral-video sources.", risk: "low" as const },
