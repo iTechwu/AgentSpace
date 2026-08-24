@@ -613,6 +613,7 @@ test("worker reports a rejected persistent connection as degraded instead of hea
     transportMode: "websocket_worker",
   });
   const healthUpdates: Array<Record<string, unknown>> = [];
+  let closed = 0;
 
   const worker = await startFeishuWebSocketWorker({
     workspaceId: "workspace-1",
@@ -631,14 +632,23 @@ test("worker reports a rejected persistent connection as degraded instead of hea
     },
     async sessionFactory(input) {
       input.onError(new Error("receive events through persistent connection only available in self-build Feishu app"));
-      return { close() {} };
+      input.onReady();
+      return {
+        close() {
+          closed += 1;
+        },
+      };
     },
   });
 
-  assert.equal(worker.summary.startedCount, 1);
+  assert.equal(worker.summary.startedCount, 0);
+  assert.equal(worker.summary.integrations[0]?.status, "failed");
+  assert.equal(worker.summary.integrations[0]?.reasonCode, "feishu.websocket_worker.unsupported_app_type");
   assert.equal(worker.summary.integrations[0]?.healthStatus, "degraded");
   assert.equal(worker.summary.errors[0]?.errorCode, "feishu.websocket_worker.unsupported_app_type");
+  assert.equal(worker.metrics.connectionReadyCount, 0);
   assert.deepEqual(healthUpdates.map((update) => update.lastHealthStatus), ["unknown", "degraded"]);
+  assert.equal(closed, 1);
   worker.close();
 });
 

@@ -220,7 +220,9 @@ export async function startFeishuWebSocketWorker(input: {
         provider: FEISHU_PROVIDER_ID,
       };
       const sessionFactory = input.sessionFactory ?? createFeishuSdkWebSocketWorkerSession;
-      const session = await sessionFactory({
+      let terminalConnectionError: FeishuWebSocketWorkerError | undefined;
+      let session: FeishuWebSocketWorkerSession | undefined;
+      session = await sessionFactory({
         appId,
         appSecret: credentials.appSecret,
         verificationToken: credentials.verificationToken,
@@ -228,6 +230,12 @@ export async function startFeishuWebSocketWorker(input: {
         domain: input.domain,
         integrationId: integration.id,
         onReady() {
+          // The Feishu SDK can emit ready after a rejected connection loop has
+          // started. Do not let that lifecycle signal overwrite a terminal
+          // application-type error with a false healthy status.
+          if (terminalConnectionError) {
+            return;
+          }
           metrics.connectionReadyCount += 1;
           summaryItem!.healthStatus = "healthy";
           updateFeishuWorkerHealth({
@@ -238,9 +246,17 @@ export async function startFeishuWebSocketWorker(input: {
         },
         onError(error) {
           const workerError = normalizeFeishuWorkerError(integration.id, error);
+          if (terminalConnectionError?.errorCode === workerError.errorCode) {
+            return;
+          }
           metrics.connectionErrorCount += 1;
           metrics.errors.push(workerError);
           errors.push(workerError);
+          if (isTerminalFeishuWebSocketError(workerError)) {
+            terminalConnectionError = workerError;
+            summaryItem!.status = "failed";
+            summaryItem!.reasonCode = workerError.errorCode;
+          }
           summaryItem!.healthStatus = "degraded";
           updateFeishuWorkerHealth({
             workspaceId: input.workspaceId,
@@ -248,6 +264,9 @@ export async function startFeishuWebSocketWorker(input: {
             status: "degraded",
             lastError: workerError.errorMessage,
           }, workerDependencies);
+          if (terminalConnectionError) {
+            session?.close();
+          }
         },
         onReconnecting() {
           summaryItem!.healthStatus = "degraded";
@@ -285,7 +304,11 @@ export async function startFeishuWebSocketWorker(input: {
           });
         },
       });
-      sessions.push({ integrationId: integration.id, session });
+      if (terminalConnectionError) {
+        session.close();
+      } else {
+        sessions.push({ integrationId: integration.id, session });
+      }
     } catch (error) {
       const workerError = normalizeFeishuWorkerError(integration.id, error);
       errors.push(workerError);
@@ -740,6 +763,10 @@ function normalizeFeishuWorkerError(
     errorCode: resolveFeishuWorkerErrorCode(message),
     errorMessage: sanitizeFeishuWorkerErrorMessage(message),
   };
+}
+
+function isTerminalFeishuWebSocketError(error: FeishuWebSocketWorkerError): boolean {
+  return error.errorCode === "feishu.websocket_worker.unsupported_app_type";
 }
 
 function resolveFeishuWorkerErrorCode(message: string): string {
