@@ -4,7 +4,7 @@ import test, { after, before } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
-import { buildClaudeMcpToolPermissionName, McpGateway, McpGatewayPool, type McpGatewayTaskSession, type McpToolAuditRecord } from "./gateway.ts";
+import { buildClaudeMcpToolPermissionName, formatMcpToolResultForProvider, MAX_PROVIDER_MCP_TOOL_RESULT_BYTES, McpGateway, McpGatewayPool, type McpGatewayTaskSession, type McpToolAuditRecord } from "./gateway.ts";
 
 const CONNECTION_ID = "mcp-conn-test-1";
 const TASK_ID = "task-test-1";
@@ -16,6 +16,15 @@ test("Claude MCP permission names are stable and use the gateway server namespac
   assert.equal(first, second);
   assert.match(first, /^mcp__dofe-mcp-gateway__mcp_connection-/);
   assert.equal(first.length <= 90, true);
+});
+
+test("provider-facing MCP results are UTF-8 bounded with an actionable marker", () => {
+  const result = formatMcpToolResultForProvider("\u4e2d".repeat(MAX_PROVIDER_MCP_TOOL_RESULT_BYTES));
+  assert.equal(Buffer.byteLength(result, "utf8") <= MAX_PROVIDER_MCP_TOOL_RESULT_BYTES, true);
+  assert.match(result, /AgentSpace truncated this MCP tool result/);
+
+  const small = formatMcpToolResultForProvider({ total: 1, items: ["ok"] });
+  assert.equal(small, '{"total":1,"items":["ok"]}');
 });
 
 function buildTaskSession(): McpGatewayTaskSession {

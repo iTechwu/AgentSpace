@@ -12,6 +12,11 @@ import {
 import { redactMcpText } from "@dofe-agent/services/mcp-center";
 import { createRuntimeMcpClient } from "./client.ts";
 
+// Provider CLIs emit every MCP response through their event stream. Keep a
+// single result bounded so a broad list/export response cannot exhaust that
+// stream after the remote MCP call has already succeeded.
+export const MAX_PROVIDER_MCP_TOOL_RESULT_BYTES = 32 * 1024;
+
 export interface McpToolAuditRecord {
   connectionId: string;
   taskId: string;
@@ -358,8 +363,7 @@ export class McpGateway {
         }
       }
       await this.emitAudit(taskSession, registered.connectionId, registered.toolName, "succeeded", latencyMs, undefined);
-      const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result ?? "");
-      return { content: [{ type: "text", text }] };
+      return { content: [{ type: "text", text: formatMcpToolResultForProvider(result.result) }] };
     });
 
     return server;
@@ -387,6 +391,31 @@ export class McpGateway {
       // Audit reporting must never break the tool call.
     }
   }
+}
+
+export function formatMcpToolResultForProvider(result: unknown): string {
+  const text = typeof result === "string" ? result : JSON.stringify(result ?? "");
+  if (Buffer.byteLength(text, "utf8") <= MAX_PROVIDER_MCP_TOOL_RESULT_BYTES) {
+    return text;
+  }
+
+  const suffix = "\n\n[AgentSpace truncated this MCP tool result to keep the runtime stable. Refine the request or use a narrower tool.]";
+  const bodyBudget = MAX_PROVIDER_MCP_TOOL_RESULT_BYTES - Buffer.byteLength(suffix, "utf8");
+  return `${truncateUtf8(text, bodyBudget)}${suffix}`;
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(value.slice(0, middle), "utf8") <= maxBytes) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return value.slice(0, low);
 }
 
 function readOpenMontageClientRequestId(value: unknown): string | undefined {
