@@ -242,6 +242,19 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   await page.getByRole("textbox", { name: /搜索 MCP 服务|Search MCP services/i }).fill(serviceName);
   await page.getByRole("button", { name: new RegExp(serviceName) }).click();
   const detail = page.getByRole("complementary", { name: /MCP 详情|MCP details/i });
+  const toolScope = detail.locator(".mcp-tool-scope");
+  if (await toolScope.getAttribute("open") === null) await toolScope.locator("summary").click();
+  await expect(toolScope.locator("summary")).toContainText(/7\/7 (个工具已选择|tools selected)/i);
+  const riskLabels = { low: /低风险|Low risk/i, medium: /中风险|Medium risk/i, high: /高风险|High risk/i } as const;
+  const publishedToolRows = toolScope.locator(".mcp-tool-row");
+  await expect(publishedToolRows).toHaveCount(tools.length);
+  for (let index = 0; index < tools.length; index += 1) {
+    const row = publishedToolRows.nth(index);
+    await expect(row.getByText(tools[index]![0], { exact: true })).toBeVisible();
+    await expect(row.locator('input[type="checkbox"]')).toBeChecked();
+    await expect(row.locator(".status-chip")).toHaveText(riskLabels[tools[index]![2]]);
+  }
+  await page.screenshot({ path: resolve(evidenceDir, "geo-mcp-live-catalog.png"), fullPage: true });
   const runtimeSelect = detail.getByLabel(/目标 Runtime|Target runtime/i);
   await expect(runtimeSelect).toBeEnabled();
   const codexOption = runtimeSelect.locator("option").filter({ hasText: /codex/i }).last();

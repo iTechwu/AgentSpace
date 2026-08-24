@@ -12,7 +12,7 @@
 - AgentSpace Runtime：Docker 管理节点 `dofe-agentspace-yootun-managed-node-managed-node-1`，健康状态为 `healthy`。
 - GEOFlow：`geoflow-app-prod`、`geoflow-web-prod`、`geoflow-queue-prod`、`geoflow-scheduler-prod`、`geoflow-reverb-prod` 全部为 `healthy`。
 - PostgreSQL、Redis、RabbitMQ：继续由 `../docker-helm.dofe.ai` 集中管理，AgentSpace 与 GEOFlow Compose 均未创建这些依赖。中央 PostgreSQL 已在 281 MB 全实例逻辑备份和隔离烟测后切换到 `dofe-postgres:18-pgvector-0.8.6`，36 个可连接数据库和约 1125 MB 数据均保留。
-- GEOFlow 应用层已升级到提交 `9915b38`；app/queue/scheduler/reverb 使用同一 manifest `sha256:df318cceb40610851fae969583b7c5e30210f7ebd5799feb8ab92575b6046309`，web 保持 `sha256:1aab4a139e8f57c97f5eeaf6b057a96d2d9b2059012ed6f3e900ef1c3ec5a19a`，五个容器均为 `healthy`。
+- GEOFlow 应用层已升级到提交 `59ceffc`；app/queue/scheduler/reverb 使用同一 manifest `sha256:df318cceb40610851fae969583b7c5e30210f7ebd5799feb8ab92575b6046309`，web 保持 `sha256:1aab4a139e8f57c97f5eeaf6b057a96d2d9b2059012ed6f3e900ef1c3ec5a19a`，五个容器均为 `healthy`。
 - AgentSpace managed-node 使用本机 recovery overlay 运行 Node `24.19.0`，镜像 manifest 为 `sha256:336f371fb08132bc5acbeda1ff7b2b52d0d830d8334a0d101a222c251fa02d75`；容器健康检查和 daemon status 均通过。
 
 ## 2. 浏览器全流程
@@ -20,10 +20,10 @@
 最终 Chromium 回归执行了以下真实操作：
 
 1. 以本地测试管理员会话打开 MCP 市场。
-2. 清理名称严格匹配 live E2E 约定的历史测试夹具，再发布 `GEOFlow Docker Live mt6aug9b` 私有目录项；Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
+2. 清理名称严格匹配 live E2E 约定的历史测试夹具，再发布 `GEOFlow Docker Live mt6gvbvs` 私有目录项；Endpoint 为精确批准的 `http://127.0.0.1:18080/mcp`。
 3. 配置加密保存的 Authorization 凭据，选择在线 Codex Runtime，并等待连接状态变为 `ready`。
-4. 声明并发现七个带命名空间的工具：`list`、`create`、`status`、`autosave`、`validate`、`publish`、`delete`；发布和删除均标为高风险并要求确认。
-5. 通过 `create=agent` 深链接打开创建页，以空白模板创建 `GEO Manager mt6aug9b`，备注名为 `GEO 管理员工 mt6aug9b`，绑定同一 Runtime，并显式选中本次新员工核对详情。
+4. 声明并发现七个带命名空间的工具：`list`、`create`、`status`、`autosave`、`validate`、`publish`、`delete`；浏览器展开工具范围，逐项核对名称、勾选状态及低/中/高风险标签，发布和删除均为高风险。
+5. 通过 `create=agent` 深链接打开创建页，以空白模板创建 `GEO Manager mt6gvbvs`，备注名为 `GEO 管理员工 mt6gvbvs`，绑定同一 Runtime，并显式选中本次新员工核对详情。
 6. 在桌面和 390 x 844 移动视口检查员工目录、标题语义、文本布局、图标可见性和横向溢出，并分别运行 WCAG A/AA 与 best-practice Axe 扫描。
 
 | 检查 | 最终结果 |
@@ -35,20 +35,21 @@
 | `requestfailed` | 0 |
 | HTTP 4xx / 5xx | 0 / 0 |
 | 移动端横向溢出 | 0 px |
-| 页面 DCL / load | 1298 ms / 1298 ms |
-| 桌面 / 移动 LCP | 1152 ms / 1636 ms |
-| 桌面 INP | 40 ms；移动端截图阶段未产生可计量交互 |
-| 桌面 / 移动 CLS | 0 / 0 |
+| 页面 DCL / load | 1414 ms / 1414 ms |
+| 桌面 / 移动 LCP | 1520 ms / 744 ms |
+| 桌面 INP | 56 ms；移动端截图阶段未产生可计量交互 |
+| 桌面 / 移动 CLS | 0.0078 / 0 |
 | 最大长任务 | 0 ms |
 | 无名称交互控件 / 空标题 | 0 / 0；创建结果由 `role=status` 宣告 |
 | Axe | 桌面 / 移动均为 0 violations |
 | 移动顶部图标 | 两个控件均满足至少 3:1 图形对比度 |
-| Playwright | 1 passed，29.2 s（总耗时 30.2 s） |
+| Playwright | 1 passed，31.1 s（总耗时 32.0 s） |
 
 证据：
 
 - [桌面截图](./evidence/geo-mcp-live-desktop.png)
 - [移动端截图](./evidence/geo-mcp-live-mobile.png)
+- [七工具目录与风险标签截图](./evidence/geo-mcp-live-catalog.png)
 - 自动化入口：`apps/web/e2e/geo-mcp-live.spec.ts` 与 `apps/web/playwright.live.config.ts`
 
 ## 3. AI 员工真实 MCP 业务闭环
@@ -60,7 +61,7 @@
 3. 调用租户级 `list` 搜索项目元数据，仅选取名称严格匹配 live 回归约定的对象，不读取草稿正文，也不直连 GeoFlow 数据库。
 4. 使用显式 `confirmation=DELETE` 调用 `delete`，安全回收自动发现的历史回归项目及其未被任务引用的知识库。
 5. 调用 `geoflow.enterprise_knowledge.create` 创建租户隔离的企业知识项目。
-6. 每 2 秒调用 `status`，直到异步队列明确进入 `reviewing`，最长等待 120 秒。
+6. 每 2 秒调用 `status`，直到异步队列明确进入 `reviewing`，最长等待 180 秒。
 7. 调用 `autosave` 保存人工审核稿，调用 `validate` 校验。
 8. 使用显式 `confirmation=PUBLISH` 调用 `publish`。
 9. 按本次唯一 `taskId` 核对 AgentSpace 工具审计，再将任务置为 completed。
@@ -69,13 +70,13 @@
 
 | 业务实体 / 证据 | 值 |
 | --- | --- |
-| AgentSpace task | `task-geo-live-mt6av9lu`，状态 `completed` |
-| 历史夹具回收 | 未传人工 ID；`list` 自动发现项目 `14,15` 并全部经 MCP 删除，累计项目 `1-15` 均已回收，最终保持 1 项目 / 1 知识库 |
-| GEOFlow enterprise project | `16`，发布前状态 `reviewing`，最终 `published` |
-| Knowledge base | `15` |
+| AgentSpace task | `task-geo-live-mt6hp1ud`，状态 `completed`，总耗时约 189 秒 |
+| 历史夹具回收 | 未传人工 ID；`list` 自动发现项目 `19` 并经 MCP 删除，累计项目 `1-19` 均已回收，最终保持 1 项目 / 1 知识库 |
+| GEOFlow enterprise project | `20`，发布前状态 `reviewing`，最终 `published` |
+| Knowledge base | `18` |
 | Knowledge chunks | `3` |
 | Embedding | models `embedding-vision` 实际路由返回，provider `dofe-models-api-local`，原始维度 `2048`；三个分块均写入 `vector(3072)` |
-| 成功工具审计 | 七类工具全部存在 `succeeded` 记录；本轮列表和两次删除均逐次留痕 |
+| 成功工具审计 | 七类工具全部存在 `succeeded` 记录；`publish` 真实耗时 `74844 ms` 并完整返回 |
 
 这条链路不是直接调用 GeoFlow service：请求实际经过 AgentSpace 目录、连接密钥解密、任务级授权、daemon gateway、Streamable HTTP MCP、GeoFlow queue 和 models embedding 调用。
 
@@ -102,8 +103,10 @@
 19. live E2E 原先每轮永久保留唯一员工、目录项、连接和密钥，失败重试也会留下半成品；实际已累积 14 名测试员工和 18 个测试目录项，拖长移动页面并污染性能基线。现测试启动时仅匹配严格的 `GEO Manager mt[a-z0-9]+` / `GEOFlow Docker Live mt[a-z0-9]+` 命名契约，通过员工业务删除和目录外键级联回收历史夹具，结束时注销临时登录会话；连续两轮真实 Chromium 分别验证 14/18 和 1/1 清理，最终数据库只保留本轮 1/1 对象。
 20. 临时登录会话原先只在测试成功末尾删除，失败路径会泄漏；GeoFlow 端也累计 13 个回归项目和 11 个知识库。现会话改由 Playwright `afterEach` 统一回收；GeoFlow 新增租户隔离的 `geoflow.enterprise_knowledge.delete`，强制 `confirmation=DELETE`、拒绝跨租户和仍被任务引用的知识库，并级联删除未引用分块与上传目录。真实 AgentSpace Gateway 已用该工具清理全部 13 个历史项目，随后创建最终 1 / 1 基准。
 21. 首版持续清理仍要求人工查询并传入 GeoFlow `project_id`；尝试从 AgentSpace 历史任务结果自动发现时，又因浏览器夹具回收会级联删除旧员工任务而得到空集合。现 GeoFlow 提供只读、租户隔离、有界且不返回草稿正文的 `geoflow.enterprise_knowledge.list`；回归脚本通过真实 Gateway 列表发现并严格匹配测试命名，再调用删除。本轮不传 cleanup ID 即自动回收项目 14、15，并保留新项目 16，七工具审计完整。
+22. 七工具目录超过默认自动展开阈值后，旧浏览器用例只验证详情可打开，未验证用户能看到完整能力和风险等级；真实任务脚本也信任列表响应的字段形状。现用例主动展开目录并逐项核对 7/7 工具、勾选状态和风险标签，新增目录截图；daemon 对列表响应强制校验 workspace 租户、返回计数和元数据字段白名单，跨租户、计数漂移或出现 `draft_content` 等正文类字段都会失败关闭。
+23. AgentSpace 原把连接/工具发现和业务工具调用统一限制为 15 秒。真实 `publish` 需依次调用 models `embedding-vision` 三次，约 75 秒；客户端 15 秒断开后 Nginx 返回 499，但 GeoFlow 仍继续提交，形成调用方报错而服务端成功的不确定状态。`embedding-vision` 的实际 multimodal 路由拒绝多输入，不能用批量参数规避。现连接与发现继续保持 15 秒，工具调用默认 120 秒并同时传递给 SDK、HTTP abort 和协议守卫，可通过 `DOFE_AGENT_MCP_TOOL_TIMEOUT_MS` 在 15 秒到 10 分钟间调整；SDK `-32001` 统一归类为 `mcp.timeout`。初稿生成实测可达 122 秒，回归状态轮询上限同步调整为 180 秒。最终发布耗时 74.844 秒并在同一调用内成功返回。
 
-GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布竞态保护）、`41cb1c6`（无 pgvector 列兼容）、`0015eb5`（URL 导入并发保护）、`308c62f`（工具发现权限过滤）、`94c220e`（恢复 pgvector 存储列）、`bfcbcd5`（限制 MCP SSO 回退超时）、`a045cac`（提前拒绝无效身份令牌）、`380a319`（3072 维 halfvec HNSW 检索）、`74f4864`（企业知识安全删除工具）、`9915b38`（企业知识租户列表工具）。中央基础设施对应提交：`fd60ab7`（PostgreSQL 18 pgvector 镜像、备份和扩展对账）。SSO 对应提交：`736cebc`（HttpOnly 会话验证）。
+GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布竞态保护）、`41cb1c6`（无 pgvector 列兼容）、`0015eb5`（URL 导入并发保护）、`308c62f`（工具发现权限过滤）、`94c220e`（恢复 pgvector 存储列）、`bfcbcd5`（限制 MCP SSO 回退超时）、`a045cac`（提前拒绝无效身份令牌）、`380a319`（3072 维 halfvec HNSW 检索）、`74f4864`（企业知识安全删除工具）、`9915b38`（企业知识租户列表工具）、`59ceffc`（列表权限契约）。中央基础设施对应提交：`fd60ab7`（PostgreSQL 18 pgvector 镜像、备份和扩展对账）。SSO 对应提交：`736cebc`（HttpOnly 会话验证）。
 
 ## 5. 自动化回归结果
 
@@ -114,12 +117,13 @@ GeoFlow 对应提交：`ca3eeba`（按凭证隔离限流）、`cd9a7ff`（发布
 | GeoFlow ANN 契约、检索、向量同步与 Worker | 64 passed，306 assertions；Pint 通过 |
 | GeoFlow MCP / SSO 鉴权回归 | 50 passed，149 assertions；无效令牌 0.30 s 返回 401 |
 | GeoFlow 企业知识列表、删除 / MCP 契约 | 56 passed，513 assertions；Pint 与镜像产物契约通过 |
-| AgentSpace MCP security/client/connections | 65 passed |
+| AgentSpace MCP security/client/connections | 原 65 passed；本轮 MCP client 聚焦回归 9 passed |
 | AgentSpace MCP 市场组件 | 33 passed |
 | AgentSpace 员工管理组件 | 56 passed（含创建深链接与标题语义回归） |
 | AgentSpace daemon typecheck | 通过 |
-| 真实 AgentSpace -> GEOFlow MCP | 通过，七类工具、无人工 ID 自动发现并删除项目 14/15、3 chunks、七类成功审计 |
-| Chromium 桌面/移动端 | 1 passed，29.2 s；LCP 1152/1636 ms；桌面 INP 40 ms；CLS 0/0；Axe 0 violations；0 console issue；0 failed request；0 HTTP 4xx/5xx；0 overflow；夹具最终 1/1 |
+| GEO 列表响应最小化契约 | 2 passed；覆盖正确元数据、跨租户、计数漂移与草稿正文泄露拒绝 |
+| 真实 AgentSpace -> GEOFlow MCP | 通过，任务 `task-geo-live-mt6hp1ud`；七类工具；自动删除项目 19；发布项目 20 / 知识库 18 / 3 chunks；`publish` 74844 ms；七类成功审计 |
+| Chromium 桌面/移动端 | 1 passed，31.1 s；LCP 1520/744 ms；桌面 INP 56 ms；CLS 0.0078/0；Axe 0 violations；0 console issue；0 failed request；0 HTTP 4xx/5xx；0 overflow；夹具最终 1/1 |
 | 外部 SSO 隔离 Chromium | 登录 POST 200；authorize 302；callback 307；工作区 200 |
 | GeoFlow MCP 权限目录 | 写令牌 53 个且包含企业知识列表和删除；只读令牌继续隐藏写工具 |
 | GeoFlow URL 导入并发 | 5 路并发：3 创建、2 限流；清理后 0 条测试记录 |

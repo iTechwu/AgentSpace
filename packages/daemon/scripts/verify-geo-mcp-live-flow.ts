@@ -10,7 +10,9 @@ import {
   listMcpConnectionActivitySync,
   validateMcpConnectionForGatewaySync,
 } from "@dofe-agent/services/mcp-center";
+import { resolveMcpToolCallTimeoutMs } from "../src/mcp/client.ts";
 import { McpGateway } from "../src/mcp/gateway.ts";
+import { assertSafeGeoProjectList } from "../src/mcp/geo-project-list.ts";
 
 const workspaceId = process.env.DOFE_AGENT_LIVE_WORKSPACE_ID ?? "sso-team-c8c8d97ffcb845311387e967";
 const employeeName = requiredEnv("DOFE_AGENT_LIVE_GEO_EMPLOYEE_NAME");
@@ -18,6 +20,7 @@ const serviceName = requiredEnv("DOFE_AGENT_LIVE_GEO_SERVICE_NAME");
 const requestedCleanupProjectIds = parseProjectIds(process.env.DOFE_AGENT_LIVE_GEO_CLEANUP_PROJECT_IDS);
 const regressionProjectPattern = /^AgentSpace GEO regression mt[a-z0-9]+$/;
 const suffix = Date.now().toString(36);
+const toolCallTimeoutMs = resolveMcpToolCallTimeoutMs();
 const taskId = `task-geo-live-${suffix}`;
 const attemptId = `attempt-geo-live-${suffix}`;
 const conversationId = `conversation-geo-live-${suffix}`;
@@ -128,9 +131,8 @@ try {
     search: "AgentSpace GEO regression",
     limit: 100,
   });
-  const projectItems = Array.isArray(projectList.items) ? projectList.items : [];
+  const projectItems = assertSafeGeoProjectList(projectList, workspaceId);
   discoveredCleanupProjectIds = projectItems.flatMap((item) => {
-    if (item === null || typeof item !== "object" || Array.isArray(item)) return [];
     const project = item as Record<string, unknown>;
     return typeof project.name === "string" && regressionProjectPattern.test(project.name) && isProjectId(project.id)
       ? [project.id]
@@ -160,7 +162,7 @@ try {
   completedProjectId = projectId;
 
   let status = await callGeoTool("geoflow.enterprise_knowledge.status", { project_id: projectId });
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + 180_000;
   while (["queued", "processing"].includes(String(status.status)) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     status = await callGeoTool("geoflow.enterprise_knowledge.status", { project_id: projectId });
@@ -214,7 +216,11 @@ try {
   async function callGeoTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const gatewayName = toolNames.get(name);
     assert.ok(gatewayName, `Gateway name missing for ${name}.`);
-    const result = await client.callTool({ name: gatewayName, arguments: args });
+    const result = await client.callTool(
+      { name: gatewayName, arguments: args },
+      undefined,
+      { timeout: toolCallTimeoutMs, maxTotalTimeout: toolCallTimeoutMs },
+    );
     assert.notEqual(result.isError, true, `${name} failed: ${JSON.stringify(result.content)}`);
     const gatewayText = result.content.find((item) => item.type === "text")?.text;
     assert.equal(typeof gatewayText, "string", `${name} returned no text content.`);

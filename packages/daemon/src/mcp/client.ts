@@ -11,7 +11,9 @@ import type { McpDiscoveredTool, McpErrorCode, McpVerificationResult, ResolvedMc
 import { isMcpInsecureLocalEndpointAllowed, mcpEndpointValidationOptionsFromEnv, redactMcpText, redactToolInputSchema, validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services/mcp-center";
 import { buildMcpEgressProxyRequestHeaders, createMcpEgressProxyClient } from "./egress-client.ts";
 
-const REQUEST_TIMEOUT_MS = 15_000;
+const PROTOCOL_TIMEOUT_MS = 15_000;
+const DEFAULT_TOOL_CALL_TIMEOUT_MS = 120_000;
+const MAX_TOOL_CALL_TIMEOUT_MS = 600_000;
 const MAX_RESPONSE_BYTES = 1_048_576;
 const MAX_DISCOVERED_TOOLS = 128;
 const MAX_TOOL_DESCRIPTION_LENGTH = 2_048;
@@ -19,6 +21,12 @@ const MAX_TOOL_SCHEMA_BYTES = 16_384;
 const MAX_DISCOVERY_SCHEMA_BYTES = 262_144;
 const CLIENT_NAME = "dofe-agent-daemon";
 const CLIENT_VERSION = "1";
+
+export function resolveMcpToolCallTimeoutMs(environment: NodeJS.ProcessEnv = process.env): number {
+  const configured = Number(environment.DOFE_AGENT_MCP_TOOL_TIMEOUT_MS?.trim());
+  if (!Number.isFinite(configured) || configured <= 0) return DEFAULT_TOOL_CALL_TIMEOUT_MS;
+  return Math.min(MAX_TOOL_CALL_TIMEOUT_MS, Math.max(PROTOCOL_TIMEOUT_MS, Math.trunc(configured)));
+}
 
 function enforceEgressError(connection: ResolvedMcpConnection): { code: McpErrorCode; safeMessage: string } | undefined {
   if (connection.transport === "managed_stdio" || connection.transport === "managed_service") return undefined;
@@ -78,7 +86,7 @@ async function verifyConnection(
       };
     });
   } catch (error) {
-    return { status: "failed", latencyMs: Date.now() - startedAt, error: classifyError(error, connection.secrets) };
+    return { status: "failed", latencyMs: Date.now() - startedAt, error: classifyMcpError(error, connection.secrets) };
   }
 }
 
@@ -100,19 +108,30 @@ async function callTool(input: {
     return { ok: false, error: enforceError };
   }
   try {
-    const result = await withClient(input.connection, async (client) =>
-      client.callTool({ name: input.toolName, arguments: (input.arguments ?? {}) as Record<string, unknown> }),
+    const timeoutMs = resolveMcpToolCallTimeoutMs();
+    const result = await withClient(
+      input.connection,
+      async (client) => client.callTool(
+        { name: input.toolName, arguments: (input.arguments ?? {}) as Record<string, unknown> },
+        undefined,
+        { timeout: timeoutMs, maxTotalTimeout: timeoutMs },
+      ),
+      timeoutMs,
     );
     if (result?.isError) {
       return { ok: false, error: { code: "mcp.protocol_invalid", safeMessage: summarizeContent(result.content, input.connection.secrets) } };
     }
     return { ok: true, result: redactCallResult(result.content) };
   } catch (error) {
-    return { ok: false, error: classifyError(error, input.connection.secrets) };
+    return { ok: false, error: classifyMcpError(error, input.connection.secrets) };
   }
 }
 
-async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Client) => Promise<T>): Promise<T> {
+async function withClient<T>(
+  connection: ResolvedMcpConnection,
+  fn: (client: Client) => Promise<T>,
+  operationTimeoutMs = PROTOCOL_TIMEOUT_MS,
+): Promise<T> {
   if (connection.transport === "managed_stdio") {
     const launch = connection.managedStdioLaunch;
     if (!launch) throw new Error("Managed stdio MCP launch was not resolved by the Runtime daemon.");
@@ -126,8 +145,8 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
     });
     const client = new Client({ name: CLIENT_NAME, version: CLIENT_VERSION }, { capabilities: {} });
     try {
-      await withProtocolTimeout(client.connect(transport));
-      return await withProtocolTimeout(fn(client));
+      await withProtocolTimeout(client.connect(transport), PROTOCOL_TIMEOUT_MS);
+      return await withProtocolTimeout(fn(client), operationTimeoutMs);
     } finally {
       await client.close().catch(() => undefined);
     }
@@ -139,12 +158,12 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
   if (connection.transport === "managed_service") {
     const transport = new StreamableHTTPClientTransport(endpointUrl, {
       requestInit: { headers: buildHeaders(connection) },
-      fetch: (input, init) => timeoutFetch(input, init, { fetchImpl: globalThis.fetch }),
+      fetch: (input, init) => timeoutFetch(input, init, { fetchImpl: globalThis.fetch, timeoutMs: operationTimeoutMs }),
     });
     const client = new Client({ name: CLIENT_NAME, version: CLIENT_VERSION }, { capabilities: {} });
     try {
-      await withProtocolTimeout(client.connect(transport));
-      return await withProtocolTimeout(fn(client));
+      await withProtocolTimeout(client.connect(transport), PROTOCOL_TIMEOUT_MS);
+      return await withProtocolTimeout(fn(client), operationTimeoutMs);
     } finally {
       await client.close().catch(() => undefined);
     }
@@ -172,12 +191,12 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
       adminToken: process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN,
     });
     transportUrl = new URL(`${endpointUrl.pathname}${endpointUrl.search}`, proxyClient.baseUrl);
-    customFetch = (input, init) => proxyFetch(proxyClient, input, init);
+    customFetch = (input, init) => proxyFetch(proxyClient, input, init, operationTimeoutMs);
   } else {
     transportUrl = endpointUrl;
     customFetch = useInsecureLocalEndpoint
-      ? (input, init) => timeoutFetch(input, init, { fetchImpl: globalThis.fetch })
-      : (input, init) => timeoutFetch(input, init);
+      ? (input, init) => timeoutFetch(input, init, { fetchImpl: globalThis.fetch, timeoutMs: operationTimeoutMs })
+      : (input, init) => timeoutFetch(input, init, { timeoutMs: operationTimeoutMs });
   }
 
   const transport = new StreamableHTTPClientTransport(transportUrl, {
@@ -186,8 +205,8 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
   });
   const client = new Client({ name: CLIENT_NAME, version: CLIENT_VERSION }, { capabilities: {} });
   try {
-    await withProtocolTimeout(client.connect(transport));
-    return await withProtocolTimeout(fn(client));
+    await withProtocolTimeout(client.connect(transport), PROTOCOL_TIMEOUT_MS);
+    return await withProtocolTimeout(fn(client), operationTimeoutMs);
   } finally {
     await client.close().catch(() => {
       /* best-effort teardown */
@@ -195,13 +214,13 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
   }
 }
 
-async function withProtocolTimeout<T>(operation: Promise<T>): Promise<T> {
+async function withProtocolTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       operation,
       new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("MCP protocol operation timed out.")), REQUEST_TIMEOUT_MS);
+        timer = setTimeout(() => reject(new Error("MCP protocol operation timed out.")), timeoutMs);
       }),
     ]);
   } finally {
@@ -213,13 +232,14 @@ async function proxyFetch(
   proxyClient: ReturnType<typeof createMcpEgressProxyClient>,
   input: string | URL,
   init?: RequestInit,
+  timeoutMs = PROTOCOL_TIMEOUT_MS,
 ): Promise<Response> {
   await proxyClient.ensurePolicyPushed();
   const headers = new Headers(init?.headers);
   for (const [name, value] of Object.entries(buildMcpEgressProxyRequestHeaders(proxyClient))) {
     headers.set(name, value);
   }
-  return timeoutFetch(input, { ...init, headers, redirect: "error" }, { fetchImpl: globalThis.fetch });
+  return timeoutFetch(input, { ...init, headers, redirect: "error" }, { fetchImpl: globalThis.fetch, timeoutMs });
 }
 
 function buildHeaders(connection: ResolvedMcpConnection): Record<string, string> {
@@ -248,10 +268,10 @@ function headersToObject(headers: Headers): Record<string, string> {
 async function timeoutFetch(
   input: string | URL,
   init?: RequestInit,
-  options?: { fetchImpl?: (input: string | URL, init?: RequestInit) => Promise<Response> },
+  options?: { fetchImpl?: (input: string | URL, init?: RequestInit) => Promise<Response>; timeoutMs?: number },
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? PROTOCOL_TIMEOUT_MS);
   const forwardAbort = () => controller.abort();
   init?.signal?.addEventListener("abort", forwardAbort, { once: true });
   try {
@@ -437,11 +457,14 @@ function guardEndpoint(connection: ResolvedMcpConnection): { ok: true } | { ok: 
   return { ok: true };
 }
 
-function classifyError(error: unknown, secrets: Record<string, string> = {}): { code: McpErrorCode; safeMessage: string } {
+export function classifyMcpError(error: unknown, secrets: Record<string, string> = {}): { code: McpErrorCode; safeMessage: string } {
   const message = redactKnownSecrets(redactMcpText(String((error as { message?: unknown })?.message ?? error)), secrets).slice(0, 240);
   const code = (error as { code?: unknown })?.code;
   const status = (error as { status?: unknown })?.status;
   if (error instanceof Error && error.name === "AbortError") {
+    return { code: "mcp.timeout", safeMessage: "Request to the MCP server timed out." };
+  }
+  if (/request timed out|operation timed out|timeout/i.test(message)) {
     return { code: "mcp.timeout", safeMessage: "Request to the MCP server timed out." };
   }
   if (status === 401 || status === 403 || code === 401 || code === 403 || /unauthorized|forbidden|401|403/i.test(message)) {
