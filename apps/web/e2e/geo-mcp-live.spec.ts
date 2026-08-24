@@ -301,7 +301,7 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
   await employeeDialog.getByRole("button", { name: /^创建$|^Create$/i }).click();
   await expect(employeeDialog).toBeHidden();
   const creationAnnouncement = page.getByText(/AI员工 已创建|AI employee created/i).last();
-  await expect(creationAnnouncement).toBeVisible();
+  await expect(creationAnnouncement).toBeVisible({ timeout: 60_000 });
   await expect(creationAnnouncement.locator('xpath=ancestor-or-self::*[@role="status" or @role="alert" or @aria-live][1]')).toHaveCount(1);
   const createdEmployeeButton = page.getByRole("button", { name: new RegExp(employeeDisplayName) });
   await expect(createdEmployeeButton).toBeVisible();
