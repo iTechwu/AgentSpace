@@ -213,6 +213,7 @@ test("runAgentRouter executes a DeepSeek Harness JSON-RPC turn and streams owned
       deepSeekJsonRpcEnabled: true,
       env: {
         DSH_CORDIS_CONFIG: configPath,
+        DEEPSEEK_BASE_URL: "https://api.deepseek.example",
         REQUESTS_PATH: requestsPath,
         RUNTIME_ENV_PATH: runtimeEnvPath,
       },
@@ -255,6 +256,9 @@ test("runAgentRouter executes a DeepSeek Harness JSON-RPC turn and streams owned
     assert.deepEqual((requests[1]?.params as { contentBlocks?: unknown }).contentBlocks, [
       { type: "text", text: "inspect the workspace" },
     ]);
+    assert.deepEqual((requests[1]?.params as { environment?: unknown }).environment, {
+      DEEPSEEK_BASE_URL: "https://api.deepseek.example",
+    });
     const runtimeEnv = JSON.parse(readFileSync(runtimeEnvPath, "utf8")) as Record<string, string>;
     assert.equal(runtimeEnv.cwd, realpathSync(workDir));
     assert.equal(runtimeEnv.config, realpathSync(configPath));

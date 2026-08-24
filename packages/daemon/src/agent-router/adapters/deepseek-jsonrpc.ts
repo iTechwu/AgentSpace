@@ -360,10 +360,13 @@ function createProtocolState(request: AgentRouterRunRequest, plan: HarnessLaunch
         return;
       }
       initialized = true;
-      state.send("session/prompt", {
+      const promptParams: Record<string, unknown> = {
         sessionId,
         contentBlocks: [{ type: "text", text: request.prompt }],
-      });
+      };
+      const baseUrl = plan.env.DEEPSEEK_BASE_URL;
+      if (baseUrl) promptParams.environment = { DEEPSEEK_BASE_URL: baseUrl };
+      state.send("session/prompt", promptParams);
       return;
     }
     if (id === promptId) {
