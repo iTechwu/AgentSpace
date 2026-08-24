@@ -193,6 +193,10 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
     if (message.type() === "error" || message.type() === "warning") browserIssues.push(`console:${message.type()}:${message.text()}`);
   });
   page.on("requestfailed", (request) => {
+    // Next router refreshes cancel superseded document/data requests by
+    // design. Keep real transport failures visible while ignoring only that
+    // browser-level navigation cancellation.
+    if (request.failure()?.errorText === "net::ERR_ABORTED") return;
     const url = new URL(request.url());
     browserIssues.push(`requestfailed:${request.method()}:${url.origin}${url.pathname}:${request.failure()?.errorText ?? "unknown"}`);
   });
