@@ -4,18 +4,40 @@ import test, { after, before } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
-import { buildClaudeMcpToolPermissionName, formatMcpToolResultForProvider, MAX_PROVIDER_MCP_TOOL_RESULT_BYTES, McpGateway, McpGatewayPool, type McpGatewayTaskSession, type McpToolAuditRecord } from "./gateway.ts";
+import { buildClaudeMcpToolPermissionName, buildMcpGatewayToolNames, formatMcpToolResultForProvider, MAX_PROVIDER_MCP_TOOL_RESULT_BYTES, McpGateway, McpGatewayPool, type McpGatewayTaskSession, type McpToolAuditRecord } from "./gateway.ts";
 
 const CONNECTION_ID = "mcp-conn-test-1";
 const TASK_ID = "task-test-1";
 
 test("Claude MCP permission names are stable and use the gateway server namespace", () => {
-  const toolId = `mcp:${"connection-".repeat(10)}:submit_video_job`;
-  const first = buildClaudeMcpToolPermissionName(toolId);
-  const second = buildClaudeMcpToolPermissionName(toolId);
+  const toolName = "mcp_official-openmontage__submit_video_job";
+  const first = buildClaudeMcpToolPermissionName(toolName);
+  const second = buildClaudeMcpToolPermissionName(toolName);
   assert.equal(first, second);
-  assert.match(first, /^mcp__dofe-mcp-gateway__mcp_connection-/);
+  assert.equal(first, `mcp__dofe-mcp-gateway__${toolName}`);
   assert.equal(first.length <= 90, true);
+});
+
+test("gateway tool names retain the service and upstream tool name without leaking connection IDs", () => {
+  const names = buildMcpGatewayToolNames(buildOpenMontageTaskSession().connections);
+  assert.equal(names.get("mcp:mcp-openmontage-1:submit_video_job"), "mcp_official-openmontage__submit_video_job");
+});
+
+test("gateway tool names distinguish duplicate source connections without opaque IDs", () => {
+  const first = buildTaskSession().connections[0]!;
+  const second = {
+    ...first,
+    connectionId: "mcp-conn-test-2",
+    tools: [{ ...first.tools[0]!, id: "mcp:mcp-conn-test-2:search_repos", connectionId: "mcp-conn-test-2" }],
+  };
+  const names = buildMcpGatewayToolNames([first, second]);
+  const firstName = names.get(first.tools[0]!.id)!;
+  const secondName = names.get(second.tools[0]!.id)!;
+  assert.notEqual(firstName, secondName);
+  assert.match(firstName, /^mcp_github_[a-f0-9]{8}__search_repos$/);
+  assert.match(secondName, /^mcp_github_[a-f0-9]{8}__search_repos$/);
+  assert.equal(firstName.includes(first.connectionId), false);
+  assert.equal(secondName.includes(second.connectionId), false);
 });
 
 test("provider-facing MCP results are UTF-8 bounded with an actionable marker", () => {
@@ -122,7 +144,7 @@ after(async () => {
   await gateway.close();
 });
 
-test("gateway serves approved tools with sanitized names and never leaks the endpoint or secrets", async () => {
+test("gateway serves approved tools with readable source-scoped names and never leaks the endpoint or secrets", async () => {
   const session = gateway.createTaskSession(buildTaskSession());
   const client = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(session.url));
@@ -131,7 +153,8 @@ test("gateway serves approved tools with sanitized names and never leaks the end
     const listed = await client.listTools();
     assert.equal(listed.tools.length, 1);
     const name = listed.tools[0]?.name;
-    assert.ok(name && /^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(name), `sanitized name ${name} must be MCP-valid`);
+    assert.equal(name, "mcp_github__search_repos");
+    assert.match(listed.tools[0]?.description ?? "", /Original MCP tool name: search_repos/);
     const serialized = JSON.stringify(listed);
     assert.equal(serialized.includes("https://github-mcp.example.com"), false);
     assert.equal(serialized.includes("secret-token"), false);

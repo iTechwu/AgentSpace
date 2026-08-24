@@ -52,6 +52,13 @@ interface RegisteredTool {
   inputSchema: Record<string, unknown>;
 }
 
+interface McpGatewayToolConnection {
+  connectionId: string;
+  catalogItemSlug: string;
+  approvedTools: string[];
+  tools: Array<{ id: string; name: string }>;
+}
+
 interface McpSessionEntry {
   server: Server;
   transport: StreamableHTTPServerTransport;
@@ -241,10 +248,13 @@ export class McpGateway {
 
   private buildMcpServer(taskSession: McpGatewayTaskSession): Server {
     const tools = new Map<string, RegisteredTool>();
+    const gatewayToolNames = buildMcpGatewayToolNames(taskSession.connections);
     for (const connection of taskSession.connections) {
       for (const tool of connection.tools) {
         if (!connection.approvedTools.includes(tool.name)) continue;
-        tools.set(sanitizeToolName(tool.id), {
+        const gatewayToolName = gatewayToolNames.get(tool.id);
+        if (!gatewayToolName) continue;
+        tools.set(gatewayToolName, {
           connectionId: connection.connectionId,
           toolName: tool.name,
           description: tool.description,
@@ -258,7 +268,10 @@ export class McpGateway {
     server.setRequestHandler(ListToolsRequestSchema, () => ({
       tools: Array.from(tools.entries()).map(([name, tool]) => ({
         name,
-        description: tool.description || tool.toolName,
+        // Keep the upstream API name in the prompt-facing description. The
+        // public gateway name is scoped to the source service, while agents
+        // and users naturally refer to the original MCP tool name.
+        description: `Original MCP tool name: ${tool.toolName}. ${tool.description || "No description provided."}`,
         inputSchema: tool.inputSchema,
       })),
     }));
@@ -495,17 +508,52 @@ function extractOpenMontageSnapshot(value: unknown): unknown {
 }
 
 function sanitizeToolName(id: string): string {
-  // MCP tool names may not contain colons. Keep a stable, reversible-enough
-  // mapping by replacing ':' with '_' and capping the length with a short hash.
-  const raw = id.replace(/:/g, "_");
+  // MCP tool names may contain only letters, digits, '_', '-', and '.'. Keep a
+  // stable, human-readable service/tool prefix and cap it with a short hash.
+  const raw = id.replace(/[^a-zA-Z0-9_.-]/g, "_");
   if (raw.length <= 64) return raw;
   const hash = createHash("sha256").update(id).digest("hex").slice(0, 8);
   return `${raw.slice(0, 55)}_${hash}`;
 }
 
+/**
+ * Provider-facing names for tools in one task-scoped gateway session.
+ *
+ * Connection IDs are intentionally not part of the common case. They are
+ * control-plane implementation details and make a model unable to connect a
+ * user request such as `submit_video_job` to the visible MCP capability. A
+ * source-scoped name stays readable and prevents clashes between services.
+ * If the same source is connected more than once, add a short stable suffix
+ * so the two credentials cannot be confused or silently overwritten.
+ */
+export function buildMcpGatewayToolNames(connections: readonly McpGatewayToolConnection[]): Map<string, string> {
+  const entries = connections.flatMap((connection) => connection.tools
+    .filter((tool) => connection.approvedTools.includes(tool.name))
+    .map((tool) => ({ connection, tool })));
+  const baseCounts = new Map<string, number>();
+  for (const { connection, tool } of entries) {
+    const base = `mcp_${connection.catalogItemSlug}__${tool.name}`;
+    baseCounts.set(base, (baseCounts.get(base) ?? 0) + 1);
+  }
+
+  const names = new Map<string, string>();
+  for (const { connection, tool } of entries) {
+    const base = `mcp_${connection.catalogItemSlug}__${tool.name}`;
+    const scoped = (baseCounts.get(base) ?? 0) > 1
+      ? `mcp_${connection.catalogItemSlug}_${shortStableHash(connection.connectionId)}__${tool.name}`
+      : base;
+    names.set(tool.id, sanitizeToolName(scoped));
+  }
+  return names;
+}
+
+function shortStableHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 8);
+}
+
 /** Claude Code permission-rule name for a tool exposed by this gateway. */
-export function buildClaudeMcpToolPermissionName(toolId: string): string {
-  return `mcp__dofe-mcp-gateway__${sanitizeToolName(toolId)}`;
+export function buildClaudeMcpToolPermissionName(gatewayToolName: string): string {
+  return `mcp__dofe-mcp-gateway__${gatewayToolName}`;
 }
 
 function formatUrlHost(host: string): string {

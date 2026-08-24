@@ -32,7 +32,7 @@ import { McpAuditOutbox } from "../mcp/audit-outbox.ts";
 import { getManagedRuntimeHomeDir, type ManagedCredentialResolver } from "../managed-provider-credentials.ts";
 import type { RemoteDaemonConfig } from "./config.ts";
 import { attachTaskManagedMcpConnection, getMcpGatewayForTask } from "./mcp.ts";
-import { buildClaudeMcpToolPermissionName } from "../mcp/gateway.ts";
+import { buildClaudeMcpToolPermissionName, buildMcpGatewayToolNames } from "../mcp/gateway.ts";
 import {
   createRemoteGatewayUsageReporter,
   mergeRemoteGatewayUsages,
@@ -146,8 +146,11 @@ export async function executeRemoteTask(
           || task.id,
         connections: claimed.connections.map((connection) => attachTaskManagedMcpConnection(connection, config, runtime)),
       });
+      const gatewayToolNames = buildMcpGatewayToolNames(claimed.connections);
       mcpToolPermissionNames = claimed.connections.flatMap((connection) =>
-        connection.tools.map((tool) => buildClaudeMcpToolPermissionName(tool.id))
+        connection.tools
+          .filter((tool) => connection.approvedTools.includes(tool.name))
+          .map((tool) => buildClaudeMcpToolPermissionName(gatewayToolNames.get(tool.id)!))
       );
     }
 
