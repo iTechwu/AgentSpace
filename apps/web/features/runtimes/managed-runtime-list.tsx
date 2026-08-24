@@ -130,6 +130,10 @@ function runtimeStatusFilter(runtime: ManagedRuntimeListItem): string {
   if (runtime.provisioningState === "credential_recovering") return "recovering";
   if (runtime.provisioningState === "needs_attention") return "attention";
   if (runtime.provisioningState === "legacy") return "stopped";
+  if (runtime.status === "offline") return "offline";
+  if (runtime.providerHealth?.providerUsable === "unusable") return "attention";
+  if (runtime.providerHealth?.providerHealth === "degraded") return "attention";
+  if (runtime.providerHealth?.providerHealth === "unknown") return "attention";
   return runtime.status === "online" ? "available" : "offline";
 }
 
@@ -180,15 +184,40 @@ function presentRuntimeState(runtime: ManagedRuntimeListItem, tx: (zh: string, e
       tone: "stopped",
     };
   }
-  return runtime.status === "online"
-    ? {
-        label: tx("可用", "Available"),
-        detail: tx("凭证已验证，可以接受调度。", "Credential verified and ready for scheduling."),
-        tone: "available",
-      }
-    : {
-        label: tx("离线", "Offline"),
-        detail: tx("正在等待托管节点心跳。", "Waiting for the managed node heartbeat."),
-        tone: "offline",
-      };
+  if (runtime.status === "offline") {
+    return {
+      label: tx("离线", "Offline"),
+      detail: runtime.providerHealth?.providerHealthReason
+        || tx("正在等待托管节点心跳。", "Waiting for the managed node heartbeat."),
+      tone: "offline",
+    };
+  }
+  if (runtime.providerHealth?.providerUsable === "unusable") {
+    return {
+      label: tx("供应商不可用", "Provider unavailable"),
+      detail: runtime.providerHealth.providerHealthReason
+        || tx("供应商健康检查失败，新任务已暂停。", "Provider health check failed; new tasks are paused."),
+      tone: "attention",
+    };
+  }
+  if (runtime.providerHealth?.providerHealth === "degraded") {
+    return {
+      label: tx("供应商降级", "Provider degraded"),
+      detail: runtime.providerHealth.providerHealthReason
+        || tx("供应商仍可用，但健康检查报告降级。", "The provider is usable but its health check reports degradation."),
+      tone: "attention",
+    };
+  }
+  if (runtime.providerHealth?.providerHealth === "unknown") {
+    return {
+      label: tx("待验证", "Verification pending"),
+      detail: tx("尚未完成供应商健康检查，新任务暂不放行。", "Provider health has not been verified; new tasks are not yet allowed."),
+      tone: "attention",
+    };
+  }
+  return {
+    label: tx("可用", "Available"),
+    detail: tx("凭证已验证，可以接受调度。", "Credential verified and ready for scheduling."),
+    tone: "available",
+  };
 }

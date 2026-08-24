@@ -34,6 +34,8 @@ import { setBaselineRegistryForTests } from "./baseline-releases.ts";
 let testUserId: string;
 
 beforeEach(() => {
+  process.env.MCP_CODEX_EXPERIMENTAL_ENABLED = "1";
+  delete process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED;
   resetWorkspaceStateSync();
   testUserId = createUserSync({ displayName: "Requester", primaryEmail: `req-${randomLikeId()}@example.com` }).id;
 });

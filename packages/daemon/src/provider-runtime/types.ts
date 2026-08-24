@@ -26,6 +26,7 @@ export interface ProviderRuntimeRecord {
     providerVerificationRequestedAt?: string;
     openClawProfile?: string;
     openClawModel?: string;
+    deepSeekHarnessHome?: string;
   };
 }
 

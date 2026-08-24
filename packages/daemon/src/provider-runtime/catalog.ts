@@ -9,6 +9,7 @@ import {
   warnClaudeRootRuntimeIfNeeded,
 } from "./executables.ts";
 import { readRuntimeMetadataString } from "./metadata.ts";
+import { readConfiguredDeepSeekJsonRpcExecutable } from "./deepseek-jsonrpc-release.ts";
 import type { DetectedProvider, ProviderRuntimeRecord } from "./types.ts";
 
 // 默认模型名单点（构建/版本漂移治理）：目录定义与 resolveModelId 兜底共用，
@@ -18,6 +19,7 @@ const DEFAULT_MODEL_IDS = {
   gemini: "gemini-2.0-flash-lite",
   opencode: "opencode-default",
   nanobot: "nanobot-default",
+  "deepseek-harness": "deepseek-v4-flash",
 } as const;
 
 const PROVIDER_CATALOG: Array<{
@@ -70,6 +72,12 @@ const PROVIDER_CATALOG: Array<{
     commands: ["hermes-agent", "hermes"],
     versionArgs: [["--version"], ["version"]],
   },
+  {
+    provider: "deepseek-harness",
+    label: formatDaemonProviderLabel("deepseek-harness"),
+    command: "dsh",
+    defaultModelId: DEFAULT_MODEL_IDS["deepseek-harness"],
+  },
 ];
 
 export function detectProviders(): DetectedProvider[] {
@@ -77,7 +85,17 @@ export function detectProviders(): DetectedProvider[] {
   return PROVIDER_CATALOG
     .filter((candidate) => !allowedProviders || allowedProviders.has(candidate.provider))
     .map((candidate) => {
-      const executablePath = findFirstExecutableOnPath(resolveProviderCommands(candidate));
+      let releaseExecutable: string | undefined;
+      if (candidate.provider === "deepseek-harness") {
+        try {
+          releaseExecutable = readConfiguredDeepSeekJsonRpcExecutable();
+        } catch {
+          return null;
+        }
+      }
+      const executablePath = findFirstExecutableOnPath(
+        releaseExecutable ? [releaseExecutable] : resolveProviderCommands(candidate),
+      );
       if (!executablePath) {
         return null;
       }
@@ -89,7 +107,9 @@ export function detectProviders(): DetectedProvider[] {
         provider: candidate.provider,
         label: candidate.label,
         executablePath,
-        version: detectProviderVersion(executablePath, candidate.versionArgs),
+        version: releaseExecutable
+          ? "jsonrpc-release-configured"
+          : detectProviderVersion(executablePath, candidate.versionArgs),
       } satisfies DetectedProvider;
     })
     .filter((value): value is DetectedProvider => value !== null);
@@ -118,5 +138,6 @@ export function resolveModelId(runtime: ProviderRuntimeRecord): string | undefin
   if (runtime.provider === "openclaw") return readRuntimeMetadataString(runtime, "openClawModel", "openclawModel") || process.env.OPENCLAW_MODEL?.trim() || undefined;
   if (runtime.provider === "nanobot") return process.env.NANOBOT_MODEL || providerDefinition?.defaultModelId || DEFAULT_MODEL_IDS.nanobot;
   if (runtime.provider === "hermes") return process.env.HERMES_MODEL?.trim() || process.env.HERMES_INFERENCE_MODEL?.trim() || undefined;
+  if (runtime.provider === "deepseek-harness") return process.env.DSH_MODEL?.trim() || providerDefinition?.defaultModelId || DEFAULT_MODEL_IDS["deepseek-harness"];
   return providerDefinition?.defaultModelId;
 }

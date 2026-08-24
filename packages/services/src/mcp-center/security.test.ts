@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decryptMcpGrant, decryptMcpSecret, encryptMcpGrant, encryptMcpSecret, redactMcpText, redactToolInputSchema, validateMcpConnectionConfiguration, validateMcpEndpoint, validateMcpRequestHeaders, validateMcpResolvedAddresses } from "./security.ts";
+import { decryptMcpGrant, decryptMcpSecret, encryptMcpGrant, encryptMcpSecret, isMcpInsecureLocalEndpointAllowed, mcpEndpointValidationOptionsFromEnv, redactMcpText, redactToolInputSchema, validateMcpConnectionConfiguration, validateMcpEndpoint, validateMcpRequestHeaders, validateMcpResolvedAddresses } from "./security.ts";
 
 test("validateMcpEndpoint accepts an https host on the allow-list", () => {
   const result = validateMcpEndpoint("https://github-mcp.example.com/mcp", ["github-mcp.example.com"]);
@@ -24,6 +24,31 @@ test("validateMcpEndpoint rejects http", () => {
   assert.equal(validateMcpEndpoint("http://github-mcp.example.com/mcp", ["github-mcp.example.com"]).ok, false);
 });
 
+test("insecure local MCP endpoint requires an explicit gate and exact loopback URL", () => {
+  const endpoint = "http://127.0.0.1:18080/mcp";
+  assert.equal(validateMcpEndpoint(endpoint, ["127.0.0.1"]).ok, false);
+  assert.equal(validateMcpEndpoint(endpoint, ["127.0.0.1"], { insecureLocalEndpoints: [endpoint] }).ok, true);
+  assert.equal(isMcpInsecureLocalEndpointAllowed(`${endpoint}/other`, { insecureLocalEndpoints: [endpoint] }), false);
+  assert.equal(isMcpInsecureLocalEndpointAllowed("http://127.0.0.1:80/mcp", { insecureLocalEndpoints: ["http://127.0.0.1:80/mcp"] }), false);
+  assert.equal(isMcpInsecureLocalEndpointAllowed("http://localhost:18080/mcp", { insecureLocalEndpoints: ["http://localhost:18080/mcp"] }), false);
+  assert.equal(isMcpInsecureLocalEndpointAllowed("http://192.168.1.10:18080/mcp", { insecureLocalEndpoints: ["http://192.168.1.10:18080/mcp"] }), false);
+});
+
+test("local MCP env options fail closed unless both settings are valid", () => {
+  process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL = "1";
+  process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS = JSON.stringify([
+    "http://127.0.0.1:18080/mcp",
+    "http://192.168.1.10:18080/mcp",
+    "https://127.0.0.1:18080/mcp",
+  ]);
+  assert.deepEqual(mcpEndpointValidationOptionsFromEnv(), {
+    insecureLocalEndpoints: ["http://127.0.0.1:18080/mcp"],
+  });
+  delete process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL;
+  assert.deepEqual(mcpEndpointValidationOptionsFromEnv(), {});
+  delete process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
+});
+
 test("validateMcpEndpoint rejects loopback, private, link-local and metadata addresses", () => {
   for (const host of ["localhost", "127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "169.254.169.254", "0.0.0.0", "[::1]"]) {
     const result = validateMcpEndpoint(`https://${host}/mcp`, [host]);
@@ -36,6 +61,14 @@ test("validateMcpResolvedAddresses rejects a mixed public and private DNS answer
   assert.equal(validateMcpResolvedAddresses(["203.0.113.8"]).ok, true);
   assert.equal(validateMcpResolvedAddresses(["203.0.113.8", "169.254.169.254"]).ok, false);
   assert.equal(validateMcpResolvedAddresses(["::ffff:127.0.0.1"]).ok, false);
+});
+
+test("local address validation only allows pure loopback answers", () => {
+  const options = { allowLoopbackResolvedAddresses: true };
+  assert.equal(validateMcpResolvedAddresses(["127.0.0.1"], options).ok, true);
+  assert.equal(validateMcpResolvedAddresses(["::1"], options).ok, true);
+  assert.equal(validateMcpResolvedAddresses(["127.0.0.1", "203.0.113.8"], options).ok, false);
+  assert.equal(validateMcpResolvedAddresses(["192.168.1.10"], options).ok, false);
 });
 
 test("validateMcpEndpoint rejects credentials embedded in the URL", () => {

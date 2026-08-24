@@ -21,7 +21,8 @@ import {
 } from "./router-diagnostics.ts";
 import { runGeminiProviderTask, runNanoBotProviderTask } from "./legacy-runtime.ts";
 import { buildRuntimeToolCapabilities } from "./tool-capabilities.ts";
-import type { ProviderRuntimeRecord, ProviderTaskOptions } from "./types.ts";
+import { resolveDeepSeekJsonRpcReleaseConfig } from "./deepseek-jsonrpc-release.ts";
+import { ProviderTaskExecutionError, type ProviderRuntimeRecord, type ProviderTaskOptions } from "./types.ts";
 
 export async function runProviderTask(
   runtime: ProviderRuntimeRecord,
@@ -48,6 +49,9 @@ export async function runProviderTask(
   if (runtime.provider === "hermes") {
     return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
   }
+  if (runtime.provider === "deepseek-harness") {
+    return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
+  }
   if (runtime.provider === "nanobot") {
     return runNanoBotProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
   }
@@ -65,11 +69,26 @@ async function runAgentRouterProviderTask(
   taskTimeoutMs: number,
   options: ProviderTaskOptions,
 ): Promise<{ output: string; sessionId?: string }> {
+  const modelId = options.modelId ?? resolveModelId(runtime);
+  assertDeepSeekModelAvailable(runtime, modelId, workDir);
+  const deepSeekJsonRpcRelease = resolveDeepSeekJsonRpcReleaseConfig(runtime);
   clearTaskOutputArtifacts(workDir);
   const harness = runtime.provider as AgentRouterHarness;
   const runtimeToolCapabilities = buildRuntimeToolCapabilities(options);
   const contextEnv = buildAgentRouterProviderEnv(runtime, options.contextEnv);
-  const sessionId = resolveAgentRouterSessionId(runtime, options.sessionId);
+  if (deepSeekJsonRpcRelease) {
+    contextEnv.DSH_CORDIS_CONFIG = deepSeekJsonRpcRelease.cordisConfigPath;
+  }
+  const requestedSessionId = resolveAgentRouterSessionId(runtime, options.sessionId);
+  const sessionId = runtime.provider === "deepseek-harness" ? undefined : requestedSessionId;
+  if (runtime.provider === "deepseek-harness" && requestedSessionId) {
+    const modeLabel = deepSeekJsonRpcRelease ? "one-shot JSON-RPC" : "headless";
+    options.onEvent?.({
+      type: "provider_session_unsupported",
+      content: `DeepSeek Harness ${modeLabel} mode starts a fresh session for this task; session resume is not available.`,
+      inputJson: { provider: runtime.provider, runtimeId: runtime.id, sessionId: requestedSessionId },
+    });
+  }
   const codexLaunchMode = runtime.provider === "codex"
     ? resolveCodexLaunchMode(runtime, options.executionPolicy?.codexSandboxMode)
     : undefined;
@@ -78,9 +97,23 @@ async function runAgentRouterProviderTask(
     harness,
     prompt,
     cwd: workDir,
-    executablePath: runtime.metadata.executablePath,
-    model: options.modelId ?? resolveModelId(runtime),
-    mode: runtime.provider === "codex" ? codexLaunchMode : resolveAgentRouterMode(runtime),
+    executablePath: deepSeekJsonRpcRelease?.executablePath ?? runtime.metadata.executablePath,
+    model: modelId,
+    mode: deepSeekJsonRpcRelease
+      ? "jsonrpc"
+      : runtime.provider === "codex" ? codexLaunchMode : resolveAgentRouterMode(runtime),
+    deepSeekJsonRpcEnabled: Boolean(deepSeekJsonRpcRelease),
+    deepSeekJsonRpcReleasePolicy: deepSeekJsonRpcRelease
+      ? {
+          executableSha256: deepSeekJsonRpcRelease.executableSha256,
+          cordisConfigSha256: deepSeekJsonRpcRelease.cordisConfigSha256,
+          ripgrepSha256: deepSeekJsonRpcRelease.ripgrepSha256,
+          spawnHelperSha256: deepSeekJsonRpcRelease.spawnHelperSha256,
+          provenancePath: deepSeekJsonRpcRelease.provenancePath,
+          sourceCommit: deepSeekJsonRpcRelease.sourceCommit,
+          wheelSha256: deepSeekJsonRpcRelease.wheelSha256,
+        }
+      : undefined,
     sessionId,
     env: contextEnv,
     skillEnvKeys: options.skillEnvKeys,
@@ -199,6 +232,46 @@ async function runAgentRouterProviderTask(
   }
 
   return { output, sessionId: result.sessionId };
+}
+
+function assertDeepSeekModelAvailable(
+  runtime: ProviderRuntimeRecord,
+  modelId: string | undefined,
+  workDir: string,
+): void {
+  if (runtime.provider !== "deepseek-harness" || !modelId) return;
+  const health = runtime.metadata.providerHealth;
+  const healthRecord = health && typeof health === "object" && !Array.isArray(health)
+    ? health as { status?: unknown; modelIds?: unknown }
+    : undefined;
+  const modelIds = healthRecord?.modelIds;
+  if (Array.isArray(modelIds) && modelIds.every((value): value is string => typeof value === "string")) {
+    if (!modelIds.includes(modelId)) {
+      const message = `DeepSeek Harness model "${modelId}" is absent from the verified provider catalog.`;
+      throw new ProviderTaskExecutionError(message, {
+        workDir,
+        providerError: {
+          provider: runtime.provider,
+          code: "provider.model_unavailable",
+          category: "model",
+          message,
+        },
+      });
+    }
+  }
+
+  if (healthRecord?.status !== "broken") return;
+
+  const message = "DeepSeek Harness provider health is broken; refresh provider verification before retrying.";
+  throw new ProviderTaskExecutionError(message, {
+    workDir,
+    providerError: {
+      provider: runtime.provider,
+      code: "provider.runtime_generic_failure",
+      category: "runtime",
+      message,
+    },
+  });
 }
 
 function resolveAgentRouterMode(runtime: ProviderRuntimeRecord): string | undefined {

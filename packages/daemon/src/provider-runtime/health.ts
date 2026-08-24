@@ -1,10 +1,117 @@
 // 3.5-4：自 provider-runtime.ts 拆出——provider 健康验证：CLI preflight、
 // API key/OAuth/文件登录三类凭据探测与快照构建。
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { DaemonProvider, ProviderHealthSnapshot } from "@dofe-agent/domain";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
+import {
+  stripDeepSeekJsonRpcUnsafeEnvironment,
+  verifyDeepSeekJsonRpcPinnedArtifacts,
+} from "../agent-router/deepseek-jsonrpc-release.ts";
+import { buildBaseEnv } from "../agent-router/utils.ts";
+import { resolveDeepSeekJsonRpcReleaseConfig } from "./deepseek-jsonrpc-release.ts";
 import type { ProviderRuntimeRecord } from "./types.ts";
+
+const DEEPSEEK_JSONRPC_HEALTH_PROBE_SCRIPT = String.raw`
+const { spawn } = require("node:child_process");
+
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  let spec;
+  try { spec = JSON.parse(input); } catch { finish(false, "invalid-supervisor-input"); return; }
+  const child = spawn(spec.executable, [], { cwd: spec.cwd, env: spec.env, stdio: ["pipe", "pipe", "pipe"] });
+  let buffer = "";
+  let phase = "initialize";
+  let settled = false;
+  let terminateTimer;
+  let killTimer;
+  const requestTimer = setTimeout(() => fail("request-timeout"), spec.requestTimeoutMs);
+
+  child.stdin.on("error", () => {});
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk;
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    for (const line of lines) consume(line);
+  });
+  child.once("error", () => fail("spawn-failed"));
+  child.once("exit", () => {
+    if (phase === "exit") succeed();
+    else if (!settled) fail("runtime-exited-before-handshake");
+  });
+
+  child.stdin.write(JSON.stringify({
+    jsonrpc: "2.0",
+    id: "health-initialize",
+    method: "initialize",
+    params: {
+      cwd: spec.cwd,
+      provider: "deepseek-official",
+      model: "deepseek-v4-flash",
+      protocolVersions: ["2.0"],
+    },
+  }) + "\n");
+
+  function consume(line) {
+    if (settled || !line.trim()) return;
+    let frame;
+    try { frame = JSON.parse(line); } catch { fail("invalid-json-frame"); return; }
+    if (frame.jsonrpc !== "2.0") { fail("invalid-jsonrpc-version"); return; }
+    if (phase === "initialize" && frame.id === "health-initialize") {
+      if (frame.error
+        || frame.result?.serverInfo?.name !== "deepseek-harness-sdk-runtime"
+        || frame.result?.serverInfo?.version !== "0.0.1"
+        || frame.result?.protocolVersion !== "2.0") {
+        fail("incompatible-server-identity");
+        return;
+      }
+      phase = "shutdown";
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: "health-shutdown", method: "shutdown" }) + "\n");
+      return;
+    }
+    if (phase === "shutdown" && frame.id === "health-shutdown") {
+      if (frame.error || !frame.result || typeof frame.result !== "object") { fail("shutdown-rejected"); return; }
+      clearTimeout(requestTimer);
+      phase = "exit";
+      child.stdin.end();
+      terminateTimer = setTimeout(() => child.kill("SIGTERM"), spec.exitGraceMs);
+      killTimer = setTimeout(() => child.kill("SIGKILL"), spec.exitGraceMs + spec.terminateGraceMs);
+      return;
+    }
+    if (frame.id !== undefined) fail("unexpected-response");
+  }
+
+  function fail(code) {
+    if (settled) return;
+    settled = true;
+    clearTimeout(requestTimer);
+    clearTimeout(terminateTimer);
+    clearTimeout(killTimer);
+    child.kill("SIGTERM");
+    setTimeout(() => child.kill("SIGKILL"), spec.terminateGraceMs).unref();
+    finish(false, code);
+  }
+
+  function succeed() {
+    if (settled) return;
+    settled = true;
+    clearTimeout(requestTimer);
+    clearTimeout(terminateTimer);
+    clearTimeout(killTimer);
+    finish(true, "ok");
+  }
+});
+
+function finish(ok, code) {
+  process.stdout.write(JSON.stringify({ ok, code }));
+  process.exitCode = ok ? 0 : 1;
+}
+`;
 
 export function requiresProviderVerification(runtime: Pick<ProviderRuntimeRecord, "metadata">): boolean {
   const requestedAt = runtime.metadata.providerVerificationRequestedAt;
@@ -23,6 +130,51 @@ export function inspectProviderCliHealth(
   environment?: Record<string, string>,
 ): ProviderHealthSnapshot {
   const checkedAt = new Date().toISOString();
+  if (runtime.provider === "deepseek-harness") {
+    try {
+      const release = resolveDeepSeekJsonRpcReleaseConfig(runtime, process.env);
+      if (release) {
+        const verified = verifyDeepSeekJsonRpcPinnedArtifacts(release);
+        const protocolFailure = inspectDeepSeekJsonRpcReleaseProtocol(verified, environment);
+        if (protocolFailure) {
+          return {
+            status: "broken",
+            checkedAt,
+            verificationKind: "cli_preflight",
+            reason: protocolFailure,
+            error: {
+              code: "provider.protocol_parse_failed",
+              category: "protocol",
+              provider: runtime.provider,
+              message: protocolFailure,
+            },
+          };
+        }
+        const providerRequest = inspectProviderCredentialRequest(runtime.provider, environment, checkedAt);
+        if (providerRequest) return providerRequest;
+        return {
+          status: "degraded",
+          checkedAt,
+          verificationKind: "cli_preflight",
+          reason: "DeepSeek Harness JSON-RPC release bundle and initialize handshake verified; model canary remains pending.",
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "DeepSeek Harness JSON-RPC release validation failed.";
+      return {
+        status: "broken",
+        checkedAt,
+        verificationKind: "cli_preflight",
+        reason: message,
+        error: {
+          code: "provider.runtime_generic_failure",
+          category: "runtime",
+          provider: runtime.provider,
+          message,
+        },
+      };
+    }
+  }
   const executablePath = runtime.metadata.executablePath.trim();
   if (!executablePath) {
     const message = `${formatDaemonProviderLabel(runtime.provider)} CLI executable is unavailable on this node.`;
@@ -45,6 +197,31 @@ export function inspectProviderCliHealth(
     env: environment ? { ...process.env, ...environment } : undefined,
   });
   if (!result.error && result.status === 0) {
+    if (runtime.provider === "deepseek-harness") {
+      const profileResult = spawnSync(executablePath, ["--profile", "headless", "--help"], {
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+        env: environment ? { ...process.env, ...environment } : undefined,
+      });
+      if (profileResult.error || profileResult.status !== 0) {
+        const message = profileResult.error?.message
+          || profileResult.stderr?.trim()
+          || `DeepSeek Harness headless profile exited with status ${profileResult.status ?? "unknown"}.`;
+        return {
+          status: "broken",
+          checkedAt,
+          verificationKind: "cli_preflight",
+          reason: message,
+          error: {
+            code: "provider.profile_missing",
+            category: "profile",
+            provider: runtime.provider,
+            message,
+          },
+        };
+      }
+    }
     const providerRequest = inspectProviderCredentialRequest(runtime.provider, environment, checkedAt);
     if (providerRequest) return providerRequest;
     return {
@@ -70,6 +247,74 @@ export function inspectProviderCliHealth(
       message,
     },
   };
+}
+
+export function inspectDeepSeekJsonRpcReleaseProtocol(
+  verified: ReturnType<typeof verifyDeepSeekJsonRpcPinnedArtifacts>,
+  environment: Record<string, string> | undefined,
+  options: { isolatedEnvironment?: boolean } = {},
+): string | null {
+  const runtimeHome = mkdtempSync(join(tmpdir(), "dofe-deepseek-jsonrpc-health-"));
+  const sessionRoot = join(runtimeHome, "sessions");
+  mkdirSync(sessionRoot, { recursive: true, mode: 0o700 });
+  try {
+    const protocolEnvironment = {
+      DSH_CORDIS_CONFIG: verified.cordisConfigPath,
+      DSH_CWD: process.cwd(),
+      DSH_HOME: runtimeHome,
+      DSH_SESSION_ROOT: sessionRoot,
+      DSH_TELEMETRY_DISABLED: "1",
+    };
+    let providerEnvironment: Record<string, string>;
+    if (options.isolatedEnvironment) {
+      providerEnvironment = {
+        HOME: runtimeHome,
+        PATH: process.env.PATH ?? process.env.Path ?? "",
+        ...protocolEnvironment,
+      };
+    } else {
+      const extra = stripDeepSeekJsonRpcUnsafeEnvironment({ ...(environment ?? {}) });
+      for (const key of Object.keys(extra)) {
+        if (key.toUpperCase() === "PATH") delete extra[key];
+      }
+      extra.PATH = process.env.PATH ?? process.env.Path ?? "";
+      providerEnvironment = buildBaseEnv(verified.executablePath, {
+        ...extra,
+        ...protocolEnvironment,
+      });
+    }
+    providerEnvironment = stripDeepSeekJsonRpcUnsafeEnvironment(providerEnvironment);
+    const supervisor = spawnSync(process.execPath, ["-e", DEEPSEEK_JSONRPC_HEALTH_PROBE_SCRIPT], {
+      encoding: "utf8",
+      input: JSON.stringify({
+        executable: verified.executablePath,
+        cwd: process.cwd(),
+        env: providerEnvironment,
+        requestTimeoutMs: 3_000,
+        exitGraceMs: 500,
+        terminateGraceMs: 1_000,
+      }),
+      timeout: 6_000,
+      windowsHide: true,
+      env: {
+        HOME: process.env.HOME ?? "",
+        PATH: process.env.PATH ?? process.env.Path ?? "",
+      },
+    });
+    if (supervisor.error || supervisor.status !== 0) {
+      return "DeepSeek Harness JSON-RPC release runtime failed its bounded initialize/shutdown handshake.";
+    }
+    try {
+      const result = JSON.parse(supervisor.stdout) as { ok?: unknown };
+      return result.ok === true
+        ? null
+        : "DeepSeek Harness JSON-RPC release runtime returned an invalid health handshake result.";
+    } catch {
+      return "DeepSeek Harness JSON-RPC release runtime returned an invalid health handshake result.";
+    }
+  } finally {
+    rmSync(runtimeHome, { recursive: true, force: true });
+  }
 }
 
 function inspectProviderCredentialRequest(
@@ -142,7 +387,19 @@ const PROVIDER_API_PROBE_SCRIPT = `
       redirect: "manual",
       signal: AbortSignal.timeout(10_000),
     });
-    process.stdout.write(JSON.stringify({ ok: true, status: response.status }));
+    const body = await response.text();
+    let models;
+    try {
+      const parsed = JSON.parse(body);
+      const rows = Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed?.models) ? parsed.models : [];
+      models = rows
+        .map((row) => typeof row === "string" ? row : row && typeof row === "object" ? row.id ?? row.model ?? row.name : undefined)
+        .filter((value) => typeof value === "string")
+        .slice(0, 128);
+    } catch {
+      models = undefined;
+    }
+    process.stdout.write(JSON.stringify({ ok: true, status: response.status, models }));
   } catch (error) {
     process.stdout.write(JSON.stringify({ ok: false, error: error && error.message ? error.message : String(error) }));
   }
@@ -164,11 +421,15 @@ function executeProviderApiRequest(
   });
   let probeStatus: number | undefined;
   let probeError: string | undefined;
+  let modelIds: string[] | undefined;
   if (!result.error && result.status === 0 && typeof result.stdout === "string") {
     try {
-      const parsed = JSON.parse(result.stdout.trim()) as { ok?: boolean; status?: number; error?: string };
+      const parsed = JSON.parse(result.stdout.trim()) as { ok?: boolean; status?: number; error?: string; models?: unknown };
       if (parsed?.ok) {
         probeStatus = parsed.status;
+        if (Array.isArray(parsed.models)) {
+          modelIds = parsed.models.filter((value): value is string => typeof value === "string");
+        }
       } else {
         probeError = parsed?.error;
       }
@@ -177,11 +438,32 @@ function executeProviderApiRequest(
     }
   }
   if (probeStatus !== undefined && probeStatus >= 200 && probeStatus < 300) {
+    if (provider === "deepseek-harness") {
+      const requiredModels = ["deepseek-v4-flash", "deepseek-v4-pro"];
+      const missingModels = requiredModels.filter((model) => !modelIds?.includes(model));
+      if (missingModels.length > 0) {
+        const message = `DeepSeek Harness model catalog is missing: ${missingModels.join(", ")}.`;
+        return {
+          status: "broken",
+          checkedAt,
+          verificationKind: "provider_request",
+          reason: message,
+          modelIds,
+          error: {
+            code: "provider.model_unavailable",
+            category: "model",
+            provider,
+            message,
+          },
+        };
+      }
+    }
     return {
       status: "healthy",
       checkedAt,
       verificationKind: "provider_request",
       reason: `${formatDaemonProviderLabel(provider)} authenticated provider request passed.`,
+      modelIds,
     };
   }
   const message = result.error?.message
@@ -196,8 +478,12 @@ function executeProviderApiRequest(
     verificationKind: "provider_request",
     reason: message,
     error: {
-      code: "provider.runtime_generic_failure",
-      category: result.error ? "runtime" : "provider",
+      code: provider === "deepseek-harness" && (probeStatus === 401 || probeStatus === 403)
+        ? "provider.auth_invalid"
+        : "provider.runtime_generic_failure",
+      category: provider === "deepseek-harness" && (probeStatus === 401 || probeStatus === 403)
+        ? "auth"
+        : result.error ? "runtime" : "provider",
       provider,
       message,
     },
@@ -427,6 +713,16 @@ function buildProviderCredentialProbe(
     if (!apiKey) return null;
     assertSafeProviderCredential(apiKey);
     const baseUrl = normalizeProviderApiBase(environment.OPENAI_BASE_URL, "https://api.openai.com/v1");
+    return {
+      url: `${baseUrl}/models`,
+      headers: [`Authorization: Bearer ${apiKey}`, "accept: application/json"],
+    };
+  }
+  if (provider === "deepseek-harness") {
+    const apiKey = environment.DEEPSEEK_API_KEY?.trim();
+    if (!apiKey) return null;
+    assertSafeProviderCredential(apiKey);
+    const baseUrl = normalizeProviderApiBase(environment.DEEPSEEK_BASE_URL, "https://api.deepseek.com/v1");
     return {
       url: `${baseUrl}/models`,
       headers: [`Authorization: Bearer ${apiKey}`, "accept: application/json"],

@@ -58,6 +58,7 @@ import {
   encryptMcpGrant,
   encryptMcpSecret,
   getMcpSecretKeyVersion,
+  mcpEndpointValidationOptionsFromEnv,
   validateMcpConnectionConfiguration,
   validateMcpEndpoint,
   validateManagedStdioEndpoint,
@@ -77,6 +78,7 @@ import {
 } from "./egress.ts";
 import { OPENMONTAGE_MCP_SLUG, TOOLS_VIRAL_VIDEO_MCP_SLUG, resolveMcpRuntimeAppRequirement, resolveOfficialManagedStdioProfile } from "./official-catalog.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
+import { isMcpRuntimeProviderEligible } from "./provider-eligibility.ts";
 import { callOpenMontageJobActionAsync } from "../openmontage/events.ts";
 import {
   assertOpenMontageMcpPurgeableAsync,
@@ -133,6 +135,9 @@ export function materializeMcpConnectionSync(input: RequestMcpConnectionInput): 
   }
   if (runtime.status !== "online") {
     throw new Error("runtime.offline");
+  }
+  if (!isMcpRuntimeProviderEligible(runtime.provider)) {
+    throw new Error("mcp.runtime_provider_not_eligible");
   }
 
   const catalog = readMcpCatalogItemSync(input.catalogItemId, input.workspaceId);
@@ -202,7 +207,7 @@ export function materializeMcpConnectionSync(input: RequestMcpConnectionInput): 
     source: "user_verify",
     requestedByUserId: input.actorUserId,
     requestSnapshotJson: JSON.stringify({
-      endpoint: endpointCheck.host ? `https://${endpointCheck.host}` : undefined,
+      endpoint: endpointCheck.host ? new URL(input.endpoint).origin : undefined,
       host: endpointCheck.host,
       transport: catalog.transport,
       approvedToolCount: approvedTools.length,
@@ -1133,6 +1138,13 @@ export function claimMcpTaskSessionSync(input: {
   taskId: string;
   attemptId: string;
 }): ClaimMcpTaskSessionResponse {
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId) {
+    throw new Error("runtime.not_found");
+  }
+  if (!isMcpRuntimeProviderEligible(runtime.provider)) {
+    throw new Error("mcp.runtime_provider_not_eligible");
+  }
   const attemptId = input.attemptId?.trim() ?? "";
   if (!attemptId) {
     // A missing attempt id must never replay another caller's persisted grant.
@@ -1277,6 +1289,10 @@ export function validateMcpConnectionForGatewaySync(input: {
   egressProxyLease?: string;
   egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
 } | { ok: false } {
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId || !isMcpRuntimeProviderEligible(runtime.provider)) {
+    return { ok: false };
+  }
   const connection = readMcpConnectionSync(input.connectionId, input.workspaceId);
   if (!connection || connection.runtimeId !== input.runtimeId || connection.status !== "ready") {
     return { ok: false };
@@ -1424,7 +1440,9 @@ function validateConnectionEndpoint(
   endpoint: string,
   allowedHosts: string[],
 ) {
-  if (catalog.transport === "streamable_http") return validateMcpEndpoint(endpoint, allowedHosts);
+  if (catalog.transport === "streamable_http") {
+    return validateMcpEndpoint(endpoint, allowedHosts, mcpEndpointValidationOptionsFromEnv());
+  }
   if (catalog.transport === "managed_stdio") {
     const validation = validateManagedStdioEndpoint(endpoint);
     if (!validation.ok) return validation;

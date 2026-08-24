@@ -7,6 +7,7 @@ import type {
   AgentRouterRunResult,
   HarnessCatalogEntry,
   HarnessDetectionResult,
+  HarnessLaunchPlan,
 } from "./types.ts";
 import { AGENT_ROUTER_HARNESSES } from "./types.ts";
 import { getHarnessAdapter, HARNESS_ADAPTERS } from "./adapters/index.ts";
@@ -51,6 +52,8 @@ export async function runAgentRouter(
     },
   };
   const startedAt = new Date().toISOString();
+  let plan: HarnessLaunchPlan | undefined;
+  let runInvoked = false;
 
   try {
     const detection = request.executablePath
@@ -78,7 +81,7 @@ export async function runAgentRouter(
       };
     }
 
-    const plan = await adapter.buildLaunch({
+    plan = await adapter.buildLaunch({
       ...request,
       cwd: resolve(request.cwd),
     });
@@ -105,6 +108,7 @@ export async function runAgentRouter(
         finishedAt: new Date().toISOString(),
       };
     }
+    runInvoked = true;
     const result = await adapter.run(plan, teeObserver, request);
     return {
       ...result,
@@ -120,6 +124,10 @@ export async function runAgentRouter(
       startedAt,
       finishedAt: new Date().toISOString(),
     };
+  } finally {
+    if (plan && !runInvoked) {
+      await adapter.disposeLaunch?.(plan);
+    }
   }
 }
 

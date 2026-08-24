@@ -94,6 +94,11 @@ export function buildAgentRouterProviderEnv(
   extra?: Record<string, string>,
 ): Record<string, string> {
   const env = buildProviderEnv(runtime, extra) as Record<string, string>;
+  if (runtime.provider === "deepseek-harness") {
+    const home = readRuntimeMetadataString(runtime, "deepSeekHarnessHome");
+    if (home) env.DSH_HOME = home;
+    return env;
+  }
   if (runtime.provider !== "openclaw") {
     return env;
   }

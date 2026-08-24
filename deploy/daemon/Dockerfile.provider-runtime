@@ -38,6 +38,8 @@ ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
 ARG PROVIDER_PATH=""
+ARG PROVIDER_INSTALL_COMMAND=""
+ARG PROVIDER_VERIFY_COMMAND=""
 
 RUN groupadd --gid 10001 dofe-agent \
   && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent \
@@ -54,6 +56,13 @@ RUN apt-get update \
 # the CLI while building or the daemon later fails with `spawn claude ENOENT`.
 RUN if command -v claude-entrypoint >/dev/null 2>&1 && ! command -v claude >/dev/null 2>&1; then \
       claude-entrypoint --version; \
+    fi
+
+RUN if [ -n "$PROVIDER_INSTALL_COMMAND" ]; then \
+      /bin/sh -ceu "$PROVIDER_INSTALL_COMMAND"; \
+    fi \
+  && if [ -n "$PROVIDER_VERIFY_COMMAND" ]; then \
+      /bin/sh -ceu "$PROVIDER_VERIFY_COMMAND"; \
     fi
 
 COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/

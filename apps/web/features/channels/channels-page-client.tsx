@@ -71,6 +71,7 @@ import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { runToastAction } from "@/shared/lib/toast-action";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
+import { isDaemonProvider } from "@dofe-agent/domain";
 import {
   translateMemberLabel,
   translateRuntimeFailureSummary,
@@ -947,7 +948,7 @@ export function ChannelsPageClient({
     };
   }, [composerExecutionPolicyOverrides, data.composerAgents, selectedChannel]);
   const composerRuntime: ConversationComposerRuntime | undefined =
-    selectedComposerAgent?.provider === "claude" || selectedComposerAgent?.provider === "codex"
+    selectedComposerAgent?.provider && isDaemonProvider(selectedComposerAgent.provider)
       ? {
           employeeId: selectedComposerAgent.id,
           employeeLabel: selectedComposerAgent.label,

@@ -292,7 +292,7 @@ export function AgentDetail({
             variant="agent"
           />
           <div className="agent-profile-card__copy">
-            <h3>{record.name}</h3>
+            <h2>{record.name}</h2>
             <p>{record.internalName}</p>
             {record.forkedFrom ? (
               <span className="agent-profile-card__origin">
@@ -1293,4 +1293,3 @@ export function AgentDetail({
     </div>
   );
 }
-

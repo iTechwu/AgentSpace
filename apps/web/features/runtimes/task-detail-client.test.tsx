@@ -91,3 +91,30 @@ it("renders runtime provisioning details in Chinese", () => {
   expect(screen.getByText("错误：docker pull failed")).toBeInTheDocument();
   expect(screen.getByText("阶段日志")).toBeInTheDocument();
 });
+
+it("renders structured provider health in the runtime resource panel", () => {
+  const detail = makeDetail(0, 3);
+  detail.runtime = {
+    id: "runtime-deepseek",
+    status: "online",
+    provisioningState: "managed",
+    protocols: ["deepseek_native"],
+    defaultModel: "deepseek-v4-pro",
+    credentialConfigured: true,
+    providerHealth: {
+      runtimeStatus: "online",
+      providerHealth: "broken",
+      providerUsable: "unusable",
+      providerHealthReason: "DeepSeek provider verification failed.",
+      lastHealthCheckedAt: "2026-08-23T00:00:00.000Z",
+      lastProviderErrorCode: "provider.auth_invalid",
+    },
+  };
+
+  renderTaskDetail(detail);
+
+  expect(screen.getByText("供应商健康").nextElementSibling).toHaveTextContent("不可用");
+  expect(screen.getByText("DeepSeek provider verification failed.")).toBeInTheDocument();
+  expect(screen.getByText("供应商可用性").nextElementSibling).toHaveTextContent("不可用");
+  expect(screen.getByText("错误码").nextElementSibling).toHaveTextContent("provider.auth_invalid");
+});

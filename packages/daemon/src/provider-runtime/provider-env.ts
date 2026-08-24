@@ -49,6 +49,8 @@ const MANAGED_PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS = [
   "OPENCLAW_API_KEY",
   "NANOBOT_API_KEY",
   "HERMES_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "DEEPSEEK_BASE_URL",
 ];
 
 // Builds value-based redaction patterns for every secret-named entry in the

@@ -165,6 +165,25 @@ export function RuntimeTaskDetailClient({
             <dd>{(runtime.protocols ?? []).join(", ") || "—"}</dd>
             <dt>{tx("默认模型", "Default model")}</dt>
             <dd>{runtime.defaultModel ?? "—"}</dd>
+            {runtime.providerHealth ? (
+              <>
+                <dt>{tx("供应商健康", "Provider health")}</dt>
+                <dd>
+                  {translateProviderHealth(runtime.providerHealth.providerHealth, tx)}
+                  {runtime.providerHealth.providerHealthReason ? (
+                    <small className="runtime-task-detail__health-reason">{runtime.providerHealth.providerHealthReason}</small>
+                  ) : null}
+                </dd>
+                <dt>{tx("供应商可用性", "Provider usability")}</dt>
+                <dd>{translateProviderUsability(runtime.providerHealth.providerUsable, tx)}</dd>
+                {runtime.providerHealth.lastProviderErrorCode ? (
+                  <>
+                    <dt>{tx("错误码", "Error code")}</dt>
+                    <dd>{runtime.providerHealth.lastProviderErrorCode}</dd>
+                  </>
+                ) : null}
+              </>
+            ) : null}
           </dl>
         </section>
       ) : null}
@@ -239,6 +258,19 @@ function translateProvisioningState(value: string | null | undefined, tx: TxFn):
   if (!value) return "—";
   if (value === "managed") return tx("托管", "Managed");
   return translateProvisioningStatus(value, tx);
+}
+
+function translateProviderHealth(value: string, tx: TxFn): string {
+  if (value === "healthy") return tx("健康", "Healthy");
+  if (value === "degraded") return tx("降级", "Degraded");
+  if (value === "broken") return tx("不可用", "Unavailable");
+  return tx("待验证", "Unverified");
+}
+
+function translateProviderUsability(value: string, tx: TxFn): string {
+  if (value === "usable") return tx("可用", "Usable");
+  if (value === "unusable") return tx("不可用", "Unavailable");
+  return tx("未确认", "Unverified");
 }
 
 function formatDateTime(value: string, language: "zh" | "en"): string {

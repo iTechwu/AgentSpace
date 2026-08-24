@@ -28,6 +28,8 @@ const ALLOWED_ENVIRONMENT_KEYS = new Set([
   "OPENCLAW_API_KEY",
   "NANOBOT_API_KEY",
   "HERMES_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "DEEPSEEK_BASE_URL",
 ]);
 
 const PROVIDER_EXECUTABLES: Record<DaemonProvider, string> = {
@@ -39,6 +41,7 @@ const PROVIDER_EXECUTABLES: Record<DaemonProvider, string> = {
   openclaw: "openclaw",
   nanobot: "nanobot",
   hermes: "/opt/hermes/.venv/bin/hermes-agent",
+  "deepseek-harness": "dsh",
 };
 
 const PROVIDER_ENVIRONMENT_KEYS: Record<DaemonProvider, string[]> = {
@@ -50,6 +53,7 @@ const PROVIDER_ENVIRONMENT_KEYS: Record<DaemonProvider, string[]> = {
   openclaw: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENCLAW_API_KEY"],
   nanobot: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "NANOBOT_API_KEY"],
   hermes: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "HERMES_API_KEY"],
+  "deepseek-harness": ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"],
 };
 
 const PROVIDER_BASE_URL_KEYS: Record<DaemonProvider, string> = {
@@ -61,6 +65,7 @@ const PROVIDER_BASE_URL_KEYS: Record<DaemonProvider, string> = {
   openclaw: "OPENAI_BASE_URL",
   nanobot: "OPENAI_BASE_URL",
   hermes: "OPENAI_BASE_URL",
+  "deepseek-harness": "DEEPSEEK_BASE_URL",
 };
 
 const ATTRIBUTION_ENVIRONMENT_KEYS = [

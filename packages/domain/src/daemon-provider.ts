@@ -7,6 +7,7 @@ export const DAEMON_PROVIDER_IDS = [
   "openclaw",
   "nanobot",
   "hermes",
+  "deepseek-harness",
 ] as const;
 
 export type DaemonProvider = typeof DAEMON_PROVIDER_IDS[number];
@@ -20,6 +21,7 @@ const DAEMON_PROVIDER_LABELS: Record<DaemonProvider, string> = {
   openclaw: "OpenClaw",
   nanobot: "NanoBot",
   hermes: "Hermes Agent",
+  "deepseek-harness": "DeepSeek Harness",
 };
 
 export function isDaemonProvider(value: string): value is DaemonProvider {
@@ -47,10 +49,25 @@ export const DAEMON_PROVIDER_PROTOCOLS: Record<DaemonProvider, string[]> = {
   openclaw: ["openai"],
   nanobot: ["openai"],
   hermes: ["openai"],
+  "deepseek-harness": ["deepseek_native"],
 };
 
 const DAEMON_PROVIDER_DEFAULT_MODELS: Partial<Record<DaemonProvider, string>> = {
   codex: "gpt-5.6-terra",
+  "deepseek-harness": "deepseek-v4-flash",
+};
+
+export interface ProviderLocalModel {
+  id: string;
+  displayName: string;
+  protocol: string;
+}
+
+const DAEMON_PROVIDER_LOCAL_MODELS: Partial<Record<DaemonProvider, ProviderLocalModel[]>> = {
+  "deepseek-harness": [
+    { id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash", protocol: "deepseek_native" },
+    { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro", protocol: "deepseek_native" },
+  ],
 };
 
 export function resolveProviderProtocols(provider: DaemonProvider): string[] {
@@ -59,4 +76,14 @@ export function resolveProviderProtocols(provider: DaemonProvider): string[] {
 
 export function resolveProviderDefaultModel(provider: DaemonProvider): string | undefined {
   return DAEMON_PROVIDER_DEFAULT_MODELS[provider];
+}
+
+export function resolveProviderLocalModels(provider: DaemonProvider): ProviderLocalModel[] {
+  return (DAEMON_PROVIDER_LOCAL_MODELS[provider] ?? []).map((model) => ({ ...model }));
+}
+
+export function resolveLocalModelsForProtocols(protocols: string[]): ProviderLocalModel[] {
+  const requestedProtocols = new Set(protocols);
+  return DAEMON_PROVIDER_IDS.flatMap((provider) => resolveProviderLocalModels(provider))
+    .filter((model) => requestedProtocols.has(model.protocol));
 }

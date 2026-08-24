@@ -96,6 +96,8 @@ beforeEach(() => {
   delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION;
   delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS;
   process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64");
+  process.env.MCP_CODEX_EXPERIMENTAL_ENABLED = "1";
+  delete process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED;
   ADMIN_USER_ID = createUserSync({ displayName: "MCP Admin", isAdmin: true }).id;
 });
 
@@ -145,6 +147,91 @@ test("requestMcpConnection creates a connection and queues a verify operation", 
   assert.equal(detail?.secretFields.length, 1);
   assert.equal(detail?.secretFields[0]?.fieldName, "api_key");
   assert.equal(detail?.secretFields[0]?.configured, true);
+});
+
+test("requestMcpConnection permits only an explicitly gated local Docker endpoint", () => {
+  const endpoint = "http://127.0.0.1:18080/mcp";
+  const originalAllowLocal = process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL;
+  const originalLocalEndpoints = process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
+  delete process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL;
+  delete process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
+  const runtimeId = createRuntime();
+  const catalog = createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: `local-geoflow-${Math.random().toString(36).slice(2)}`,
+    displayName: "Local GEOFlow MCP",
+    transport: "streamable_http",
+    allowedHosts: ["127.0.0.1"],
+    configurationSchema: { type: "object", properties: {}, additionalProperties: false },
+    declaredTools: [{ name: "geoflow_catalog", description: "Read GEOFlow catalog", risk: "low" }],
+    defaultApprovedTools: ["geoflow_catalog"],
+    secretFields: [],
+    risk: "low",
+  });
+
+  assert.throws(() => requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint,
+    confirmHighRisk: true,
+  }), /mcp\.policy_denied/);
+
+  process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL = "1";
+  process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS = JSON.stringify([endpoint]);
+  try {
+    const { operation } = requestMcpConnectionSync({
+      workspaceId: "default",
+      actorUserId: ADMIN_USER_ID,
+      runtimeId,
+      catalogItemId: catalog.id,
+      endpoint,
+      confirmHighRisk: true,
+    });
+    assert.equal(operation.status, "pending");
+    assert.equal(JSON.parse(operation.requestSnapshotJson).endpoint, "http://127.0.0.1:18080");
+  } finally {
+    if (originalAllowLocal === undefined) delete process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL;
+    else process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL = originalAllowLocal;
+    if (originalLocalEndpoints === undefined) delete process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
+    else process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS = originalLocalEndpoints;
+  }
+});
+
+test("requestMcpConnection rejects a provider without MCP gateway support", () => {
+  process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED = "1";
+  const runtimeId = createRuntime("deepseek-harness");
+  const catalogId = seedCatalog();
+
+  assert.throws(() => requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "sk-test-value" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  }), /mcp\.runtime_provider_not_eligible/);
+});
+
+test("requestMcpConnection rejects an MCP-capable provider while its experiment is disabled", () => {
+  delete process.env.MCP_CODEX_EXPERIMENTAL_ENABLED;
+  const runtimeId = createRuntime("codex");
+  const catalogId = seedCatalog();
+
+  assert.throws(() => requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "sk-test-value" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  }), /mcp\.runtime_provider_not_eligible/);
 });
 
 test("managed stdio catalog connects an installed Runtime entrypoint without an egress lease", () => {
@@ -377,6 +464,22 @@ test("workspace catalog cannot claim the platform-managed service transport", ()
     configurationSchema: { type: "object" },
     declaredTools: [{ name: "submit_video_job", description: "Submit", risk: "high" }],
   }), /managed_service_not_supported/);
+});
+
+test("workspace catalog accepts namespaced MCP tool names", () => {
+  const catalog = createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: "namespaced-tools",
+    displayName: "Namespaced tools",
+    transport: "streamable_http",
+    allowedHosts: ["mcp.example.test"],
+    configurationSchema: { type: "object" },
+    declaredTools: [{ name: "geoflow.enterprise_knowledge.publish", description: "Publish knowledge", risk: "high" }],
+  });
+
+  const declaredTools = JSON.parse(catalog.declaredToolsJson) as Array<{ name: string }>;
+  assert.equal(declaredTools[0]?.name, "geoflow.enterprise_knowledge.publish");
 });
 
 test("managed stdio catalog rejects untrusted commands and reserved environment names", () => {
@@ -673,6 +776,54 @@ test("listReadyMcpConnectionsForTask exposes only approved∩discovered tools wi
   assert.equal(entries[0]?.approvedTools.includes("search_repos"), true);
   assert.equal("endpoint" in (entries[0] ?? {}), false);
   assert.equal("encryptedSecretBundle" in (entries[0] ?? {}), false);
+});
+
+test("legacy ready connections fail closed after their runtime provider becomes ineligible", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+  getDatabase().prepare("UPDATE agent_runtime SET provider = 'deepseek-harness' WHERE id = ?").run(runtimeId);
+
+  assert.deepEqual(listReadyMcpConnectionsForTaskSync({ workspaceId: "default", runtimeId }), []);
+  assert.equal(readMcpConnectionSync(connection.id, "default")?.status, "degraded");
+
+  getDatabase().prepare("UPDATE runtime_mcp_connection SET status = 'ready' WHERE id = ?").run(connection.id);
+  assert.throws(
+    () => claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "legacy-task", attemptId: "attempt-1" }),
+    /mcp\.runtime_provider_not_eligible/,
+  );
+
+  assert.equal(validateMcpConnectionForGatewaySync({
+    workspaceId: "default",
+    runtimeId,
+    taskId: "legacy-task",
+    connectionId: connection.id,
+    toolName: "search_repos",
+  }).ok, false);
 });
 
 test("claimed operations reject legacy connection configuration that no longer satisfies policy", () => {
@@ -1460,11 +1611,11 @@ function seedInstalledPrivateRuntimeApp(runtimeId: string, entryPoint: string) {
   return release;
 }
 
-function createRuntime(): string {
+function createRuntime(provider: "codex" | "deepseek-harness" = "codex"): string {
   const snapshot = registerDaemonRuntimesSync({
     daemonKey: `daemon-${Math.random().toString(36).slice(2)}`,
     deviceName: "Build Box",
-    runtimes: [{ provider: "codex", name: "Remote Codex", version: "test" }],
+    runtimes: [{ provider, name: `Remote ${provider}`, version: "test" }],
   });
   return snapshot.runtimes[0]!.id;
 }

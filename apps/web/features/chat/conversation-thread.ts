@@ -3,6 +3,7 @@
 
 import type { GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
 import type { MessageAcknowledgement, MessageAttachment, MessageMention } from "@/shared/types/workspace";
+import type { DaemonProvider } from "@dofe-agent/domain";
 import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
 import type { ExecutionTimelineItem } from "@/features/chat/task-execution-timeline";
 
@@ -70,7 +71,7 @@ export interface ConversationMentionCandidate {
 export interface ConversationComposerRuntime {
   employeeId: string;
   employeeLabel: string;
-  provider: "claude" | "codex";
+  provider: DaemonProvider;
   executionPolicy?: EmployeeExecutionPolicy;
   requiresMentionForCommands?: boolean;
 }

@@ -25,6 +25,7 @@ import type {
   RuntimeProvisioningTaskRecord,
 } from "@dofe-agent/db";
 import {
+  resolveLocalModelsForProtocols,
   resolveProviderProtocols,
 } from "@dofe-agent/domain";
 import type {
@@ -287,6 +288,9 @@ export async function runProvisioningPipeline(
         data: {
           runtimeCredentialId: result.credential.id,
           runtimeId,
+          runtimeType: task.runtimeType,
+          protocols: task.protocols.join(","),
+          defaultModel: task.requestedModel ?? "",
           keyFingerprint: result.credential.keyFingerprint ?? "",
           secretIssued: result.secretIssued,
         },
@@ -405,7 +409,13 @@ export function finalizeManagedRuntimeProvisioningSync(input: {
     title: "Managed runtime ready",
     note: `Runtime ${input.runtimeId} is provisioned`,
     code: "runtime.created",
-    data: { runtimeId: input.runtimeId, runtimeCredentialId: task?.runtimeCredentialId ?? "" },
+    data: {
+      runtimeId: input.runtimeId,
+      runtimeCredentialId: task?.runtimeCredentialId ?? "",
+      runtimeType: task?.runtimeType ?? "",
+      protocols: task?.protocols.join(",") ?? "",
+      defaultModel: task?.requestedModel ?? "",
+    },
   });
   return task;
 }
@@ -635,6 +645,13 @@ export async function assertManagedRuntimeModelSelectionAsync(input: {
   protocols: string[];
   requestedModel?: string;
 }): Promise<void> {
+  const localModels = resolveLocalModelsForProtocols(input.protocols);
+  if (localModels.length > 0) {
+    if (input.requestedModel && !localModels.some((model) => model.id === input.requestedModel)) {
+      throw new Error("managed_runtime.model_unavailable");
+    }
+    return;
+  }
   const response = await input.client.models.list({ query: { tenantId: input.tenantId } });
   const available = response.list.filter((item) => {
     const model = item as {
@@ -753,7 +770,14 @@ export function requestManagedRuntimeProvisioningSync(
     title: "Managed runtime provisioning requested",
     note: `Requested ${input.provider} runtime (task ${task.id})`,
     code: "runtime.provision_requested",
-    data: { runtimeType: input.provider, taskId: task.id, actorId: input.actorUserId },
+    data: {
+      runtimeType: input.provider,
+      protocols: protocols.join(","),
+      defaultModel,
+      allowedModels: allowedModels.join(","),
+      taskId: task.id,
+      actorId: input.actorUserId,
+    },
   });
 
   // Fire-and-forget: the task row is durable, so the pipeline keeps running

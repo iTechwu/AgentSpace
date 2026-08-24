@@ -1,0 +1,29 @@
+# Local recovery path only: refresh the daemon package while the approved
+# Node 24.19 base registry is unavailable. CI must use Dockerfile.managed-node.
+ARG MANAGED_NODE_BASE_IMAGE=dofe-agent-managed-node:local
+FROM ${MANAGED_NODE_BASE_IMAGE}
+
+ARG TARGETARCH
+ARG NODE_VERSION=24.19.0
+
+USER root
+RUN case "${TARGETARCH}" in \
+      amd64) NODE_ARCH=x64; NODE_SHA256=f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4 ;; \
+      arm64) NODE_ARCH=arm64; NODE_SHA256=d28c8a5bf0a808f0ed434a1dce8c54ae98f0371c0bd86ac58abc613f73e6643f ;; \
+      *) echo "Unsupported Node architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+  && curl --fail --location --silent --show-error --http1.1 \
+       --retry 5 --retry-all-errors --retry-delay 2 \
+       "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" \
+       --output /tmp/node.tar.gz \
+  && echo "${NODE_SHA256}  /tmp/node.tar.gz" | sha256sum --check --strict \
+  && tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 \
+  && rm /tmp/node.tar.gz \
+  && test "$(node --version)" = "v${NODE_VERSION}"
+
+COPY dofe-agent-daemon-*.tgz /tmp/
+RUN rm -rf /opt/dofe-agent-daemon \
+  && mkdir -p /opt/dofe-agent-daemon \
+  && tar -xzf /tmp/dofe-agent-daemon-*.tgz -C /opt/dofe-agent-daemon --strip-components=1 \
+  && rm /tmp/dofe-agent-daemon-*.tgz \
+  && chmod 0755 /opt/dofe-agent-daemon/bin/*.js

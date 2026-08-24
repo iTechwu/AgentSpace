@@ -42,6 +42,7 @@
     "test:agent-pricing": "pnpm run test:agent-pricing:node && pnpm run test:agent-pricing:web",
     "verify:managed-runtime-egress": "node --env-file-if-exists=.env deploy/self-hosted/verify-managed-runtime-egress.mjs",
     "verify:managed-runtime-billing": "node --env-file-if-exists=.env deploy/self-hosted/verify-managed-runtime-billing.mjs",
+    "verify:geo-mcp-live": "pnpm --filter dofe-agent-daemon exec node --env-file-if-exists=$INIT_CWD/.env --experimental-strip-types scripts/verify-geo-mcp-live-flow.ts",
     "verify:managed-runtime-release": "pnpm run verify:managed-runtime-egress && pnpm run verify:managed-runtime-billing",
     "test:e2e:web": "pnpm --filter @dofe-agent/web run test:e2e",
     "quality:web": "pnpm --filter @dofe-agent/web run typecheck && pnpm --filter @dofe-agent/web run typecheck:test && pnpm --filter @dofe-agent/web run lint && pnpm --filter @dofe-agent/web run test",

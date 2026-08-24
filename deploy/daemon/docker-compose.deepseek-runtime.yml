@@ -1,0 +1,36 @@
+# Remote DeepSeek deployment consumes only the signed immutable image that
+# passed the post-push native-model canary. Bundle builds remain in
+# docker-compose.runtimes.yml and must not be repeated on the target host.
+x-daemon-healthcheck: &daemon-healthcheck
+  test: ["CMD", "dofe-agent-daemon", "status", "--json"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+
+services:
+  runtime-deepseek-harness:
+    platform: linux/amd64
+    image: ${DEEPSEEK_RUNTIME_IMAGE_REPOSITORY:?Set the approved DeepSeek runtime image repository}@sha256:${DEEPSEEK_RUNTIME_IMAGE_SHA256:?Set the canary-verified 64-character image SHA-256}
+    env_file: ./runtimes/deepseek-harness.env
+    environment:
+      DSH_HOME: /home/dofe-agent/.dsh
+    extra_hosts:
+      - dofe-agent.local.dofe.ai:172.30.140.30
+    volumes:
+      - ./certs/rootCA.pem:/run/certs/rootCA.pem:ro
+      - deepseek-harness-auth:/home/dofe-agent
+      - deepseek-harness-state:/var/lib/dofe-agent-daemon
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck: *daemon-healthcheck
+    restart: unless-stopped
+
+volumes:
+  deepseek-harness-auth:
+  deepseek-harness-state:

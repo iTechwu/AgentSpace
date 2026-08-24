@@ -11,6 +11,7 @@ import type {
 } from "@dofe-agent/db";
 import {
   resolveProviderDefaultModel,
+  resolveProviderLocalModels,
   resolveProviderProtocols,
 } from "@dofe-agent/domain";
 import type {
@@ -45,6 +46,15 @@ export function resolveManagedRuntimeDefaultModel(provider: DaemonProvider, requ
 }
 
 export function resolveManagedRuntimeAllowedModels(provider: DaemonProvider, requestedModels?: string[]): string[] {
+  const localModels = resolveProviderLocalModels(provider);
+  if (localModels.length > 0) {
+    const supported = new Set(localModels.map((model) => model.id));
+    const requested = [...new Set((requestedModels ?? []).map((model) => model.trim()).filter(Boolean))];
+    if (requested.some((model) => !supported.has(model))) {
+      throw new Error("managed_runtime.model_unavailable");
+    }
+    return requested.length > 0 ? requested : [...supported];
+  }
   // An empty Models credential allowlist delegates filtering to team policy,
   // protocol compatibility and availability. Responses runtimes need that
   // dynamic catalog so an employee model does not become the sole allowed one.

@@ -14,7 +14,7 @@ import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { listEmployeeSkillIdsSync } from "../employees/employees.ts";
 import { readAgentSkillRequirementConfigurationSync } from "../skills/agent-skill-requirements.ts";
 import type { ModelsInternalRuntimeCredentialModel } from "@dofe/models-sdk";
-import { resolveProviderProtocols, isDaemonProvider } from "@dofe-agent/domain";
+import { resolveProviderLocalModels, resolveProviderProtocols, isDaemonProvider } from "@dofe-agent/domain";
 
 export interface ResolveEffectiveModelInput {
   workspaceId?: string;
@@ -99,6 +99,10 @@ export async function resolveEffectiveModelForTaskAsync(
   const session = input.routerSessionId
     ? readAgentRouterSessionSync(input.routerSessionId)
     : null;
+
+  if (runtime.provider === "deepseek-harness") {
+    return resolveDeepSeekNativeModel({ workspaceId, runtime, employee, session, employeeName: input.employeeName });
+  }
 
   const scope = resolveManagedRuntimeScopeSync(workspaceId);
   const client = getModelsInternalClient();
@@ -324,6 +328,15 @@ export async function validateModelOverrideForBoundEmployeeAsync(input: {
     throw new Error("model_resolution.not_a_managed_runtime");
   }
 
+  if (runtime.provider === "deepseek-harness") {
+    const requestedModel = input.modelId.trim();
+    const model = resolveProviderLocalModels(runtime.provider).find((candidate) => candidate.id === requestedModel);
+    if (!model) {
+      throw new Error("model_resolution.model_unavailable");
+    }
+    return { modelId: model.id, runtimeCredentialId: runtime.managedCredentialId };
+  }
+
   const scope = resolveManagedRuntimeScopeSync(workspaceId);
   const response = await getModelsInternalClient().runtimeCredentials.models({
     params: { id: runtime.managedCredentialId },
@@ -342,4 +355,49 @@ export async function validateModelOverrideForBoundEmployeeAsync(input: {
   }
 
   return { modelId: model.alias, runtimeCredentialId: runtime.managedCredentialId };
+}
+
+function resolveDeepSeekNativeModel(input: {
+  workspaceId: string;
+  employeeName: string;
+  runtime: NonNullable<ReturnType<typeof readAgentRuntimeSync>>;
+  employee: ReturnType<typeof readStoredEmployeeSync>;
+  session: ReturnType<typeof readAgentRouterSessionSync>;
+}): EffectiveModelResolution {
+  const nativeModelIds = resolveProviderLocalModels("deepseek-harness").map((model) => model.id);
+  const skillRequiredModelId = readSingleSkillRequiredModelIdSync(input.workspaceId, input.employeeName);
+  const candidates: Array<{ modelId: string; source: EffectiveModelResolution["source"] }> = [
+    input.session?.modelOverride ? { modelId: input.session.modelOverride, source: "session_override" } : null,
+    input.employee?.defaultModel ? { modelId: input.employee.defaultModel, source: "employee_default" } : null,
+    skillRequiredModelId ? { modelId: skillRequiredModelId, source: "skill_requirement" } : null,
+    input.runtime.defaultModel ? { modelId: input.runtime.defaultModel, source: "runtime_default" } : null,
+    { modelId: readTeamPolicyDefaultModelSync(input.workspaceId), source: "team_policy_default" },
+    { modelId: nativeModelIds[0] ?? "", source: "protocol_fallback" },
+  ].filter((item): item is { modelId: string; source: EffectiveModelResolution["source"] } => Boolean(item?.modelId));
+
+  for (const candidate of candidates) {
+    if (nativeModelIds.includes(candidate.modelId)) {
+      return {
+        modelId: candidate.modelId,
+        source: candidate.source,
+        runtimeCredentialId: input.runtime.managedCredentialId!,
+        validated: isDeepSeekModelVerified(input.runtime.metadataJson, candidate.modelId),
+      };
+    }
+    if (candidate.source === "session_override") {
+      throw new Error("model_resolution.session_override_unavailable");
+    }
+  }
+
+  throw new Error("model_resolution.no_available_model: no DeepSeek native models are configured");
+}
+
+function isDeepSeekModelVerified(metadataJson: string, modelId: string): boolean {
+  try {
+    const metadata = JSON.parse(metadataJson) as { providerHealth?: { modelIds?: unknown } };
+    return Array.isArray(metadata.providerHealth?.modelIds)
+      && metadata.providerHealth.modelIds.some((value) => value === modelId);
+  } catch {
+    return false;
+  }
 }

@@ -12,6 +12,7 @@ import {
   cancelQueuedTaskSync,
   enqueueNativeTaskSync,
   listRuntimeGrantsSync,
+  listAuditLogsSync,
   listDaemonSnapshotsSync,
   listQueuedTasksSync,
   listTaskMessagesForTaskSync,
@@ -460,6 +461,56 @@ describe("daemon API routes", () => {
 
     expect(repeatedHeartbeatResponse.status).toBe(200);
     expect(repeatedHeartbeatPayload.daemon.status).toBe("online");
+  });
+
+  it("audits managed DeepSeek provider health transitions without persisting raw provider messages", async () => {
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
+    const daemonToken = createManagedDaemonBootstrapTokenSync({
+      label: "deepseek-health-audit",
+      createdBy: "techwu",
+    });
+    const managedRuntime = registerDaemonRuntimesSync({
+      workspaceId: "default",
+      daemonKey: "deepseek-health-audit-runtime",
+      deviceName: "DeepSeek health audit runtime",
+      metadata: { managedNode: true },
+      daemonTokenId: daemonToken.id,
+      runtimes: [{ provider: "deepseek-harness", name: "DeepSeek Harness" }],
+    }).runtimes[0]!;
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: managedRuntime.id,
+      workspaceId: "default",
+      managedCredentialId: "credential-deepseek-audit",
+      provisioningState: "managed",
+    });
+    const heartbeat = (status: "broken" | "healthy", errorCode?: string) => heartbeatPOST(
+      new Request("http://localhost/api/daemon/heartbeat", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "deepseek-health-audit-runtime",
+          runtimes: [{
+            id: managedRuntime.id,
+            provider: "deepseek-harness",
+            metadata: {
+              providerHealth: {
+                status,
+                checkedAt: new Date().toISOString(),
+                error: errorCode ? { code: errorCode, message: "raw-secret-provider-message" } : undefined,
+              },
+            },
+          }],
+        }),
+      }),
+    );
+
+    expect((await heartbeat("broken", "provider.auth_invalid")).status).toBe(200);
+    expect((await heartbeat("healthy")).status).toBe(200);
+    const audits = listAuditLogsSync("default", { code: "runtime.provider_health_changed" })
+      .filter((entry) => JSON.parse(entry.dataJson).runtimeId === managedRuntime.id);
+    expect(audits).toHaveLength(2);
+    expect(audits.map((entry) => JSON.parse(entry.dataJson).status)).toEqual(["healthy", "broken"]);
+    expect(audits.every((entry) => !entry.dataJson.includes("raw-secret-provider-message"))).toBe(true);
   });
 
   it("returns 400 for malformed or empty heartbeat bodies instead of crashing", async () => {

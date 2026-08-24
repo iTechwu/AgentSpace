@@ -171,7 +171,7 @@ export function CreateMcpCatalogModal(props: {
                     setSlugTouched(true);
                     setSlug(event.currentTarget.value.toLowerCase());
                   }}
-                  pattern="[a-z0-9][a-z0-9-]{0,62}"
+                  pattern="[a-z0-9][a-z0-9\-]{0,62}"
                   placeholder="internal-search"
                   required
                   value={slug}
@@ -179,7 +179,7 @@ export function CreateMcpCatalogModal(props: {
               </label>
               <label className="form-field">
                 <span>{tx("版本", "Version")}</span>
-                <input defaultValue="1.0.0" name="version" pattern="\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?" required />
+                <input defaultValue="1.0.0" name="version" pattern="\d+\.\d+\.\d+(?:-[0-9A-Za-z.\-]+)?" required />
               </label>
               <label className="form-field">
                 <span>{tx("类别", "Category")}</span>
@@ -250,8 +250,14 @@ export function CreateMcpCatalogModal(props: {
                 </>
               ) : (
                 <label className="form-field form-field--full">
-                  <span>Endpoint (HTTPS)</span>
-                  <input name="endpoint" pattern="https://.*" placeholder="https://mcp.example.com/mcp" required type="url" />
+                  <span>Endpoint (HTTPS or approved local address)</span>
+                  <input
+                    name="endpoint"
+                    pattern="https://.*|http://127\.0\.0\.1:[0-9]{4,5}/.+"
+                    placeholder="https://mcp.example.com/mcp"
+                    required
+                    type="url"
+                  />
                 </label>
               )}
               {transport === "streamable_http" ? (
@@ -291,7 +297,7 @@ export function CreateMcpCatalogModal(props: {
                 <div className="mcp-catalog-tool-draft" key={tool.id}>
                   <label className="form-field">
                     <span>{tx(`工具 ${index + 1}`, `Tool ${index + 1}`)}</span>
-                    <input onChange={(event) => updateTool(setTools, tool.id, { name: event.currentTarget.value })} pattern="[A-Za-z][A-Za-z0-9_-]{0,63}" placeholder="search_records" required value={tool.name} />
+                    <input onChange={(event) => updateTool(setTools, tool.id, { name: event.currentTarget.value })} pattern="[A-Za-z][A-Za-z0-9_.\-]{0,63}" placeholder="search_records" required value={tool.name} />
                   </label>
                   <label className="form-field mcp-catalog-tool-description">
                     <span>{tx("说明", "Description")}</span>

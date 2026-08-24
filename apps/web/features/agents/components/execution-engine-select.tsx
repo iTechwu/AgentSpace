@@ -171,6 +171,12 @@ function formatBindingUnavailableReason(
   if (option.provisioningState === "legacy") {
     return tx("旧版 Runtime 不可绑定", "Legacy runtime cannot be bound");
   }
+  if (option.providerHealth?.providerUsable === "unusable") {
+    return tx(
+      option.providerHealth.providerHealthReason || "供应商不可用，修复后才能绑定",
+      option.providerHealth.providerHealthReason || "Provider is unavailable and must be fixed before binding",
+    );
+  }
   return tx("Runtime 离线，暂不可绑定", "Runtime is offline and cannot be bound");
 }
 
@@ -188,6 +194,9 @@ function EngineMeta({ option }: { readonly option: ExecutionEngineOption }) {
       <span>{option.serverName || option.daemonKey}</span>
       <span>{formatDaemonProviderLabel(option.provider)}</span>
       <span>{option.mode === "remote" ? tx("远程", "Remote") : tx("本地", "Local")}</span>
+      {option.provider === "deepseek-harness" ? (
+        <span>{tx("Headless · 不支持 resume", "Headless · no resume")}</span>
+      ) : null}
       {option.defaultModel ? <span>{tx("默认模型", "Default model")}: {option.defaultModel}</span> : null}
       {typeof option.assignedEmployeeCount === "number" ? (
         <span>{tx(`已服务 ${option.assignedEmployeeCount} 个 AI员工`, `${option.assignedEmployeeCount} AI employee(s) served`)}</span>

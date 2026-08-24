@@ -15,16 +15,31 @@ test("managed credential bundles use the gateway endpoint required by each proto
     const claude = buildManagedCredentialBundleDocument(runtime("claude"), "claude-key");
     const codex = buildManagedCredentialBundleDocument(runtime("codex"), "codex-key");
     const gemini = buildManagedCredentialBundleDocument(runtime("gemini"), "gemini-key");
+    const deepSeekHarness = buildManagedCredentialBundleDocument(runtime("deepseek-harness"), "deepseek-key");
 
     assert.equal(claude.environment.ANTHROPIC_BASE_URL, "https://model.local.dofe.ai/api/anthropic");
     assert.equal(codex.environment.OPENAI_BASE_URL, "https://model.local.dofe.ai/api/v1");
     assert.equal(gemini.environment.GEMINI_BASE_URL, "https://model.local.dofe.ai/api/gemini");
+    assert.equal(deepSeekHarness.environment.DEEPSEEK_API_KEY, "deepseek-key");
+    assert.equal(deepSeekHarness.environment.DEEPSEEK_BASE_URL, "https://model.local.dofe.ai/api/v1");
   } finally {
     if (originalModelsBaseUrl === undefined) delete process.env.MODELS_BASE_URL;
     else process.env.MODELS_BASE_URL = originalModelsBaseUrl;
     if (originalGatewayBaseUrl === undefined) delete process.env.MODELS_GATEWAY_BASE_URL;
     else process.env.MODELS_GATEWAY_BASE_URL = originalGatewayBaseUrl;
   }
+});
+
+test("DeepSeek Harness install stage verifies the JSON-RPC carrier in its approved image", () => {
+  const commands = buildManagedProvisioningStageCommands("deepseek-harness", "install_cli", {
+    runtimeId: "runtime-deepseek-harness",
+    runtimeCredentialId: "credential-deepseek-harness",
+    gatewayBaseUrl: "http://model.local.dofe.ai/api",
+    imageTag: "stable",
+  });
+
+  assert.equal(commands[0]?.args[6], "dofe/agent-runtime-deepseek-harness:stable");
+  assert.equal(commands[0]?.args.at(-1), "command -v dsh-jsonrpc-agent");
 });
 
 test("install stage verifies the provider CLI inside the pulled runtime image", () => {
@@ -81,7 +96,7 @@ test("pull stage requires a prebuilt approved runtime image without contacting a
   }]);
 });
 
-function runtime(provider: "claude" | "codex" | "gemini") {
+function runtime(provider: "claude" | "codex" | "gemini" | "deepseek-harness") {
   return {
     id: `runtime-${provider}`,
     workspaceId: "workspace-1",

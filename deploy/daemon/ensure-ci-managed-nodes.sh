@@ -79,7 +79,7 @@ chmod 755 "$state_root"
   cd "$MANAGED_NODE_SOURCE_DIR/deploy/daemon"
   MANAGED_RUNTIME_IMAGE_TAG="$image_tag" docker compose \
     -f docker-compose.remote-images.yml \
-    build runtime-codex runtime-claude runtime-openclaw runtime-hermes
+    build runtime-codex runtime-claude runtime-openclaw runtime-hermes runtime-deepseek-harness
 )
 
 if [ -n "${MANAGED_NODE_WORKSPACE_IDS:-}" ]; then

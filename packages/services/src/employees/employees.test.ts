@@ -143,6 +143,23 @@ test("bindEmployeeRuntimeSync rejects binding a managed runtime whose credential
   );
 });
 
+test("bindEmployeeRuntimeSync rejects a managed runtime with a broken provider health snapshot", () => {
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  const runtimeId = createManagedRuntime("codex");
+  getDatabase().prepare("UPDATE agent_runtime SET metadata_json = ? WHERE id = ?").run(JSON.stringify({
+    providerHealth: {
+      status: "broken",
+      reason: "Provider verification failed.",
+    },
+  }), runtimeId);
+  createEmployeeSync({ name: "Broken Runtime Agent", role: "Planner" }, WORKSPACE_ID);
+
+  assert.throws(
+    () => bindEmployeeRuntimeSync("Broken Runtime Agent", runtimeId, WORKSPACE_ID, TEST_USER_ID),
+    /runtime\.provider_unavailable/,
+  );
+});
+
 test("bindEmployeeRuntimeSync allows binding a managed runtime when no skill declares its credential key", () => {
   process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
   const runtimeId = createManagedRuntime("claude");

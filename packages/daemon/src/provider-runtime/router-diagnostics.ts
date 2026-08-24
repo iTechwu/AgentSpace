@@ -12,6 +12,14 @@ const CODEX_STALLED_RESUME_PATTERN = /falling back from websockets to https tran
 const OPENCLAW_MISSING_RESUME_SESSION_PATTERN = /session .*not found|session.*missing|conversation .*not found|conversation.*missing|agent .*not found|agent.*missing|unknown session/i;
 
 export function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[] {
+  if (event.type === "harness_started") {
+    const label = event.harness === "deepseek-harness" ? "DeepSeek Harness" : event.harness;
+    return [{
+      type: "status",
+      content: `${label} started; executing the task.`,
+      inputJson: { harness: event.harness, pid: event.pid },
+    }];
+  }
   if (event.type === "text_delta") {
     return event.text.trim() ? [{ type: "text", content: event.text }] : [];
   }
@@ -33,9 +41,19 @@ export function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[
     }];
   }
   if (event.type === "tool_output" && event.tool === "usage" && event.metadata && typeof event.metadata === "object") {
-    const usage = event.metadata as { input_tokens?: unknown; output_tokens?: unknown; gateway_request_id?: unknown };
+    const usage = event.metadata as {
+      input_tokens?: unknown;
+      output_tokens?: unknown;
+      cache_read_tokens?: unknown;
+      cache_write_tokens?: unknown;
+      reasoning_tokens?: unknown;
+      gateway_request_id?: unknown;
+    };
     const inputTokens = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
     const outputTokens = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+    const cacheReadTokens = readOptionalTokenCount(usage.cache_read_tokens);
+    const cacheWriteTokens = readOptionalTokenCount(usage.cache_write_tokens);
+    const reasoningTokens = readOptionalTokenCount(usage.reasoning_tokens);
     const gatewayRequestId = typeof usage.gateway_request_id === "string" && usage.gateway_request_id.trim()
       ? usage.gateway_request_id.trim()
       : undefined;
@@ -45,6 +63,9 @@ export function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[
       inputJson: {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
+        cache_read_tokens: cacheReadTokens,
+        cache_write_tokens: cacheWriteTokens,
+        reasoning_tokens: reasoningTokens,
         gateway_request_id: gatewayRequestId,
       },
     }];
@@ -65,6 +86,10 @@ export function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[
     }];
   }
   return [];
+}
+
+function readOptionalTokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 export function resolveResumeSessionRecovery(

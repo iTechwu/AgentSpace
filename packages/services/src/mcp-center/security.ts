@@ -139,29 +139,70 @@ export interface McpEndpointValidation {
   host?: string;
 }
 
+export interface McpEndpointValidationOptions {
+  insecureLocalEndpoints?: string[];
+  allowLoopbackResolvedAddresses?: boolean;
+}
+
+export function mcpEndpointValidationOptionsFromEnv(): McpEndpointValidationOptions {
+  if (process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL !== "1") return {};
+  const raw = process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS?.trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return {
+      insecureLocalEndpoints: Array.isArray(parsed)
+        ? parsed.filter((entry): entry is string => typeof entry === "string" && isSafeLoopbackHttpEndpoint(entry))
+        : [],
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function isMcpInsecureLocalEndpointAllowed(
+  endpoint: string,
+  options: McpEndpointValidationOptions = {},
+): boolean {
+  if (!isSafeLoopbackHttpEndpoint(endpoint)) return false;
+  const normalized = new URL(endpoint).href;
+  return (options.insecureLocalEndpoints ?? []).some((candidate) => {
+    try {
+      return isSafeLoopbackHttpEndpoint(candidate) && new URL(candidate).href === normalized;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
  * Validates an MCP endpoint URL. The daemon re-checks the resolved IP at call time;
  * this is the control-plane gate that rejects obviously unsafe targets before a
  * connection is even created.
  */
-export function validateMcpEndpoint(endpoint: string, allowedHosts: string[]): McpEndpointValidation {
+export function validateMcpEndpoint(
+  endpoint: string,
+  allowedHosts: string[],
+  options: McpEndpointValidationOptions = {},
+): McpEndpointValidation {
   let parsed: URL;
   try {
     parsed = new URL(endpoint.trim());
   } catch {
     return { ok: false, code: "mcp.policy_denied", message: "Endpoint is not a valid URL." };
   }
-  if (parsed.protocol !== "https:") {
+  const insecureLocalAllowed = isMcpInsecureLocalEndpointAllowed(endpoint, options);
+  if (parsed.protocol !== "https:" && !insecureLocalAllowed) {
     return { ok: false, code: "mcp.policy_denied", message: "MCP endpoint must use HTTPS." };
   }
-  if (parsed.port && parsed.port !== "443") {
+  if (!insecureLocalAllowed && parsed.port && parsed.port !== "443") {
     return { ok: false, code: "mcp.policy_denied", message: "MCP endpoint must use the standard HTTPS port." };
   }
   const host = parsed.hostname.toLowerCase();
   if (!host) {
     return { ok: false, code: "mcp.policy_denied", message: "MCP endpoint is missing a host." };
   }
-  if (isForbiddenMcpNetworkAddress(host)) {
+  if (isForbiddenMcpNetworkAddress(host) && !insecureLocalAllowed) {
     return { ok: false, code: "mcp.policy_denied", message: "MCP endpoint host is not allowed (loopback, link-local, private, or metadata address)." };
   }
   if (!isHostAllowed(host, allowedHosts)) {
@@ -243,14 +284,47 @@ export function isForbiddenMcpNetworkAddress(host: string): boolean {
 }
 
 /** A hostname is usable only when DNS returned at least one address and every answer is public. */
-export function validateMcpResolvedAddresses(addresses: string[]): McpEndpointValidation {
+export function validateMcpResolvedAddresses(
+  addresses: string[],
+  options: McpEndpointValidationOptions = {},
+): McpEndpointValidation {
   if (addresses.length === 0) {
     return { ok: false, code: "mcp.network_unreachable", message: "MCP endpoint did not resolve to an address." };
+  }
+  if (options.allowLoopbackResolvedAddresses === true) {
+    if (addresses.every(isLoopbackMcpNetworkAddress)) return { ok: true };
+    return { ok: false, code: "mcp.policy_denied", message: "Local MCP endpoint resolved outside the loopback network." };
   }
   if (addresses.some(isForbiddenMcpNetworkAddress)) {
     return { ok: false, code: "mcp.policy_denied", message: "MCP endpoint resolved to a forbidden network address." };
   }
   return { ok: true };
+}
+
+function isSafeLoopbackHttpEndpoint(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    return false;
+  }
+  const port = Number(parsed.port);
+  return parsed.protocol === "http:"
+    && parsed.hostname === "127.0.0.1"
+    && Number.isSafeInteger(port)
+    && port >= 1024
+    && port <= 65535
+    && parsed.pathname.startsWith("/")
+    && parsed.pathname !== "/"
+    && !parsed.username
+    && !parsed.password
+    && !parsed.search
+    && !parsed.hash;
+}
+
+function isLoopbackMcpNetworkAddress(address: string): boolean {
+  const bare = address.replace(/^\[|\]$/g, "").toLowerCase();
+  return bare === "127.0.0.1" || bare === "::1" || bare === "::ffff:127.0.0.1";
 }
 
 export function isHostAllowed(host: string, allowedHosts: string[]): boolean {

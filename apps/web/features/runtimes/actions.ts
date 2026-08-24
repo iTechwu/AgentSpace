@@ -1,13 +1,14 @@
 "use server";
 
 import { readAgentRuntimeSync, updateAgentRuntimeManagedFieldsSync } from "@dofe-agent/db";
-import { DAEMON_PROVIDER_PROTOCOLS, resolveProviderProtocols } from "@dofe-agent/domain";
+import { DAEMON_PROVIDER_PROTOCOLS, resolveProviderLocalModels, resolveProviderProtocols } from "@dofe-agent/domain";
 import { cancelRuntimeProvisioningTaskAsync, deleteManagedRuntimeAsync, ensureManagedRuntimeCapacitySync, getManagedRuntimeCredentialStatusAsync, getRuntimeProvisioningTaskDetailSync, listManagedRuntimeTasksSync, preflightManagedRuntimeCreationAsync, resolveAgentRuntimeMode, resolveManagedRuntimeScopeSync, retryRuntimeProvisioningTaskSync, rotateManagedRuntimeCredentialAsync, setManagedRuntimeDefaultModelAsync, stopManagedRuntimeAsync } from "@dofe-agent/services/runtime";
 import { getModelsInternalClient, isExecutionLanguageModel, isModelsInternalConfigured } from "@dofe-agent/services/models";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";
 import type { DaemonProvider } from "@dofe-agent/domain";
+import { assertManagedRuntimeProviderEnabled } from "@/features/runtimes/runtime-feature-flags";
 
 function requireAdminActor() {
   return requireCurrentWorkspaceContext().then((ctx) => {
@@ -40,6 +41,7 @@ export async function createManagedRuntimeAction(input: {
   | { kind: "provisioning"; taskId: string }
 > {
   assertRemoteManagedRuntimeMode();
+  assertManagedRuntimeProviderEnabled(input.provider);
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
   const result = ensureManagedRuntimeCapacitySync({
     workspaceId,
@@ -65,6 +67,7 @@ export async function preflightManagedRuntimeAction(input: {
   forceProvisioning?: boolean;
 }) {
   assertRemoteManagedRuntimeMode();
+  assertManagedRuntimeProviderEnabled(input.provider);
   const { workspaceId, actorUserId } = await requireAdminActor();
   if (!isModelsInternalConfigured()) {
     return {
@@ -210,6 +213,10 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
 }> {
   assertRemoteManagedRuntimeMode();
   const { workspaceId } = await requireAdminActor();
+  const localModels = buildLocalRuntimeModelCatalog(provider);
+  if (localModels.length > 0) {
+    return { list: localModels, configured: true };
+  }
   if (!isModelsInternalConfigured()) {
     return { list: [], configured: false };
   }
@@ -289,6 +296,11 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
   if (!runtime || runtime.workspaceId !== workspaceId || !runtime.managedCredentialId) {
     throw new Error("managed_runtime.runtime_not_found");
   }
+  const localModels = buildLocalRuntimeModelCatalog(runtime.provider);
+  if (localModels.length > 0) {
+    const list = localModels.map((model) => ({ ...model, id: model.alias, isEnabled: true }));
+    return { list, total: list.length, configured: true as const, catalogState: "ready" as const };
+  }
   if (!isModelsInternalConfigured()) {
     return { list: [], total: 0, configured: false as const, catalogState: "not_configured" as const };
   }
@@ -366,6 +378,19 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
     configured: true as const,
     catalogState: "ready" as const,
   };
+}
+
+function buildLocalRuntimeModelCatalog(provider: DaemonProvider): RuntimeModelCatalogItem[] {
+  return resolveProviderLocalModels(provider).map((model) => ({
+    alias: model.id,
+    displayName: model.displayName,
+    model: model.id,
+    modelType: "llm",
+    protocol: model.protocol,
+    supportsVision: false,
+    supportsFunctionCalling: true,
+    isAvailable: true,
+  }));
 }
 
 function resolveEffectiveModelPricing(model: {

@@ -51,6 +51,7 @@ export {
 
 export {
   normalizeRuntimeProviderHealth,
+  sanitizeRuntimeHealthText,
   type NormalizeRuntimeProviderHealthInput,
 } from "../runtime-health/runtime-health.ts";
 
@@ -102,6 +103,7 @@ export {
   type ManagedRuntimeCreationPreflightResult,
   type ManagedRuntimeActor,
   type PublicManagedRuntimeRecord,
+  type PublicRuntimeProviderHealth,
   type PublicRuntimeProvisioningTaskRecord,
   type RequestManagedRuntimeInput,
   type RotateManagedRuntimeCredentialInput,

@@ -42,6 +42,7 @@ import {
   assertCanManageEmployeeForActorSync,
   assertCanUseRuntimeForActorSync,
 } from "../runtime-access/runtime-access.ts";
+import { normalizeRuntimeProviderHealth } from "../runtime-health/runtime-health.ts";
 
 const RUNTIME_COORDINATOR = "系统提示";
 
@@ -130,6 +131,25 @@ export function assertRuntimeCanBindEmployeeSync(runtimeId: string): void {
   }
   if (runtime.provisioningState !== "managed" || runtime.status !== "online") {
     throw new Error("runtime.managed_runtime_not_ready");
+  }
+  const providerHealth = normalizeRuntimeProviderHealth({
+    runtimeStatus: runtime.status,
+    runtimeMetadata: parseRuntimeMetadata(runtime.metadataJson),
+    lastError: runtime.lastError,
+  });
+  if (providerHealth.providerUsable === "unusable") {
+    throw new Error("runtime.provider_unavailable");
+  }
+}
+
+function parseRuntimeMetadata(value: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
   }
 }
 

@@ -11,7 +11,7 @@ import {
 } from "@dofe-agent/db";
 import { assessRuntimeAppInstallability, assessRuntimeAppRisk, readCliHubReadinessForRuntimeSync, listWorkspaceRuntimeAppCatalogItemsSync, syncCliHubCatalog } from "@dofe-agent/services/skills";
 import { isCapabilityProjectionEnabled } from "@dofe-agent/services/capabilities";
-import { listMcpCatalogItemsForWorkspaceSync, resolveMcpRuntimeAppRequirement, syncOfficialMcpCatalogForWorkspaceSync } from "@dofe-agent/services/mcp-center";
+import { isMcpRuntimeProviderEligible, listMcpCatalogItemsForWorkspaceSync, resolveMcpRuntimeAppRequirement, syncOfficialMcpCatalogForWorkspaceSync } from "@dofe-agent/services/mcp-center";
 import type { MarketPageData } from "@/features/market/market-page-client";
 import { parseMcpDeclaredTools } from "@/features/market/mcp-declared-tools";
 import { computeMarketCapabilityProjections } from "@/features/market/capability-projection-loader";
@@ -127,9 +127,7 @@ export async function loadMarketPageData(input: {
           // launch args" is not "supported". Only after the CI env validates a
           // provider do we flip its flag to default-on. Other providers are not
           // eligible yet.
-          mcpEligible:
-            (runtime.provider === "claude" && process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED === "1")
-            || (runtime.provider === "codex" && process.env.MCP_CODEX_EXPERIMENTAL_ENABLED === "1"),
+          mcpEligible: isMcpRuntimeProviderEligible(runtime.provider),
         };
       }),
     ),

@@ -1,17 +1,79 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ResolvedMcpConnection } from "@dofe-agent/domain";
+import * as mcpClientModule from "./client.ts";
 import { createPinnedLookup, createRuntimeMcpClient, normalizeDiscoveredTools } from "./client.ts";
 import { McpGateway } from "./gateway.ts";
+import { assertSafeGeoProjectList } from "./geo-project-list.ts";
+
+test("MCP tool calls use a bounded timeout separate from protocol discovery", () => {
+  const resolver = (mcpClientModule as {
+    resolveMcpToolCallTimeoutMs?: (environment: NodeJS.ProcessEnv) => number;
+  }).resolveMcpToolCallTimeoutMs;
+  assert.equal(typeof resolver, "function");
+  assert.equal(resolver!({}), 120_000);
+  assert.equal(resolver!({ DOFE_AGENT_MCP_TOOL_TIMEOUT_MS: "1000" }), 15_000);
+  assert.equal(resolver!({ DOFE_AGENT_MCP_TOOL_TIMEOUT_MS: "900000" }), 600_000);
+  assert.equal(resolver!({ DOFE_AGENT_MCP_TOOL_TIMEOUT_MS: "invalid" }), 120_000);
+});
+
+test("MCP SDK request timeout is classified as a stable timeout error", () => {
+  const classifier = (mcpClientModule as {
+    classifyMcpError?: (error: unknown) => { code: string; safeMessage: string };
+  }).classifyMcpError;
+  assert.equal(typeof classifier, "function");
+  assert.deepEqual(classifier!(new Error("MCP error -32001: Request timed out")), {
+    code: "mcp.timeout",
+    safeMessage: "Request to the MCP server timed out.",
+  });
+});
+
+test("assertSafeGeoProjectList accepts bounded tenant metadata", () => {
+  const items = assertSafeGeoProjectList({
+    tenant_id: "workspace-a",
+    count: 1,
+    items: [{
+      id: 16,
+      name: "AgentSpace GEO regression mt6av9lu",
+      description: "Regression fixture",
+      status: "published",
+      published_knowledge_base_id: 15,
+      updated_at: "2026-08-24T00:00:00Z",
+    }],
+  }, "workspace-a");
+
+  assert.equal(items.length, 1);
+});
+
+test("assertSafeGeoProjectList rejects cross-tenant, inconsistent, and content-bearing results", () => {
+  assert.throws(
+    () => assertSafeGeoProjectList({ tenant_id: "workspace-b", count: 0, items: [] }, "workspace-a"),
+    /scoped to the task workspace/,
+  );
+  assert.throws(
+    () => assertSafeGeoProjectList({ tenant_id: "workspace-a", count: 2, items: [] }, "workspace-a"),
+    /count must match/,
+  );
+  assert.throws(
+    () => assertSafeGeoProjectList({ tenant_id: "workspace-a", count: 0, items: null }, "workspace-a"),
+    /must return an items array/,
+  );
+  assert.throws(
+    () => assertSafeGeoProjectList({ tenant_id: "workspace-a", count: 1, items: [{ id: 16, draft_content: "secret" }] }, "workspace-a"),
+    /leaked non-metadata fields: draft_content/,
+  );
+});
 
 test("normalizeDiscoveredTools accepts bounded unique tool definitions", () => {
   const result = normalizeDiscoveredTools([
     { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" } },
+    { name: "geoflow.enterprise_knowledge.publish", description: "Publish knowledge", inputSchema: { type: "object" } },
   ]);
   assert.equal(result.ok, true);
   if (result.ok) {
-    assert.equal(result.tools.length, 1);
+    assert.equal(result.tools.length, 2);
     assert.equal(result.tools[0]?.name, "search_repos");
+    assert.equal(result.tools[1]?.name, "geoflow.enterprise_knowledge.publish");
   }
 });
 

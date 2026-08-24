@@ -12,6 +12,7 @@ import { FeedbackBanner } from "@/shared/ui/feedback-banner";
 import { GeneratedAvatar, type GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import type {
   ConversationListItem,
   ConversationComposerRuntime,
@@ -1472,7 +1473,7 @@ export function ChatComposer({
               {showExecutionPolicyMenu ? (
                 <div aria-label={tx("执行权限", "Execution permissions")} className="contacts-execution-policy__menu" role="listbox">
                   <div className="contacts-composer-menu__heading">
-                    {runtime.provider === "claude" ? "Claude Code" : "Codex"} · {tx("执行权限", "Execution permissions")}
+                    {formatDaemonProviderLabel(runtime.provider)} · {tx("执行权限", "Execution permissions")}
                   </div>
                   {executionOptions.map((option) => (
                     <button
@@ -1815,6 +1816,9 @@ function buildExecutionPolicyOptions(
       { id: "plan", label: "Plan", description: tx("仅规划，不直接修改文件", "Plan without directly editing files"), policy: { claudePermissionMode: "plan" } },
       { id: "auto", label: "Auto", description: tx("由 Claude Code 自动处理权限", "Let Claude Code handle permissions automatically"), policy: { claudePermissionMode: "auto" } },
     ];
+  }
+  if (runtime.provider !== "codex") {
+    return [inherit];
   }
   return [
     inherit,

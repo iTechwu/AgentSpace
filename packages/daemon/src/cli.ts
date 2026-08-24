@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 import { printRemoteDaemonHelp, runRemoteDaemonCommand } from "./remote-daemon.ts";
+import { generateDeepSeekJsonRpcReleaseEvidence } from "./provider-runtime/deepseek-release-evidence.ts";
+import { generateDeepSeekNativeModelCanaryEvidence } from "./provider-runtime/deepseek-model-canary.ts";
 // Single source of truth for the daemon version; esbuild inlines this at bundle time.
 import daemonPackageJson from "../package.json" with { type: "json" };
 
@@ -18,6 +20,22 @@ export async function main(): Promise<number> {
   }
 
   const [command, ...restArgs] = args;
+  if (command === "verify-deepseek-release") {
+    if (restArgs.length > 0) {
+      console.error("dofe-agent-daemon verify-deepseek-release does not accept arguments.");
+      return 1;
+    }
+    console.log(JSON.stringify(generateDeepSeekJsonRpcReleaseEvidence(), null, 2));
+    return 0;
+  }
+  if (command === "verify-deepseek-model-canary") {
+    if (restArgs.length > 0) {
+      console.error("dofe-agent-daemon verify-deepseek-model-canary does not accept arguments.");
+      return 1;
+    }
+    console.log(JSON.stringify(await generateDeepSeekNativeModelCanaryEvidence(), null, 2));
+    return 0;
+  }
   return runRemoteDaemonCommand(command, restArgs);
 }
 

@@ -23,6 +23,7 @@ import {
   listRuntimeCredentialReconciliationTargetsSync,
   listTokenUsageBillingEventsSync,
   listRuntimeProvisioningTaskEventsSync,
+  listAuditLogsSync,
   readAgentRuntimeSync,
   readRuntimeProvisioningTaskSync,
   markManagedRuntimeCleanupRequestRunningSync,
@@ -65,6 +66,7 @@ import {
   reconcileRuntimeCredentialUsageEntrySync,
 } from "../models/usage-sync.ts";
 import { resetRuntimeCredentialVaultForTests, getRuntimeCredentialVault } from "./credential-vault.ts";
+import { resolveManagedRuntimeAllowedModels } from "./runtime-provisioning-capacity.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-provisioning-svc-"));
@@ -620,6 +622,9 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   });
   const managed = listManagedRuntimesForWorkspaceSync({ workspaceId: TEAM_WS, actorUserId: OWNER })[0]!;
   assert.equal(managed.displayName, "Nightly render runtime");
+  assert.equal(managed.providerHealth?.runtimeStatus, "online");
+  assert.equal(managed.providerHealth?.providerHealth, "unknown");
+  assert.equal(managed.providerHealth?.providerUsable, "unverified");
   assert.deepEqual(managed.protocols, ["anthropic"]);
   assert.equal(managed.defaultModel, "claude-sonnet");
   assert.equal(managed.assignedEmployeeCount, 1);
@@ -628,6 +633,72 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal(managed.periodOutputTokens, 60);
   assert.equal(managed.periodActualCostUsd, 2.5);
   assert.equal(managed.unallocatedCostUsd, 0);
+});
+
+test("DeepSeek provisioning audit preserves native protocol and model metadata", async () => {
+  activeClient = createMockClient({ modelList: [] });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-v4-pro",
+    idempotencyKey: "deepseek-audit-metadata",
+  });
+  const final = await awaitTaskTerminal(task.id);
+
+  assert.equal(final.status, "succeeded");
+  const credentialAudit = listAuditLogsSync(TEAM_WS, { code: "runtime_credential.created" })
+    .find((entry) => entry.dataJson.includes("deepseek-audit-metadata") || entry.dataJson.includes(final.runtimeCredentialId ?? ""));
+  assert.ok(credentialAudit);
+  const auditData = JSON.parse(credentialAudit!.dataJson) as Record<string, string>;
+  assert.equal(auditData.runtimeType, "deepseek-harness");
+  assert.equal(auditData.protocols, "deepseek_native");
+  assert.equal(auditData.defaultModel, "deepseek-v4-pro");
+});
+
+test("public runtime details expose structured health without raw provider text", async () => {
+  activeClient = createMockClient({ modelList: [] });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-v4-flash",
+    idempotencyKey: "deepseek-public-health",
+  });
+  const final = await awaitTaskTerminal(task.id);
+  assert.ok(final.runtimeId);
+
+  getDatabase().prepare("UPDATE agent_runtime SET metadata_json = ? WHERE id = ?").run(
+    JSON.stringify({
+      providerHealth: {
+        status: "broken",
+        reason: "DeepSeek provider verification failed authorization=Bearer sk-secret-reason.",
+        checkedAt: "2026-08-23T00:00:00.000Z",
+        error: {
+          code: "provider.auth_invalid",
+          message: "credential rejected",
+          rawProviderMessage: "Authorization: Bearer sk-secret-must-not-leak",
+        },
+      },
+    }),
+    final.runtimeId,
+  );
+
+  const detail = getRuntimeProvisioningTaskDetailSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    taskId: task.id,
+  });
+  assert.equal(detail.runtime?.providerHealth?.providerHealth, "broken");
+  assert.equal(detail.runtime?.providerHealth?.lastProviderErrorCode, "provider.auth_invalid");
+  assert.equal(detail.runtime?.providerHealth?.providerHealthReason, "DeepSeek provider verification failed authorization=Bearer [REDACTED].");
+  assert.equal(JSON.stringify(detail).includes("sk-secret-must-not-leak"), false);
+  assert.equal(JSON.stringify(detail).includes("sk-secret-reason"), false);
+  assert.equal(JSON.stringify(detail).includes("credential rejected"), false);
 });
 
 test("local usage correlation never recalculates models charges", () => {
@@ -867,6 +938,32 @@ test("Codex preflight accepts a protocol-compatible Responses model before verif
   // Selection is filtered by runtime protocol, not by the independent
   // verification stamp. Gateway verification remains visible as evidence.
   assert.equal(preflight.allowed, true);
+});
+
+test("DeepSeek Harness preflight uses its strict runtime-local native model catalog", async () => {
+  activeClient = createMockClient({ modelList: [] });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const accepted = await preflightManagedRuntimeCreationAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-v4-pro",
+  });
+  const rejected = await preflightManagedRuntimeCreationAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "deepseek-harness",
+    defaultModel: "deepseek-chat",
+  });
+
+  assert.equal(accepted.allowed, true);
+  assert.equal(rejected.allowed, false);
+  assert.equal(rejected.code, "managed_runtime.model_unavailable");
+  assert.deepEqual(resolveManagedRuntimeAllowedModels("deepseek-harness"), [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+  ]);
 });
 
 test("usage reconciliation restores task attribution from a signed root task snapshot", () => {

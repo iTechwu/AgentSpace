@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -20,10 +21,12 @@ import {
   resolveRemoteTaskExecutionSessionId,
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
+  resolveRemoteTaskWorkDir,
   runRemoteDaemonCommand,
   watchRemoteTaskCancellation,
 } from "./remote-daemon.ts";
 import type { ResolvedMcpConnection } from "@dofe-agent/domain";
+import { pollRemoteTasks } from "./remote-daemon/poll.ts";
 
 test("resolveManagedServiceConnection binds only the official OpenMontage service from daemon environment", () => {
   const connection = {
@@ -78,6 +81,7 @@ test("resolveManagedServiceConnection binds the official Tools viral-video servi
 });
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError } from "./daemon-client.ts";
 import { isProcessRunning } from "./state.ts";
+import { executeRemoteTask } from "./remote-daemon/task-execution.ts";
 
 test("isProcessRunning treats an inaccessible existing process as running", () => {
   assert.equal(isProcessRunning(1), true);
@@ -108,6 +112,343 @@ test("watchRemoteTaskCancellation aborts after the control plane cancels a task"
     assert.equal(reads, 2);
   } finally {
     stop();
+  }
+});
+
+test("executeRemoteTask routes DeepSeek output through runtime-output upload and cleanup", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-task-smoke-"));
+  const dshPath = join(stateDir, "dsh");
+  const uploaded: Array<Record<string, unknown>> = [];
+  const completed: Array<Record<string, unknown>> = [];
+  const messages: Array<Record<string, unknown>> = [];
+  const task = {
+    id: "task-deepseek-smoke",
+    workspaceId: "workspace-1",
+    agentId: "employee-1",
+    runtimeId: "runtime-deepseek",
+    triggerType: "manual",
+    priority: 1,
+    status: "claimed",
+    inputJson: "{}",
+    queuedAt: "2026-08-23T00:00:00.000Z",
+  };
+  const runtime = {
+    id: "runtime-deepseek",
+    workspaceId: "workspace-1",
+    provider: "deepseek-harness" as const,
+    name: "DeepSeek Harness",
+    status: "online" as const,
+    metadata: { executablePath: dshPath, mode: "remote" as const },
+  };
+  const config = buildRemoteDaemonConfig({ "state-dir": stateDir }, { environment: { HOME: stateDir } });
+  const client = {
+    startTask: async () => undefined,
+    getInputBundle: async () => ({
+      version: 1 as const,
+      format: "json-inline-v1" as const,
+      taskId: task.id,
+      runtimeId: runtime.id,
+      prompt: "produce an artifact",
+      metadata: { taskTriggerType: task.triggerType },
+      files: [],
+    }),
+    getTaskStatus: async () => ({ task: { id: task.id, status: "running", updatedAt: new Date().toISOString() } }),
+    reportMessages: async (_taskId: string, body: { messages: Array<Record<string, unknown>> }) => {
+      messages.push(...body.messages);
+    },
+    uploadOutputBundle: async (_taskId: string, bundle: Record<string, unknown>) => {
+      uploaded.push(bundle);
+    },
+    completeTask: async (_taskId: string, body: Record<string, unknown>) => {
+      completed.push(body);
+    },
+    failTask: async (_taskId: string, body: Record<string, unknown>) => {
+      throw new Error(`unexpected failure: ${JSON.stringify(body)}`);
+    },
+  };
+
+  try {
+    writeFileSync(
+      dshPath,
+      [
+        "#!/bin/sh",
+        "mkdir -p runtime-output/artifacts",
+        "printf '%s' 'artifact body' > runtime-output/artifacts/result.txt",
+        "printf '%s' '{\"text\":\"artifact result\",\"attachments\":[{\"path\":\"runtime-output/artifacts/result.txt\",\"name\":\"result.txt\",\"mediaType\":\"text/plain\"}]}' > runtime-output/agent-output.json",
+        "printf '%s\\n' 'deepseek task completed'",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(dshPath, 0o755);
+
+    await executeRemoteTask(client as never, config, runtime, task, undefined, undefined);
+
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0]?.outputText, "deepseek task completed");
+    assert.equal(uploaded.length, 1);
+    const bundle = uploaded[0];
+    const files = bundle.files as Array<{ path?: string }>;
+    assert.ok(files.some((file) => file.path === "runtime-output/agent-output.json"));
+    assert.ok(files.some((file) => file.path === "runtime-output/artifacts/result.txt"));
+    assert.ok(messages.some((message) => String(message.content).includes("DeepSeek Harness started")));
+    const workDir = resolveRemoteTaskWorkDir(config, task);
+    assert.equal(existsSync(workDir), false);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("executeRemoteTask preserves DeepSeek JSON-RPC cache usage through output upload and cleanup", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-task-"));
+  const runtimePath = join(stateDir, "dsh-jsonrpc-agent");
+  const configPath = join(stateDir, "cordis.yml");
+  const provenancePath = join(stateDir, "provenance.json");
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(releaseKeys.map((key) => [key, process.env[key]]));
+  const uploaded: Array<Record<string, unknown>> = [];
+  const completed: Array<Record<string, unknown>> = [];
+  const messages: Array<Record<string, unknown>> = [];
+  const reportedUsageBatches: Array<Array<Record<string, unknown>>> = [];
+  const settledUsages = new Map<string, Record<string, unknown>>();
+  const task = {
+    id: "task-deepseek-jsonrpc",
+    workspaceId: "workspace-1",
+    agentId: "employee-1",
+    runtimeId: "runtime-deepseek-jsonrpc",
+    triggerType: "manual",
+    priority: 1,
+    status: "claimed",
+    inputJson: "{}",
+    queuedAt: "2026-08-24T00:00:00.000Z",
+  };
+  const runtime = {
+    id: task.runtimeId,
+    workspaceId: task.workspaceId,
+    provider: "deepseek-harness" as const,
+    name: "DeepSeek Harness JSON-RPC",
+    status: "online" as const,
+    metadata: {
+      executablePath: runtimePath,
+      mode: "remote" as const,
+      managedCredentialId: "credential-deepseek-jsonrpc",
+      provisioningState: "managed" as const,
+    },
+  };
+  const config = buildRemoteDaemonConfig({ "state-dir": stateDir }, { environment: { HOME: stateDir } });
+  const client = {
+    startTask: async () => undefined,
+    getInputBundle: async () => ({
+      version: 1 as const,
+      format: "json-inline-v1" as const,
+      taskId: task.id,
+      runtimeId: runtime.id,
+      prompt: "produce a JSON-RPC artifact",
+      metadata: {
+        taskTriggerType: task.triggerType,
+        effectiveModel: {
+          modelId: "deepseek-v4-flash",
+          source: "runtime_default" as const,
+          runtimeCredentialId: runtime.metadata.managedCredentialId,
+        },
+      },
+      files: [],
+    }),
+    getTaskStatus: async () => ({ task: { id: task.id, status: "running", updatedAt: new Date().toISOString() } }),
+    reportMessages: async (_taskId: string, body: { messages: Array<Record<string, unknown>> }) => {
+      messages.push(...body.messages);
+    },
+    reportTaskUsages: async (_taskId: string, body: { usages: Array<Record<string, unknown>> }) => {
+      reportedUsageBatches.push(body.usages);
+      for (const usage of body.usages) {
+        const requestId = String(usage.gatewayRequestId ?? "");
+        if (requestId) settledUsages.set(requestId, usage);
+      }
+    },
+    uploadOutputBundle: async (_taskId: string, bundle: Record<string, unknown>) => uploaded.push(bundle),
+    completeTask: async (_taskId: string, body: Record<string, unknown>) => completed.push(body),
+    failTask: async (_taskId: string, body: Record<string, unknown>) => {
+      throw new Error(`unexpected failure: ${JSON.stringify(body)}`);
+    },
+  };
+
+  try {
+    writeFileSync(
+      runtimePath,
+      [
+        `#!${process.execPath}`,
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (message) => process.stdout.write(`${JSON.stringify(message)}\\n`);",
+        "const event = (sessionId, type, seq, data) => send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type, seq, time: seq + 1, data } } });",
+        "rl.on('line', (line) => {",
+        "  const request = JSON.parse(line);",
+        "  if (request.method === 'initialize') { send({ jsonrpc: '2.0', id: request.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' }, protocolVersion: '2.0' } }); return; }",
+        "  if (request.method === 'session/prompt') {",
+        "    fs.mkdirSync('runtime-output/artifacts', { recursive: true });",
+        "    fs.writeFileSync('runtime-output/artifacts/result.txt', 'jsonrpc artifact body');",
+        "    fs.writeFileSync('runtime-output/agent-output.json', JSON.stringify({ text: 'jsonrpc artifact result', attachments: [{ path: 'runtime-output/artifacts/result.txt', name: 'result.txt', mediaType: 'text/plain' }] }));",
+        "    fs.writeFileSync('.dofe-gateway-requests.jsonl', JSON.stringify({ requestId: 'gateway-deepseek-1', protocol: 'deepseek_native', inputTokens: 13, outputTokens: 5, cacheTokens: 10 }) + '\\n');",
+        "    const sessionId = request.params.sessionId;",
+        "    const usage = { inputTokens: 13, outputTokens: 5, cacheReadTokens: 7, cacheWriteTokens: 3, reasoningTokens: 2 };",
+        "    send({ jsonrpc: '2.0', id: request.id, result: { messageId: 'queue-message' } });",
+        "    event(sessionId, 'agent/inbox/spliced', 0, { inserted: [{ id: 'queue-message' }] });",
+        "    event(sessionId, 'turn/start', 1, { turn: 1 });",
+        "    event(sessionId, 'step/start', 2, { turn: 1, step: 1 });",
+        "    event(sessionId, 'assistant/chunk', 3, { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } });",
+        "    event(sessionId, 'assistant/chunk', 4, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'jsonrpc task completed' } });",
+        "    event(sessionId, 'assistant/chunk', 5, { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: 'jsonrpc task completed' } } });",
+        "    event(sessionId, 'assistant/chunk', 6, { turn: 1, step: 1, chunk: { type: 'usage', usage } });",
+        "    event(sessionId, 'assistant/chunk', 7, { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'stop' } } });",
+        "    event(sessionId, 'assistant/message', 8, { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'jsonrpc task completed' }] }, usage });",
+        "    event(sessionId, 'step/end', 9, { turn: 1, step: 1 });",
+        "    event(sessionId, 'turn/end', 10, { turn: 1, reason: { kind: 'completed' } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (request.method === 'shutdown') { send({ jsonrpc: '2.0', id: request.id, result: {} }); rl.close(); }",
+        "});",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(runtimePath, 0o755);
+    writeFileSync(
+      configPath,
+      readFileSync(new URL("../../../deploy/daemon/runtimes/deepseek-jsonrpc/cordis.yml", import.meta.url)),
+    );
+    const ripgrepPath = `${runtimePath}-rg`;
+    writeFileSync(ripgrepPath, "#!/bin/sh\nexit 0\n", "utf8");
+    chmodSync(ripgrepPath, 0o755);
+    const spawnHelperPath = `${runtimePath}-spawn-helper`;
+    if (process.platform === "darwin") {
+      writeFileSync(spawnHelperPath, "#!/bin/sh\nexit 0\n", "utf8");
+      chmodSync(spawnHelperPath, 0o755);
+    }
+    const sourceCommit = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
+    const wheelSha256 = "1".repeat(64);
+    writeFileSync(provenancePath, JSON.stringify({
+      schemaVersion: 1,
+      source: { repository: "https://github.com/iTechwu/deepseek-harness", ref: "dsh-v0.1.1-rc.2", commit: sourceCommit },
+      wheel: {
+        filename: "deepseek_harness_runtime_bin-0.1.1rc2-py3-none-manylinux_2_28_x86_64.whl",
+        sha256: wheelSha256,
+        distribution: "deepseek-harness-runtime-bin",
+        version: "0.1.1rc2",
+        tag: "py3-none-manylinux_2_28_x86_64",
+      },
+      artifacts: {
+        "dsh-jsonrpc-agent": { source: "deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-linux-x64", sha256: sha256File(runtimePath) },
+        "dsh-jsonrpc-agent-rg": { source: "deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-linux-x64-rg", sha256: sha256File(ripgrepPath) },
+      },
+    }));
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = runtimePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256 = sha256File(ripgrepPath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256 = process.platform === "darwin"
+      ? sha256File(spawnHelperPath)
+      : "";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = provenancePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT = sourceCommit;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256 = wheelSha256;
+
+    await executeRemoteTask(client as never, config, runtime, task, undefined, undefined);
+
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0]?.outputText, "jsonrpc task completed");
+    const expectedGatewayUsage = {
+      modelId: "deepseek-v4-flash",
+      runtimeCredentialId: runtime.metadata.managedCredentialId,
+      routerSessionId: undefined,
+      protocol: "deepseek_native",
+      gatewayRequestId: "gateway-deepseek-1",
+      gatewayUsageId: undefined,
+      inputTokens: 13,
+      outputTokens: 5,
+      cacheTokens: 10,
+      requestStartedAt: undefined,
+      requestEndedAt: undefined,
+    };
+    assert.deepEqual(reportedUsageBatches, [[expectedGatewayUsage]]);
+    assert.deepEqual(completed[0]?.usages, [expectedGatewayUsage]);
+    for (const usage of completed[0]?.usages as Array<Record<string, unknown>>) {
+      const requestId = String(usage.gatewayRequestId ?? "");
+      if (requestId) settledUsages.set(requestId, usage);
+    }
+    assert.deepEqual([...settledUsages.values()], [expectedGatewayUsage]);
+    const usageMessages = messages.filter((message) => message.type === "usage");
+    assert.equal(usageMessages.length, 1);
+    assert.deepEqual(usageMessages[0]?.inputJson, {
+      input_tokens: 13,
+      output_tokens: 5,
+      cache_read_tokens: 7,
+      cache_write_tokens: 3,
+      reasoning_tokens: 2,
+      gateway_request_id: undefined,
+    });
+    const files = uploaded[0]?.files as Array<{ path?: string }>;
+    assert.ok(files.some((file) => file.path === "runtime-output/agent-output.json"));
+    assert.ok(files.some((file) => file.path === "runtime-output/artifacts/result.txt"));
+    assert.equal(existsSync(resolveRemoteTaskWorkDir(config, task)), false);
+  } finally {
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+test("pollRemoteTasks does not claim DeepSeek tasks while provider health is broken", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-poll-gate-"));
+  const config = buildRemoteDaemonConfig({ "state-dir": stateDir }, { environment: { HOME: stateDir } });
+  const activity = createRemoteRuntimeActivity();
+  activity.nextOperationClaimAt.set("runtime-deepseek-broken", Date.now() + 60_000);
+  const runtime = {
+    id: "runtime-deepseek-broken",
+    workspaceId: "workspace-1",
+    provider: "deepseek-harness" as const,
+    name: "DeepSeek Harness",
+    status: "online" as const,
+    metadata: {
+      executablePath: "/missing/dsh",
+      mode: "remote" as const,
+      providerHealth: { status: "broken", reason: "provider.model_unavailable" },
+    },
+  };
+  let taskClaims = 0;
+  const client = {
+    claimTask: async () => {
+      taskClaims += 1;
+      return { task: null };
+    },
+  };
+
+  try {
+    await pollRemoteTasks(client as never, config, [runtime], activity, undefined as never, undefined as never);
+    assert.equal(taskClaims, 0);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
   }
 });
 
@@ -314,6 +655,8 @@ test("official managed stdio profiles add browser flags without accepting them f
 
 test("trusted managed stdio profiles can use the Runtime network only when egress enforcement is disabled", () => {
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-managed-network-"));
+  const originalNetwork = process.env.MANAGED_RUNTIME_DOCKER_NETWORK;
+  process.env.MANAGED_RUNTIME_DOCKER_NETWORK = "dofe-managed-egress";
   try {
     const connection = {
       endpoint: "stdio://minimax-coding-plan-mcp",
@@ -349,6 +692,8 @@ test("trusted managed stdio profiles can use the Runtime network only when egres
       else process.env.MCP_EGRESS_ENFORCE = original;
     }
   } finally {
+    if (originalNetwork === undefined) delete process.env.MANAGED_RUNTIME_DOCKER_NETWORK;
+    else process.env.MANAGED_RUNTIME_DOCKER_NETWORK = originalNetwork;
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
@@ -564,6 +909,7 @@ test("managed task usage is driven by billable gateway responses, not provider e
       modelId: "gpt-5",
       runtimeCredentialId: "credential-1",
       routerSessionId: "session-1",
+      protocol: "deepseek_native",
     },
   );
 
@@ -571,6 +917,11 @@ test("managed task usage is driven by billable gateway responses, not provider e
     ["gateway-explicit", 5, 1],
     ["gateway-1", 10, 2],
     ["gateway-2", 20, 4],
+  ]);
+  assert.deepEqual(usages.map((usage) => usage.protocol), [
+    undefined,
+    "deepseek_native",
+    "deepseek_native",
   ]);
 });
 
@@ -587,6 +938,7 @@ test("incremental gateway usage reporter retries failed delivery and acknowledge
       modelId: "gpt-5",
       runtimeCredentialId: "credential-1",
       routerSessionId: "session-1",
+      protocol: "deepseek_native",
     },
     report: async (usages) => {
       attempts += 1;
