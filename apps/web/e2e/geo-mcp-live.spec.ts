@@ -141,6 +141,9 @@ async function collectPageQuality(page: import("@playwright/test").Page): Promis
 test.skip(!enabled, "Set DOFE_AGENT_LIVE_GEO_MCP=1 to run the Docker-backed GEOFlow regression.");
 
 test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", async ({ page }) => {
+  // Real managed-runtime verification can involve a remote daemon heartbeat;
+  // keep this end-to-end budget separate from the default 30s UI test budget.
+  test.setTimeout(120_000);
   test.skip(!mcpToken, "DOFE_AGENT_LIVE_GEOFLOW_TOKEN is required.");
   mkdirSync(evidenceDir, { recursive: true });
 
