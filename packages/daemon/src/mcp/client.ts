@@ -293,7 +293,11 @@ async function timeoutFetch(
 async function pinnedHttpsFetch(input: string | URL, init?: RequestInit): Promise<Response> {
   const url = input instanceof URL ? input : new URL(input);
   const addresses = await lookup(url.hostname, { all: true, verbatim: true });
-  const validation = validateMcpResolvedAddresses(addresses.map((entry) => entry.address));
+  const validation = validateMcpResolvedAddresses(
+    addresses.map((entry) => entry.address),
+    mcpEndpointValidationOptionsFromEnv(),
+    url.hostname,
+  );
   if (!validation.ok) {
     throw new Error(validation.message ?? "MCP endpoint DNS resolution was rejected.");
   }
@@ -466,6 +470,9 @@ export function classifyMcpError(error: unknown, secrets: Record<string, string>
   }
   if (/request timed out|operation timed out|timeout/i.test(message)) {
     return { code: "mcp.timeout", safeMessage: "Request to the MCP server timed out." };
+  }
+  if (/forbidden network address|DNS resolution was rejected/i.test(message)) {
+    return { code: "mcp.policy_denied", safeMessage: "MCP endpoint is not allowed by the runtime network policy." };
   }
   if (status === 401 || status === 403 || code === 401 || code === 403 || /unauthorized|forbidden|401|403/i.test(message)) {
     return { code: "mcp.authentication_failed", safeMessage: "Authentication failed." };

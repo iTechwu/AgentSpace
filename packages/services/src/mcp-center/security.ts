@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
 import { Ajv } from "ajv";
 import type { McpErrorCode } from "@dofe-agent/db";
 
@@ -142,22 +143,37 @@ export interface McpEndpointValidation {
 export interface McpEndpointValidationOptions {
   insecureLocalEndpoints?: string[];
   allowLoopbackResolvedAddresses?: boolean;
+  /**
+   * Operator-approved private DNS answers, bound to one exact endpoint host.
+   * This keeps the normal SSRF policy fail-closed while allowing a managed
+   * Runtime to reach an explicitly deployed internal MCP endpoint.
+   */
+  trustedPrivateResolvedAddresses?: Record<string, string[]>;
 }
 
 export function mcpEndpointValidationOptionsFromEnv(): McpEndpointValidationOptions {
-  if (process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL !== "1") return {};
-  const raw = process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS?.trim();
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return {
-      insecureLocalEndpoints: Array.isArray(parsed)
-        ? parsed.filter((entry): entry is string => typeof entry === "string" && isSafeLoopbackHttpEndpoint(entry))
-        : [],
-    };
-  } catch {
-    return {};
+  const options: McpEndpointValidationOptions = {};
+  if (process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL === "1") {
+    const raw = process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS?.trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        options.insecureLocalEndpoints = Array.isArray(parsed)
+          ? parsed.filter((entry): entry is string => typeof entry === "string" && isSafeLoopbackHttpEndpoint(entry))
+          : [];
+      } catch {
+        // Invalid local development configuration is ignored rather than weakening the default policy.
+      }
+    }
   }
+
+  const trustedPrivateEndpoints = parseTrustedPrivateResolvedAddresses(
+    process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON?.trim(),
+  );
+  if (Object.keys(trustedPrivateEndpoints).length > 0) {
+    options.trustedPrivateResolvedAddresses = trustedPrivateEndpoints;
+  }
+  return options;
 }
 
 export function isMcpInsecureLocalEndpointAllowed(
@@ -287,6 +303,7 @@ export function isForbiddenMcpNetworkAddress(host: string): boolean {
 export function validateMcpResolvedAddresses(
   addresses: string[],
   options: McpEndpointValidationOptions = {},
+  endpointHost?: string,
 ): McpEndpointValidation {
   if (addresses.length === 0) {
     return { ok: false, code: "mcp.network_unreachable", message: "MCP endpoint did not resolve to an address." };
@@ -295,10 +312,55 @@ export function validateMcpResolvedAddresses(
     if (addresses.every(isLoopbackMcpNetworkAddress)) return { ok: true };
     return { ok: false, code: "mcp.policy_denied", message: "Local MCP endpoint resolved outside the loopback network." };
   }
+  const trustedAddresses = endpointHost
+    ? options.trustedPrivateResolvedAddresses?.[normalizeMcpHost(endpointHost)]
+    : undefined;
+  if (trustedAddresses && trustedAddresses.length > 0 && addresses.every((address) => trustedAddresses.includes(address))) {
+    return { ok: true };
+  }
   if (addresses.some(isForbiddenMcpNetworkAddress)) {
     return { ok: false, code: "mcp.policy_denied", message: "MCP endpoint resolved to a forbidden network address." };
   }
   return { ok: true };
+}
+
+function parseTrustedPrivateResolvedAddresses(raw: string | undefined): Record<string, string[]> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const entries = Object.entries(parsed).slice(0, 128).flatMap(([rawHost, rawAddresses]) => {
+      const host = normalizeMcpHost(rawHost);
+      if (!isValidMcpHostname(host) || !Array.isArray(rawAddresses)) return [];
+      const addresses = [...new Set(rawAddresses
+        .filter((address): address is string => typeof address === "string")
+        .map((address) => address.trim())
+        .filter(isTrustedPrivateMcpAddress))].slice(0, 32);
+      return addresses.length > 0 ? [[host, addresses] as const] : [];
+    });
+    return Object.fromEntries(entries);
+  } catch {
+    return {};
+  }
+}
+
+function normalizeMcpHost(host: string): string {
+  return host.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function isValidMcpHostname(host: string): boolean {
+  return host.length > 0
+    && host.length <= 253
+    && isIP(host) === 0
+    && host.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
+}
+
+function isTrustedPrivateMcpAddress(address: string): boolean {
+  if (isIP(address) !== 4) return false;
+  const [first, second] = address.split(".").map(Number);
+  return first === 10
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168);
 }
 
 function isSafeLoopbackHttpEndpoint(value: string): boolean {

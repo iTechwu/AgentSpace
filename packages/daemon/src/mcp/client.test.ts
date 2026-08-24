@@ -28,6 +28,17 @@ test("MCP SDK request timeout is classified as a stable timeout error", () => {
   });
 });
 
+test("private DNS policy failures are not misreported as MCP authentication failures", () => {
+  const classifier = (mcpClientModule as {
+    classifyMcpError?: (error: unknown) => { code: string; safeMessage: string };
+  }).classifyMcpError;
+  assert.equal(typeof classifier, "function");
+  assert.deepEqual(classifier!(new Error("MCP endpoint resolved to a forbidden network address.")), {
+    code: "mcp.policy_denied",
+    safeMessage: "MCP endpoint is not allowed by the runtime network policy.",
+  });
+});
+
 test("assertSafeGeoProjectList accepts bounded tenant metadata", () => {
   const items = assertSafeGeoProjectList({
     tenant_id: "workspace-a",

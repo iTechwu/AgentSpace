@@ -49,6 +49,28 @@ test("local MCP env options fail closed unless both settings are valid", () => {
   delete process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
 });
 
+test("trusted private MCP DNS answers are bound to their configured hostname", () => {
+  const original = process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON;
+  process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON = JSON.stringify({
+    "api.tools.test.dofe.ai": ["172.18.0.1", "172.21.0.1", "127.0.0.1", "203.0.113.8"],
+    "bad host": ["172.18.0.2"],
+  });
+  try {
+    const options = mcpEndpointValidationOptionsFromEnv();
+    assert.deepEqual(options.trustedPrivateResolvedAddresses, {
+      "api.tools.test.dofe.ai": ["172.18.0.1", "172.21.0.1"],
+    });
+    assert.equal(validateMcpResolvedAddresses(["172.18.0.1"], options, "api.tools.test.dofe.ai").ok, true);
+    assert.equal(validateMcpResolvedAddresses(["172.21.0.1"], options, "api.tools.test.dofe.ai").ok, true);
+    assert.equal(validateMcpResolvedAddresses(["172.18.0.2"], options, "api.tools.test.dofe.ai").ok, false);
+    assert.equal(validateMcpResolvedAddresses(["172.18.0.1"], options, "other.tools.test.dofe.ai").ok, false);
+    assert.equal(validateMcpResolvedAddresses(["172.18.0.1", "203.0.113.8"], options, "api.tools.test.dofe.ai").ok, false);
+  } finally {
+    if (original === undefined) delete process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON;
+    else process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON = original;
+  }
+});
+
 test("validateMcpEndpoint rejects loopback, private, link-local and metadata addresses", () => {
   for (const host of ["localhost", "127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "169.254.169.254", "0.0.0.0", "[::1]"]) {
     const result = validateMcpEndpoint(`https://${host}/mcp`, [host]);
