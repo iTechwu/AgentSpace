@@ -279,7 +279,10 @@ test("creates a GEO employee and connects its runtime to Docker GEOFlow MCP", as
     return row?.status;
   }, { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe("ready");
 
-  await page.goto(`/w/${workspace!.slug}/agents?mode=agent&create=agent`, { waitUntil: "networkidle" });
+  // The agents page keeps a live runtime/status stream open, so networkidle is
+  // not a stable readiness signal. The dialog assertion below is the actual
+  // flow gate and avoids a false timeout after MCP verification succeeds.
+  await page.goto(`/w/${workspace!.slug}/agents?mode=agent&create=agent`, { waitUntil: "domcontentloaded" });
   const employeeDialog = page.getByRole("dialog", { name: /创建 AI员工|Create AI employee/i });
   await employeeDialog.getByRole("tab", { name: /空白自定义|Blank custom/i }).click();
   await employeeDialog.getByLabel(/名称|Name/i).fill(employeeName);
