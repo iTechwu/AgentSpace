@@ -5,7 +5,7 @@ import type { AgentWorkAreaRecord, ContainerRecord, InboxItem, ManagementRecordB
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { listQueuedTasksSync, listRuntimeAppOperationsSync, listRuntimeInstalledAppsSync, listTaskMessagesForTaskSync } from "@dofe-agent/db";
 import { formatDaemonProviderLabel, isDaemonProvider } from "@dofe-agent/domain";
-import type { ActiveEmployee, DofeAgentState, TaskRecord, TaskStatus, WorkspaceMessage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
+import type { ActiveEmployee, ApprovalRequest, DofeAgentState, TaskRecord, TaskStatus, WorkspaceMessage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { buildLegacyAgentIdForEmployeeName } from "@dofe-agent/services/employees";
 import { normalizeCliHubReadiness, readAgentSkillRequirementSummarySync } from "@dofe-agent/services/skills";
 import { normalizeRuntimeProviderHealth } from "@dofe-agent/services/runtime";
@@ -85,6 +85,7 @@ export function buildWorkspaceAgentRecord(
       queueStatus: queuedTask ? formatNativeQueueStatus(queuedTask.status) : "not_queued",
       taskStatus: task ? formatTaskStatus(task.status) : undefined,
       updatedAt: formatAbsoluteDateTime(workspace.updatedAt),
+      updatedAtEpochMs: latestTimestampMs(workspace.updatedAt, queuedTask?.updatedAt),
       startedAt: queuedTask?.startedAt,
       finishedAt: queuedTask?.finishedAt,
       sessionId: workspace.sessionId,
@@ -135,6 +136,7 @@ export function buildWorkspaceAgentRecord(
       queueStatus: formatNativeQueueStatus(queuedTask.status),
       taskStatus: task ? formatTaskStatus(task.status) : undefined,
       updatedAt: formatAbsoluteDateTime(queuedTask.updatedAt),
+      updatedAtEpochMs: queuedUpdatedAt,
       startedAt: queuedTask.startedAt,
       finishedAt: queuedTask.finishedAt,
       sessionId: queuedTask.sessionId,
@@ -149,7 +151,7 @@ export function buildWorkspaceAgentRecord(
 
   const workAreas = Array.from(workAreaMap.values());
 
-  const status = statusForWorkspaceAgent(tasks, workAreas, runtime?.status);
+  const status = statusForWorkspaceAgent(tasks, workAreas, state.approvals, employee.name, runtime?.status);
 
   return {
     id: buildLegacyAgentIdForEmployeeName(employee.name),
@@ -462,19 +464,36 @@ export function formatNotificationResourceType(resourceType: WorkspaceNotificati
 export function statusForWorkspaceAgent(
   tasks: TaskRecord[],
   workAreas: AgentWorkAreaRecord[],
+  approvals: ApprovalRequest[],
+  employeeName: string,
   containerStatus?: WorkspaceAgentStatus,
 ): WorkspaceAgentStatus {
   if (containerStatus === "error") {
     return "error";
-  }
-  if (tasks.some((task) => task.status === "blocked")) {
-    return "blocked";
   }
   if (workAreas.some((area) => isActiveQueueStatus(area.queueStatus))) {
     return "busy";
   }
   if (tasks.some((task) => task.status === "in_progress")) {
     return "busy";
+  }
+  if (approvals.some((approval) => approval.agentId === employeeName && approval.status === "pending")) {
+    return "awaiting_confirmation";
+  }
+
+  // A task board keeps historical failures for audit. Only the newest execution
+  // workspace represents the employee's current operational state; otherwise a
+  // later successful conversation could never clear an earlier failure.
+  const latestWorkArea = workAreas.reduce<AgentWorkAreaRecord | undefined>((latest, area) => (
+    !latest || (area.updatedAtEpochMs ?? Number.NEGATIVE_INFINITY) > (latest.updatedAtEpochMs ?? Number.NEGATIVE_INFINITY)
+      ? area
+      : latest
+  ), undefined);
+  if (latestWorkArea?.taskStatus === "blocked" || latestWorkArea?.queueStatus === "failed") {
+    return "blocked";
+  }
+  if (workAreas.length === 0 && tasks.some((task) => task.status === "blocked")) {
+    return "blocked";
   }
   return "online";
 }
@@ -514,13 +533,16 @@ export function priorityForAgentStatus(status: WorkspaceAgentStatus): number {
   if (status === "blocked") {
     return 1;
   }
-  if (status === "busy") {
+  if (status === "awaiting_confirmation") {
     return 2;
   }
-  if (status === "linked") {
+  if (status === "busy") {
     return 3;
   }
-  return 4;
+  if (status === "linked") {
+    return 4;
+  }
+  return 5;
 }
 export function formatAbsoluteDateTime(value: string): string {
   return formatCompactTimestamp(value, { emptyFallback: value });

@@ -453,7 +453,7 @@ export interface ChannelFileRecord {
   retainedBecauseReferenced: boolean;
 }
 
-export type WorkspaceAgentStatus = "online" | "busy" | "blocked" | "linked" | "error";
+export type WorkspaceAgentStatus = "online" | "busy" | "awaiting_confirmation" | "blocked" | "linked" | "error";
 
 export interface ManagementRecordBase {
   id: string;
@@ -473,6 +473,8 @@ export interface AgentWorkAreaRecord {
   queueStatus: string;
   taskStatus?: string;
   updatedAt: string;
+  /** Raw timestamp used for lifecycle precedence; `updatedAt` is display-formatted. */
+  updatedAtEpochMs?: number;
   startedAt?: string;
   finishedAt?: string;
   sessionId?: string;

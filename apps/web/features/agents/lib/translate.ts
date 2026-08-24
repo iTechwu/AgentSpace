@@ -6,18 +6,20 @@ export function toneForStatus(
   status: WorkspaceAgentRecord["status"] | ContainerRecord["status"],
 ): "neutral" | "positive" | "warning" | "danger" {
   if (status === "error" || status === "blocked") return "danger";
-  if (status === "busy") return "warning";
+  if (status === "busy" || status === "awaiting_confirmation") return "warning";
   if (status === "linked" || status === "online") return "positive";
   return "neutral";
 }
 
 export function translateManagementStatus(value: string, tx: TranslateFn): string {
   if (value === "busy") return tx("处理中", "Working");
+  if (value === "awaiting_confirmation") return tx("待确认", "Awaiting confirmation");
   if (value === "blocked") return tx("阻塞", "Blocked");
   if (value === "linked") return tx("已连接", "Connected");
   if (value === "error") return tx("异常", "Error");
   if (value === "online") return tx("在线", "Online");
   if (value === "处理中") return tx("处理中", "Working");
+  if (value === "待确认") return tx("待确认", "Awaiting confirmation");
   if (value === "阻塞") return tx("阻塞", "Blocked");
   if (value === "已连接") return tx("已连接", "Connected");
   if (value === "异常") return tx("异常", "Error");

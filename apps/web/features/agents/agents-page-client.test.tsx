@@ -791,6 +791,7 @@ describe("AgentsPageClient", () => {
       agents: [
         { ...data.agents[0]!, status: "online", statusLabel: "online" },
         { ...data.agents[0]!, id: "agent:working", name: "处理中员工", internalName: "working", status: "busy", statusLabel: "busy" },
+        { ...data.agents[0]!, id: "agent:awaiting", name: "待确认员工", internalName: "awaiting", status: "awaiting_confirmation", statusLabel: "awaiting_confirmation" },
         { ...data.agents[0]!, id: "agent:blocked", name: "异常员工", internalName: "blocked", status: "blocked", statusLabel: "blocked" },
       ],
     };
@@ -800,6 +801,7 @@ describe("AgentsPageClient", () => {
     const directoryStatus = (label: string) => screen.getAllByText(label).find((element) => element.classList.contains("agent-contact-status"));
     expect(directoryStatus("在线")).toHaveClass("agent-contact-status--positive");
     expect(directoryStatus("处理中")).toHaveClass("agent-contact-status--warning");
+    expect(directoryStatus("待确认")).toHaveClass("agent-contact-status--warning");
     expect(directoryStatus("阻塞")).toHaveClass("agent-contact-status--danger");
   });
 
