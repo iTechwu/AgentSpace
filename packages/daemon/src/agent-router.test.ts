@@ -515,6 +515,53 @@ test("runAgentRouter fail-closes an incompatible DeepSeek Harness JSON-RPC serve
   }
 });
 
+test("runAgentRouter fail-closes a DeepSeek JSON-RPC server without protocol 2.0", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-protocol-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+
+  try {
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    writeExecutable(
+      runtimePath,
+      [
+        "#!/usr/bin/env node",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } })}\\n`);",
+        "});",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "deepseek-harness",
+      prompt: "must fail protocol negotiation",
+      cwd: workDir,
+      executablePath: runtimePath,
+      model: "deepseek-v4-flash",
+      mode: "jsonrpc",
+      deepSeekJsonRpcEnabled: true,
+      env: { DSH_CORDIS_CONFIG: configPath },
+      timeoutMs: 5_000,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.signal, "SIGTERM");
+    assert.equal(result.outputText, undefined);
+    assert.ok(result.diagnostics.some((diagnostic) =>
+      diagnostic.code === "harness.protocol_parse_failed"
+      && diagnostic.severity === "error"
+      && diagnostic.message.includes("incompatible server identity")
+    ));
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runAgentRouter classifies invalid DeepSeek Harness JSON-RPC launch contracts", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "agent-router-deepseek-jsonrpc-contract-"));
   const runtimePath = join(workDir, "dsh-jsonrpc-agent");

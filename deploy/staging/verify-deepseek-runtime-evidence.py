@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wheel-sha256", required=True)
     parser.add_argument("--executable-sha256", required=True)
     parser.add_argument("--ripgrep-sha256", required=True)
+    parser.add_argument("--spawn-helper-sha256")
     parser.add_argument("--source-commit", required=True)
     return parser.parse_args()
 
@@ -43,6 +44,10 @@ def main() -> None:
     wheel_sha256 = require_sha256("--wheel-sha256", args.wheel_sha256)
     executable_sha256 = require_sha256("--executable-sha256", args.executable_sha256)
     ripgrep_sha256 = require_sha256("--ripgrep-sha256", args.ripgrep_sha256)
+    spawn_helper_sha256 = (
+        require_sha256("--spawn-helper-sha256", args.spawn_helper_sha256)
+        if args.spawn_helper_sha256 else None
+    )
     if args.source_commit != SOURCE_COMMIT:
         raise ValueError(f"--source-commit must be the commit for {SOURCE_REF}: {SOURCE_COMMIT}")
     if args.evidence.is_symlink():
@@ -54,6 +59,13 @@ def main() -> None:
         actual = json.loads(evidence_path.read_text())
     except json.JSONDecodeError as error:
         raise ValueError(f"release evidence is not valid JSON: {error}") from error
+
+    artifacts = {
+        "dsh-jsonrpc-agent": executable_sha256,
+        "dsh-jsonrpc-agent-rg": ripgrep_sha256,
+    }
+    if spawn_helper_sha256:
+        artifacts["dsh-jsonrpc-agent-spawn-helper"] = spawn_helper_sha256
 
     expected = {
         "schemaVersion": 1,
@@ -70,10 +82,7 @@ def main() -> None:
             "version": WHEEL_VERSION,
             "tag": WHEEL_TAG,
         },
-        "artifacts": {
-            "dsh-jsonrpc-agent": executable_sha256,
-            "dsh-jsonrpc-agent-rg": ripgrep_sha256,
-        },
+        "artifacts": artifacts,
         "composition": {
             "id": CORDIS_COMPOSITION,
             "sha256": CORDIS_SHA256,

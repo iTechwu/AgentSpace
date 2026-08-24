@@ -98,7 +98,10 @@ def validate_release_evidence(release: dict[str, Any]) -> dict[str, str]:
         raise ValueError("release evidence contains a non-object contract section")
     require_exact_keys("release source", source, {"repository", "ref", "commit"})
     require_exact_keys("release wheel", wheel, {"filename", "sha256", "distribution", "version", "tag"})
-    require_exact_keys("release artifacts", artifacts, {"dsh-jsonrpc-agent", "dsh-jsonrpc-agent-rg"})
+    artifact_keys = {"dsh-jsonrpc-agent", "dsh-jsonrpc-agent-rg"}
+    if "dsh-jsonrpc-agent-spawn-helper" in artifacts:
+        artifact_keys.add("dsh-jsonrpc-agent-spawn-helper")
+    require_exact_keys("release artifacts", artifacts, artifact_keys)
     require_exact_keys("release composition", composition, {"id", "sha256"})
     require_exact_keys("release wire", wire, {"protocol", "protocolVersion", "serverInfo", "initialize", "shutdown", "stdoutPurity"})
     if source != {"repository": SOURCE_REPOSITORY, "ref": SOURCE_REF, "commit": SOURCE_COMMIT}:
@@ -119,13 +122,18 @@ def validate_release_evidence(release: dict[str, Any]) -> dict[str, str]:
         "stdoutPurity": True,
     }:
         raise ValueError("release wire contract is invalid")
-    return {
+    release_pins = {
         "sourceCommit": SOURCE_COMMIT,
         "wheelSha256": require_sha256("release wheel SHA-256", wheel.get("sha256")),
         "executableSha256": require_sha256("release carrier SHA-256", artifacts.get("dsh-jsonrpc-agent")),
         "ripgrepSha256": require_sha256("release ripgrep SHA-256", artifacts.get("dsh-jsonrpc-agent-rg")),
         "cordisConfigSha256": CORDIS_SHA256,
     }
+    if "dsh-jsonrpc-agent-spawn-helper" in artifacts:
+        release_pins["spawnHelperSha256"] = require_sha256(
+            "release spawn-helper SHA-256", artifacts["dsh-jsonrpc-agent-spawn-helper"]
+        )
+    return release_pins
 
 
 def validate_usage(label: str, usage: Any) -> None:
