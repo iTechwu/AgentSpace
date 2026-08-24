@@ -7,6 +7,7 @@
 // using the one-shot headless/JSON-RPC path until real carrier evidence exists.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import type { AgentRouterEvent } from "./types.ts";
 
 const JSONRPC_VERSION = "2.0";
 const SERVER_INFO = { name: "deepseek-harness-sdk-runtime", version: "0.0.1" } as const;
@@ -32,6 +33,8 @@ export interface DeepSeekJsonRpcWorkerOptions {
   maxSessions: number;
   /** Forwarded session/approval notifications for the caller to map/audit. */
   onNotification?: (notification: DeepSeekJsonRpcWorkerNotification) => void;
+  /** Normalized timeline events (text_delta, tool_*, approval_requested, harness_*). */
+  onEvent?: (event: AgentRouterEvent) => void;
 }
 
 interface PendingRequest {
@@ -80,6 +83,7 @@ export class DeepSeekJsonRpcWorker {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
+    this.options.onEvent?.({ type: "harness_started", harness: "deepseek-harness", pid: child.pid, command: [this.options.executablePath] });
     child.stdin?.on("error", () => {});
     child.stderr?.on("data", () => {});
     child.stdout?.on("data", (chunk: Buffer) => this.onStdout(String(chunk)));
@@ -235,7 +239,14 @@ export class DeepSeekJsonRpcWorker {
             .join("");
           const turn = sessionId !== undefined ? this.activeTurns.get(sessionId) : undefined;
           if (turn !== undefined) turn.outputText = text;
+          if (text) this.options.onEvent?.({ type: "text_delta", text });
         }
+      } else if (method === "approval.request") {
+        this.options.onEvent?.({
+          type: "approval_requested",
+          toolName: typeof params?.toolName === "string" ? params.toolName : "tool",
+          contentPreview: typeof params?.reason === "string" ? params.reason : "",
+        });
       }
     }
     this.options.onNotification?.({ method, params });
