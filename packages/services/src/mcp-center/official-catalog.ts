@@ -85,6 +85,20 @@ const OPENMONTAGE_TOOLS = [
   { name: "list_video_artifacts", description: "List durable outputs published for a video production Job.", risk: "low" as const },
 ] as const;
 
+// The official connection flow already requires explicit administrator
+// confirmation for this high-risk catalog. Once that confirmation is granted,
+// the runtime must receive the complete Job workflow; otherwise the agent can
+// inspect a Job but can never submit it or resolve an approval stage.
+const OPENMONTAGE_DEFAULT_APPROVED_TOOLS = [
+  "openmontage_capabilities",
+  "submit_video_job",
+  "get_video_job",
+  "cancel_video_job",
+  "approve_video_stage",
+  "list_video_job_events",
+  "list_video_artifacts",
+];
+
 const TOOLS_VIRAL_VIDEO_TOOLS = [
   { name: "viral_video_sources_list", description: "List configured viral-video sources.", risk: "low" as const },
   { name: "viral_video_search", description: "Search viral-video sources and optionally archive a direct Douyin video.", risk: "medium" as const },
@@ -236,7 +250,7 @@ export function syncOfficialMcpCatalogForWorkspaceSync(workspaceId: string): Mcp
     allowedHostsJson: "[]",
     configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, required: [], additionalProperties: false }),
     declaredToolsJson: JSON.stringify(OPENMONTAGE_TOOLS),
-    defaultApprovedToolsJson: JSON.stringify(["openmontage_capabilities", "reference_clone_status", "get_video_job", "list_video_job_events", "list_video_artifacts"]),
+    defaultApprovedToolsJson: JSON.stringify(OPENMONTAGE_DEFAULT_APPROVED_TOOLS),
     secretFieldsJson: "[]",
     requiredRuntimeCapabilitiesJson: "[]",
     dataDomainsJson: JSON.stringify(["video_inputs", "video_artifacts", "model_usage"]),
