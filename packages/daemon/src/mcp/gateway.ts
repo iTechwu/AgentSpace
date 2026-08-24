@@ -399,9 +399,44 @@ export function formatMcpToolResultForProvider(result: unknown): string {
     return text;
   }
 
-  const suffix = "\n\n[AgentSpace truncated this MCP tool result to keep the runtime stable. Refine the request or use a narrower tool.]";
-  const bodyBudget = MAX_PROVIDER_MCP_TOOL_RESULT_BYTES - Buffer.byteLength(suffix, "utf8");
-  return `${truncateUtf8(text, bodyBudget)}${suffix}`;
+  const summary = extractTruncatedResultSummary(result);
+  const suffix = [
+    "[AgentSpace truncated this MCP tool result to keep the runtime stable. Refine the request or use a narrower tool.]",
+    summary ? `Original structured summary: ${JSON.stringify(summary)}` : "",
+  ].filter(Boolean).join("\n");
+  const bodyBudget = MAX_PROVIDER_MCP_TOOL_RESULT_BYTES - Buffer.byteLength(`\n\n${suffix}`, "utf8");
+  return `${truncateUtf8(text, bodyBudget)}\n\n${suffix}`;
+}
+
+function extractTruncatedResultSummary(result: unknown): Record<string, string | number | boolean | null> | undefined {
+  const candidates = [result];
+  if (Array.isArray(result)) {
+    for (const item of result) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const text = (item as Record<string, unknown>).text;
+        if (typeof text === "string") {
+          try {
+            candidates.push(JSON.parse(text));
+          } catch {
+            // Text-only tool results do not have a structured summary.
+          }
+        }
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const summary: Record<string, string | number | boolean | null> = {};
+    for (const key of ["total", "count", "hasMore", "nextCursor"] as const) {
+      const value = (candidate as Record<string, unknown>)[key];
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) {
+        summary[key] = value;
+      }
+    }
+    if (Object.keys(summary).length > 0) return summary;
+  }
+  return undefined;
 }
 
 function truncateUtf8(value: string, maxBytes: number): string {

@@ -23,6 +23,12 @@ test("provider-facing MCP results are UTF-8 bounded with an actionable marker", 
   assert.equal(Buffer.byteLength(result, "utf8") <= MAX_PROVIDER_MCP_TOOL_RESULT_BYTES, true);
   assert.match(result, /AgentSpace truncated this MCP tool result/);
 
+  const listResult = formatMcpToolResultForProvider([
+    { type: "text", text: JSON.stringify({ items: ["x".repeat(MAX_PROVIDER_MCP_TOOL_RESULT_BYTES)], total: 418 }) },
+  ]);
+  assert.equal(Buffer.byteLength(listResult, "utf8") <= MAX_PROVIDER_MCP_TOOL_RESULT_BYTES, true);
+  assert.match(listResult, /Original structured summary: \{"total":418\}/);
+
   const small = formatMcpToolResultForProvider({ total: 1, items: ["ok"] });
   assert.equal(small, '{"total":1,"items":["ok"]}');
 });
