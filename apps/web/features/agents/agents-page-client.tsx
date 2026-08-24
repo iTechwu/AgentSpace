@@ -352,11 +352,14 @@ export function AgentsPageClient({
       await runToastAction({
         action: work,
         onSuccess: async (data, result) => {
-          onDone?.(data);
           if (result.invalidation) {
             onInvalidation?.(result.invalidation);
           }
           refreshWorkspaceModule(onDataChanged, router);
+          // Remove modal route state after refreshing the workspace data. If
+          // the URL still contains create=agent during refresh, the server
+          // render can mount the modal again after a successful action.
+          onDone?.(data);
         },
         pushToast,
         tx,
