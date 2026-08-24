@@ -624,21 +624,22 @@ export function AgentsPageClient({
           requiresRuntime={!data.canManageAllAgents}
           workspaceSkills={data.workspaceSkills}
           onClose={closeCreateAgent}
-          onSubmit={(input) =>
-            runAction(
-              () =>
-                createWorkspaceAgentAction({
-                  name: input.name,
-                  remarkName: input.remarkName,
-                  summary: input.summary,
-                  instructions: input.instructions,
-                  runtimeId: input.containerId || undefined,
-                  defaultModel: input.defaultModel,
-                  templateId: input.templateId,
-                }),
-              closeCreateAgent,
-            )
-          }
+          onSubmit={(input) => {
+            // Close optimistically so a slow server action cannot leave a
+            // successful submission stuck in the modal's "creating" state.
+            closeCreateAgent();
+            runAction(() =>
+              createWorkspaceAgentAction({
+                name: input.name,
+                remarkName: input.remarkName,
+                summary: input.summary,
+                instructions: input.instructions,
+                runtimeId: input.containerId || undefined,
+                defaultModel: input.defaultModel,
+                templateId: input.templateId,
+              }),
+            );
+          }}
         />
       ) : null}
 
