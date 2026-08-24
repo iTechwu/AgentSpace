@@ -4,6 +4,7 @@ import {
   listMcpConnectionsSync,
   readMcpCatalogItemSync,
   readMcpCatalogItemReleaseSync,
+  readLatestMcpDiscoverySnapshotSync,
   upsertMcpCatalogItemSync,
   upsertRuntimeAppCatalogItemsSync,
   updateMcpConnectionApprovedToolsSync,
@@ -333,13 +334,21 @@ function reconcileOpenMontageConnectionTools(workspaceId: string): void {
       || connection.approvedToolsJson === approvedToolsJson
     ) continue;
     cancelUnfinishedMcpOperationsForConnectionSync({ connectionId: connection.id, workspaceId });
+    // A managed OpenMontage service has an immutable endpoint and its latest
+    // discovery snapshot is already the source of truth for the tool surface.
+    // When that snapshot covers the expanded official allow-list, update the
+    // authorization in place. Queueing a verification here would briefly hide
+    // a healthy MCP connection while the first page request is being served.
+    const snapshot = readLatestMcpDiscoverySnapshotSync(connection.id, workspaceId);
+    const discoveredNames = new Set(parseSnapshotToolNames(snapshot?.toolsMetadataJson));
+    const snapshotCoversAllowList = OPENMONTAGE_DEFAULT_APPROVED_TOOLS.every((name) => discoveredNames.has(name));
     const updated = updateMcpConnectionApprovedToolsSync({
       connectionId: connection.id,
       workspaceId,
       approvedToolsJson,
-      reverify: connection.status !== "disabled",
+      reverify: connection.status !== "disabled" && !snapshotCoversAllowList,
     });
-    if (updated.status !== "disabled") {
+    if (updated.status === "queued_verification") {
       createMcpOperationSync({
         workspaceId,
         runtimeId: updated.runtimeId,
@@ -348,6 +357,21 @@ function reconcileOpenMontageConnectionTools(workspaceId: string): void {
         source: "config_change",
       });
     }
+  }
+}
+
+function parseSnapshotToolNames(value: string | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const name = (entry as { name?: unknown }).name;
+      return typeof name === "string" ? [name] : [];
+    });
+  } catch {
+    return [];
   }
 }
 
