@@ -8,6 +8,8 @@
 
 **Tech Stack:** React 19、Next.js 16、TypeScript、CSS custom properties、Vitest、Testing Library、Playwright。
 
+**Delivery Rule:** 每个独立任务验证通过后立即使用中文提交，并执行 `git push` 推送当前跟踪分支；不得把多个已完成任务积压到一次提交或一次推送。
+
 ---
 
 ## File Structure
@@ -111,6 +113,7 @@ Expected: 2 tests PASS。
 ```bash
 git add -A
 git commit -m "新增工作区页面密度框架"
+git push
 ```
 
 ### Task 2: 建立 24/16/12/8 间距契约
@@ -195,6 +198,7 @@ Expected: tests PASS，`git diff --check` 无输出。
 ```bash
 git add -A
 git commit -m "统一工作区页面间距令牌"
+git push
 ```
 
 ### Task 3: 迁移平衡密度页面
@@ -262,6 +266,7 @@ Expected: 受影响测试全部 PASS。
 ```bash
 git add -A
 git commit -m "统一主要工作区页面间距"
+git push
 ```
 
 ### Task 4: 迁移分栏与工作台页面
@@ -309,6 +314,7 @@ Expected: 全部 PASS。
 ```bash
 git add -A
 git commit -m "优化分栏与表格页面密度"
+git push
 ```
 
 ### Task 5: 收敛指标、市场与专业工作台密度
@@ -369,6 +375,7 @@ Expected: 全部 PASS。
 ```bash
 git add -A
 git commit -m "统一指标与专业工作台页面密度"
+git push
 ```
 
 ### Task 6: 添加跨页面浏览器验收
@@ -425,6 +432,7 @@ Expected: 两条命令均退出 0。
 ```bash
 git add -A
 git commit -m "增加工作区间距浏览器回归"
+git push
 ```
 
 ### Task 7: 真实页面验收与记录
@@ -449,4 +457,5 @@ git commit -m "增加工作区间距浏览器回归"
 ```bash
 git add -A
 git commit -m "记录全站间距优化验收结果"
+git push
 ```

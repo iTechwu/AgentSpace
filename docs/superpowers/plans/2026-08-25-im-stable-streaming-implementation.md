@@ -8,6 +8,8 @@
 
 **Tech Stack:** React 19、TypeScript、EventSource、requestAnimationFrame、Vitest、Testing Library、Playwright、Chrome DevTools Protocol。
 
+**Delivery Rule:** 每个独立任务验证通过后立即使用中文提交，并执行 `git push` 推送当前跟踪分支；浏览器回归中发现的每个独立问题也遵循“失败测试—修复—验证—提交—push”。
+
 ---
 
 ## File Structure
@@ -176,6 +178,7 @@ Expected: 3 tests PASS。
 ```bash
 git add -A
 git commit -m "新增流式更新帧批处理器"
+git push
 ```
 
 ### Task 2: 提取 task stream 纯增量合并
@@ -275,6 +278,7 @@ Expected: 所有测试 PASS；未知频道返回原 Map 引用，多个 patch �
 ```bash
 git add -A
 git commit -m "提取会话流式增量合并逻辑"
+git push
 ```
 
 ### Task 3: 将 SSE 恢复结果按帧提交
@@ -333,6 +337,7 @@ Expected: 增量更新、缺口 full refresh、轮询补偿全部 PASS。
 ```bash
 git add -A
 git commit -m "按动画帧合并会话流式更新"
+git push
 ```
 
 ### Task 4: 完善 disclosure、长输出完整度和状态播报
@@ -416,6 +421,7 @@ Expected: 全文件 PASS。
 ```bash
 git add -A
 git commit -m "完善执行节点展开与长输出提示"
+git push
 ```
 
 ### Task 5: 收敛滚动跟随和低干扰动效
@@ -469,6 +475,7 @@ Expected: 全部 PASS。
 ```bash
 git add -A
 git commit -m "优化流式输出滚动与运行反馈"
+git push
 ```
 
 ### Task 6: 浏览器回归正确回复和 DSH 风格展示
@@ -507,6 +514,7 @@ Expected: 相关场景 PASS；缺少测试数据库时记录环境限制。
 ```bash
 git add -A
 git commit -m "补充即时通信流式体验回归证据"
+git push
 ```
 
 ### Task 7: 同步 Agent 项目统计目录
@@ -533,9 +541,10 @@ Expected: 无 whitespace 错误。
 ```bash
 git -C ../new-agents.dofe.ai add docs/0825/im-uiux/README.md
 git -C ../new-agents.dofe.ai commit -m "同步全站间距与流式输出优化记录"
+git -C ../new-agents.dofe.ai push
 ```
 
-目标仓库存在其他未提交文件时，不把它们加入本次提交。是否 push 以用户对本轮任务的明确授权和目标仓库规则为准，不借同步文档发布其他人的改动。
+目标仓库存在其他未提交文件时，不把它们加入本次提交；只推送本任务提交，不借同步文档发布其他人的改动。
 
 - [ ] **Step 4: 最终验证当前仓库状态**
 
