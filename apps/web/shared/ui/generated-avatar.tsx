@@ -70,6 +70,7 @@ export function GeneratedAvatar({
         {variant === "channel" ? renderChannelMark(palette, values) : null}
         {variant === "system" ? renderSystemMark(palette, values) : null}
         <text
+          aria-hidden="true"
           dominantBaseline="middle"
           fill={palette.text}
           fontFamily="ui-sans-serif, system-ui, sans-serif"

@@ -104,7 +104,7 @@ export function WorkspaceSwitcher({
         aria-expanded={open}
         aria-haspopup="menu"
         aria-busy={disabled}
-        aria-label={tx("切换团队工作区", "Switch team workspace")}
+        title={tx("切换团队工作区", "Switch team workspace")}
         className="workspace-switcher__trigger"
         disabled={!canSwitch}
         onClick={() => setOpen((current) => !current)}

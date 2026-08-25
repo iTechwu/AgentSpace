@@ -331,7 +331,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByTestId("workspace-sidebar")).toHaveAttribute("data-collapsed", "true");
     expect(window.localStorage.getItem(WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe("true");
     expect(screen.getByRole("button", { name: "展开侧边导航" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("link", { name: "打开设置" })).toHaveAttribute("title", "打开设置");
+    expect(screen.getByRole("link", { name: /techwu.*超级管理员/ })).toHaveAttribute("title", "打开设置");
   });
 
   it("hides sidebar sections that were disabled in settings", async () => {
@@ -371,7 +371,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("link", { name: /执行引擎管理/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /添加技能/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /添加服务器/ })).not.toBeInTheDocument();
-    const workspaceSwitcher = screen.getByRole("button", { name: /切换团队工作区/ });
+    const workspaceSwitcher = screen.getByRole("button", { name: /Alpha Workspace/ });
     expect(workspaceSwitcher).toHaveTextContent("Dofe Agent / Alpha Workspace");
     await userEventApi.click(workspaceSwitcher);
     expect(screen.getByRole("menuitemradio", { name: "Alpha Workspace" })).toHaveAttribute("aria-checked", "true");
@@ -404,7 +404,7 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    const workspaceSwitcher = screen.getByRole("button", { name: "切换团队工作区" });
+    const workspaceSwitcher = screen.getByRole("button", { name: /优惠豚 \/ 全体/ });
     expect(workspaceSwitcher).toHaveTextContent("优惠豚 / 全体");
     expect(workspaceSwitcher).not.toHaveTextContent("优惠豚 / 全体 / 优惠豚 / 全体");
 

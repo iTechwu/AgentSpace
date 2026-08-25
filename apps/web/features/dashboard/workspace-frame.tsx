@@ -620,7 +620,6 @@ function WorkspaceFrameContent({
 
         {!isChannelScopedGuest ? (
         <button
-          aria-label={tx("打开全局搜索", "Open global search")}
           className="workspace-search workspace-search__field"
           data-onboarding-target="search"
           onClick={() => setShowSearch(true)}
@@ -991,7 +990,6 @@ function WorkspaceFrameContent({
             </div>
             ) : (
             <Link
-              aria-label={tx("打开设置", "Open settings")}
               aria-current={isSettingsPath ? "page" : undefined}
               className={`workspace-account__entry${isSettingsPath ? " workspace-account__entry--active" : ""}`}
               data-onboarding-target="settings"

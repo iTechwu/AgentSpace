@@ -1195,7 +1195,7 @@ export function ConversationShell({
                     {threadAfterMessages}
                     {hasNewActivityBelow ? (
                       <button
-                        aria-label={tx("回到最新消息", "Return to latest message")}
+                        aria-label={tx("有新消息，回到最新消息", "New activity, return to latest message")}
                         aria-live="polite"
                         className="conversation-latest-activity"
                         onClick={scrollToLatestActivity}

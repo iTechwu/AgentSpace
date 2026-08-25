@@ -467,13 +467,13 @@ describe("ConversationShell", () => {
     ]));
 
     expect(thread?.scrollTop).toBe(280);
-    const latestButton = screen.getByRole("button", { name: "回到最新消息" });
+    const latestButton = screen.getByRole("button", { name: /有新消息.*回到最新消息/ });
     expect(latestButton).toHaveTextContent("有新消息");
 
     await user.click(latestButton);
 
     expect(thread?.scrollTop).toBe(1200);
-    expect(screen.queryByRole("button", { name: "回到最新消息" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /有新消息.*回到最新消息/ })).not.toBeInTheDocument();
   });
 
   it("renders the supplementary panel as a dismissible mobile sheet on compact layouts", async () => {
