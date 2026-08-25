@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationShell } from "@/features/chat/conversation-shell";
+import { hasServerMessageCopy } from "@/features/chat/conversation-thread";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 
 vi.mock("next/navigation", () => ({
@@ -905,6 +906,111 @@ describe("ConversationShell", () => {
 
     await waitFor(() => expect(screen.getAllByText("只显示一次")).toHaveLength(1));
     expect(screen.getByLabelText("已发送")).toHaveAttribute("role", "img");
+  });
+
+  it("normalizes submitted content before creating the optimistic message", async () => {
+    const onSubmit = vi.fn(async () => {});
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          currentUserDisplayName="techwu"
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={onSubmit}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "  只显示一次\n\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ content: "只显示一次" })));
+    expect(document.querySelector("[data-conversation-message-id^='optimistic-message-']")).toHaveTextContent("只显示一次");
+    expect(document.querySelector("[data-conversation-message-id^='optimistic-message-']")?.textContent).not.toContain("\n");
+  });
+
+  it("matches a normalized server copy to an optimistic message with legacy surrounding whitespace", () => {
+    expect(hasServerMessageCopy(
+      {
+        id: "optimistic-message-legacy",
+        conversationId: "direct-atlas",
+        serverMessageIdsAtSubmission: ["older-identical-message"],
+        speaker: "techwu",
+        role: "human",
+        content: "镜像修复回归 0825：请只回复 RUNTIME-REPLY-OK，不调用工具。\n",
+        timestamp: "2026-08-25T10:38:42.000Z",
+        status: "completed",
+      },
+      [{
+        id: "new-server-message",
+        speaker: "techwu",
+        role: "human",
+        content: "镜像修复回归 0825：请只回复 RUNTIME-REPLY-OK，不调用工具。",
+        timestamp: "2026-08-25T10:38:43.071Z",
+        status: "completed",
+      }],
+    )).toBe(true);
+  });
+
+  it("keeps an unmatched optimistic message ordered by its submission time", async () => {
+    const commonProps = {
+      currentUserDisplayName: "techwu",
+      emptyListBody: "empty",
+      emptyListTitle: "empty",
+      emptyThreadBody: "empty",
+      emptyThreadTitle: "empty",
+      items: [{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }],
+      listCount: 1,
+      listKicker: "Messages",
+      listTitle: "Messages",
+      onSelectItem: vi.fn(),
+      onSubmit: vi.fn(async () => {}),
+      placeholder: "Send a message",
+      selectedHeader: { title: "Atlas", subtitle: "Agent", avatar: "A" },
+      selectedItemId: "direct-atlas",
+    };
+    const { rerender } = render(
+      <LanguageProvider>
+        <ConversationShell {...commonProps} messages={[]} />
+      </LanguageProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "等待服务器副本" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await screen.findByLabelText("已发送");
+
+    rerender(
+      <LanguageProvider>
+        <ConversationShell
+          {...commonProps}
+          messages={[{
+            id: "later-agent-message",
+            speaker: "Atlas",
+            role: "agent",
+            content: "稍后的正式消息",
+            timestamp: "2099-08-25T10:38:43.071Z",
+            sortTimestamp: "2099-08-25T10:38:43.071Z",
+            status: "completed",
+          }]}
+        />
+      </LanguageProvider>,
+    );
+
+    const messageIds = Array.from(document.querySelectorAll("[data-conversation-message-id]"))
+      .map((element) => element.getAttribute("data-conversation-message-id"));
+    expect(messageIds[0]).toMatch(/^optimistic-message-/);
+    expect(messageIds[1]).toBe("later-agent-message");
   });
 
   it("does not reconcile an optimistic message against another conversation", async () => {

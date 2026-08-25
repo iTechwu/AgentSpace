@@ -32,6 +32,7 @@ import {
   findDraftSlashQuery,
   hasServerMessageCopy,
   isOwnHumanMessage,
+  normalizeConversationMessageContent,
   orderConversationMessages,
   policyForSlashCommand,
   replaceDraftRange,
@@ -651,8 +652,9 @@ export function ConversationShell({
       return;
     }
 
-    const content = draft.trim().length > 0
-      ? draft
+    const normalizedDraft = normalizeConversationMessageContent(draft);
+    const content = normalizedDraft.length > 0
+      ? normalizedDraft
       : tx("请查看我发送或引用的内容。", "Please review the content I sent or referenced.");
     const referenceAttachmentIds = selectedReferences
       .filter((reference) => reference.kind === "file")
@@ -690,6 +692,7 @@ export function ConversationShell({
       ? `optimistic-message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       : null;
     if (optimisticMessageId && selectedItemId) {
+      const submittedAt = new Date().toISOString();
       const optimisticMessage: OptimisticConversationMessage = {
         id: optimisticMessageId,
         conversationId: selectedItemId,
@@ -697,7 +700,8 @@ export function ConversationShell({
         speaker: currentUserDisplayName?.trim() || tx("你", "You"),
         role: "human",
         content,
-        timestamp: new Date().toISOString(),
+        timestamp: submittedAt,
+        sortTimestamp: submittedAt,
         status: "completed",
         deliveryStatus: "sending",
         replyToMessageId: submittedReplyToMessage?.id,

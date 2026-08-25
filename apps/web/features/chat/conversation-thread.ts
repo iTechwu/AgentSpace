@@ -136,12 +136,17 @@ export function hasServerMessageCopy(
   serverMessages: ConversationThreadMessage[],
 ): boolean {
   const existingMessageIds = new Set(optimisticMessage.serverMessageIdsAtSubmission);
+  const optimisticContent = normalizeConversationMessageContent(optimisticMessage.content);
   return serverMessages.some((serverMessage) => (
     !existingMessageIds.has(serverMessage.id) &&
     serverMessage.role === "human" &&
-    serverMessage.content === optimisticMessage.content &&
+    normalizeConversationMessageContent(serverMessage.content) === optimisticContent &&
     serverMessage.replyToMessageId === optimisticMessage.replyToMessageId
   ));
+}
+
+export function normalizeConversationMessageContent(value: string): string {
+  return value.trim();
 }
 
 export function buildReplyMentionPrefix(
