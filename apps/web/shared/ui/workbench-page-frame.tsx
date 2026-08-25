@@ -2,7 +2,7 @@ import type { ComponentPropsWithoutRef } from "react";
 
 export type WorkbenchPageDensity = "balanced" | "compact" | "full-bleed";
 
-interface WorkbenchPageFrameProps extends ComponentPropsWithoutRef<"section"> {
+export interface WorkbenchPageFrameProps extends ComponentPropsWithoutRef<"section"> {
   readonly density?: WorkbenchPageDensity;
 }
 

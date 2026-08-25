@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { WorkbenchPageFrameProps } from "@/shared/ui/workbench-page-frame";
 import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 describe("WorkbenchPageFrame", () => {
@@ -19,10 +20,14 @@ describe("WorkbenchPageFrame", () => {
   });
 
   it("uses compact density while preserving the feature class", () => {
+    const frameProps: WorkbenchPageFrameProps = {
+      "aria-label": "Audit log",
+      className: "audit-page",
+      density: "compact",
+    };
+
     const { container } = render(
-      <WorkbenchPageFrame className="audit-page" density="compact">
-        Audit
-      </WorkbenchPageFrame>,
+      <WorkbenchPageFrame {...frameProps}>Audit</WorkbenchPageFrame>,
     );
 
     const frame = container.querySelector("section");
