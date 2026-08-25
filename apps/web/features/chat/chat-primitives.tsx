@@ -1635,6 +1635,7 @@ function AttachmentPreviewDialog({
           {previewKind === "image" ? <img alt={fileName} src={previewHref} /> : null}
           {previewKind === "video" ? <video controls src={previewHref} /> : null}
           {previewKind === "audio" ? <audio controls src={previewHref} /> : null}
+          {previewKind === "markdown" ? <MarkdownAttachmentPreview fileName={fileName} previewHref={previewHref} tx={tx} /> : null}
           {previewKind === "document" ? (
             <iframe sandbox="" src={previewHref} title={fileName} />
           ) : null}
@@ -1649,6 +1650,56 @@ function AttachmentPreviewDialog({
       </div>
     </div>
   );
+}
+
+function MarkdownAttachmentPreview({
+  fileName,
+  previewHref,
+  tx,
+}: {
+  fileName: string;
+  previewHref: string;
+  tx: ChatTranslator;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void fetch(previewHref)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Attachment preview failed with ${response.status}.`);
+        // Decode explicitly as UTF-8 so preview output does not depend on the
+        // storage object's Content-Type charset or the browser's iframe heuristics.
+        return new TextDecoder("utf-8").decode(await response.arrayBuffer());
+      })
+      .then((decoded) => {
+        if (!cancelled) setContent(decoded);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewHref]);
+
+  if (error) {
+    return (
+      <div className="attachment-preview__unsupported">
+        <AppIcon name="fileText" />
+        <strong>{tx("Markdown 预览失败", "Markdown preview failed")}</strong>
+        <span>{tx(`可以下载 ${fileName} 后使用本地应用打开。`, `Download ${fileName} to open it locally.`)}</span>
+      </div>
+    );
+  }
+  if (content === null) {
+    return <div className="attachment-preview__loading">{tx("正在加载 Markdown…", "Loading Markdown...")}</div>;
+  }
+
+  return <MDEditor.Markdown className="attachment-preview__markdown" source={content} skipHtml />;
 }
 
 function defaultChatTranslator(zh: string): string {
@@ -1679,11 +1730,12 @@ function useFileObjectUrl(file: File): string | null {
   return objectUrl;
 }
 
-function browserPreviewKind(mediaType: string): "image" | "video" | "audio" | "document" | "unsupported" {
+function browserPreviewKind(mediaType: string): "image" | "video" | "audio" | "markdown" | "document" | "unsupported" {
   const normalized = mediaType.toLowerCase();
   if (normalized.startsWith("image/")) return "image";
   if (normalized.startsWith("video/")) return "video";
   if (normalized.startsWith("audio/")) return "audio";
+  if (normalized === "text/markdown" || normalized === "text/x-markdown") return "markdown";
   if (
     normalized === "application/pdf" ||
     normalized === "application/json" ||

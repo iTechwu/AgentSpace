@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatAttachmentRow, ConversationMessageBubble } from "@/features/chat/chat-primitives";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import type { MessageAttachment } from "@/shared/types/workspace";
@@ -20,6 +20,10 @@ function createAttachment(overrides: Partial<MessageAttachment>): MessageAttachm
 }
 
 describe("ChatAttachmentRow", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("shows a loading placeholder until an image preview finishes loading", () => {
     const { container } = render(
       <ChatAttachmentRow
@@ -69,6 +73,34 @@ describe("ChatAttachmentRow", () => {
     );
     await user.click(screen.getByRole("button", { name: "关闭预览" }));
     expect(screen.queryByRole("dialog", { name: "预览 preview.png" })).not.toBeInTheDocument();
+  });
+
+  it("renders Markdown attachments as UTF-8 Markdown instead of an iframe", async () => {
+    const user = userEvent.setup();
+    const markdown = "# 分镜稿\n\n- **镜头一**：开场\n\n| 时长 | 画面 |\n| --- | --- |\n| 3 秒 | 山谷 |";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new TextEncoder().encode(markdown), { status: 200 })));
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ChatAttachmentRow
+          attachments={[
+            createAttachment({
+              id: "att-markdown",
+              fileName: "分镜稿.md",
+              mediaType: "text/markdown",
+              kind: "file",
+            }),
+          ]}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "预览 分镜稿.md" }));
+    expect(await screen.findByRole("heading", { name: "分镜稿" })).toBeInTheDocument();
+    expect(screen.getByText("镜头一").tagName).toBe("STRONG");
+    expect(screen.getByText("山谷")).toBeInTheDocument();
+    expect(screen.queryByTitle("分镜稿.md")).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith("/api/attachments/att-markdown?preview=1");
   });
 });
 

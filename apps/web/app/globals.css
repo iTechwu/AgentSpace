@@ -6464,6 +6464,43 @@ textarea:focus {
   background: #fff;
 }
 
+.attachment-preview__markdown {
+  width: min(900px, calc(100% - 40px));
+  min-height: 100%;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 28px 32px;
+  background: var(--bg-strong);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.attachment-preview__markdown :is(h1, h2, h3, h4) {
+  color: var(--text);
+}
+
+.attachment-preview__markdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.attachment-preview__markdown th,
+.attachment-preview__markdown td {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.attachment-preview__markdown th {
+  background: var(--panel-strong);
+}
+
+.attachment-preview__loading {
+  padding: 24px;
+  color: var(--muted);
+}
+
 .attachment-preview__unsupported {
   display: flex;
   max-width: 360px;
@@ -6506,6 +6543,11 @@ textarea:focus {
     height: 100dvh;
     border: 0;
     border-radius: 0;
+  }
+
+  .attachment-preview__markdown {
+    width: 100%;
+    padding: 20px;
   }
 }
 
