@@ -21729,10 +21729,6 @@ textarea:focus {
     gap: 0;
   }
 
-  .page-shell {
-    gap: 0;
-  }
-
   .settings-page,
   .task-board-shell,
   .performance-page,
@@ -28847,6 +28843,18 @@ textarea:focus {
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --control-hit-size: 40px;
+  --workbench-page-gutter: var(--space-6);
+  --workbench-section-gap: var(--space-6);
+  --workbench-component-gap: var(--space-4);
+  --workbench-control-gap: var(--space-3);
+  --workbench-inline-gap: var(--space-2);
 }
 
 body {
@@ -29550,13 +29558,32 @@ button[aria-disabled="true"] svg {
 }
 
 /* Shared workbench hierarchy for operational pages. */
+.workbench-page-frame {
+  min-width: 0;
+  padding: var(--workbench-page-gutter);
+  gap: var(--workbench-section-gap);
+}
+
+.workbench-page-frame--compact {
+  --workbench-section-gap: var(--space-4);
+  --workbench-component-gap: var(--space-3);
+  --workbench-control-gap: var(--space-2);
+}
+
+.workbench-page-frame--full-bleed {
+  --workbench-page-gutter: 0px;
+  --workbench-section-gap: 0px;
+  padding: 0;
+  gap: 0;
+}
+
 .workbench-page-header {
   min-height: 76px;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 1.5rem;
-  padding: 0.25rem 0.25rem 1rem;
+  gap: var(--workbench-section-gap);
+  padding: var(--space-1) var(--space-1) var(--space-4);
   border-bottom: 1px solid var(--line);
 }
 
@@ -29600,7 +29627,7 @@ button[aria-disabled="true"] svg {
 
 .workbench-page-header__aside {
   flex: 0 0 auto;
-  gap: 0.75rem;
+  gap: var(--workbench-control-gap);
 }
 
 .workbench-page-header__meta {
@@ -30173,6 +30200,11 @@ button[aria-disabled="true"] svg {
 }
 
 @media (max-width: 860px) {
+  .workbench-page-frame--balanced,
+  .workbench-page-frame--compact {
+    --workbench-page-gutter: var(--space-4);
+  }
+
   .workspace-main,
   .workspace-main--conversation {
     width: 100%;
@@ -30183,7 +30215,7 @@ button[aria-disabled="true"] svg {
     min-height: 0;
     align-items: stretch;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--workbench-control-gap);
   }
 
   .workbench-page-header__aside,
