@@ -5990,7 +5990,7 @@ textarea:focus {
   border-radius: inherit;
   background: linear-gradient(100deg, transparent 20%, rgba(79, 104, 216, 0.1) 48%, transparent 76%);
   background-size: 220% 100%;
-  animation: execution-timeline-sweep 1.8s ease-in-out infinite;
+  animation: execution-timeline-sweep 2.6s ease-in-out infinite;
   pointer-events: none;
 }
 
@@ -6070,14 +6070,7 @@ textarea:focus {
 }
 
 .execution-timeline__dot--running::after {
-  display: none;
-}
-
-.execution-timeline__spinner {
-  width: 11px;
-  height: 11px;
-  color: #4f68d8;
-  animation: conversation-process-spin 1s linear infinite;
+  background: #4f68d8;
 }
 
 .execution-timeline__icon {
@@ -6226,6 +6219,13 @@ textarea:focus {
 @keyframes execution-stream-caret-blink {
   50% {
     opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .execution-timeline--running .execution-timeline__item[data-state="running"] > summary::after,
+  .execution-stream-caret {
+    animation: none;
   }
 }
 

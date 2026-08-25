@@ -410,7 +410,7 @@ describe("ConversationShell", () => {
     expect(document.querySelector<HTMLDivElement>(".contacts-chat-thread")?.scrollTop).toBe(360);
   });
 
-  it("keeps the reading position and offers a return-to-latest action when new content arrives", async () => {
+  it("keeps the reading position at 25px and offers a new output action", async () => {
     const user = userEvent.setup();
     const createShell = (messages: Array<{
       id: string;
@@ -452,7 +452,7 @@ describe("ConversationShell", () => {
 
     Object.defineProperty(thread, "scrollHeight", { configurable: true, value: 1200 });
     Object.defineProperty(thread, "clientHeight", { configurable: true, value: 300 });
-    thread!.scrollTop = 280;
+    thread!.scrollTop = 875;
     fireEvent.scroll(thread!);
 
     rerender(createShell([
@@ -467,14 +467,55 @@ describe("ConversationShell", () => {
       },
     ]));
 
-    expect(thread?.scrollTop).toBe(280);
-    const latestButton = screen.getByRole("button", { name: /有新消息.*回到最新消息/ });
-    expect(latestButton).toHaveTextContent("有新消息");
+    expect(thread?.scrollTop).toBe(875);
+    const latestButton = screen.getByRole("button", { name: /有新输出.*回到最新内容/ });
+    expect(latestButton).toHaveTextContent("有新输出");
 
     await user.click(latestButton);
 
     expect(thread?.scrollTop).toBe(1200);
-    expect(screen.queryByRole("button", { name: /有新消息.*回到最新消息/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /有新输出.*回到最新内容/ })).not.toBeInTheDocument();
+  });
+
+  it("follows new output when the viewport is within 24px of the bottom", () => {
+    const createShell = (messageCount: number) => (
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "tour-visit", title: "tour visit", subtitle: "channel", meta: "meta", avatar: "#" }]}
+          listCount={1}
+          listKicker="Channels"
+          listTitle="Channels"
+          messages={Array.from({ length: messageCount }, (_, index) => ({
+            id: `message-${index}`,
+            speaker: "Atlas",
+            role: "agent" as const,
+            content: `message ${index}`,
+            timestamp: "10:00",
+            status: "completed" as const,
+          }))}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{ title: "tour visit", subtitle: "channel", avatar: "#" }}
+          selectedItemId="tour-visit"
+        />
+      </LanguageProvider>
+    );
+    const { rerender } = render(createShell(1));
+    const thread = document.querySelector<HTMLDivElement>(".contacts-chat-thread");
+    Object.defineProperty(thread, "scrollHeight", { configurable: true, value: 1200 });
+    Object.defineProperty(thread, "clientHeight", { configurable: true, value: 300 });
+    thread!.scrollTop = 877;
+    fireEvent.scroll(thread!);
+
+    rerender(createShell(2));
+
+    expect(thread?.scrollTop).toBe(1200);
+    expect(screen.queryByRole("button", { name: /有新输出.*回到最新内容/ })).not.toBeInTheDocument();
   });
 
   it("renders the supplementary panel as a dismissible mobile sheet on compact layouts", async () => {

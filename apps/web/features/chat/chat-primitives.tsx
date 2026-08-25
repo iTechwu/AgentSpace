@@ -204,9 +204,7 @@ const TaskExecutionTimelineRow = memo(
     const heading = (
       <>
         {hasDetail ? <AppIcon className="execution-timeline__chevron" name="chevronDown" /> : null}
-        <span className={`execution-timeline__dot execution-timeline__dot--${item.status}`}>
-          {item.status === "running" ? <AppIcon className="execution-timeline__spinner" name="loader" /> : null}
-        </span>
+        <span className={`execution-timeline__dot execution-timeline__dot--${item.status}`} />
         {icon ? <AppIcon className="execution-timeline__icon" name={icon} /> : null}
         <strong className="execution-timeline__title">{item.title}</strong>
         <span className="sr-only">

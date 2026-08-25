@@ -62,6 +62,8 @@ type PendingFile = {
   label: string;
 };
 
+const CONVERSATION_FOLLOW_THRESHOLD_PX = 24;
+
 export function ConversationShell({
   listKicker,
   listTitle,
@@ -435,7 +437,10 @@ export function ConversationShell({
       }
 
       const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      const anchor = buildConversationScrollAnchor(viewport, distanceFromBottom < 64);
+      const anchor = buildConversationScrollAnchor(
+        viewport,
+        distanceFromBottom <= CONVERSATION_FOLLOW_THRESHOLD_PX,
+      );
       scrollAnchorsRef.current = pruneConversationScrollAnchors({
         ...scrollAnchorsRef.current,
         [threadId]: anchor,
@@ -600,7 +605,7 @@ export function ConversationShell({
     }
 
     const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-    shouldStickToBottomRef.current = distanceFromBottom < 64;
+    shouldStickToBottomRef.current = distanceFromBottom <= CONVERSATION_FOLLOW_THRESHOLD_PX;
     if (shouldStickToBottomRef.current) {
       setHasNewActivityBelow(false);
     }
@@ -617,7 +622,16 @@ export function ConversationShell({
     if (!viewport) {
       return;
     }
-    viewport.scrollTop = viewport.scrollHeight;
+    const reducedMotion = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (typeof viewport.scrollTo === "function") {
+      viewport.scrollTo({
+        top: viewport.scrollHeight,
+        behavior: reducedMotion ? "auto" : "smooth",
+      });
+    } else {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
     shouldStickToBottomRef.current = true;
     setHasNewActivityBelow(false);
   }
@@ -1199,14 +1213,14 @@ export function ConversationShell({
                     {threadAfterMessages}
                     {hasNewActivityBelow ? (
                       <button
-                        aria-label={tx("有新消息，回到最新消息", "New activity, return to latest message")}
+                        aria-label={tx("有新输出，回到最新内容", "New output, return to latest content")}
                         aria-live="polite"
                         className="conversation-latest-activity"
                         onClick={scrollToLatestActivity}
                         type="button"
                       >
                         <AppIcon name="chevronDown" />
-                        <span>{tx("有新消息", "New activity")}</span>
+                        <span>{tx("有新输出", "New output")}</span>
                       </button>
                     ) : null}
                   </div>
