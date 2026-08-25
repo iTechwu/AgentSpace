@@ -175,13 +175,15 @@ describe("InboxPageClient", () => {
     expect(screen.getByRole("link", { name: "查看关联内容" })).toHaveAttribute("href", "/api/attachments/att-file");
   });
 
-  it("shows the complete runtime trace before the normalized task lifecycle", () => {
+  it("shows the complete runtime trace before the normalized task lifecycle", async () => {
+    const user = userEvent.setup();
     renderInbox();
 
     expect(screen.getByRole("heading", { name: "Runtime 执行详情" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "任务生命周期" })).toBeInTheDocument();
     expect(screen.getByText("先检查行程约束，再检索交通信息。")).toBeInTheDocument();
     expect(screen.getByText("大阪近期交通信息")).toBeInTheDocument();
+    await user.click(screen.getByText("web_search"));
     expect(screen.getByText(/已找到 12 条交通信息/)).toBeInTheDocument();
     expect(screen.getByText("Runtime 用量")).toBeInTheDocument();
     expect(screen.getByText("provider_checkpoint")).toBeInTheDocument();
