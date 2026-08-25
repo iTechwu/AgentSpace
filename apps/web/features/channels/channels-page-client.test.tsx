@@ -335,6 +335,7 @@ describe("ChannelsPageClient", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible",
@@ -1035,8 +1036,13 @@ describe("ChannelsPageClient", () => {
     });
   });
 
-  it("recovers only the changed task sequence from a targeted thread event", async () => {
+  it("batches task stream updates into one animation frame", async () => {
     const eventSources: MockEventSource[] = [];
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/conversations/conversation-stream/messages")) {
@@ -1150,7 +1156,11 @@ describe("ChannelsPageClient", () => {
       sequence: 4,
     });
 
-    await waitFor(() => expect(screen.getByText("第一段第二段")).toBeInTheDocument());
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByText("第一段")).toBeInTheDocument();
+    expect(screen.queryByText("第一段第二段")).not.toBeInTheDocument();
+    act(() => frames.splice(0).forEach((callback) => callback(16)));
+    expect(await screen.findByText("第一段第二段")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/workspaces/workspace-1/conversations/conversation-stream/messages?taskId=task-stream&afterSeq=1",
     );

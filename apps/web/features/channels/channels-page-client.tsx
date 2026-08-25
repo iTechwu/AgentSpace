@@ -66,6 +66,7 @@ import { OpenMontageJobCard } from "@/features/channels/openmontage-job-card";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { isDocumentInputActive } from "@/shared/lib/use-auto-refresh";
+import { createFrameBatcher, type FrameBatcher } from "@/shared/lib/frame-batcher";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { runToastAction } from "@/shared/lib/toast-action";
@@ -165,6 +166,10 @@ import {
   ChannelWorkspaceHeader,
   canRenameChannelFromHeader,
 } from "@/features/channels/channel-workspace-header";
+import {
+  applyChannelTaskStreamPatches,
+  type ChannelTaskStreamPatch,
+} from "@/features/channels/channel-task-stream-patch";
 
 export function ChannelsPageClient({
   data,
@@ -275,6 +280,31 @@ export function ChannelsPageClient({
   const transitionPendingRef = useRef(false);
   const documentDraftSourceRef = useRef<string | null>(null);
   const unavailableFeishuChannelNamesRef = useRef(new Set<string>());
+  const requestedLastSeqByTaskRef = useRef(new Map<string, number>());
+  const streamPatchBatcherRef = useRef<FrameBatcher<ChannelTaskStreamPatch> | null>(null);
+
+  useEffect(() => {
+    const batcher = createFrameBatcher<ChannelTaskStreamPatch>({
+      flush: (patches) => {
+        setDetailDataByChannelName((current) => applyChannelTaskStreamPatches(current, patches));
+      },
+      isHidden: () => document.visibilityState === "hidden",
+      requestFrame: (callback) => window.requestAnimationFrame(callback),
+      cancelFrame: (id) => window.cancelAnimationFrame(id),
+      setTimer: (callback, delay) => window.setTimeout(callback, delay),
+      clearTimer: (id) => window.clearTimeout(id),
+    });
+    const handleVisibilityChange = (): void => batcher.notifyVisibilityChanged();
+    streamPatchBatcherRef.current = batcher;
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      batcher.dispose();
+      streamPatchBatcherRef.current = null;
+      requestedLastSeqByTaskRef.current.clear();
+    };
+  }, []);
   const markImChannelDetailCacheStale = useCallback((channelName?: string | null) => {
     setDetailDataByChannelName((current) => {
       if (!channelName) {
@@ -796,80 +826,67 @@ export function ChannelsPageClient({
     }
     const currentRows = selectedThread?.taskExecutions?.[taskId] ?? [];
     const currentLastSeq = currentRows.at(-1)?.seq ?? 0;
-    if ((lastSeq ?? 0) <= currentLastSeq) {
+    const targetLastSeq = lastSeq ?? 0;
+    const requestKey = `${conversationId}:${taskId}`;
+    const requestedLastSeq = requestedLastSeqByTaskRef.current.get(requestKey) ?? 0;
+    if (targetLastSeq <= Math.max(currentLastSeq, requestedLastSeq)) {
       return true;
     }
-
-    const query = new URLSearchParams({ taskId, afterSeq: String(currentLastSeq) });
-    const response = await fetch(
-      `/api/workspaces/${encodeURIComponent(data.workspaceId)}/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
-    );
-    if (!response.ok) {
-      return false;
-    }
-    type ThreadMessage = NonNullable<typeof selectedThread>["messages"][number];
-    type TaskExecution = NonNullable<NonNullable<typeof selectedThread>["taskExecutions"]>[string][number];
-    const payload = await response.json() as {
-      messages?: ThreadMessage[];
-      taskExecutions?: Record<string, TaskExecution[]>;
-      lastSeqByTask?: Record<string, number>;
+    requestedLastSeqByTaskRef.current.set(requestKey, targetLastSeq);
+    const releaseRequest = (): void => {
+      if (requestedLastSeqByTaskRef.current.get(requestKey) === targetLastSeq) {
+        requestedLastSeqByTaskRef.current.delete(requestKey);
+      }
     };
-    const recoveredRows = payload.taskExecutions?.[taskId];
-    if (!Array.isArray(recoveredRows)) {
-      return false;
-    }
-    const firstRecoveredSeq = recoveredRows[0]?.seq;
-    if (firstRecoveredSeq !== undefined && firstRecoveredSeq > currentLastSeq + 1) {
-      return false;
-    }
-    if ((payload.lastSeqByTask?.[taskId] ?? currentLastSeq) < (lastSeq ?? 0)) {
-      return false;
-    }
 
-    setDetailDataByChannelName((current) => {
-      const detail = current.get(selectedConversationChannelName);
-      if (!detail) {
-        return current;
+    try {
+      const query = new URLSearchParams({ taskId, afterSeq: String(currentLastSeq) });
+      const response = await fetch(
+        `/api/workspaces/${encodeURIComponent(data.workspaceId)}/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
+      );
+      if (!response.ok) {
+        releaseRequest();
+        return false;
       }
-      const threadIndex = detail.threads.findIndex((thread) => thread.channelName === selectedConversationChannelName);
-      if (threadIndex === -1) {
-        return current;
-      }
-      const thread = detail.threads[threadIndex];
-      const incomingMessages = (payload.messages ?? []).map((message) => ({
-        ...message,
-        conversationId: message.conversationId ?? conversationId,
-      }));
-      const incomingMessageById = new Map(incomingMessages.map((message) => [message.id, message]));
-      const mergedMessages = thread.messages.map((message) => {
-        const incoming = incomingMessageById.get(message.id);
-        if (!incoming) {
-          return message;
-        }
-        incomingMessageById.delete(message.id);
-        return { ...message, ...incoming };
-      });
-      mergedMessages.push(...incomingMessageById.values());
-      const recoveredBySeq = new Map(currentRows.map((row) => [row.seq, row]));
-      for (const row of recoveredRows) {
-        recoveredBySeq.set(row.seq, row);
-      }
-      const nextThread = {
-        ...thread,
-        messages: mergedMessages,
-        taskExecutions: {
-          ...thread.taskExecutions,
-          [taskId]: [...recoveredBySeq.values()].sort((left, right) => left.seq - right.seq),
-        },
+      type ThreadMessage = NonNullable<typeof selectedThread>["messages"][number];
+      type TaskExecution = NonNullable<NonNullable<typeof selectedThread>["taskExecutions"]>[string][number];
+      const payload = await response.json() as {
+        messages?: ThreadMessage[];
+        taskExecutions?: Record<string, TaskExecution[]>;
+        lastSeqByTask?: Record<string, number>;
       };
-      const nextThreads = detail.threads.slice();
-      nextThreads[threadIndex] = nextThread;
-      const next = new Map(current);
-      next.set(selectedConversationChannelName, { ...detail, threads: nextThreads });
-      return next;
-    });
-    return true;
+      const recoveredRows = payload.taskExecutions?.[taskId];
+      if (!Array.isArray(recoveredRows)) {
+        releaseRequest();
+        return false;
+      }
+      const firstRecoveredSeq = recoveredRows[0]?.seq;
+      if (firstRecoveredSeq !== undefined && firstRecoveredSeq > currentLastSeq + 1) {
+        releaseRequest();
+        return false;
+      }
+      if ((payload.lastSeqByTask?.[taskId] ?? currentLastSeq) < targetLastSeq) {
+        releaseRequest();
+        return false;
+      }
+
+      streamPatchBatcherRef.current?.enqueue({
+        channelName: selectedConversationChannelName,
+        conversationId,
+        taskId,
+        messages: payload.messages ?? [],
+        taskExecutions: recoveredRows,
+      });
+      return true;
+    } catch {
+      releaseRequest();
+      return false;
+    }
   }, [data.workspaceId, routeState.conversationId, selectedConversationChannelName, selectedThread]);
+
+  useEffect(() => {
+    requestedLastSeqByTaskRef.current.clear();
+  }, [routeState.conversationId, selectedConversationChannelName]);
 
   useChannelRealtimeRefresh({
     workspaceId: data.workspaceId,
