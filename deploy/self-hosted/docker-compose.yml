@@ -110,7 +110,10 @@ services:
       DOFE_AGENT_PROVIDER_ACCOUNT_ID: ${DOFE_AGENT_CLAUDE_PROVIDER_ACCOUNT_ID:-}
       DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT: /run/dofe-agent-provider
       DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF: file:///run/dofe-agent-provider/provider-accounts.json
-      DOFE_AGENT_MANAGE_FEISHU_WORKER: "true"
+      # Feishu long connections are owned by the dedicated feishu-worker
+      # service above. Keeping daemon-managed supervision disabled prevents
+      # two processes from competing for the same app connection.
+      DOFE_AGENT_MANAGE_FEISHU_WORKER: "false"
     volumes:
       - claude-home:/home/node
       - daemon-claude-data:/srv/DofeAgent/data

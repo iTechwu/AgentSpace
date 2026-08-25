@@ -1,6 +1,6 @@
 # Self-hosted Docker Stack
 
-This Compose stack starts the Next.js web/API service, Workflow Worker, and two local execution daemons: Claude Code and Codex. PostgreSQL, Redis, and RabbitMQ are external to this stack and must be available before startup. The Claude daemon owns the Feishu WebSocket supervisor. It automatically discovers active Feishu Bot bindings, so do not also start `deploy/feishu-worker` for this stack.
+This Compose stack starts the Next.js web/API service, Workflow Worker, a dedicated Feishu WebSocket worker, and two local execution daemons: Claude Code and Codex. PostgreSQL, Redis, and RabbitMQ are external to this stack and must be available before startup. The dedicated `feishu-worker` owns Feishu long connections for the workspace; do not enable daemon-managed Feishu supervision in parallel.
 
 ## Start
 
@@ -73,7 +73,7 @@ Each daemon mounts a distinct read-only credential directory and builds a privat
 
 Use `config.json` for non-sensitive endpoint/model settings and `secret.json` for API keys or provider auth files. `secret.json` overrides duplicate entries in `config.json`. Do not use `docker compose exec ... login` for this deployment model: that writes to the service home volume, whereas the daemon intentionally runs the provider with its account-specific profile.
 
-`daemon-claude` is deliberately the only service with `DOFE_AGENT_MANAGE_FEISHU_WORKER=true`. If you add more daemon services, leave that setting false unless you move Feishu ownership to the new service. This prevents duplicate long connections and duplicate event delivery.
+`feishu-worker` is deliberately the only service that owns Feishu long connections. Both provider daemons keep `DOFE_AGENT_MANAGE_FEISHU_WORKER=false`; if ownership is moved to a daemon, stop the dedicated worker first. This prevents duplicate long connections and duplicate event delivery.
 
 ## Feishu
 
