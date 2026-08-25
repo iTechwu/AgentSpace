@@ -40,6 +40,8 @@ describe("TaskExecutionTimeline", () => {
     );
 
     const summary = screen.getByText("思考过程").closest("summary");
+    expect(screen.getByRole("status")).toHaveTextContent("任务正在执行");
+    expect(screen.getByRole("status")).not.toHaveTextContent("第一行");
     expect(summary).toHaveAttribute("aria-expanded", "false");
     expect(summary?.firstElementChild).toHaveClass("execution-timeline__chevron");
     expect(screen.getByText("最后一行")).toBeInTheDocument();
@@ -102,12 +104,53 @@ describe("TaskExecutionTimeline", () => {
     expect(screen.getByText("OUT")).toBeInTheDocument();
     const output = container.querySelector(".execution-timeline__detail-output");
     expect(output?.textContent).toHaveLength(16_000);
+    expect(screen.getByText("已显示 16000 / 17000 字符")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "继续加载输出" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "继续加载输出" }));
 
     expect(output?.textContent).toHaveLength(17_000);
+    expect(screen.getByText("已显示 17000 / 17000 字符")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "继续加载输出" })).not.toBeInTheDocument();
+  });
+
+  it("opens errors by default and preserves a user collapse across updates", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <LanguageProvider initialLanguage="zh">
+        <TaskExecutionTimeline
+          items={[{
+            id: "error-1",
+            kind: "error",
+            title: "执行失败",
+            detail: "连接超时",
+            status: "error",
+          }]}
+        />
+      </LanguageProvider>,
+    );
+
+    const details = screen.getByText("执行失败").closest("details");
+    expect(details).toHaveAttribute("open");
+    expect(screen.getByRole("status")).toHaveTextContent("任务执行失败");
+    await user.click(screen.getByText("执行失败").closest("summary")!);
+    expect(details).not.toHaveAttribute("open");
+
+    rerender(
+      <LanguageProvider initialLanguage="zh">
+        <TaskExecutionTimeline
+          items={[{
+            id: "error-1",
+            kind: "error",
+            title: "执行失败",
+            detail: "连接超时，已回退",
+            status: "error",
+          }]}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(details).not.toHaveAttribute("open");
   });
 });
 
@@ -283,6 +326,37 @@ describe("ConversationMessageBubble", () => {
     expect(container.querySelector(".conversation-process__reply button")).not.toBeInTheDocument();
     expect(container.querySelector(".inbox-message-body > .inbox-message-actions")).toBeInTheDocument();
     expect(container.querySelector(".conversation-process__reply .inbox-bubble__meta")).not.toBeInTheDocument();
+  });
+
+  it("uses a stable caret while a grouped execution reply is streaming", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "process-streaming",
+            speaker: "Aim",
+            role: "agent",
+            content: "执行中",
+            timestamp: "10:05",
+            status: "pending",
+            kind: "process",
+            executionRunning: true,
+            execution: [{ id: "step-running", kind: "thinking", title: "思考过程", status: "running" }],
+            executionReply: {
+              id: "reply-streaming",
+              speaker: "Aim",
+              role: "agent",
+              content: "正在整理车型",
+              timestamp: "10:06",
+              status: "pending",
+            },
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector(".conversation-process__reply")).toHaveAttribute("data-streaming", "true");
+    expect(container.querySelector(".execution-stream-caret")).toBeInTheDocument();
   });
 
   it("renders human and agent mentions with mention type metadata", () => {

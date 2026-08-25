@@ -146,20 +146,31 @@ function ExecutionDetailSection({
   content,
   label,
   loadMoreLabel,
+  tx,
 }: {
   className?: string;
   content: string;
   label?: string;
   loadMoreLabel: string;
+  tx: (zh: string, en: string) => string;
 }) {
   const [visibleCharacters, setVisibleCharacters] = useState(EXECUTION_DETAIL_CHUNK_SIZE);
   const hasMore = content.length > visibleCharacters;
+  const displayedCharacters = Math.min(visibleCharacters, content.length);
   return (
     <section className="execution-timeline__io-section">
       {label ? <strong className="execution-timeline__io-label">{label}</strong> : null}
       <pre className={`execution-timeline__detail${className ? ` ${className}` : ""}`}>
         {content.slice(0, visibleCharacters)}
       </pre>
+      {content.length > EXECUTION_DETAIL_CHUNK_SIZE ? (
+        <span className="execution-timeline__completeness">
+          {tx(
+            `已显示 ${displayedCharacters} / ${content.length} 字符`,
+            `Showing ${displayedCharacters} / ${content.length} characters`,
+          )}
+        </span>
+      ) : null}
       {hasMore ? (
         <button
           className="execution-timeline__load-more"
@@ -176,7 +187,7 @@ function ExecutionDetailSection({
 const TaskExecutionTimelineRow = memo(
   function TaskExecutionTimelineRow({ item }: { item: ExecutionTimelineItem }) {
     const { tx } = useLanguage();
-    const [expanded, setExpanded] = useState(false);
+    const [expanded, setExpanded] = useState(item.kind === "error");
     const detailId = useId();
     if (item.kind === "narration") {
       return (
@@ -237,6 +248,7 @@ const TaskExecutionTimelineRow = memo(
                     content={item.inputDetail}
                     label="IN"
                     loadMoreLabel={tx("继续加载输入", "Load more input")}
+                    tx={tx}
                   />
                 ) : null}
                 {item.outputDetail ? (
@@ -245,6 +257,7 @@ const TaskExecutionTimelineRow = memo(
                     content={item.outputDetail}
                     label="OUT"
                     loadMoreLabel={tx("继续加载输出", "Load more output")}
+                    tx={tx}
                   />
                 ) : null}
               </div>
@@ -252,6 +265,7 @@ const TaskExecutionTimelineRow = memo(
               <ExecutionDetailSection
                 content={item.detail}
                 loadMoreLabel={tx("继续加载详情", "Load more details")}
+                tx={tx}
               />
             ) : null}
           </div>
@@ -278,11 +292,18 @@ export function TaskExecutionTimeline({
   items: ExecutionTimelineItem[];
   running?: boolean;
 }) {
+  const { tx } = useLanguage();
   if (items.length === 0) {
     return null;
   }
+  const announcement = running
+    ? tx("任务正在执行", "Task in progress")
+    : items.some((item) => item.status === "error")
+      ? tx("任务执行失败", "Task failed")
+      : tx("任务已完成", "Task completed");
   return (
     <div className={`execution-timeline${running ? " execution-timeline--running" : ""}`}>
+      <span aria-live="polite" className="sr-only" role="status">{announcement}</span>
       {items.map((item) => <TaskExecutionTimelineRow item={item} key={item.id} />)}
     </div>
   );
@@ -499,13 +520,17 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
               >
                 <TaskExecutionTimeline items={message.execution} running={message.executionRunning} />
                 {executionReply ? (
-                  <div className="conversation-process__reply">
+                  <div
+                    className="conversation-process__reply"
+                    data-streaming={message.executionRunning || undefined}
+                  >
                     <span className="sr-only">{translateSystemSpeaker(executionReply.speaker, tx)}</span>
                     <ChatMessageContent
                       content={translateWorkspaceMessageSummary(executionReply, tx)}
                       mentions={executionReply.mentions}
                       tx={tx}
                     />
+                    {message.executionRunning ? <span aria-hidden="true" className="execution-stream-caret" /> : null}
                     {executionReply.attachments?.length ? <ChatAttachmentRow attachments={executionReply.attachments} tx={tx} /> : null}
                   </div>
                 ) : null}
