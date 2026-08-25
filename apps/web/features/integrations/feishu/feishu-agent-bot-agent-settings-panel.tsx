@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import {
@@ -67,6 +67,8 @@ export function FeishuAgentBotAgentSettingsPanel({
   const [reviewStatusPolicy, setReviewStatusPolicy] = useState<"approved" | "pending_admin_review" | "needs_identity_binding">("approved");
   const [unboundUserMode, setUnboundUserMode] = useState<"ignore" | "reply_on_mention" | "reply_all" | "require_identity">("reply_on_mention");
   const [guestPermissionProfile, setGuestPermissionProfile] = useState<"none" | "channel_context_only" | "channel_readonly">("channel_context_only");
+  const advancedSettingsRef = useRef<HTMLDetailsElement>(null);
+  const verificationTokenRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setCurrentIntegration(integration?.status === "disabled" ? undefined : integration);
@@ -77,7 +79,9 @@ export function FeishuAgentBotAgentSettingsPanel({
   }, [integration?.id, agentId]);
 
   const requiresVerificationToken = transportMode === "http_webhook";
-  const canCreate = canManage && appId.trim() && appSecret.trim() && (!requiresVerificationToken || verificationToken.trim());
+  // Keep the primary action discoverable after the two visible credentials
+  // are filled; event-callback-only fields are validated when submitted.
+  const canCreate = canManage && appId.trim() && appSecret.trim();
   const disabled = isPending || !canManage;
   const healthTone = healthCheckFeedback?.tone ?? resolveHealthTone(currentIntegration?.lastHealthStatus);
 
@@ -385,7 +389,7 @@ export function FeishuAgentBotAgentSettingsPanel({
             />
           </label>
 
-          <details className="feishu-advanced-settings">
+          <details className="feishu-advanced-settings" ref={advancedSettingsRef}>
             <summary>
               <span>{tx("自定义高级功能", "Customize Advanced Options")}</span>
               <small>{tx("事件回调、Tenant Key、自动建群和未绑定用户策略", "Event callback, Tenant Key, auto-provisioning, and unbound user policy")}</small>
@@ -439,6 +443,7 @@ export function FeishuAgentBotAgentSettingsPanel({
                   autoComplete="new-password"
                   disabled={disabled}
                   onChange={(event) => setVerificationToken(event.currentTarget.value)}
+                  ref={verificationTokenRef}
                   type="password"
                   value={verificationToken}
                 />
@@ -565,6 +570,15 @@ export function FeishuAgentBotAgentSettingsPanel({
               className="primary-button"
               disabled={!canCreate}
               onClick={() => {
+                if (requiresVerificationToken && !verificationToken.trim()) {
+                  advancedSettingsRef.current?.setAttribute("open", "");
+                  setFeedback(tx(
+                    "事件回调模式还需要填写 Verification Token，请在高级设置中补充。",
+                    "Event callback mode also requires a Verification Token. Add it in Advanced Options.",
+                  ));
+                  window.requestAnimationFrame(() => verificationTokenRef.current?.focus());
+                  return;
+                }
                 startTransition(async () => {
                   try {
                     const availability = await inspectBindingAvailability();
@@ -697,7 +711,7 @@ function FeishuAgentBotOnboarding({
         <div>
           <span>{tx("绑定前准备", "Before you bind")}</span>
           <h4>{tx("在飞书开放平台完成配置", "Complete setup in the Feishu developer console")}</h4>
-          <p>{tx("完成以下六项后，填写 App ID 与 App Secret 即可绑定。", "Complete these six items, then bind with the App ID and App Secret.")}</p>
+          <p>{tx("完成以下六项后，填写 App ID 与 App Secret；事件回调模式还需在高级设置中填写 Verification Token。", "Complete these six items and enter the App ID and App Secret. Event callback mode also requires a Verification Token in Advanced Options.")}</p>
         </div>
         <a className="action-button feishu-agent-bot-onboarding__link" href={developerConsoleUrl} rel="noreferrer" target="_blank">
           {tx("打开飞书开放平台", "Open Feishu Developer Console")}

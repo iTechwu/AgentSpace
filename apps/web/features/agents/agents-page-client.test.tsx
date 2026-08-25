@@ -1315,6 +1315,32 @@ describe("AgentsPageClient", () => {
     });
   });
 
+  it("explains the hidden Verification Token requirement instead of silently disabling binding", async () => {
+    const user = userEvent.setup();
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.type(screen.getByLabelText("App ID"), "cli_visible_action");
+    await user.type(screen.getByLabelText("App Secret"), "secret_visible_action");
+
+    const bindButton = screen.getByRole("button", { name: "绑定 Bot 并启用工作区" });
+    expect(bindButton).toBeEnabled();
+    await user.click(bindButton);
+
+    expect(screen.getByText("事件回调模式还需要填写 Verification Token，请在高级设置中补充。")).toBeVisible();
+    await waitFor(() => expect(screen.getByLabelText(/Verification Token/)).toHaveFocus());
+    expect(createFeishuAgentBotBindingAction).not.toHaveBeenCalled();
+  });
+
   it("allows a disabled Feishu bot to be replaced with a new event callback app", async () => {
     const user = userEvent.setup();
 
