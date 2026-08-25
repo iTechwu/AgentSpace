@@ -34,6 +34,7 @@ import type {
   SettingsFeishuIntegrationCreationGuide,
   SettingsFeishuIntegrationItem,
 } from "@/features/settings/settings-types";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 export type {
   SettingsPermissionCenterData,
@@ -115,7 +116,7 @@ export function SettingsPageClient({
   }, [onDataChanged, router]);
 
   return (
-    <section className="page-shell settings-page" data-hydrated={isHydrated ? "true" : undefined}>
+    <WorkbenchPageFrame className="settings-page" data-hydrated={isHydrated ? "true" : undefined}>
       <div className="settings-layout">
         <SettingsSidebar
           currentMembershipRole={currentMembershipRole}
@@ -194,6 +195,6 @@ export function SettingsPageClient({
 
         </div>
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }

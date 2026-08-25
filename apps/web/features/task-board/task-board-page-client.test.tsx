@@ -106,6 +106,18 @@ describe("TaskBoardPageClient", () => {
     });
   });
 
+  it("uses balanced workbench density", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <TaskBoardPageClient data={data} workspaceSlug="workspace-alpha" />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='balanced'].task-board-shell")).toBeInTheDocument();
+  });
+
   it("shows one column at a time and updates status on compact layouts", async () => {
     mockMatchMedia(true);
     const user = userEvent.setup();

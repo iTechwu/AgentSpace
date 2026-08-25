@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { AuditLogRecord } from "@dofe-agent/db";
 import { useLanguage, type LanguageCode } from "@/features/i18n/language-provider";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 import type { AuditLogFilters } from "@/features/audit/audit-log-filters";
 
@@ -62,7 +63,7 @@ export function AuditLogView({
     ["runtimeId", tx("执行引擎", "Runtime")], ["sessionId", tx("会话", "Session")], ["taskId", tx("任务", "Task")], ["modelId", tx("模型", "Model")],
   ];
   return (
-    <section className="page-shell audit-page">
+    <WorkbenchPageFrame className="audit-page">
       <WorkbenchPageHeader
         description={description ?? tx("集中检索工作区操作、执行引擎运行与治理事件。", "Search workspace operations, runtime execution, and governance events in one place.")}
         eyebrow={eyebrow ?? tx("治理", "Governance")}
@@ -95,7 +96,7 @@ export function AuditLogView({
               <h2 id="audit-results-title">{tx("事件明细", "Event details")}</h2>
             </div>
           </div>
-          <div className="audit-table-wrap">
+          <div className="audit-table-wrap" data-density-zone="compact">
             <table className="audit-table">
               <colgroup>
                 <col className="audit-table__col audit-table__col--time" />
@@ -116,7 +117,7 @@ export function AuditLogView({
           </div>
         </section>
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

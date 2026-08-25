@@ -6,6 +6,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 import { useManualWorkflowRun } from "./use-manual-workflow-run";
 import type { WorkflowCenterPageData, WorkflowListItem, WorkflowRunSummary } from "./workflow-types";
 
@@ -145,7 +146,7 @@ export function WorkflowListClient({
   }
 
   return (
-    <section className="page-shell workflow-center">
+    <WorkbenchPageFrame className="workflow-center">
       <WorkbenchPageHeader
         actions={(
           <Link className="knowledge-btn knowledge-btn--primary" href={`/w/${workspaceSlug}/automations/new?entry=automations`}>
@@ -256,7 +257,7 @@ export function WorkflowListClient({
           <EmptyState body={tx("工作区模板将在这里显示。", "Workspace templates will appear here.")} title={tx("暂无模板", "No templates")} />
         </div>
       ) : null}
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

@@ -19,6 +19,7 @@ import {
 import { useLanguage } from "@/features/i18n/language-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 const TRIGGER_TYPES: Array<{ value: AutomationTriggerType; label: string; labelEn: string }> = [
   { value: "message_received", label: "消息到达", labelEn: "Message Received" },
@@ -197,7 +198,7 @@ export function AutomationsPageClient({ data, onDataChanged }: { data: Automatio
   }
 
   return (
-    <section className="page-shell automations-page">
+    <WorkbenchPageFrame className="automations-page">
       <div className="automations-layout">
         <div className="automations-header">
           <div>
@@ -637,6 +638,6 @@ export function AutomationsPageClient({ data, onDataChanged }: { data: Automatio
         </div>
       ) : null}
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }

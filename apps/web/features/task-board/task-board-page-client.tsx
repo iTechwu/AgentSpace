@@ -16,6 +16,7 @@ import { runToastAction } from "@/shared/lib/toast-action";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 
 const groupByOptions: Array<{ key: TaskBoardGroupBy; label: [string, string] }> = [
@@ -119,7 +120,7 @@ export function TaskBoardPageClient({
     : columns;
 
   return (
-    <section className={`task-board-shell${isCompactLayout ? " task-board-shell--compact" : ""}`}>
+    <WorkbenchPageFrame className={`task-board-shell${isCompactLayout ? " task-board-shell--compact" : ""}`}>
       <WorkbenchPageHeader
         actions={(
           <Link
@@ -246,7 +247,7 @@ export function TaskBoardPageClient({
           workspaceSlug={workspaceSlug}
         />
       ) : null}
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

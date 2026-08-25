@@ -7,6 +7,7 @@ import type { ScheduledTaskRepeat } from "@dofe-agent/domain/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 const REPEAT_OPTIONS: Array<{ value: ScheduledTaskRepeat; label: string; labelEn: string }> = [
   { value: "once", label: "一次性", labelEn: "Once" },
@@ -23,7 +24,7 @@ export function CalendarPageClient({ data, workspaceSlug }: { data: CalendarPage
   const createWorkflowHref = buildWorkspacePath(workspaceSlug, "/automations/new?entry=calendar");
 
   return (
-    <section className="page-shell calendar-page">
+    <WorkbenchPageFrame className="calendar-page">
       <div className="calendar-layout">
       <div className="calendar-header">
         <div>
@@ -95,7 +96,7 @@ export function CalendarPageClient({ data, workspaceSlug }: { data: CalendarPage
       </div>
 
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

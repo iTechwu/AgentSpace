@@ -161,6 +161,12 @@ describe("SettingsPageClient", () => {
     mockUpdateFeishuAgentBotPolicyAction.mockReset();
   });
 
+  it("uses balanced workbench density", () => {
+    const { container } = renderSettingsPage({ initialSection: "preferences" });
+
+    expect(container.querySelector("[data-page-density='balanced'].settings-page")).toBeInTheDocument();
+  });
+
   it("switches the display language with a select field", async () => {
     const user = userEvent.setup();
 

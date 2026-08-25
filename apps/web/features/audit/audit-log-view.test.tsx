@@ -6,7 +6,7 @@ import { parseAuditLogFilters } from "@/features/audit/audit-log-filters";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 
 it("renders the audit workbench in Chinese by default", () => {
-  render(
+  const { container } = render(
     <LanguageProvider initialLanguage="zh">
       <AuditLogView clearHref="/w/acme/audit" filters={{}} logs={[]} />
     </LanguageProvider>,
@@ -16,6 +16,8 @@ it("renders the audit workbench in Chinese by default", () => {
   expect(screen.getByLabelText("事件类型")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "应用筛选" })).toBeInTheDocument();
   expect(screen.getByText("没有符合条件的审计事件")).toBeInTheDocument();
+  expect(container.querySelector("[data-page-density='balanced'].audit-page")).toBeInTheDocument();
+  expect(container.querySelector("[data-density-zone='compact'].audit-table-wrap")).toBeInTheDocument();
 });
 
 it("ignores invalid audit timestamps", () => {

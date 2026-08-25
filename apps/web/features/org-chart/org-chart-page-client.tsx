@@ -6,6 +6,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 type ViewMode = "tree" | "channel";
 type Translator = (zh: string, en: string) => string;
@@ -39,7 +40,7 @@ export function OrgChartPageClient({ data }: { data: OrgChartPageData }) {
   }
 
   return (
-    <section className="page-shell org-chart-page">
+    <WorkbenchPageFrame className="org-chart-page">
       <section className="org-chart-shell">
         <div className="org-chart-toolbar">
           <div className="org-chart-heading">
@@ -170,7 +171,7 @@ export function OrgChartPageClient({ data }: { data: OrgChartPageData }) {
           </div>
         )}
       </section>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

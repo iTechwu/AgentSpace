@@ -13,6 +13,7 @@ import { RuntimeCapabilitiesPanel } from "@/features/runtimes/runtime-capabiliti
 import { RuntimeDisplayNameEditor } from "@/features/runtimes/runtime-display-name-editor";
 import { loadMarketPageData } from "@/features/market/market-page-loader";
 import { AppIcon } from "@/shared/ui/app-icon";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,7 @@ export default async function ManagedRuntimeDetailPage({
   const presentation = presentRuntimeState(runtime.provisioningState, runtime.status, runtime.providerHealth);
 
   return (
-    <section className="page-shell runtime-detail runtime-detail--stable">
+    <WorkbenchPageFrame className="runtime-detail runtime-detail--stable">
       <header className="runtime-detail__header">
         <Link
           className="runtime-detail__back"
@@ -183,7 +184,7 @@ export default async function ManagedRuntimeDetailPage({
           />
         </section>
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

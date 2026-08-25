@@ -14,6 +14,7 @@ import { ManagedRuntimeList } from "@/features/runtimes/managed-runtime-list";
 import { ManagedRuntimeCreationWizard } from "@/features/runtimes/managed-runtime-creation-wizard";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { useLanguage } from "@/features/i18n/language-provider";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import type { ManagedRuntimeListItem, PublicRuntimeProvisioningTaskRecord } from "@dofe-agent/services/runtime";
@@ -50,13 +51,13 @@ export function RuntimesPageClient({
 
   if (!isAdmin) {
     return (
-      <section className="page-shell runtimes-page">
+      <WorkbenchPageFrame className="runtimes-page">
         <WorkbenchPageHeader
           description={tx("只有工作区所有者和管理员可以管理执行引擎。", "Only workspace owners and admins can manage runtimes.")}
           eyebrow={tx("数字员工", "AI employees")}
           title={tx("执行引擎管理", "Runtime management")}
         />
-      </section>
+      </WorkbenchPageFrame>
     );
   }
 
@@ -65,7 +66,7 @@ export function RuntimesPageClient({
   }
 
   return (
-    <section className="page-shell runtimes-page">
+    <WorkbenchPageFrame className="runtimes-page">
       <WorkbenchPageHeader
         description={tx(
           "系统优先复用兼容的共享执行能力，缺失时自动在托管节点通过 Docker 部署。",
@@ -285,7 +286,7 @@ export function RuntimesPageClient({
           </div>
         ) : null}
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

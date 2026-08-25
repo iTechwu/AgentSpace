@@ -54,6 +54,12 @@ function renderPage(initialRuntimes: ManagedRuntimeListItem[]) {
   );
 }
 
+it("uses balanced workbench density", () => {
+  const { container } = renderPage([runtime]);
+
+  expect(container.querySelector("[data-page-density='balanced'].runtimes-page")).toBeInTheDocument();
+});
+
 it("shows the runtime list first and keeps creation and operations in separate tabs", async () => {
   const user = userEvent.setup();
   renderPage([runtime]);
