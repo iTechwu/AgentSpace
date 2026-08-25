@@ -124,6 +124,18 @@ describe("ApprovalsPageClient", () => {
     vi.mocked(reviewApprovalQueueItemAction).mockClear();
   });
 
+  it("uses the full-bleed workbench density", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='full-bleed'].approvals-page")).toBeInTheDocument();
+  });
+
   it("does not introduce a nested main landmark inside the workspace shell", () => {
     const view = render(
       <main>

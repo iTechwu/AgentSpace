@@ -144,6 +144,16 @@ describe("KnowledgePageClient", () => {
     routerReplaceMock.mockReset();
   });
 
+  it("uses the full-bleed workbench density", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <KnowledgePageClient data={data} />
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='full-bleed'].knowledge-page")).toBeInTheDocument();
+  });
+
   it("switches knowledge views from the page header", async () => {
     const user = userEvent.setup();
     render(

@@ -19,6 +19,7 @@ import { translateSystemSpeaker } from "@/features/i18n/presentation";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import MDEditor, { commands } from "@uiw/react-md-editor";
 import "@uiw/react-md-editor/markdown-editor.css";
@@ -521,7 +522,7 @@ export function KnowledgePageClient({
         : tx("知识页面", "Knowledge page")
       : tx("文档页面", "Document page");
   return (
-    <section className="page-shell knowledge-page">
+    <WorkbenchPageFrame className="knowledge-page" density="full-bleed">
       <WorkbenchPageHeader
         actions={(
           <div aria-label={tx("知识库视图", "Knowledge views")} className="container-view-switch" role="tablist">
@@ -1099,7 +1100,7 @@ export function KnowledgePageClient({
         </div>
       ) : null}
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TablesPageClient } from "@/features/tables/tables-page-client";
@@ -68,6 +68,21 @@ const data: DataTablesPageData = {
 describe("TablesPageClient", () => {
   beforeEach(() => {
     mockMatchMedia(false);
+  });
+
+  it("uses full-bleed density with a compact table zone", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <LanguageProvider>
+        <TablesPageClient data={data} />
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='full-bleed'].tables-page")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /行程表/i }));
+    await waitFor(() => {
+      expect(container.querySelector("[data-density-zone='compact'].tables-grid-wrapper")).toBeInTheDocument();
+    });
   });
 
   it("switches between table list and detail on compact layouts", async () => {

@@ -29570,11 +29570,24 @@ button[aria-disabled="true"] svg {
   --workbench-control-gap: var(--space-2);
 }
 
-.workbench-page-frame--full-bleed {
+.workbench-page-frame.workbench-page-frame--full-bleed {
   --workbench-page-gutter: 0px;
   --workbench-section-gap: 0px;
   padding: 0;
   gap: 0;
+}
+
+[data-density-zone="compact"] {
+  --workbench-component-gap: var(--space-3);
+  --workbench-control-gap: var(--space-2);
+}
+
+[data-density-zone="compact"] :is(th, td) {
+  padding-block: var(--space-2);
+}
+
+[data-density-zone="compact"] :is(button, input, select, textarea, [role="button"]) {
+  min-height: var(--control-hit-size);
 }
 
 .workbench-page-header {

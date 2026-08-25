@@ -57,6 +57,16 @@ describe("TemplatesPageClient", () => {
     mockMatchMedia(false);
   });
 
+  it("uses the full-bleed workbench density", () => {
+    const { container } = render(
+      <LanguageProvider>
+        <TemplatesPageClient data={data} />
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='full-bleed'].templates-page")).toBeInTheDocument();
+  });
+
   it("switches between template list and detail on compact layouts", async () => {
     mockMatchMedia(true);
     const user = userEvent.setup();

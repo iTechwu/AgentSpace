@@ -15,6 +15,7 @@ import {
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 const COLUMN_TYPES: DataColumnType[] = ["text", "number", "select", "date", "person", "checkbox"];
 
@@ -117,7 +118,7 @@ export function TablesPageClient({ data, onDataChanged }: { data: DataTablesPage
   const showDetailPane = !isCompactLayout || mobilePane === "detail";
 
   return (
-    <section className="page-shell tables-page">
+    <WorkbenchPageFrame className="tables-page" density="full-bleed">
       <div className={`tables-layout${isCompactLayout ? " tables-layout--compact" : ""}`}>
       {showListPane ? (
         <div className="tables-sidebar">
@@ -214,7 +215,7 @@ export function TablesPageClient({ data, onDataChanged }: { data: DataTablesPage
                 {tx("关联群组", "Group")}: {selected.channelName}
               </div>
             ) : null}
-            <div className="tables-grid-wrapper">
+            <div className="tables-grid-wrapper" data-density-zone="compact">
               <table className="tables-grid">
                 <thead>
                   <tr>
@@ -362,7 +363,7 @@ export function TablesPageClient({ data, onDataChanged }: { data: DataTablesPage
         </div>
       ) : null}
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

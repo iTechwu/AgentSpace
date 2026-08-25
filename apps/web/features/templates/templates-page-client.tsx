@@ -9,6 +9,7 @@ import { createTemplateAction, updateTemplateAction, deleteTemplateAction } from
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 const CATEGORY_OPTIONS: Array<{ value: TemplateCategory; label: string; labelEn: string }> = [
   { value: "channel", label: "群组模板", labelEn: "Group" },
@@ -134,7 +135,7 @@ export function TemplatesPageClient({ data, onDataChanged }: { data: TemplatesPa
   const showDetailPane = !isCompactLayout || mobilePane === "detail";
 
   return (
-    <section className="page-shell templates-page">
+    <WorkbenchPageFrame className="templates-page" density="full-bleed">
       <div className={`templates-layout${isCompactLayout ? " templates-layout--compact" : ""}`}>
       {showListPane ? (
         <div className="templates-sidebar">
@@ -362,6 +363,6 @@ export function TemplatesPageClient({ data, onDataChanged }: { data: TemplatesPa
         </div>
       ) : null}
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }

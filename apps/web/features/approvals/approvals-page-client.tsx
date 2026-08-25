@@ -16,6 +16,7 @@ import { runToastAction } from "@/shared/lib/toast-action";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 type FilterKey = "all" | ApprovalItemStatus;
 type KnowledgeDraft = {
@@ -183,7 +184,7 @@ export function ApprovalsPageClient({
   const showDetailPane = !isCompactLayout || mobilePane === "detail";
 
   return (
-    <section className="page-shell approvals-page">
+    <WorkbenchPageFrame className="approvals-page" density="full-bleed">
       <WorkbenchPageHeader
         description={tx("优先处理待审批和高风险变更，所有决定都会保留审计记录。", "Prioritize pending and high-risk changes. Every decision is retained in the audit trail.")}
         eyebrow={tx("协作", "Collaboration")}
@@ -396,7 +397,7 @@ export function ApprovalsPageClient({
           </div>
         ) : null}
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

@@ -272,6 +272,12 @@ describe("SkillsPageClient", () => {
     mockUpsertWorkspaceSkillFileAction.mockClear();
   });
 
+  it("uses the full-bleed workbench density", () => {
+    const { container } = renderSkillsPage();
+
+    expect(container.querySelector("[data-page-density='full-bleed'].skills-page")).toBeInTheDocument();
+  });
+
   it("distinguishes builtin and general skills in the list", async () => {
     renderSkillsPage();
 

@@ -31,6 +31,7 @@ import { ImportSkillModal } from "@/features/skills/components/import-skill-moda
 import type { SkillsPageData } from "@/features/dashboard/data";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { PaneResizeHandle } from "@/shared/ui/pane-resize-handle";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 export function SkillsPageClient({
   data,
@@ -223,7 +224,7 @@ export function SkillsPageClient({
   }, [searchParams]);
 
   return (
-    <section className="page-shell skills-page">
+    <WorkbenchPageFrame className="skills-page" density="full-bleed">
       {showCreateSkill ? (
         <CreateSkillModal
           pending={isPending}
@@ -539,7 +540,7 @@ export function SkillsPageClient({
           </section>
         ) : null}
       </div>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 
