@@ -98,10 +98,20 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
         "这个飞书 App ID 和 Tenant Key 已经绑定到其他 AI员工。",
         "This Feishu App ID and Tenant Key are already bound to another AI employee.",
       );
+    case "feishu.agent_bot_binding.duplicate_display_name":
+      return tx(
+        "该飞书 Bot 名称已被使用，请换一个名称后重试。",
+        "This Feishu bot name is already in use. Choose another name and try again.",
+      );
     case "feishu.agent_bot_binding.transfer_source_invalid":
       return tx(
         "该已停用 Bot 的状态已变化。请刷新页面后重新确认移交。",
         "The disabled bot changed state. Refresh the page and confirm the transfer again.",
+      );
+    case "feishu.agent_bot_binding.replacement_source_invalid":
+      return tx(
+        "该已停用 Bot 的状态已变化。请刷新页面后重新填写新凭据。",
+        "The disabled bot changed state. Refresh the page and enter the new credentials again.",
       );
     case "feishu.agent_bot_binding.not_found":
       return tx("未找到该 AI员工 的飞书 Bot 绑定。", "Feishu bot binding for this AI employee was not found.");

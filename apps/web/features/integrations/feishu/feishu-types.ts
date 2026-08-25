@@ -324,6 +324,7 @@ export interface CreateFeishuAgentBotBindingInput {
   encryptKey?: string;
   tenantKey?: string;
   transferDisabledBindingId?: string;
+  replaceDisabledBindingId?: string;
   channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningInput;
   externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
 }

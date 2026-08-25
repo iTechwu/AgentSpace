@@ -322,6 +322,72 @@ test("Feishu agent bot binding transfers an explicitly selected disabled bot", d
   });
 });
 
+test("Feishu agent bot replacement uses the disabled binding by default", databaseTestOptions, () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-agent-bot-replacement-name",
+    name: "Feishu Agent Bot Replacement Name",
+    createdBy: "system",
+  });
+  const disabled = createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "Codex",
+    displayName: "Codex Feishu Bot",
+    appId: "cli_retired_codex_bot",
+    appSecret: "old-secret",
+    transportMode: "websocket_worker",
+  });
+  disableFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    integrationId: disabled.id,
+  });
+
+  const replacement = createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "Codex",
+    appId: "cli_replacement_codex_bot",
+    appSecret: "new-secret",
+    transportMode: "websocket_worker",
+  });
+
+  assert.equal(replacement.id, disabled.id);
+  assert.equal(replacement.displayName, "Codex Feishu Bot");
+  assert.equal(replacement.status, "active");
+});
+
+test("Feishu agent bot replacement updates a disabled binding in place", databaseTestOptions, () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-agent-bot-replace-in-place",
+    name: "Feishu Agent Bot Replace In Place",
+    createdBy: "system",
+  });
+  const disabled = createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "Codex",
+    displayName: "Codex Feishu Bot",
+    appId: "cli_old_codex_bot",
+    appSecret: "old-secret",
+    transportMode: "websocket_worker",
+    channelAutoProvisioning: { botAdded: "pending_admin_review" },
+  });
+  disableFeishuAgentBotBindingSync({ workspaceId: workspace.id, integrationId: disabled.id });
+
+  const replacement = createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "Codex",
+    appId: "cli_new_codex_bot",
+    appSecret: "new-secret",
+    transportMode: "websocket_worker",
+    replaceDisabledBindingId: disabled.id,
+    channelAutoProvisioning: { botAdded: "auto_create_channel" },
+  });
+
+  assert.equal(replacement.id, disabled.id);
+  assert.equal(replacement.displayName, disabled.displayName);
+  assert.equal(replacement.appId, "cli_new_codex_bot");
+  assert.equal(replacement.status, "active");
+  assert.equal(JSON.parse(replacement.configJson).channelAutoProvisioning.botAdded, "auto_create_channel");
+});
+
 test("Feishu agent bot credentials can be rotated and disabled without exposing secrets", databaseTestOptions, () => {
   const workspace = createWorkspaceSync({
     slug: "feishu-agent-bot-rotate",

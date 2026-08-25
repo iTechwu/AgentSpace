@@ -213,6 +213,7 @@ export async function createFeishuAgentBotBindingAction(
       encryptKey: input.encryptKey,
       tenantKey: input.tenantKey,
       transferDisabledBindingId: input.transferDisabledBindingId,
+      replaceDisabledBindingId: input.replaceDisabledBindingId,
       channelAutoProvisioning: input.channelAutoProvisioning,
       externalGuestPolicy: input.externalGuestPolicy,
       createdByUserId: workspaceContext.currentUser.id,
@@ -221,15 +222,28 @@ export async function createFeishuAgentBotBindingAction(
     throw normalizeFeishuAgentBotBindingWriteError(error);
   }
 
+  const operation = input.transferDisabledBindingId
+    ? "transferred"
+    : input.replaceDisabledBindingId
+      ? "replaced"
+      : "created";
   tryRecordWorkspaceAuditEventSync({
     workspaceId: workspaceContext.currentWorkspace.id,
-    title: input.transferDisabledBindingId ? "Feishu agent bot binding transferred" : "Feishu agent bot binding created",
-    note: input.transferDisabledBindingId
+    title: operation === "transferred"
+      ? "Feishu agent bot binding transferred"
+      : operation === "replaced"
+        ? "Feishu agent bot binding replaced"
+        : "Feishu agent bot binding created",
+    note: operation === "transferred"
       ? `${workspaceContext.currentUser.displayName} transferred Feishu bot "${integration.displayName}" to agent "${integration.agentId}".`
-      : `${workspaceContext.currentUser.displayName} connected Feishu bot "${integration.displayName}" to agent "${integration.agentId}".`,
-    code: input.transferDisabledBindingId
+      : operation === "replaced"
+        ? `${workspaceContext.currentUser.displayName} replaced the credentials for Feishu bot "${integration.displayName}" on agent "${integration.agentId}".`
+        : `${workspaceContext.currentUser.displayName} connected Feishu bot "${integration.displayName}" to agent "${integration.agentId}".`,
+    code: operation === "transferred"
       ? "workspace.external_integration_transferred"
-      : "workspace.external_integration_created",
+      : operation === "replaced"
+        ? "workspace.external_integration_replaced"
+        : "workspace.external_integration_created",
     data: {
       actorType: "session_user",
       resourceType: "external_integration",
@@ -238,6 +252,7 @@ export async function createFeishuAgentBotBindingAction(
       agentId: integration.agentId,
       transportMode: integration.transportMode,
       transferSourceIntegrationId: input.transferDisabledBindingId || undefined,
+      replacementSourceIntegrationId: input.replaceDisabledBindingId || undefined,
       secretRedacted: true,
     },
   });

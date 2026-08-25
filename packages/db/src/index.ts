@@ -623,6 +623,7 @@ export {
   readExternalMessageOutboxSync,
   readExternalResourceBindingByKeySync,
   reassignDisabledExternalIntegrationSync,
+  replaceDisabledExternalIntegrationSync,
   readExternalThreadBindingByIdSync,
   readExternalThreadBindingSync,
   readExternalUserBindingByIdSync,

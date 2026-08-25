@@ -25,6 +25,16 @@ describe("translateSettingsActionError", () => {
       new Error("feishu.agent_bot_binding.transfer_source_invalid"),
       englishTx,
     )).toBe("The disabled bot changed state. Refresh the page and confirm the transfer again.");
+
+    expect(translateSettingsActionError(
+      new Error("feishu.agent_bot_binding.replacement_source_invalid"),
+      englishTx,
+    )).toBe("The disabled bot changed state. Refresh the page and enter the new credentials again.");
+
+    expect(translateSettingsActionError(
+      new Error("feishu.agent_bot_binding.duplicate_display_name"),
+      chineseTx,
+    )).toBe("该飞书 Bot 名称已被使用，请换一个名称后重试。");
   });
 
   it("translates Feishu credential encryption setup errors", () => {

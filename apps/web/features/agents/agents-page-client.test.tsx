@@ -1341,7 +1341,7 @@ describe("AgentsPageClient", () => {
     expect(createFeishuAgentBotBindingAction).not.toHaveBeenCalled();
   });
 
-  it("allows a disabled Feishu bot to be replaced with a new event callback app", async () => {
+  it("replaces a disabled Feishu bot in place with new credentials", async () => {
     const user = userEvent.setup();
 
     renderAgentsPage({
@@ -1361,7 +1361,7 @@ describe("AgentsPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "设置" }));
 
-    expect(screen.getByText("“Retired Planner Bot”已停用，不会阻止为 Planner 绑定新的飞书应用。请在下方填写新应用凭据。")).toBeVisible();
+    expect(screen.getByText("“Retired Planner Bot”已停用。填写新的 App ID 与 App Secret 后，将原位替换凭据并保留原工作区绑定。")).toBeVisible();
     expect(screen.getByLabelText("App ID")).toBeVisible();
     expect(screen.queryByRole("button", { name: "检查连接" })).not.toBeInTheDocument();
 
@@ -1369,15 +1369,16 @@ describe("AgentsPageClient", () => {
     await user.type(screen.getByLabelText("App Secret"), "secret_planner_replacement");
     await user.click(screen.getByText("自定义高级功能"));
     await user.type(screen.getByLabelText(/Verification Token/), "verify_planner_replacement");
-    await user.click(screen.getByRole("button", { name: "绑定 Bot 并启用工作区" }));
+    await user.click(screen.getByRole("button", { name: "原位替换 Bot 并启用工作区" }));
 
     await waitFor(() => {
       expect(createFeishuAgentBotBindingAction).toHaveBeenCalledWith(expect.objectContaining({
         agentId: "planner",
-        transportMode: "http_webhook",
+        transportMode: "websocket_worker",
         appId: "cli_planner_replacement",
         verificationToken: "verify_planner_replacement",
         transferDisabledBindingId: undefined,
+        replaceDisabledBindingId: "feishu-agent-bot-planner",
       }));
     });
   });

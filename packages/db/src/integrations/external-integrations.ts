@@ -413,6 +413,90 @@ export function reassignDisabledExternalIntegrationSync(input: {
   return requireExternalIntegration({ workspaceId, integrationId: integration.id });
 }
 
+export function replaceDisabledExternalIntegrationSync(input: {
+  workspaceId?: string;
+  integrationId: string;
+  provider: ExternalIntegrationProvider;
+  appId: string;
+  tenantKey?: string;
+  displayName: string;
+  transportMode: ExternalIntegrationTransportMode;
+  agentId: string;
+  encryptedCredentialsJson: JsonInput;
+  configJson: JsonInput;
+  capabilitiesJson: JsonInput;
+  scopesJson: JsonInput;
+  updatedByUserId?: string;
+}): ExternalIntegrationRecord {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const integration = requireExternalIntegration({ workspaceId, integrationId: input.integrationId });
+  const provider = normalizeRequiredText(input.provider, "External integration provider is required.");
+  const appId = normalizeRequiredText(input.appId, "External integration app id is required.");
+  const tenantKey = normalizeOptionalText(input.tenantKey);
+  const displayName = normalizeRequiredText(input.displayName, "External integration display name is required.");
+  const agentId = normalizeRequiredText(input.agentId, "External integration agent id is required.");
+  if (
+    integration.status !== "disabled"
+    || integration.provider !== provider
+    || integration.agentId !== agentId
+  ) {
+    throw new Error("External integration is not a disabled binding for the requested agent.");
+  }
+  assertExternalIntegrationAppTenantUnique({
+    workspaceId,
+    provider,
+    appId,
+    tenantKey,
+    excludeIntegrationId: integration.id,
+  });
+  assertExternalIntegrationAgentUnique({
+    workspaceId,
+    provider,
+    agentId,
+    excludeIntegrationId: integration.id,
+  });
+
+  const now = new Date().toISOString();
+  const result = getDatabase().prepare(
+    `UPDATE external_integration
+     SET display_name = ?,
+         status = 'active',
+         transport_mode = ?,
+         app_id = ?,
+         tenant_key = ?,
+         encrypted_credentials_json = ?,
+         config_json = ?,
+         capabilities_json = ?,
+         scopes_json = ?,
+         updated_by_user_id = ?,
+         updated_at = ?,
+         disabled_at = NULL,
+         last_health_status = 'unknown',
+         last_health_checked_at = NULL,
+         last_error = NULL
+     WHERE workspace_id = ? AND id = ? AND status = 'disabled' AND agent_id = ?`,
+  ).run(
+    displayName,
+    input.transportMode,
+    appId,
+    tenantKey,
+    normalizeJsonInput(input.encryptedCredentialsJson, DEFAULT_JSON_OBJECT),
+    normalizeJsonInput(input.configJson, DEFAULT_JSON_OBJECT),
+    normalizeJsonInput(input.capabilitiesJson, DEFAULT_JSON_OBJECT),
+    normalizeJsonInput(input.scopesJson, DEFAULT_JSON_ARRAY),
+    normalizeOptionalText(input.updatedByUserId),
+    now,
+    workspaceId,
+    integration.id,
+    agentId,
+  );
+
+  if (result.changes === 0) {
+    throw new Error("External integration was changed before replacement completed.");
+  }
+  return requireExternalIntegration({ workspaceId, integrationId: integration.id });
+}
+
 export function updateExternalIntegrationConfigSync(input: {
   workspaceId?: string;
   integrationId: string;

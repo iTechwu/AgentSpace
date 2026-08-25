@@ -46,6 +46,7 @@ export function FeishuAgentBotAgentSettingsPanel({
 }: FeishuAgentBotAgentSettingsPanelProps) {
   const { tx } = useLanguage();
   const [isPending, startTransition] = useTransition();
+  const replacementIntegration = integration?.status === "disabled" ? integration : undefined;
   // A disabled binding is historical state, not a live binding. Treat it as
   // unbound so an operator can immediately configure a replacement Bot.
   const [currentIntegration, setCurrentIntegration] = useState(
@@ -57,16 +58,28 @@ export function FeishuAgentBotAgentSettingsPanel({
   const [healthCheckFeedback, setHealthCheckFeedback] = useState<HealthCheckFeedback | null>(null);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [transportMode, setTransportMode] = useState<"websocket_worker" | "http_webhook">("http_webhook");
+  const [displayName, setDisplayName] = useState(replacementIntegration?.displayName ?? "");
+  const [transportMode, setTransportMode] = useState<"websocket_worker" | "http_webhook">(
+    replacementIntegration?.transportMode ?? "http_webhook",
+  );
   const [tenantKey, setTenantKey] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
   const [encryptKey, setEncryptKey] = useState("");
-  const [botAddedPolicy, setBotAddedPolicy] = useState<"auto_create_channel" | "pending_admin_review" | "disabled">("auto_create_channel");
-  const [firstMessagePolicy, setFirstMessagePolicy] = useState<"auto_create_if_bot_mentioned" | "pending_admin_review" | "reply_with_setup_card" | "disabled">("auto_create_if_bot_mentioned");
-  const [reviewStatusPolicy, setReviewStatusPolicy] = useState<"approved" | "pending_admin_review" | "needs_identity_binding">("approved");
-  const [unboundUserMode, setUnboundUserMode] = useState<"ignore" | "reply_on_mention" | "reply_all" | "require_identity">("reply_on_mention");
-  const [guestPermissionProfile, setGuestPermissionProfile] = useState<"none" | "channel_context_only" | "channel_readonly">("channel_context_only");
+  const [botAddedPolicy, setBotAddedPolicy] = useState<"auto_create_channel" | "pending_admin_review" | "disabled">(
+    replacementIntegration?.channelAutoProvisioning?.botAdded ?? "auto_create_channel",
+  );
+  const [firstMessagePolicy, setFirstMessagePolicy] = useState<"auto_create_if_bot_mentioned" | "pending_admin_review" | "reply_with_setup_card" | "disabled">(
+    replacementIntegration?.channelAutoProvisioning?.firstMessage ?? "auto_create_if_bot_mentioned",
+  );
+  const [reviewStatusPolicy, setReviewStatusPolicy] = useState<"approved" | "pending_admin_review" | "needs_identity_binding">(
+    replacementIntegration?.channelAutoProvisioning?.reviewStatus ?? "approved",
+  );
+  const [unboundUserMode, setUnboundUserMode] = useState<"ignore" | "reply_on_mention" | "reply_all" | "require_identity">(
+    replacementIntegration?.externalGuestPolicy?.unboundUserMode ?? "reply_on_mention",
+  );
+  const [guestPermissionProfile, setGuestPermissionProfile] = useState<"none" | "channel_context_only" | "channel_readonly">(
+    replacementIntegration?.externalGuestPolicy?.guestPermissionProfile ?? "channel_context_only",
+  );
   const advancedSettingsRef = useRef<HTMLDetailsElement>(null);
   const verificationTokenRef = useRef<HTMLInputElement>(null);
 
@@ -76,7 +89,19 @@ export function FeishuAgentBotAgentSettingsPanel({
     setBindingAvailability(null);
     setTransferConfirmed(false);
     setHealthCheckFeedback(null);
-  }, [integration?.id, agentId]);
+    setAppId("");
+    setAppSecret("");
+    setDisplayName(replacementIntegration?.displayName ?? "");
+    setTransportMode(replacementIntegration?.transportMode ?? "http_webhook");
+    setTenantKey("");
+    setVerificationToken("");
+    setEncryptKey("");
+    setBotAddedPolicy(replacementIntegration?.channelAutoProvisioning?.botAdded ?? "auto_create_channel");
+    setFirstMessagePolicy(replacementIntegration?.channelAutoProvisioning?.firstMessage ?? "auto_create_if_bot_mentioned");
+    setReviewStatusPolicy(replacementIntegration?.channelAutoProvisioning?.reviewStatus ?? "approved");
+    setUnboundUserMode(replacementIntegration?.externalGuestPolicy?.unboundUserMode ?? "reply_on_mention");
+    setGuestPermissionProfile(replacementIntegration?.externalGuestPolicy?.guestPermissionProfile ?? "channel_context_only");
+  }, [integration?.id, integration?.status, integration?.updatedAt, agentId]);
 
   const requiresVerificationToken = transportMode === "http_webhook";
   // Keep the primary action discoverable after the two visible credentials
@@ -93,7 +118,9 @@ export function FeishuAgentBotAgentSettingsPanel({
     setEncryptKey("");
     setBindingAvailability(null);
     setTransferConfirmed(false);
-    setFeedback(tx("AI员工 飞书 Bot 已绑定，工作区已启用。", "AI employee Feishu bot bound and workspace enabled."));
+    setFeedback(disabledIntegration
+      ? tx("AI员工 飞书 Bot 已原位替换，原工作区绑定已恢复。", "AI employee Feishu bot replaced in place and its workspace bindings restored.")
+      : tx("AI员工 飞书 Bot 已绑定，工作区已启用。", "AI employee Feishu bot bound and workspace enabled."));
     onUpdated?.(created);
   };
 
@@ -150,8 +177,8 @@ export function FeishuAgentBotAgentSettingsPanel({
       {!currentIntegration && disabledIntegration ? (
         <p className="settings-panel-note" role="status">
           {tx(
-            `“${disabledIntegration.displayName}”已停用，不会阻止为 ${agentName} 绑定新的飞书应用。请在下方填写新应用凭据。`,
-            `“${disabledIntegration.displayName}” is disabled and does not block binding a new Feishu app for ${agentName}. Enter the replacement app credentials below.`,
+            `“${disabledIntegration.displayName}”已停用。填写新的 App ID 与 App Secret 后，将原位替换凭据并保留原工作区绑定。`,
+            `“${disabledIntegration.displayName}” is disabled. Enter a new App ID and App Secret to replace its credentials in place while retaining its workspace bindings.`,
           )}
         </p>
       ) : null}
@@ -608,6 +635,9 @@ export function FeishuAgentBotAgentSettingsPanel({
                       transferDisabledBindingId: availability.state === "disabled_elsewhere"
                         ? availability.integrationId
                         : undefined,
+                      ...(disabledIntegration?.id
+                        ? { replaceDisabledBindingId: disabledIntegration.id }
+                        : {}),
                       channelAutoProvisioning: {
                         botAdded: botAddedPolicy,
                         firstMessage: firstMessagePolicy,
@@ -634,7 +664,9 @@ export function FeishuAgentBotAgentSettingsPanel({
             >
               {transferCandidate && transferConfirmed
                 ? tx("移交 Bot 并启用工作区", "Transfer Bot and Enable Workspace")
-                : tx("绑定 Bot 并启用工作区", "Bind Bot and Enable Workspace")}
+                : disabledIntegration
+                  ? tx("原位替换 Bot 并启用工作区", "Replace Bot in Place and Enable Workspace")
+                  : tx("绑定 Bot 并启用工作区", "Bind Bot and Enable Workspace")}
             </button>
           </div>
         </div>

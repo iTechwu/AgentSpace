@@ -7,6 +7,7 @@ import {
   readExternalIntegrationByAgentSync,
   readExternalIntegrationSync,
   reassignDisabledExternalIntegrationSync,
+  replaceDisabledExternalIntegrationSync,
   updateExternalChannelBindingStatusSync,
   updateExternalIntegrationConfigSync,
   updateExternalIntegrationCredentialsSync,
@@ -58,6 +59,7 @@ export interface CreateFeishuAgentBotBindingInput {
   channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningInput;
   externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
   transferDisabledBindingId?: string;
+  replaceDisabledBindingId?: string;
 }
 
 export interface FeishuAgentBotChannelAutoProvisioningInput {
@@ -162,6 +164,14 @@ export function createFeishuAgentBotBindingSync(
   const tenantKey = optionalText(input.tenantKey);
   const verificationToken = optionalText(input.verificationToken);
   const encryptKey = optionalText(input.encryptKey);
+  const disabledTarget = resolveDisabledFeishuAgentBotReplacement({
+    workspaceId,
+    agentId,
+    integrationId: input.transferDisabledBindingId ? undefined : input.replaceDisabledBindingId,
+  });
+  const requestedDisplayName = optionalText(input.displayName)
+    ?? disabledTarget?.displayName
+    ?? `${agentId} Feishu Bot`;
 
   validateTransportMode(transportMode);
   assertNoPlaceholder(agentId, "agentId");
@@ -198,7 +208,29 @@ export function createFeishuAgentBotBindingSync(
         provider: FEISHU_PROVIDER_ID,
         appId,
         tenantKey,
-        displayName: optionalText(input.displayName) ?? `${agentId} Feishu Bot`,
+        displayName: requestedDisplayName,
+        transportMode,
+        agentId,
+        encryptedCredentialsJson: credentials,
+        configJson,
+        capabilitiesJson: {
+          messageTransport: true,
+          docsDataPlane: true,
+          sheetsDataPlane: true,
+          baseDataPlane: true,
+        },
+        scopesJson: [...FEISHU_DEFAULT_SCOPES],
+        updatedByUserId: optionalText(input.createdByUserId),
+      }));
+    }
+    if (disabledTarget) {
+      return requireFeishuAgentBotBinding(replaceDisabledExternalIntegrationSync({
+        workspaceId,
+        integrationId: disabledTarget.id,
+        provider: FEISHU_PROVIDER_ID,
+        appId,
+        tenantKey,
+        displayName: requestedDisplayName,
         transportMode,
         agentId,
         encryptedCredentialsJson: credentials,
@@ -216,7 +248,7 @@ export function createFeishuAgentBotBindingSync(
     const integration = createExternalIntegrationSync({
       workspaceId,
       provider: FEISHU_PROVIDER_ID,
-      displayName: optionalText(input.displayName) ?? `${agentId} Feishu Bot`,
+      displayName: requestedDisplayName,
       transportMode,
       agentId,
       appId,
@@ -652,6 +684,18 @@ function normalizeFeishuAgentBotBindingError(error: unknown): Error {
   if (/agent is already connected/.test(message)) {
     return new Error("feishu.agent_bot_binding.duplicate_agent");
   }
+  if (
+    /external_integration_workspace_id_provider_display_name_key/.test(message)
+    || /external_integration\.workspace_id, external_integration\.provider, external_integration\.display_name/.test(message)
+  ) {
+    return new Error("feishu.agent_bot_binding.duplicate_display_name");
+  }
+  if (
+    /not a disabled binding for the requested agent/.test(message)
+    || /changed before replacement completed/.test(message)
+  ) {
+    return new Error("feishu.agent_bot_binding.replacement_source_invalid");
+  }
   if (/FEISHU_CREDENTIAL_ENCRYPTION_KEY is required/.test(message)) {
     return new Error("feishu.agent_bot_binding.credential_encryption_key_missing");
   }
@@ -659,6 +703,35 @@ function normalizeFeishuAgentBotBindingError(error: unknown): Error {
     return new Error("feishu.agent_bot_binding.credential_encryption_key_invalid");
   }
   return error instanceof Error ? error : new Error(message);
+}
+
+function resolveDisabledFeishuAgentBotReplacement(input: {
+  workspaceId: string;
+  agentId: string;
+  integrationId?: string;
+}): FeishuAgentBotBinding | null {
+  const integrationId = optionalText(input.integrationId);
+  if (integrationId) {
+    const integration = readExternalIntegrationSync({
+      workspaceId: input.workspaceId,
+      integrationId,
+    });
+    if (
+      !isFeishuAgentBotBinding(integration)
+      || integration.status !== "disabled"
+      || integration.agentId !== input.agentId
+    ) {
+      throw new Error("feishu.agent_bot_binding.replacement_source_invalid");
+    }
+    return integration;
+  }
+
+  const integration = readFeishuAgentBotBindingByAgentSync({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    includeDisabled: true,
+  });
+  return integration?.status === "disabled" ? integration : null;
 }
 
 function requireText(value: string | undefined, errorCode: string): string {
