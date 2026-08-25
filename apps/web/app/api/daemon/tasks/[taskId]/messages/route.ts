@@ -36,7 +36,9 @@ export async function POST(
   const payload = parseTaskPayload(task);
   const channelName = payload.channelName ?? payload.channel;
   if (channelName) {
-    for (const message of body.messages) {
+    for (const [index, message] of body.messages.entries()) {
+      const persistedMessage = appended[index];
+      const conversationId = task.conversationId ?? payload.conversationId;
       const pendingSpeaker = payload.assignee ?? task.agentId;
       if (message.type === "text" && message.content?.trim()) {
         updatePendingAgentChannelReplySync({
@@ -44,6 +46,8 @@ export async function POST(
           sourceTaskQueueId: task.id,
           pendingSpeaker,
           delta: message.content,
+          conversationId,
+          lastSeq: persistedMessage?.seq,
         }, task.workspaceId);
       }
       const progressType = toProgressType(message.type);
@@ -57,7 +61,8 @@ export async function POST(
           refId: message.refId,
           content: message.content,
           detail: progressDetail(message),
-          conversationId: task.conversationId ?? payload.conversationId,
+          conversationId,
+          lastSeq: persistedMessage?.seq,
         }, task.workspaceId);
       }
     }

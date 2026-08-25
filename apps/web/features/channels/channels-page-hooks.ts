@@ -20,12 +20,20 @@ import {
   resolveSelectedChannelName,
 } from "@/features/channels/channels-page-model";
 
+export interface ChannelThreadChangedEvent {
+  channelName?: string;
+  conversationId?: string;
+  taskId?: string;
+  lastSeq?: number;
+}
+
 export function useChannelRealtimeRefresh({
   workspaceId,
   channelName,
   enabled,
   onInvalidation,
   onOpenMontageChange,
+  onThreadChange,
   refresh,
 }: {
   workspaceId: string;
@@ -33,18 +41,21 @@ export function useChannelRealtimeRefresh({
   enabled: boolean;
   onInvalidation?: (event: WorkspaceInvalidationEvent) => void;
   onOpenMontageChange?: (event: { jobId: string; lastAppliedSequence?: number }) => void;
+  onThreadChange?: (event: ChannelThreadChangedEvent) => boolean | Promise<boolean>;
   refresh: () => void;
 }): void {
   const refreshTimerRef = useRef<number | null>(null);
   const onInvalidationRef = useRef(onInvalidation);
   const onOpenMontageChangeRef = useRef(onOpenMontageChange);
+  const onThreadChangeRef = useRef(onThreadChange);
   const refreshRef = useRef(refresh);
 
   useEffect(() => {
     onInvalidationRef.current = onInvalidation;
     onOpenMontageChangeRef.current = onOpenMontageChange;
+    onThreadChangeRef.current = onThreadChange;
     refreshRef.current = refresh;
-  }, [onInvalidation, onOpenMontageChange, refresh]);
+  }, [onInvalidation, onOpenMontageChange, onThreadChange, refresh]);
 
   useEffect(() => {
     if (!enabled || !channelName?.trim() || typeof window.EventSource !== "function") {
@@ -54,6 +65,22 @@ export function useChannelRealtimeRefresh({
     const source = new window.EventSource(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelName)}/events`,
     );
+    const invalidateChannel = (eventChannelName: string | undefined): void => {
+      onInvalidationRef.current?.({
+        workspaceId,
+        resources: eventChannelName ? [{ type: "channel", id: eventChannelName }] : [{ type: "channel" }],
+        shell: "counters",
+      });
+    };
+    const scheduleFullRefresh = (): void => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = null;
+        refreshRef.current();
+      }, CHANNEL_REALTIME_REFRESH_DEBOUNCE_MS);
+    };
     const scheduleRefresh = (event: MessageEvent<string>) => {
       let eventChannelName = channelName;
       try {
@@ -65,18 +92,32 @@ export function useChannelRealtimeRefresh({
       } catch {
         return;
       }
-      onInvalidationRef.current?.({
-        workspaceId,
-        resources: eventChannelName ? [{ type: "channel", id: eventChannelName }] : [{ type: "channel" }],
-        shell: "counters",
-      });
-      if (refreshTimerRef.current !== null) {
-        window.clearTimeout(refreshTimerRef.current);
+      invalidateChannel(eventChannelName);
+      scheduleFullRefresh();
+    };
+    const recoverChangedThread = (event: MessageEvent<string>): void => {
+      let payload: ChannelThreadChangedEvent;
+      try {
+        payload = JSON.parse(event.data) as ChannelThreadChangedEvent;
+      } catch {
+        return;
       }
-      refreshTimerRef.current = window.setTimeout(() => {
-        refreshTimerRef.current = null;
-        refreshRef.current();
-      }, CHANNEL_REALTIME_REFRESH_DEBOUNCE_MS);
+      if (payload.channelName && payload.channelName !== channelName) {
+        return;
+      }
+      invalidateChannel(payload.channelName ?? channelName);
+      const recover = onThreadChangeRef.current;
+      if (!recover) {
+        scheduleFullRefresh();
+        return;
+      }
+      void Promise.resolve(recover(payload))
+        .then((handled) => {
+          if (!handled) {
+            scheduleFullRefresh();
+          }
+        })
+        .catch(scheduleFullRefresh);
     };
     const refreshOpenMontageJob = (event: MessageEvent<string>) => {
       try {
@@ -101,12 +142,12 @@ export function useChannelRealtimeRefresh({
     };
 
     source.addEventListener("channel.message.created", scheduleRefresh as EventListener);
-    source.addEventListener("channel.thread.changed", scheduleRefresh as EventListener);
+    source.addEventListener("channel.thread.changed", recoverChangedThread as EventListener);
     source.addEventListener("openmontage.job.changed", refreshOpenMontageJob as EventListener);
 
     return () => {
       source.removeEventListener("channel.message.created", scheduleRefresh as EventListener);
-      source.removeEventListener("channel.thread.changed", scheduleRefresh as EventListener);
+      source.removeEventListener("channel.thread.changed", recoverChangedThread as EventListener);
       source.removeEventListener("openmontage.job.changed", refreshOpenMontageJob as EventListener);
       source.close();
       if (refreshTimerRef.current !== null) {

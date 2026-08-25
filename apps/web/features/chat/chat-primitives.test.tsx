@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ChatAttachmentRow, ConversationMessageBubble } from "@/features/chat/chat-primitives";
+import { ChatAttachmentRow, ConversationMessageBubble, TaskExecutionTimeline } from "@/features/chat/chat-primitives";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import type { MessageAttachment } from "@/shared/types/workspace";
 
@@ -18,6 +18,97 @@ function createAttachment(overrides: Partial<MessageAttachment>): MessageAttachm
     ...overrides,
   };
 }
+
+describe("TaskExecutionTimeline", () => {
+  it("keeps stable rows collapsed until the user expands them", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <LanguageProvider initialLanguage="zh">
+        <TaskExecutionTimeline
+          running
+          items={[
+            {
+              id: "thinking-1",
+              kind: "thinking",
+              title: "思考过程",
+              detail: "第一行\n最后一行",
+              status: "running",
+            },
+          ]}
+        />
+      </LanguageProvider>,
+    );
+
+    const summary = screen.getByText("思考过程").closest("summary");
+    expect(summary).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("最后一行")).toBeInTheDocument();
+    expect(screen.queryByText("第一行\n最后一行")).not.toBeInTheDocument();
+
+    await user.click(summary!);
+
+    expect(summary).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent === "第一行\n最后一行"),
+    ).toBeInTheDocument();
+
+    rerender(
+      <LanguageProvider initialLanguage="zh">
+        <TaskExecutionTimeline
+          running
+          items={[{
+            id: "thinking-1",
+            kind: "thinking",
+            title: "思考过程",
+            detail: "第一行\n最后一行\n新增一行",
+            status: "running",
+          }]}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(summary).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent?.endsWith("新增一行") === true),
+    ).toBeInTheDocument();
+  });
+
+  it("renders tool input and progressively reveals long output only after expansion", async () => {
+    const user = userEvent.setup();
+    const longOutput = "x".repeat(17_000);
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <TaskExecutionTimeline
+          items={[
+            {
+              id: "tool-1",
+              kind: "tool",
+              title: "exec_command",
+              subtitle: "pnpm test",
+              inputDetail: "pnpm test",
+              outputDetail: longOutput,
+              detail: `pnpm test\n\n${longOutput}`,
+              status: "done",
+            },
+          ]}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector(".execution-timeline__io")).not.toBeInTheDocument();
+    await user.click(screen.getByText("exec_command").closest("summary")!);
+
+    expect(screen.getByText("IN")).toBeInTheDocument();
+    expect(screen.getByText("OUT")).toBeInTheDocument();
+    const output = container.querySelector(".execution-timeline__detail-output");
+    expect(output?.textContent).toHaveLength(16_000);
+    expect(screen.getByRole("button", { name: "继续加载输出" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "继续加载输出" }));
+
+    expect(output?.textContent).toHaveLength(17_000);
+    expect(screen.queryByRole("button", { name: "继续加载输出" })).not.toBeInTheDocument();
+  });
+});
 
 describe("ChatAttachmentRow", () => {
   afterEach(() => {

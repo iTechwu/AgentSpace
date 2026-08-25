@@ -578,6 +578,55 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByText("视频任务执行失败。")).toBeInTheDocument();
   });
 
+  it("renders the complete ordered runtime text instead of a stale reply summary", () => {
+    render(
+      <TestProviders>
+        <ChannelsPageClient
+          currentUserDisplayName="techwu"
+          data={{
+            ...data,
+            threads: [{
+              channelName: "tour visit",
+              messages: [{
+                id: "message-streaming-task",
+                channel: "tour visit",
+                speaker: "Atlas",
+                role: "agent",
+                time: "10:05",
+                summary: "旧的摘要",
+                status: "completed",
+                data: { source_task_queue_id: "task-streaming" },
+              }],
+              taskExecutions: {
+                "task-streaming": [
+                  {
+                    id: "task-message-text-1",
+                    taskId: "task-streaming",
+                    seq: 1,
+                    type: "text",
+                    content: "第一段",
+                    createdAt: "2026-08-20T10:04:00.000Z",
+                  },
+                  {
+                    id: "task-message-text-2",
+                    taskId: "task-streaming",
+                    seq: 2,
+                    type: "text",
+                    content: "第二段",
+                    createdAt: "2026-08-20T10:04:01.000Z",
+                  },
+                ],
+              },
+            }],
+          }}
+        />
+      </TestProviders>,
+    );
+
+    expect(screen.getByText("第一段第二段")).toBeInTheDocument();
+    expect(screen.queryByText("旧的摘要")).not.toBeInTheDocument();
+  });
+
   it("shows Feishu group binding context in the selected channel header", () => {
     render(
       <TestProviders>
@@ -984,6 +1033,128 @@ describe("ChannelsPageClient", () => {
         shell: "counters",
       });
     });
+  });
+
+  it("recovers only the changed task sequence from a targeted thread event", async () => {
+    const eventSources: MockEventSource[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/conversations/conversation-stream/messages")) {
+        return Response.json({
+          messages: [
+            {
+              id: "message-process",
+              channel: "tour visit",
+              speaker: "Atlas",
+              role: "agent",
+              time: "10:00",
+              summary: "执行中",
+              status: "pending",
+              kind: "process",
+              data: { source_task_queue_id: "task-stream" },
+            },
+            {
+              id: "message-reply",
+              channel: "tour visit",
+              speaker: "Atlas",
+              role: "agent",
+              time: "10:01",
+              summary: "旧摘要",
+              status: "completed",
+              data: { source_task_queue_id: "task-stream" },
+            },
+          ],
+          taskExecutions: {
+            "task-stream": [{
+              id: "task-message-2",
+              taskId: "task-stream",
+              seq: 2,
+              type: "text",
+              content: "第二段",
+              createdAt: "2026-08-25T10:00:01.000Z",
+            }],
+          },
+          lastSeqByTask: { "task-stream": 2 },
+          snapshotVersion: 1,
+        });
+      }
+      return Response.json({ jobs: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    Object.defineProperty(window, "EventSource", {
+      configurable: true,
+      writable: true,
+      value: class extends MockEventSource {
+        constructor(url: string) {
+          super(url);
+          eventSources.push(this);
+        }
+      },
+    });
+
+    render(
+      <TestProviders>
+        <ChannelsPageClient
+          currentUserDisplayName="techwu"
+          data={{
+            ...data,
+            threads: [{
+              channelName: "tour visit",
+              messages: [
+                {
+                  id: "message-process",
+                  channel: "tour visit",
+                  conversationId: "conversation-stream",
+                  speaker: "Atlas",
+                  role: "agent",
+                  time: "10:00",
+                  summary: "执行中",
+                  status: "pending",
+                  kind: "process",
+                  data: { source_task_queue_id: "task-stream" },
+                },
+                {
+                  id: "message-reply",
+                  channel: "tour visit",
+                  conversationId: "conversation-stream",
+                  speaker: "Atlas",
+                  role: "agent",
+                  time: "10:01",
+                  summary: "旧摘要",
+                  status: "completed",
+                  data: { source_task_queue_id: "task-stream" },
+                },
+              ],
+              taskExecutions: {
+                "task-stream": [{
+                  id: "task-message-1",
+                  taskId: "task-stream",
+                  seq: 1,
+                  type: "text",
+                  content: "第一段",
+                  createdAt: "2026-08-25T10:00:00.000Z",
+                }],
+              },
+            }],
+          }}
+        />
+      </TestProviders>,
+    );
+
+    expect(screen.getByText("第一段")).toBeInTheDocument();
+    eventSources.at(-1)?.emit("channel.thread.changed", {
+      channelName: "tour visit",
+      conversationId: "conversation-stream",
+      taskId: "task-stream",
+      lastSeq: 2,
+      sequence: 4,
+    });
+
+    await waitFor(() => expect(screen.getByText("第一段第二段")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workspaces/workspace-1/conversations/conversation-stream/messages?taskId=task-stream&afterSeq=1",
+    );
+    expect(routerRefreshMock).not.toHaveBeenCalled();
   });
 
   it("keeps mobile drill-down state stable when entering and returning from a thread", async () => {

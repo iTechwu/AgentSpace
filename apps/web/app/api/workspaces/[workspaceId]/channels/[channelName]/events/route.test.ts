@@ -115,6 +115,39 @@ describe("channel realtime events route", () => {
     await reader.cancel();
   });
 
+  it("streams conversation and task sequence metadata for targeted recovery", async () => {
+    let listener: ((event: WorkspaceRealtimeEvent) => void) | null = null;
+    mockSubscribeWorkspaceRealtimeEvents.mockImplementation((_workspaceId, nextListener) => {
+      listener = nextListener;
+      return vi.fn();
+    });
+
+    const response = await GET(new Request("http://localhost/events"), {
+      params: Promise.resolve({ workspaceId: "workspace-1", channelName: "general" }),
+    });
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    await reader.read();
+
+    listener!({
+      type: "channel.thread.changed",
+      workspaceId: "workspace-1",
+      channelName: "general",
+      conversationId: "conversation-1",
+      taskId: "task-1",
+      lastSeq: 42,
+      sequence: 3,
+      changedAt: "2026-08-25T10:00:07Z",
+    });
+
+    const chunk = decoder.decode((await reader.read()).value);
+    expect(chunk).toContain('"conversationId":"conversation-1"');
+    expect(chunk).toContain('"taskId":"task-1"');
+    expect(chunk).toContain('"lastSeq":42');
+    expect(chunk).not.toContain("content");
+    await reader.cancel();
+  });
+
   it("streams OpenMontage invalidation metadata without a full Job payload", async () => {
     let listener: ((event: WorkspaceRealtimeEvent) => void) | null = null;
     mockSubscribeWorkspaceRealtimeEvents.mockImplementation((_workspaceId, nextListener) => {

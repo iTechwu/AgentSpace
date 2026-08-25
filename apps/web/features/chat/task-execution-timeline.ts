@@ -6,9 +6,21 @@ export interface ExecutionTimelineItem {
   title: string;
   subtitle?: string;
   detail?: string;
+  /** Tool input retained separately so the disclosure can render an IN section. */
+  inputDetail?: string;
+  /** Tool output retained separately so the disclosure can render an OUT section. */
+  outputDetail?: string;
   status: "running" | "done" | "error";
   /** Provider-side call id linking a tool result to its call. */
   refId?: string;
+}
+
+export interface TaskExecutionStreamProjection {
+  items: ExecutionTimelineItem[];
+  /** Complete assistant text reconstructed from ordered runtime text chunks. */
+  assistantText: string;
+  /** Highest task-local sequence included in this projection. */
+  lastSeq: number;
 }
 
 const SUBTITLE_MAX_LENGTH = 80;
@@ -116,13 +128,33 @@ export function buildExecutionTimeline(
   labels: { thinking: string; usage?: string; runtimeEvent?: string; error?: (value: string) => string },
   options?: { taskRunning?: boolean; includeText?: boolean },
 ): ExecutionTimelineItem[] {
+  return buildTaskExecutionStream(messages, labels, options).items;
+}
+
+/**
+ * Projects the durable runtime stream into stable timeline nodes plus the
+ * complete assistant text reconstructed from ordered text chunks.
+ */
+export function buildTaskExecutionStream(
+  messages: TaskMessageRecord[],
+  labels: { thinking: string; usage?: string; runtimeEvent?: string; error?: (value: string) => string },
+  options?: { taskRunning?: boolean; includeText?: boolean },
+): TaskExecutionStreamProjection {
   const items: ExecutionTimelineItem[] = [];
+  const assistantTextParts: string[] = [];
   /** Indexes into `items` for tool calls still waiting for their result, in open order. */
   const openToolIndexes: number[] = [];
+  let openThinkingIndex: number | null = null;
 
   const sorted = [...messages].sort((left, right) => left.seq - right.seq);
   for (const message of sorted) {
+    if (message.type !== "thinking") {
+      openThinkingIndex = null;
+    }
     if (message.type === "text") {
+      if (message.content) {
+        assistantTextParts.push(message.content);
+      }
       const content = message.content?.trim();
       if (options?.includeText && content) {
         items.push({
@@ -184,8 +216,11 @@ export function buildExecutionTimeline(
       if (!content) {
         continue;
       }
-      // One reported thinking event = one timeline item, so every reasoning
-      // step stays individually visible instead of being merged into a blob.
+      if (openThinkingIndex !== null) {
+        const runningThinking = items[openThinkingIndex];
+        runningThinking.detail = appendDetailWithSeparator(runningThinking.detail, content, "\n");
+        continue;
+      }
       items.push({
         id: message.id,
         kind: "thinking",
@@ -193,18 +228,21 @@ export function buildExecutionTimeline(
         detail: content,
         status: "running",
       });
+      openThinkingIndex = items.length - 1;
       continue;
     }
 
     if (message.type === "tool_use") {
       const tool = message.tool?.trim() || "tool";
       const input = parseToolInput(message.inputJson);
+      const inputDetail = formatToolInputDetail(message.inputJson) ?? message.content;
       items.push({
         id: message.id,
         kind: "tool",
         title: tool,
         subtitle: extractToolSubtitle(input) ?? (message.content ? truncateSubtitle(message.content) : undefined),
-        detail: formatToolInputDetail(message.inputJson) ?? message.content,
+        detail: inputDetail,
+        inputDetail,
         status: "running",
         refId: message.refId,
       });
@@ -245,14 +283,17 @@ export function buildExecutionTimeline(
           kind: "tool",
           title: tool,
           detail: output,
+          outputDetail: output,
           status: "done",
         });
         continue;
       }
       const itemIndex = openToolIndexes.splice(matchPosition, 1)[0];
       const item = items[itemIndex];
+      const output = message.output ?? message.content;
       item.status = "done";
-      item.detail = appendDetail(item.detail, message.output ?? message.content);
+      item.outputDetail = appendDetail(item.outputDetail, output);
+      item.detail = appendDetail(item.detail, output);
       continue;
     }
 
@@ -302,5 +343,21 @@ export function buildExecutionTimeline(
     }
   }
 
-  return items;
+  return {
+    items,
+    assistantText: assistantTextParts.join(""),
+    lastSeq: sorted.at(-1)?.seq ?? 0,
+  };
+}
+
+function appendDetailWithSeparator(
+  existing: string | undefined,
+  addition: string | undefined,
+  separator: string,
+): string | undefined {
+  const trimmed = addition?.trim();
+  if (!trimmed) {
+    return existing;
+  }
+  return existing ? `${existing}${separator}${trimmed}` : trimmed;
 }

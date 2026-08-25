@@ -1635,6 +1635,40 @@ textarea:focus {
   background: linear-gradient(180deg, rgba(247, 248, 253, 0.75) 0%, rgba(255, 255, 255, 0.55) 100%);
 }
 
+.conversation-latest-activity {
+  position: sticky;
+  z-index: 4;
+  bottom: 0.15rem;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(79, 104, 216, 0.25);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 3px 12px rgba(25, 31, 42, 0.12);
+  color: #3652c5;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.conversation-latest-activity svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.conversation-latest-activity:hover {
+  background: #f5f7ff;
+}
+
+.conversation-latest-activity:focus-visible {
+  outline: 2px solid #4f68d8;
+  outline-offset: 2px;
+}
+
 .openmontage-job-card {
   width: min(86%, 760px);
   min-width: 0;
@@ -5930,6 +5964,8 @@ textarea:focus {
 }
 
 .execution-timeline__item summary {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -5940,6 +5976,33 @@ textarea:focus {
   cursor: pointer;
   list-style: none;
   border-radius: var(--radius-md, 6px);
+}
+
+.execution-timeline__item summary > * {
+  position: relative;
+  z-index: 1;
+}
+
+.execution-timeline--running .execution-timeline__item[data-state="running"] > summary::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 20%, rgba(79, 104, 216, 0.1) 48%, transparent 76%);
+  background-size: 220% 100%;
+  animation: execution-timeline-sweep 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes execution-timeline-sweep {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
 }
 
 .execution-timeline__item summary::-webkit-details-marker {
@@ -6065,13 +6128,39 @@ textarea:focus {
   transition: transform 0.15s ease;
 }
 
-.execution-timeline__item[open] > summary .execution-timeline__chevron {
+.execution-timeline__item > summary[aria-expanded="true"] .execution-timeline__chevron {
   transform: rotate(180deg);
 }
 
-.execution-timeline__detail {
+.execution-timeline__io-section {
+  min-width: 0;
   margin: 0.15rem 0 0.45rem 1.55rem;
+}
+
+.execution-timeline__io {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  margin: 0.15rem 0 0.45rem 1.55rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid rgba(142, 149, 170, 0.3);
+}
+
+.execution-timeline__io .execution-timeline__io-section {
+  margin: 0;
+}
+
+.execution-timeline__io-label {
+  display: block;
+  margin-bottom: 0.2rem;
+  font: 600 0.7rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  color: var(--muted);
+}
+
+.execution-timeline__detail {
+  margin: 0;
   padding: 0.55rem 0.7rem;
+  width: 100%;
   max-height: 16rem;
   overflow: auto;
   white-space: pre-wrap;
@@ -6080,6 +6169,24 @@ textarea:focus {
   background: rgba(142, 149, 170, 0.1);
   font: 0.8rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   color: var(--text);
+}
+
+.execution-timeline__detail-output {
+  background: rgba(74, 121, 91, 0.09);
+}
+
+.execution-timeline__load-more {
+  margin-top: 0.35rem;
+  padding: 0.25rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.execution-timeline__load-more:hover {
+  text-decoration: underline;
 }
 
 /* Agent reply attached to the execution timeline card (one task = one visual unit) */

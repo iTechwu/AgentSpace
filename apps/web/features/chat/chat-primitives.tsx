@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import Link from "next/link";
 import MDEditor from "@uiw/react-md-editor/nohighlight";
 import type { MessageAttachment, MessageMention } from "@/shared/types/workspace";
@@ -125,6 +125,152 @@ function executionTimelineItemIcon(item: ExecutionTimelineItem): AppIconName | n
   return null;
 }
 
+const EXECUTION_DETAIL_CHUNK_SIZE = 16_000;
+
+function executionTimelineSummary(item: ExecutionTimelineItem): string | undefined {
+  if (item.subtitle) {
+    return item.subtitle;
+  }
+  if (item.kind !== "thinking" || !item.detail) {
+    return undefined;
+  }
+  const lines = item.detail
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return item.status === "running" ? lines.at(-1) : lines[0];
+}
+
+function ExecutionDetailSection({
+  className,
+  content,
+  label,
+  loadMoreLabel,
+}: {
+  className?: string;
+  content: string;
+  label?: string;
+  loadMoreLabel: string;
+}) {
+  const [visibleCharacters, setVisibleCharacters] = useState(EXECUTION_DETAIL_CHUNK_SIZE);
+  const hasMore = content.length > visibleCharacters;
+  return (
+    <section className="execution-timeline__io-section">
+      {label ? <strong className="execution-timeline__io-label">{label}</strong> : null}
+      <pre className={`execution-timeline__detail${className ? ` ${className}` : ""}`}>
+        {content.slice(0, visibleCharacters)}
+      </pre>
+      {hasMore ? (
+        <button
+          className="execution-timeline__load-more"
+          onClick={() => setVisibleCharacters((current) => current + EXECUTION_DETAIL_CHUNK_SIZE)}
+          type="button"
+        >
+          {loadMoreLabel}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+const TaskExecutionTimelineRow = memo(
+  function TaskExecutionTimelineRow({ item }: { item: ExecutionTimelineItem }) {
+    const { tx } = useLanguage();
+    const [expanded, setExpanded] = useState(false);
+    const detailId = useId();
+    if (item.kind === "narration") {
+      return (
+        <div className="execution-timeline__item execution-timeline__item--narration">
+          <span className="execution-timeline__dot execution-timeline__dot--done" />
+          <p className="execution-timeline__narration">{item.title}</p>
+        </div>
+      );
+    }
+
+    const icon = executionTimelineItemIcon(item);
+    const summary = executionTimelineSummary(item);
+    const hasDetail = Boolean(item.detail || item.inputDetail || item.outputDetail);
+    const heading = (
+      <>
+        <span className={`execution-timeline__dot execution-timeline__dot--${item.status}`}>
+          {item.status === "running" ? <AppIcon className="execution-timeline__spinner" name="loader" /> : null}
+        </span>
+        {icon ? <AppIcon className="execution-timeline__icon" name={icon} /> : null}
+        <strong className="execution-timeline__title">{item.title}</strong>
+        <span className="sr-only">
+          {item.status === "running"
+            ? tx("正在运行", "Running")
+            : item.status === "error"
+              ? tx("错误", "Error")
+              : tx("已完成", "Completed")}
+        </span>
+        {summary ? <span className="execution-timeline__subtitle">{summary}</span> : null}
+        {hasDetail ? <AppIcon className="execution-timeline__chevron" name="chevronDown" /> : null}
+      </>
+    );
+
+    if (!hasDetail) {
+      return (
+        <div
+          className={`execution-timeline__item execution-timeline__item--${item.kind} execution-timeline__item--static`}
+          data-state={item.status}
+        >
+          {heading}
+        </div>
+      );
+    }
+
+    return (
+      <details
+        className={`execution-timeline__item execution-timeline__item--${item.kind}`}
+        data-state={item.status}
+        onToggle={(event) => setExpanded(event.currentTarget.open)}
+        open={expanded}
+      >
+        <summary aria-controls={detailId} aria-expanded={expanded}>{heading}</summary>
+        {expanded ? (
+          <div id={detailId}>
+            {item.inputDetail || item.outputDetail ? (
+              <div className="execution-timeline__io">
+                {item.inputDetail ? (
+                  <ExecutionDetailSection
+                    content={item.inputDetail}
+                    label="IN"
+                    loadMoreLabel={tx("继续加载输入", "Load more input")}
+                  />
+                ) : null}
+                {item.outputDetail ? (
+                  <ExecutionDetailSection
+                    className="execution-timeline__detail-output"
+                    content={item.outputDetail}
+                    label="OUT"
+                    loadMoreLabel={tx("继续加载输出", "Load more output")}
+                  />
+                ) : null}
+              </div>
+            ) : item.detail ? (
+              <ExecutionDetailSection
+                content={item.detail}
+                loadMoreLabel={tx("继续加载详情", "Load more details")}
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </details>
+    );
+  },
+  (previous, next) =>
+    previous.item.id === next.item.id &&
+    previous.item.kind === next.item.kind &&
+    previous.item.title === next.item.title &&
+    previous.item.subtitle === next.item.subtitle &&
+    previous.item.detail === next.item.detail &&
+    previous.item.inputDetail === next.item.inputDetail &&
+    previous.item.outputDetail === next.item.outputDetail &&
+    previous.item.status === next.item.status &&
+    previous.item.refId === next.item.refId,
+);
+
 export function TaskExecutionTimeline({
   items,
   running,
@@ -132,69 +278,12 @@ export function TaskExecutionTimeline({
   items: ExecutionTimelineItem[];
   running?: boolean;
 }) {
-  // Items start expanded; the set only tracks what the user explicitly collapsed.
-  const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(() => new Set());
   if (items.length === 0) {
     return null;
   }
-  const handleToggle = (id: string, open: boolean): void => {
-    setCollapsedIds((previous) => {
-      const next = new Set(previous);
-      if (open) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
   return (
     <div className={`execution-timeline${running ? " execution-timeline--running" : ""}`}>
-      {items.map((item) => {
-        if (item.kind === "narration") {
-          return (
-            <div className="execution-timeline__item execution-timeline__item--narration" key={item.id}>
-              <span className="execution-timeline__dot execution-timeline__dot--done" />
-              <p className="execution-timeline__narration">{item.title}</p>
-            </div>
-          );
-        }
-        const icon = executionTimelineItemIcon(item);
-        const heading = (
-          <>
-            <span
-              className={`execution-timeline__dot execution-timeline__dot--${item.status}`}
-            >
-              {item.status === "running" ? <AppIcon className="execution-timeline__spinner" name="loader" /> : null}
-            </span>
-            {icon ? <AppIcon className="execution-timeline__icon" name={icon} /> : null}
-            <strong className="execution-timeline__title">{item.title}</strong>
-            {item.subtitle ? <span className="execution-timeline__subtitle">{item.subtitle}</span> : null}
-            {item.detail ? <AppIcon className="execution-timeline__chevron" name="chevronDown" /> : null}
-          </>
-        );
-        if (!item.detail) {
-          return (
-            <div
-              className={`execution-timeline__item execution-timeline__item--${item.kind} execution-timeline__item--static`}
-              key={item.id}
-            >
-              {heading}
-            </div>
-          );
-        }
-        return (
-          <details
-            className={`execution-timeline__item execution-timeline__item--${item.kind}`}
-            key={item.id}
-            onToggle={(event) => handleToggle(item.id, event.currentTarget.open)}
-            open={!collapsedIds.has(item.id)}
-          >
-            <summary>{heading}</summary>
-            <pre className="execution-timeline__detail">{item.detail}</pre>
-          </details>
-        );
-      })}
+      {items.map((item) => <TaskExecutionTimelineRow item={item} key={item.id} />)}
     </div>
   );
 }

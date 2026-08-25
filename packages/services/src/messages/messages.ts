@@ -876,6 +876,8 @@ export function updatePendingAgentChannelReplySync(input: {
   sourceTaskQueueId: string;
   delta: string;
   pendingSpeaker?: string;
+  conversationId?: string;
+  lastSeq?: number;
 }, workspaceId?: string): WorkspaceMessage | null {
   const sourceTaskQueueId = input.sourceTaskQueueId.trim();
   if (!sourceTaskQueueId || !input.delta.trim()) {
@@ -918,6 +920,9 @@ export function updatePendingAgentChannelReplySync(input: {
   publishChannelThreadChangedEvent({
     workspaceId: effectiveWorkspaceId,
     channelName: input.channel,
+    conversationId: input.conversationId ?? pendingMessage.conversationId,
+    taskId: sourceTaskQueueId,
+    lastSeq: input.lastSeq,
     changedAt: new Date().toISOString(),
   });
   return message;
@@ -937,6 +942,7 @@ export function recordAgentChannelProgressSync(input: {
   content?: string;
   detail?: string;
   conversationId?: string;
+  lastSeq?: number;
 }, workspaceId?: string): WorkspaceMessage | null {
   const sourceTaskQueueId = input.sourceTaskQueueId.trim();
   if (!sourceTaskQueueId) {
@@ -981,6 +987,9 @@ export function recordAgentChannelProgressSync(input: {
       publishChannelThreadChangedEvent({
         workspaceId: effectiveWorkspaceId,
         channelName: input.channel,
+        conversationId: input.conversationId ?? runningThinking.conversationId,
+        taskId: sourceTaskQueueId,
+        lastSeq: input.lastSeq,
         changedAt: new Date().toISOString(),
       });
     }
@@ -1016,6 +1025,9 @@ export function recordAgentChannelProgressSync(input: {
       publishChannelThreadChangedEvent({
         workspaceId: effectiveWorkspaceId,
         channelName: input.channel,
+        conversationId: input.conversationId ?? runningTool.conversationId,
+        taskId: sourceTaskQueueId,
+        lastSeq: input.lastSeq,
         changedAt: new Date().toISOString(),
       });
       return message;
@@ -1044,6 +1056,9 @@ export function recordAgentChannelProgressSync(input: {
   publishChannelThreadChangedEvent({
     workspaceId: effectiveWorkspaceId,
     channelName: input.channel,
+    conversationId: input.conversationId ?? message.conversationId,
+    taskId: sourceTaskQueueId,
+    lastSeq: input.lastSeq,
     changedAt: message.time,
   });
   return message;

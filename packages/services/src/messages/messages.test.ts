@@ -1634,6 +1634,42 @@ test("streaming task output only updates its own pending reply", () => {
   assert.equal(state.messages[0]?.summary, "最终回复");
 });
 
+test("streaming task output publishes task-local recovery metadata", () => {
+  seedWorkspace();
+  postMessageSync({
+    channel: "tour visit",
+    conversationId: "conversation-stream-1",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    status: "pending",
+    data: { source_task_queue_id: "task-stream-1" },
+  });
+  const events: Array<{
+    type: string;
+    conversationId?: string;
+    taskId?: string;
+    lastSeq?: number;
+  }> = [];
+  const unsubscribe = subscribeWorkspaceRealtimeEvents(DEFAULT_WORKSPACE_ID, (event) => events.push(event));
+
+  updatePendingAgentChannelReplySync({
+    channel: "tour visit",
+    conversationId: "conversation-stream-1",
+    sourceTaskQueueId: "task-stream-1",
+    lastSeq: 12,
+    pendingSpeaker: "Atlas",
+    delta: "第一段",
+  });
+  unsubscribe();
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.type, "channel.thread.changed");
+  assert.equal(events[0]?.conversationId, "conversation-stream-1");
+  assert.equal(events[0]?.taskId, "task-stream-1");
+  assert.equal(events[0]?.lastSeq, 12);
+});
+
 test("task progress keeps concise summaries and expandable runtime details", () => {
   seedWorkspace();
   postMessageSync({

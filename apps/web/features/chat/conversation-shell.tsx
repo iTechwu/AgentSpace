@@ -181,6 +181,7 @@ export function ConversationShell({
   const [isExecutionPolicyPending, setIsExecutionPolicyPending] = useState(false);
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [mobilePane, setMobilePane] = useState<"list" | "thread">("list");
+  const [hasNewActivityBelow, setHasNewActivityBelow] = useState(false);
   const listPaneResize = useResizablePane({
     defaultWidth: 340,
     maxWidth: 560,
@@ -196,6 +197,7 @@ export function ConversationShell({
   const focusComposerRequestRef = useRef<number | null>(null);
   const pendingMessageScrollRef = useRef<OptimisticConversationMessage | null>(null);
   const shouldStickToBottomRef = useRef(true);
+  const previousMessagesRef = useRef(messages);
   const previousSelectedIdRef = useRef<string | null>(null);
   const threadViewportVisibleRef = useRef(false);
   const scrollAnchorsRef = useRef<Record<string, ConversationScrollAnchor>>({});
@@ -458,9 +460,17 @@ export function ConversationShell({
 
     const switchedConversation = previousSelectedIdRef.current !== selectedItemId;
     previousSelectedIdRef.current = selectedItemId;
+    const messagesChanged = previousMessagesRef.current !== messages;
+    previousMessagesRef.current = messages;
     const threadBecameVisible = !threadViewportVisibleRef.current;
     threadViewportVisibleRef.current = true;
     const savedAnchor = selectedItemId ? scrollAnchorsRef.current[selectedItemId] : undefined;
+
+    if (switchedConversation) {
+      setHasNewActivityBelow(false);
+    } else if (messagesChanged && !shouldStickToBottomRef.current) {
+      setHasNewActivityBelow(true);
+    }
 
     if ((switchedConversation || threadBecameVisible) && restoreConversationScrollAnchor(viewport, savedAnchor)) {
       shouldStickToBottomRef.current = savedAnchor?.stickToBottom ?? true;
@@ -590,12 +600,25 @@ export function ConversationShell({
 
     const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
     shouldStickToBottomRef.current = distanceFromBottom < 64;
+    if (shouldStickToBottomRef.current) {
+      setHasNewActivityBelow(false);
+    }
     if (selectedItemId && scrollAnchorStorageKey) {
       scrollAnchorsRef.current = pruneConversationScrollAnchors({
         ...scrollAnchorsRef.current,
         [selectedItemId]: buildConversationScrollAnchor(viewport, shouldStickToBottomRef.current),
       });
     }
+  }
+
+  function scrollToLatestActivity(): void {
+    const viewport = threadViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+    viewport.scrollTop = viewport.scrollHeight;
+    shouldStickToBottomRef.current = true;
+    setHasNewActivityBelow(false);
   }
 
   function handlePickedFiles(files: FileList | File[] | null): void {
@@ -1170,6 +1193,18 @@ export function ConversationShell({
                       <ChatEmptyState body={emptyThreadBody} title={emptyThreadTitle} />
                     ) : null}
                     {threadAfterMessages}
+                    {hasNewActivityBelow ? (
+                      <button
+                        aria-label={tx("回到最新消息", "Return to latest message")}
+                        aria-live="polite"
+                        className="conversation-latest-activity"
+                        onClick={scrollToLatestActivity}
+                        type="button"
+                      >
+                        <AppIcon name="chevronDown" />
+                        <span>{tx("有新消息", "New activity")}</span>
+                      </button>
+                    ) : null}
                   </div>
 
                   <ChatComposer

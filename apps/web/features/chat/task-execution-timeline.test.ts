@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskMessageRecord } from "@dofe-agent/db";
-import { buildExecutionTimeline } from "@/features/chat/task-execution-timeline";
+import { buildExecutionTimeline, buildTaskExecutionStream } from "@/features/chat/task-execution-timeline";
 
 const LABELS = { thinking: "思考过程" };
 
@@ -14,6 +14,50 @@ function taskMessage(overrides: Partial<TaskMessageRecord> & { seq: number; type
 }
 
 describe("buildExecutionTimeline", () => {
+  it("projects complete assistant text and stable structured nodes from the runtime stream", () => {
+    const stream = buildTaskExecutionStream(
+      [
+        taskMessage({ seq: 1, type: "thinking", content: "先检查" }),
+        taskMessage({ seq: 2, type: "thinking", content: "现有实现" }),
+        taskMessage({
+          seq: 3,
+          type: "tool_use",
+          tool: "Read",
+          refId: "call-1",
+          inputJson: JSON.stringify({ file_path: "src/chat.tsx" }),
+        }),
+        taskMessage({ seq: 4, type: "tool_result", tool: "Read", refId: "call-1", output: "file body" }),
+        taskMessage({ seq: 5, type: "text", content: "第一段" }),
+        taskMessage({ seq: 6, type: "text", content: "第二段" }),
+        taskMessage({ seq: 7, type: "provider_checkpoint", content: "checkpoint saved" }),
+      ],
+      LABELS,
+    );
+
+    expect(stream.assistantText).toBe("第一段第二段");
+    expect(stream.lastSeq).toBe(7);
+    expect(stream.items).toHaveLength(3);
+    expect(stream.items[0]).toMatchObject({
+      id: "task-msg-1",
+      kind: "thinking",
+      detail: "先检查\n现有实现",
+      status: "done",
+    });
+    expect(stream.items[1]).toMatchObject({
+      id: "task-msg-3",
+      kind: "tool",
+      refId: "call-1",
+      inputDetail: JSON.stringify({ file_path: "src/chat.tsx" }, null, 2),
+      outputDetail: "file body",
+      status: "done",
+    });
+    expect(stream.items[2]).toMatchObject({
+      id: "task-msg-7",
+      kind: "status",
+      title: "provider_checkpoint",
+    });
+  });
+
   it("maps status rows to plain status items and skips empty ones", () => {
     const items = buildExecutionTimeline(
       [
@@ -46,7 +90,7 @@ describe("buildExecutionTimeline", () => {
     ]);
   });
 
-  it("keeps each thinking event as its own item and marks only the trailing one running", () => {
+  it("merges consecutive thinking deltas into stable items and marks only the trailing block running", () => {
     const items = buildExecutionTimeline(
       [
         taskMessage({ seq: 1, type: "thinking", content: "先搜索相关代码" }),
@@ -57,11 +101,15 @@ describe("buildExecutionTimeline", () => {
       LABELS,
     );
 
-    expect(items).toHaveLength(4);
-    expect(items[0]).toMatchObject({ kind: "thinking", detail: "先搜索相关代码", status: "done" });
-    expect(items[1]).toMatchObject({ kind: "thinking", detail: "定位问题根源", status: "done" });
-    expect(items[2]).toMatchObject({ kind: "tool", title: "Grep", subtitle: "seedance", status: "running" });
-    expect(items[3]).toMatchObject({ kind: "thinking", detail: "再确认路由层", status: "running" });
+    expect(items).toHaveLength(3);
+    expect(items[0]).toMatchObject({
+      id: "task-msg-1",
+      kind: "thinking",
+      detail: "先搜索相关代码\n定位问题根源",
+      status: "done",
+    });
+    expect(items[1]).toMatchObject({ kind: "tool", title: "Grep", subtitle: "seedance", status: "running" });
+    expect(items[2]).toMatchObject({ kind: "thinking", detail: "再确认路由层", status: "running" });
   });
 
   it("pairs tool_result with the matching open tool_use and appends the output", () => {
@@ -85,10 +133,12 @@ describe("buildExecutionTimeline", () => {
       kind: "tool",
       title: "Shell",
       subtitle: 'grep -n "seedance" database/model.sql',
+      inputDetail: 'grep -n "seedance" database/model.sql',
+      outputDetail: "12 rows matched",
       status: "done",
     });
     expect(items[0].detail).toBe('grep -n "seedance" database/model.sql\n\n12 rows matched');
-    expect(items[1]).toMatchObject({ kind: "tool", title: "Grep", status: "done" });
+    expect(items[1]).toMatchObject({ kind: "tool", title: "Grep", outputDetail: "src/a.ts:3", status: "done" });
     expect(items[1].detail).toContain("src/a.ts:3");
   });
 
@@ -102,13 +152,21 @@ describe("buildExecutionTimeline", () => {
     );
 
     expect(items).toEqual([
-      { id: "task-msg-1", kind: "tool", title: "Grep", detail: "orphan", status: "done" },
+      {
+        id: "task-msg-1",
+        kind: "tool",
+        title: "Grep",
+        detail: "orphan",
+        outputDetail: "orphan",
+        status: "done",
+      },
       {
         id: "task-msg-2",
         kind: "tool",
         title: "Read",
         subtitle: "video-capability-presets.ts",
         detail: JSON.stringify({ file_path: "video-capability-presets.ts" }, null, 2),
+        inputDetail: JSON.stringify({ file_path: "video-capability-presets.ts" }, null, 2),
         status: "running",
       },
     ]);

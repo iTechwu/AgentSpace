@@ -409,6 +409,73 @@ describe("ConversationShell", () => {
     expect(document.querySelector<HTMLDivElement>(".contacts-chat-thread")?.scrollTop).toBe(360);
   });
 
+  it("keeps the reading position and offers a return-to-latest action when new content arrives", async () => {
+    const user = userEvent.setup();
+    const createShell = (messages: Array<{
+      id: string;
+      speaker: string;
+      role: "human" | "agent";
+      content: string;
+      timestamp: string;
+      status: "completed";
+    }>) => (
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "tour-visit", title: "tour visit", subtitle: "channel", meta: "meta", avatar: "#" }]}
+          listCount={1}
+          listKicker="Channels"
+          listTitle="Channels"
+          messages={messages}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{ title: "tour visit", subtitle: "channel", avatar: "#" }}
+          selectedItemId="tour-visit"
+        />
+      </LanguageProvider>
+    );
+    const initialMessages = [{
+      id: "message-1",
+      speaker: "Atlas",
+      role: "agent" as const,
+      content: "first",
+      timestamp: "10:00",
+      status: "completed" as const,
+    }];
+    const { rerender } = render(createShell(initialMessages));
+    const thread = document.querySelector<HTMLDivElement>(".contacts-chat-thread");
+
+    Object.defineProperty(thread, "scrollHeight", { configurable: true, value: 1200 });
+    Object.defineProperty(thread, "clientHeight", { configurable: true, value: 300 });
+    thread!.scrollTop = 280;
+    fireEvent.scroll(thread!);
+
+    rerender(createShell([
+      ...initialMessages,
+      {
+        id: "message-2",
+        speaker: "Atlas",
+        role: "agent",
+        content: "second",
+        timestamp: "10:01",
+        status: "completed",
+      },
+    ]));
+
+    expect(thread?.scrollTop).toBe(280);
+    const latestButton = screen.getByRole("button", { name: "回到最新消息" });
+    expect(latestButton).toHaveTextContent("有新消息");
+
+    await user.click(latestButton);
+
+    expect(thread?.scrollTop).toBe(1200);
+    expect(screen.queryByRole("button", { name: "回到最新消息" })).not.toBeInTheDocument();
+  });
+
   it("renders the supplementary panel as a dismissible mobile sheet on compact layouts", async () => {
     mockMatchMedia(true);
     const user = userEvent.setup();

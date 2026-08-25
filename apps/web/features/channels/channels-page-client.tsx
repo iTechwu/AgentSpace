@@ -47,7 +47,7 @@ import {
 } from "@/features/chat/conversation-shell";
 import { ChatHeader } from "@/features/chat/chat-primitives";
 import { updateWorkspaceAgentExecutionPolicyAction } from "@/features/agents/actions";
-import { buildExecutionTimeline } from "@/features/chat/task-execution-timeline";
+import { buildTaskExecutionStream } from "@/features/chat/task-execution-timeline";
 import { CommunicationListActions } from "@/features/chat/communication-list-actions";
 import { ChatModelCommandDialog } from "@/features/chat/chat-model-selector";
 import type { ChannelsPageData } from "@/features/dashboard/data";
@@ -774,6 +774,103 @@ export function ChannelsPageClient({
     return hasPendingThreadMessages || hasRunningDocumentWorkflow || hasProcessingAgentPresence;
   }, [channelDocumentRuns, channelDocuments, hasPendingThreadMessages, isContactDirectoryContext, selectedChannel, selectedConversationChannelName]);
 
+  const recoverChangedTask = useCallback(async (event: {
+    channelName?: string;
+    conversationId?: string;
+    taskId?: string;
+    lastSeq?: number;
+  }): Promise<boolean> => {
+    const { conversationId, taskId, lastSeq } = event;
+    if (
+      !conversationId ||
+      !taskId ||
+      !Number.isSafeInteger(lastSeq) ||
+      !selectedConversationChannelName ||
+      !selectedThread ||
+      (event.channelName && event.channelName !== selectedConversationChannelName)
+    ) {
+      return false;
+    }
+    if (routeState.conversationId && routeState.conversationId !== conversationId) {
+      return true;
+    }
+    const currentRows = selectedThread?.taskExecutions?.[taskId] ?? [];
+    const currentLastSeq = currentRows.at(-1)?.seq ?? 0;
+    if ((lastSeq ?? 0) <= currentLastSeq) {
+      return true;
+    }
+
+    const query = new URLSearchParams({ taskId, afterSeq: String(currentLastSeq) });
+    const response = await fetch(
+      `/api/workspaces/${encodeURIComponent(data.workspaceId)}/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
+    );
+    if (!response.ok) {
+      return false;
+    }
+    type ThreadMessage = NonNullable<typeof selectedThread>["messages"][number];
+    type TaskExecution = NonNullable<NonNullable<typeof selectedThread>["taskExecutions"]>[string][number];
+    const payload = await response.json() as {
+      messages?: ThreadMessage[];
+      taskExecutions?: Record<string, TaskExecution[]>;
+      lastSeqByTask?: Record<string, number>;
+    };
+    const recoveredRows = payload.taskExecutions?.[taskId];
+    if (!Array.isArray(recoveredRows)) {
+      return false;
+    }
+    const firstRecoveredSeq = recoveredRows[0]?.seq;
+    if (firstRecoveredSeq !== undefined && firstRecoveredSeq > currentLastSeq + 1) {
+      return false;
+    }
+    if ((payload.lastSeqByTask?.[taskId] ?? currentLastSeq) < (lastSeq ?? 0)) {
+      return false;
+    }
+
+    setDetailDataByChannelName((current) => {
+      const detail = current.get(selectedConversationChannelName);
+      if (!detail) {
+        return current;
+      }
+      const threadIndex = detail.threads.findIndex((thread) => thread.channelName === selectedConversationChannelName);
+      if (threadIndex === -1) {
+        return current;
+      }
+      const thread = detail.threads[threadIndex];
+      const incomingMessages = (payload.messages ?? []).map((message) => ({
+        ...message,
+        conversationId: message.conversationId ?? conversationId,
+      }));
+      const incomingMessageById = new Map(incomingMessages.map((message) => [message.id, message]));
+      const mergedMessages = thread.messages.map((message) => {
+        const incoming = incomingMessageById.get(message.id);
+        if (!incoming) {
+          return message;
+        }
+        incomingMessageById.delete(message.id);
+        return { ...message, ...incoming };
+      });
+      mergedMessages.push(...incomingMessageById.values());
+      const recoveredBySeq = new Map(currentRows.map((row) => [row.seq, row]));
+      for (const row of recoveredRows) {
+        recoveredBySeq.set(row.seq, row);
+      }
+      const nextThread = {
+        ...thread,
+        messages: mergedMessages,
+        taskExecutions: {
+          ...thread.taskExecutions,
+          [taskId]: [...recoveredBySeq.values()].sort((left, right) => left.seq - right.seq),
+        },
+      };
+      const nextThreads = detail.threads.slice();
+      nextThreads[threadIndex] = nextThread;
+      const next = new Map(current);
+      next.set(selectedConversationChannelName, { ...detail, threads: nextThreads });
+      return next;
+    });
+    return true;
+  }, [data.workspaceId, routeState.conversationId, selectedConversationChannelName, selectedThread]);
+
   useChannelRealtimeRefresh({
     workspaceId: data.workspaceId,
     channelName: selectedConversationChannelName,
@@ -784,6 +881,7 @@ export function ChannelsPageClient({
       !selectedChannelRequiresAccess,
     onInvalidation,
     onOpenMontageChange: () => setOpenMontageRefreshVersion((version) => version + 1),
+    onThreadChange: recoverChangedTask,
     refresh: () => refreshChannelData({ allowWhileInputActive: true }),
   });
 
@@ -1172,12 +1270,22 @@ export function ChannelsPageClient({
         const executionRows = taskId && carrierIdByTaskId.get(taskId) === id
           ? taskExecutions?.[taskId]
           : undefined;
+        const executionStream = executionRows
+          ? buildTaskExecutionStream(
+              executionRows,
+              {
+                thinking: tx("思考过程", "Thinking"),
+                error: (value) => translateRuntimeFailureSummary(value, tx),
+              },
+              { taskRunning: Boolean(taskId && pendingTaskIds.has(taskId)) },
+            )
+          : undefined;
         const executionReplyMessage = executionReply
           ? {
               id: executionReply.id,
               speaker: executionReply.speaker,
               role: executionReply.role,
-              content: executionReply.summary,
+              content: executionStream?.assistantText || executionReply.summary,
               conversationId: executionReply.conversationId,
               code: executionReply.code,
               data: executionReply.data,
@@ -1219,14 +1327,7 @@ export function ChannelsPageClient({
           ...(executionReplyMessage ? { executionReply: executionReplyMessage } : {}),
           ...(executionRows
             ? {
-                execution: buildExecutionTimeline(
-                  executionRows,
-                  {
-                    thinking: tx("思考过程", "Thinking"),
-                    error: (value) => translateRuntimeFailureSummary(value, tx),
-                  },
-                  { taskRunning: Boolean(taskId && pendingTaskIds.has(taskId)) },
-                ).filter((item) => {
+                execution: executionStream!.items.filter((item) => {
                   const replyContent = executionReplyMessage?.content.replace(/\s+/g, " ").trim();
                   return !(item.kind === "narration" && replyContent && item.title.replace(/\s+/g, " ").trim() === replyContent);
                 }),

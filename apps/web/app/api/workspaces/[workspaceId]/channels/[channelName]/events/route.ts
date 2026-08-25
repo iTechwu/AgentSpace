@@ -86,6 +86,9 @@ export async function GET(
               ? {
                   type: event.type,
                   channelName: event.channelName,
+                  conversationId: event.conversationId,
+                  taskId: event.taskId,
+                  lastSeq: event.lastSeq,
                   sequence: event.sequence,
                   changedAt: event.changedAt,
                 }

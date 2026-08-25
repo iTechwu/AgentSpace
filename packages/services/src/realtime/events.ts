@@ -13,6 +13,9 @@ export type WorkspaceRealtimeEvent =
       type: "channel.thread.changed";
       workspaceId: string;
       channelName: string;
+      conversationId?: string;
+      taskId?: string;
+      lastSeq?: number;
       sequence: number;
       changedAt: string;
     }
@@ -62,12 +65,18 @@ export function publishChannelMessageCreatedEvent(input: {
 export function publishChannelThreadChangedEvent(input: {
   workspaceId: string;
   channelName: string;
+  conversationId?: string;
+  taskId?: string;
+  lastSeq?: number;
   changedAt: string;
 }): WorkspaceRealtimeEvent {
   const event: WorkspaceRealtimeEvent = {
     type: "channel.thread.changed",
     workspaceId: input.workspaceId,
     channelName: input.channelName,
+    conversationId: input.conversationId,
+    taskId: input.taskId,
+    lastSeq: input.lastSeq,
     sequence: nextSequence(),
     changedAt: input.changedAt,
   };

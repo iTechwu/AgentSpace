@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
-import { listConversationParticipantsSync, readConversationSync, readStoredChannelSync, readStoredEmployeeByIdSync } from "@dofe-agent/db";
+import { listConversationParticipantsSync, listTaskMessagesForTasksSync, readConversationSync, readStoredChannelSync, readStoredEmployeeByIdSync, type TaskMessageRecord } from "@dofe-agent/db";
 import { recordConversationMessageActivitySync, readConversationForUserSync, resolveConversationLaneForSendSync } from "@dofe-agent/services/conversations";
 import { appendReferencedSkillDirective, mergeMessageAttachments, resolveReferencedAttachments, resolveResumeCommand } from "@/features/chat/message-composition";
 import { sendContactMessageForHumanWithAttachmentsSync } from "@dofe-agent/services/channels";
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  * conversationId 是唯一过滤主键。
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ workspaceId: string; conversationId: string }> },
 ): Promise<NextResponse> {
   const workspaceContext = await getCurrentWorkspaceContext();
@@ -36,9 +36,33 @@ export async function GET(
     });
     // 工作区状态是消息真相（含附件/mentions/回复/置顶）；conversation_message 仅作 SQL 镜像，不用于读接口。
     const state = readWorkspaceStateSync(workspaceId);
-    const messages = state.messages
+    const conversationMessages = state.messages
       .filter((message) => message.conversationId === conversation.id)
-      .slice()
+      .slice();
+    const taskIds = [...new Set(conversationMessages.flatMap((message) => {
+      const taskId = message.data?.source_task_queue_id?.trim();
+      return taskId ? [taskId] : [];
+    }))];
+    const requestUrl = new URL(request.url);
+    const requestedTaskId = requestUrl.searchParams.get("taskId")?.trim() || undefined;
+    const afterSeqValue = requestUrl.searchParams.get("afterSeq");
+    const afterSeq = afterSeqValue === null ? undefined : Number(afterSeqValue);
+    if (afterSeq !== undefined && (!Number.isSafeInteger(afterSeq) || afterSeq < 0 || !requestedTaskId)) {
+      return NextResponse.json({ error: "afterSeq requires a valid taskId and non-negative integer." }, { status: 400 });
+    }
+    if (requestedTaskId && !taskIds.includes(requestedTaskId)) {
+      return NextResponse.json({ error: "Task does not belong to this conversation." }, { status: 400 });
+    }
+    const selectedTaskIds = requestedTaskId ? [requestedTaskId] : taskIds;
+    const taskMessagesByTaskId = listTaskMessagesForTasksSync(selectedTaskIds);
+    const lastSeqByTask: Record<string, number> = {};
+    const taskExecutions: Record<string, TaskMessageRecord[]> = {};
+    for (const taskId of selectedTaskIds) {
+      const rows = taskMessagesByTaskId.get(taskId) ?? [];
+      lastSeqByTask[taskId] = rows.at(-1)?.seq ?? 0;
+      taskExecutions[taskId] = afterSeq === undefined ? rows : rows.filter((message) => message.seq > afterSeq);
+    }
+    const messages = conversationMessages
       .reverse()
       .map((message) => ({
         id: message.id,
@@ -60,7 +84,13 @@ export async function GET(
         pinned: message.pinned,
         pinnedAt: message.pinnedAt,
       }));
-    return NextResponse.json({ conversation, messages });
+    return NextResponse.json({
+      conversation,
+      messages,
+      taskExecutions,
+      lastSeqByTask,
+      snapshotVersion: 1,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Conversation not found." },
