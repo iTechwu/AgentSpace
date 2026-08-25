@@ -163,6 +163,18 @@ describe("MarketPageClient", () => {
     window.localStorage.removeItem("dofe-agent-language");
   });
 
+  it("uses balanced workbench density", () => {
+    const { container } = render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='balanced'].market-page-shell")).toBeInTheDocument();
+  });
+
   it("does not add a nested main landmark inside the workspace shell", () => {
     render(
       <main>

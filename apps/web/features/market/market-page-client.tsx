@@ -36,6 +36,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-action";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 const CLI_CATALOG_BATCH_SIZE = 24;
 
@@ -217,7 +218,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
   const onlineRuntimeCount = data.runtimes.filter((runtime) => runtime.status === "online").length;
 
   return (
-    <div className="market-page-shell">
+    <WorkbenchPageFrame className="market-page-shell">
       <section className="market-toolbar market-toolbar--hub">
         <div className="market-title-block">
           <span className="market-eyebrow">
@@ -285,7 +286,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
       )}
 
       <CapabilityRequestListPanel data={data} onDataChanged={onDataChanged} />
-    </div>
+    </WorkbenchPageFrame>
   );
 }
 

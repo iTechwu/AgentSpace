@@ -145,6 +145,12 @@ describe("InboxPageClient", () => {
     vi.useRealTimers();
   });
 
+  it("uses full-bleed workbench density", () => {
+    const { container } = renderInbox();
+
+    expect(container.querySelector("[data-page-density='full-bleed'].notification-feed-shell")).toBeInTheDocument();
+  });
+
   it("keeps activity categories and the selected timeline in separate panes", () => {
     renderInbox();
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { PerformanceDashboardData } from "@dofe-agent/services/finance";
 import { useLanguage } from "@/features/i18n/language-provider";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 export function PerformancePageClient({ data }: { data: PerformanceDashboardData }) {
   const { tx } = useLanguage();
@@ -30,7 +31,7 @@ export function PerformancePageClient({ data }: { data: PerformanceDashboardData
   }, []);
 
   return (
-    <div className={`performance-page${isCompactLayout ? " performance-page--compact" : ""}`}>
+    <WorkbenchPageFrame className={`performance-page${isCompactLayout ? " performance-page--compact" : ""}`}>
       <h1 className="performance-page__title">{tx("AI员工 绩效看板", "AI Employee Performance")}</h1>
 
       <div className="performance-summary">
@@ -87,7 +88,7 @@ export function PerformancePageClient({ data }: { data: PerformanceDashboardData
             ))}
           </div>
         ) : (
-          <div className="performance-table-wrapper">
+          <div className="performance-table-wrapper" data-density-zone="compact">
             <table className="performance-table">
               <thead>
                 <tr>
@@ -147,7 +148,7 @@ export function PerformancePageClient({ data }: { data: PerformanceDashboardData
           {tx("还没有任务执行记录。", "No task executions yet.")}
         </div>
       )}
-    </div>
+    </WorkbenchPageFrame>
   );
 }
 

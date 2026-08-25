@@ -674,6 +674,12 @@ describe("AgentsPageClient", () => {
     vi.useRealTimers();
   });
 
+  it("marks the active agent workbench as compact", () => {
+    const { container } = renderAgentsPage();
+
+    expect(container.querySelector("[data-density-zone='compact'].agents-shell")).toBeInTheDocument();
+  });
+
   it("switches between agent list and detail on compact layouts", async () => {
     mockMatchMedia(true);
     const user = userEvent.setup();

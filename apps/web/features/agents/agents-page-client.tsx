@@ -689,6 +689,7 @@ export function AgentsPageClient({
       {mode === "agent" ? (
         <div
           className={`agents-shell agents-shell--agent${isCompactLayout ? " agents-shell--compact" : ""}`}
+          data-density-zone="compact"
           style={agentListPaneResize.paneStyle}
         >
           {showListPane ? (
@@ -1014,7 +1015,7 @@ export function AgentsPageClient({
           ) : null}
         </div>
       ) : mode === "showcase" ? (
-        <div className="agents-shell agents-shell--showcase">
+        <div className="agents-shell agents-shell--showcase" data-density-zone="compact">
           <section className="page-panel agents-showcase-pane">
             <DigitalEmployeeShowcase
               agents={data.showcaseAgents}
@@ -1057,6 +1058,7 @@ export function AgentsPageClient({
       ) : (
         <div
           className={`agents-shell agents-shell--container${isCompactLayout ? " agents-shell--compact" : ""}`}
+          data-density-zone="compact"
           style={containerListPaneResize.paneStyle}
         >
           {showListPane ? (

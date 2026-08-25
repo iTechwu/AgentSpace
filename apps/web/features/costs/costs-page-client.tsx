@@ -9,6 +9,7 @@ import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { AppIcon } from "@/shared/ui/app-icon";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 
 type ActiveTab = "costs" | "budgets";
 
@@ -61,7 +62,7 @@ export function CostsPageClient({
   }, []);
 
   return (
-    <section className={`costs-shell${isCompactLayout ? " costs-shell--compact" : ""}`}>
+    <WorkbenchPageFrame className={`costs-shell${isCompactLayout ? " costs-shell--compact" : ""}`}>
       <div className="costs-toolbar">
         <h2>{tx("成本与预算", "Costs & Budget")}</h2>
         <div className="costs-tab-bar">
@@ -112,7 +113,7 @@ export function CostsPageClient({
           }}
         />
       )}
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

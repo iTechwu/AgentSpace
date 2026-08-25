@@ -49,6 +49,17 @@ describe("PerformancePageClient", () => {
     mockMatchMedia(false);
   });
 
+  it("uses balanced density with a compact table zone", () => {
+    const { container } = render(
+      <LanguageProvider>
+        <PerformancePageClient data={data} />
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='balanced'].performance-page")).toBeInTheDocument();
+    expect(container.querySelector("[data-density-zone='compact'].performance-table-wrapper")).toBeInTheDocument();
+  });
+
   it("renders performance metrics as cards instead of a table on compact layouts", () => {
     mockMatchMedia(true);
 

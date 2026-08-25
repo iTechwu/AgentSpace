@@ -16,6 +16,7 @@ import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { useAutoRefresh } from "@/shared/lib/use-auto-refresh";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
+import { WorkbenchPageFrame } from "@/shared/ui/workbench-page-frame";
 import { GeneratedAvatar, type GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
 import { TaskExecutionTimeline } from "@/features/chat/chat-primitives";
 import { buildExecutionTimeline } from "@/features/chat/task-execution-timeline";
@@ -117,7 +118,11 @@ export function InboxPageClient({
   );
 
   return (
-    <section className="notification-feed-shell" aria-label={tx("通知", "Notifications")}>
+    <WorkbenchPageFrame
+      aria-label={tx("通知", "Notifications")}
+      className="notification-feed-shell"
+      density="full-bleed"
+    >
       <aside className="notification-feed-list">
         <header className="notification-feed-list__header">
           <div>
@@ -240,7 +245,7 @@ export function InboxPageClient({
           />
         )}
       </section>
-    </section>
+    </WorkbenchPageFrame>
   );
 }
 

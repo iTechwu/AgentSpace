@@ -109,6 +109,16 @@ describe("CostsPageClient", () => {
     vi.mocked(getTeamBillingBalanceAction).mockResolvedValue({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "CNY", status: "active" });
   });
 
+  it("uses balanced workbench density", () => {
+    const { container } = render(
+      <LanguageProvider>
+        <CostsPageClient budgets={budgets} costs={costs} />
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='balanced'].costs-shell")).toBeInTheDocument();
+  });
+
   it("renders cost overview as cards instead of a table on compact layouts", async () => {
     mockMatchMedia(true);
 
