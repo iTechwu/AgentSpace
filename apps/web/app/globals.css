@@ -15184,6 +15184,14 @@ textarea:focus {
 
   .workspace-main--conversation {
     padding: 0;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .workspace-main__content--conversation {
+    min-height: 0;
+    overflow: hidden;
   }
 
   .page-header,
@@ -15236,15 +15244,18 @@ textarea:focus {
   }
 
   .contacts-shell--compact {
-    display: block;
-    min-height: auto;
-    height: auto;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
   }
 
   .contacts-shell--compact .contacts-list-pane,
   .contacts-shell--compact .contacts-chat-pane {
     max-height: none;
-    min-height: calc(100dvh - 8rem);
+    min-height: 0;
+    height: 100%;
   }
 
   .contacts-shell--compact .contacts-chat-pane {
