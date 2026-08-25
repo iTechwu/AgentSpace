@@ -23,9 +23,19 @@ export interface TaskExecutionStreamProjection {
   lastSeq: number;
 }
 
+export interface ExecutionTimelineLabels {
+  thinking: string;
+  usage?: string;
+  runtimeEvent?: string;
+  sessionRecovered?: string;
+  error?: (value: string) => string;
+}
+
 const SUBTITLE_MAX_LENGTH = 80;
 /** Input fields checked (in order) to build a short tool subtitle. */
 const TOOL_SUBTITLE_FIELDS = ["command", "file_path", "path", "pattern", "query", "url"] as const;
+const SESSION_RECOVERY_NOTICE_PATTERN = /starting a new conversation/i;
+const RECOVERABLE_SESSION_ERROR_PATTERN = /API Error:\s*4\d\d[\s\S]*Prompt injection detected/i;
 
 function truncateSubtitle(value: string): string {
   const compact = value.replace(/\s+/g, " ").trim();
@@ -99,6 +109,13 @@ function appendDetail(existing: string | undefined, addition: string | undefined
   return existing ? `${existing}\n\n${trimmed}` : trimmed;
 }
 
+function appendUniqueDetail(existing: string | undefined, addition: string): string {
+  if (!existing) {
+    return addition;
+  }
+  return existing.split("\n\n").includes(addition) ? existing : `${existing}\n\n${addition}`;
+}
+
 function containsProviderDiagnostic(value: string | undefined): boolean {
   return Boolean(value && /(?:provider\.runtime_generic_failure|Codex CLI exited|Claude CLI exited|stderrTail=|exitCode=|provider diagnostic:|No such image:)/i.test(value));
 }
@@ -117,7 +134,7 @@ function settleStatusTitle(value: string, taskRunning: boolean | undefined): str
 }
 
 /**
- * Reduce the raw task_message stream of one task into Kimi-style timeline items:
+ * Reduce the raw task_message stream of one task into compact DSH-style timeline items:
  * status rows, merged thinking blocks, and tool calls paired with their results.
  * When `options.taskRunning` is false, leftover running items are settled to done.
  * `options.includeText` is intended for audit/inbox surfaces where the raw
@@ -125,7 +142,7 @@ function settleStatusTitle(value: string, taskRunning: boolean | undefined): str
  */
 export function buildExecutionTimeline(
   messages: TaskMessageRecord[],
-  labels: { thinking: string; usage?: string; runtimeEvent?: string; error?: (value: string) => string },
+  labels: ExecutionTimelineLabels,
   options?: { taskRunning?: boolean; includeText?: boolean },
 ): ExecutionTimelineItem[] {
   return buildTaskExecutionStream(messages, labels, options).items;
@@ -137,7 +154,7 @@ export function buildExecutionTimeline(
  */
 export function buildTaskExecutionStream(
   messages: TaskMessageRecord[],
-  labels: { thinking: string; usage?: string; runtimeEvent?: string; error?: (value: string) => string },
+  labels: ExecutionTimelineLabels,
   options?: { taskRunning?: boolean; includeText?: boolean },
 ): TaskExecutionStreamProjection {
   const items: ExecutionTimelineItem[] = [];
@@ -145,8 +162,15 @@ export function buildTaskExecutionStream(
   /** Indexes into `items` for tool calls still waiting for their result, in open order. */
   const openToolIndexes: number[] = [];
   let openThinkingIndex: number | null = null;
+  let sessionRecoveryIndex: number | null = null;
 
   const sorted = [...messages].sort((left, right) => left.seq - right.seq);
+  const recoveredSession = sorted.some((message) => (
+    message.type === "text"
+    && Boolean(message.content?.trim())
+    && !RECOVERABLE_SESSION_ERROR_PATTERN.test(message.content ?? "")
+  ))
+    && sorted.some((message) => SESSION_RECOVERY_NOTICE_PATTERN.test(message.content ?? ""));
   for (const message of sorted) {
     if (message.type !== "thinking") {
       openThinkingIndex = null;
@@ -169,8 +193,29 @@ export function buildTaskExecutionStream(
       continue;
     }
 
+    const content = message.content?.trim();
+    const isRecoveredSessionEvent = recoveredSession && Boolean(content) && (
+      SESSION_RECOVERY_NOTICE_PATTERN.test(content ?? "")
+      || RECOVERABLE_SESSION_ERROR_PATTERN.test(content ?? "")
+    );
+    if (isRecoveredSessionEvent && content) {
+      if (sessionRecoveryIndex === null) {
+        items.push({
+          id: message.id,
+          kind: "status",
+          title: labels.sessionRecovered ?? "Session automatically recovered",
+          detail: content,
+          status: "done",
+        });
+        sessionRecoveryIndex = items.length - 1;
+      } else {
+        const recoveryItem = items[sessionRecoveryIndex];
+        recoveryItem.detail = appendUniqueDetail(recoveryItem.detail, content);
+      }
+      continue;
+    }
+
     if (message.type === "status") {
-      const content = message.content?.trim();
       if (!content || /^provider diagnostic:/i.test(content)) {
         continue;
       }
@@ -196,7 +241,6 @@ export function buildTaskExecutionStream(
     }
 
     if (message.type === "narration") {
-      const content = message.content?.trim();
       if (!content) {
         continue;
       }

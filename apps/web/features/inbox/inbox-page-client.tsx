@@ -95,6 +95,7 @@ export function InboxPageClient({
           thinking: tx("思考过程", "Thinking"),
           usage: tx("Runtime 用量", "Runtime usage"),
           runtimeEvent: tx("Runtime 事件", "Runtime event"),
+          sessionRecovered: tx("会话已自动恢复", "Session automatically recovered"),
         },
         { taskRunning: runtimeRunning, includeText: true },
       )

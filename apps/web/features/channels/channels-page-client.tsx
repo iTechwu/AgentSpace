@@ -1275,6 +1275,7 @@ export function ChannelsPageClient({
               executionRows,
               {
                 thinking: tx("思考过程", "Thinking"),
+                sessionRecovered: tx("会话已自动恢复", "Session automatically recovered"),
                 error: (value) => translateRuntimeFailureSummary(value, tx),
               },
               { taskRunning: Boolean(taskId && pendingTaskIds.has(taskId)) },

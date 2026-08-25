@@ -41,6 +41,7 @@ describe("TaskExecutionTimeline", () => {
 
     const summary = screen.getByText("思考过程").closest("summary");
     expect(summary).toHaveAttribute("aria-expanded", "false");
+    expect(summary?.firstElementChild).toHaveClass("execution-timeline__chevron");
     expect(screen.getByText("最后一行")).toBeInTheDocument();
     expect(screen.queryByText("第一行\n最后一行")).not.toBeInTheDocument();
 

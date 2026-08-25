@@ -217,6 +217,46 @@ describe("buildExecutionTimeline", () => {
     ]);
   });
 
+  it("collapses a recovered session error and duplicate restart notices into one complete row", () => {
+    const restartNotice = "Claude Code session session-poisoned was rejected by the upstream safety policy; starting a new conversation.";
+    const items = buildExecutionTimeline(
+      [
+        taskMessage({ seq: 1, type: "narration", content: "API Error: 400 Prompt injection detected: encoding_bypass" }),
+        taskMessage({ seq: 2, type: "provider_session_invalid", content: restartNotice }),
+        taskMessage({ seq: 3, type: "status", content: restartNotice }),
+        taskMessage({ seq: 4, type: "text", content: "RUNTIME-REPLY-OK" }),
+      ],
+      { ...LABELS, sessionRecovered: "会话已自动恢复" },
+      { taskRunning: false },
+    );
+
+    expect(items).toEqual([{
+      id: "task-msg-1",
+      kind: "status",
+      title: "会话已自动恢复",
+      detail: `API Error: 400 Prompt injection detected: encoding_bypass\n\n${restartNotice}`,
+      status: "done",
+    }]);
+  });
+
+  it("does not mark a restarted session as recovered without a successful final reply", () => {
+    const items = buildExecutionTimeline(
+      [
+        taskMessage({ seq: 1, type: "error", content: "API Error: 400 Prompt injection detected: encoding_bypass" }),
+        taskMessage({
+          seq: 2,
+          type: "status",
+          content: "Claude Code session session-poisoned was rejected; starting a new conversation.",
+        }),
+      ],
+      { ...LABELS, sessionRecovered: "会话已自动恢复" },
+      { taskRunning: false },
+    );
+
+    expect(items.some((item) => item.title === "会话已自动恢复")).toBe(false);
+    expect(items[0]).toMatchObject({ kind: "error", status: "error" });
+  });
+
   it("pairs tool results by refId before falling back to tool name", () => {
     const items = buildExecutionTimeline(
       [

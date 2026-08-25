@@ -192,6 +192,7 @@ const TaskExecutionTimelineRow = memo(
     const hasDetail = Boolean(item.detail || item.inputDetail || item.outputDetail);
     const heading = (
       <>
+        {hasDetail ? <AppIcon className="execution-timeline__chevron" name="chevronDown" /> : null}
         <span className={`execution-timeline__dot execution-timeline__dot--${item.status}`}>
           {item.status === "running" ? <AppIcon className="execution-timeline__spinner" name="loader" /> : null}
         </span>
@@ -205,7 +206,6 @@ const TaskExecutionTimelineRow = memo(
               : tx("已完成", "Completed")}
         </span>
         {summary ? <span className="execution-timeline__subtitle">{summary}</span> : null}
-        {hasDetail ? <AppIcon className="execution-timeline__chevron" name="chevronDown" /> : null}
       </>
     );
 
