@@ -42,4 +42,5 @@ export * from "./skill-runner.ts";
 export * from "./task-context.ts";
 export * from "./task-output.ts";
 export { McpGateway, type McpGatewayTaskSession, type McpToolAuditRecord } from "./mcp/gateway.ts";
+export { McpConnectorClient, type McpConnectorClientOptions, type McpConnectorConnectionInput } from "./tool-surface/connector-client.ts";
 export { McpAuditOutbox, type McpAuditOutboxFlushResult } from "./mcp/audit-outbox.ts";

@@ -1,4 +1,4 @@
-import type { RuntimeToolCapability } from "@dofe-agent/domain";
+import type { RuntimeToolCapability, ToolSurfaceLaunchContext } from "@dofe-agent/domain";
 import type { ProviderHealthSnapshot } from "@dofe-agent/domain";
 
 export const AGENT_ROUTER_HARNESSES = ["claude", "codex", "antigravity", "opencode", "openclaw", "hermes", "deepseek-harness"] as const;
@@ -46,11 +46,14 @@ export interface AgentRouterRunRequest {
   openClawEphemeralAgent?: boolean;
   providerHealth?: ProviderHealthSnapshot;
   runtimeToolCapabilities?: RuntimeToolCapability[];
+  /** Generic tool surface context. AgentRouter treats provider config as opaque. */
+  toolSurface?: ToolSurfaceLaunchContext;
   /**
    * Loopback MCP gateway URL (task-scoped session). When set, the provider is
    * launched with a one-shot MCP config pointing ONLY at this URL — the
    * Provider never receives remote endpoints or credentials.
    */
+  /** @deprecated Use toolSurface; retained for legacy gateway rollback. */
   mcpGatewayUrl?: string;
   /**
    * Codex MCP experiment switch (P1-2): only true injects the loopback gateway

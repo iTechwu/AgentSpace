@@ -50,6 +50,25 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  apps/mcp-connector:
+    dependencies:
+      '@dofe-agent/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.4.3)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.3
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   apps/mcp-egress-proxy:
     dependencies:
       '@dofe-agent/domain':
@@ -4406,7 +4425,7 @@ snapshots:
 
   '@types/pg@8.21.0':
     dependencies:
-      '@types/node': 24.13.3
+      '@types/node': 25.9.5
       pg-protocol: 1.16.0
       pg-types: 2.2.0
 

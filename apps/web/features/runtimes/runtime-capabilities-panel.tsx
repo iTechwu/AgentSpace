@@ -336,7 +336,7 @@ export function RuntimeCapabilitiesPanel({
         </div>
       )}
       {runtimeStatus !== "online" ? <p className="runtime-capabilities__notice" role="status">{tx(`${runtimeName} 当前离线，恢复在线后才可安装或变更能力。`, `${runtimeName} is offline. Bring it online before changing capabilities.`)}</p> : null}
-      {runtimeStatus === "online" && !runtime?.mcpEligible ? <p className="runtime-capabilities__notice" role="status">{tx("当前 Provider 尚未启用 MCP 网关，CLI 安装不受影响。", "The MCP gateway is not enabled for this provider; CLI installation remains available.")}</p> : null}
+      {runtimeStatus === "online" && !runtime?.mcpEligible ? <p className="runtime-capabilities__notice" role="status">{tx("当前 Runtime 尚未启用 MCP Connector，CLI 安装不受影响。", "The MCP Connector is not enabled for this runtime; CLI installation remains available.")}</p> : null}
     </section>
   );
 }

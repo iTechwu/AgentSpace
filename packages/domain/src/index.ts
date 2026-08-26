@@ -14,3 +14,4 @@ export * from "./skill-egress.ts";
 export * from "./openmontage.ts";
 export * from "./workflows.ts";
 export * from "./workflow-error-codes.ts";
+export * from "./tool-surface.ts";

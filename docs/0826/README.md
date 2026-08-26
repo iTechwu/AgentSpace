@@ -16,6 +16,14 @@
 - 独立联网不代表绕过安全策略：Connector 仍必须执行 host/TLS/私网/速率/租约 policy，可选择独立 egress proxy。
 - 迁移采用 legacy gateway 兼容层 → 双写灰度 → Connector 默认 → 删除 gateway 的顺序，可按 workspace/runtime 回滚。
 
+## 当前实施状态（2026-08-26）
+
+- 已落地 `apps/mcp-connector` 独立服务：健康检查、任务会话、工具发现/调用/关闭、认证、endpoint 校验、超时和响应限制。
+- 已落地 `packages/domain/src/tool-surface.ts` 与 daemon `McpConnectorClient`，AgentRouter 请求新增通用 ToolSurface 上下文；旧 `mcpGatewayUrl` 保留为回滚兼容字段。
+- 已提供 `deploy/mcp-connector/Dockerfile` 与仅包含 Connector 的 Compose 配置；未添加 PostgreSQL、Redis 或 RabbitMQ 服务。
+- 已验证：Connector types/build/tests、daemon ToolSurface 与 legacy gateway tests、Runtime 能力面板测试、Web typecheck、Connector/Web 本地 HTTP 与浏览器页面加载。
+- 待完成：将 task-runner 默认路径切换到 Connector、真实 MCP E2E、Connector UI 健康数据接线、legacy gateway 删除。Docker 镜像构建因本机 Docker Desktop 无 Docker Hub HTTPS 代理而未完成；Chrome DevTools MCP 未配置，浏览器验证使用隔离 Playwright 等价流程。
+
 ## 现状依据
 
 当前代码中的 `task-execution.ts`、`agent-router/types.ts`、`agent-router/mcp-gateway.ts`、`mcp/client.ts` 和 `mcp/egress-client.ts` 是本方案的主要耦合证据。当前会话未配置 code-review-graph MCP，因此这些依据来自仓库只读扫描；实施 W0 需补齐正式依赖图和影响半径记录。
