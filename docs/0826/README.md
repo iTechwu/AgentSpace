@@ -7,6 +7,7 @@
 | [01-架构方案与解耦契约.md](./01-架构方案与解耦契约.md) | Proposed | 目标拓扑、模块边界、ToolSurface/Connector API、安全和迁移决策 |
 | [02-产品优化方案.md](./02-产品优化方案.md) | Proposed | 用户问题、旅程、信息架构、连接向导、任务体验、研究与指标 |
 | [03-实施方案与验收矩阵.md](./03-实施方案与验收矩阵.md) | Proposed | W0-W6 路线、代码改动、数据迁移、测试、发布门禁和回滚 |
+| [04-W0依赖图与影响半径记录.md](./04-W0依赖图与影响半径记录.md) | Baseline recorded | 五个耦合证据文件的依赖边、影响半径、测试锚点和工具边界 |
 
 ## 核心结论
 
@@ -24,8 +25,8 @@
 - 已提供 `deploy/mcp-connector/Dockerfile` 与仅包含 Connector 的 Compose 配置；未添加 PostgreSQL、Redis 或 RabbitMQ 服务。
 - 已验证：Connector types/build/tests、daemon ToolSurface 与 legacy gateway tests、Runtime 能力面板测试、Web typecheck、Connector/Web 本地 HTTP 与浏览器页面加载。
 - 已完善：direct MCP endpoint 凭据校验、Connector 工具审批 fail-closed、restricted host allow-list（`MCP_CONNECTOR_ALLOWED_HOSTS`）及 `network_denied`/`network_policy_missing` 错误码映射；当前 Connector 测试覆盖 6 个场景。
-- 待完成：真实 MCP E2E、Connector UI 健康数据接线、legacy gateway 删除。Docker 镜像构建因本机 Docker Desktop 无 Docker Hub HTTPS 代理而未完成；Chrome DevTools MCP 未配置，浏览器验证使用隔离 Playwright 等价流程。
+- W0 基线已补齐：依赖图与影响半径见 [04-W0依赖图与影响半径记录.md](./04-W0依赖图与影响半径记录.md)；当前会话未配置 code-review-graph MCP，记录明确标注了扫描证据边界。仍待真实 MCP E2E、Connector UI 健康数据接线、legacy gateway 删除。Docker 镜像构建因本机 Docker Desktop 无 Docker Hub HTTPS 代理而未完成；Chrome DevTools MCP 未配置，浏览器验证使用隔离 Playwright 等价流程。
 
 ## 现状依据
 
-当前代码中的 `task-execution.ts`、`agent-router/types.ts`、`agent-router/mcp-gateway.ts`、`mcp/client.ts` 和 `mcp/egress-client.ts` 是本方案的主要耦合证据。当前会话未配置 code-review-graph MCP，因此这些依据来自仓库只读扫描；实施 W0 需补齐正式依赖图和影响半径记录。
+当前代码中的 `task-execution.ts`、`agent-router/types.ts`、`agent-router/mcp-gateway.ts`、`mcp/client.ts` 和 `mcp/egress-client.ts` 是本方案的主要耦合证据。W0 的可复现依赖图与影响半径已记录在 [04-W0依赖图与影响半径记录.md](./04-W0依赖图与影响半径记录.md)；正式 `code-review-graph` MCP 节点/边评分仍待在具备该工具的会话中补充校验。
