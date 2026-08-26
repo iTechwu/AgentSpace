@@ -62,12 +62,19 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:[cm]?js|tsx?)$/;
 // packages/services/src/conversations/conversations.test.ts to default-owned —
 // all three are now in the db/services package default test commands (docs/0820
 // session-split). Deferred set shrinks by 3.
-const EXPECTED_DEFERRED_DIGEST = "08f3bc5c0526a91a904a2f7e8b1cff3a1e6382d4eeb387d883698b2620458a02";
+// Re-frozen 2026-08-27: exclude repository-local `.worktrees` checkouts from
+// inventory and promote the MCP Connector package tests, which run in that
+// package's default test command. The resulting reviewed deferred set is 175
+// files.
+const EXPECTED_DEFERRED_DIGEST = "540d9082f464eadca0b706aac0cc4d5dcff0c2a088bc80108604a4255d4e89de";
 
 function listTestFiles(directory = repositoryRoot) {
   const files = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if ([".git", ".next", "data", "node_modules", "temp", "tmp"].includes(entry.name)) continue;
+    // Git worktrees are sibling checkouts, not part of this repository's test
+    // inventory. Including them makes the frozen deferred digest depend on
+    // unrelated local development state.
+    if ([".git", ".next", ".worktrees", "data", "node_modules", "temp", "tmp"].includes(entry.name)) continue;
     const absolutePath = join(directory, entry.name);
     if (entry.isDirectory()) {
       files.push(...listTestFiles(absolutePath));
@@ -79,6 +86,7 @@ function listTestFiles(directory = repositoryRoot) {
 }
 
 function isDefaultOwned(file) {
+  if (file.startsWith("apps/mcp-connector/src/") && file.endsWith(".test.ts")) return true;
   if (file.startsWith("apps/web/") && file.includes("/e2e/") && file.includes(".spec.")) return true;
   if (file.startsWith("apps/web/") && file.includes(".test.")) return true;
   if (file.startsWith("apps/mcp-egress-proxy/src/") && file.endsWith(".test.ts")) return true;
