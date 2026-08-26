@@ -122,7 +122,7 @@ export function buildCodexMcpGatewayArgs(url: string, serverKey = MCP_GATEWAY_SE
 export function buildCodexMcpServerArgs(servers: ToolSurfaceMcpServer[]): McpGatewayInjection {
   const inlineTable = `{ ${servers.map((server) => {
     const headers = server.headers && Object.keys(server.headers).length > 0
-      ? `, http_headers = ${JSON.stringify(server.headers)}`
+      ? `, http_headers = ${formatTomlInlineTable(server.headers)}`
       : "";
     return `"${server.name}" = { url = "${server.url}", startup_timeout_sec = 30${headers} }`;
   }).join(", ")} }`;
@@ -130,4 +130,15 @@ export function buildCodexMcpServerArgs(servers: ToolSurfaceMcpServer[]): McpGat
     args: ["--config", `mcp_servers=${inlineTable}`],
     redactions: servers.flatMap((server) => mcpGatewayUrlRedactions(server.url)),
   };
+}
+
+function formatTomlInlineTable(values: Record<string, string>): string {
+  const entries = Object.entries(values).map(([key, value]) =>
+    `"${escapeTomlString(key)}" = "${escapeTomlString(value)}"`,
+  );
+  return `{ ${entries.join(", ")} }`;
+}
+
+function escapeTomlString(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r");
 }

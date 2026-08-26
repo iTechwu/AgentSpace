@@ -84,5 +84,7 @@ test("multi-server ToolSurface builders preserve independent endpoints and non-s
   const codex = buildCodexMcpServerArgs(servers);
   assert.match(codex.args[1]!, /mcp_github/);
   assert.match(codex.args[1]!, /http_headers/);
+  assert.match(codex.args[1]!, /http_headers = \{ "X-Tenant" = "acme" \}/);
+  assert.doesNotMatch(codex.args[1]!, /\{"X-Tenant":"acme"\}/);
   assert.equal(codex.redactions.length, 2);
 });
