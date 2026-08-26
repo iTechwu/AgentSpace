@@ -42,6 +42,18 @@ test("connector tool approval is fail-closed for an empty allow-list", () => {
   assert.equal(isToolApproved("search", ["search"]), true);
 });
 
+test("restricted network mode enforces the configured host allow-list before connecting", async () => {
+  const service = new McpConnectorService({ networkMode: "restricted", allowedHosts: ["allowed.example"] });
+  await assert.rejects(
+    service.openSession({
+      taskId: "task",
+      runtimeId: "runtime",
+      connection: { connectionId: "c", endpoint: "https://blocked.example/mcp", approvedTools: ["search"] },
+    }),
+    /network policy/,
+  );
+});
+
 test("connector exposes an independent MCP session endpoint to a provider client", async () => {
   const upstream = new Server({ name: "fake-mcp", version: "1" }, { capabilities: { tools: {} } });
   upstream.setRequestHandler(ListToolsRequestSchema, () => ({

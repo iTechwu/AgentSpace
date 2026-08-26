@@ -37,12 +37,15 @@ export class McpConnectorService {
   private readonly sessions = new Map<string, ConnectorSessionRecord>();
   private readonly timeoutMs: number;
   private readonly networkMode: "open" | "restricted";
+  private readonly allowedHosts: ReadonlySet<string>;
 
-  constructor(options: { timeoutMs?: number; networkMode?: "open" | "restricted" } = {}) {
+  constructor(options: { timeoutMs?: number; networkMode?: "open" | "restricted"; allowedHosts?: readonly string[] } = {}) {
     this.timeoutMs = Number.isFinite(options.timeoutMs) && (options.timeoutMs ?? 0) > 0
       ? Math.min(600_000, Math.max(5_000, Math.trunc(options.timeoutMs!)))
       : DEFAULT_TIMEOUT_MS;
     this.networkMode = options.networkMode ?? (process.env.MCP_CONNECTOR_NETWORK_MODE === "restricted" ? "restricted" : "open");
+    const configuredHosts = options.allowedHosts ?? (process.env.MCP_CONNECTOR_ALLOWED_HOSTS ?? "").split(",");
+    this.allowedHosts = new Set(configuredHosts.map((host) => host.trim().toLowerCase()).filter(Boolean));
   }
 
   async openSession(input: {
@@ -53,6 +56,7 @@ export class McpConnectorService {
     ttlMs?: number;
   }): Promise<ToolSurfaceLaunchContext> {
     const connection = validateConnectionInput(input.connection);
+    this.assertNetworkPolicy(connection.endpoint);
     const sessionId = randomUUID();
     const endpoint = new URL(connection.endpoint);
     const transport = new StreamableHTTPClientTransport(endpoint, {
@@ -173,6 +177,17 @@ export class McpConnectorService {
 
   async closeAll(): Promise<void> {
     await Promise.all([...this.sessions.keys()].map((sessionId) => this.close({ sessionId, reason: "shutdown" })));
+  }
+
+  private assertNetworkPolicy(endpoint: string): void {
+    if (this.networkMode !== "restricted") return;
+    const hostname = new URL(endpoint).hostname.toLowerCase();
+    if (this.allowedHosts.size === 0) {
+      throw Object.assign(new Error("Restricted network mode requires MCP_CONNECTOR_ALLOWED_HOSTS."), { code: "connector.network_policy_missing" });
+    }
+    if (!this.allowedHosts.has(hostname)) {
+      throw Object.assign(new Error("MCP endpoint is not allowed by the connector network policy."), { code: "connector.network_denied" });
+    }
   }
 }
 
