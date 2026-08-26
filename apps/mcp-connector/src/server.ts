@@ -63,9 +63,11 @@ export class McpConnectorService {
     try {
       await withTimeout(client.connect(transport), this.timeoutMs);
       const result = await withTimeout(client.listTools(), this.timeoutMs);
-      const approved = new Set(connection.approvedTools ?? []);
       const tools = (result.tools ?? []).slice(0, MAX_TOOLS).flatMap((tool) => {
-        if (approved.size > 0 && !approved.has(tool.name)) return [];
+        // Approval is an allow-list. An empty list must fail closed, matching
+        // the control-plane gateway semantics, rather than exposing discovery
+        // results by default.
+        if (!isToolApproved(tool.name, connection.approvedTools)) return [];
         const inputSchema = (tool.inputSchema ?? {}) as Record<string, unknown>;
         if (JSON.stringify(inputSchema).length > MAX_SCHEMA_BYTES) return [];
         return [{
@@ -244,6 +246,10 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   }
   if (chunks.length === 0) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw Object.assign(new Error("Request body must be valid JSON."), { code: "connector.invalid_request" }); }
+}
+
+export function isToolApproved(toolName: string, approvedTools: readonly string[] | undefined): boolean {
+  return Boolean(approvedTools?.includes(toolName));
 }
 
 function validateConnectionInput(input: ConnectorConnectionInput): ConnectorConnectionInput {

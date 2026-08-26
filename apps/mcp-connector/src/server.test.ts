@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { createConnectorHttpServer, McpConnectorService } from "./server.ts";
+import { createConnectorHttpServer, isToolApproved, McpConnectorService } from "./server.ts";
 
 test("connector health advertises independent egress without opening a session", async () => {
   const service = new McpConnectorService();
@@ -34,6 +34,12 @@ test("connector rejects credential-bearing endpoints before network access", asy
     service.openSession({ taskId: "task", runtimeId: "runtime", connection: { connectionId: "c", endpoint: "https://user:pass@example.com/mcp" } }),
     /credential-free/,
   );
+});
+
+test("connector tool approval is fail-closed for an empty allow-list", () => {
+  assert.equal(isToolApproved("search", []), false);
+  assert.equal(isToolApproved("search", undefined), false);
+  assert.equal(isToolApproved("search", ["search"]), true);
 });
 
 test("connector exposes an independent MCP session endpoint to a provider client", async () => {
