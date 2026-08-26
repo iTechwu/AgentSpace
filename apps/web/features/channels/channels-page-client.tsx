@@ -1243,10 +1243,20 @@ export function ChannelsPageClient({
       if (isNewConversation) {
         return [];
       }
+      const taskExecutions = selectedThread?.taskExecutions;
       const threadMessages = (selectedThread?.messages ?? []).filter((message) =>
         !routeState.conversationId || message.conversationId === routeState.conversationId,
-      );
-      const taskExecutions = selectedThread?.taskExecutions;
+      ).map((message) => {
+        const taskId = message.data?.source_task_queue_id;
+        const liveRows = taskId ? liveTaskRowsById.get(taskId) ?? taskExecutions?.[taskId] : undefined;
+        const liveText = liveRows
+          ?.filter((row) => row.type === "text")
+          .map((row) => row.content ?? "")
+          .join("");
+        return liveText && message.role === "agent" && message.kind !== "process"
+          ? { ...message, summary: liveText }
+          : message;
+      });
 
       // Fold the flat process messages of one task into a single timeline carrier:
       // the first process message of each task (whose structured stream is available)
@@ -1319,11 +1329,12 @@ export function ChannelsPageClient({
           message.kind !== "process" &&
           taskId &&
           carrierIdByTaskId.has(taskId) &&
+          !pendingTaskIds.has(taskId) &&
           carrierIdByTaskId.get(taskId) !== id
         ) {
           return [];
         }
-        const executionReply = taskId && carrierIdByTaskId.get(taskId) === id
+        const executionReply = taskId && !pendingTaskIds.has(taskId) && carrierIdByTaskId.get(taskId) === id
           ? executionReplyByTaskId.get(taskId)
           : undefined;
         const executionRows = taskId && carrierIdByTaskId.get(taskId) === id
