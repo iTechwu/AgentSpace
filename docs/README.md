@@ -38,6 +38,7 @@
 
 | 目录 | 主题 |
 | --- | --- |
+| `0826/` | MCP 独立化架构、产品优化与实施方案（Proposed） |
 | `0731/codex-connect-other-models` | Codex 连接其他模型：根因与证据 ✅ 本地实施/验证/提交完成（未部署） |
 | `0803/mcp-egress-proxy` | ADR：MCP Egress Proxy（monorepo 内 Compose 专用）🟡 Phase 0-2 已实施，Phase 3 待迭代 |
 | `0808/db_migration_to_prisma` | 迁移 Prisma 的评估与实施方案 🟡 Phase 2 进行中（22 读域 + 4 写路径已切流，实时状态见 [progress-log.md](./progress-log.md)） |
