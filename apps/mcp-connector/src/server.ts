@@ -247,7 +247,11 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, service:
     writeJson(res, 404, { error: "connector.not_found" });
   } catch (error) {
     const classified = classifyConnectorError(error);
-    writeJson(res, classified.code === "connector.invalid_request" ? 400 : 502, { error: classified.code, message: classified.message });
+    const status = classified.code === "connector.invalid_request" ? 400
+      : classified.code === "connector.network_denied" ? 403
+      : classified.code === "connector.network_policy_missing" ? 500
+      : 502;
+    writeJson(res, status, { error: classified.code, message: classified.message });
   }
 }
 
@@ -293,8 +297,12 @@ function redactResult(value: unknown): unknown {
 
 function classifyConnectorError(error: unknown): Error & { code: string; message: string } {
   const source = error as { code?: string; message?: string };
-  const code = source?.code === "connector.invalid_request" ? source.code : "connector.upstream_unreachable";
-  const message = code === "connector.invalid_request" ? source.message ?? "Invalid connector request." : "MCP upstream is unavailable.";
+  const knownCodes = new Set(["connector.invalid_request", "connector.network_denied", "connector.network_policy_missing"]);
+  const code = source?.code && knownCodes.has(source.code) ? source.code : "connector.upstream_unreachable";
+  const message = code === "connector.invalid_request" ? source.message ?? "Invalid connector request."
+    : code === "connector.network_denied" ? source.message ?? "MCP endpoint is blocked by network policy."
+    : code === "connector.network_policy_missing" ? source.message ?? "Restricted network policy is not configured."
+    : "MCP upstream is unavailable.";
   return Object.assign(new Error(message), { code, message });
 }
 

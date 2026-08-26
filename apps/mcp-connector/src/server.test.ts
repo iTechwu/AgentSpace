@@ -54,6 +54,23 @@ test("restricted network mode enforces the configured host allow-list before con
   );
 });
 
+test("connector HTTP API preserves network policy error codes", async () => {
+  const service = new McpConnectorService({ networkMode: "restricted", allowedHosts: ["allowed.example"] });
+  const http = createConnectorHttpServer(service, { host: "127.0.0.1", port: 0, authToken: "test-token" });
+  const url = await listen(http.server);
+  try {
+    const response = await fetch(`${url}/v1/sessions`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", "content-type": "application/json" },
+      body: JSON.stringify({ taskId: "task", runtimeId: "runtime", connection: { connectionId: "c", endpoint: "https://blocked.example/mcp", approvedTools: ["search"] } }),
+    });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: "connector.network_denied", message: "MCP endpoint is not allowed by the connector network policy." });
+  } finally {
+    await http.close();
+  }
+});
+
 test("connector exposes an independent MCP session endpoint to a provider client", async () => {
   const upstream = new Server({ name: "fake-mcp", version: "1" }, { capabilities: { tools: {} } });
   upstream.setRequestHandler(ListToolsRequestSchema, () => ({
