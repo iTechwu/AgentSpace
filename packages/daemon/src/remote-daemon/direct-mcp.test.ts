@@ -48,4 +48,5 @@ test("direct MCP surface supports multiple endpoints and stable server keys", ()
 test("direct MCP surface refuses secret-bearing or non-HTTP connections", () => {
   assert.equal(buildDirectMcpToolSurface("task-1", [connection({ secrets: { API_KEY: "secret" } })]), undefined);
   assert.equal(buildDirectMcpToolSurface("task-1", [connection({ transport: "stdio" })]), undefined);
+  assert.equal(buildDirectMcpToolSurface("task-1", [connection({ endpoint: "https://user:pass@example.com/mcp" })]), undefined);
 });

@@ -58,7 +58,7 @@ export function buildDirectMcpToolSurface(taskId: string, connections: readonly 
   if (connections.length === 0 || connections.some((connection) =>
     connection.transport !== "streamable_http"
     || Object.keys(connection.secrets ?? {}).length > 0
-    || !/^https?:\/\//.test(connection.endpoint),
+    || !isCredentialFreeHttpEndpoint(connection.endpoint),
   )) {
     return undefined;
   }
@@ -98,6 +98,18 @@ export function buildDirectMcpToolSurface(taskId: string, connections: readonly 
     },
     permissionNames,
   };
+}
+
+function isCredentialFreeHttpEndpoint(value: string): boolean {
+  try {
+    const endpoint = new URL(value);
+    return (endpoint.protocol === "http:" || endpoint.protocol === "https:")
+      && !endpoint.username
+      && !endpoint.password
+      && !endpoint.hash;
+  } catch {
+    return false;
+  }
 }
 
 export function createRemoteTaskMessageReporter(
