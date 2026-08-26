@@ -6,12 +6,11 @@
  * 2. node_modules/.pnpm 内全部依赖的 engines.node 是否覆盖目标版本
  *    （默认当前运行时 Node）。
  *
- * 背景：仓库未启用 engine-strict——它会被 jsdom@30 的 engines 声明单点阻断
- * （jsdom 只支持 LTS 线 22/24/26+，显式排除 Node 25，见
- * docs/0814/node-runtime-matrix.md 的限时例外）。本脚本提供等价覆盖：
- * 声明了 engines.node 且不覆盖目标版本的依赖都会被列出；超出
- * KNOWN_EXCEPTIONS 之外的违规令进程 exit 1。已接入根 package.json 的
- * `pretest`，随 `pnpm test` 自动执行。
+ * 背景：仓库未启用 engine-strict。本脚本提供等价覆盖：声明了 engines.node
+ * 且不覆盖目标版本的依赖都会被列出；超出 KNOWN_EXCEPTIONS 之外的违规令
+ * 进程 exit 1。带 os/cpu 条件且不适用于当前平台的 optional 二进制依赖会被
+ * 排除，避免跨平台包污染当前运行时审计。已接入根 package.json 的 `pretest`，
+ * 随 `pnpm test` 自动执行。
  *
  * 已知局限：扫描基于当前平台实际安装的 node_modules/.pnpm，其他平台的
  * optionalDependencies 未安装时不会被检验；跨平台结论需在目标平台各跑一次。
@@ -35,12 +34,9 @@ const repoRoot = rootIdx !== -1 && process.argv[rootIdx + 1]
   ? path.resolve(process.argv[rootIdx + 1])
   : path.resolve(__dirname, "..");
 
-// 已记录在 docs/0814/node-runtime-matrix.md 的限时例外。精确钉版本：
-// jsdom 升级后若仍排除目标 Node，会重新 exit 1，强制重新核对该例外；
-// 若新版本纳入了目标 Node，脚本会提示例外已失效、可从清单移除。
-// 2026-08-21 迁移到 Node 24 LTS（^24.19.0）后，jsdom@30.0.1 的
-// engines.node（^22.22.2 || ^24.15.0 || >=26.0.0）已覆盖 Node 24，
-// 此前针对 Node 25 的限时例外随之移除，清单暂留空。
+// 已记录在 docs/0814/node-runtime-matrix.md 的限时例外。若未来依赖再次
+// 排除目标 Node，应在此精确钉版本并同步说明；若依赖恢复支持目标版本，
+// 脚本会提示例外已失效，可从清单移除。
 const KNOWN_EXCEPTIONS = new Set([]);
 
 function targetNodeVersion() {
