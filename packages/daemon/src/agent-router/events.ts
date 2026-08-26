@@ -49,6 +49,10 @@ export function createNarrationDedupEmitter(emit: (event: AgentRouterEvent) => v
 export function mapClaudeNativeEvent(event: Record<string, unknown>, state?: ClaudeEventMapperState): AgentRouterEvent[] {
   const type = typeof event.type === "string" ? event.type : "";
 
+  if (type === "stream_event" && event.event && typeof event.event === "object") {
+    return mapClaudeNativeEvent(event.event as Record<string, unknown>, state);
+  }
+
   if (type === "result") {
     const result: AgentRouterEvent[] = [];
     if (typeof event.usage === "object" && event.usage) {
@@ -82,7 +86,8 @@ export function mapClaudeNativeEvent(event: Record<string, unknown>, state?: Cla
   }
 
   if (type === "content_block_delta" && event.delta && typeof event.delta === "object") {
-    const text = extractText((event.delta as Record<string, unknown>).text);
+    const rawText = (event.delta as Record<string, unknown>).text;
+    const text = typeof rawText === "string" ? rawText : undefined;
     return text ? [{ type: "text_delta", text }] : [];
   }
 

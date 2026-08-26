@@ -24,6 +24,7 @@ import { POST as deregisterPOST } from "./deregister/route";
 import { POST as claimPOST } from "./runtimes/[runtimeId]/tasks/claim/route";
 import { POST as startPOST } from "./tasks/[taskId]/start/route";
 import { POST as messagesPOST } from "./tasks/[taskId]/messages/route";
+import { POST as messageStreamPOST } from "./task-message-stream/route";
 import { POST as failPOST } from "./tasks/[taskId]/fail/route";
 import { GET as inputBundleGET } from "./tasks/[taskId]/input-bundle/route";
 import {
@@ -175,8 +176,8 @@ describe("remote daemon client integration", () => {
       assert.ok(inputBundle.prompt.includes("会话消息: 帮我整理大阪行程。"));
       assert.equal(inputBundle.prompt.includes("用户消息: 帮我整理大阪行程。"), false);
 
-      await client.reportMessages(claimedTask.id, {
-        messages: [
+      const messageStream = client.openTaskMessageStream(claimedTask.id);
+      await messageStream.write([
           {
             type: "thinking",
             content: "先梳理行程约束。",
@@ -193,14 +194,21 @@ describe("remote daemon client integration", () => {
           },
           {
             type: "text",
-            content: "正在整理大阪",
+            content: "hello",
           },
           {
             type: "text",
-            content: "行程。",
+            content: " ",
           },
-        ],
-      });
+          {
+            type: "text",
+            content: "from claude",
+          },
+          {
+            type: "text",
+            content: "\n",
+          },
+      ]);
 
       const streamingState = readWorkspaceStateSync();
       const streamingDirectChannel = streamingState.channels.find(
@@ -213,7 +221,8 @@ describe("remote daemon client integration", () => {
           message.status === "pending" &&
           message.data?.source_task_queue_id === claimedTask.id,
         )?.summary,
-      ).toBe("正在整理大阪行程。");
+      ).toBe("hello from claude\n");
+      await messageStream.close();
       expect(
         streamingState.messages.find((message) =>
           message.channel === streamingDirectChannel?.name &&
@@ -241,7 +250,7 @@ describe("remote daemon client integration", () => {
             path: "runtime-output/agent-output.json",
             contentBase64: Buffer.from(
               JSON.stringify({
-                text: "我先给你一版大阪行程草案。",
+                text: "hello from claude",
                 attachments: [
                   {
                     path: "runtime-output/artifacts/itinerary.txt",
@@ -269,7 +278,7 @@ describe("remote daemon client integration", () => {
       });
 
       await client.completeTask(claimedTask.id, {
-        outputText: "我先给你一版大阪行程草案。",
+        outputText: "hello from claude",
         sessionId: "remote-session-1",
       });
 
@@ -295,9 +304,9 @@ describe("remote daemon client integration", () => {
       const taskMessages = listTaskMessagesForTaskSync(claimedTask.id);
       expect(
         taskMessages
-          .filter((message) => message.type === "text" && ["正在整理大阪", "行程。"].includes(message.content ?? ""))
+          .filter((message) => message.type === "text")
           .map((message) => message.content),
-      ).toEqual(["正在整理大阪", "行程。"]);
+      ).toEqual(["hello", " ", "from claude", "\n"]);
 
       const state = readWorkspaceStateSync();
       const directChannel = state.channels.find(
@@ -307,7 +316,7 @@ describe("remote daemon client integration", () => {
       const channelMessages = state.messages.filter((message) => message.channel === directChannel?.name);
       expect(channelMessages.some((message) => message.role === "agent" && message.status === "pending")).toBe(false);
       expect(channelMessages.some((message) => message.kind === "process" && message.status === "pending")).toBe(false);
-      expect(channelMessages[0]?.summary).toBe("我先给你一版大阪行程草案。");
+      expect(channelMessages[0]?.summary).toBe("hello from claude");
       expect(channelMessages[0]?.attachments?.[0]?.fileName).toBe("itinerary.txt");
 
       sendContactMessageSync("Atlas", "继续细化第二天安排。");
@@ -323,7 +332,7 @@ describe("remote daemon client integration", () => {
     } finally {
       restoreFetch();
     }
-  });
+  }, 15_000);
 
   it("can complete a manual task that updates a channel document", async () => {
     const daemonToken = createDaemonApiTokenSync({
@@ -568,6 +577,9 @@ async function dispatchToRoute(request: Request): Promise<Response> {
   if (request.method === "POST" && /^\/api\/daemon\/tasks\/[^/]+\/messages$/.test(url.pathname)) {
     const taskId = url.pathname.split("/")[4] ?? "";
     return messagesPOST(request, { params: Promise.resolve({ taskId }) });
+  }
+  if (request.method === "POST" && url.pathname === "/api/daemon/task-message-stream") {
+    return messageStreamPOST(request);
   }
   if (request.method === "POST" && /^\/api\/daemon\/tasks\/[^/]+\/output-bundle$/.test(url.pathname)) {
     const taskId = url.pathname.split("/")[4] ?? "";

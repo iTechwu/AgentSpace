@@ -1715,6 +1715,9 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
       "printf '%s\\n' '{\"type\":\"system\",\"session_id\":\"session-next\"}'",
       "printf '%s\\n' '{\"type\":\"tool_use\",\"id\":\"claude-tool-1\",\"name\":\"Bash\",\"input\":{\"command\":\"pwd\"}}'",
       "printf '%s\\n' '{\"type\":\"tool_result\",\"tool_use_id\":\"claude-tool-1\",\"name\":\"Bash\",\"output\":\"/tmp\"}'",
+      "printf '%s\\n' '{\"type\":\"stream_event\",\"session_id\":\"session-next\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}}'",
+      "printf '%s\\n' '{\"type\":\"stream_event\",\"session_id\":\"session-next\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\" \"}}}'",
+      "printf '%s\\n' '{\"type\":\"stream_event\",\"session_id\":\"session-next\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"from claude\"}}}'",
       "printf '%s\\n' '{\"type\":\"result\",\"result\":\"hello from claude\",\"session_id\":\"session-next\",\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}'",
       "",
     ].join("\n"),
@@ -1736,7 +1739,7 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
 
   try {
     await withProcessGetuid(1000, async () => {
-      const events: Array<{ type: string; inputJson?: Record<string, unknown>; refId?: string }> = [];
+      const events: Array<{ type: string; content?: string; inputJson?: Record<string, unknown>; refId?: string }> = [];
       const result = await runProviderTask(runtime, "write a short reply", workDir, {
         executionPolicy: { claudePermissionMode: "plan" },
         contextEnv: {
@@ -1752,7 +1755,15 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
       const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
       assert.equal(result.output, "hello from claude");
       assert.equal(result.sessionId, "session-next");
-      assert.deepEqual(args.slice(0, 6), ["-p", "write a short reply", "--output-format", "stream-json", "--verbose", "--max-turns"]);
+      assert.deepEqual(args.slice(0, 7), [
+        "-p",
+        "write a short reply",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--max-turns",
+      ]);
       assert.equal(args.includes("--input-format"), false);
       assert.equal(args.includes("--permission-mode"), true);
       assert.equal(args.includes("plan"), true);
@@ -1761,6 +1772,10 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
       assert.deepEqual(args.slice(-2), ["--tools", "default"]);
       assert.equal(readFileSync(stdinPath, "utf8"), "");
       assert.equal(events.some((event) => event.type === "usage" && event.inputJson?.input_tokens === 3), true);
+      assert.deepEqual(
+        events.filter((event) => event.type === "text").map((event) => event.content),
+        ["hello", " ", "from claude"],
+      );
       assert.deepEqual(events.filter((event) => event.type === "tool_use" || event.type === "tool_result").map((event) => event.refId), [
         "claude-tool-1",
         "claude-tool-1",

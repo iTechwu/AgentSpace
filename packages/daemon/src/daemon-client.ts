@@ -19,6 +19,7 @@ import type {
   CompleteWorkspaceMountOperationRequest,
   CreateRuntimeApprovalRequest,
   CreateRuntimeApprovalResponse,
+  DaemonTaskMessageInput,
   DaemonTaskInputBundle,
   DaemonTaskOutputBundle,
   FailManagedProvisioningStageRequest,
@@ -449,6 +450,92 @@ export class HttpDaemonClient {
 
   async reportMessages(taskId: string, body: ReportTaskMessagesRequest): Promise<void> {
     await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/messages`, body);
+  }
+
+  openTaskMessageStream(taskId: string): {
+    write: (messages: DaemonTaskMessageInput[]) => Promise<void>;
+    close: () => Promise<void>;
+    abort: () => Promise<void>;
+  } {
+    const encoder = new TextEncoder();
+    const transport = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = transport.writable.getWriter();
+    const controller = new AbortController();
+    let closed = false;
+    let responseError: unknown;
+    const writeFrame = (frame: unknown): Promise<void> =>
+      writer.write(encoder.encode(`${JSON.stringify(frame)}\n`));
+    const responseDone = fetch(
+      this.resolveUrl(`/api/daemon/task-message-stream?taskId=${encodeURIComponent(taskId)}`),
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.daemonToken}`,
+          "content-type": "application/x-ndjson",
+        },
+        body: transport.readable,
+        duplex: "half",
+        signal: controller.signal,
+      } as RequestInit & { duplex: "half" },
+    ).then((response) => this.readJson<{ accepted: number }>(response)).then(
+      () => undefined,
+      (error) => {
+        responseError = error;
+      },
+    );
+
+    const throwIfFailed = (): void => {
+      if (responseError) throw responseError;
+    };
+    const withTimeout = async <T>(operation: Promise<T>, action: string): Promise<T> => {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          operation,
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => {
+              controller.abort();
+              reject(new Error(`Task message stream ${action} timed out.`));
+            }, this.requestTimeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    };
+    const heartbeat = setInterval(() => {
+      if (!closed) {
+        void writeFrame({ type: "ping" }).catch((error) => {
+          responseError ??= error;
+        });
+      }
+    }, 15_000);
+
+    return {
+      write: async (messages) => {
+        if (closed) throw new Error("Task message stream is already closed.");
+        if (messages.length === 0) return;
+        throwIfFailed();
+        await withTimeout(writeFrame({ messages }), "write");
+        throwIfFailed();
+      },
+      close: async () => {
+        if (!closed) {
+          closed = true;
+          clearInterval(heartbeat);
+          await withTimeout(writer.close(), "close");
+        }
+        await withTimeout(responseDone, "response");
+        throwIfFailed();
+      },
+      abort: async () => {
+        closed = true;
+        clearInterval(heartbeat);
+        controller.abort();
+        await writer.abort().catch(() => undefined);
+        await responseDone;
+      },
+    };
   }
 
   async reportTaskUsages(taskId: string, body: ReportTaskUsagesRequest): Promise<ReportTaskUsagesResponse> {

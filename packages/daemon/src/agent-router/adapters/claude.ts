@@ -78,7 +78,7 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
   if (!usesRealtimeInput) {
     args.push(input.prompt);
   }
-  args.push("--output-format", "stream-json", "--verbose");
+  args.push("--output-format", "stream-json", "--verbose", "--include-partial-messages");
   if (usesRealtimeInput) {
     args.push("--input-format", "stream-json");
   }
@@ -142,12 +142,12 @@ async function runClaude(
   let stdinController: ExecController | undefined;
   let stdoutBuffer = "";
   const mapperState = createClaudeEventMapperState();
-  // Events are emitted once per stdout line while streaming; the final stdout
-  // replay below skips anything already streamed so no event is reported twice.
-  const streamedEventSignatures = new Set<string>();
+  // The final stdout replay is used for diagnostics and fallback extraction.
+  // Track every live-mapped event, including narration deliberately suppressed
+  // by the final result, so replay cannot surface it as a new process event.
+  const processedEventSignatures = new Set<string>();
   let emitDownstream: (event: AgentRouterEvent) => void = (event) => observer.emit(event);
   const narrationEmitter = createNarrationDedupEmitter((event) => {
-    streamedEventSignatures.add(JSON.stringify(event));
     emitDownstream(event);
   });
   const processLine = (line: string, runObserver: AgentRouterObserver): void => {
@@ -177,6 +177,7 @@ async function runClaude(
         narrationEmitter.flush(event.result);
       }
       for (const mapped of mapClaudeNativeEvent(event, mapperState)) {
+        processedEventSignatures.add(JSON.stringify(mapped));
         narrationEmitter.emit(mapped);
       }
       if (event.type === "result") {
@@ -227,7 +228,7 @@ async function runClaude(
 
         for (const event of events) {
           for (const mapped of mapClaudeNativeEvent(event, mapperState)) {
-            if (streamedEventSignatures.has(JSON.stringify(mapped))) {
+            if (processedEventSignatures.has(JSON.stringify(mapped))) {
               continue;
             }
             runObserver.emit(mapped);

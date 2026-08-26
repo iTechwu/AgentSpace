@@ -81,7 +81,7 @@ test("resolveManagedServiceConnection binds the official Tools viral-video servi
 });
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError } from "./daemon-client.ts";
 import { isProcessRunning } from "./state.ts";
-import { executeRemoteTask } from "./remote-daemon/task-execution.ts";
+import { createRemoteTaskMessageReporter, executeRemoteTask } from "./remote-daemon/task-execution.ts";
 
 test("isProcessRunning treats an inaccessible existing process as running", () => {
   assert.equal(isProcessRunning(1), true);
@@ -115,12 +115,59 @@ test("watchRemoteTaskCancellation aborts after the control plane cancels a task"
   }
 });
 
+test("createRemoteTaskMessageReporter coalesces text deltas into ordered bounded batches", async () => {
+  const batches: unknown[][] = [];
+  let releaseFirstBatch: (() => void) | undefined;
+  const firstBatchGate = new Promise<void>((resolve) => {
+    releaseFirstBatch = resolve;
+  });
+  const reporter = createRemoteTaskMessageReporter(
+    async (messages) => {
+      batches.push(messages);
+      if (batches.length === 1) {
+        await firstBatchGate;
+      }
+    },
+    {
+      flushDelayMs: 60_000,
+      maxBatchSize: 3,
+    },
+  );
+
+  reporter.enqueue({ type: "status", content: "starting" });
+  reporter.enqueue({ type: "text", content: "hello" });
+  reporter.enqueue({ type: "text", content: " " });
+  reporter.enqueue({ type: "text", content: "from claude" });
+  reporter.enqueue({ type: "tool_use", tool: "search", content: "searching" });
+  reporter.enqueue({ type: "text", content: "done" });
+
+  let drained = false;
+  const draining = reporter.drain().then(() => {
+    drained = true;
+  });
+  await Promise.resolve();
+  assert.equal(drained, false);
+  releaseFirstBatch?.();
+  await draining;
+  assert.equal(drained, true);
+
+  assert.deepEqual(batches, [
+    [
+      { type: "status", content: "starting" },
+      { type: "text", content: "hello from claude" },
+      { type: "tool_use", tool: "search", content: "searching" },
+    ],
+    [{ type: "text", content: "done" }],
+  ]);
+});
+
 test("executeRemoteTask routes DeepSeek output through runtime-output upload and cleanup", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-task-smoke-"));
   const dshPath = join(stateDir, "dsh");
   const uploaded: Array<Record<string, unknown>> = [];
   const completed: Array<Record<string, unknown>> = [];
   const messages: Array<Record<string, unknown>> = [];
+  let messageStreamClosed = false;
   const task = {
     id: "task-deepseek-smoke",
     workspaceId: "workspace-1",
@@ -156,10 +203,20 @@ test("executeRemoteTask routes DeepSeek output through runtime-output upload and
     reportMessages: async (_taskId: string, body: { messages: Array<Record<string, unknown>> }) => {
       messages.push(...body.messages);
     },
+    openTaskMessageStream: () => ({
+      write: async (batch: Array<Record<string, unknown>>) => {
+        messages.push(...batch);
+      },
+      close: async () => {
+        messageStreamClosed = true;
+      },
+      abort: async () => undefined,
+    }),
     uploadOutputBundle: async (_taskId: string, bundle: Record<string, unknown>) => {
       uploaded.push(bundle);
     },
     completeTask: async (_taskId: string, body: Record<string, unknown>) => {
+      assert.equal(messageStreamClosed, true);
       completed.push(body);
     },
     failTask: async (_taskId: string, body: Record<string, unknown>) => {

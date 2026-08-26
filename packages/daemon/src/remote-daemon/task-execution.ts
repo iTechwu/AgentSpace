@@ -45,6 +45,109 @@ import { resolveManagedCredentialProfile } from "./operations.ts";
 import { sleep } from "./internal.ts";
 
 const RUNTIME_APPROVAL_TIMEOUT_MS = 15 * 60 * 1_000;
+const TASK_MESSAGE_BATCH_DELAY_MS = 25;
+const TASK_MESSAGE_BATCH_SIZE = 32;
+const TASK_MESSAGE_TEXT_SIZE = 512;
+
+export function createRemoteTaskMessageReporter(
+  report: (messages: ProviderTaskEvent[]) => Promise<void>,
+  options?: {
+    flushDelayMs?: number;
+    maxBatchSize?: number;
+    maxTextSize?: number;
+    onError?: (error: unknown) => void;
+  },
+): {
+  enqueue: (message: ProviderTaskEvent) => void;
+  drain: () => Promise<void>;
+  cancel: () => void;
+} {
+  const flushDelayMs = Math.max(0, options?.flushDelayMs ?? TASK_MESSAGE_BATCH_DELAY_MS);
+  const maxBatchSize = Math.max(1, options?.maxBatchSize ?? TASK_MESSAGE_BATCH_SIZE);
+  const maxTextSize = Math.max(1, options?.maxTextSize ?? TASK_MESSAGE_TEXT_SIZE);
+  const onError = options?.onError ?? (() => undefined);
+  let pending: ProviderTaskEvent[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let activeReport: Promise<void> | undefined;
+  let draining = false;
+
+  const clearFlushTimer = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  const flush = (): void => {
+    clearFlushTimer();
+    if (activeReport || pending.length === 0) {
+      return;
+    }
+    const batch = pending.splice(0, maxBatchSize);
+    const currentReport = report(batch).catch(onError);
+    activeReport = currentReport;
+    void currentReport.finally(() => {
+      if (activeReport === currentReport) {
+        activeReport = undefined;
+      }
+      if (pending.length === 0) {
+        return;
+      }
+      if (draining || pending.length >= maxBatchSize) {
+        flush();
+      } else {
+        scheduleFlush();
+      }
+    });
+  };
+  function scheduleFlush(): void {
+    if (!activeReport && !timer) {
+      timer = setTimeout(flush, flushDelayMs);
+    }
+  }
+
+  return {
+    enqueue(message) {
+      const last = pending.at(-1);
+      if (last?.type === "text" && message.type === "text") {
+        pending[pending.length - 1] = {
+          ...last,
+          content: `${last.content ?? ""}${message.content ?? ""}`,
+        };
+      } else {
+        pending.push(message);
+      }
+      const pendingTextSize = pending.at(-1)?.type === "text"
+        ? pending.at(-1)?.content?.length ?? 0
+        : 0;
+      if (pending.length >= maxBatchSize || pendingTextSize >= maxTextSize) {
+        flush();
+      } else {
+        scheduleFlush();
+      }
+    },
+    async drain() {
+      draining = true;
+      clearFlushTimer();
+      try {
+        while (pending.length > 0 || activeReport) {
+          if (!activeReport) {
+            flush();
+          }
+          const currentReport = activeReport;
+          if (currentReport) {
+            await currentReport;
+          }
+        }
+      } finally {
+        draining = false;
+      }
+    },
+    cancel() {
+      clearFlushTimer();
+      pending = [];
+    },
+  };
+}
 
 export function resolveRemoteTaskExecutionModel(bundle: DaemonTaskInputBundle): string | undefined {
   return bundle.metadata.effectiveModel?.modelId.trim() || undefined;
@@ -72,6 +175,8 @@ export async function executeRemoteTask(
   let mcpToolPermissionNames: string[] = [];
   let skillRunner: SkillRunnerBroker | undefined;
   let gatewayUsageReporter: RemoteGatewayUsageReporter | undefined;
+  let taskMessageStream: ReturnType<HttpDaemonClient["openTaskMessageStream"]> | undefined;
+  let messageReporter: ReturnType<typeof createRemoteTaskMessageReporter> | undefined;
   const cancellationController = new AbortController();
   const stopCancellationWatch = watchRemoteTaskCancellation(client, task.id, cancellationController);
 
@@ -192,15 +297,21 @@ export async function executeRemoteTask(
     const effectiveModelId = resolveRemoteTaskExecutionModel(bundle);
     const runtimeProtocol = resolveProviderProtocols(runtime.provider)[0] || undefined;
     let usages: RemoteTaskUsageEntry[] = [];
-    let queuedMessageReports = Promise.resolve();
-    const reportTaskMessage = (message: ProviderTaskEvent): void => {
-      queuedMessageReports = queuedMessageReports
-        .then(() => client.reportMessages(task.id, { messages: [message] }))
-        .catch((error) => {
+    taskMessageStream = typeof client.openTaskMessageStream === "function"
+      ? client.openTaskMessageStream(task.id)
+      : undefined;
+    messageReporter = createRemoteTaskMessageReporter(
+      (messages) => taskMessageStream
+        ? taskMessageStream.write(messages)
+        : client.reportMessages(task.id, { messages }),
+      {
+        onError: (error) => {
           const detail = error instanceof Error ? error.message : String(error);
-          console.error(`Failed to report remote task message for ${task.id}: ${detail}`);
-        });
-    };
+          console.error(`Failed to report remote task messages for ${task.id}: ${detail}`);
+        },
+      },
+    );
+    const reportTaskMessage = messageReporter.enqueue;
     reportTaskMessage({ type: "status", content: "正在准备执行环境" });
     const gatewayRequestLogPath = join(workDir, ".dofe-gateway-requests.jsonl");
     rmSync(gatewayRequestLogPath, { force: true });
@@ -321,7 +432,15 @@ export async function executeRemoteTask(
       await client.uploadOutputBundle(task.id, preparedOutput.bundle);
     }
 
-    await queuedMessageReports;
+    await messageReporter.drain();
+    try {
+      await taskMessageStream?.close();
+    } catch (reportError) {
+      const detail = reportError instanceof Error ? reportError.message : String(reportError);
+      console.error(`Failed final remote task message stream for ${task.id}: ${detail}`);
+      await taskMessageStream?.abort();
+    }
+    taskMessageStream = undefined;
     await client.completeTask(task.id, {
       outputText: result.output,
       sessionId: result.sessionId,
@@ -330,8 +449,20 @@ export async function executeRemoteTask(
     });
   } catch (error) {
     if (cancellationController.signal.aborted) {
+      messageReporter?.cancel();
+      await taskMessageStream?.abort();
+      taskMessageStream = undefined;
       return;
     }
+    try {
+      await messageReporter?.drain();
+      await taskMessageStream?.close();
+    } catch (reportError) {
+      const detail = reportError instanceof Error ? reportError.message : String(reportError);
+      console.error(`Failed final remote task message stream for ${task.id}: ${detail}`);
+      await taskMessageStream?.abort();
+    }
+    taskMessageStream = undefined;
     const message = error instanceof Error ? error.message : String(error);
     const failureMetadata = readProviderTaskFailureMetadata(error);
     const providerError = failureMetadata?.providerError;
@@ -346,6 +477,7 @@ export async function executeRemoteTask(
       workDir: failureMetadata?.workDir ?? workDir,
     });
   } finally {
+    await taskMessageStream?.abort();
     stopCancellationWatch();
     try {
       await gatewayUsageReporter?.stop();

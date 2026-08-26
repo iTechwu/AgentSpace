@@ -96,7 +96,7 @@ Provider Account 只保存 secret/config 的引用，不保存 API key。部署 
 ## Provider 说明
 
 - `codex`：继续沿用 `codex exec` 非交互模式
-- `claude`：使用 `claude -p --output-format stream-json --input-format stream-json`，prompt 通过 stdin 传入
+- `claude`：使用 `claude -p --output-format stream-json --verbose --include-partial-messages`；需要实时控制输入时再启用 `--input-format stream-json`
 - `antigravity`：通过 AgentRouter 调用 `agy -p ... --cwd ...` 的 prompt-mode CLI；检测时优先使用 `agy`，并兼容 `antigravity` wrapper。设置 `ANTIGRAVITY_MODEL` 时会映射到 `--model`；已有 session id 时会映射到 `--conversation`
 - `gemini`：保留为 legacy CLI one-shot fallback，供仍可访问 Gemini CLI 的用户使用
 - `opencode`：通过 AgentRouter 调用 `opencode run --format json`，支持 JSON event 归一化、session 传递、timeout/non-zero/empty-response diagnostics；如果设置了 `OPENCODE_MODEL`，daemon 会映射到 `--model`

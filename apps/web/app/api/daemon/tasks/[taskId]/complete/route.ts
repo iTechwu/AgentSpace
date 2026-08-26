@@ -4,6 +4,7 @@ import {
   completeCommittedTaskSync,
   getDatabase,
   failQueuedTaskSync,
+  listTaskMessagesForTaskSync,
   markTaskCommittedSync,
   readAgentRuntimeSync,
   readTaskCommitJournalSync,
@@ -37,6 +38,7 @@ import {
   projectTaskCompletion,
   resolveTaskCompletionSnapshotMetadata,
 } from "../../../_lib/commit-reconciliation";
+import { resolveTaskCompletionText } from "../../../_lib/completion-text";
 import {
   shouldPersistManagedTaskUsages,
 } from "../../../_lib/completion-replay";
@@ -355,7 +357,7 @@ export async function POST(
       knowledgeProposalOperations,
     } = effects;
     if (!commitBoundary.resumed) {
-      appendTaskMessageSync({ taskId: task.id, type: "text", content: finalOutputText });
+      appendTaskCompletionText(task.id, finalOutputText);
       for (const content of [
         ...outputEnvelope.warnings,
         ...skillImportOperations.statusMessages,
@@ -719,6 +721,17 @@ export async function POST(
     return Response.json({ error: message }, { status: 500 });
   } finally {
     if (!preserveOutputStaging) clearDaemonTaskOutputStaging(task.id, task.workspaceId);
+  }
+}
+
+function appendTaskCompletionText(taskId: string, finalOutputText: string): void {
+  const streamedText = listTaskMessagesForTaskSync(taskId)
+    .filter((message) => message.type === "text")
+    .map((message) => message.content ?? "")
+    .join("");
+  const completionText = resolveTaskCompletionText(streamedText, finalOutputText);
+  if (completionText) {
+    appendTaskMessageSync({ taskId, type: "text", content: completionText });
   }
 }
 

@@ -1425,19 +1425,76 @@ test("runAgentRouter invokes Claude with a text prompt and parses stream-json ou
     assert.equal(events.some((event) => event.type === "session_updated" && event.sessionId === "claude-session"), true);
     assert.equal(readFileSync(stdinPath, "utf8"), "");
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
-    assert.deepEqual(args.slice(0, 7), [
+    assert.deepEqual(args.slice(0, 8), [
       "-p",
       "hello claude",
       "--output-format",
       "stream-json",
       "--verbose",
+      "--include-partial-messages",
       "--model",
       "sonnet",
     ]);
     assert.equal(args.includes("--input-format"), false);
+    assert.equal(args.includes("--include-partial-messages"), true);
     assert.equal(args.includes("hello claude"), true);
   } finally {
     process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter forwards Claude partial text before the final message", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-claude-partial-"));
+  const claudePath = join(workDir, "claude");
+
+  try {
+    writeExecutable(
+      claudePath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' '{\"type\":\"stream_event\",\"session_id\":\"claude-partial-session\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"first chunk\"}}}'",
+        "sleep 1",
+        "printf '%s\\n' '{\"type\":\"assistant\",\"session_id\":\"claude-partial-session\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"first chunk and final text\"}]}}'",
+        "printf '%s\\n' '{\"type\":\"result\",\"session_id\":\"claude-partial-session\",\"result\":\"first chunk and final text\"}'",
+      ].join("\n"),
+    );
+
+    let resolveFirstChunk: (() => void) | undefined;
+    const firstChunk = new Promise<void>((resolve) => {
+      resolveFirstChunk = resolve;
+    });
+    const events: AgentRouterEvent[] = [];
+    const run = runAgentRouter({
+      version: 1,
+      harness: "claude",
+      prompt: "stream a reply",
+      cwd: workDir,
+      executablePath: claudePath,
+      timeoutMs: 5_000,
+    }, {
+      emit: (event) => {
+        events.push(event);
+        if (event.type === "text_delta" && event.text === "first chunk") {
+          resolveFirstChunk?.();
+        }
+      },
+    });
+
+    const streamedBeforeCompletion = await Promise.race([
+      firstChunk.then(() => true),
+      run.then(() => false),
+    ]);
+
+    assert.equal(streamedBeforeCompletion, true);
+    const result = await run;
+    assert.equal(result.status, "completed");
+    assert.equal(result.outputText, "first chunk and final text");
+    assert.deepEqual(
+      events.filter((event) => event.type === "narration_delta" && event.text === result.outputText),
+      [],
+    );
+  } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
 });

@@ -21,7 +21,7 @@ export function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[
     }];
   }
   if (event.type === "text_delta") {
-    return event.text.trim() ? [{ type: "text", content: event.text }] : [];
+    return event.text ? [{ type: "text", content: event.text }] : [];
   }
   if (event.type === "thought_delta") {
     return event.text.trim() ? [{ type: "thinking", content: event.text }] : [];

@@ -120,6 +120,65 @@ test("HttpDaemonClient reports idempotent usage while a task is running", async 
   }
 });
 
+test("HttpDaemonClient streams task messages before closing the request body", async () => {
+  const originalFetch = globalThis.fetch;
+  const receivedFrames: string[] = [];
+  let resolveFirstFrame: (() => void) | undefined;
+  const firstFrame = new Promise<void>((resolve) => {
+    resolveFirstFrame = resolve;
+  });
+
+  globalThis.fetch = (async (input, init) => {
+    assert.equal(String(input), "http://localhost:1455/api/daemon/task-message-stream?taskId=task%2F1");
+    assert.equal((init?.headers as Record<string, string>)["content-type"], "application/x-ndjson");
+    assert.equal((init as RequestInit & { duplex?: string }).duplex, "half");
+    const reader = (init?.body as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      receivedFrames.push(...decoder.decode(chunk.value).trim().split("\n"));
+      resolveFirstFrame?.();
+    }
+    return Response.json({ accepted: receivedFrames.length });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test");
+    const stream = client.openTaskMessageStream("task/1");
+    await stream.write([{ type: "text", content: "hello" }]);
+    await firstFrame;
+    assert.deepEqual(receivedFrames.map((frame) => JSON.parse(frame)), [
+      { messages: [{ type: "text", content: "hello" }] },
+    ]);
+    await stream.write([{ type: "text", content: " from claude" }]);
+    await stream.close();
+    assert.equal(receivedFrames.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HttpDaemonClient aborts the task message streaming request", async () => {
+  const originalFetch = globalThis.fetch;
+  let receivedSignal: AbortSignal | undefined;
+  globalThis.fetch = (async (_input, init) => {
+    receivedSignal = init?.signal ?? undefined;
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("stream aborted")), { once: true });
+    });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test");
+    const stream = client.openTaskMessageStream("task-1");
+    await stream.abort();
+    assert.equal(receivedSignal?.aborted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HttpDaemonClient reports a created OpenMontage Job through the daemon task endpoint", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";

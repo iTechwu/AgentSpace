@@ -880,7 +880,7 @@ export function updatePendingAgentChannelReplySync(input: {
   lastSeq?: number;
 }, workspaceId?: string): WorkspaceMessage | null {
   const sourceTaskQueueId = input.sourceTaskQueueId.trim();
-  if (!sourceTaskQueueId || !input.delta.trim()) {
+  if (!sourceTaskQueueId || !input.delta) {
     return null;
   }
 

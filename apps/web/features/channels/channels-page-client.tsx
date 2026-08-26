@@ -1303,7 +1303,9 @@ export function ChannelsPageClient({
               id: executionReply.id,
               speaker: executionReply.speaker,
               role: executionReply.role,
-              content: executionStream?.assistantText || executionReply.summary,
+              content: taskId && pendingTaskIds.has(taskId)
+                ? executionStream?.assistantText || executionReply.summary
+                : executionReply.summary,
               conversationId: executionReply.conversationId,
               code: executionReply.code,
               data: executionReply.data,
