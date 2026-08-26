@@ -17,12 +17,13 @@
 - Docker 部署下默认采用开放出站网络，第三方 MCP 按原生镜像即可接入；严格 egress 作为按连接启用的可选 profile，避免为接入 MCP 修改项目代码。
 - 迁移采用 direct MCP 默认 → Connector 可选 → legacy gateway 兼容回滚的顺序，可按 workspace/runtime 回滚。
 
-## 当前实施状态（2026-08-26）
+## 当前实施状态（2026-08-27）
 
 - 已落地 `apps/mcp-connector` 独立服务：健康检查、任务会话、工具发现/调用/关闭、认证、endpoint 校验、超时和响应限制。
 - 已落地 `packages/domain/src/tool-surface.ts` 与 daemon `McpConnectorClient`，AgentRouter 请求新增通用 ToolSurface 上下文；旧 `mcpGatewayUrl` 保留为回滚兼容字段。
 - 已提供 `deploy/mcp-connector/Dockerfile` 与仅包含 Connector 的 Compose 配置；未添加 PostgreSQL、Redis 或 RabbitMQ 服务。
 - 已验证：Connector types/build/tests、daemon ToolSurface 与 legacy gateway tests、Runtime 能力面板测试、Web typecheck、Connector/Web 本地 HTTP 与浏览器页面加载。
+- 已完善：direct MCP endpoint 凭据校验、Connector 工具审批 fail-closed、restricted host allow-list（`MCP_CONNECTOR_ALLOWED_HOSTS`）及 `network_denied`/`network_policy_missing` 错误码映射；当前 Connector 测试覆盖 6 个场景。
 - 待完成：真实 MCP E2E、Connector UI 健康数据接线、legacy gateway 删除。Docker 镜像构建因本机 Docker Desktop 无 Docker Hub HTTPS 代理而未完成；Chrome DevTools MCP 未配置，浏览器验证使用隔离 Playwright 等价流程。
 
 ## 现状依据
