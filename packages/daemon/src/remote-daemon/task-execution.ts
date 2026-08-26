@@ -34,7 +34,7 @@ import type { RemoteDaemonConfig } from "./config.ts";
 import { attachTaskManagedMcpConnection, getMcpGatewayForTask } from "./mcp.ts";
 import { buildClaudeMcpToolPermissionName, buildMcpGatewayToolNames } from "../mcp/gateway.ts";
 import { McpConnectorClient } from "../tool-surface/connector-client.ts";
-import type { ToolSurfaceLaunchContext } from "@dofe-agent/domain";
+import type { McpTaskSessionConnection, ToolSurfaceLaunchContext } from "@dofe-agent/domain";
 import {
   createRemoteGatewayUsageReporter,
   mergeRemoteGatewayUsages,
@@ -51,7 +51,7 @@ const TASK_MESSAGE_BATCH_DELAY_MS = 25;
 const TASK_MESSAGE_BATCH_SIZE = 32;
 const TASK_MESSAGE_TEXT_SIZE = 512;
 
-function buildDirectMcpToolSurface(taskId: string, connections: Awaited<ReturnType<HttpDaemonClient["claimMcpTaskSession"]>>["connections"]): {
+export function buildDirectMcpToolSurface(taskId: string, connections: readonly McpTaskSessionConnection[]): {
   toolSurface: ToolSurfaceLaunchContext;
   permissionNames: string[];
 } | undefined {
