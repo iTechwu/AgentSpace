@@ -33,6 +33,18 @@ function makeFixture({ rootEngines = "^25.9.0", workspaces = [] }) {
   return root;
 }
 
+function addDependency(root, { name, version = "1.0.0", engines, os, cpu }) {
+  const depRoot = path.join(root, "node_modules", ".pnpm", `${name}@${version}`, "node_modules", name);
+  fs.mkdirSync(depRoot, { recursive: true });
+  fs.writeFileSync(path.join(depRoot, "package.json"), JSON.stringify({
+    name,
+    version,
+    ...(engines ? { engines: { node: engines } } : {}),
+    ...(os ? { os } : {}),
+    ...(cpu ? { cpu } : {}),
+  }));
+}
+
 function runAudit(root, extraArgs = []) {
   const res = spawnSync(process.execPath, [scriptPath, "--root", root, ...extraArgs], {
     encoding: "utf8",
@@ -114,18 +126,29 @@ test("engines 审计：workspace glob 未命中任何 manifest → exit 1（fail
 test("engines 审计：依赖层违规超出 KNOWN_EXCEPTIONS → exit 1", () => {
   const root = makeFixture({ workspaces: [{ name: "ok", engines: "^25.9.0" }] });
   // 伪造一个声明 engines.node 不覆盖 25.9.0 的依赖包
-  const depRoot = path.join(root, "node_modules", ".pnpm", "fake-pkg@1.0.0", "node_modules");
-  fs.mkdirSync(path.join(depRoot, "fake-pkg"), { recursive: true });
-  fs.writeFileSync(path.join(depRoot, "fake-pkg", "package.json"), JSON.stringify({
-    name: "fake-pkg",
-    version: "1.0.0",
-    engines: { node: "^18.0.0" },
-  }));
+  addDependency(root, { name: "fake-pkg", engines: "^18.0.0" });
   try {
     const { code, stdout, stderr } = runAudit(root);
     assert.equal(code, 1, stderr);
     assert.match(stdout, /fake-pkg@1\.0\.0/);
     assert.match(stderr, /未通过/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("engines 审计：其他平台的 optional 依赖不纳入当前平台检查", () => {
+  const root = makeFixture({ workspaces: [{ name: "ok", engines: "^25.9.0" }] });
+  addDependency(root, {
+    name: "fake-win32-ia32",
+    engines: "^18.0.0",
+    os: ["win32"],
+    cpu: ["ia32"],
+  });
+  try {
+    const { code, stdout } = runAudit(root);
+    assert.equal(code, 0, stdout);
+    assert.doesNotMatch(stdout, /fake-win32-ia32/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

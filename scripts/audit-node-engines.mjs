@@ -49,7 +49,20 @@ function targetNodeVersion() {
   return process.versions.node;
 }
 
-/** 递归收集 .pnpm/<entry>/node_modules 下全部 package.json。 */
+/** 当前安装平台是否满足包的 os/cpu 约束。 */
+function isSupportedOnCurrentPlatform(pkg) {
+  const matches = (constraint, value) => {
+    if (!constraint) return true;
+    const values = Array.isArray(constraint) ? constraint : [constraint];
+    const positives = values.filter((item) => !String(item).startsWith("!"));
+    const negatives = values.filter((item) => String(item).startsWith("!")).map((item) => String(item).slice(1));
+    if (negatives.includes(value)) return false;
+    return positives.length === 0 || positives.includes(value);
+  };
+  return matches(pkg.os, process.platform) && matches(pkg.cpu, process.arch);
+}
+
+/** 递归收集 .pnpm/<entry>/node_modules 下当前平台有效的 package.json。 */
 function collectPackageJsons(pnpmDir) {
   const files = [];
   for (const entry of fs.readdirSync(pnpmDir)) {
@@ -182,6 +195,7 @@ for (const file of collectPackageJsons(pnpmDir)) {
     continue;
   }
   if (!pkg.name || !pkg.version) continue;
+  if (!isSupportedOnCurrentPlatform(pkg)) continue;
   const key = `${pkg.name}@${pkg.version}`;
   if (seen.has(key)) continue;
   seen.add(key);
