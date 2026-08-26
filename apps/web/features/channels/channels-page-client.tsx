@@ -130,6 +130,7 @@ import {
   buildDocumentDraftSource,
   buildImChannelDetailCacheMetadata,
   buildImChannelDetailResourceKey,
+  buildDetailCacheForChannels,
   buildInitialChannelDetailCache,
   buildInitialDocumentDraftContent,
   estimateChannelMemberCount,
@@ -170,6 +171,8 @@ import {
   applyChannelTaskStreamPatches,
   type ChannelTaskStreamPatch,
 } from "@/features/channels/channel-task-stream-patch";
+
+type LiveTaskExecution = NonNullable<ChannelsPageData["threads"][number]["taskExecutions"]>[string][number];
 
 export function ChannelsPageClient({
   data,
@@ -263,6 +266,7 @@ export function ChannelsPageClient({
   const [loadingDetailChannelName, setLoadingDetailChannelName] = useState<string | null>(null);
   const [detailLoadError, setDetailLoadError] = useState<string | null>(null);
   const [openMontageRefreshVersion, setOpenMontageRefreshVersion] = useState(0);
+  const [liveTaskRowsById, setLiveTaskRowsById] = useState<Map<string, LiveTaskExecution[]>>(() => new Map());
   const [composerExecutionPolicyOverrides, setComposerExecutionPolicyOverrides] = useState<
     Map<string, EmployeeExecutionPolicy | null>
   >(() => new Map());
@@ -812,22 +816,26 @@ export function ChannelsPageClient({
   }): Promise<boolean> => {
     const { conversationId, taskId, lastSeq } = event;
     if (
-      !conversationId ||
       !taskId ||
-      !Number.isSafeInteger(lastSeq) ||
+      (lastSeq !== undefined && !Number.isSafeInteger(lastSeq)) ||
       !selectedConversationChannelName ||
       !selectedThread ||
       (event.channelName && event.channelName !== selectedConversationChannelName)
     ) {
       return false;
     }
-    if (routeState.conversationId && routeState.conversationId !== conversationId) {
-      return true;
+    if (routeState.conversationId) {
+      if (!conversationId) {
+        return false;
+      }
+      if (routeState.conversationId !== conversationId) {
+        return true;
+      }
     }
     const currentRows = selectedThread?.taskExecutions?.[taskId] ?? [];
     const currentLastSeq = currentRows.at(-1)?.seq ?? 0;
-    const targetLastSeq = lastSeq ?? 0;
-    const requestKey = `${conversationId}:${taskId}`;
+    const targetLastSeq = lastSeq ?? currentLastSeq + 1;
+    const requestKey = `${conversationId ?? selectedConversationChannelName}:${taskId}`;
     const requestedLastSeq = requestedLastSeqByTaskRef.current.get(requestKey) ?? 0;
     if (targetLastSeq <= Math.max(currentLastSeq, requestedLastSeq)) {
       return true;
@@ -841,9 +849,10 @@ export function ChannelsPageClient({
 
     try {
       const query = new URLSearchParams({ taskId, afterSeq: String(currentLastSeq) });
-      const response = await fetch(
-        `/api/workspaces/${encodeURIComponent(data.workspaceId)}/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
-      );
+      const streamPath = conversationId
+        ? `/api/workspaces/${encodeURIComponent(data.workspaceId)}/conversations/${encodeURIComponent(conversationId)}/messages`
+        : `/api/workspaces/${encodeURIComponent(data.workspaceId)}/channels/${encodeURIComponent(selectedConversationChannelName)}/messages`;
+      const response = await fetch(`${streamPath}?${query.toString()}`);
       if (!response.ok) {
         releaseRequest();
         return false;
@@ -865,24 +874,55 @@ export function ChannelsPageClient({
         releaseRequest();
         return false;
       }
-      if ((payload.lastSeqByTask?.[taskId] ?? currentLastSeq) < targetLastSeq) {
+      const recoveredLastSeq = payload.lastSeqByTask?.[taskId] ?? currentLastSeq;
+      if (lastSeq !== undefined && recoveredLastSeq < targetLastSeq) {
         releaseRequest();
         return false;
+      }
+      if (recoveredLastSeq <= currentLastSeq) {
+        releaseRequest();
+        return true;
       }
 
       streamPatchBatcherRef.current?.enqueue({
         channelName: selectedConversationChannelName,
-        conversationId,
+        ...(conversationId ? { conversationId } : {}),
         taskId,
+        seedDetail: buildDetailCacheForChannels(mergedData, [selectedConversationChannelName]).get(selectedConversationChannelName),
         messages: payload.messages ?? [],
         taskExecutions: recoveredRows,
+      });
+      setLiveTaskRowsById((current) => {
+        const rowsBySeq = new Map((current.get(taskId) ?? currentRows).map((row) => [row.seq, row]));
+        for (const row of recoveredRows) {
+          rowsBySeq.set(row.seq, row);
+        }
+        const next = new Map(current);
+        next.set(taskId, [...rowsBySeq.values()].sort((left, right) => left.seq - right.seq));
+        return next;
       });
       return true;
     } catch {
       releaseRequest();
       return false;
     }
-  }, [data.workspaceId, routeState.conversationId, selectedConversationChannelName, selectedThread]);
+  }, [data.workspaceId, mergedData, routeState.conversationId, selectedConversationChannelName, selectedThread]);
+
+  useEffect(() => {
+    if (!activeConversationTaskId || !selectedConversationChannelName) {
+      return;
+    }
+    const recover = (): void => {
+      void recoverChangedTask({
+        channelName: selectedConversationChannelName,
+        conversationId: routeState.conversationId ?? undefined,
+        taskId: activeConversationTaskId,
+      });
+    };
+    recover();
+    const interval = window.setInterval(recover, 500);
+    return () => window.clearInterval(interval);
+  }, [activeConversationTaskId, recoverChangedTask, routeState.conversationId, selectedConversationChannelName]);
 
   useEffect(() => {
     requestedLastSeqByTaskRef.current.clear();
@@ -956,7 +996,9 @@ export function ChannelsPageClient({
         setDetailDataByChannelName((current) => {
           const next = new Map(current);
           for (const channelName of detail.detailScope ?? [selectedConversationChannelName]) {
-            next.set(channelName, detail);
+            if (!next.has(channelName)) {
+              next.set(channelName, detail);
+            }
           }
           return next;
         });
@@ -1035,7 +1077,7 @@ export function ChannelsPageClient({
   }, [currentUserDisplayName, isCreatingDocument, selectedDocument?.id]);
 
   useEffect(() => {
-    if (!shouldPollChannelUpdates) {
+    if (!shouldPollChannelUpdates || activeConversationTaskId) {
       return;
     }
 
@@ -1045,7 +1087,7 @@ export function ChannelsPageClient({
     }, CHANNEL_REFRESH_POLL_MS);
 
     return () => window.clearInterval(timer);
-  }, [hasPendingThreadMessages, refreshChannelData, shouldPollChannelUpdates]);
+  }, [activeConversationTaskId, hasPendingThreadMessages, refreshChannelData, shouldPollChannelUpdates]);
   const selectedComposerAgent = useMemo(() => {
     const employeeId = selectedChannel?.contactId
       ?? (selectedChannel?.employeeNames?.length === 1 ? selectedChannel.employeeNames[0] : undefined);
@@ -1285,7 +1327,7 @@ export function ChannelsPageClient({
           ? executionReplyByTaskId.get(taskId)
           : undefined;
         const executionRows = taskId && carrierIdByTaskId.get(taskId) === id
-          ? taskExecutions?.[taskId]
+          ? liveTaskRowsById.get(taskId) ?? taskExecutions?.[taskId]
           : undefined;
         const executionStream = executionRows
           ? buildTaskExecutionStream(
@@ -1303,9 +1345,7 @@ export function ChannelsPageClient({
               id: executionReply.id,
               speaker: executionReply.speaker,
               role: executionReply.role,
-              content: taskId && pendingTaskIds.has(taskId)
-                ? executionStream?.assistantText || executionReply.summary
-                : executionReply.summary,
+              content: executionStream?.assistantText || executionReply.summary,
               conversationId: executionReply.conversationId,
               code: executionReply.code,
               data: executionReply.data,
@@ -1357,7 +1397,7 @@ export function ChannelsPageClient({
         }];
       });
     },
-    [isNewConversation, routeState.conversationId, selectedThread, tx],
+    [isNewConversation, liveTaskRowsById, routeState.conversationId, selectedThread, tx],
   );
   // 历史会话改由服务端 Conversation 承载：点击历史项直接导航到 conversation=<id>，
   // 消息由 liveMessages 按会话过滤，不再需要本地快照视图。

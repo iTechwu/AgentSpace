@@ -1036,7 +1036,7 @@ describe("ChannelsPageClient", () => {
     });
   });
 
-  it("batches task stream updates into one animation frame", async () => {
+  it("polls and batches task stream updates into one animation frame", async () => {
     const eventSources: MockEventSource[] = [];
     const frames: FrameRequestCallback[] = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -1045,7 +1045,7 @@ describe("ChannelsPageClient", () => {
     });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/conversations/conversation-stream/messages")) {
+      if (url.includes("/channels/tour%20visit/messages")) {
         return Response.json({
           messages: [
             {
@@ -1110,7 +1110,6 @@ describe("ChannelsPageClient", () => {
                 {
                   id: "message-process",
                   channel: "tour visit",
-                  conversationId: "conversation-stream",
                   speaker: "Atlas",
                   role: "agent",
                   time: "10:00",
@@ -1122,7 +1121,6 @@ describe("ChannelsPageClient", () => {
                 {
                   id: "message-reply",
                   channel: "tour visit",
-                  conversationId: "conversation-stream",
                   speaker: "Atlas",
                   role: "agent",
                   time: "10:01",
@@ -1148,22 +1146,12 @@ describe("ChannelsPageClient", () => {
     );
 
     expect(screen.getByText("第一段")).toBeInTheDocument();
-    eventSources.at(-1)?.emit("channel.thread.changed", {
-      channelName: "tour visit",
-      conversationId: "conversation-stream",
-      taskId: "task-stream",
-      lastSeq: 2,
-      sequence: 4,
-    });
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(screen.getByText("第一段")).toBeInTheDocument();
-    expect(screen.queryByText("第一段第二段")).not.toBeInTheDocument();
+    const taskStreamUrl = "/api/workspaces/workspace-1/channels/tour%20visit/messages?taskId=task-stream&afterSeq=1";
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(taskStreamUrl));
+    expect(screen.getByText("第一段第二段")).toBeInTheDocument();
     act(() => frames.splice(0).forEach((callback) => callback(16)));
     expect(await screen.findByText("第一段第二段")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/workspaces/workspace-1/conversations/conversation-stream/messages?taskId=task-stream&afterSeq=1",
-    );
+    expect(fetchMock).toHaveBeenCalledWith(taskStreamUrl);
     expect(routerRefreshMock).not.toHaveBeenCalled();
   });
 

@@ -6,8 +6,9 @@ type TaskExecution = NonNullable<ChannelsPageData["threads"][number]["taskExecut
 
 export interface ChannelTaskStreamPatch {
   readonly channelName: string;
-  readonly conversationId: string;
+  readonly conversationId?: string;
   readonly taskId: string;
+  readonly seedDetail?: ChannelDetailData;
   readonly messages: readonly ThreadMessage[];
   readonly taskExecutions: readonly TaskExecution[];
 }
@@ -19,7 +20,7 @@ export function applyChannelTaskStreamPatches(
   let next = current;
 
   for (const patch of patches) {
-    const detail = next.get(patch.channelName);
+    const detail = next.get(patch.channelName) ?? patch.seedDetail;
     if (!detail) {
       continue;
     }
@@ -31,7 +32,9 @@ export function applyChannelTaskStreamPatches(
     const thread = detail.threads[threadIndex];
     const normalizedMessages = patch.messages.map((message) => ({
       ...message,
-      conversationId: message.conversationId ?? patch.conversationId,
+      ...(message.conversationId || patch.conversationId
+        ? { conversationId: message.conversationId ?? patch.conversationId }
+        : {}),
     }));
     const incomingMessages = new Map(normalizedMessages.map((message) => [message.id, message]));
     const messages = thread.messages.map((message) => {

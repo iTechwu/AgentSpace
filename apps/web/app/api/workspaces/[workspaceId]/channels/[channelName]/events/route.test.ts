@@ -5,14 +5,20 @@ const {
   mockCanReadChannelForActorSync,
   mockGetWorkspaceAccessForIdentifier,
   mockListOpenMontageChannelProjectionVersionsSync,
+  mockListTaskMessagesForTasksSync,
   mockReadWorkspaceStateSnapshotSync,
   mockSubscribeWorkspaceRealtimeEvents,
 } = vi.hoisted(() => ({
   mockCanReadChannelForActorSync: vi.fn(),
   mockGetWorkspaceAccessForIdentifier: vi.fn(),
   mockListOpenMontageChannelProjectionVersionsSync: vi.fn(),
+  mockListTaskMessagesForTasksSync: vi.fn(),
   mockReadWorkspaceStateSnapshotSync: vi.fn(),
   mockSubscribeWorkspaceRealtimeEvents: vi.fn(),
+}));
+
+vi.mock("@dofe-agent/db", () => ({
+  listTaskMessagesForTasksSync: mockListTaskMessagesForTasksSync,
 }));
 
 vi.mock("@dofe-agent/services", () => ({
@@ -33,6 +39,7 @@ describe("channel realtime events route", () => {
     mockCanReadChannelForActorSync.mockReset();
     mockGetWorkspaceAccessForIdentifier.mockReset();
     mockListOpenMontageChannelProjectionVersionsSync.mockReset();
+    mockListTaskMessagesForTasksSync.mockReset();
     mockReadWorkspaceStateSnapshotSync.mockReset();
     mockSubscribeWorkspaceRealtimeEvents.mockReset();
     mockCanReadChannelForActorSync.mockReturnValue(true);
@@ -42,6 +49,7 @@ describe("channel realtime events route", () => {
     });
     mockReadWorkspaceStateSnapshotSync.mockReturnValue({ messages: [] });
     mockListOpenMontageChannelProjectionVersionsSync.mockReturnValue([]);
+    mockListTaskMessagesForTasksSync.mockReturnValue(new Map());
   });
 
   afterEach(() => {
@@ -182,6 +190,10 @@ describe("channel realtime events route", () => {
 
   it("notifies the client when shared persisted state changes without an in-process event", async () => {
     vi.useFakeTimers();
+    let taskRows = new Map([
+      ["task-1", [{ seq: 1 }]],
+    ]);
+    mockListTaskMessagesForTasksSync.mockImplementation(() => taskRows);
     let snapshot = {
       messages: [{
         id: "pending-1",
@@ -189,6 +201,7 @@ describe("channel realtime events route", () => {
         status: "pending",
         time: "2026-05-01T00:00:00.000Z",
         summary: "Thinking",
+        data: { source_task_queue_id: "task-1" },
       }],
     };
     mockReadWorkspaceStateSnapshotSync.mockImplementation(() => snapshot);
@@ -203,16 +216,20 @@ describe("channel realtime events route", () => {
     snapshot = {
       messages: [{
         ...snapshot.messages[0],
-        status: "completed",
-        summary: "已完成回复。",
+        summary: "Streaming",
       }],
     };
+    taskRows = new Map([
+      ["task-1", [{ seq: 1 }, { seq: 2 }]],
+    ]);
     await vi.advanceTimersByTimeAsync(750);
 
     const eventChunk = await reader.read();
     const eventText = decoder.decode(eventChunk.value);
     expect(eventText).toContain("event: channel.thread.changed");
     expect(eventText).toContain('"source":"persisted_state"');
+    expect(eventText).toContain('"taskId":"task-1"');
+    expect(eventText).toContain('"lastSeq":2');
     await reader.cancel();
   });
 

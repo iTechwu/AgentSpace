@@ -80,6 +80,18 @@ describe("applyChannelTaskStreamPatches", () => {
     expect(next.get("tour visit")?.threads[0].taskExecutions?.["task-2"]).toHaveLength(1);
   });
 
+  it("preserves unscoped messages when a live channel task has no conversation id", () => {
+    const next = applyChannelTaskStreamPatches(seedDetailMap(), [{
+      channelName: "tour visit",
+      taskId: "task-1",
+      messages: [{ ...seedReply, summary: "流式回复" }],
+      taskExecutions: [row(2, "第二段")],
+    }]);
+
+    expect(next.get("tour visit")?.threads[0].messages[0]).not.toHaveProperty("conversationId");
+    expect(next.get("tour visit")?.threads[0].taskExecutions?.["task-1"]).toHaveLength(2);
+  });
+
   it("preserves the current map for empty patches and unknown channels", () => {
     const current = seedDetailMap();
 
@@ -91,5 +103,18 @@ describe("applyChannelTaskStreamPatches", () => {
       messages: [],
       taskExecutions: [],
     }])).toBe(current);
+  });
+
+  it("seeds a missing channel detail during a cache reload", () => {
+    const seed = seedDetailMap().get("tour visit")!;
+    const next = applyChannelTaskStreamPatches(new Map(), [{
+      channelName: "tour visit",
+      taskId: "task-1",
+      seedDetail: seed,
+      messages: [],
+      taskExecutions: [row(2, "第二段")],
+    }]);
+
+    expect(next.get("tour visit")?.threads[0].taskExecutions?.["task-1"].map((item) => item.seq)).toEqual([1, 2]);
   });
 });

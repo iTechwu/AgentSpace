@@ -1,4 +1,5 @@
 import { canReadChannelForActorSync } from "@dofe-agent/services/channels";
+import { listTaskMessagesForTasksSync } from "@dofe-agent/db";
 import { listOpenMontageChannelProjectionVersionsSync } from "@dofe-agent/services/openmontage";
 import { readWorkspaceStateSnapshotSync } from "@dofe-agent/services/workspace";
 import { subscribeWorkspaceRealtimeEvents } from "@dofe-agent/services/messaging";
@@ -119,11 +120,30 @@ export async function GET(
         send(`: heartbeat ${Date.now()}\n\n`);
       }, HEARTBEAT_MS);
       let persistedSignature = channelMessageSignature(workspaceId, channelName);
+      let persistedTaskVersions = channelTaskVersions(workspaceId, channelName);
       let persistedJobVersions = channelJobVersions(workspaceId, channelName);
       persistedChannelPoll = setInterval(() => {
         const nextSignature = channelMessageSignature(workspaceId, channelName);
-        if (nextSignature !== persistedSignature) {
-          persistedSignature = nextSignature;
+        const nextTaskVersions = channelTaskVersions(workspaceId, channelName);
+        let emittedTaskChange = false;
+        for (const [taskId, version] of nextTaskVersions) {
+          const previous = persistedTaskVersions.get(taskId);
+          if (previous?.lastSeq === version.lastSeq) {
+            continue;
+          }
+          emittedTaskChange = true;
+          send(`event: channel.thread.changed\ndata: ${JSON.stringify({
+            type: "channel.thread.changed",
+            channelName,
+            conversationId: version.conversationId,
+            taskId,
+            lastSeq: version.lastSeq,
+            changedAt: new Date().toISOString(),
+            source: "persisted_state",
+          })}\n\n`);
+        }
+        persistedTaskVersions = nextTaskVersions;
+        if (nextSignature !== persistedSignature && !emittedTaskChange) {
           send(`event: channel.thread.changed\ndata: ${JSON.stringify({
             type: "channel.thread.changed",
             channelName,
@@ -131,6 +151,7 @@ export async function GET(
             source: "persisted_state",
           })}\n\n`);
         }
+        persistedSignature = nextSignature;
         const nextJobVersions = channelJobVersions(workspaceId, channelName);
         for (const [jobId, version] of nextJobVersions) {
           const previous = persistedJobVersions.get(jobId);
@@ -185,6 +206,34 @@ function channelMessageSignature(workspaceId: string, channelName: string): stri
   } catch {
     // The regular client polling remains the reliability fallback if a state read is transiently unavailable.
     return "";
+  }
+}
+
+function channelTaskVersions(
+  workspaceId: string,
+  channelName: string,
+): Map<string, { conversationId?: string; lastSeq: number }> {
+  try {
+    const taskConversations = new Map<string, string | undefined>();
+    for (const message of readWorkspaceStateSnapshotSync(workspaceId).messages) {
+      const taskId = message.data?.source_task_queue_id?.trim();
+      if (message.channel !== channelName || message.status !== "pending" || !taskId) {
+        continue;
+      }
+      taskConversations.set(taskId, message.conversationId?.trim() || undefined);
+    }
+    const rowsByTask = listTaskMessagesForTasksSync([...taskConversations.keys()]);
+    return new Map(
+      [...taskConversations].map(([taskId, conversationId]) => [
+        taskId,
+        {
+          ...(conversationId ? { conversationId } : {}),
+          lastSeq: rowsByTask.get(taskId)?.reduce((lastSeq, row) => Math.max(lastSeq, row.seq), 0) ?? 0,
+        },
+      ]),
+    );
+  } catch {
+    return new Map();
   }
 }
 
