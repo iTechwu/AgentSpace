@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   MCP_GATEWAY_SERVER_KEY,
   buildClaudeMcpGatewayArgs,
+  buildClaudeMcpServerArgs,
   buildCodexMcpGatewayArgs,
+  buildCodexMcpServerArgs,
   mcpGatewayUrlRedactions,
   shouldInjectCodexMcpGateway,
 } from "./mcp-gateway.ts";
@@ -65,4 +67,22 @@ test("shouldInjectCodexMcpGateway honors the experiment switch", () => {
   assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL, codexMcpInjectionEnabled: false }), false, "kill switch disables injection");
   assert.equal(shouldInjectCodexMcpGateway({}), false, "no URL → no injection");
   assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL, codexMcpInjectionEnabled: true }), true);
+});
+
+test("multi-server ToolSurface builders preserve independent endpoints and non-secret headers", () => {
+  const servers = [
+    { name: "mcp_github", url: "https://github.example/mcp", headers: { "X-Tenant": "acme" } },
+    { name: "mcp_search", url: "http://search.internal/mcp" },
+  ];
+  const claude = buildClaudeMcpServerArgs(servers);
+  const config = JSON.parse(claude.args[1]!) as { mcpServers: Record<string, { url: string; headers?: Record<string, string> }> };
+  assert.equal(config.mcpServers.mcp_github?.url, servers[0]!.url);
+  assert.deepEqual(config.mcpServers.mcp_github?.headers, { "X-Tenant": "acme" });
+  assert.equal(config.mcpServers.mcp_search?.url, servers[1]!.url);
+  assert.equal(claude.redactions.length, 2);
+
+  const codex = buildCodexMcpServerArgs(servers);
+  assert.match(codex.args[1]!, /mcp_github/);
+  assert.match(codex.args[1]!, /http_headers/);
+  assert.equal(codex.redactions.length, 2);
 });

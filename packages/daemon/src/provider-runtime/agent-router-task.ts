@@ -163,6 +163,7 @@ async function runAgentRouterProviderTask(
     allowedTools: runtime.provider === "claude" ? buildDefaultClaudeAllowedTools() : undefined,
     temporaryAllowedTools: options.temporaryAllowedTools,
     runtimeToolCapabilities,
+    toolSurface: options.toolSurface,
     claudeTools: runtime.provider === "claude" ? "default" : undefined,
     mcpGatewayUrl: options.mcpGatewayUrl,
     codexMcpInjectionEnabled: options.codexMcpInjectionEnabled,

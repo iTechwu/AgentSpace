@@ -552,8 +552,8 @@ function shortStableHash(value: string): string {
 }
 
 /** Claude Code permission-rule name for a tool exposed by this gateway. */
-export function buildClaudeMcpToolPermissionName(gatewayToolName: string): string {
-  return `mcp__dofe-mcp-gateway__${gatewayToolName}`;
+export function buildClaudeMcpToolPermissionName(gatewayToolName: string, serverKey = "dofe-mcp-gateway"): string {
+  return `mcp__${serverKey}__${gatewayToolName}`;
 }
 
 function formatUrlHost(host: string): string {

@@ -10,11 +10,12 @@
 
 ## 核心结论
 
-- MCP Connector 是独立数据面：拥有独立进程/容器、网络、连接池、协议执行和调用审计。
+- MCP 服务是独立数据面：默认按原生镜像在可出站 Docker bridge 中运行；MCP Connector 作为需要 secret 隔离、统一会话或额外审计时的可选独立进程/容器。
 - AgentRouter 只处理 harness 生命周期和通用 ToolSurface，不再携带 `mcpGatewayUrl`、MCP lease 或 catalog 类型。
 - Control Plane 继续治理目录、连接、审批、租约、策略、审计和计费；不直接执行 MCP 网络请求。
 - 独立联网不代表绕过安全策略：Connector 仍必须执行 host/TLS/私网/速率/租约 policy，可选择独立 egress proxy。
-- 迁移采用 legacy gateway 兼容层 → 双写灰度 → Connector 默认 → 删除 gateway 的顺序，可按 workspace/runtime 回滚。
+- Docker 部署下默认采用开放出站网络，第三方 MCP 按原生镜像即可接入；严格 egress 作为按连接启用的可选 profile，避免为接入 MCP 修改项目代码。
+- 迁移采用 direct MCP 默认 → Connector 可选 → legacy gateway 兼容回滚的顺序，可按 workspace/runtime 回滚。
 
 ## 当前实施状态（2026-08-26）
 
@@ -22,7 +23,7 @@
 - 已落地 `packages/domain/src/tool-surface.ts` 与 daemon `McpConnectorClient`，AgentRouter 请求新增通用 ToolSurface 上下文；旧 `mcpGatewayUrl` 保留为回滚兼容字段。
 - 已提供 `deploy/mcp-connector/Dockerfile` 与仅包含 Connector 的 Compose 配置；未添加 PostgreSQL、Redis 或 RabbitMQ 服务。
 - 已验证：Connector types/build/tests、daemon ToolSurface 与 legacy gateway tests、Runtime 能力面板测试、Web typecheck、Connector/Web 本地 HTTP 与浏览器页面加载。
-- 待完成：将 task-runner 默认路径切换到 Connector、真实 MCP E2E、Connector UI 健康数据接线、legacy gateway 删除。Docker 镜像构建因本机 Docker Desktop 无 Docker Hub HTTPS 代理而未完成；Chrome DevTools MCP 未配置，浏览器验证使用隔离 Playwright 等价流程。
+- 待完成：真实 MCP E2E、Connector UI 健康数据接线、legacy gateway 删除。Docker 镜像构建因本机 Docker Desktop 无 Docker Hub HTTPS 代理而未完成；Chrome DevTools MCP 未配置，浏览器验证使用隔离 Playwright 等价流程。
 
 ## 现状依据
 

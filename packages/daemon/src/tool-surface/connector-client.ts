@@ -34,10 +34,10 @@ export class McpConnectorClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  async health(): Promise<{ status: "ok"; sessions: number; independentEgress: true }> {
+  async health(): Promise<{ status: "ok"; sessions: number; independentEgress: true; networkMode: "open" | "restricted" }> {
     const response = await this.request("/health", { method: "GET" });
     if (!response.ok) throw new Error("mcp.connector_unhealthy");
-    return await response.json() as { status: "ok"; sessions: number; independentEgress: true };
+    return await response.json() as { status: "ok"; sessions: number; independentEgress: true; networkMode: "open" | "restricted" };
   }
 
   async openSession(input: ToolSurfaceSessionContext & { connection: McpConnectorConnectionInput }): Promise<ToolSurfaceLaunchContext> {
@@ -73,6 +73,12 @@ export class McpConnectorClient {
       contractVersion: "1",
       openSession: async (input) => {
         const context = await this.openSession({ ...input, connection });
+        const config = context.clientConfig && typeof context.clientConfig === "object"
+          ? context.clientConfig as Record<string, unknown>
+          : undefined;
+        if (config && typeof config.mcpPath === "string") {
+          context.clientConfig = { ...config, mcpUrl: `${this.baseUrl}${config.mcpPath}` };
+        }
         activeSessionId = context.sessionId;
         return context;
       },

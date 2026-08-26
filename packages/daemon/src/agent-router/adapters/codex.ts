@@ -24,7 +24,7 @@ import {
 } from "../utils.ts";
 import { discoverSessionId, emitSessionUpdate, normalizeAdapterError, parseJsonEventOutput, runNativeHarness } from "./shared.ts";
 import { runVersionCommand } from "./versions.ts";
-import { buildCodexMcpGatewayArgs, shouldInjectCodexMcpGateway } from "../mcp-gateway.ts";
+import { buildCodexMcpGatewayArgs, buildCodexMcpServerArgs, MCP_GATEWAY_SERVER_KEY, resolveToolSurfaceMcpServers, shouldInjectCodexMcpGateway } from "../mcp-gateway.ts";
 
 const CODEX_OUTPUT_ENV = "AGENT_ROUTER_CODEX_OUTPUT_FILE";
 
@@ -96,8 +96,12 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   let mcpRedactions: HarnessLaunchPlan["redactions"] = [];
   // P1-2 experiment switch: ops may disable the codex MCP gateway injection
   // for gradual rollout / incident kill-switch, independent of the session URL.
-  if (shouldInjectCodexMcpGateway(input)) {
-    const injection = buildCodexMcpGatewayArgs(input.mcpGatewayUrl!);
+  const mcpServers = resolveToolSurfaceMcpServers(input.toolSurface);
+  const legacyMcpUrl = input.mcpGatewayUrl;
+  if ((mcpServers.length > 0) || (legacyMcpUrl && shouldInjectCodexMcpGateway(input))) {
+    const injection = mcpServers.length > 0
+      ? buildCodexMcpServerArgs(mcpServers)
+      : buildCodexMcpGatewayArgs(legacyMcpUrl!, MCP_GATEWAY_SERVER_KEY);
     baseArgs.push(...injection.args);
     mcpRedactions = injection.redactions;
   }

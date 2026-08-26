@@ -24,6 +24,41 @@ export interface McpGatewayInjection {
   redactions: HarnessLaunchPlan["redactions"];
 }
 
+export interface ToolSurfaceMcpServer {
+  name: string;
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/** Reads a provider-facing MCP URL from the generic ToolSurface context. */
+export function resolveToolSurfaceMcpUrl(toolSurface: { clientConfig?: unknown } | undefined): string | undefined {
+  const config = toolSurface?.clientConfig;
+  if (!config || typeof config !== "object") return undefined;
+  const value = (config as Record<string, unknown>).mcpUrl;
+  return typeof value === "string" && /^https?:\/\//.test(value) ? value : undefined;
+}
+
+/** Resolves one or more provider-facing MCP endpoints from generic context. */
+export function resolveToolSurfaceMcpServers(toolSurface: { clientConfig?: unknown } | undefined): ToolSurfaceMcpServer[] {
+  const config = toolSurface?.clientConfig;
+  if (!config || typeof config !== "object") return [];
+  const record = config as Record<string, unknown>;
+  if (Array.isArray(record.mcpServers)) {
+    return record.mcpServers.flatMap((candidate) => {
+      if (!candidate || typeof candidate !== "object") return [];
+      const value = candidate as Record<string, unknown>;
+      const headers = value.headers && typeof value.headers === "object"
+        ? Object.fromEntries(Object.entries(value.headers as Record<string, unknown>).filter(([, header]) => typeof header === "string")) as Record<string, string>
+        : undefined;
+      return typeof value.name === "string" && typeof value.url === "string" && /^https?:\/\//.test(value.url)
+        ? [{ name: value.name, url: value.url, ...(headers && Object.keys(headers).length > 0 ? { headers } : {}) }]
+        : [];
+    });
+  }
+  const url = resolveToolSurfaceMcpUrl(toolSurface);
+  return url ? [{ name: "dofe-mcp-connector", url }] : [];
+}
+
 /** Redaction that scrubs the gateway URL wherever it appears in provider output. */
 export function mcpGatewayUrlRedactions(url: string): HarnessLaunchPlan["redactions"] {
   if (!url) return [];
@@ -37,15 +72,20 @@ export function mcpGatewayUrlRedactions(url: string): HarnessLaunchPlan["redacti
  * Claude Code: one-shot, task-scoped MCP config passed inline as JSON.
  * `--strict-mcp-config` suppresses any ambient servers the user configured.
  */
-export function buildClaudeMcpGatewayArgs(url: string): McpGatewayInjection {
-  const mcpConfig = JSON.stringify({
-    mcpServers: {
-      [MCP_GATEWAY_SERVER_KEY]: { type: "http", url },
-    },
-  });
+export function buildClaudeMcpGatewayArgs(url: string, serverKey = MCP_GATEWAY_SERVER_KEY): McpGatewayInjection {
+  return buildClaudeMcpServerArgs([{ name: serverKey, url }]);
+}
+
+export function buildClaudeMcpServerArgs(servers: ToolSurfaceMcpServer[]): McpGatewayInjection {
+  const mcpServers = Object.fromEntries(servers.map((server) => [server.name, {
+    type: "http",
+    url: server.url,
+    ...(server.headers && Object.keys(server.headers).length > 0 ? { headers: server.headers } : {}),
+  }]));
+  const mcpConfig = JSON.stringify({ mcpServers });
   return {
     args: ["--mcp-config", mcpConfig, "--strict-mcp-config"],
-    redactions: mcpGatewayUrlRedactions(url),
+    redactions: servers.flatMap((server) => mcpGatewayUrlRedactions(server.url)),
   };
 }
 
@@ -75,10 +115,19 @@ export function shouldInjectCodexMcpGateway(input: {
   return Boolean(input.mcpGatewayUrl) && input.codexMcpInjectionEnabled === true;
 }
 
-export function buildCodexMcpGatewayArgs(url: string): McpGatewayInjection {
-  const inlineTable = `{ "${MCP_GATEWAY_SERVER_KEY}" = { url = "${url}", startup_timeout_sec = 30 } }`;
+export function buildCodexMcpGatewayArgs(url: string, serverKey = MCP_GATEWAY_SERVER_KEY): McpGatewayInjection {
+  return buildCodexMcpServerArgs([{ name: serverKey, url }]);
+}
+
+export function buildCodexMcpServerArgs(servers: ToolSurfaceMcpServer[]): McpGatewayInjection {
+  const inlineTable = `{ ${servers.map((server) => {
+    const headers = server.headers && Object.keys(server.headers).length > 0
+      ? `, http_headers = ${JSON.stringify(server.headers)}`
+      : "";
+    return `"${server.name}" = { url = "${server.url}", startup_timeout_sec = 30${headers} }`;
+  }).join(", ")} }`;
   return {
     args: ["--config", `mcp_servers=${inlineTable}`],
-    redactions: mcpGatewayUrlRedactions(url),
+    redactions: servers.flatMap((server) => mcpGatewayUrlRedactions(server.url)),
   };
 }

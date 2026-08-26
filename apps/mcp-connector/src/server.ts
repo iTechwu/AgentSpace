@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ToolSurfaceCallResult, ToolSurfaceLaunchContext, ToolSurfaceTool } from "@dofe-agent/domain";
 
 const MAX_BODY_BYTES = 256 * 1024;
@@ -27,16 +30,19 @@ export interface ConnectorSessionRecord {
   tools: ToolSurfaceTool[];
   createdAt: string;
   expiresAt: number;
+  mcpSessions: Map<string, { server: Server; transport: StreamableHTTPServerTransport }>;
 }
 
 export class McpConnectorService {
   private readonly sessions = new Map<string, ConnectorSessionRecord>();
   private readonly timeoutMs: number;
+  private readonly networkMode: "open" | "restricted";
 
-  constructor(options: { timeoutMs?: number } = {}) {
+  constructor(options: { timeoutMs?: number; networkMode?: "open" | "restricted" } = {}) {
     this.timeoutMs = Number.isFinite(options.timeoutMs) && (options.timeoutMs ?? 0) > 0
       ? Math.min(600_000, Math.max(5_000, Math.trunc(options.timeoutMs!)))
       : DEFAULT_TIMEOUT_MS;
+    this.networkMode = options.networkMode ?? (process.env.MCP_CONNECTOR_NETWORK_MODE === "restricted" ? "restricted" : "open");
   }
 
   async openSession(input: {
@@ -80,13 +86,14 @@ export class McpConnectorService {
         tools,
         createdAt: new Date().toISOString(),
         expiresAt: Date.now() + ttlMs,
+        mcpSessions: new Map(),
       });
       return {
         providerId: "mcp",
         contractVersion: "1",
         sessionId,
         tools,
-        clientConfig: { connectorSessionId: sessionId },
+        clientConfig: { connectorSessionId: sessionId, mcpPath: `/mcp?session=${encodeURIComponent(sessionId)}` },
       };
     } catch (error) {
       await client.close().catch(() => undefined);
@@ -116,11 +123,50 @@ export class McpConnectorService {
     const session = this.sessions.get(input.sessionId);
     if (!session) return;
     this.sessions.delete(input.sessionId);
+    for (const mcpSession of session.mcpSessions.values()) {
+      await mcpSession.server.close().catch(() => undefined);
+      await mcpSession.transport.close().catch(() => undefined);
+    }
     await session.client.close().catch(() => undefined);
   }
 
-  health(): { status: "ok"; sessions: number; independentEgress: true } {
-    return { status: "ok", sessions: this.sessions.size, independentEgress: true };
+  async handleMcpRequest(sessionId: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.expiresAt <= Date.now()) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "connector.session_not_found" }));
+      return;
+    }
+    const requestedSessionId = typeof req.headers["mcp-session-id"] === "string" ? req.headers["mcp-session-id"] : "";
+    let mcpSession = requestedSessionId ? session.mcpSessions.get(requestedSessionId) : undefined;
+    if (!mcpSession) {
+      let server!: Server;
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: true,
+        onsessioninitialized: (id) => {
+          session.mcpSessions.set(id, { server, transport });
+        },
+      });
+      server = new Server({ name: "dofe-mcp-connector", version: "1" }, { capabilities: { tools: {} } });
+      server.setRequestHandler(ListToolsRequestSchema, () => ({
+        tools: session.tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })),
+      }));
+      server.setRequestHandler(CallToolRequestSchema, async (request) => {
+        const tool = session.tools.find((candidate) => candidate.name === String(request.params.name ?? ""));
+        if (!tool) return { content: [{ type: "text", text: "Tool is not approved for this session." }], isError: true };
+        const result = await this.call({ sessionId, toolId: tool.id, arguments: request.params.arguments ?? {} });
+        if (!result.ok) return { content: [{ type: "text", text: result.message }], isError: true };
+        return { content: Array.isArray(result.result) ? result.result : [{ type: "text", text: JSON.stringify(result.result) }] };
+      });
+      await server.connect(transport);
+      mcpSession = { server, transport };
+    }
+    await mcpSession.transport.handleRequest(req, res, undefined);
+  }
+
+  health(): { status: "ok"; sessions: number; independentEgress: true; networkMode: "open" | "restricted" } {
+    return { status: "ok", sessions: this.sessions.size, independentEgress: true, networkMode: this.networkMode };
   }
 
   async closeAll(): Promise<void> {
@@ -151,10 +197,18 @@ export function createConnectorHttpServer(service: McpConnectorService, options:
 }
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse, service: McpConnectorService, authToken?: string): Promise<void> {
-  if (authToken && req.headers.authorization !== `Bearer ${authToken}`) return writeJson(res, 401, { error: "connector.unauthorized" });
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  // The random task session in the MCP URL is the provider-facing capability
+  // token. Management/session APIs still require the connector auth token.
+  const isProviderMcpRoute = url.pathname === "/mcp" && Boolean(url.searchParams.get("session"));
+  if (authToken && !isProviderMcpRoute && req.headers.authorization !== `Bearer ${authToken}`) {
+    return writeJson(res, 401, { error: "connector.unauthorized" });
+  }
   try {
     if (req.method === "GET" && url.pathname === "/health") return writeJson(res, 200, service.health());
+    if (url.pathname === "/mcp" && url.searchParams.get("session")) {
+      return service.handleMcpRequest(url.searchParams.get("session")!, req, res);
+    }
     if (req.method === "POST" && url.pathname === "/v1/sessions") {
       const body = await readJson(req);
       const result = await service.openSession(body as Parameters<McpConnectorService["openSession"]>[0]);

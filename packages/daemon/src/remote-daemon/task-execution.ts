@@ -33,6 +33,8 @@ import { getManagedRuntimeHomeDir, type ManagedCredentialResolver } from "../man
 import type { RemoteDaemonConfig } from "./config.ts";
 import { attachTaskManagedMcpConnection, getMcpGatewayForTask } from "./mcp.ts";
 import { buildClaudeMcpToolPermissionName, buildMcpGatewayToolNames } from "../mcp/gateway.ts";
+import { McpConnectorClient } from "../tool-surface/connector-client.ts";
+import type { ToolSurfaceLaunchContext } from "@dofe-agent/domain";
 import {
   createRemoteGatewayUsageReporter,
   mergeRemoteGatewayUsages,
@@ -48,6 +50,55 @@ const RUNTIME_APPROVAL_TIMEOUT_MS = 15 * 60 * 1_000;
 const TASK_MESSAGE_BATCH_DELAY_MS = 25;
 const TASK_MESSAGE_BATCH_SIZE = 32;
 const TASK_MESSAGE_TEXT_SIZE = 512;
+
+function buildDirectMcpToolSurface(taskId: string, connections: Awaited<ReturnType<HttpDaemonClient["claimMcpTaskSession"]>>["connections"]): {
+  toolSurface: ToolSurfaceLaunchContext;
+  permissionNames: string[];
+} | undefined {
+  if (connections.length === 0 || connections.some((connection) =>
+    connection.transport !== "streamable_http"
+    || Object.keys(connection.secrets ?? {}).length > 0
+    || !/^https?:\/\//.test(connection.endpoint),
+  )) {
+    return undefined;
+  }
+  const slugCounts = new Map<string, number>();
+  const servers = connections.map((connection) => {
+    const base = `mcp_${connection.catalogItemSlug.replace(/[^a-zA-Z0-9_-]/g, "_") || "server"}`;
+    const count = (slugCounts.get(base) ?? 0) + 1;
+    slugCounts.set(base, count);
+    const name = count === 1 ? base : `${base}_${count}`;
+    const headers = Object.fromEntries(
+      Object.entries(connection.nonSecretParams ?? {}).filter(([, value]) => typeof value === "string"),
+    ) as Record<string, string>;
+    return { name, url: connection.endpoint, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
+  });
+  const tools = connections.flatMap((connection) => connection.tools
+    .filter((tool) => connection.approvedTools.includes(tool.name))
+    .map((tool) => ({
+      id: tool.id,
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      risk: "medium" as const,
+    })));
+  const permissionNames = connections.flatMap((connection, index) => {
+    const serverKey = servers[index]!.name;
+    return connection.tools
+      .filter((tool) => connection.approvedTools.includes(tool.name))
+      .map((tool) => buildClaudeMcpToolPermissionName(tool.name, serverKey));
+  });
+  return {
+    toolSurface: {
+      providerId: "mcp",
+      contractVersion: "1",
+      sessionId: `direct:${taskId}`,
+      tools,
+      clientConfig: { mcpServers: servers },
+    },
+    permissionNames,
+  };
+}
 
 export function createRemoteTaskMessageReporter(
   report: (messages: ProviderTaskEvent[]) => Promise<void>,
@@ -168,10 +219,12 @@ export async function executeRemoteTask(
   }
   mkdirSync(workDir, { recursive: true });
 
-  // Task-scoped MCP session: the daemon claims resolved connection bundles
-  // through its authenticated channel and hosts a task-scoped gateway. The
-  // Provider's own MCP config only ever receives the gateway URL.
+  // Task-scoped MCP capability: standard HTTP connections use direct provider
+  // endpoints; secret-bearing/stdio connections use the optional Connector or
+  // legacy gateway. Provider config never contains MCP secrets.
   let mcpSession: { url: string; revoke: () => void } | undefined;
+  let connectorClient: McpConnectorClient | undefined;
+  let toolSurface: ToolSurfaceLaunchContext | undefined;
   let mcpToolPermissionNames: string[] = [];
   let skillRunner: SkillRunnerBroker | undefined;
   let gatewayUsageReporter: RemoteGatewayUsageReporter | undefined;
@@ -236,27 +289,58 @@ export async function executeRemoteTask(
         // task without MCP would silently lose the authorized capability.
         throw new Error("mcp.session_claim_failed: task expects MCP connections but claim returned none");
       }
-      const gateway = await getMcpGatewayForTask(
-        client,
-        mcpAuditOutbox ?? new McpAuditOutbox(config.stateDir),
-        config.managedNode,
-      );
-      mcpSession = gateway.createTaskSession({
-        taskId: task.id,
-        runtimeId: runtime.id,
-        workspaceId: task.workspaceId,
-        employeeId: task.employeeId?.trim() || task.agentId,
-        conversationId: task.routerSessionId?.trim()
-          || resolveConversationThreadId({ triggerType: task.triggerType, payload: parseTaskInputJson(task.inputJson) })
-          || task.id,
-        connections: claimed.connections.map((connection) => attachTaskManagedMcpConnection(connection, config, runtime)),
-      });
-      const gatewayToolNames = buildMcpGatewayToolNames(claimed.connections);
-      mcpToolPermissionNames = claimed.connections.flatMap((connection) =>
-        connection.tools
-          .filter((tool) => connection.approvedTools.includes(tool.name))
-          .map((tool) => buildClaudeMcpToolPermissionName(gatewayToolNames.get(tool.id)!))
-      );
+      const connectorUrl = process.env.MCP_CONNECTOR_URL?.trim();
+      const connectorMode = process.env.MCP_CONNECTOR_MODE === "connector_v1";
+      const directMode = process.env.MCP_DIRECT_MODE !== "0" && !connectorMode;
+      const direct = directMode ? buildDirectMcpToolSurface(task.id, claimed.connections) : undefined;
+      if (direct) {
+        toolSurface = direct.toolSurface;
+        mcpToolPermissionNames = direct.permissionNames;
+      } else if (connectorMode && connectorUrl && claimed.connections.length === 1 && claimed.connections[0].transport === "streamable_http") {
+        const connection = claimed.connections[0];
+        connectorClient = new McpConnectorClient({
+          baseUrl: connectorUrl,
+          authToken: process.env.MCP_CONNECTOR_AUTH_TOKEN,
+        });
+        toolSurface = await connectorClient.openSession({
+          taskId: task.id,
+          runtimeId: runtime.id,
+          requestedCapabilities: ["mcp"],
+          connection: {
+            connectionId: connection.connectionId,
+            endpoint: connection.endpoint,
+            transport: "streamable_http",
+            headers: {
+              ...Object.fromEntries(Object.entries(connection.nonSecretParams).filter(([, value]) => typeof value === "string") as Array<[string, string]>),
+              ...connection.secrets,
+            },
+            approvedTools: connection.approvedTools,
+          },
+        });
+        mcpToolPermissionNames = toolSurface.tools.map((tool) => buildClaudeMcpToolPermissionName(tool.name, "dofe-mcp-connector"));
+      } else {
+        const gateway = await getMcpGatewayForTask(
+          client,
+          mcpAuditOutbox ?? new McpAuditOutbox(config.stateDir),
+          config.managedNode,
+        );
+        mcpSession = gateway.createTaskSession({
+          taskId: task.id,
+          runtimeId: runtime.id,
+          workspaceId: task.workspaceId,
+          employeeId: task.employeeId?.trim() || task.agentId,
+          conversationId: task.routerSessionId?.trim()
+            || resolveConversationThreadId({ triggerType: task.triggerType, payload: parseTaskInputJson(task.inputJson) })
+            || task.id,
+          connections: claimed.connections.map((connection) => attachTaskManagedMcpConnection(connection, config, runtime)),
+        });
+        const gatewayToolNames = buildMcpGatewayToolNames(claimed.connections);
+        mcpToolPermissionNames = claimed.connections.flatMap((connection) =>
+          connection.tools
+            .filter((tool) => connection.approvedTools.includes(tool.name))
+            .map((tool) => buildClaudeMcpToolPermissionName(gatewayToolNames.get(tool.id)!))
+        );
+      }
     }
 
     const managedProfile = await resolveManagedCredentialProfile(runtime, credentialResolver);
@@ -368,6 +452,7 @@ export async function executeRemoteTask(
           ...(bundle.metadata.runtimeToolCapabilities?.capabilities ?? []),
           ...skillRunner.capabilities,
         ],
+        toolSurface,
         mcpGatewayUrl: mcpSession?.url,
         // MCP config injection only registers the server. Claude Code also
         // requires explicit permission rules for each task-authorized tool.
@@ -489,6 +574,12 @@ export async function executeRemoteTask(
     // gateway's onAudit handler, so a daemon crash loses at most the in-flight
     // call rather than the entire task's audit trail.
     mcpSession?.revoke();
+    if (toolSurface?.sessionId) {
+      await connectorClient?.close(toolSurface.sessionId, "task_complete").catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(`Failed to close MCP Connector session for task ${task.id}: ${detail}`);
+      });
+    }
     await skillRunner?.close();
     clearTaskOutputArtifacts(workDir);
     if (!isPersistentConversationWorkspace) {

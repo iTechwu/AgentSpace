@@ -15,7 +15,7 @@ import {
   buildCapabilityEnv,
   buildCapabilityPathDirs,
 } from "../capabilities.ts";
-import { buildClaudeMcpGatewayArgs } from "../mcp-gateway.ts";
+import { buildClaudeMcpGatewayArgs, buildClaudeMcpServerArgs, MCP_GATEWAY_SERVER_KEY, resolveToolSurfaceMcpServers } from "../mcp-gateway.ts";
 import {
   buildBaseEnv,
   buildRedactions,
@@ -111,8 +111,11 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
   // One-shot, task-scoped MCP config: the gateway URL is the ONLY thing the
   // Provider learns. --strict-mcp-config disables any pre-existing servers.
   let mcpRedactions: HarnessLaunchPlan["redactions"] = [];
-  if (input.mcpGatewayUrl) {
-    const injection = buildClaudeMcpGatewayArgs(input.mcpGatewayUrl);
+  const mcpServers = resolveToolSurfaceMcpServers(input.toolSurface);
+  if (mcpServers.length > 0 || input.mcpGatewayUrl) {
+    const injection = mcpServers.length > 0
+      ? buildClaudeMcpServerArgs(mcpServers)
+      : buildClaudeMcpGatewayArgs(input.mcpGatewayUrl!, MCP_GATEWAY_SERVER_KEY);
     args.push(...injection.args);
     mcpRedactions = injection.redactions;
   }

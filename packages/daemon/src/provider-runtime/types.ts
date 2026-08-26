@@ -7,6 +7,7 @@ import type {
   ProviderErrorCode,
   RuntimeAppContextEntry,
   RuntimeToolCapability,
+  ToolSurfaceLaunchContext,
 } from "@dofe-agent/domain";
 
 export interface ProviderRuntimeRecord {
@@ -81,6 +82,8 @@ export interface ProviderTaskOptions {
   /** Whether CLI-Hub apps are reachable from the daemon process for preflight diagnostics. */
   runtimeAppHostDiagnostics?: boolean;
   runtimeToolCapabilities?: RuntimeToolCapability[];
+  /** Generic tool surface context; MCP is one implementation. */
+  toolSurface?: ToolSurfaceLaunchContext;
   /** Loopback MCP gateway URL for a task-scoped session; passed to the provider as a one-shot MCP config. */
   mcpGatewayUrl?: string;
   /** Enables the unverified Codex MCP injection path only for an explicit experiment. */
