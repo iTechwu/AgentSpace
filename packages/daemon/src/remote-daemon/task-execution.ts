@@ -1,0 +1,725 @@
+// 3.5-4：自 remote-daemon.ts 拆出——单任务执行主流程（bundle 物化、skill
+// runner、MCP 会话、provider 调用、用量上报、产物回传）及其辅助函数。
+import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@dofe-agent/db";
+import { resolveProviderProtocols } from "@dofe-agent/domain";
+import type { ClaimedDaemonTask, DaemonTaskInputBundle } from "../daemon-api.ts";
+import {
+  clearTaskOutputArtifacts,
+  materializeRemoteInputBundle,
+  prepareRemoteOutputBundle,
+  readWorkspaceBlobUploadBytes,
+} from "../bundle.ts";
+import { uploadBlobsWithConcurrency } from "../resumable-transfer.ts";
+import type { HttpDaemonClient } from "../daemon-client.ts";
+import { prepareSkillImportOperationArtifacts } from "../skill-imports.ts";
+import { buildSkillDependencyTaskEnvironment } from "../skill-install/task-environment.ts";
+import { partitionSkillEnvironment } from "../skill-environment.ts";
+import { startSkillRunnerBroker, type SkillRunnerBroker } from "../skill-runner.ts";
+import {
+  normalizeProviderTaskErrorCategory,
+  readProviderTaskFailureMetadata,
+  runProviderTask,
+  type ProviderApprovalDecision,
+  type ProviderApprovalRequest,
+  type ProviderTaskEvent,
+  type RemoteRuntimeRecord,
+} from "../provider-runtime.ts";
+import { parseTaskInputJson, resolveConversationThreadId } from "../task-context.ts";
+import { McpAuditOutbox } from "../mcp/audit-outbox.ts";
+import { getManagedRuntimeHomeDir, type ManagedCredentialResolver } from "../managed-provider-credentials.ts";
+import type { RemoteDaemonConfig } from "./config.ts";
+import { attachTaskManagedMcpConnection, getMcpGatewayForTask } from "./mcp.ts";
+import { buildClaudeMcpToolPermissionName, buildMcpGatewayToolNames } from "../mcp/gateway.ts";
+import { McpConnectorClient } from "../tool-surface/connector-client.ts";
+import type { McpTaskSessionConnection, ToolSurfaceLaunchContext } from "@dofe-agent/domain";
+import {
+  createRemoteGatewayUsageReporter,
+  mergeRemoteGatewayUsages,
+  readFiniteNumber,
+  readRemoteGatewayUsages,
+  type RemoteGatewayUsageReporter,
+  type RemoteTaskUsageEntry,
+} from "./usage.ts";
+import { resolveManagedCredentialProfile } from "./operations.ts";
+import { sleep } from "./internal.ts";
+
+const RUNTIME_APPROVAL_TIMEOUT_MS = 15 * 60 * 1_000;
+const TASK_MESSAGE_BATCH_DELAY_MS = 25;
+const TASK_MESSAGE_BATCH_SIZE = 32;
+const TASK_MESSAGE_TEXT_SIZE = 512;
+
+export function buildDirectMcpToolSurface(taskId: string, connections: readonly McpTaskSessionConnection[]): {
+  toolSurface: ToolSurfaceLaunchContext;
+  permissionNames: string[];
+} | undefined {
+  if (connections.length === 0 || connections.some((connection) =>
+    connection.transport !== "streamable_http"
+    || Object.keys(connection.secrets ?? {}).length > 0
+    || !isCredentialFreeHttpEndpoint(connection.endpoint),
+  )) {
+    return undefined;
+  }
+  const slugCounts = new Map<string, number>();
+  const servers = connections.map((connection) => {
+    const base = `mcp_${connection.catalogItemSlug.replace(/[^a-zA-Z0-9_-]/g, "_") || "server"}`;
+    const count = (slugCounts.get(base) ?? 0) + 1;
+    slugCounts.set(base, count);
+    const name = count === 1 ? base : `${base}_${count}`;
+    const headers = Object.fromEntries(
+      Object.entries(connection.nonSecretParams ?? {}).filter(([, value]) => typeof value === "string"),
+    ) as Record<string, string>;
+    return { name, url: connection.endpoint, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
+  });
+  const tools = connections.flatMap((connection) => connection.tools
+    .filter((tool) => connection.approvedTools.includes(tool.name))
+    .map((tool) => ({
+      id: tool.id,
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      risk: "medium" as const,
+    })));
+  const permissionNames = connections.flatMap((connection, index) => {
+    const serverKey = servers[index]!.name;
+    return connection.tools
+      .filter((tool) => connection.approvedTools.includes(tool.name))
+      .map((tool) => buildClaudeMcpToolPermissionName(tool.name, serverKey));
+  });
+  return {
+    toolSurface: {
+      providerId: "mcp",
+      contractVersion: "1",
+      sessionId: `direct:${taskId}`,
+      tools,
+      clientConfig: { mcpServers: servers },
+    },
+    permissionNames,
+  };
+}
+
+function isCredentialFreeHttpEndpoint(value: string): boolean {
+  try {
+    const endpoint = new URL(value);
+    return (endpoint.protocol === "http:" || endpoint.protocol === "https:")
+      && !endpoint.username
+      && !endpoint.password
+      && !endpoint.hash;
+  } catch {
+    return false;
+  }
+}
+
+export function createRemoteTaskMessageReporter(
+  report: (messages: ProviderTaskEvent[]) => Promise<void>,
+  options?: {
+    flushDelayMs?: number;
+    maxBatchSize?: number;
+    maxTextSize?: number;
+    onError?: (error: unknown) => void;
+  },
+): {
+  enqueue: (message: ProviderTaskEvent) => void;
+  drain: () => Promise<void>;
+  cancel: () => void;
+} {
+  const flushDelayMs = Math.max(0, options?.flushDelayMs ?? TASK_MESSAGE_BATCH_DELAY_MS);
+  const maxBatchSize = Math.max(1, options?.maxBatchSize ?? TASK_MESSAGE_BATCH_SIZE);
+  const maxTextSize = Math.max(1, options?.maxTextSize ?? TASK_MESSAGE_TEXT_SIZE);
+  const onError = options?.onError ?? (() => undefined);
+  let pending: ProviderTaskEvent[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let activeReport: Promise<void> | undefined;
+  let draining = false;
+
+  const clearFlushTimer = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  const flush = (): void => {
+    clearFlushTimer();
+    if (activeReport || pending.length === 0) {
+      return;
+    }
+    const batch = pending.splice(0, maxBatchSize);
+    const currentReport = report(batch).catch(onError);
+    activeReport = currentReport;
+    void currentReport.finally(() => {
+      if (activeReport === currentReport) {
+        activeReport = undefined;
+      }
+      if (pending.length === 0) {
+        return;
+      }
+      if (draining || pending.length >= maxBatchSize) {
+        flush();
+      } else {
+        scheduleFlush();
+      }
+    });
+  };
+  function scheduleFlush(): void {
+    if (!activeReport && !timer) {
+      timer = setTimeout(flush, flushDelayMs);
+    }
+  }
+
+  return {
+    enqueue(message) {
+      const last = pending.at(-1);
+      if (last?.type === "text" && message.type === "text") {
+        pending[pending.length - 1] = {
+          ...last,
+          content: `${last.content ?? ""}${message.content ?? ""}`,
+        };
+      } else {
+        pending.push(message);
+      }
+      const pendingTextSize = pending.at(-1)?.type === "text"
+        ? pending.at(-1)?.content?.length ?? 0
+        : 0;
+      if (pending.length >= maxBatchSize || pendingTextSize >= maxTextSize) {
+        flush();
+      } else {
+        scheduleFlush();
+      }
+    },
+    async drain() {
+      draining = true;
+      clearFlushTimer();
+      try {
+        while (pending.length > 0 || activeReport) {
+          if (!activeReport) {
+            flush();
+          }
+          const currentReport = activeReport;
+          if (currentReport) {
+            await currentReport;
+          }
+        }
+      } finally {
+        draining = false;
+      }
+    },
+    cancel() {
+      clearFlushTimer();
+      pending = [];
+    },
+  };
+}
+
+export function resolveRemoteTaskExecutionModel(bundle: DaemonTaskInputBundle): string | undefined {
+  return bundle.metadata.effectiveModel?.modelId.trim() || undefined;
+}
+
+export async function executeRemoteTask(
+  client: HttpDaemonClient,
+  config: RemoteDaemonConfig,
+  runtime: RemoteRuntimeRecord,
+  task: ClaimedDaemonTask,
+  credentialResolver?: ManagedCredentialResolver,
+  mcpAuditOutbox?: McpAuditOutbox,
+): Promise<void> {
+  const workDir = resolveRemoteTaskWorkDir(config, task);
+  const isPersistentConversationWorkspace = isConversationScopedRemoteTask(task);
+  if (!isPersistentConversationWorkspace) {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+  mkdirSync(workDir, { recursive: true });
+
+  // Task-scoped MCP capability: standard HTTP connections use direct provider
+  // endpoints; secret-bearing/stdio connections use the optional Connector or
+  // legacy gateway. Provider config never contains MCP secrets.
+  let mcpSession: { url: string; revoke: () => void } | undefined;
+  let connectorClient: McpConnectorClient | undefined;
+  let toolSurface: ToolSurfaceLaunchContext | undefined;
+  let mcpToolPermissionNames: string[] = [];
+  let skillRunner: SkillRunnerBroker | undefined;
+  let gatewayUsageReporter: RemoteGatewayUsageReporter | undefined;
+  let taskMessageStream: ReturnType<HttpDaemonClient["openTaskMessageStream"]> | undefined;
+  let messageReporter: ReturnType<typeof createRemoteTaskMessageReporter> | undefined;
+  const cancellationController = new AbortController();
+  const stopCancellationWatch = watchRemoteTaskCancellation(client, task.id, cancellationController);
+
+  try {
+    await client.startTask(task.id);
+    const bundle = await client.getInputBundle(task.id);
+    await materializeRemoteInputBundle({
+      workDir,
+      stateDir: config.stateDir,
+      bundle,
+      fetchWorkspaceBlob: (taskId, revisionId, sha256) => client.getWorkspaceBlob(taskId, revisionId, sha256),
+      fetchWorkspaceBlobRange: (taskId, revisionId, sha256, start, end) =>
+        client.getWorkspaceBlobRange(taskId, revisionId, sha256, start, end),
+    });
+    const runnerEntrypoints = bundle.metadata.skillRunnerEntrypoints ?? [];
+    const skillEnvironment = partitionSkillEnvironment(bundle.metadata.skillEnv, runnerEntrypoints);
+    skillRunner = await startSkillRunnerBroker({
+      stateDir: config.stateDir,
+      workspaceId: task.workspaceId,
+      workDir,
+      entrypoints: runnerEntrypoints,
+      dependencyEnvironments: bundle.metadata.skillDependencyEnvironments,
+      skillEnv: skillEnvironment.runnerEnv,
+      // Persistent Skill Runner invocation audit (P1-3): report each entrypoint
+      // run to the control plane; the server dedups by eventId.
+      reportInvocation: (report) => client.reportSkillRunnerInvocations(task.id, [{
+        eventId: report.eventId,
+        workspaceId: task.workspaceId,
+        runtimeId: runtime.id,
+        agentId: task.agentId,
+        entrypoint: {
+          key: report.entrypoint.key,
+          skillId: report.entrypoint.skillId,
+          skillName: report.entrypoint.skillName,
+          installationId: report.entrypoint.installationId,
+          artifactDigest: report.entrypoint.artifactDigest,
+          id: report.entrypoint.id,
+          path: report.entrypoint.path,
+          runtime: report.entrypoint.runtime,
+        },
+        exitCode: report.exitCode,
+        timedOut: report.timedOut,
+        durationMs: report.durationMs,
+        safeSummary: report.safeSummary,
+      }]),
+    });
+
+    if (bundle.metadata.mcpConnections?.status === "available") {
+      // One attempt id per task execution makes the claim idempotent under
+      // HTTP retry: a lost response retries with the same id and the server
+      // replays the persisted grant instead of returning "no MCP".
+      const claimAttemptId = randomUUID();
+      const claimed = await client.claimMcpTaskSession(task.id, claimAttemptId);
+      if (claimed.connections.length === 0) {
+        // Fail closed: the task expects MCP connections but the claim returned
+        // none (connections were dropped/reconfigured mid-flight). Running the
+        // task without MCP would silently lose the authorized capability.
+        throw new Error("mcp.session_claim_failed: task expects MCP connections but claim returned none");
+      }
+      const connectorUrl = process.env.MCP_CONNECTOR_URL?.trim();
+      const connectorMode = process.env.MCP_CONNECTOR_MODE === "connector_v1";
+      const directMode = process.env.MCP_DIRECT_MODE !== "0" && !connectorMode;
+      const direct = directMode ? buildDirectMcpToolSurface(task.id, claimed.connections) : undefined;
+      if (direct) {
+        toolSurface = direct.toolSurface;
+        mcpToolPermissionNames = direct.permissionNames;
+      } else if (connectorMode && connectorUrl && claimed.connections.length === 1 && claimed.connections[0].transport === "streamable_http") {
+        const connection = claimed.connections[0];
+        connectorClient = new McpConnectorClient({
+          baseUrl: connectorUrl,
+          authToken: process.env.MCP_CONNECTOR_AUTH_TOKEN,
+        });
+        toolSurface = await connectorClient.openSession({
+          taskId: task.id,
+          runtimeId: runtime.id,
+          requestedCapabilities: ["mcp"],
+          connection: {
+            connectionId: connection.connectionId,
+            endpoint: connection.endpoint,
+            transport: "streamable_http",
+            headers: {
+              ...Object.fromEntries(Object.entries(connection.nonSecretParams).filter(([, value]) => typeof value === "string") as Array<[string, string]>),
+              ...connection.secrets,
+            },
+            approvedTools: connection.approvedTools,
+          },
+        });
+        mcpToolPermissionNames = toolSurface.tools.map((tool) => buildClaudeMcpToolPermissionName(tool.name, "dofe-mcp-connector"));
+      } else {
+        const gateway = await getMcpGatewayForTask(
+          client,
+          mcpAuditOutbox ?? new McpAuditOutbox(config.stateDir),
+          config.managedNode,
+        );
+        mcpSession = gateway.createTaskSession({
+          taskId: task.id,
+          runtimeId: runtime.id,
+          workspaceId: task.workspaceId,
+          employeeId: task.employeeId?.trim() || task.agentId,
+          conversationId: task.routerSessionId?.trim()
+            || resolveConversationThreadId({ triggerType: task.triggerType, payload: parseTaskInputJson(task.inputJson) })
+            || task.id,
+          connections: claimed.connections.map((connection) => attachTaskManagedMcpConnection(connection, config, runtime)),
+        });
+        const gatewayToolNames = buildMcpGatewayToolNames(claimed.connections);
+        mcpToolPermissionNames = claimed.connections.flatMap((connection) =>
+          connection.tools
+            .filter((tool) => connection.approvedTools.includes(tool.name))
+            .map((tool) => buildClaudeMcpToolPermissionName(gatewayToolNames.get(tool.id)!))
+        );
+      }
+    }
+
+    const managedProfile = await resolveManagedCredentialProfile(runtime, credentialResolver);
+    const managedCredentialEnv = managedProfile?.environment ?? {};
+    if (bundle.metadata.skillEnvConflicts && bundle.metadata.skillEnvConflicts.length > 0) {
+      throw new Error(
+        `Skill environment variable conflicts detected: ${bundle.metadata.skillEnvConflicts.join(", ")}. ` +
+          "Resolve by using the same value across skills or uninstalling conflicting skills.",
+      );
+    }
+    if (bundle.metadata.skillReadinessBlockers?.length) {
+      throw new Error(
+        `Skill requirements not satisfied for this task: ${bundle.metadata.skillReadinessBlockers.join("; ")}.`,
+      );
+    }
+    const skillDependencyEnv = buildSkillDependencyTaskEnvironment({
+      stateDir: config.stateDir,
+      workspaceId: task.workspaceId,
+      environments: bundle.metadata.skillDependencyEnvironments ?? [],
+      baseEnv: {
+        ...process.env,
+        ...skillEnvironment.providerEnv,
+        ...managedCredentialEnv,
+      },
+    });
+    const managedCredentialId = typeof runtime.metadata.managedCredentialId === "string"
+      ? runtime.metadata.managedCredentialId
+      : undefined;
+    const taskRuntime = managedProfile && credentialResolver
+      ? {
+          ...runtime,
+          metadata: {
+            ...runtime.metadata,
+            executablePath: credentialResolver.getExecutablePath(runtime.id, runtime.provider),
+          },
+        }
+      : runtime;
+    const effectiveModelId = resolveRemoteTaskExecutionModel(bundle);
+    const runtimeProtocol = resolveProviderProtocols(runtime.provider)[0] || undefined;
+    let usages: RemoteTaskUsageEntry[] = [];
+    taskMessageStream = typeof client.openTaskMessageStream === "function"
+      ? client.openTaskMessageStream(task.id)
+      : undefined;
+    messageReporter = createRemoteTaskMessageReporter(
+      (messages) => taskMessageStream
+        ? taskMessageStream.write(messages)
+        : client.reportMessages(task.id, { messages }),
+      {
+        onError: (error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error(`Failed to report remote task messages for ${task.id}: ${detail}`);
+        },
+      },
+    );
+    const reportTaskMessage = messageReporter.enqueue;
+    reportTaskMessage({ type: "status", content: "正在准备执行环境" });
+    const gatewayRequestLogPath = join(workDir, ".dofe-gateway-requests.jsonl");
+    rmSync(gatewayRequestLogPath, { force: true });
+    if (effectiveModelId && managedCredentialId) {
+      gatewayUsageReporter = createRemoteGatewayUsageReporter({
+        path: gatewayRequestLogPath,
+        context: {
+          modelId: effectiveModelId,
+          runtimeCredentialId: managedCredentialId,
+          routerSessionId: task.routerSessionId,
+          protocol: runtimeProtocol,
+        },
+        report: (reportedUsages) => client.reportTaskUsages(task.id, { usages: reportedUsages }),
+        onError: (error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error(`Failed to report incremental usage for task ${task.id}: ${detail}`);
+        },
+      });
+    }
+
+    const result = await runProviderTask(
+      taskRuntime,
+      bundle.prompt,
+      workDir,
+      {
+        sessionId: resolveRemoteTaskExecutionSessionId(bundle.metadata.routerSession, task.inputJson),
+        modelId: effectiveModelId,
+        executionPolicy: bundle.metadata.executionPolicy,
+        skillEnvKeys: Object.keys(skillEnvironment.providerEnv),
+        taskTimeoutMs: config.taskTimeoutMs,
+        contextEnv: {
+          ...skillEnvironment.providerEnv,
+          ...managedCredentialEnv,
+          ...skillDependencyEnv,
+          DOFE_AGENT_CONTEXT_TASK_ID: task.id,
+          DOFE_AGENT_CONTEXT_AGENT_NAME: readRemoteTaskAgentName(task),
+          DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
+          ...(managedCredentialId ? {
+            DOFE_AGENT_RUNTIME_CREDENTIAL_ID: managedCredentialId,
+            DOFE_AGENT_RUNTIME_ID: runtime.id,
+            DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID: task.agentId,
+            DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID: task.routerSessionId ?? task.id,
+            DOFE_AGENT_ATTRIBUTION_ROOT_TASK_ID: task.id,
+            DOFE_AGENT_GATEWAY_REQUEST_LOG: "/workspace/.dofe-gateway-requests.jsonl",
+            DOFE_AGENT_GATEWAY_PROTOCOL: resolveProviderProtocols(runtime.provider)[0] ?? "",
+          } : {}),
+        },
+        runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
+        runtimeAppBinDir: join(getManagedRuntimeHomeDir(config.stateDir, runtime.id), ".local", "bin"),
+        // Docker-out-of-Docker bind sources are visible to the provider child but
+        // not to this daemon container, so host command diagnostics are invalid.
+        runtimeAppHostDiagnostics: !config.managedNode,
+        runtimeToolCapabilities: [
+          ...(bundle.metadata.runtimeToolCapabilities?.capabilities ?? []),
+          ...skillRunner.capabilities,
+        ],
+        toolSurface,
+        mcpGatewayUrl: mcpSession?.url,
+        // MCP config injection only registers the server. Claude Code also
+        // requires explicit permission rules for each task-authorized tool.
+        temporaryAllowedTools: mcpToolPermissionNames.length > 0 ? mcpToolPermissionNames : undefined,
+        codexMcpInjectionEnabled: config.codexMcpExperimentalEnabled,
+        onEvent: (event) => {
+          if (event.type === "usage" && event.inputJson) {
+            const inputTokens = readFiniteNumber(event.inputJson.input_tokens);
+            const outputTokens = readFiniteNumber(event.inputJson.output_tokens);
+            if (effectiveModelId && managedCredentialId && (inputTokens > 0 || outputTokens > 0)) {
+              usages.push({
+                modelId: effectiveModelId,
+                runtimeCredentialId: managedCredentialId,
+                routerSessionId: task.routerSessionId,
+                protocol: runtimeProtocol,
+                gatewayRequestId: typeof event.inputJson.gateway_request_id === "string"
+                  ? event.inputJson.gateway_request_id.trim() || undefined
+                  : undefined,
+                inputTokens,
+                outputTokens,
+              });
+            }
+          }
+          reportTaskMessage(event);
+        },
+        onApprovalRequest: (request) => waitForRuntimeApproval(client, task.id, request),
+        signal: cancellationController.signal,
+      },
+    );
+
+    if (effectiveModelId && managedCredentialId) {
+      await gatewayUsageReporter?.flush();
+      usages = mergeRemoteGatewayUsages(usages, readRemoteGatewayUsages(gatewayRequestLogPath), {
+        modelId: effectiveModelId,
+        runtimeCredentialId: managedCredentialId,
+        routerSessionId: task.routerSessionId,
+        protocol: runtimeProtocol,
+      });
+    }
+    rmSync(gatewayRequestLogPath, { force: true });
+
+    const preparedSkillImports = prepareSkillImportOperationArtifacts(workDir);
+    for (const warning of preparedSkillImports.warnings) {
+      reportTaskMessage({ type: "status", content: warning });
+    }
+
+    // Remote daemons must not read the control-plane database. The claim-time
+    // workspace manifest is already authenticated and included in the bundle.
+    const preparedOutput = prepareRemoteOutputBundle(workDir, bundle.workspace);
+    if (preparedOutput.uploads.length > 0) {
+      await uploadBlobsWithConcurrency({
+        taskId: task.id,
+        entries: preparedOutput.uploads.map((upload) => ({
+          sha256: upload.sha256,
+          size: upload.size,
+          readBytes: async () => readWorkspaceBlobUploadBytes(upload),
+        })),
+        uploadBlob: (taskId, sha256, bytes) => client.uploadWorkspaceBlob(taskId, sha256, bytes),
+      });
+    }
+    if (preparedOutput.bundle) {
+      await client.uploadOutputBundle(task.id, preparedOutput.bundle);
+    }
+
+    await messageReporter.drain();
+    try {
+      await taskMessageStream?.close();
+    } catch (reportError) {
+      const detail = reportError instanceof Error ? reportError.message : String(reportError);
+      console.error(`Failed final remote task message stream for ${task.id}: ${detail}`);
+      await taskMessageStream?.abort();
+    }
+    taskMessageStream = undefined;
+    await client.completeTask(task.id, {
+      outputText: result.output,
+      sessionId: result.sessionId,
+      workDir,
+      usages: usages.length > 0 ? usages : undefined,
+    });
+  } catch (error) {
+    if (cancellationController.signal.aborted) {
+      messageReporter?.cancel();
+      await taskMessageStream?.abort();
+      taskMessageStream = undefined;
+      return;
+    }
+    try {
+      await messageReporter?.drain();
+      await taskMessageStream?.close();
+    } catch (reportError) {
+      const detail = reportError instanceof Error ? reportError.message : String(reportError);
+      console.error(`Failed final remote task message stream for ${task.id}: ${detail}`);
+      await taskMessageStream?.abort();
+    }
+    taskMessageStream = undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    const failureMetadata = readProviderTaskFailureMetadata(error);
+    const providerError = failureMetadata?.providerError;
+    await client.failTask(task.id, {
+      errorText: message,
+      runtimeCredentialId: runtime.metadata.managedCredentialId,
+      errorCode: providerError?.code,
+      errorCategory: normalizeProviderTaskErrorCategory(providerError?.category),
+      provider: providerError?.provider,
+      rawProviderMessage: providerError?.rawProviderMessage,
+      sessionId: failureMetadata?.sessionId,
+      workDir: failureMetadata?.workDir ?? workDir,
+    });
+  } finally {
+    await taskMessageStream?.abort();
+    stopCancellationWatch();
+    try {
+      await gatewayUsageReporter?.stop();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`Failed final incremental usage report for task ${task.id}: ${detail}`);
+    }
+    // Revoke the MCP session. Tool audits are now flushed per-call by the
+    // gateway's onAudit handler, so a daemon crash loses at most the in-flight
+    // call rather than the entire task's audit trail.
+    mcpSession?.revoke();
+    if (toolSurface?.sessionId) {
+      await connectorClient?.close(toolSurface.sessionId, "task_complete").catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(`Failed to close MCP Connector session for task ${task.id}: ${detail}`);
+      });
+    }
+    await skillRunner?.close();
+    clearTaskOutputArtifacts(workDir);
+    if (!isPersistentConversationWorkspace) {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+}
+
+export function watchRemoteTaskCancellation(
+  client: Pick<HttpDaemonClient, "getTaskStatus">,
+  taskId: string,
+  controller: AbortController,
+  options?: { pollIntervalMs?: number; onError?: (error: unknown) => void },
+): () => void {
+  const pollIntervalMs = Math.max(10, options?.pollIntervalMs ?? 2_000);
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+
+  const poll = async (): Promise<void> => {
+    try {
+      const response = await client.getTaskStatus(taskId);
+      if (response.task.status === "cancelled") {
+        controller.abort(new Error("task_cancelled"));
+        return;
+      }
+    } catch (error) {
+      options?.onError?.(error);
+    }
+    if (!stopped && !controller.signal.aborted) {
+      timer = setTimeout(() => void poll(), pollIntervalMs);
+    }
+  };
+
+  void poll();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
+}
+
+async function waitForRuntimeApproval(
+  client: HttpDaemonClient,
+  taskId: string,
+  request: ProviderApprovalRequest,
+): Promise<ProviderApprovalDecision> {
+  const created = await client.createRuntimeApproval(taskId, {
+    provider: request.provider,
+    runtimeId: request.runtimeId,
+    sessionId: request.sessionId,
+    toolName: request.toolName,
+    toolInput: request.toolInput,
+    contentPreview: request.contentPreview,
+  });
+  await client.reportMessages(taskId, {
+    messages: [{
+      type: "status",
+      content: "等待你的工具审批，任务已暂停。",
+    }],
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to report approval wait message for ${taskId}: ${message}`);
+  });
+
+  const deadline = Date.now() + RUNTIME_APPROVAL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const current = await client.getRuntimeApproval(taskId, created.approval.approvalId);
+    if (current.approval.status === "approved") {
+      return {
+        decision: "approved",
+        comment: current.approval.reviewerComment,
+      };
+    }
+    if (current.approval.status === "rejected") {
+      return {
+        decision: "rejected",
+        comment: current.approval.reviewerComment,
+      };
+    }
+    await sleep(1_000);
+  }
+
+  throw new Error("Runtime approval timed out after 15 minutes.");
+}
+
+export function resolveRemoteTaskWorkDir(config: Pick<RemoteDaemonConfig, "stateDir">, task: ClaimedDaemonTask): string {
+  const payload = parseTaskInputJson(task.inputJson);
+  const channelThreadId = resolveConversationThreadId({
+    triggerType: task.triggerType,
+    payload,
+  });
+  const executionThreadId = task.routerSessionId?.trim() || channelThreadId;
+  if (executionThreadId) {
+    return getDaemonChannelWorkDirPath(config.stateDir, {
+      workspaceId: task.workspaceId,
+      threadId: executionThreadId,
+      agentId: task.agentId,
+    });
+  }
+
+  return getDaemonTaskWorkDirPath(config.stateDir, {
+    workspaceId: task.workspaceId,
+    taskId: task.id,
+  });
+}
+
+function isConversationScopedRemoteTask(task: ClaimedDaemonTask): boolean {
+  const payload = parseTaskInputJson(task.inputJson);
+  return Boolean(resolveConversationThreadId({
+    triggerType: task.triggerType,
+    payload,
+  }));
+}
+
+export function resolveRemoteTaskProviderSessionId(inputJson: string): string | undefined {
+  const sessionId = parseTaskInputJson(inputJson).channelSessionId?.trim();
+  return sessionId || undefined;
+}
+
+export function resolveRemoteTaskExecutionSessionId(
+  routerSession: DaemonTaskInputBundle["metadata"]["routerSession"],
+  inputJson: string,
+): string | undefined {
+  if (routerSession) {
+    return routerSession.providerSessionId?.trim() || undefined;
+  }
+  return resolveRemoteTaskProviderSessionId(inputJson);
+}
+
+function readRemoteTaskAgentName(task: ClaimedDaemonTask): string {
+  return parseTaskInputJson(task.inputJson).assignee?.trim() || task.agentId;
+}

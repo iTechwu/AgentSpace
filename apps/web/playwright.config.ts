@@ -1,0 +1,55 @@
+import { defineConfig } from "@playwright/test";
+
+const e2eEnv = prepareE2eDatabaseEnv();
+Object.assign(process.env, e2eEnv);
+const webServerEnv = toWebServerEnv({ ...process.env, ...e2eEnv });
+const port = Number(process.env.PORT ?? 3000);
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
+const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim();
+
+export default defineConfig({
+  testDir: "./e2e",
+  testMatch: "**/*.spec.ts",
+  globalSetup: "./e2e/global-cleanup.ts",
+  globalTeardown: "./e2e/global-cleanup.ts",
+  timeout: 30_000,
+  retries: 0,
+  use: {
+    baseURL,
+    headless: true,
+  },
+  webServer: {
+    command: `pnpm run build && pnpm exec next start --hostname 127.0.0.1 --port ${port}`,
+    env: webServerEnv,
+    url: baseURL,
+    reuseExistingServer: false,
+    timeout: 300_000,
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        browserName: "chromium",
+        launchOptions: chromiumExecutablePath ? { executablePath: chromiumExecutablePath } : undefined,
+      },
+    },
+  ],
+});
+
+function prepareE2eDatabaseEnv(): Record<string, string> {
+  const databaseUrl = process.env.DOFE_AGENT_TEST_DATABASE_URL?.trim() || process.env.DOFE_AGENT_PG_TEST_URL?.trim();
+  if (!databaseUrl) throw new Error("E2E requires DOFE_AGENT_TEST_DATABASE_URL or DOFE_AGENT_PG_TEST_URL.");
+  return {
+    DOFE_AGENT_E2E: "1",
+    DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE: databaseUrl,
+    DOFE_AGENT_TEST_DATABASE_URL: databaseUrl,
+    DOFE_AGENT_PG_URL: databaseUrl,
+    DATABASE_URL: databaseUrl,
+  };
+}
+
+function toWebServerEnv(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}

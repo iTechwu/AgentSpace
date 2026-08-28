@@ -1,0 +1,20 @@
+[Unit]
+Description=DofeAgent Workflow Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/DofeAgent
+ExecStart=/usr/local/bin/pnpm --filter @dofe-agent/workflow-worker start
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+User=www-data
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/dofe-agent/workflow-worker.env
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

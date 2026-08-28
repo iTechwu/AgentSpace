@@ -1,0 +1,258 @@
+import { appendTaskMessageSync, failQueuedTaskSync, getDatabase, withTransaction } from "@dofe-agent/db";
+import { parseTaskPayload } from "dofe-agent-daemon";
+import type { FailTaskRequest } from "@dofe-agent/domain";
+import { continueAutoContinuationAfterTaskSync } from "@dofe-agent/services/operations";
+import { failWorkflowTaskIfLinkedSync, lockWorkflowRunForTaskIfLinkedSync } from "@dofe-agent/services/workflows";
+import { failChannelDocumentRunStepSync } from "@dofe-agent/services/documents";
+import { formatConversationFailureSummary, formatTaskFailureSummary, postMessageSync, replacePendingChannelMessageSync } from "@dofe-agent/services/messaging";
+import { handleManagedRuntimeProviderFailureAsync } from "@dofe-agent/services/runtime";
+import { queueFeishuChannelReplyOutboxSync } from "@dofe-agent/services/integrations";
+import { readWorkspaceStateSync, writeConversationExecutionWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services/workspace";
+import { resolveCompatibleDirectChannelRecord, upsertDirectConversationStateSync } from "@dofe-agent/services/channels";
+import { updateTaskStatusSync } from "@dofe-agent/services/tasks";
+import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ taskId: string }> },
+): Promise<Response> {
+  const auth = requireDaemonAuth(request);
+  if (auth instanceof Response) {
+    return auth;
+  }
+
+  const { taskId } = await context.params;
+  const task = readTaskForDaemon(taskId, auth);
+  if (task instanceof Response) {
+    return task;
+  }
+  if (task.status === "cancelled") {
+    return Response.json({ task: { id: task.id, status: task.status }, ignored: true });
+  }
+
+  const body = (await request.json()) as Partial<FailTaskRequest>;
+  if (!body.errorText?.trim()) {
+    return Response.json({ error: "errorText is required." }, { status: 400 });
+  }
+  const errorText = body.errorText.trim();
+
+  const payload = parseTaskPayload(task);
+  const workspaceState = readWorkspaceStateSync(task.workspaceId);
+  const effectiveChannelName =
+    payload.channelName
+      ?? (payload.contactId ? resolveCompatibleDirectChannelRecord(workspaceState, payload.contactId)?.name : undefined);
+  const failure = withTransaction(getDatabase(), () => {
+    const fence = lockWorkflowRunForTaskIfLinkedSync({ workspaceId: task.workspaceId, taskQueueId: task.id });
+    if (fence.ignored) return { applied: false, status: fence.taskStatus ?? task.status };
+    failQueuedTaskSync({
+      taskId: task.id,
+      errorText,
+      sessionId: body.sessionId,
+      workDir: body.workDir,
+      errorCode: body.errorCode,
+      errorCategory: body.errorCategory,
+      provider: body.provider,
+      rawProviderMessage: body.rawProviderMessage,
+    });
+    failWorkflowTaskIfLinkedSync({
+      workspaceId: task.workspaceId,
+      taskQueueId: task.id,
+      errorCode: body.errorCode,
+      errorText,
+    });
+    return { applied: true, status: "failed" };
+  });
+  if (!failure.applied) {
+    return Response.json({ task: { id: task.id, status: failure.status }, ignored: true });
+  }
+  if (payload.taskId) {
+    updateTaskStatusSync(payload.taskId, "blocked", task.workspaceId);
+  }
+  if (payload.orchestrationStepId) {
+    writeWorkspaceStateSync(
+      failChannelDocumentRunStepSync({
+        queuedTaskId: task.id,
+        errorText: body.errorText.trim(),
+      }, task.workspaceId),
+      task.workspaceId,
+    );
+  }
+  if (effectiveChannelName && payload.channel) {
+    const failureSummary = formatConversationFailureSummary({
+      agentName: payload.assignee ?? task.agentId,
+      channelName: payload.channel,
+      errorText: buildUserFacingFailureInput(body),
+      isDirectConversation: Boolean(payload.contactId),
+    });
+    replacePendingChannelMessageSync({
+      channel: payload.channel,
+      pendingSpeaker: payload.assignee ?? task.agentId,
+      pendingTaskId: task.id,
+      speaker: "系统提示",
+      role: "agent",
+      summary: failureSummary,
+      status: "error",
+      conversationId: payload.conversationId,
+    }, task.workspaceId);
+    for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      workspaceId: task.workspaceId,
+      channelName: payload.channel,
+      text: failureSummary,
+      sourceDofeAgentMessageId: payload.sourceMessageId,
+    })) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: statusMessage,
+      });
+    }
+    writeConversationExecutionWorkspaceStateSync({
+      channelName: payload.channel,
+      agentId: payload.assignee ?? task.agentId,
+      contactId: payload.contactId,
+      conversationId: payload.conversationId,
+      sessionId: body.sessionId,
+      workDir: body.workDir,
+      lastTaskQueueId: task.id,
+      lastError: body.errorText.trim(),
+    }, task.workspaceId);
+    if (payload.contactId) {
+      upsertDirectConversationStateSync(
+        {
+          contactId: payload.contactId,
+          sessionId: body.sessionId,
+          workDir: body.workDir,
+        },
+        task.workspaceId,
+      );
+    }
+  } else if (payload.contactId) {
+    writeConversationExecutionWorkspaceStateSync({
+      channelName: effectiveChannelName ?? payload.channel ?? payload.contactId,
+      agentId: payload.contactId,
+      contactId: payload.contactId,
+      conversationId: payload.conversationId,
+      sessionId: body.sessionId,
+      workDir: body.workDir,
+      lastTaskQueueId: task.id,
+      lastError: body.errorText.trim(),
+    }, task.workspaceId);
+    upsertDirectConversationStateSync(
+      {
+        contactId: payload.contactId,
+        sessionId: body.sessionId,
+        workDir: body.workDir,
+      },
+      task.workspaceId,
+    );
+  } else if (payload.channel) {
+    const failureSummary = formatTaskFailureSummary({
+      title: payload.title || task.id,
+      errorText: buildUserFacingFailureInput(body),
+    });
+    postMessageSync({
+      channel: payload.channel,
+      speaker: "系统提示",
+      role: "agent",
+      summary: failureSummary,
+      status: "error",
+    }, task.workspaceId);
+    for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      workspaceId: task.workspaceId,
+      channelName: payload.channel,
+      text: failureSummary,
+      sourceDofeAgentMessageId: payload.sourceMessageId,
+    })) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: statusMessage,
+      });
+    }
+    writeConversationExecutionWorkspaceStateSync({
+      channelName: payload.channel,
+      agentId: payload.assignee ?? task.agentId,
+      conversationId: payload.conversationId,
+      sessionId: body.sessionId,
+      workDir: body.workDir,
+      lastTaskQueueId: task.id,
+      lastError: body.errorText.trim(),
+    }, task.workspaceId);
+  }
+  tryContinueAutoContinuation({
+    taskId: task.id,
+    workspaceId: task.workspaceId,
+    sessionId: body.sessionId,
+    workDir: body.workDir,
+  });
+
+  const recovery = body.runtimeCredentialId
+    ? await handleManagedRuntimeProviderFailureAsync({
+        workspaceId: task.workspaceId,
+        runtimeId: task.runtimeId,
+        sourceTaskId: task.id,
+        reportedCredentialId: body.runtimeCredentialId,
+        errorCode: body.errorCode,
+      }).catch(() => undefined)
+    : undefined;
+
+  return Response.json({
+    task: {
+      id: task.id,
+      status: "failed",
+      errorText: body.errorText.trim(),
+    },
+    recovery: recovery ? { status: recovery.status } : undefined,
+  });
+}
+
+function enqueueFeishuReplyOutboxBestEffort(input: {
+  workspaceId: string;
+  channelName: string;
+  text: string;
+  dofeAgentMessageId?: string;
+  sourceDofeAgentMessageId?: string;
+}): string[] {
+  try {
+    const outboxItems = queueFeishuChannelReplyOutboxSync(input);
+    return outboxItems.length > 0 ? [`Feishu outbound queued: ${outboxItems.length} message(s).`] : [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return [`Feishu outbound enqueue failed: ${message}`];
+  }
+}
+
+function formatProviderDiagnosticMessage(body: Partial<FailTaskRequest>): string | undefined {
+  const parts = [
+    body.errorCode ? `code=${body.errorCode}` : undefined,
+    body.errorCategory ? `category=${body.errorCategory}` : undefined,
+    body.provider ? `provider=${body.provider}` : undefined,
+    body.rawProviderMessage?.trim() ? `raw=${body.rawProviderMessage.trim()}` : undefined,
+  ].filter(Boolean);
+  return parts.length > 0 ? `provider diagnostic: ${parts.join("; ")}` : undefined;
+}
+
+// The chat only receives a classified summary. Provider diagnostics remain on
+// the task record, but their recognizable signatures let us offer a recovery
+// action instead of exposing a bare CLI exit code.
+function buildUserFacingFailureInput(body: Partial<FailTaskRequest>): string {
+  return [body.errorText, formatProviderDiagnosticMessage(body)]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n");
+}
+
+function tryContinueAutoContinuation(input: {
+  taskId: string;
+  workspaceId: string;
+  sessionId?: string;
+  workDir?: string;
+}): void {
+  try {
+    continueAutoContinuationAfterTaskSync(input);
+  } catch {
+    // Failure reporting should not fail if the best-effort continuation enqueue fails.
+  }
+}

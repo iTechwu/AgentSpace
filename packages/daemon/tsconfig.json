@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "es2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "typeRoots": ["../../apps/cli/node_modules/@types"],
+    "noEmit": true,
+    "baseUrl": "../.."
+  },
+  "include": ["src/**/*.ts"]
+}

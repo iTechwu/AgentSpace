@@ -1,0 +1,97 @@
+// 域 barrel：从 src/index.ts 拆出（3.7-7），供 `@dofe-agent/services/mcp-center` 子路径与根 re-export 使用。
+
+export {
+  assertCanManageMcpCenterSync,
+  createMcpCatalogItemSync,
+  deleteMcpCatalogItemForWorkspaceSync,
+  listMcpCatalogItemsForWorkspaceSync,
+  readMcpCatalogItemForWorkspaceSync,
+  type CreateMcpCatalogItemInput,
+  type McpDeclaredTool,
+} from "./catalog.ts";
+
+export {
+  CHROME_DEVTOOLS_MCP_PACKAGE_SPEC,
+  CHROME_DEVTOOLS_MCP_SLUG,
+  CHROME_DEVTOOLS_MCP_VERSION,
+  resolveOfficialManagedStdioProfile,
+  resolveMcpRuntimeAppRequirement,
+  resolveOfficialMcpRuntimeAppRequirement,
+  syncOfficialMcpCatalogForWorkspaceSync,
+  type OfficialMcpRuntimeAppRequirement,
+  type McpRuntimeAppRequirement,
+} from "./official-catalog.ts";
+
+export {
+  claimMcpTaskSessionSync,
+  classifyVerificationOutcome,
+  completeMcpConnectionOperationWithHealthScheduleSync,
+  disableMcpConnectionSync,
+  enableMcpConnectionSync,
+  failMcpConnectionOperationWithHealthScheduleSync,
+  findMissingApprovedMcpTools,
+  listMcpConnectionActivitySync,
+  listMcpConnectionsForRuntimeServiceSync,
+  listReadyMcpConnectionsForTaskSync,
+  readMcpConnectionDetailSync,
+  removeMcpConnectionSync,
+  removeMcpConnectionAsync,
+  replaceMcpConnectionConfigSync,
+  requestMcpConnectionSync,
+  resolveClaimedMcpOperationSync,
+  reverifyMcpConnectionSync,
+  rotateMcpSecretSync,
+  rotateMcpEncryptionKeySync,
+  scheduleMcpHealthChecksSync,
+  updateMcpConnectionConfigServiceSync,
+  validateMcpConnectionForGatewaySync,
+  type McpConnectionActivity,
+  type McpConnectionDetail,
+  type McpRemovalStrategy,
+  type McpSecretFieldStatus,
+  type ReplaceMcpConnectionConfigServiceInput,
+  type RequestMcpConnectionInput,
+  type RequestMcpConnectionResult,
+  type UpdateMcpConnectionConfigServiceInput,
+} from "./connections.ts";
+
+export { isMcpRuntimeProviderEligible } from "./provider-eligibility.ts";
+
+export {
+  decryptMcpGrant,
+  decryptMcpSecret,
+  encryptMcpGrant,
+  encryptMcpSecret,
+  getMcpSecretKeyVersion,
+  isMcpInsecureLocalEndpointAllowed,
+  mcpEndpointValidationOptionsFromEnv,
+  redactMcpText,
+  redactToolInputSchema,
+  validateMcpEndpoint,
+  validateMcpResolvedAddresses,
+  type McpEndpointValidationOptions,
+} from "./security.ts";
+
+export {
+  buildMcpEgressPolicyRevision,
+  buildMcpEgressPolicySnapshot,
+  canonicalizeMcpEgressPolicyRevision,
+  digestMcpCatalogRelease,
+  digestMcpEgressPolicyRevision,
+  digestMcpPrivateCa,
+  extractMcpPrivateCaPem,
+  hashMcpEgressAuditValue,
+  isMcpEgressLeaseExpired,
+  readMcpEgressLeaseSigningKey,
+  readMcpEgressLeaseSigningSecret,
+  readMcpEgressLeaseVerificationKey,
+  signMcpEgressLease,
+  signMcpEgressLeaseForOperation,
+  signMcpEgressLeaseForTaskCall,
+  verifyMcpEgressLease,
+  type McpEgressLeaseVerificationFailure,
+  type McpEgressLeaseSigningKey,
+  type McpEgressLeaseVerificationKey,
+  type McpEgressPolicyInput,
+  type VerifiedMcpEgressLease,
+} from "./egress.ts";

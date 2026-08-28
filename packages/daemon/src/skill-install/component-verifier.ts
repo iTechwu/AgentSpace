@@ -1,0 +1,462 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, lstatSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
+import { inferSkillEntrypointRuntimeForPath } from "@dofe-agent/domain";
+import type {
+  ClaimedSkillInstallationOperation,
+  SkillComponentKind,
+  SkillComponentStatus,
+} from "@dofe-agent/domain";
+import type { SkillArtifactManifest } from "@dofe-agent/services/skills";
+import { isSkillRunnerImageAvailableLocally, resolveSkillRunnerImage } from "../skill-runner.ts";
+
+export interface ComponentVerificationResult {
+  kind: SkillComponentKind;
+  key: string;
+  status: SkillComponentStatus;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface DependencyInstallOutcome {
+  ok: boolean;
+  reason?: string;
+  /**
+   * When true, the dependency declaration is valid but this Runtime cannot
+   * satisfy it (e.g. a cataloged system binary is absent from the immutable
+   * Runner image). Maps to component status "blocked" (Runtime/admin action),
+   * not "failed" (skill defect).
+   */
+  blocked?: boolean;
+}
+
+export type SkillRunnerImageResolver = (runtime: "node" | "python" | "bash") => string | undefined;
+export type SkillRunnerImageInspector = (image: string) => boolean;
+export interface SkillRunnerSyntaxCheckInput {
+  image: string;
+  runtime: "node" | "python" | "bash";
+  artifactDir: string;
+  entrypointPath: string;
+}
+export type SkillRunnerSyntaxChecker = (
+  input: SkillRunnerSyntaxCheckInput,
+) => { ok: true } | { ok: false; error: string };
+
+const SYNTAX_CHECK_TIMEOUT_MS = 10_000;
+const MAX_TAIL_CHARS = 2_000;
+
+const SECRET_PATTERNS = [
+  /(api[_-]?key|token|secret|password|authorization)(["'\s:=]+)([^\s"',;]+)/gi,
+  /(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi,
+];
+
+/**
+ * Verifies every component declared in the claimed operation against the
+ * materialized artifact directory. Integrity failures are surfaced as
+ * component failures so the control plane can block the installation.
+ */
+export function verifySkillInstallationComponents(
+  operation: ClaimedSkillInstallationOperation,
+  artifactDir: string,
+  rootDigestMatches: boolean,
+  dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
+  resolveRunnerImage: SkillRunnerImageResolver = (runtime) => resolveSkillRunnerImage(runtime, process.env),
+  inspectRunnerImage: SkillRunnerImageInspector = isSkillRunnerImageAvailableLocally,
+  checkRunnerSyntax: SkillRunnerSyntaxChecker = runSkillRunnerSyntaxCheck,
+): ComponentVerificationResult[] {
+  if (!rootDigestMatches) {
+    return operation.components.map((component) => ({
+      kind: component.kind,
+      key: component.key,
+      status: "failed",
+      errorCode: "skill_installation.root_digest_mismatch",
+      errorMessage: "Artifact root digest does not match the claimed digest; refusing to verify components.",
+    }));
+  }
+
+  let manifest: SkillArtifactManifest;
+  try {
+    manifest = JSON.parse(operation.manifestJson) as SkillArtifactManifest;
+  } catch {
+    return operation.components.map((component) => ({
+      kind: component.kind,
+      key: component.key,
+      status: "failed",
+      errorCode: "skill_installation.invalid_manifest_json",
+      errorMessage: "Artifact manifest JSON is invalid; cannot verify components.",
+    }));
+  }
+
+  return operation.components.map((component) =>
+    verifyComponent(
+      component.kind,
+      component.key,
+      manifest,
+      artifactDir,
+      dependencyInstallResults,
+      resolveRunnerImage,
+      inspectRunnerImage,
+      checkRunnerSyntax,
+    ));
+}
+
+function verifyComponent(
+  kind: SkillComponentKind,
+  key: string,
+  manifest: SkillArtifactManifest,
+  artifactDir: string,
+  dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
+  resolveRunnerImage?: SkillRunnerImageResolver,
+  inspectRunnerImage?: SkillRunnerImageInspector,
+  checkRunnerSyntax?: SkillRunnerSyntaxChecker,
+): ComponentVerificationResult {
+  switch (kind) {
+    case "dependency":
+      return verifyDependencyComponent(key, manifest, dependencyInstallResults);
+    case "script":
+      return verifyScriptComponent(
+        key,
+        manifest,
+        artifactDir,
+        resolveRunnerImage!,
+        inspectRunnerImage!,
+        checkRunnerSyntax!,
+      );
+    case "cli":
+    case "mcp":
+      return verifyCapabilityComponent(kind, key, manifest);
+    case "service":
+      // Services are control-plane-decided: the daemon cannot verify a managed
+      // service container, so it reports `pending` and the control plane overrides
+      // the component from the skill_service_binding state on completion.
+      return {
+        kind,
+        key,
+        status: "pending",
+        errorCode: "skill_installation.service_control_plane_decided",
+        errorMessage: "Service readiness is decided by the control plane from the service binding state.",
+      };
+    case "egress":
+      // Egress is control-plane-decided: the daemon cannot judge first-install
+      // risk approval, so it reports `pending` and the control plane resolves the
+      // component (ready only when an approved risk decision is re-verified).
+      return {
+        kind,
+        key,
+        status: "pending",
+        errorCode: "skill_installation.service_control_plane_decided",
+        errorMessage: "Egress readiness is decided by the control plane from the first-install approval state.",
+      };
+    default:
+      return {
+        kind,
+        key,
+        status: "failed",
+        errorCode: "skill_installation.unknown_component_kind",
+        errorMessage: `Unknown component kind: ${kind}`,
+      };
+  }
+}
+
+function verifyDependencyComponent(
+  key: string,
+  manifest: SkillArtifactManifest,
+  dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
+): ComponentVerificationResult {
+  if (key === "package:integrity") {
+    return { kind: "dependency", key, status: "ready" };
+  }
+  const source = key.split(":", 1)[0];
+  if (source !== "npm" && source !== "pip" && source !== "uv" && source !== "system") {
+    return {
+      kind: "dependency",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.dependency_manager_unsupported",
+      errorMessage: `Dependency manager "${source}" requires a managed Runtime catalog resolver.`,
+    };
+  }
+  // When the daemon actually installed + verified dependencies, the install
+  // outcome is the source of truth: ready only after a real install+verify.
+  if (dependencyInstallResults) {
+    const outcome = dependencyInstallResults.get(key);
+    if (!outcome) {
+      return {
+        kind: "dependency",
+        key,
+        status: "blocked",
+        errorCode: "skill_installation.dependency_not_installed",
+        errorMessage: `Dependency "${key}" was not installed on this runtime.`,
+      };
+    }
+    if (!outcome.ok) {
+      if (outcome.blocked) {
+        return {
+          kind: "dependency",
+          key,
+          status: "blocked",
+          errorCode: "skill_installation.system_dependency_unavailable",
+          errorMessage: outcome.reason ?? `Dependency "${key}" is not satisfiable by this Runtime.`,
+        };
+      }
+      return {
+        kind: "dependency",
+        key,
+        status: "failed",
+        errorCode: "skill_installation.dependency_install_failed",
+        errorMessage: outcome.reason ?? `Dependency "${key}" install verification failed.`,
+      };
+    }
+    return { kind: "dependency", key, status: "ready" };
+  }
+  const declared = (manifest.dependencies ?? []).find((dep) =>
+    `${getDependencySource(dep)}:${dep.name}@${dep.version}` === key);
+  if (!declared) {
+    return {
+      kind: "dependency",
+      key,
+      status: "failed",
+      errorCode: "skill_installation.dependency_not_declared",
+      errorMessage: `Dependency "${key}" is not declared in the artifact manifest.`,
+    };
+  }
+  if (!declared.version) {
+    return {
+      kind: "dependency",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.dependency_version_missing",
+      errorMessage: `Dependency "${key}" is missing a locked version.`,
+    };
+  }
+  return { kind: "dependency", key, status: "ready" };
+}
+
+function getDependencySource(dep: SkillArtifactManifest["dependencies"][number]): string {
+  return (dep as { manager?: string; kind?: string }).manager ??
+    (dep as { manager?: string; kind?: string }).kind ??
+    "";
+}
+
+function verifyScriptComponent(
+  key: string,
+  manifest: SkillArtifactManifest,
+  artifactDir: string,
+  resolveRunnerImage: SkillRunnerImageResolver,
+  inspectRunnerImage: SkillRunnerImageInspector,
+  checkRunnerSyntax: SkillRunnerSyntaxChecker,
+): ComponentVerificationResult {
+  const manifestFile = manifest.files.find((file) => file.path === key);
+  if (!manifestFile) {
+    return {
+      kind: "script",
+      key,
+      status: "failed",
+      errorCode: "skill_installation.script_not_in_manifest",
+      errorMessage: `Script "${key}" is not listed in the artifact manifest.`,
+    };
+  }
+  if (manifestFile.mode !== "0755") {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.script_not_executable",
+      errorMessage: `Script "${key}" mode is ${manifestFile.mode}, expected 0755.`,
+    };
+  }
+
+  const artifactRoot = resolve(artifactDir);
+  const filePath = resolve(artifactRoot, key);
+  const relativePath = relative(artifactRoot, filePath);
+  if (!relativePath || relativePath === ".." || relativePath.startsWith("../") || isAbsolute(relativePath)) {
+    return {
+      kind: "script",
+      key,
+      status: "failed",
+      errorCode: "skill_installation.script_path_unsafe",
+      errorMessage: `Script "${key}" escapes the materialized artifact directory.`,
+    };
+  }
+  if (!existsSync(filePath)) {
+    return {
+      kind: "script",
+      key,
+      status: "failed",
+      errorCode: "skill_installation.script_missing",
+      errorMessage: `Script "${key}" was not materialized.`,
+    };
+  }
+
+  const stat = lstatSync(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    return {
+      kind: "script",
+      key,
+      status: "failed",
+      errorCode: "skill_installation.script_not_file",
+      errorMessage: `Script "${key}" is not a trusted regular file.`,
+    };
+  }
+
+  if ((stat.mode & 0o111) === 0) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.script_not_executable",
+      errorMessage: `Script "${key}" does not have an executable bit after materialization.`,
+    };
+  }
+
+  // Shared extension→runtime inference: the syntax check must run in the same
+  // Runner image the provider projection will execute this script in.
+  const runtime = inferSkillEntrypointRuntimeForPath(key);
+  if (!runtime) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.script_runtime_unsupported",
+      errorMessage: `Script "${key}" does not use a supported Node.js, Python, or Bash runtime.`,
+    };
+  }
+  const runnerImage = resolveRunnerImage(runtime);
+  if (!runnerImage) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_runner.image_not_configured",
+      errorMessage: `No immutable ${runtime} Skill Runner image is configured on this Runtime.`,
+    };
+  }
+  if (!inspectRunnerImage(runnerImage)) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_runner.image_unavailable",
+      errorMessage: `Immutable ${runtime} Skill Runner image is not available locally on this Runtime.`,
+    };
+  }
+  const syntaxResult = checkRunnerSyntax({
+    image: runnerImage,
+    runtime,
+    artifactDir: resolve(artifactDir),
+    entrypointPath: key,
+  });
+  if (!syntaxResult.ok) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.script_syntax_error",
+      errorMessage: `Script "${key}" syntax check failed in the immutable Runner image: ${tailAndRedact(syntaxResult.error)}`,
+    };
+  }
+
+  return { kind: "script", key, status: "ready" };
+}
+
+function verifyCapabilityComponent(
+  kind: "cli" | "mcp",
+  key: string,
+  manifest: SkillArtifactManifest,
+): ComponentVerificationResult {
+  const slug = key.slice(kind.length + 1);
+  const declared = (manifest.capabilities ?? []).find(
+    (cap) => (cap.kind === "cli" ? "cli" : "mcp") === kind && cap.catalogSlug === slug,
+  );
+  if (!declared) {
+    return {
+      kind,
+      key,
+      status: "failed",
+      errorCode: "skill_installation.capability_not_declared",
+      errorMessage: `${kind.toUpperCase()} capability "${slug}" is not declared in the artifact manifest.`,
+    };
+  }
+  return { kind, key, status: "ready" };
+}
+
+export function buildSkillRunnerSyntaxCheckDockerArgs(input: SkillRunnerSyntaxCheckInput): string[] {
+  if (!/@sha256:[a-f0-9]{64}$/i.test(input.image)) {
+    throw new Error("Skill Runner syntax image must be pinned by an immutable digest.");
+  }
+  const artifactDir = resolve(input.artifactDir);
+  if (!isAbsolute(input.artifactDir) || /[\r\n,]/.test(artifactDir)) {
+    throw new Error("Skill Runner syntax artifact path is unsafe.");
+  }
+  const entrypointPath = input.entrypointPath.replace(/\\/g, "/").replace(/^\.\//, "");
+  const resolvedEntrypoint = resolve(artifactDir, entrypointPath);
+  const relativeEntrypoint = relative(artifactDir, resolvedEntrypoint);
+  if (!entrypointPath || relativeEntrypoint === ".." || relativeEntrypoint.startsWith("../") || isAbsolute(relativeEntrypoint)) {
+    throw new Error("Skill Runner syntax entrypoint path is unsafe.");
+  }
+  const containerPath = `/skill/${entrypointPath}`;
+  const command = input.runtime === "bash"
+    ? ["bash", "-n", containerPath]
+    : input.runtime === "node"
+      ? ["node", "--check", containerPath]
+      : [
+          "python3",
+          "-c",
+          "import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').read(), filename=sys.argv[1])",
+          containerPath,
+        ];
+  return [
+    "run", "--rm", "--pull", "never",
+    "--read-only", "--network", "none",
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
+    "--user", "65532:65532",
+    "--pids-limit", "32",
+    "--memory", "128m",
+    "--memory-swap", "128m",
+    "--cpus", "0.25",
+    "--mount", `type=bind,src=${artifactDir},dst=/skill,readonly`,
+    input.image,
+    ...command,
+  ];
+}
+
+export function runSkillRunnerSyntaxCheck(
+  input: SkillRunnerSyntaxCheckInput,
+): { ok: true } | { ok: false; error: string } {
+  let args: string[];
+  try {
+    args = buildSkillRunnerSyntaxCheckDockerArgs(input);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  const result = spawnSync(/*turbopackIgnore: true*/ process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
+    env: {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      DOCKER_HOST: process.env.DOCKER_HOST,
+    },
+    encoding: "utf8",
+    timeout: SYNTAX_CHECK_TIMEOUT_MS,
+    maxBuffer: 64 * 1024,
+  });
+
+  if (result.error) {
+    return { ok: false, error: result.error.message };
+  }
+  if (result.status !== 0) {
+    const output = tailAndRedact(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+    return { ok: false, error: output || `exited with code ${result.status}` };
+  }
+  return { ok: true };
+}
+
+function tailAndRedact(value: string): string {
+  let output = value.slice(-MAX_TAIL_CHARS);
+  for (const pattern of SECRET_PATTERNS) {
+    output = output.replace(pattern, (_match, prefix: string, separator?: string) =>
+      separator ? `${prefix}${separator}[REDACTED]` : `${prefix}[REDACTED]`,
+    );
+  }
+  return output.trim() || "(no output)";
+}

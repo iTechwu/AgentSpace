@@ -1,0 +1,24 @@
+{
+  "name": "@dofe-agent/domain",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "sh -c 'node --experimental-strip-types --test --test-concurrency=1 src/*.test.ts' --",
+    "types": "tsc -p tsconfig.types.json --incremental false"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./workspace": {
+      "types": "./dist-types/workspace.d.ts",
+      "default": "./src/workspace.ts"
+    }
+  },
+  "engines": {
+    "node": "^25.9.0"
+  }
+}

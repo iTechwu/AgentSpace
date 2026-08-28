@@ -1,0 +1,1008 @@
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { MessageChannel, Worker, receiveMessageOnPort, type MessagePort } from "node:worker_threads";
+import {
+  getPostgresSchemaStatements,
+  POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID,
+  POSTGRES_SCHEMA_ADVISORY_LOCK_IDS,
+  POSTGRES_SCHEMA_VERSION,
+} from "./postgres-schema.ts";
+import { redactPostgresDatabaseUrl, resolvePostgresDatabaseUrl } from "./postgres-config.ts";
+
+const DATA_DIR = "data";
+export const DEFAULT_WORKSPACE_ID = "default";
+
+const WORKER_REQUEST_TIMEOUT_MS = resolveWorkerRequestTimeoutMs();
+const WORKER_WAIT_SLICE_MS = 50;
+const POSTGRES_SCHEMA_LOCK_TIMEOUT_MS = resolveSchemaLockTimeoutMs();
+const POSTGRES_SCHEMA_LOCK_RETRY_MS = 100;
+// 测试可注入更短的超时以模拟「迁移锁被其他进程占用」的瞬时失败；生产路径保持默认值。
+let schemaLockTimeoutMsOverrideForTests: number | null = null;
+
+export function setSchemaLockTimeoutMsForTests(ms: number | null): void {
+  schemaLockTimeoutMsOverrideForTests = ms;
+}
+const WORKER_SIGNAL_BUFFER = new SharedArrayBuffer(4);
+const WORKER_SIGNAL = new Int32Array(WORKER_SIGNAL_BUFFER);
+const POSTGRES_SYNC_WORKER_SOURCE = String.raw`
+const { parentPort, workerData } = require("node:worker_threads");
+const { Client, types } = require(workerData.pgModulePath);
+const responseSignal = new Int32Array(workerData.responseSignalBuffer);
+
+types.setTypeParser(types.builtins.JSON, (value) => value);
+types.setTypeParser(types.builtins.JSONB, (value) => value);
+types.setTypeParser(types.builtins.DATE, (value) => value);
+types.setTypeParser(types.builtins.TIMESTAMP, normalizeTimestampValue);
+types.setTypeParser(types.builtins.TIMESTAMPTZ, normalizeTimestampValue);
+types.setTypeParser(types.builtins.INT8, (value) => Number(value));
+
+let port = null;
+let client = null;
+let connectedDatabaseUrl = null;
+
+function normalizeTimestampValue(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
+parentPort?.on("message", (message) => {
+  if (!isPortMessage(message)) {
+    return;
+  }
+
+  port = message.port;
+  port.on("message", (request) => {
+    void handleRequest(request);
+  });
+  port.start();
+});
+
+async function handleRequest(message) {
+  if (!port || !isWorkerRequest(message)) {
+    return;
+  }
+
+  const request = message;
+  const response = {
+    requestId: request.requestId,
+    ok: true,
+  };
+
+  try {
+    if (request.action === "close") {
+      await closeClient();
+      response.value = { closed: true };
+    } else if (request.action === "exec") {
+      const db = await ensureClient(request.databaseUrl);
+      await db.query(normalizeExecSql(request.sql));
+      response.value = { rowCount: 0, rows: [] };
+    } else {
+      const db = await ensureClient(request.databaseUrl);
+      const result = await db.query(request.sql, request.params);
+      response.value = {
+        rowCount: result.rowCount ?? 0,
+        rows: normalizeRows(result.rows),
+      };
+    }
+  } catch (error) {
+    response.ok = false;
+    response.error = serializeError(error);
+  }
+
+  postResponse(response);
+}
+
+function postResponse(response) {
+  port.postMessage(response);
+  Atomics.add(responseSignal, 0, 1);
+  Atomics.notify(responseSignal, 0, 1);
+}
+
+async function ensureClient(databaseUrl) {
+  if (client && connectedDatabaseUrl === databaseUrl) {
+    return client;
+  }
+
+  await closeClient();
+  client = new Client({
+    connectionString: databaseUrl,
+  });
+  await client.connect();
+  connectedDatabaseUrl = databaseUrl;
+  return client;
+}
+
+async function closeClient() {
+  if (!client) {
+    connectedDatabaseUrl = null;
+    return;
+  }
+
+  const activeClient = client;
+  client = null;
+  connectedDatabaseUrl = null;
+  await activeClient.end();
+}
+
+function normalizeExecSql(sql) {
+  const trimmed = sql.trim();
+  if (/^BEGIN\\s+IMMEDIATE$/i.test(trimmed)) {
+    return "BEGIN";
+  }
+  return sql;
+}
+
+function serializeError(error) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    name: "Error",
+    message: String(error),
+  };
+}
+
+function isPortMessage(value) {
+  return typeof value === "object" && value !== null && "port" in value;
+}
+
+function isWorkerRequest(value) {
+  if (typeof value !== "object" || value === null || !("requestId" in value) || !("action" in value)) {
+    return false;
+  }
+
+  return typeof value.requestId === "string"
+    && (value.action === "exec" || value.action === "query" || value.action === "close");
+}
+// 行键规范化只保留机械 snake→camel 一条路径：camelCase 输出别名已在 SQL
+// 侧全部加引号（PG 保留大小写，见 postgres-alias-drift-guard.test.ts），
+// 历史上用于恢复 PG 小写折叠的 404 条人工别名表已随 3.2-3 删除。
+function normalizeRows(rows) {
+  return rows.map((row) => normalizeRow(row));
+}
+
+function normalizeRow(row) {
+  const normalized = { ...row };
+  for (const [key, value] of Object.entries(row)) {
+    const normalizedKey = normalizeRowKey(key);
+    if (normalizedKey && !(normalizedKey in normalized)) {
+      normalized[normalizedKey] = value;
+    }
+  }
+  return normalized;
+}
+
+function normalizeRowKey(key) {
+  return key.includes("_") ? key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase()) : undefined;
+}
+`;
+
+export interface PreparedStatementResult {
+  changes: number;
+}
+
+export interface PreparedStatementLike {
+  all(...params: unknown[]): Array<Record<string, unknown>>;
+  get(...params: unknown[]): Record<string, unknown> | undefined;
+  run(...params: unknown[]): PreparedStatementResult;
+}
+
+export interface PostgresSyncDatabase {
+  exec(sql: string): void;
+  prepare(sql: string): PreparedStatementLike;
+  close(): void;
+}
+
+type WorkerSuccessPayload = {
+  rowCount?: number;
+  rows?: Array<Record<string, unknown>>;
+};
+
+type WorkerResponse = {
+  requestId: string;
+  ok: boolean;
+  value?: WorkerSuccessPayload;
+  error?: {
+    name: string;
+    message: string;
+    stack?: string;
+  };
+};
+
+let database: PostgresSyncDatabase | null = null;
+let databaseUrl: string | null = null;
+let worker: Worker | null = null;
+let requestPort: MessagePort | null = null;
+let schemaEnsuredForUrl: string | null = null;
+let concurrentIndexEnsuredForUrl: string | null = null;
+let workerFailure: Error | null = null;
+let workerGeneration = 0;
+
+type ConcurrentIndexBuilder = (databaseUrl: string) => Promise<void>;
+
+async function defaultConcurrentIndexBuilder(databaseUrl: string): Promise<void> {
+  // Dynamic import avoids a static database.ts <-> postgres.ts cycle.
+  const { ensurePostgresConcurrentIndexes } = await import("./postgres.ts");
+  await ensurePostgresConcurrentIndexes({ databaseUrl });
+}
+
+let concurrentIndexBuilder: ConcurrentIndexBuilder = defaultConcurrentIndexBuilder;
+
+/**
+ * 在线条引（CREATE INDEX CONCURRENTLY）不能在请求路径的同步 worker 内执行：大表建索引
+ * 会超过 worker 请求超时且无法取消，导致首请求失败并泄漏 advisory lock。这里在 getDatabase
+ * 完成 schema ensure 后，用独立异步 pg 连接（无超时上限、被 advisory lock 串行化）后台构建。
+ * 按 URL memoize，每进程只触发一次，不阻塞请求。失败清 memo——CREATE INDEX CONCURRENTLY
+ * 对正常读写安全，且清 memo 后可由同进程下次 getDatabase 重入重试（而非只能等下次冷启动）。
+ */
+function triggerConcurrentIndexBuild(databaseUrl: string): void {
+  if (!databaseUrl || concurrentIndexEnsuredForUrl === databaseUrl) {
+    return;
+  }
+  concurrentIndexEnsuredForUrl = databaseUrl;
+  void concurrentIndexBuilder(databaseUrl)
+    .catch((error) => {
+      // 失败清 memo：使下次 getDatabase 重新发起后台构建（Standards #4）。仅在 memo 仍指向本 URL
+      // 时清，避免误清后续其它 URL 的 memo。成功路径 memo 持久化，保留每进程一次去重。
+      if (concurrentIndexEnsuredForUrl === databaseUrl) {
+        concurrentIndexEnsuredForUrl = null;
+      }
+      console.warn(
+        `[db] background concurrent index build failed for ${redactPostgresDatabaseUrl(databaseUrl)}: `
+          + `${(error as Error).message ?? error}`,
+      );
+    });
+}
+
+export function triggerConcurrentIndexBuildForTests(
+  databaseUrl: string,
+  builder?: ConcurrentIndexBuilder,
+): void {
+  if (builder) {
+    concurrentIndexBuilder = builder;
+  }
+  triggerConcurrentIndexBuild(databaseUrl);
+}
+
+export function resetConcurrentIndexBuildForTests(): void {
+  concurrentIndexEnsuredForUrl = null;
+  concurrentIndexBuilder = defaultConcurrentIndexBuilder;
+}
+
+/**
+ * 仅供测试：仅注入 builder 而不立即触发（与 triggerConcurrentIndexBuildForTests 的「注入即触发」不同），
+ * 用于断言真实 getDatabase() 路径（而非直接调用 trigger）何时重新发起后台构建。
+ */
+export function setConcurrentIndexBuilderForTests(builder: ConcurrentIndexBuilder): void {
+  concurrentIndexBuilder = builder;
+}
+
+export function getDatabase(): PostgresSyncDatabase {
+  const nextDatabaseUrl = resolvePostgresDatabaseUrl();
+  // Fast path: same connection whose schema has already been validated this
+  // process, with a healthy worker. schemaEnsuredForUrl is the gate — a
+  // connection whose ensureRuntimeSchema threw must NOT be returned here
+  // without re-validation, or the process serves requests on an un-migrated
+  // schema (the post-migration-failure connection caching bug).
+  if (
+    database
+    && databaseUrl === nextDatabaseUrl
+    && schemaEnsuredForUrl === nextDatabaseUrl
+    && isWorkerReady()
+  ) {
+    // 快路径也须重入后台在线索引构建：若上一次后台构建失败已清 memo，此处重新发起；
+    // memo 仍命中时 triggerConcurrentIndexBuild 内部短路（一次字符串比较），零开销。
+    // 旧 bug：快路径在此直接 return，清空的 memo 永不重新触发，只能等下次冷启动（Standards #4）。
+    triggerConcurrentIndexBuild(nextDatabaseUrl);
+    return database;
+  }
+
+  // Reuse the existing worker/connection when only schema validation is still
+  // pending (e.g. a previous call threw on a transient schema-lock timeout).
+  // Only tear down + recreate when the URL changed or the worker is broken —
+  // tearing down on every transient lock timeout would respawn the worker
+  // thread on each request while the lock stays contended.
+  if (!(database && databaseUrl === nextDatabaseUrl && isWorkerReady())) {
+    closeDatabase();
+    databaseUrl = nextDatabaseUrl;
+    database = createPostgresSyncDatabase(nextDatabaseUrl);
+  }
+
+  // Validate (idempotent + memoized via schemaEnsuredForUrl). On success the
+  // fast path returns directly on the next call. On failure it throws;
+  // schemaEnsuredForUrl stays unset so the next call re-validates rather than
+  // returning an unvalidated connection. The candidate is retained so
+  // transient failures retry without respawning the worker.
+  ensureRuntimeSchema(database);
+  triggerConcurrentIndexBuild(nextDatabaseUrl);
+  return database;
+}
+
+/**
+ * 仅供测试：观察 getDatabase 的连接缓存状态，用于断言「迁移失败后不缓存未校验连接」。
+ */
+export function getDatabaseCacheStateForTests(): {
+  hasDatabase: boolean;
+  databaseUrl: string | null;
+  schemaEnsuredForUrl: string | null;
+  concurrentIndexEnsuredForUrl: string | null;
+} {
+  return {
+    hasDatabase: database !== null,
+    databaseUrl,
+    schemaEnsuredForUrl,
+    concurrentIndexEnsuredForUrl,
+  };
+}
+
+function isWorkerReady(): boolean {
+  return Boolean(worker && requestPort && !workerFailure);
+}
+
+export function getDataDirPath(): string {
+  const dirPath = join(resolveRepositoryRoot(), DATA_DIR);
+  if (!existsSync(dirPath)) {
+    mkdirSync(dirPath, { recursive: true });
+  }
+  return dirPath;
+}
+
+export function getWorkspaceDataDirPath(workspaceId = DEFAULT_WORKSPACE_ID): string {
+  const dirPath = join(getDataDirPath(), "workspaces", workspaceId);
+  if (!existsSync(dirPath)) {
+    mkdirSync(dirPath, { recursive: true });
+  }
+  return dirPath;
+}
+
+export function getDatabaseConnectionLabel(): string {
+  return redactPostgresDatabaseUrl(resolvePostgresDatabaseUrl());
+}
+
+export function resetDatabaseForTests(): void {
+  closeDatabase();
+}
+
+let transactionDepth = 0;
+
+export function withTransaction<T>(db: PostgresSyncDatabase, work: () => T): T {
+  const depth = transactionDepth;
+  const savepoint = `dofe_transaction_${depth}`;
+  if (depth === 0) {
+    db.exec("BEGIN");
+  } else {
+    db.exec(`SAVEPOINT ${savepoint}`);
+  }
+  transactionDepth += 1;
+  try {
+    const result = work();
+    transactionDepth -= 1;
+    if (depth === 0) {
+      db.exec("COMMIT");
+    } else {
+      db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+    }
+    return result;
+  } catch (error) {
+    transactionDepth -= 1;
+    if (depth === 0) {
+      db.exec("ROLLBACK");
+    } else {
+      db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+      db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+    }
+    throw error;
+  }
+}
+
+export function countRows(db: PostgresSyncDatabase, tableName: string): number {
+  const row = db.prepare(`SELECT COUNT(*)::int AS count FROM ${tableName}`).get() as { count: number } | undefined;
+  return typeof row?.count === "number" ? row.count : 0;
+}
+
+export function readMetadataValue(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+  key: string,
+): string | undefined {
+  const row = db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value;
+}
+
+export function randomLikeId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function resolveRepositoryRoot(): string {
+  const candidates = [
+    process.env.DOFE_AGENT_REPOSITORY_ROOT,
+    /*turbopackIgnore: true*/ process.cwd(),
+    join(/*turbopackIgnore: true*/ process.cwd(), ".."),
+    join(/*turbopackIgnore: true*/ process.cwd(), "..", ".."),
+  ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+
+  for (const candidate of candidates) {
+    const resolved = resolve(candidate);
+    if (existsSync(/*turbopackIgnore: true*/ join(resolved, "Target.md"))) {
+      return resolved;
+    }
+  }
+
+  return /*turbopackIgnore: true*/ process.cwd();
+}
+
+function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
+  const currentUrl = databaseUrl;
+  if (!currentUrl || schemaEnsuredForUrl === currentUrl) {
+    return;
+  }
+
+  // 无锁快速路径（冷启动绝大多数情况）：schema 已是当前版本、或比实例更新时，不取任何 advisory lock，
+  // 直接 memo 返回。审查 Round 4 的关键——避免冷启动竞争后台维护锁 117 / 迁移锁 [115,116]，从而不
+  // 重新引入「长维护阻塞第二实例冷启动」的回归（架构契约 03-技术架构文档.md:125）。
+  // 顺序：先判「库比实例新」→前向跳过，再判「库与实例一致」→memo，与历史锁内实现语义一致。
+  if (isDatabaseSchemaNewerThanInstance(db)) {
+    // Forward-only protection: a newer schema_version means a newer instance has
+    // already migrated this database. An older instance (e.g. 114/115 restarting
+    // after a 116 rollout) must NOT run its older migration or write the version
+    // back down. Skip migration entirely and treat the database as current.
+    console.warn(
+      `[db] skipping runtime schema migration: database schema_version is newer than `
+        + `instance version ${POSTGRES_SCHEMA_VERSION}; treating as current.`,
+    );
+    schemaEnsuredForUrl = currentUrl;
+    return;
+  }
+  if (isRuntimeSchemaCurrent(db)) {
+    schemaEnsuredForUrl = currentUrl;
+    return;
+  }
+
+  // 迁移路径（schema 过期，罕见——版本升级后首次启动）。统一串行边界：先取后台维护锁 117，再取迁移锁
+  // [115,116]。锁顺序恒为 117→[115,116]，无反向获取 → 无死锁。
+  //
+  // 117 用单次 pg_try_advisory_lock（非阻塞型 pg_advisory_lock）：本函数在 getDatabase 请求路径同步
+  // 执行，阻塞型 pg_advisory_lock(117) 会让 worker 线程无限挂起、触发 WORKER_REQUEST_TIMEOUT_MS（默认
+  // 10s）级联杀连接重建——正是要避免的冷启动故障。单次 try 失败立即抛错，getDatabase 不 memo 但保留
+  // 候选连接（见 database-getdatabase-cache 语义），下次请求重试（代价仅为两次纯读查询 + 一次 try 117）。
+  // 117 与 [115,116] 的超时预算不叠加：117 try 瞬间，[115,116] 才用 ~9s 超时，总等待 ≈ 9s 不超 worker 预算。
+  const acquiredMaintenanceLock = db.prepare("SELECT pg_try_advisory_lock(?) AS acquired").get(
+    POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID,
+  ) as { acquired?: boolean } | undefined;
+  if (acquiredMaintenanceLock?.acquired !== true) {
+    throw new Error(
+      `PostgreSQL background maintenance lock (${POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID}) is busy; `
+        + "another instance may be running schema migration or backfill. Retry the request shortly "
+        + `(instance schema version ${POSTGRES_SCHEMA_VERSION}).`,
+    );
+  }
+
+  let transactionStarted = false;
+  try {
+    acquireRuntimeSchemaLock(db);
+    try {
+      // [115,116] 锁内复检：消除「117→[115,116] 之间」及「无锁检查→取锁」的 TOCTOU 窗口——最内层锁后的
+      // 复检覆盖所有外层窗口。
+      if (isDatabaseSchemaNewerThanInstance(db)) {
+        console.warn(
+          `[db] skipping runtime schema migration (in-lock): database schema_version is newer than `
+            + `instance version ${POSTGRES_SCHEMA_VERSION}; treating as current.`,
+        );
+        schemaEnsuredForUrl = currentUrl;
+        return;
+      }
+      if (!isRuntimeSchemaCurrent(db)) {
+        db.exec("BEGIN");
+        transactionStarted = true;
+        for (const statement of getPostgresSchemaStatements()) {
+          db.exec(statement);
+        }
+        db.prepare(
+          `INSERT INTO app_metadata (key, value)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+         WHERE EXCLUDED.value ~ '^\d+$'
+           AND (app_metadata.value !~ '^\d+$' OR app_metadata.value::bigint <= EXCLUDED.value::bigint)`,
+        ).run("schema_version", POSTGRES_SCHEMA_VERSION);
+        seedDefaultWorkspace(db);
+        db.exec("COMMIT");
+        transactionStarted = false;
+      }
+      schemaEnsuredForUrl = currentUrl;
+    } catch (error) {
+      if (transactionStarted) {
+        db.exec("ROLLBACK");
+      }
+      throw error;
+    } finally {
+      for (const lockId of [...POSTGRES_SCHEMA_ADVISORY_LOCK_IDS].reverse()) {
+        db.prepare("SELECT pg_advisory_unlock(?) AS released").get(lockId);
+      }
+    }
+  } finally {
+    db.prepare("SELECT pg_advisory_unlock(?) AS released").get(POSTGRES_BACKGROUND_MAINTENANCE_LOCK_ID);
+  }
+}
+
+interface RuntimeSchemaLockOptions {
+  timeoutMs?: number;
+  retryMs?: number;
+  now?: () => number;
+  sleep?: (durationMs: number) => void;
+}
+
+export function acquireRuntimeSchemaLockForTests(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+  options: RuntimeSchemaLockOptions = {},
+): { attempts: number } {
+  return acquireRuntimeSchemaLock(db, options);
+}
+
+function acquireRuntimeSchemaLock(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+  options: RuntimeSchemaLockOptions = {},
+): { attempts: number } {
+  const timeoutMs = options.timeoutMs ?? schemaLockTimeoutMsOverrideForTests ?? POSTGRES_SCHEMA_LOCK_TIMEOUT_MS;
+  const retryMs = options.retryMs ?? POSTGRES_SCHEMA_LOCK_RETRY_MS;
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? sleepSync;
+  const startedAt = now();
+  let attempts = 0;
+
+  while (true) {
+    attempts += 1;
+    const acquiredLockIds: number[] = [];
+    let allLocksAcquired = true;
+    for (const lockId of POSTGRES_SCHEMA_ADVISORY_LOCK_IDS) {
+      const row = db.prepare("SELECT pg_try_advisory_lock(?) AS acquired").get(lockId) as
+        | { acquired?: boolean }
+        | undefined;
+      if (row?.acquired !== true) {
+        allLocksAcquired = false;
+        break;
+      }
+      acquiredLockIds.push(lockId);
+    }
+    if (allLocksAcquired) {
+      return { attempts };
+    }
+    for (const lockId of acquiredLockIds.reverse()) {
+      db.prepare("SELECT pg_advisory_unlock(?) AS released").get(lockId);
+    }
+
+    const elapsedMs = Math.max(0, now() - startedAt);
+    if (elapsedMs >= timeoutMs) {
+      throw new Error(
+        `PostgreSQL schema migration lock is busy after ${timeoutMs}ms. `
+        + `Another DofeAgent process may be initializing schema version ${POSTGRES_SCHEMA_VERSION}; `
+        + "wait for it to finish or stop the stale process before rerunning the command.",
+      );
+    }
+
+    sleep(Math.min(retryMs, timeoutMs - elapsedMs));
+  }
+}
+
+function sleepSync(durationMs: number): void {
+  if (durationMs <= 0) {
+    return;
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs);
+}
+
+export function isRuntimeSchemaCurrentForTests(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+): boolean {
+  // 用显式别名 AS present 读取——真实 PG 对裸 SELECT 1 返回的列名为 "?column?" 而非 "1"，
+  // 按 row["1"] 读取恒为 undefined，会误判 schema 未就绪、令无锁快速路径与前向守卫失效。
+  const table = db.prepare(
+    `SELECT 1 AS present
+     FROM information_schema.tables
+     WHERE table_schema = current_schema()
+       AND table_name = 'app_metadata'`,
+  ).get() as { present?: number } | undefined;
+  if (table?.present !== 1) {
+    return false;
+  }
+  if (readMetadataValue(db, "schema_version") !== POSTGRES_SCHEMA_VERSION) {
+    return false;
+  }
+  // Sentinel: if a known recently-added column is missing, the schema version
+  // row was bumped without running the full migration. Force re-application.
+  const sentinel = db.prepare(
+    `SELECT 1 AS present
+     FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'agent_task_queue'
+       AND column_name = 'binding_generation'`,
+  ).get() as { present?: number } | undefined;
+  return sentinel?.present === 1;
+}
+
+function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
+  return isRuntimeSchemaCurrentForTests(db);
+}
+
+/**
+ * Forward-only guard: true when the database's schema_version is strictly newer
+ * than this instance's POSTGRES_SCHEMA_VERSION. In that case the instance must not
+ * migrate or write the version down (prevents a restarting older instance from
+ * downgrading a database already migrated by a newer instance during a rollout).
+ * A missing app_metadata table (fresh database) or a non-numeric version is
+ * treated as "not newer" so a normal upward migration can proceed.
+ */
+export function isDatabaseSchemaNewerThanInstanceForTests(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+): boolean {
+  const table = db.prepare(
+    `SELECT 1 AS present
+     FROM information_schema.tables
+     WHERE table_schema = current_schema()
+       AND table_name = 'app_metadata'`,
+  ).get() as { present?: number } | undefined;
+  if (table?.present !== 1) {
+    return false;
+  }
+  const databaseVersion = readMetadataValue(db, "schema_version");
+  if (!databaseVersion) {
+    return false;
+  }
+  const databaseNumeric = Number.parseInt(databaseVersion, 10);
+  const instanceNumeric = Number.parseInt(POSTGRES_SCHEMA_VERSION, 10);
+  if (!Number.isFinite(databaseNumeric) || !Number.isFinite(instanceNumeric)) {
+    return false;
+  }
+  return databaseNumeric > instanceNumeric;
+}
+
+function isDatabaseSchemaNewerThanInstance(db: PostgresSyncDatabase): boolean {
+  return isDatabaseSchemaNewerThanInstanceForTests(db);
+}
+
+function seedDefaultWorkspace(db: PostgresSyncDatabase): void {
+  const existingWorkspace = db.prepare("SELECT 1 FROM workspace WHERE id = ? LIMIT 1").get(DEFAULT_WORKSPACE_ID);
+  if (existingWorkspace) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (
+       id, slug, name, created_by, created_at, updated_at, archived_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+  ).run(DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_ID, "Dofe Agent", "", now, now);
+}
+
+function createPostgresSyncDatabase(currentDatabaseUrl: string): PostgresSyncDatabase {
+  ensureWorker();
+
+  return {
+    exec(sql: string): void {
+      void callWorker({
+        action: "exec",
+        databaseUrl: currentDatabaseUrl,
+        sql,
+      });
+    },
+    prepare(sql: string): PreparedStatementLike {
+      const convertedSql = convertSqliteParameters(sql);
+      const execute = (params: unknown[]): WorkerSuccessPayload => callWorker({
+        action: "query",
+        databaseUrl: currentDatabaseUrl,
+        sql: convertedSql,
+        params,
+      });
+      return {
+        all(...params: unknown[]): Array<Record<string, unknown>> {
+          const result = execute(params);
+          return result.rows ?? [];
+        },
+        get(...params: unknown[]): Record<string, unknown> | undefined {
+          const result = execute(params);
+          return result.rows?.[0];
+        },
+        run(...params: unknown[]): PreparedStatementResult {
+          const result = execute(params);
+          return {
+            changes: result.rowCount ?? 0,
+          };
+        },
+      };
+    },
+    close(): void {
+      closeDatabase();
+    },
+  };
+}
+
+function closeDatabase(): void {
+  database = null;
+  databaseUrl = null;
+  schemaEnsuredForUrl = null;
+  concurrentIndexEnsuredForUrl = null;
+  workerFailure = null;
+  workerGeneration += 1;
+
+  if (requestPort) {
+    try {
+      requestPort.postMessage({
+        requestId: `close-${Date.now()}`,
+        action: "close",
+      });
+    } catch {
+      // Ignore worker shutdown errors during reset/teardown.
+    }
+    requestPort.close();
+    requestPort = null;
+  }
+
+  if (worker) {
+    void worker.terminate();
+    worker = null;
+  }
+}
+
+function ensureWorker(): void {
+  if (isWorkerReady()) {
+    return;
+  }
+
+  if (requestPort) {
+    requestPort.close();
+    requestPort = null;
+  }
+  if (worker) {
+    void worker.terminate();
+    worker = null;
+  }
+
+  const generation = workerGeneration + 1;
+  workerGeneration = generation;
+  workerFailure = null;
+  const nextWorker = new Worker(POSTGRES_SYNC_WORKER_SOURCE, {
+    eval: true,
+    execArgv: [],
+    workerData: {
+      pgModulePath: resolvePgModulePath(),
+      responseSignalBuffer: WORKER_SIGNAL_BUFFER,
+    },
+  });
+  const channel = new MessageChannel();
+  nextWorker.unref();
+  channel.port1.unref();
+  nextWorker.on("error", (error) => {
+    if (workerGeneration === generation) {
+      workerFailure = normalizeWorkerFailure(error);
+    }
+  });
+  nextWorker.on("exit", (code) => {
+    if (workerGeneration !== generation) {
+      return;
+    }
+
+    if (requestPort === channel.port1) {
+      requestPort.close();
+      requestPort = null;
+    }
+    if (worker === nextWorker) {
+      worker = null;
+    }
+    if (!workerFailure) {
+      workerFailure = new Error(`PostgreSQL runtime worker exited unexpectedly with code ${code}.`);
+    }
+  });
+  nextWorker.postMessage({ port: channel.port2 }, [channel.port2]);
+  worker = nextWorker;
+  requestPort = channel.port1;
+  requestPort.start();
+}
+
+function callWorker(input: {
+  action: "exec" | "query";
+  databaseUrl: string;
+  sql: string;
+  params?: unknown[];
+}): WorkerSuccessPayload {
+  if (!isWorkerReady()) {
+    ensureWorker();
+  }
+
+  if (!requestPort) {
+    throw new Error("PostgreSQL runtime worker is not initialized.");
+  }
+
+  const activeWorker = worker;
+  const activePort = requestPort;
+  const requestId = createHash("sha1").update(`${Date.now()}:${Math.random()}`).digest("hex");
+  const startedAt = Date.now();
+  let signalVersion = Atomics.load(WORKER_SIGNAL, 0);
+  activeWorker?.ref();
+  activePort.ref();
+
+  try {
+    activePort.postMessage({
+      requestId,
+      action: input.action,
+      databaseUrl: input.databaseUrl,
+      sql: input.sql,
+      params: input.params ?? [],
+    });
+
+    while (true) {
+      if (workerFailure) {
+        throw workerFailure;
+      }
+      if (Date.now() - startedAt > WORKER_REQUEST_TIMEOUT_MS) {
+        throw new Error(
+          `PostgreSQL runtime worker timed out after ${WORKER_REQUEST_TIMEOUT_MS}ms `
+          + `while running ${input.action}: ${formatSqlPreview(input.sql)}.`,
+        );
+      }
+
+      const message = receiveMessageOnPort(activePort);
+      if (!message) {
+        const remainingTime = WORKER_REQUEST_TIMEOUT_MS - (Date.now() - startedAt);
+        if (remainingTime <= 0) {
+          continue;
+        }
+        Atomics.wait(WORKER_SIGNAL, 0, signalVersion, Math.min(remainingTime, WORKER_WAIT_SLICE_MS));
+        signalVersion = Atomics.load(WORKER_SIGNAL, 0);
+        continue;
+      }
+
+      const response = message.message as WorkerResponse;
+      if (response.requestId !== requestId) {
+        continue;
+      }
+
+      if (!response.ok) {
+        throw deserializeWorkerError(response.error);
+      }
+
+      return response.value ?? {};
+    }
+  } finally {
+    activePort.unref();
+    activeWorker?.unref();
+  }
+}
+
+function resolvePgModulePath(): string {
+  const candidates = [
+    join(resolveRepositoryRoot(), "packages", "db", "package.json"),
+    resolveLocalDbPackageJsonPath(),
+  ];
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return createRequire(candidate).resolve("pg");
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Could not resolve pg module.");
+}
+
+function normalizeFsPath(pathname: string): string {
+  return pathname.startsWith("/@fs/") ? pathname.slice("/@fs".length) : pathname;
+}
+
+function resolveLocalDbPackageJsonPath(): string {
+  const packageUrl = new URL("../package.json", import.meta.url);
+  if (packageUrl.protocol === "file:") {
+    return normalizeFsPath(fileURLToPath(packageUrl));
+  }
+  return normalizeFsPath(packageUrl.pathname);
+}
+
+function resolveWorkerRequestTimeoutMs(): number {
+  const parsed = Number.parseInt(process.env.DOFE_AGENT_DB_WORKER_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+}
+
+function resolveSchemaLockTimeoutMs(): number {
+  const parsed = Number.parseInt(process.env.DOFE_AGENT_DB_SCHEMA_LOCK_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : Math.max(1_000, WORKER_REQUEST_TIMEOUT_MS - 1_000);
+}
+
+function normalizeWorkerFailure(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(String(error));
+}
+
+function formatSqlPreview(sql: string): string {
+  const compactSql = sql.replace(/\s+/g, " ").trim();
+  return compactSql.length > 160 ? `${compactSql.slice(0, 157)}...` : compactSql;
+}
+
+function deserializeWorkerError(error: WorkerResponse["error"]): Error {
+  const nextError = new Error(error?.message ?? "Unknown PostgreSQL worker error.");
+  nextError.name = error?.name ?? "Error";
+  if (error?.stack) {
+    nextError.stack = error.stack;
+  }
+  return nextError;
+}
+
+function convertSqliteParameters(sql: string): string {
+  let index = 0;
+  let result = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let position = 0; position < sql.length; position += 1) {
+    const current = sql[position];
+    const next = sql[position + 1];
+
+    if (inLineComment) {
+      result += current;
+      if (current === "\n") {
+        inLineComment = false;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      result += current;
+      if (current === "*" && next === "/") {
+        result += next;
+        position += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && current === "-" && next === "-") {
+      result += current + next;
+      position += 1;
+      inLineComment = true;
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && current === "/" && next === "*") {
+      result += current + next;
+      position += 1;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (current === "'" && !inDoubleQuote) {
+      result += current;
+      if (next === "'" && inSingleQuote) {
+        result += next;
+        position += 1;
+        continue;
+      }
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (current === '"' && !inSingleQuote) {
+      result += current;
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (current === "?" && !inSingleQuote && !inDoubleQuote) {
+      index += 1;
+      result += `$${index}`;
+      continue;
+    }
+
+    result += current;
+  }
+
+  return result;
+}

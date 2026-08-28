@@ -1,0 +1,781 @@
+import type {
+  ClaimManagedProvisioningTaskResponse,
+  ClaimManagedSkillServiceOperationResponse,
+  ClaimMcpConnectionOperationResponse,
+  ClaimMcpTaskSessionResponse,
+  ClaimRuntimeAppOperationResponse,
+  ClaimSkillInstallationOperationResponse,
+  ClaimTaskResponse,
+  CompleteManagedSkillServiceOperationRequest,
+  FailManagedSkillServiceOperationRequest,
+  ClaimWorkspaceMountOperationResponse,
+  CompleteManagedProvisioningStageRequest,
+  CompleteManagedProvisioningStageResponse,
+  CompleteManagedRuntimeCleanupRequest,
+  CompleteMcpConnectionOperationRequest,
+  CompleteRuntimeAppOperationRequest,
+  CompleteSkillInstallationOperationRequest,
+  CompleteTaskRequest,
+  CompleteWorkspaceMountOperationRequest,
+  CreateRuntimeApprovalRequest,
+  CreateRuntimeApprovalResponse,
+  DaemonTaskMessageInput,
+  DaemonTaskInputBundle,
+  DaemonTaskOutputBundle,
+  FailManagedProvisioningStageRequest,
+  FailManagedProvisioningStageResponse,
+  FailMcpConnectionOperationRequest,
+  FailRuntimeAppOperationRequest,
+  FailSkillInstallationOperationRequest,
+  FailTaskRequest,
+  FailWorkspaceMountOperationRequest,
+  GetRuntimeApprovalResponse,
+  GetDaemonTaskStatusResponse,
+  HeartbeatDaemonResponse,
+  HeartbeatDaemonRequest,
+  ManagedCredentialBundleDocument,
+  McpToolAuditReport,
+  RegisterDaemonRequest,
+  RegisterDaemonResponse,
+  ReportMcpToolAuditsResponse,
+  ReportOpenMontageJobRequest,
+  ReportOpenMontageJobResponse,
+  ReportSkillRunnerInvocationsResponse,
+  ReportTaskMessagesRequest,
+  ReportTaskUsagesRequest,
+  ReportTaskUsagesResponse,
+  SkillRunnerInvocationReport,
+  StartMcpConnectionOperationRequest,
+  UpdateMcpConnectionOperationStageRequest,
+  StartRuntimeAppOperationRequest,
+  UpdateRuntimeAppOperationStageRequest,
+  StartSkillInstallationOperationRequest,
+  ValidateMcpConnectionForTaskRequest,
+  ValidateMcpConnectionForTaskResponse,
+} from "./daemon-api.ts";
+
+export type {
+  ClaimManagedProvisioningTaskResponse,
+  ClaimMcpConnectionOperationResponse,
+  ClaimMcpTaskSessionResponse,
+  ClaimRuntimeAppOperationResponse,
+  ClaimSkillInstallationOperationResponse,
+  ClaimTaskResponse,
+  ClaimWorkspaceMountOperationResponse,
+  CompleteManagedProvisioningStageRequest,
+  CompleteManagedProvisioningStageResponse,
+  CompleteManagedRuntimeCleanupRequest,
+  CompleteMcpConnectionOperationRequest,
+  CompleteRuntimeAppOperationRequest,
+  CompleteSkillInstallationOperationRequest,
+  CompleteTaskRequest,
+  CompleteWorkspaceMountOperationRequest,
+  CreateRuntimeApprovalRequest,
+  CreateRuntimeApprovalResponse,
+  DaemonTaskInputBundle,
+  DaemonTaskOutputBundle,
+  FailManagedProvisioningStageRequest,
+  FailManagedProvisioningStageResponse,
+  FailMcpConnectionOperationRequest,
+  FailRuntimeAppOperationRequest,
+  FailSkillInstallationOperationRequest,
+  FailTaskRequest,
+  FailWorkspaceMountOperationRequest,
+  GetRuntimeApprovalResponse,
+  GetDaemonTaskStatusResponse,
+  HeartbeatDaemonResponse,
+  HeartbeatDaemonRequest,
+  ManagedCredentialBundleDocument,
+  McpToolAuditReport,
+  RegisterDaemonRequest,
+  RegisterDaemonResponse,
+  ReportMcpToolAuditsResponse,
+  ReportOpenMontageJobRequest,
+  ReportOpenMontageJobResponse,
+  ReportSkillRunnerInvocationsResponse,
+  ReportTaskMessagesRequest,
+  ReportTaskUsagesRequest,
+  ReportTaskUsagesResponse,
+  SkillRunnerInvocationReport,
+  StartMcpConnectionOperationRequest,
+  StartRuntimeAppOperationRequest,
+  StartSkillInstallationOperationRequest,
+} from "./daemon-api.ts";
+
+/**
+ * Raised when the server rejects the daemon's bearer token (HTTP 401/403).
+ * This is a fatal, non-recoverable condition: the token is missing, invalid, or
+ * revoked, so the daemon must stop polling and prompt the operator to re-register
+ * rather than spamming the server with requests that will never succeed.
+ */
+export class DaemonAuthError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "DaemonAuthError";
+    this.status = status;
+  }
+}
+
+/**
+ * Raised when the targeted runtime/task/operation no longer exists on the server
+ * (HTTP 404). The caller should drop that resource from its poll set and continue;
+ * the heartbeat reconciliation prunes deleted runtimes on the next successful beat.
+ */
+export class DaemonResourceGoneError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "DaemonResourceGoneError";
+    this.status = status;
+  }
+}
+
+/**
+ * Raised when a runtime is not currently eligible to claim work (HTTP 409).
+ * This is scoped to one runtime and must not prevent the node from polling
+ * other runtimes that may be online.
+ */
+export class DaemonRuntimeUnavailableError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "DaemonRuntimeUnavailableError";
+    this.status = status;
+  }
+}
+
+export class HttpDaemonClient {
+  private readonly serverUrl: string;
+  private readonly daemonToken: string;
+  private readonly retryDelayMs: number;
+  private readonly maxRetryAttempts: number;
+  private readonly requestTimeoutMs: number;
+  private readonly blobTransferTimeoutMs: number;
+
+  constructor(
+    serverUrl: string,
+    daemonToken: string,
+    options?: {
+      retryDelayMs?: number;
+      maxRetryAttempts?: number;
+      requestTimeoutMs?: number;
+      blobTransferTimeoutMs?: number;
+    },
+  ) {
+    this.serverUrl = serverUrl;
+    this.daemonToken = daemonToken;
+    this.retryDelayMs = options?.retryDelayMs ?? 250;
+    this.maxRetryAttempts = Math.max(1, options?.maxRetryAttempts ?? 3);
+    this.requestTimeoutMs = Math.max(1_000, options?.requestTimeoutMs ?? 10_000);
+    // Blob transfers carry whole workspace archives; they need a much longer
+    // ceiling than JSON requests, but must still abort instead of hanging forever.
+    this.blobTransferTimeoutMs = Math.max(1_000, options?.blobTransferTimeoutMs ?? 300_000);
+  }
+
+  async register(request: RegisterDaemonRequest): Promise<RegisterDaemonResponse> {
+    return this.postJson("/api/daemon/register", request);
+  }
+
+  async sendHeartbeat(daemonKey: string): Promise<HeartbeatDaemonResponse> {
+    return this.postJson("/api/daemon/heartbeat", { daemonKey }, { retryable: true });
+  }
+
+  async sendHeartbeatWithMetadata(
+    daemonKey: string,
+    metadata: Record<string, unknown>,
+    runtimes?: HeartbeatDaemonRequest["runtimes"],
+  ): Promise<HeartbeatDaemonResponse> {
+    return this.postJson("/api/daemon/heartbeat", { daemonKey, metadata, runtimes }, { retryable: true });
+  }
+
+  async claimTask(runtimeId: string): Promise<ClaimTaskResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/tasks/claim`, {}, { retryable: true });
+  }
+
+  async claimRuntimeAppOperation(runtimeId: string): Promise<ClaimRuntimeAppOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/apps/operations/claim`, {}, { retryable: true });
+  }
+
+  async startRuntimeAppOperation(operationId: string, body: StartRuntimeAppOperationRequest = {}): Promise<void> {
+    await this.postJson(`/api/daemon/runtime-app-operations/${encodeURIComponent(operationId)}/start`, body);
+  }
+
+  async updateRuntimeAppOperationStage(operationId: string, body: UpdateRuntimeAppOperationStageRequest): Promise<void> {
+    await this.postJson(`/api/daemon/runtime-app-operations/${encodeURIComponent(operationId)}/stage`, body);
+  }
+
+  async completeRuntimeAppOperation(operationId: string, body: CompleteRuntimeAppOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/runtime-app-operations/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async failRuntimeAppOperation(operationId: string, body: FailRuntimeAppOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/runtime-app-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimMcpConnectionOperation(runtimeId: string): Promise<ClaimMcpConnectionOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/mcp-operations/claim`, {}, { retryable: true });
+  }
+
+  async startMcpConnectionOperation(operationId: string, body: StartMcpConnectionOperationRequest = {}): Promise<void> {
+    await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/start`, body);
+  }
+
+  async updateMcpConnectionOperationStage(operationId: string, body: UpdateMcpConnectionOperationStageRequest): Promise<void> {
+    await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/stage`, body);
+  }
+
+  async completeMcpConnectionOperation(operationId: string, body: CompleteMcpConnectionOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async failMcpConnectionOperation(operationId: string, body: FailMcpConnectionOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimSkillInstallationOperation(runtimeId: string): Promise<ClaimSkillInstallationOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/skill-operations/claim`, {}, { retryable: true });
+  }
+
+  async startSkillInstallationOperation(operationId: string, body: StartSkillInstallationOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/start`, body);
+  }
+
+  /**
+   * Heartbeat for the operation lease. Returns false when the lease was lost
+   * (crash recovery re-queued the op) — the caller must abort execution.
+   */
+  async renewSkillInstallationOperationLease(operationId: string, claimGeneration: number): Promise<boolean> {
+    try {
+      await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/renew-lease`, { claimGeneration });
+      return true;
+    } catch (error) {
+      if (error instanceof DaemonRuntimeUnavailableError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async completeSkillInstallationOperation(operationId: string, body: CompleteSkillInstallationOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async failSkillInstallationOperation(operationId: string, body: FailSkillInstallationOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimSkillServiceOperation(runtimeId: string): Promise<ClaimManagedSkillServiceOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/skill-services/operations/claim`, {}, { retryable: true });
+  }
+
+  async startSkillServiceOperation(operationId: string, claimGeneration: number): Promise<void> {
+    await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/start`, { claimGeneration });
+  }
+
+  async renewSkillServiceOperationLease(operationId: string, claimGeneration: number): Promise<boolean> {
+    try {
+      await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/renew-lease`, { claimGeneration });
+      return true;
+    } catch (error) {
+      if (error instanceof DaemonRuntimeUnavailableError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async completeSkillServiceOperation(operationId: string, body: CompleteManagedSkillServiceOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async getSkillServiceSecrets(operationId: string, claimGeneration: number): Promise<Record<string, string>> {
+    const payload = await this.getJson<{ secrets: Record<string, string> }>(
+      `/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/secrets?claimGeneration=${claimGeneration}`,
+      { retryable: true },
+    );
+    return payload.secrets;
+  }
+
+  async failSkillServiceOperation(operationId: string, body: FailManagedSkillServiceOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimWorkspaceMountOperation(runtimeId: string): Promise<ClaimWorkspaceMountOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/workspace-mounts/claim`, {}, { retryable: true });
+  }
+
+  async startWorkspaceMountOperation(operationId: string, claimGeneration: number): Promise<void> {
+    await this.postJson(
+      `/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/start`,
+      { claimGeneration },
+      { retryable: true },
+    );
+  }
+
+  async renewWorkspaceMountOperationLease(operationId: string, claimGeneration: number): Promise<boolean> {
+    try {
+      await this.postJson(
+        `/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/renew-lease`,
+        { claimGeneration },
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof DaemonRuntimeUnavailableError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async completeWorkspaceMountOperation(operationId: string, body: CompleteWorkspaceMountOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async failWorkspaceMountOperation(operationId: string, body: FailWorkspaceMountOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimMcpTaskSession(taskId: string, attemptId: string): Promise<ClaimMcpTaskSessionResponse> {
+    // attemptId makes the claim idempotent under HTTP retry: the server replays
+    // the cached first result for the same attemptId, so a lost response does
+    // not degrade the task to "no MCP".
+    return this.postJson(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-session`,
+      { attemptId },
+      { retryable: true },
+    );
+  }
+
+  async validateMcpConnectionForTask(
+    taskId: string,
+    connectionId: string,
+    body: ValidateMcpConnectionForTaskRequest,
+  ): Promise<ValidateMcpConnectionForTaskResponse> {
+    return this.postJson(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-connections/${encodeURIComponent(connectionId)}/validate`,
+      body,
+      { retryable: true },
+    );
+  }
+
+  async reportMcpToolAudits(taskId: string, audits: McpToolAuditReport[]): Promise<void> {
+    if (audits.length === 0) return;
+    const response = await this.postJson<ReportMcpToolAuditsResponse>(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-tool-audits`,
+      { audits },
+      { retryable: true },
+    );
+    const accepted = new Set(response.acceptedEventIds);
+    for (const audit of audits) {
+      if (!accepted.has(audit.eventId)) {
+        throw new Error(`MCP audit server did not acknowledge ${audit.eventId}.`);
+      }
+    }
+  }
+
+  async reportOpenMontageJob(
+    taskId: string,
+    body: ReportOpenMontageJobRequest,
+  ): Promise<ReportOpenMontageJobResponse> {
+    return this.postJson(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/openmontage/jobs`,
+      body,
+      { retryable: true },
+    );
+  }
+
+  async reportSkillRunnerInvocations(taskId: string, invocations: SkillRunnerInvocationReport[]): Promise<void> {
+    if (invocations.length === 0) return;
+    const response = await this.postJson<ReportSkillRunnerInvocationsResponse>(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/skill-runner-invocations`,
+      { invocations },
+      { retryable: true },
+    );
+    const accepted = new Set(response.acceptedEventIds);
+    for (const invocation of invocations) {
+      if (!accepted.has(invocation.eventId)) {
+        throw new Error(`Skill runner invocation server did not acknowledge ${invocation.eventId}.`);
+      }
+    }
+  }
+
+  async startTask(taskId: string): Promise<void> {
+    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/start`, {});
+  }
+
+  async getInputBundle(taskId: string): Promise<DaemonTaskInputBundle> {
+    return this.getJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/input-bundle`, { retryable: true });
+  }
+
+  async getTaskStatus(taskId: string): Promise<GetDaemonTaskStatusResponse> {
+    return this.getJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/status`, { retryable: true });
+  }
+
+  async getWorkspaceBlob(taskId: string, revisionId: string, sha256: string): Promise<Uint8Array> {
+    const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}?revisionId=${encodeURIComponent(revisionId)}`;
+    return this.requestBlobWithRetry(
+      path,
+      "Workspace blob download failed.",
+      (signal) => ({ method: "GET", headers: this.buildHeaders(), signal }),
+      async (response) => {
+        if (!response.ok) await this.readJson<never>(response);
+        return new Uint8Array(await response.arrayBuffer());
+      },
+    );
+  }
+
+  async getWorkspaceBlobRange(taskId: string, revisionId: string, sha256: string, start: number, end: number): Promise<Uint8Array> {
+    const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}?revisionId=${encodeURIComponent(revisionId)}`;
+    return this.requestBlobWithRetry(
+      path,
+      "Workspace blob range download failed.",
+      (signal) => ({
+        method: "GET",
+        headers: {
+          ...this.buildHeaders(),
+          range: `bytes=${start}-${end}`,
+        },
+        signal,
+      }),
+      async (response) => {
+        if (response.status === 416) {
+          throw new Error(`Workspace blob range ${start}-${end} is unsatisfiable.`);
+        }
+        if (!response.ok) await this.readJson<never>(response);
+        return new Uint8Array(await response.arrayBuffer());
+      },
+    );
+  }
+
+  async reportMessages(taskId: string, body: ReportTaskMessagesRequest): Promise<void> {
+    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/messages`, body);
+  }
+
+  openTaskMessageStream(taskId: string): {
+    write: (messages: DaemonTaskMessageInput[]) => Promise<void>;
+    close: () => Promise<void>;
+    abort: () => Promise<void>;
+  } {
+    const encoder = new TextEncoder();
+    const transport = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = transport.writable.getWriter();
+    const controller = new AbortController();
+    let closed = false;
+    let responseError: unknown;
+    const writeFrame = (frame: unknown): Promise<void> =>
+      writer.write(encoder.encode(`${JSON.stringify(frame)}\n`));
+    const responseDone = fetch(
+      this.resolveUrl(`/api/daemon/task-message-stream?taskId=${encodeURIComponent(taskId)}`),
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.daemonToken}`,
+          "content-type": "application/x-ndjson",
+        },
+        body: transport.readable,
+        duplex: "half",
+        signal: controller.signal,
+      } as RequestInit & { duplex: "half" },
+    ).then((response) => this.readJson<{ accepted: number }>(response)).then(
+      () => undefined,
+      (error) => {
+        responseError = error;
+      },
+    );
+
+    const throwIfFailed = (): void => {
+      if (responseError) throw responseError;
+    };
+    const withTimeout = async <T>(operation: Promise<T>, action: string): Promise<T> => {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          operation,
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => {
+              controller.abort();
+              reject(new Error(`Task message stream ${action} timed out.`));
+            }, this.requestTimeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    };
+    const heartbeat = setInterval(() => {
+      if (!closed) {
+        void writeFrame({ type: "ping" }).catch((error) => {
+          responseError ??= error;
+        });
+      }
+    }, 15_000);
+
+    return {
+      write: async (messages) => {
+        if (closed) throw new Error("Task message stream is already closed.");
+        if (messages.length === 0) return;
+        throwIfFailed();
+        await withTimeout(writeFrame({ messages }), "write");
+        throwIfFailed();
+      },
+      close: async () => {
+        if (!closed) {
+          closed = true;
+          clearInterval(heartbeat);
+          await withTimeout(writer.close(), "close");
+        }
+        await withTimeout(responseDone, "response");
+        throwIfFailed();
+      },
+      abort: async () => {
+        closed = true;
+        clearInterval(heartbeat);
+        controller.abort();
+        await writer.abort().catch(() => undefined);
+        await responseDone;
+      },
+    };
+  }
+
+  async reportTaskUsages(taskId: string, body: ReportTaskUsagesRequest): Promise<ReportTaskUsagesResponse> {
+    return this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/usage`, body, { retryable: true });
+  }
+
+  async createRuntimeApproval(taskId: string, body: CreateRuntimeApprovalRequest): Promise<CreateRuntimeApprovalResponse> {
+    return this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/runtime-approvals`, body);
+  }
+
+  async getRuntimeApproval(taskId: string, approvalId: string): Promise<GetRuntimeApprovalResponse> {
+    return this.getJson(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/runtime-approvals/${encodeURIComponent(approvalId)}`,
+      { retryable: true },
+    );
+  }
+
+  async uploadOutputBundle(taskId: string, bundle: DaemonTaskOutputBundle): Promise<void> {
+    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/output-bundle`, bundle);
+  }
+
+  async uploadWorkspaceBlob(taskId: string, sha256: string, bytes: Uint8Array): Promise<void> {
+    const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}`;
+    await this.requestBlobWithRetry(
+      path,
+      "Workspace blob upload failed.",
+      (signal) => ({
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${this.daemonToken}`,
+          "content-length": String(bytes.byteLength),
+          "content-type": "application/octet-stream",
+          "x-content-sha256": sha256,
+        },
+        body: Buffer.from(bytes),
+        signal,
+      }),
+      (response) => this.readJson<unknown>(response),
+    );
+  }
+
+  async completeTask(taskId: string, body: CompleteTaskRequest): Promise<void> {
+    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/complete`, body, { retryable: true });
+  }
+
+  async failTask(taskId: string, body: FailTaskRequest): Promise<void> {
+    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/fail`, body);
+  }
+
+  async claimManagedProvisioningTask(): Promise<ClaimManagedProvisioningTaskResponse> {
+    return this.postJson("/api/daemon/provisioning-tasks/claim", {}, { retryable: true });
+  }
+
+  async getManagedCredentialBundle(runtimeId: string): Promise<ManagedCredentialBundleDocument> {
+    return this.getJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/credential-bundle`, { retryable: true });
+  }
+
+  async completeManagedProvisioningStage(
+    taskId: string,
+    stage: string,
+    body: CompleteManagedProvisioningStageRequest,
+  ): Promise<CompleteManagedProvisioningStageResponse> {
+    return this.postJson(
+      `/api/daemon/provisioning-tasks/${encodeURIComponent(taskId)}/stages/${encodeURIComponent(stage)}/complete`,
+      body,
+    );
+  }
+
+  async failManagedProvisioningStage(
+    taskId: string,
+    stage: string,
+    body: FailManagedProvisioningStageRequest,
+  ): Promise<FailManagedProvisioningStageResponse> {
+    return this.postJson(
+      `/api/daemon/provisioning-tasks/${encodeURIComponent(taskId)}/stages/${encodeURIComponent(stage)}/fail`,
+      body,
+    );
+  }
+
+  async completeManagedRuntimeCleanupRequest(requestId: string, body: CompleteManagedRuntimeCleanupRequest): Promise<void> {
+    await this.postJson(
+      `/api/daemon/managed-runtime-cleanup-requests/${encodeURIComponent(requestId)}/complete`,
+      body,
+    );
+  }
+
+  async failManagedRuntimeCleanupRequest(requestId: string, body: { errorCode?: string; errorMessage?: string }): Promise<void> {
+    await this.postJson(
+      `/api/daemon/managed-runtime-cleanup-requests/${encodeURIComponent(requestId)}/fail`,
+      body,
+    );
+  }
+
+  async deregister(daemonKey: string, lastError?: string): Promise<void> {
+    await this.postJson("/api/daemon/deregister", {
+      daemonKey,
+      lastError,
+    });
+  }
+
+  private async getJson<T>(path: string, options?: { retryable?: boolean }): Promise<T> {
+    return this.requestJson<T>(path, {
+      method: "GET",
+      retryable: options?.retryable,
+    });
+  }
+
+  private async postJson<T>(path: string, body: unknown, options?: { retryable?: boolean }): Promise<T> {
+    return this.requestJson<T>(path, {
+      method: "POST",
+      body: JSON.stringify(body),
+      retryable: options?.retryable,
+    });
+  }
+
+  private buildHeaders(): Record<string, string> {
+    return {
+      authorization: `Bearer ${this.daemonToken}`,
+      "content-type": "application/json",
+    };
+  }
+
+  /**
+   * Shared retry + timeout loop for the three blob-transfer methods
+   * (getWorkspaceBlob / getWorkspaceBlobRange / uploadWorkspaceBlob). Unlike
+   * requestJson (short requestTimeoutMs, JSON body), blob transfers stream
+   * payloads under the longer blobTransferTimeoutMs budget; how a response is
+   * interpreted stays with each caller so only the transport policy
+   * (AbortController lifecycle, network/timeout/5xx retry, backoff) lives here
+   * once — definitive interpret() failures (4xx semantics) do NOT retry.
+   */
+  private async requestBlobWithRetry<T>(
+    path: string,
+    fallbackError: string,
+    init: (signal: AbortSignal) => RequestInit,
+    interpret: (response: Response) => Promise<T>,
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.blobTransferTimeoutMs);
+      // Only TRANSPORT failures (network errors, timeouts, 5xx) retry. A
+      // definitive response-level failure from interpret() — 416 range,
+      // 401/403/404 semantics, malformed payload — cannot change outcome on
+      // re-send, so it propagates immediately instead of burning retries.
+      let failedInInterpret = false;
+      try {
+        const response = await fetch(this.resolveUrl(path), init(controller.signal));
+        if (response.status >= 500 && attempt < this.maxRetryAttempts) {
+          await sleep(this.retryDelayMs);
+          continue;
+        }
+        failedInInterpret = true;
+        return await interpret(response);
+      } catch (error) {
+        lastError = error;
+        if (failedInInterpret || attempt >= this.maxRetryAttempts) throw error;
+        await sleep(this.retryDelayMs);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(fallbackError);
+  }
+
+  private resolveUrl(path: string): string {
+    return new URL(path, this.serverUrl).toString();
+  }
+
+  private async requestJson<T>(
+    path: string,
+    options: {
+      method: "GET" | "POST";
+      body?: string;
+      retryable?: boolean;
+    },
+  ): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+      try {
+        const response = await fetch(this.resolveUrl(path), {
+          method: options.method,
+          headers: this.buildHeaders(),
+          body: options.body,
+          signal: controller.signal,
+        });
+
+        if (options.retryable && response.status >= 500 && attempt < this.maxRetryAttempts) {
+          await sleep(this.retryDelayMs);
+          continue;
+        }
+
+        return this.readJson<T>(response);
+      } catch (error) {
+        lastError = error;
+        if (!options.retryable || attempt >= this.maxRetryAttempts) {
+          throw error;
+        }
+        await sleep(this.retryDelayMs);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Daemon client request failed.");
+  }
+
+  private async readJson<T>(response: Response): Promise<T> {
+    if (!response.ok) {
+      let message = `${response.status} ${response.statusText}`;
+      try {
+        const payload = (await response.json()) as { error?: string };
+        if (payload.error) {
+          message = payload.error;
+        }
+      } catch {
+        // Ignore invalid error payloads.
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new DaemonAuthError(message, response.status);
+      }
+      if (response.status === 404) {
+        throw new DaemonResourceGoneError(message, response.status);
+      }
+      if (response.status === 409) {
+        throw new DaemonRuntimeUnavailableError(message, response.status);
+      }
+      throw new Error(message);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    return response.json() as Promise<T>;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

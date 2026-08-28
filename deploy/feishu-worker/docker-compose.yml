@@ -1,0 +1,14 @@
+# Compatibility deployment for a standalone worker. Do not run this together
+# with a local daemon that has DOFE_AGENT_MANAGE_FEISHU_WORKER=true.
+services:
+  feishu-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    working_dir: /srv/DofeAgent
+    command: ["pnpm", "run", "cli", "--", "integrations", "feishu", "worker"]
+    env_file:
+      - ./feishu-worker.env
+    volumes:
+      - ../..:/srv/DofeAgent

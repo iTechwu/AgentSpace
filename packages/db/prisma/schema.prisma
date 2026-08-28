@@ -1,0 +1,633 @@
+// Minimal Prisma schema for Phase 2 read-cutover domains.
+//
+// The full schema (119+ tables) lives in postgres-schema.ts and is the source
+// of truth for the runtime schema. This Prisma schema is intentionally
+// narrow: it only mirrors the four tables whose read-cutover wrappers are
+// shipped in this PR (audit-log, notifications, task-execution-events,
+// workspace-memberships) so we can demonstrate a real Prisma Client round
+// trip without standing up a full schema migration.
+//
+// When the broader Prisma migration lands, this file will be replaced by
+// the canonical schema; until then it serves as the bridge between pg.Client
+// (current Phase 2 prototype) and Prisma Client.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model WorkspaceMembership {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  userId      String   @map("user_id")
+  role        String   @default("member")
+  status      String   @default("active")
+  joinedAt    DateTime @map("joined_at") @db.Timestamptz(6)
+  invitedBy   String?  @map("invited_by")
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_membership")
+}
+
+model WorkspaceNotification {
+  id            String    @id
+  workspaceId   String    @map("workspace_id")
+  recipientType String    @map("recipient_type")
+  recipientId   String    @map("recipient_id")
+  actorType     String?   @map("actor_type")
+  actorId       String?   @map("actor_id")
+  type          String
+  resourceType  String    @map("resource_type")
+  resourceId    String?   @map("resource_id")
+  channelName   String?   @map("channel_name")
+  title         String
+  body          String
+  actionHref    String?   @map("action_href")
+  severity      String    @default("info")
+  status        String    @default("unread")
+  dedupeKey     String?   @map("dedupe_key")
+  metadataJson  Json      @default("{}") @map("metadata_json")
+  createdAt     DateTime  @map("created_at") @db.Timestamptz(6)
+  readAt        DateTime? @map("read_at") @db.Timestamptz(6)
+  archivedAt    DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@map("workspace_notification")
+}
+
+model TaskExecutionEvent {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  taskId      String   @map("task_id")
+  channelName String   @default("") @map("channel_name")
+  agentId     String   @map("agent_id")
+  runtimeId   String?  @map("runtime_id")
+  runId       String?  @map("run_id")
+  type        String
+  title       String
+  summary     String?
+  severity    String   @default("info")
+  status      String?
+  dataJson    Json     @default("{}") @map("data_json")
+  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@map("task_execution_event")
+}
+
+model AuditLog {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  title       String
+  note        String
+  code        String?
+  dataJson    Json     @default("{}") @map("data_json")
+  source      String   @default("workspace_snapshot_ledger")
+  sourceIndex Int      @default(0) @map("source_index")
+  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@map("audit_log")
+}
+
+model EmployeeRuntimeBinding {
+  workspaceId     String       @map("workspace_id")
+  employeeId      String       @map("employee_id")
+  employeeName    String       @map("employee_name")
+  runtimeId       String       @map("runtime_id")
+  runtime         AgentRuntime @relation(fields: [runtimeId], references: [id], onDelete: Cascade)
+  /// EmployeeBindingStatus: online|degraded|offline|recovering|needs_attention.
+  status          String       @default("online")
+  generation      Int          @default(1)
+  desiredProvider String?      @map("desired_provider")
+  boundAt         DateTime     @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @map("updated_at") @db.Timestamptz(6)
+
+  @@id([workspaceId, employeeId])
+  @@map("employee_runtime_binding")
+}
+
+model WorkspaceEmployee {
+  id                  String   @unique @default(dbgenerated("gen_random_uuid()"))
+  workspaceId         String   @map("workspace_id")
+  name                String
+  role                String   @default("Agent")
+  remarkName          String?  @map("remark_name")
+  origin              String   @default("manual")
+  summary             String   @default("")
+  traitsJson          Json     @default("[]") @map("traits_json")
+  fit                 String   @default("")
+  status              String   @default("active")
+  instructions        String   @default("")
+  ownerUserId         String?  @map("owner_user_id")
+  channelMemberAccess String   @default("disabled") @map("channel_member_access")
+  defaultModel        String?  @map("default_model")
+  executionPolicyJson Json     @default("{}") @map("execution_policy_json")
+  version             Int      @default(1)
+  createdAt           DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@id([workspaceId, name])
+  @@map("workspace_employee")
+}
+
+model AgentRuntime {
+  id               String                   @id
+  provider         String
+  name             String
+  employeeBindings EmployeeRuntimeBinding[]
+
+  @@map("agent_runtime")
+}
+
+model AgentTaskQueue {
+  id                     String    @id
+  workspaceId            String    @map("workspace_id")
+  /// COALESCE(employee_id, agent_id) in SQL — domain keeps both names.
+  employeeId             String?   @map("employee_id")
+  employeeName           String?   @map("employee_name")
+  /// @deprecated Legacy display-name alias. Kept for back-compat reads.
+  agentId                String    @map("agent_id")
+  runtimeId              String    @map("runtime_id")
+  runtimeCredentialId    String?   @map("runtime_credential_id")
+  routerSessionId        String?   @map("router_session_id")
+  conversationId         String?   @map("conversation_id")
+  executionLaneId        String?   @map("execution_lane_id")
+  issueId                String?   @map("issue_id")
+  triggerType            String    @default("manual") @map("trigger_type")
+  priority               Int       @default(0)
+  /// NativeTaskStatus: queued|claimed|running|preparing_commit|committed|completed|failed|cancelled.
+  status                 String
+  inputJson              Json      @default("{}") @map("input_json")
+  requestedByUserId      String?   @map("requested_by_user_id")
+  requestedByDisplayName String?   @map("requested_by_display_name")
+  resultJson             Json?     @map("result_json")
+  errorText              String?   @map("error_text")
+  sessionId              String?   @map("session_id")
+  workDir                String?   @map("work_dir")
+  bindingGeneration      Int?      @map("binding_generation")
+  queuedAt               DateTime  @map("queued_at") @db.Timestamptz(6)
+  claimedAt              DateTime? @map("claimed_at") @db.Timestamptz(6)
+  startedAt              DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt             DateTime? @map("finished_at") @db.Timestamptz(6)
+  mcpSessionClaimedAt    DateTime? @map("mcp_session_claimed_at") @db.Timestamptz(6)
+  createdAt              DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("agent_task_queue")
+}
+
+model AgentRouterSession {
+  id                   String    @id
+  workspaceId          String    @map("workspace_id")
+  agentId              String    @map("agent_id")
+  conversationKey      String?   @map("conversation_key")
+  sourceType           String    @default("task") @map("source_type")
+  status               String    @default("active")
+  title                String?
+  summary              String?
+  memorySummary        String?   @map("memory_summary")
+  modelOverride        String?   @map("model_override")
+  modelOverrideSource  String?   @map("model_override_source")
+  modelOverrideSetAt   DateTime? @map("model_override_set_at") @db.Timestamptz(6)
+  createdAt            DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @map("updated_at") @db.Timestamptz(6)
+  closedAt             DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, agentId, conversationKey])
+  @@map("agent_router_session")
+}
+
+model AgentRouterEvent {
+  id              String   @id
+  workspaceId     String   @map("workspace_id")
+  routerSessionId String   @map("router_session_id")
+  taskQueueId     String?  @map("task_queue_id")
+  attemptId       String?  @map("attempt_id")
+  type            String
+  actorType       String   @map("actor_type")
+  actorId         String?  @map("actor_id")
+  runtimeId       String?  @map("runtime_id")
+  provider        String?
+  summary         String?
+  dataJson        Json     @default("{}") @map("data_json")
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@map("agent_router_event")
+}
+
+model AgentSkill {
+  workspaceId         String   @map("workspace_id")
+  /// agent_id is the legacy display-name identity retained beside employee_id.
+  agentId             String   @map("agent_id")
+  employeeId          String   @map("employee_id")
+  employeeName        String   @map("employee_name")
+  skillId             String   @map("skill_id")
+  skillArtifactDigest String?  @map("skill_artifact_digest")
+  rolloutPin          String?  @map("rollout_pin")
+  createdAt           DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@id([workspaceId, employeeId, skillId])
+  @@map("agent_skill")
+}
+
+model KnowledgeProposal {
+  id                        String    @id
+  workspaceId               String    @map("workspace_id")
+  sourceTaskQueueId         String    @map("source_task_queue_id")
+  sourceChannelName         String?   @map("source_channel_name")
+  sourceAgentName           String    @map("source_agent_name")
+  /// KnowledgeProposalOperation: create|update|append|archive|assign.
+  operation                 String
+  /// KnowledgeProposalStatus: pending|approved|rejected|superseded|committed.
+  status                    String    @default("pending")
+  title                     String
+  contentMarkdown           String    @map("content_markdown")
+  summary                   String?
+  reason                    String?
+  tagsJson                  Json      @default("[]") @map("tags_json")
+  parentId                  String?   @map("parent_id")
+  /// KnowledgeAssignmentMode: all_agents|selected_agents.
+  assignmentMode            String    @default("selected_agents") @map("assignment_mode")
+  assignedEmployeeNamesJson Json      @default("[]") @map("assigned_employee_names_json")
+  targetKnowledgePageId     String?   @map("target_knowledge_page_id")
+  baseUpdatedAt             DateTime? @map("base_updated_at") @db.Timestamptz(6)
+  createdKnowledgePageId    String?   @map("created_knowledge_page_id")
+  approvalId                String?   @map("approval_id")
+  decidedByUserId           String?   @map("decided_by_user_id")
+  decidedAt                 DateTime? @map("decided_at") @db.Timestamptz(6)
+  reviewerComment           String?   @map("reviewer_comment")
+  createdAt                 DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("knowledge_proposal")
+}
+
+model DocumentAgentAccess {
+  id              String    @id
+  workspaceId     String    @map("workspace_id")
+  documentId      String    @map("document_id")
+  /// DocumentAgentAccessSubjectType: agent|human|system.
+  subjectType     String    @default("agent") @map("subject_type")
+  subjectId       String    @map("subject_id")
+  /// DocumentAgentAccessRole: viewer|editor|forwarder.
+  role            String
+  scope           String    @default("document")
+  grantedByUserId String    @map("granted_by_user_id")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @map("updated_at") @db.Timestamptz(6)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, documentId, subjectType, subjectId])
+  @@map("document_agent_access")
+}
+
+model DocumentPermissionRequest {
+  id                      String    @id
+  workspaceId             String    @map("workspace_id")
+  documentId              String?   @map("document_id")
+  /// DocumentPermissionRequestExternalProvider: notion|microsoft_365.
+  externalProvider        String?   @map("external_provider")
+  externalFileId          String?   @map("external_file_id")
+  externalUrl             String?   @map("external_url")
+  /// DocumentAgentAccessRole: viewer|commenter|editor|owner.
+  requestedRole           String    @map("requested_role")
+  requestedByAgentName    String    @map("requested_by_agent_name")
+  requestedForChannelName String?   @map("requested_for_channel_name")
+  triggeredByUserId       String?   @map("triggered_by_user_id")
+  reason                  String
+  /// DocumentPermissionRequestStatus: pending|approved|rejected|cancelled.
+  status                  String    @default("pending")
+  decidedByUserId         String?   @map("decided_by_user_id")
+  decisionNote            String?   @map("decision_note")
+  sourceTaskId            String?   @map("source_task_id")
+  createdAt               DateTime  @map("created_at") @db.Timestamptz(6)
+  decidedAt               DateTime? @map("decided_at") @db.Timestamptz(6)
+
+  @@map("document_permission_request")
+}
+
+model AgentAccessRequest {
+  id                  String    @id
+  workspaceId         String    @map("workspace_id")
+  sourceAgentName     String    @map("source_agent_name")
+  requesterUserId     String    @map("requester_user_id")
+  /// AgentAccessRequestType: fork_copy|channel_use.
+  requestType         String    @map("request_type")
+  targetChannelName   String?   @map("target_channel_name")
+  /// AgentAccessRequestStatus: pending|approved|rejected|cancelled.
+  status              String    @default("pending")
+  reason              String    @default("")
+  resolverUserId      String?   @map("resolver_user_id")
+  resolvedAt          DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @map("updated_at") @db.Timestamptz(6)
+  forkInvitationId    String?   @map("fork_invitation_id")
+  auditDataJson       Json      @default("{}") @map("audit_data_json")
+
+  @@map("agent_access_request")
+}
+
+model Attachment {
+  workspaceId         String    @map("workspace_id")
+  id                  String
+  /// Optional link to the channel message that owns this attachment.
+  messageId           String?   @map("message_id")
+  channelName         String?   @map("channel_name")
+  speaker             String    @default("")
+  /// "human" | "agent" | "system".
+  role                String    @default("")
+  fileName            String    @map("file_name")
+  /// MIME / media type (e.g. image/png, application/pdf).
+  mediaType           String    @map("media_type")
+  /// Legacy storage kind of the row (kept by the sync layer, unused by new code).
+  kind                String    @map("kind")
+  sizeBytes           BigInt    @default(0) @map("size_bytes")
+  /// Local storage path inside the workspace data dir.
+  storedPath          String    @map("stored_path")
+  /// Remote object-storage provider key (TOS / S3 / etc.). CHECK-constrained to 'tos'.
+  storageProvider     String    @default("tos") @map("storage_provider")
+  storageBucket       String?   @map("storage_bucket")
+  storageRegion       String?   @map("storage_region")
+  storageEndpoint     String?   @map("storage_endpoint")
+  storageKey          String    @map("storage_key")
+  storageUrl          String?   @map("storage_url")
+  /// SHA-256 content digest, hex-encoded (legacy column name sha256).
+  contentDigest       String?   @map("sha256")
+  /// Legacy column kept as TEXT by the sync layer (not a real timestamp).
+  sourceMessageTime   String?   @map("source_message_time")
+  /// Position in the owning message's attachment list (0-based).
+  sourceMessageIndex  Int       @default(0) @map("source_message_index")
+  sourceSummary       String?   @map("source_summary")
+  createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
+
+  @@id([workspaceId, id])
+  @@map("attachment")
+}
+
+model SkillServiceCatalog {
+  id                       String    @id
+  workspaceId              String    @map("workspace_id")
+  slug                     String
+  templateVersion          String    @map("template_version")
+  deploymentType           String    @map("deployment_type")
+  imageDigest              String    @map("image_digest")
+  protocol                 String    @default("http")
+  scope                    String    @default("workspace_runtime")
+  resourcesJson            Json      @default("{}") @map("resources_json")
+  healthJson               Json      @default("{}") @map("health_json")
+  networkJson              Json      @default("{}") @map("network_json")
+  configSchemaVersion      Int       @default(1) @map("config_schema_version")
+  configSchemaJson         Json      @default("{}") @map("config_schema_json")
+  secretFieldsJson         Json      @default("[]") @map("secret_fields_json")
+  externalDependenciesJson Json      @default("[]") @map("external_dependencies_json")
+  rollbackClass            String    @default("stateless") @map("rollback_class")
+  templateDigest           String    @map("template_digest")
+  sbomDigest               String?   @map("sbom_digest")
+  runAsNonRoot             Boolean   @default(false) @map("run_as_non_root")
+  readOnlyRootfs           Boolean   @default(true) @map("read_only_rootfs")
+  capDropJson              Json      @default("[\"ALL\"]") @map("cap_drop_json")
+  /// Cosign public key (PEM) trusted to sign this template's image, when enforced.
+  signatureKeyPem          String?   @map("signature_key_pem")
+  /// When true the managed node MUST verify the image signature before pulling.
+  signatureRequired        Boolean   @default(false) @map("signature_required")
+  risk                     String    @default("high")
+  createdAt                DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, slug, templateVersion])
+  @@map("skill_service_catalog")
+}
+
+model SkillDraft {
+  workspaceId      String   @map("workspace_id")
+  skillId          String   @map("skill_id")
+  draftJson        Json     @map("draft_json")
+  updatedByUserId  String?  @map("updated_by_user_id")
+  updatedAt        DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@id([workspaceId, skillId])
+  @@map("skill_draft")
+}
+
+model WorkflowDefinition {
+  id               String    @id
+  workspaceId      String    @map("workspace_id")
+  name             String
+  description      String?
+  ownerUserId      String    @map("owner_user_id")
+  channelName      String?   @map("channel_name")
+  /// "draft" | "published" | "paused" | "archived".
+  status           String    @default("draft")
+  draftGraphJson   Json      @default("{\"edges\": [], \"nodes\": [], \"schemaVersion\": 1}") @map("draft_graph_json")
+  draftVersion     Int       @default(0) @map("draft_version")
+  activeVersionId  String?   @map("active_version_id")
+  legacySourceType String?   @map("legacy_source_type")
+  legacySourceId   String?   @map("legacy_source_id")
+  createdBy        String    @map("created_by")
+  createdAt        DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @map("updated_at") @db.Timestamptz(6)
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@map("workflow_definition")
+}
+
+model ChannelParticipant {
+  id          String    @id
+  workspaceId String    @map("workspace_id")
+  channelName String    @map("channel_name")
+  userId      String    @map("user_id")
+  /// ChannelParticipantStatus: active|invited|removed.
+  status      String    @default("active")
+  addedBy     String?   @map("added_by")
+  joinedAt    DateTime  @map("joined_at") @db.Timestamptz(6)
+  removedAt   DateTime? @map("removed_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("channel_participant")
+}
+
+model ChannelAccessRequest {
+  id          String    @id
+  workspaceId String    @map("workspace_id")
+  channelName String    @map("channel_name")
+  userId      String    @map("user_id")
+  /// ChannelAccessRequestStatus: pending|approved|rejected|cancelled.
+  status      String    @default("pending")
+  requestedAt DateTime  @map("requested_at") @db.Timestamptz(6)
+  resolvedAt  DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy  String?   @map("resolved_by")
+  note        String?
+
+  @@map("channel_access_request")
+}
+
+model ChannelInvitation {
+  id              String    @id
+  workspaceId     String    @map("workspace_id")
+  channelName     String    @map("channel_name")
+  inviteeUserId   String?   @map("invitee_user_id")
+  inviteeEmail    String?   @map("invitee_email")
+  invitedBy       String    @map("invited_by")
+  /// ChannelInvitationStatus: pending|accepted|rejected|revoked|expired.
+  status          String    @default("pending")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(6)
+  respondedAt     DateTime? @map("responded_at") @db.Timestamptz(6)
+  respondedBy     String?   @map("responded_by")
+
+  @@map("channel_invitation")
+}
+
+model Skill {
+  id                   String    @id
+  workspaceId          String    @map("workspace_id")
+  name                 String
+  description          String    @default("")
+  /// Source: github|local_upload|generated|...
+  sourceType           String    @default("manual") @map("source_type")
+  sourceUrl            String?   @map("source_url")
+  configJson           Json      @default("{}") @map("config_json")
+  activeArtifactDigest String?   @map("active_artifact_digest")
+  createdAt            DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("skill")
+}
+
+model SkillFile {
+  id        String   @id
+  skillId   String   @map("skill_id")
+  path      String
+  content   String
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@map("skill_file")
+}
+
+model WorkflowRun {
+  id              String    @id
+  workspaceId     String    @map("workspace_id")
+  workflowId      String    @map("workflow_id")
+  versionId       String    @map("version_id")
+  rootTaskId      String?   @map("root_task_id")
+  triggerId       String?   @map("trigger_id")
+  triggerType     String    @map("trigger_type")
+  triggerKey      String    @map("trigger_key")
+  inputJson       Json      @default("{}") @map("input_json")
+  status          String    @default("created")
+  currentSequence Int       @default(0) @map("current_sequence")
+  budgetJson      Json      @default("{}") @map("budget_json")
+  startedAt       DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(6)
+  createdBy       String    @map("created_by")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @map("updated_at") @db.Timestamptz(6)
+  historySequence BigInt    @map("history_sequence")
+
+  @@map("workflow_run")
+}
+
+model WorkflowOutbox {
+  id           String    @id
+  workspaceId  String    @map("workspace_id")
+  aggregateType String   @map("aggregate_type")
+  aggregateId  String    @map("aggregate_id")
+  eventType    String    @map("event_type")
+  payloadJson  Json      @default("{}") @map("payload_json")
+  status       String    @default("pending")
+  attempts     Int       @default(0)
+  availableAt  DateTime  @map("available_at") @db.Timestamptz(6)
+  lockedAt     DateTime? @map("locked_at") @db.Timestamptz(6)
+  lockedBy     String?   @map("locked_by")
+  lastError    String?   @map("last_error")
+  createdAt    DateTime  @map("created_at") @db.Timestamptz(6)
+  publishedAt  DateTime? @map("published_at") @db.Timestamptz(6)
+
+  @@map("workflow_outbox")
+}
+
+model WorkflowRunEvent {
+  id          String   @id
+  workspaceId String   @map("workspace_id")
+  runId       String   @map("run_id")
+  nodeRunId   String?  @map("node_run_id")
+  sequence    Int
+  type        String
+  actorType   String   @map("actor_type")
+  actorId     String?  @map("actor_id")
+  severity    String   @default("info")
+  dataJson    Json     @default("{}") @map("data_json")
+  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@unique([runId, sequence])
+  @@map("workflow_run_event")
+}
+
+model WorkflowTrigger {
+  id                  String    @id
+  workspaceId         String    @map("workspace_id")
+  workflowId          String    @map("workflow_id")
+  type                String
+  configJson          Json      @default("{}") @map("config_json")
+  timezone            String?
+  status              String    @default("active")
+  nextFireAt          DateTime? @map("next_fire_at") @db.Timestamptz(6)
+  lastFireAt          DateTime? @map("last_fire_at") @db.Timestamptz(6)
+  misfirePolicy       String    @default("skip") @map("misfire_policy")
+  dedupeWindowSeconds Int       @default(0) @map("dedupe_window_seconds")
+  leaseOwner          String?   @map("lease_owner")
+  leaseExpiresAt      DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+  createdAt           DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("workflow_trigger")
+}
+
+model WorkflowNodeRun {
+  id                    String    @id
+  workspaceId           String    @map("workspace_id")
+  runId                 String    @map("run_id")
+  nodeId                String    @map("node_id")
+  nodeType              String    @map("node_type")
+  employeeId            String?   @map("employee_id")
+  employeeNameSnapshot  String?   @map("employee_name_snapshot")
+  status                String    @default("pending")
+  attemptCount          Int       @default(0) @map("attempt_count")
+  maxAttempts           Int       @default(1) @map("max_attempts")
+  availableAt           DateTime? @map("available_at") @db.Timestamptz(6)
+  taskQueueId           String?   @map("task_queue_id")
+  approvalId            String?   @map("approval_id")
+  approvalDeadline      DateTime? @map("approval_deadline") @db.Timestamptz(6)
+  approvalScanAfter     DateTime? @map("approval_scan_after") @db.Timestamptz(6)
+  inputJson             Json      @default("{}") @map("input_json")
+  outputJson            Json?     @map("output_json")
+  artifactManifestJson  Json?     @map("artifact_manifest_json")
+  errorCode             String?   @map("error_code")
+  errorMessage          String?   @map("error_message")
+  startedAt             DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt            DateTime? @map("finished_at") @db.Timestamptz(6)
+  createdAt             DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@map("workflow_node_run")
+}
+
+model WorkflowVersion {
+  id               String   @id
+  workspaceId      String   @map("workspace_id")
+  workflowId       String   @map("workflow_id")
+  versionNumber    Int      @map("version_number")
+  schemaVersion    Int      @map("schema_version")
+  graphJson        Json     @map("graph_json")
+  inputSchemaJson  Json     @default("{}") @map("input_schema_json")
+  outputSchemaJson Json     @default("{}") @map("output_schema_json")
+  governanceJson   Json     @default("{}") @map("governance_json")
+  contentHash      String   @map("content_hash")
+  publishedBy      String   @map("published_by")
+  publishedAt      DateTime @map("published_at") @db.Timestamptz(6)
+  createdAt        DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@map("workflow_version")
+}

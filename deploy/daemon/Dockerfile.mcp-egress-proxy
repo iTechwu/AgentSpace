@@ -1,0 +1,33 @@
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS proxy-build
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH
+
+WORKDIR /workspace
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/mcp-egress-proxy ./apps/mcp-egress-proxy
+COPY packages ./packages
+
+RUN npm install --global pnpm@10.26.2 \
+  && pnpm install --frozen-lockfile --ignore-scripts \
+  && pnpm --filter @dofe-agent/mcp-egress-proxy build
+
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
+
+RUN groupadd --gid 10001 dofe-agent \
+  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent \
+  && install -d -o dofe-agent -g dofe-agent -m 0700 /var/lib/dofe-mcp-egress
+
+COPY --from=proxy-build --chown=dofe-agent:dofe-agent /workspace/apps/mcp-egress-proxy/dist/index.js /opt/mcp-egress-proxy/index.js
+
+RUN chown -R dofe-agent:dofe-agent /home/dofe-agent
+
+ENV HOME=/home/dofe-agent \
+    NODE_ENV=production \
+    MCP_EGRESS_PROXY_PORT=8080 \
+    MCP_EGRESS_PROXY_HOST=0.0.0.0
+
+USER dofe-agent
+
+ENTRYPOINT ["node", "/opt/mcp-egress-proxy/index.js"]

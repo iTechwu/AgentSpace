@@ -1,0 +1,184 @@
+# AgentSpace（DofeAgent）深度分析与优化建议
+
+> 建立日期：2026-08-14。分析基线：`dev` 分支。
+> 范围：`apps/*` + `packages/*` + `deploy/` + `scripts/` + `docs/`，约 38 万行 TS/TSX、1,200+ 源文件、415 个测试文件。
+>
+> 本文档是「**建议 + 现状**」快照：是什么问题 / 为什么 / 怎么做。
+> **维护约定**：提交号与落地结果只进 [progress-log.md](progress-log.md)，本文档仅用状态符号（✅ 完成 · 🟡 部分完成 · ⏳ 待办 · ⏸ 明确排除/暂缓）标注现状。
+
+---
+
+## 一、项目概览
+
+### 1.1 定位与技术栈
+
+AgentSpace（代码内名 DofeAgent）是一个「人类 + Agent」协作工作空间：数字员工（Employee）作为一等公民被招募、分配、调度、授权、审计。它是 pnpm + Turborepo 的 monorepo，按「apps（可部署进程）/ packages（可复用库）」划分。
+
+> 命名说明：本仓库/部署名为 **AgentSpace**（`agentspace.dofe.ai`，GitHub 仓库 `HKUDS/AgentSpace`），代码包前缀为 **`@dofe-agent`**，产品对外品牌为 **agent.dofe**，`Target.md` 中的代码内名是 **DofeAgent**——四者指同一项目。
+
+| 维度 | 结论 |
+| --- | --- |
+| 语言/运行时 | TypeScript，Node 25.9.0（`--experimental-strip-types` 直接跑 `.ts`，**源码即运行时，无编译步骤**） |
+| 包管理 | pnpm 10.26.2 + Turborepo 2.10 |
+| Web | Next.js **16.3.0** App Router + React 19.2，**100% `force-dynamic` SSR**，零 SSG/ISR |
+| 前端 | 无 UI 库/无 Tailwind/无状态管理库，手写 CSS（BEM）+ 自研模块缓存/失效体系 |
+| 数据库 | PostgreSQL 16，**原生 `pg` + 手写 SQL（无 ORM）**，119 张表 |
+| 执行引擎 | 远程 daemon + AgentRouter（归一化 claude/codex/antigravity/opencode/openclaw/hermes 六个 harness） |
+| 测试 | node:test（`--experimental-strip-types`）+ vitest + Playwright；无独立测试 CI |
+| 部署 | GitHub Actions self-hosted → systemd；PostgreSQL/Redis/RabbitMQ 由外部基础设施托管 |
+
+### 1.2 架构分层
+
+```
+apps/web · apps/cli · apps/workflow-worker · apps/mcp-egress-proxy
+        │
+@dofe-agent/services   (业务服务层，363 文件 / 56 域模块 / 1,277 导出符号)
+        │
+@dofe-agent/db         (仓储层，130 文件，全同步 *Sync API，worker_thread 同步桥)
+        │
+@dofe-agent/domain     (纯类型/领域规则，25 文件，零依赖零运行时)
+        │
+PostgreSQL (pg)  ──  dofe-agent-daemon (远程执行底座，独立可分发产物)
+```
+
+依赖方向自顶向下、单向清晰：`apps → services → db → domain`。`daemon` 是唯一可独立打包的库（esbuild 全量 bundle 依赖进 `dist/`，tgz 压缩后 1.8MB）。
+
+### 1.3 整体评价
+
+这是一个**工程质量与代码纪律显著高于平均水平**的仓库：全库 `any` 近零、TODO/FIXME 近零、`ts-ignore/eslint-disable` 为零、结构化错误码贯穿、fail-closed 安全设计（egress 签名、凭据 vault、恢复演练、路径穿越防护）达到相当成熟度。主要问题集中在**单体文件过大、单连接串行化的 DB 访问、零代码分割、以及正在进行的 Prisma 迁移**四类「演进负债」，均属可渐进重构范围。
+
+---
+
+## 二、优化建议总览（按优先级）
+
+| 优先级 | 主题 | 一句话 | 预估成本 | 状态 |
+| --- | --- | --- | --- | --- |
+| P0 | 仓库卫生 | 删除误提交的 `-`(plist) 文件、1.8MB tgz 产物、`.DS_Store`、失效 Prisma CI | 极低 | ✅ |
+| P0 | daemon 死代码 | 删除 `provider-runtime.ts` 约 550 行未被调用的 legacy Codex/Claude 路径 | 低 | ✅ |
+| P0 | daemon-client 超时 | blob 上传/下载 fetch 无 AbortSignal，断网会无限挂起 | 低 | ✅ |
+| P0 | 测试 CI 缺失 | 生产部署不跑任何单元/集成测试，仅靠人工自觉 | 中 | ⏸ |
+| P1 | DB 异步池化 | 单连接全串行 + 每查询阻塞主线程，需引入 `pg.Pool` 异步平行路径 | 大 | ⏸ |
+| P1 | 巨型文件拆分 | 全部完成：feishu.ts 10,597 行 e4ba456、daemon.ts 2,233 行 03a3d8d、web data.ts 3,694 行 b032931、services skills/import.ts 2,305 行 7242b7e、feishu/evidence.ts 3,885 行 ee1ee98 | 中 | ✅ |
+| P1 | Web 代码分割 | 全模块静态导入，首包含 3925 行 IM 页 | 中 | ✅ |
+| P1 | 模块循环依赖 | services 内 `messages↔automations↔workflows` 等两个环 | 中 | ✅ |
+| P1 | 飞书测试游离 | 24 个测试文件（8000+ 行）不在测试门内 | 低 | ✅ |
+| P2 | 零 SSG 全动态渲染 | 全量盘点：33/34 页为鉴权/多租户固有动态（保持）；/auth/error 转静态预渲染（2985a652） | 中 | ✅ |
+| P2 | i18n 无 key | 保持内联（评估见 §3.4-6），新增静态扫描校验贴错文案（ecd7b8ef） | 中 | ✅ |
+| P2 | 构建/版本漂移 | esbuild `target` 与 engines 不一致、版本号硬编码 | 低 | ✅ |
+| P2 | sandbox 抽象虚置 | Cube `exec()` 未实现，`connectSandbox()` 无调用方 | 中 | ✅ |
+
+---
+
+## 三、分领域优化建议
+
+### 3.1 仓库卫生与工程化（P0，成本极低）—— ✅ 已完成
+
+> 本类目 7 项已全部完成；落地与复核记录见 [progress-log.md §3.1](progress-log.md)。以下保留原始问题描述。
+
+1. **删除误提交的 `-` 文件**：仓库根有一个名为 `-` 的 macOS plist（`mkcert` trustList，含本机证书指纹），是 `curl -o -` 类操作误产物，应删除并加入 `.gitignore`。
+2. **构建产物移出 git**：`dofe-agent-daemon-0.1.3.tgz`（1.8MB 二进制）自首个提交起就被跟踪，应改为通过 CI artifact 或 release 附件发布。
+3. **`.DS_Store` 入库**：`apps/.DS_Store`、`docs/.DS_Store` 等 macOS 垃圾文件应从 git 移除（复核：实际从未入库，仅存在于磁盘且被 `.gitignore` 覆盖）。
+4. **AI 规则文件重复**：`CLAUDE.md` 与 `CODEBUDDY.md`/`GEMINI.md`/`QODER.md`/`.cursorrules`/`.windsurfrules` 内容重复，应保留一份权威版本，其余改为 `@` 引用或符号链接。
+5. **失效的 Prisma CI 残留**：历史 `.github/workflows/migration-ci.yml`（watch 已不存在的 `prisma/**` 路径）是历史 Prisma 尝试的残留，应删除或停用。
+6. **根目录 AI 工作笔记**：`findings.md`/`progress.md`/`task_plan.md` 是 Prisma 迁移工作笔记，易被 `git add -A` 误提交，应移到 docs 子目录或明确 `.gitignore`。
+7. **`data/*.sqlite` 旧文件**：SQLite→PG 迁移后遗留的空 sqlite/db 文件，应清理并在文档说明产物归属。
+
+### 3.2 数据库层（db/domain）
+
+现状：无 ORM，原生 `pg`。核心机制是 `database.ts` 用 **worker_thread 内单条 `pg.Client` + 主线程 `Atomics.wait` 轮询**，把异步 PG 包装成同步 `*Sync` API（模仿 `node:sqlite` 的 `DatabaseSync`），并做 `?`→`$N` 占位符转换、snake_case→camelCase 行键归一。
+
+**这是全系统最大的结构性技术债**：services+daemon 共 220 个文件 import `@dofe-agent/db`，services 非测试代码中有 **3,020 处 `*Sync` 调用**。任何异步化/池化改造都会波及这 3000+ 调用点。
+
+1. **【P1·大】引入 `pg.Pool` 异步平行路径** ⏸ 已被 Prisma Phase 2 取代（异步化由 Prisma Client 切流承担，与 [progress-log.md](progress-log.md) 3.2-1 对齐）：当前单连接全串行、每查询主线程阻塞一次（worker 往返 + Atomics 轮询）。原建议为新增 `async getDatabaseAsync()` 平行 API；现随 Prisma 迁移推进，存量 `*Sync` 调用将整体切至 async Prisma 仓库，不再单独建设平行门面。
+2. **【P1】拆分 `postgres-schema.ts`（4,838 行）** ✅：119 张表 + 幂等 DDL 流 + 版本号 + 回填/在线索引全在一个文件。按领域（workflow/mcp/skill/token-usage/employee…）拆成多个语句数组，用有序版本化组合器拼装，保持幂等与版本号语义。
+3. **【P1】消除双重行映射** ✅：部分 SQL 用显式 `AS workspaceId`，部分用全小写别名（如 `skillartifactdigest`）依赖 worker 的 400+ 条别名表兜底。两种风格并存易漂移。建议以 schema 列名为唯一事实源，统一生成 camelCase 映射。
+4. **【P2】巨型业务模块拆分** ✅：`external-integrations.ts`(2,576)、`types.ts`(2,219，106 interface 可按模块拆后 re-export)、`mcp-center.ts`(1,467)。
+5. **【P2】类型安全加固** ✅（决策不引入，落为零依赖列名守卫）：可评估 Kysely 之类轻量 typed query builder 做列名编译期校验，降低手写 SQL 与 `types.ts` 的漂移风险（无需完整 ORM）。
+6. **【战略】Prisma 迁移已有详细方案** 🟡：`docs/0808/db_migration_to_prisma/README.md` 给出了 A→B 渐进路线（A=Prisma 只负责 schema/迁移；B=Prisma Client 与 SQL 并存按域替换），明确不建议一次性全量 Prisma Client 化。**建议**：坚持 A→B，`FOR UPDATE SKIP LOCKED`、触发器、advisory lock、在线 DDL 等高风险 SQL 继续保留原生实现。落地进度见 [progress-log.md](progress-log.md)。
+
+> 亮点（值得保留）：手写幂等 DDL + advisory lock 迁移协议 + 前向版本守卫 + `CREATE INDEX CONCURRENTLY` 后台构建 + 测试库 URL 守卫，是一套成熟的「SQLite 无缝演进到 PostgreSQL」工具链。
+
+### 3.3 业务服务层（services，363 文件 / 56 域模块）
+
+1. **【P1】拆分 `permissions.ts`（2,439 行，全包最大）** ✅：把 17+ 种数据源聚合为权限树/中心视图。`capabilities` 域已示范正确做法（facade + 4 个单职责子模块），照此拆分「数据源聚合 / 树构建 / 诊断」。
+2. **【P1】拆分 `runtime-provisioning.ts`（2,258 行）** ✅：7 阶段供给状态机，按「阶段机 / 命令构建 / 凭证恢复」分文件。
+3. **【P1】打破模块循环依赖** ✅：已核实的两个环 `messages → automations → workflows → messages` 与 `documents → notifications → messages → documents`。建议把「失败摘要格式化/状态替换」这类纯函数下沉到 `shared`，切断环。
+4. **【P1】飞书 24 个测试文件游离于测试门之外** ✅：23 个文件（12,145 行）全部纳入 services 默认测试门——19 个纯单测文件（154 测试）实跑，5 个 `*-db.test.ts`（55 测试）维持 `DOFE_AGENT_FEISHU_*_DB_TESTS=1` env 门控 skip；`verify-test-coverage.mjs` 前缀同步收编，未来新增文件不再游离。顺手修复纳门时暴露的 dev 预存回归：skill-draft Prisma 写入 jsonb 双重编码致读回 null（prisma-write-cutovers 在 HEAD 即失败）。
+5. **【P2】手写 `.d.ts` 孪生去重** ✅（删孪生，dist-types 单源）：`lark-cli.ts` 与 `lark-cli.d.ts` 各 26 个导出需人工同步，易漂移。改为单源生成或删孪生、由 `dist-types` 统一产出。
+6. **【P2】`preloaded-skill-sources.ts` 176KB 内联字符串** ✅：技能内容应外置为数据资源（JSON/独立文件），避免 diff 污染与 bundle 膨胀。
+7. **【P2】`index.ts` 巨型 barrel（1,614 行 / 1,277 符号）** ✅（1253fd31 + 84c4a3e6）：143 条 re-export 按域拆至 19 个域 barrel，根入口收敛为 22 行 `export *` 域聚合；全仓 254 文件根导入迁移至域子路径（web 163/cli 41/daemon 32，99 条跨域拆分），vitest 域别名指回根 barrel 保 32 个 mock 测试零改动。连带修复 `preloaded-skill-sources.ts` 的 `import.meta.dirname` 断裂（fdec0329，next build 全绿）。
+8. **【P2】测试门覆盖不均** ✅（52f49d7c 收尾）：`permissions`/`document-permissions`/`messages`/`notifications`/`channel-access`/`documents`/`employees`/`knowledge` 及飞书 23 文件均已纳入 services 默认测试脚本与 verify 门禁；services 门内 107 文件。纳门即暴露并修复 recovery-worker 双人审批断言漂移。
+9. **【P3】供应链** ✅（vendored file: + integrity 锁定）：`xlsx` 依赖是 CDN tarball URL（`cdn.sheetjs.com`）非 registry 包，建议评估锁定与镜像策略。
+
+### 3.4 Web 前端（apps/web，Next.js 16）
+
+1. **【P0·收益最大】拆分 `features/dashboard/data.ts`（5,737 行）** ✅：23 个服务端装配函数 + 40+ 模块公共 import 汇。按模块拆为 `features/*/server-data.ts`，每函数保留 `react cache()` 记忆化。
+2. **【P1】代码分割** ✅：`WorkspaceModuleHost` 17 个模块客户端页全部 `next/dynamic` 懒加载（32a1bb8a）；超大客户端页文件内拆分全部完成——`channels-page-client.tsx`（f06b5af）、`knowledge-page-client.tsx` 四件套（2a86a772 等 4 提交）、`conversation-shell.tsx` 1,590→1,214+275+150（139c9859，公共导入面不变）、`agent-detail.tsx` 1,657→1,296+291+51+67（9cbb98f6，纯函数与 2 个子组件移出）。
+3. **【P1】拆分 `channels-page-client.tsx`（3,925 行）** ✅（f06b5af）：拆为 2,091 行主组件 + 7 个域模块（shared/model/hooks/icons/modals/views/header）。
+4. **【P2】关闭 `next.config.mjs` 的 `typescript.ignoreBuildErrors`** ✅：原为 `true` 时构建跳过类型检查，正确性完全依赖 CI 的 `typecheck:web:only`（而 CI 不跑 typecheck）。应改为 `false` 让 `next build` 恢复类型检查，`prebuild` 继续提供更早的依赖与 Web 类型检查。
+5. **【P2】评估部分静态渲染** ✅（评估完成，结论保持 force-dynamic）：34/34 页面经 cookies/searchParams 会话门控，路由级 revalidate/SSG 结构不可用且有跨用户缓存泄漏风险；降载已由 WorkspaceModuleCache TTL 承担；升级路径 cacheComponents 需迁 120 处段配置，无实测瓶颈不启用。
+6. **【P2】i18n 无 key 体系** ✅（评估完成，保持现状）：仅 2 语言时 tx(zh,en) 内联即编译期类型安全字典；已记录 codemod 迁移路径（tx 签名不变、调用面零改动）与触发条件（第 3 语言或翻译平台协作）。
+7. **【P2】清理 "loadtest" 命名** ✅：`readLoadtest*Cache` 三处是通用 TTL 缓存（`LOADTEST_MODE` 开关），命名与实际功能脱节，重命名为 `readTtl*Cache` 语义。
+8. **【P2】统一 34 个 page.tsx 样板** ✅（d249529）：`_lib/render-workspace-module.tsx` 落地；13 个标准形态页收敛为单次调用（净删 119 行），带 searchParams/loader options 的 im/settings/contacts/agents 保持原样。
+
+> 亮点（值得保留）：服务端薄页 + 客户端胖壳 + 自研 `WorkspaceModuleCache`/失效事件体系，SSR 数据 seed 进客户端缓存实现「首屏零额外请求」；`any`/TODO/console.log 全零。
+
+### 3.5 执行引擎（daemon/sandbox）
+
+1. **【P0】删除 legacy 死代码** ✅：`provider-runtime.ts` 的 `runCodexProviderTaskAttempt` 与 `runClaudeProviderTask` 从未被调用（Codex/Claude 已全走 AgentRouter），`mapCodexExecEvent`/`mapClaudeEvent` 仅被死路径使用——约 550 行，且与 `agent-router/events.ts` 存在平行事件映射重复。
+2. **【P0】daemon-client blob 传输加超时** ✅：`getWorkspaceBlob`/`getWorkspaceBlobRange`/`uploadWorkspaceBlob` 的 fetch 没有 AbortSignal 超时（`requestJson` 有 10s），大文件传输断网会无限挂起。
+3. **【P1】版本号单一来源** ✅：`cli.ts` 硬编码 `"0.1.3"`（与 package.json 重复），建议构建注入或加测试断言。
+4. **【P1】拆分三大文件** ✅（fc3bbe0 + 2cbad3c + 4d25905）：`remote-daemon.ts`(2,178→12 模块，最大 574)、`task-context.ts`(1,544→7 模块，最大 369)、`provider-runtime.ts`(1,820→11 模块，最大 455) 全部拆毕——原文件保留为 barrel 显式重导出原公共面，外部 import 零改动。
+5. **【P1】sandbox 抽象决策收口** ✅（bbc935f）：移除未完成的 Cube provider（exec 数据面落地起未实现，双开关只会真建云沙箱后必抛）；`connectSandbox` 收口 local-only fail-closed。注：「`connectSandbox()` 无调用方」前提已过时——provider-runtime 两条执行路径一直在用 `Sandbox`/`LocalSandbox`。
+6. **【P2】构建/版本漂移** ✅（f37d5357）：esbuild `target` node20→node25（对齐根 engines ^25.9.0 与 daemon build.mjs）；5 处内联 `MANAGED_RUNTIME_IMAGE_TAG || "latest"` 收敛为 `managed-runtime-image.ts` 单点，生产未锁定 tag 回落 latest 并告警（锁 digest 走 env 即可）；4 个默认模型名去重为 `DEFAULT_MODEL_IDS` 单点（目录与 resolveModelId 兜底共用，行为不变）。
+7. **【P2】测试路径与产物不对齐** ✅（f3e623b）：`dist-smoke.test.ts` 入 daemon 测试门——每次先 esbuild 重建再加载全部 6 个 dist 入口断言导出面/`--version`。首跑即抓到真实缺口：`preloaded-skill-sources.json` 未随 bundle 输出，`dist/dofe-agent.js`（tgz 部署入口）import 即 ENOENT；build.mjs 已补拷贝。
+8. **【P2】轮询请求放大** ✅（9fd0836）：操作队列 claim 空闲背压（默认 15s ±20% 抖动，认领即重置），任务 claim 每 tick 不变；空闲稳态 6→1 请求/tick/runtime，零 API 改动。
+
+> 亮点（值得保留）：结构化错误类 + 错误码贯穿（`provider.*`/`harness.*`/`skill_runner.*`/`mcp.*`）、fail-closed 贯穿、逐 chunk 输出脱敏、Skill Runner Docker + iptables egress 双层强制、e2e docker 测试用 `DOFE_AGENT_RUN_SKILL_RUNNER_E2E=1` 门禁自动 skip。
+
+### 3.6 CLI / Worker / 出站代理 / 部署
+
+1. **【P0】测试 CI 缺失** ⏸：`deploy-production.yml` 在 push 到 `main` 时自动部署，但**只跑 preflight + build + Skill Runner egress 门禁，不跑任何单元/集成测试**；`.github/workflows` 下没有独立测试 CI。「失败禁止发布」目前只靠发布者自觉执行 `docs/0814/release-preflight-checklist.md`。**建议**：加一个 `ci.yml`（`pnpm install --frozen-lockfile` + `turbo run test --concurrency=2`，需预置测试库 URL），把 `pretest` 的两个门禁（verify-test-inventory、audit-node-engines）变成机器强制。
+2. **【P0】11k 行 `integrations.test.ts` + 844 行 `daemon.test.ts` 不在默认测试列表** ✅（aed17132）：两文件并入 apps/cli 默认测试脚本（5→7 文件，228/228 绿 ~4.8s）；前置修复 daemon dist 内联 services 附件存储导致测试 mock 注入失效（`daemon-task-output.ts` 改指 daemon src）与 `daemon-task-context.test.ts` 真实 TOS 远端删除耦合（注入内存夹具）；verify-test-inventory deferred 冻结集 173→171。
+3. **【P1】巨型文件：`apps/cli/src/commands/integrations/feishu.ts` 达 10,597 行（全仓最大单文件）** ✅（e4ba456）：声明级重组拆为 `integrations/feishu/` 下 12 个域模块（types/command/create/agent-bot/bindings/data-operations/readiness/evidence/smoke-env/smoke-plan/cli-shared/worker），原文件收敛为 barrel、72 个公共导出零改动再导出；tsc 0 错误 + integrations.test.ts 182/182。`daemon.ts` 2,233 行亦已拆为 `commands/daemon/` 6 域模块（03a3d8d）。末代产物 `feishu/evidence.ts`（3,885 行 / 137 声明）再拆为 `feishu/evidence/` 8 域模块（ee1ee98，tsc 0 错误 + 182/182）——全仓 >1500 行非测试源码至此清零。
+4. **【P1】CLI 测试脚本与 verify-test-inventory 的 default-owned 集不一致** ✅（3feec450）：补记 `task-completion-outbox`/`task-completion-token-usage` 入 apps/cli default-owned 集，重冻结 digest；核对发现 round 6 注释「179 文件」为笔误（实为 187），已勘误。
+5. **【P1】`runtime-maintenance.mjs` 用容器内自旋轮询** ✅（d132c667）：内置定时器保留自旋兜底语义，补齐 AbortSignal 超时、连续失败指数退避（封顶 10 分钟）、SIGTERM/SIGINT 优雅退出、周期性结构化心跳计数（供日志告警接入）。
+6. **【P2】多套 env 模板漂移风险** ✅（4041898）：audit-env-templates.mjs 入 pretest —— 自动发现 11 模板/186 键，键名规范+单文件重复+跨模板近重复三类强制；4 对合法共存入豁免表。不做生成器（模板注释即部署文档）。
+7. **【P2】`dev-daemons.sh` 硬编码本机绝对路径** ✅（b72a144）：REPO 自定位、NODE_BIN 取交互 PATH，workspace/daemon 身份等 5 项支持 DOFE_AGENT_DEV_* env 覆盖（本机默认值保留）。
+8. **【P2】`audit-node-engines.mjs` 从 `.pnpm` 目录「借用」semver** ✅（8562ee4）：根 devDependencies 显式声明 `semver ^7.8.5`，脚本删 loadSemver 兜底改顶层 ESM import；测试夹具不再 symlink 借用。
+9. **【P2】两个 bin wrapper（cli/mcp-egress-proxy）都是 `spawnSync` 子进程再执行** ✅（e0e46c9）：wrapper 顶层 `import` 入口 main 后调用（Node ≥23.6 类型剥离默认开启）；proxy 入口 main 改 export + isMain 守卫，Docker dist 直跑语义不变。顺带修复 3.5-8 遗漏的 CLI DaemonConfig 新字段。
+10. **【P2】`apps/workflow-worker` 的 `types` 依赖 `apps/web/node_modules/.bin/tsc`** ✅（847a069）：根 devDependencies 显式声明 `typescript ^5.9.3`，9 处跨包相对路径借用（web/cli 宿主）全部改裸 `tsc`，pnpm run 的 PATH 逐级解析到根实例。
+11. **【P2】部署物分散** ✅（9030a87）：新增 `docs/deployment-topology.md`——7 部署面 + 组件清单 + 所有权矩阵 + 易踩坑约定（飞书 worker 单一所有权置顶），操作细节仍指向各 README。
+12. **【P2】docs 按日期目录缺乏索引** ✅（bc318f5）：新增 `docs/README.md`（主题索引 + 归档策略）。证据文件保留原位：`evidence/` 是演练脚本硬编码输出路径、playwright 结果被测试报告引用，移入 gitignored `artifacts/` 即断链/失档。
+
+> 亮点（值得保留）：mcp-egress-proxy 的纵深安全（Ed25519 短期 lease + JTI 防重放 + policy digest 校验 + pinned DNS + 私网段拦截 + OAuth broker + 脱敏审计）是教科书级实现；`verify-test-inventory` 的冻结摘要机制有效防测试漂移；docs 诚实标注未关闭门禁（NO-GO/自述非自动）非常健康。
+
+---
+
+## 四、测试与 CI/CD 现状与建议（专项）
+
+> ⏸ 本轮明确排除测试 CI 专项；已推进的子项见 [progress-log.md](progress-log.md)。
+
+| 现状 | 问题 | 建议 |
+| --- | --- | --- |
+| 415 个测试文件、node:test + vitest + Playwright | 无独立测试 CI，生产部署不跑单测 | 新增 test CI job；部署前强制 `turbo run test --concurrency=2` |
+| `verify-test-inventory.mjs` 门禁 | 只覆盖部分域，飞书 24 文件、employees 等核心域仍游离 | 扩 COVERED_PREFIXES；飞书纯单测纳入门内 |
+| `audit-node-engines.mjs`（engines 审计） | 已接入 `pretest`，但 CI/部署不自动运行 | 纳入 CI job |
+| vitest `fileParallelism: false` | 149 文件单线程（共享 DB 种子竞态） | 迁移每用例独立 workspace（已在推进） |
+| db 测试依赖真实 PG | CI 需预置测试库 | 评估 testcontainers ephemeral PG |
+| 发布前人工预检清单 | TOS 预签名回归等需真实凭据，仅靠自觉 | secrets 化 + 审批前置，或定时 job |
+
+---
+
+## 五、附：值得长期保留的工程实践
+
+- **同步门面 + 幂等 DDL + advisory lock 迁移协议**（db）：SQLite→PG 的无缝演进，前向版本守卫防滚动升级降级。
+- **结构化错误码单一事实源**：`domain/workflow-error-codes.ts` 派生 i18n/白名单，编译期保证不漂移；daemon 错误码贯穿 provider/harness/skill_runner/mcp。
+- **fail-closed 安全纵深**：MCP 凭据永不下发、requiresApproval 能力零注入、输出/日志逐 chunk 脱敏、Skill Runner iptables egress 双层强制、no-follow 写入防路径穿越。
+- **自研模块缓存/失效体系**（web）：SSR 数据 seed 进客户端缓存，Server Action 后按资源类型精准失效。
+- **状态机 + claim→operate→complete 幂等模式**：runtime-provisioning 7 阶段、MCP 连接、技能安装均用此模式，重试安全。
+- **注释质量与决策留痕**：关键决策（tos-signer 自实现、engines 收紧、egress 门禁）均带 WHY 注释或沉淀到 `docs/日期` 目录，工程纪律极高。
+
+---
+
+*本文档由一次全仓深度分析（db/domain、services、web、daemon/sandbox、cli/worker/proxy/deploy 五个并行子任务 + 根目录静态核查）汇总而成，所有结论基于真实代码与 git 状态，未使用生产数据或测试管理员账户。提交号与落地结果见 [progress-log.md](progress-log.md)。*

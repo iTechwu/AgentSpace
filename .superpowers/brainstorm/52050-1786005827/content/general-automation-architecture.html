@@ -1,0 +1,56 @@
+<h2>通用自动化引擎：首期落地架构</h2>
+<p class="subtitle">统一 Workflow 内核承载手动、定时和事件触发；首期开放串行、并行汇聚、审批与有限重试。</p>
+
+<div class="mockup">
+  <div class="mockup-header">产品入口与执行链路</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:1fr auto 1.25fr auto 1fr;align-items:center;gap:14px">
+      <div style="display:grid;gap:10px">
+        <div style="border:1px solid #cbd5e1;padding:12px;background:#fff"><strong>任务看板</strong><br><small>先定义要完成什么</small></div>
+        <div style="border:1px solid #cbd5e1;padding:12px;background:#fff"><strong>日历 / 定时</strong><br><small>先定义什么时候执行</small></div>
+        <div style="border:1px solid #cbd5e1;padding:12px;background:#fff"><strong>编排中心</strong><br><small>计划 · 运行 · 模板</small></div>
+      </div>
+      <strong style="font-size:22px">→</strong>
+      <div style="border:2px solid #2563eb;padding:16px;background:#eff6ff">
+        <strong>Workflow Definition + Immutable Version</strong>
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;flex-wrap:wrap">
+          <span style="padding:8px;border:1px solid #94a3b8;background:#fff">研究员 A</span>
+          <b>→</b>
+          <span style="display:grid;gap:5px">
+            <span style="padding:8px;border:1px solid #94a3b8;background:#fff">分析员 B</span>
+            <span style="padding:8px;border:1px solid #94a3b8;background:#fff">审计员 C</span>
+          </span>
+          <b>→</b>
+          <span style="padding:8px;border:1px solid #94a3b8;background:#fff">Join</span>
+          <b>→</b>
+          <span style="padding:8px;border:1px solid #94a3b8;background:#fff">主编 D</span>
+        </div>
+      </div>
+      <strong style="font-size:22px">→</strong>
+      <div style="display:grid;gap:10px">
+        <div style="border:1px solid #cbd5e1;padding:12px;background:#fff"><strong>Workflow Worker</strong><br><small>Scheduler · Coordinator · Outbox</small></div>
+        <div style="border:1px solid #cbd5e1;padding:12px;background:#fff"><strong>agent_task_queue</strong><br><small>每个 AI 节点独立排队</small></div>
+        <div style="border:1px solid #cbd5e1;padding:12px;background:#fff"><strong>Daemon / AgentRouter</strong><br><small>复用 Provider 与治理链路</small></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split" style="margin-top:20px">
+  <div class="mockup">
+    <div class="mockup-header">持久事实</div>
+    <div class="mockup-body">
+      <p>Workflow → Version → Run → Node Run → Attempt</p>
+      <p>Trigger、Artifact、Approval、Audit、Outbox 全部带 workspace 归属。</p>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">首期护栏</div>
+    <div class="mockup-body">
+      <p>不开放脚本、循环、动态拓扑、自动换员工和跨 workspace 输入。</p>
+      <p>发布前预检；运行中版本不可变；失败按节点恢复。</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">完整产品、业务、UI/UX、技术、前端、后端与实施文档已写入 docs/0806/agent-team。</p>

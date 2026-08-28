@@ -1,0 +1,195 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: agentspace-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.repository == 'HKUDS/AgentSpace' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - agentspace-prod
+    timeout-minutes: 45
+    env:
+      DEPLOY_DIR: /home/AgentSpace
+      SERVICE_NAME: agentspace
+      HEALTHCHECK_URL: http://127.0.0.1:1455/api/health/ready
+      BACKUP_DIR: /home/AgentSpace/data/backups/deployments
+      # Skill Runner egress 门禁三个镜像变量的显式来源：运行时同一份 .env
+      # （与 daemon 启动 --env-file 同源）。dofe-skill-runner-e2e-run.sh 据此补齐
+      # 尚未导出的 DOFE_SKILL_RUNNER_{NODE,PYTHON,BASH}_IMAGE（digest 钉死），
+      # preflight 与真实 e2e 共用；runner 环境显式导出的值仍可覆盖。
+      # ensure-ci-managed-nodes.sh 只把变量写进各受管节点容器的 node.env，不导出到
+      # 部署 runner shell，故门禁必须在此显式声明 .env 为镜像来源，而非依赖脚本相对路径。
+      DOFE_SKILL_RUNNER_ENV_FILE: /home/AgentSpace/.env
+    steps:
+      - name: Deploy from main
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          cd "$DEPLOY_DIR"
+
+          run_systemctl() {
+            if [ "$(id -u)" -eq 0 ]; then
+              systemctl "$@"
+            else
+              sudo systemctl "$@"
+            fi
+          }
+
+          stop_service() {
+            if ! run_systemctl stop "$SERVICE_NAME"; then
+              echo "Service stop failed; forcing $SERVICE_NAME to stop."
+              run_systemctl kill --kill-who=control-group --signal=SIGKILL "$SERVICE_NAME" || true
+              run_systemctl reset-failed "$SERVICE_NAME" || true
+            fi
+          }
+
+          start_service() {
+            run_systemctl start "$SERVICE_NAME"
+          }
+
+          healthcheck() {
+            for attempt in {1..30}; do
+              if curl -fsS "$HEALTHCHECK_URL" >/dev/null; then
+                echo "Health check passed."
+                return 0
+              fi
+              echo "Waiting for service health ($attempt/30)..."
+              sleep 2
+            done
+            return 1
+          }
+
+          install_dependencies() {
+            # 仓库为 pnpm workspace（仅 pnpm-lock.yaml，无 package-lock.json），
+            # npm ci 必然 EUSAGE 失败。为避免依赖 corepack（不同 Node 发行包对
+            # corepack 的打包策略不一致），沿用 deploy/*/Dockerfile 的方式，用 npm
+            # 显式安装固定版本 pnpm（与根 package.json 的 packageManager 字段一致），
+            # 再在仓库根目录一次性安装整个 workspace。
+            npm install --global pnpm@10.26.2 || sudo npm install --global pnpm@10.26.2
+            pnpm install --frozen-lockfile
+          }
+
+          rollback() {
+            local target_commit="$1"
+
+            echo "Rolling back to $target_commit"
+            git reset --hard "$target_commit"
+            install_dependencies
+            pnpm run build
+            start_service
+            healthcheck
+          }
+
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "Tracked worktree changes detected; refusing to deploy."
+            git status --short
+            exit 1
+          fi
+
+          remote="origin"
+          if git remote get-url hku >/dev/null 2>&1; then
+            remote="hku"
+          fi
+
+          before="$(git rev-parse HEAD)"
+
+          git fetch --prune "$remote" main
+          after="$(git rev-parse FETCH_HEAD)"
+
+          if [ "$before" = "$after" ] && [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]; then
+            echo "Already up to date at $after."
+            exit 0
+          fi
+
+          if [ "$before" = "$after" ]; then
+            echo "Manual deployment requested for current commit $after."
+          fi
+
+          mkdir -p "$BACKUP_DIR"
+          if [ -f data/agent-space.sqlite ]; then
+            cp -a data/agent-space.sqlite "$BACKUP_DIR/agent-space.sqlite.$(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+
+          # Skill Runner egress 门禁前置预检：在停服前确认 runner 环境契约满足——
+          # 三个 digest 钉死的 Runner 镜像变量、镜像已在本地、docker 与 iptables 可用。
+          # 变量来源是仓库 .env（与运行时同一份）：脚本启动时自动从中补齐未设置的变量，
+          # preflight 与下方真实 e2e 共用同一来源；runner 环境显式导出的值可覆盖。
+          # 注意 ensure-ci-managed-nodes.sh 只把变量写进各受管节点容器的 node.env，并不
+          # 导出到部署 runner 的 shell，故不能假设 runner shell 已自带这些变量。
+          # 预检失败直接退出，服务仍在运行旧版本，避免停服、构建后才因契约不满足触发
+          # 回滚、拉长停服窗口。
+          #
+          # 预检必须执行「候选提交（$after）」中的脚本，而非当前 checkout：此刻工作树
+          # 仍停在旧提交（$before），旧版脚本不识别 --preflight、也不加载新配置约定的
+          # env 来源，首次自部署（旧 checkout 里还没有这份门禁脚本）会被旧脚本不可靠
+          # 地阻断。用独立候选 worktree 保证预检对象与将要上线的代码严格一致（脚本内
+          # 部按自身路径 cd，不能简单 git show 到临时目录执行）。下方真实 e2e 在
+          # git reset 到 $after 之后运行，天然就是候选版本。
+          gate_worktree="$(mktemp -d "${TMPDIR:-/tmp}/agentspace-gate-XXXXXX")"
+          # 注册即清理：worktree 一旦创建，任何退出路径（job 超时 / 步骤取消 /
+          # set -e 中断）都必须注销它，否则临时目录与 git worktree 元数据会
+          # 残留在部署 checkout 里，累积成脏 worktree 列表。成功路径手动清理
+          # 后解除 trap，避免拖慢后续退出。
+          cleanup_gate_worktree() {
+            git worktree remove --force "$gate_worktree" 2>/dev/null || true
+            rm -rf "$gate_worktree" || true
+          }
+          trap cleanup_gate_worktree EXIT
+          git worktree add --detach "$gate_worktree" "$after"
+          if ! bash "$gate_worktree/packages/daemon/scripts/dofe-skill-runner-e2e-run.sh" --preflight; then
+            echo "Skill Runner egress preflight failed; aborting before stop_service."
+            exit 1
+          fi
+          cleanup_gate_worktree
+          trap - EXIT
+
+          stop_service
+
+          git reset --hard "$after"
+          install_dependencies
+
+          if ! pnpm run build; then
+            rollback "$before"
+            exit 1
+          fi
+
+          # Skill Runner egress 发布门禁：在真实 Linux 受管节点上跑 real-Docker +
+          # real-iptables 验收（dofe-skill-runner-e2e-run.sh 在非 Linux 直接
+          # fail-closed，并校验三个按 digest 钉住的 Runner 镜像已在本地存在）。
+          # egress 回归必须像构建失败一样阻断上线——回滚到正在运行的版本。此刻依赖
+          # 已装、构建已过、服务已停，是接入门禁最安全的时机；门禁用例的链/容器名独
+          # 立、源地址惰性，停服窗口内不干扰真实流量。镜像未就绪时门禁 fail-closed，
+          # 即"egress 未经验证不得上线"，符合当前 egress 尚未标记生产可用的约束。
+          if ! bash packages/daemon/scripts/dofe-skill-runner-e2e-run.sh; then
+            echo "Skill Runner egress release gate failed; rolling back to $before."
+            rollback "$before"
+            exit 1
+          fi
+
+          if ! start_service; then
+            rollback "$before"
+            exit 1
+          fi
+
+          if ! healthcheck; then
+            stop_service || true
+            rollback "$before"
+            exit 1
+          fi
+
+          echo "Deployed $after."

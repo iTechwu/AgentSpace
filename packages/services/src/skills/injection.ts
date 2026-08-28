@@ -1,0 +1,209 @@
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { buildSkillRunnerCommandName, inferSkillEntrypointRuntimeForPath, type DaemonProvider, type SkillEntrypointRuntime } from "@dofe-agent/domain";
+import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
+import {
+  readActiveArtifactDigestForSkillSync,
+  readSkillArtifactByDigestSync,
+} from "@dofe-agent/db";
+import { normalizeSkillFilePath } from "../shared/helpers.ts";
+import { buildSkillRequirementRuntimeContext } from "./requirements.ts";
+import { materializeSkillArtifactFilesSync } from "./skill-artifacts.ts";
+
+const PROVIDER_NATIVE_SKILL_ROOT_SEGMENTS: Partial<Record<DaemonProvider, readonly string[]>> = {
+  claude: [".claude", "skills"],
+  codex: [".codex", "skills"],
+  opencode: [".config", "opencode", "skills"],
+  openclaw: [".config", "openclaw", "skills"],
+  nanobot: [".config", "nanobot", "skills"],
+};
+
+export interface MaterializedSkillDirectories {
+  compatibilityDir?: string;
+  nativeDir?: string;
+  primaryDir?: string;
+}
+
+export function materializeWorkspaceSkillsForProvider(input: {
+  skills: WorkspaceSkill[];
+  workDir: string;
+  provider: DaemonProvider;
+  workspaceId?: string;
+  /**
+   * Per-skill artifact digest override (e.g. a task execution snapshot pin).
+   * When present, the skill is materialized from this digest instead of its
+   * current `active_artifact_digest`, so a running task does not drift if the
+   * skill is upgraded/rolled back mid-flight. Omit to preserve legacy behavior.
+   */
+  digestBySkillId?: Map<string, string>;
+}): MaterializedSkillDirectories {
+  if (input.skills.length === 0) {
+    return {};
+  }
+
+  const compatibilityDir = join(input.workDir, ".agent_context", "skills");
+  writeSkillsToRoot(input.skills, compatibilityDir, input.workspaceId, input.digestBySkillId);
+
+  const nativeSegments = PROVIDER_NATIVE_SKILL_ROOT_SEGMENTS[input.provider];
+  const nativeDir = nativeSegments ? join(input.workDir, ...nativeSegments) : undefined;
+  if (nativeDir && nativeDir !== compatibilityDir) {
+    writeSkillsToRoot(input.skills, nativeDir, input.workspaceId, input.digestBySkillId);
+  }
+
+  return {
+    compatibilityDir,
+    nativeDir,
+    primaryDir: nativeDir ?? compatibilityDir,
+  };
+}
+
+/**
+ * Writes the skill projection for a provider root. Per EAD-004 the projection is
+ * rebuilt from the immutable content-addressed artifact when one is pinned to
+ * the skill — this restores the FULL file set (scripts + binary assets) and
+ * verifies each file's digest as it is written. Skills without an artifact
+ * (legacy / manually edited) fall back to their text skill_file content.
+ */
+function writeSkillsToRoot(
+  skills: WorkspaceSkill[],
+  rootDir: string,
+  workspaceId?: string,
+  digestBySkillId?: Map<string, string>,
+): void {
+  rmSync(rootDir, { recursive: true, force: true });
+  mkdirSync(rootDir, { recursive: true });
+
+  for (const skill of skills) {
+    const skillDir = join(rootDir, `${sanitizeSkillDirectoryName(skill.name)}-${skill.id.slice(-6)}`);
+    mkdirSync(skillDir, { recursive: true });
+
+    const overrideDigest = digestBySkillId?.get(skill.id);
+    const materializedFromArtifact = tryMaterializeFromArtifact(skill, skillDir, workspaceId, overrideDigest);
+    if (!materializedFromArtifact) {
+      for (const file of skill.files) {
+        const relativePath = normalizeSkillFilePath(file.path);
+        if (!relativePath) {
+          continue;
+        }
+        const targetPath = join(skillDir, relativePath);
+        mkdirSync(dirname(targetPath), { recursive: true });
+        writeFileSync(targetPath, file.content, "utf8");
+      }
+    }
+
+    const requirementContext = buildSkillRequirementRuntimeContext(skill.configJson);
+    if (requirementContext) {
+      writeFileSync(join(skillDir, "skill.config.json"), `${JSON.stringify(requirementContext, null, 2)}\n`, "utf8");
+    }
+  }
+}
+
+/**
+ * Materializes a skill from its locked artifact. Per D-11, a skill with a pinned
+ * artifact digest is FAIL-CLOSED: if the artifact is missing or fails integrity
+ * verification, the task must not run with degraded/missing resources. Only
+ * skills WITHOUT an artifact (legacy / manually edited, never artifactized) may
+ * fall back to their text skill_file projection.
+ */
+function tryMaterializeFromArtifact(
+  skill: WorkspaceSkill,
+  skillDir: string,
+  workspaceId?: string,
+  overrideDigest?: string,
+): boolean {
+  const digest = overrideDigest ?? readActiveArtifactDigestForSkillSync(skill.id, workspaceId);
+  if (!digest) {
+    return false; // legacy skill without a pinned digest → text projection
+  }
+  const artifact = readSkillArtifactByDigestSync(digest, workspaceId);
+  if (!artifact) {
+    throw new Error(
+      `Skill "${skill.name}" is pinned to artifact ${digest.slice(0, 12)}… which is missing. ` +
+        "Refusing to run without its locked resources (D-11).",
+    );
+  }
+  try {
+    materializeSkillArtifactFilesSync(artifact, skillDir);
+    replaceExecutableArtifactFilesWithRunnerStubs(skill, artifact.manifestJson, skillDir);
+    return true;
+  } catch (error) {
+    throw new Error(
+      `Skill "${skill.name}" artifact ${digest.slice(0, 12)}… failed integrity verification; ` +
+        `refusing to run with missing/corrupt resources (D-11): ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+function replaceExecutableArtifactFilesWithRunnerStubs(
+  skill: WorkspaceSkill,
+  manifestJson: string,
+  skillDir: string,
+): void {
+  let manifest: {
+    files?: Array<{ path?: string; mode?: string }>;
+    entrypoints?: Array<{ id?: string; path?: string; runtime?: string }>;
+  };
+  try {
+    manifest = JSON.parse(manifestJson) as typeof manifest;
+  } catch {
+    throw new Error(`Skill "${skill.name}" has an invalid artifact manifest.`);
+  }
+  const declared = new Map(
+    (manifest.entrypoints ?? [])
+      .filter((entrypoint): entrypoint is { id: string; path: string; runtime: SkillEntrypointRuntime } =>
+        Boolean(entrypoint.id && entrypoint.path && isEntrypointRuntime(entrypoint.runtime)))
+      .map((entrypoint) => [entrypoint.path, entrypoint]),
+  );
+  for (const file of manifest.files ?? []) {
+    if (!file.path) continue;
+    const declaredEntrypoint = declared.get(file.path);
+    const runtime = declaredEntrypoint?.runtime ?? runtimeForScriptPath(file.path);
+    const targetPath = join(skillDir, normalizeSkillFilePath(file.path));
+    if (runtime) {
+      if (declaredEntrypoint || file.mode === "0755") {
+        const id = declaredEntrypoint?.id ?? implicitEntrypointId(file.path);
+        const command = buildSkillRunnerCommandName(skill.name, skill.id, id);
+        writeFileSync(targetPath, buildRunnerStub(command), "utf8");
+        chmodSync(targetPath, 0o555);
+      } else {
+        writeFileSync(targetPath, "Skill script source is available only to the isolated Dofe Skill Runner.\n", "utf8");
+        chmodSync(targetPath, 0o444);
+      }
+    } else if (file.mode === "0755") {
+      // Unknown executables are visible as resources but cannot be executed
+      // directly across the Provider boundary.
+      chmodSync(targetPath, 0o444);
+    }
+  }
+}
+
+function buildRunnerStub(command: string): string {
+  return `#!/bin/sh\nexec ${shellQuote(command)} "$@"\n`;
+}
+
+function isEntrypointRuntime(value: string | undefined): value is SkillEntrypointRuntime {
+  return value === "node" || value === "python" || value === "bash";
+}
+
+function runtimeForScriptPath(path: string): SkillEntrypointRuntime | undefined {
+  // Shared with install-time system-dependency probing: an implicit entrypoint
+  // must be probed in the same Runner image this projection executes it in.
+  return inferSkillEntrypointRuntimeForPath(path);
+}
+
+function implicitEntrypointId(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\.[^.\/]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "-");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function sanitizeSkillDirectoryName(value: string): string {
+  return value
+    .replace(/[^a-zA-Z0-9一-龥._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "skill";
+}

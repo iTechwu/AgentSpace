@@ -1,0 +1,265 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
+import {
+  buildMcpEgressPolicyRevision,
+  canonicalizeMcpEgressPolicyRevision,
+  buildMcpEgressPolicySnapshot,
+  digestMcpEgressPolicyRevision,
+  hashMcpEgressAuditValue,
+  isMcpEgressLeaseExpired,
+  signMcpEgressLease,
+  verifyMcpEgressLease,
+} from "./egress.ts";
+
+const SECRET = "a".repeat(32);
+function basePolicy(): McpEgressPolicyRevision {
+  return {
+    id: "pol-1",
+    workspaceId: "ws-1",
+    connectionId: "conn-1",
+    releaseId: "rel-1",
+    releaseManifestDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    manifestDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    upstream: {
+      origin: "https://github-mcp.example.com",
+      allowedHosts: ["github-mcp.example.com"],
+      allowedPorts: [443],
+      allowedPathPrefix: "/mcp",
+    },
+    transport: "streamable_http",
+    redirectPolicy: "deny",
+    denyPrivateNetworks: true,
+    tlsMode: "verify_system",
+    authMode: "static_header",
+    maxRequestBytes: 1_048_576,
+    maxResponseBytes: 1_048_576,
+    maxConcurrentStreams: 8,
+    maxRequestsPerSecond: 8,
+    createdAt: "2026-08-03T00:00:00.000Z",
+  };
+}
+
+function baseClaims(exp: number): McpEgressLeaseClaims {
+  return {
+    iss: "agentspace-control-plane",
+    aud: "mcp-egress-proxy",
+    jti: "jti-1",
+    workspaceId: "ws-1",
+    runtimeId: "rt-1",
+    connectionId: "conn-1",
+    releaseId: "rel-1",
+    releaseManifestDigest: basePolicy().releaseManifestDigest,
+    policyRevisionId: "pol-1",
+    policyDigest: digestMcpEgressPolicyRevision(basePolicy()),
+    purpose: "task_call",
+    taskId: "task-1",
+    toolName: "some_tool",
+    exp,
+  };
+}
+
+test("canonicalizeMcpEgressPolicyRevision is stable across field reordering", () => {
+  const a = basePolicy();
+  const b = { ...a, upstream: { ...a.upstream, allowedHosts: ["github-mcp.example.com"] } };
+  assert.equal(canonicalizeMcpEgressPolicyRevision(a), canonicalizeMcpEgressPolicyRevision(b));
+
+  const c = { ...a, upstream: { ...a.upstream, allowedHosts: ["z.example.com", "github-mcp.example.com"] } };
+  const d = { ...a, upstream: { ...a.upstream, allowedHosts: ["github-mcp.example.com", "z.example.com"] } };
+  assert.equal(canonicalizeMcpEgressPolicyRevision(c), canonicalizeMcpEgressPolicyRevision(d));
+});
+
+test("canonicalizeMcpEgressPolicyRevision excludes manifestDigest from the canonical form", () => {
+  const a = basePolicy();
+  const b = { ...a, manifestDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" };
+  assert.equal(canonicalizeMcpEgressPolicyRevision(a), canonicalizeMcpEgressPolicyRevision(b));
+});
+
+test("canonicalizeMcpEgressPolicyRevision excludes createdAt from immutable policy identity", () => {
+  const a = basePolicy();
+  const b = { ...a, createdAt: "2026-08-04T00:00:00.000Z" };
+  assert.equal(canonicalizeMcpEgressPolicyRevision(a), canonicalizeMcpEgressPolicyRevision(b));
+  assert.equal(digestMcpEgressPolicyRevision(a), digestMcpEgressPolicyRevision(b));
+});
+
+test("digestMcpEgressPolicyRevision returns a stable sha256 prefix independent of manifestDigest", () => {
+  const digest = digestMcpEgressPolicyRevision(basePolicy());
+  assert.match(digest, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(digestMcpEgressPolicyRevision(basePolicy()), digest);
+
+  const withDifferentManifest = {
+    ...basePolicy(),
+    manifestDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  };
+  assert.equal(digestMcpEgressPolicyRevision(withDifferentManifest), digest);
+});
+
+test("buildMcpEgressPolicySnapshot carries static headers only for in-memory proxy injection", () => {
+  const snapshot = buildMcpEgressPolicySnapshot(basePolicy(), {
+    Authorization: "Bearer secret",
+    "x-api-key": "api-secret",
+  }, "2026-08-03T00:00:00.000Z");
+  assert.deepEqual(snapshot.staticHeaders, {
+    Authorization: "Bearer secret",
+    "x-api-key": "api-secret",
+  });
+
+  const unauthenticated = buildMcpEgressPolicySnapshot({ ...basePolicy(), authMode: "none" }, { Authorization: "ignored" });
+  assert.equal(unauthenticated.staticHeaders, undefined);
+});
+
+test("buildMcpEgressPolicySnapshot carries only the opaque OAuth grant reference", () => {
+  const policy = { ...basePolicy(), authMode: "oauth_proxy" as const };
+  const snapshot = buildMcpEgressPolicySnapshot(policy, {
+    "oauth-proxy": "grant-reference-1",
+    Authorization: "must-not-be-forwarded",
+  });
+
+  assert.equal(snapshot.oauthGrantReference, "grant-reference-1");
+  assert.equal(snapshot.staticHeaders, undefined);
+});
+
+test("private CA material is digest-bound, kept in memory, and excluded from static headers", () => {
+  const privateCaPem = "-----BEGIN CERTIFICATE-----\nprivate-ca\n-----END CERTIFICATE-----";
+  const policy = buildMcpEgressPolicyRevision({
+    workspaceId: "ws-1",
+    connectionId: "conn-1",
+    releaseId: "rel-1",
+    releaseManifestDigest: basePolicy().releaseManifestDigest,
+    endpoint: "https://github-mcp.example.com/mcp",
+    allowedHosts: ["github-mcp.example.com"],
+    approvedTools: ["some_tool"],
+    authMode: "static_header",
+    privateCaPem,
+  });
+  const snapshot = buildMcpEgressPolicySnapshot(policy, {
+    Authorization: "Bearer secret",
+    tls_ca_pem: privateCaPem,
+  });
+
+  assert.equal(policy.tlsMode, "verify_private_ca");
+  assert.match(policy.privateCaDigest ?? "", /^sha256:[a-f0-9]{64}$/);
+  assert.equal(snapshot.privateCaPem, privateCaPem);
+  assert.deepEqual(snapshot.staticHeaders, { Authorization: "Bearer secret" });
+});
+
+test("signMcpEgressLease produces a three-part token", () => {
+  const token = signMcpEgressLease(baseClaims(Math.floor(Date.now() / 1000) + 60), SECRET);
+  assert.equal(token.split(".").length, 3);
+});
+
+test("verifyMcpEgressLease accepts a valid lease", () => {
+  const claims = baseClaims(Math.floor(Date.now() / 1000) + 60);
+  const token = signMcpEgressLease(claims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.lease.jti, claims.jti);
+  assert.equal(result.lease.claims.connectionId, claims.connectionId);
+});
+
+test("verifyMcpEgressLease rejects a token signed with a different secret", () => {
+  const claims = baseClaims(Math.floor(Date.now() / 1000) + 60);
+  const token = signMcpEgressLease(claims, SECRET);
+  const result = verifyMcpEgressLease(token, "b".repeat(32));
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease rejects an expired lease", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = baseClaims(now - 120);
+  const token = signMcpEgressLease(claims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_expired");
+});
+
+test("verifyMcpEgressLease rejects a lease at its exact expiration", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const token = signMcpEgressLease(baseClaims(now), SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_expired");
+});
+
+test("verifyMcpEgressLease rejects purpose TTL escalation", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const token = signMcpEgressLease(baseClaims(now + 61), SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease rejects signed tokens with incomplete binding claims", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { ...baseClaims(now + 60), workspaceId: "" };
+  const token = signMcpEgressLease(claims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease requires the signed policy digest binding", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { ...baseClaims(now + 60), policyDigest: undefined };
+  const token = signMcpEgressLease(claims as McpEgressLeaseClaims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease requires task-call task and tool binding", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { ...baseClaims(now + 60), toolName: undefined };
+  const token = signMcpEgressLease(claims as McpEgressLeaseClaims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease rejects tampered payload", () => {
+  const claims = baseClaims(Math.floor(Date.now() / 1000) + 60);
+  const token = signMcpEgressLease(claims, SECRET);
+  const [header, payload, signature] = token.split(".");
+  const payloadObj = JSON.parse(Buffer.from(payload!, "base64url").toString("utf8")) as McpEgressLeaseClaims;
+  payloadObj.jti = "jti-2";
+  const tamperedPayload = Buffer.from(JSON.stringify(payloadObj), "utf8").toString("base64url");
+  const tampered = `${header}.${tamperedPayload}.${signature}`;
+  const result = verifyMcpEgressLease(tampered, SECRET);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease rejects wrong audience", () => {
+  const claims = { ...baseClaims(Math.floor(Date.now() / 1000) + 60), aud: "other" as const };
+  const token = signMcpEgressLease(claims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("isMcpEgressLeaseExpired is true exactly at exp", () => {
+  const claims = baseClaims(1000);
+  assert.equal(isMcpEgressLeaseExpired(claims, 999), false);
+  assert.equal(isMcpEgressLeaseExpired(claims, 1000), true);
+  assert.equal(isMcpEgressLeaseExpired(claims, 1001), true);
+});
+
+test("hashMcpEgressAuditValue is stable and one-way", () => {
+  const a = hashMcpEgressAuditValue("github-mcp.example.com");
+  const b = hashMcpEgressAuditValue("github-mcp.example.com");
+  const c = hashMcpEgressAuditValue("other.example.com");
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  assert.equal(a.length > 0, true);
+});

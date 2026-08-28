@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "code-review-graph": {
+      "command": "uvx",
+      "args": [
+        "code-review-graph",
+        "serve"
+      ],
+      "cwd": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai",
+      "type": "stdio"
+    }
+  }
+}

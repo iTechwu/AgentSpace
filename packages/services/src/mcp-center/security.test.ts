@@ -1,0 +1,189 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { decryptMcpGrant, decryptMcpSecret, encryptMcpGrant, encryptMcpSecret, isMcpInsecureLocalEndpointAllowed, mcpEndpointValidationOptionsFromEnv, redactMcpText, redactToolInputSchema, validateMcpConnectionConfiguration, validateMcpEndpoint, validateMcpRequestHeaders, validateMcpResolvedAddresses } from "./security.ts";
+
+test("validateMcpEndpoint accepts an https host on the allow-list", () => {
+  const result = validateMcpEndpoint("https://github-mcp.example.com/mcp", ["github-mcp.example.com"]);
+  assert.equal(result.ok, true);
+  assert.equal(result.host, "github-mcp.example.com");
+});
+
+test("validateMcpEndpoint accepts wildcard and suffix host rules", () => {
+  assert.equal(validateMcpEndpoint("https://api.example.com/mcp", ["*.example.com"]).ok, true);
+  assert.equal(validateMcpEndpoint("https://api.example.com/mcp", [".example.com"]).ok, true);
+  assert.equal(validateMcpEndpoint("https://evilexample.com/mcp", [".example.com"]).ok, false);
+});
+
+test("validateMcpEndpoint rejects non-allow-listed hosts", () => {
+  const result = validateMcpEndpoint("https://evil.example.org/mcp", ["github-mcp.example.com"]);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "mcp.policy_denied");
+});
+
+test("validateMcpEndpoint rejects http", () => {
+  assert.equal(validateMcpEndpoint("http://github-mcp.example.com/mcp", ["github-mcp.example.com"]).ok, false);
+});
+
+test("insecure local MCP endpoint requires an explicit gate and exact loopback URL", () => {
+  const endpoint = "http://127.0.0.1:18080/mcp";
+  assert.equal(validateMcpEndpoint(endpoint, ["127.0.0.1"]).ok, false);
+  assert.equal(validateMcpEndpoint(endpoint, ["127.0.0.1"], { insecureLocalEndpoints: [endpoint] }).ok, true);
+  assert.equal(isMcpInsecureLocalEndpointAllowed(`${endpoint}/other`, { insecureLocalEndpoints: [endpoint] }), false);
+  assert.equal(isMcpInsecureLocalEndpointAllowed("http://127.0.0.1:80/mcp", { insecureLocalEndpoints: ["http://127.0.0.1:80/mcp"] }), false);
+  assert.equal(isMcpInsecureLocalEndpointAllowed("http://localhost:18080/mcp", { insecureLocalEndpoints: ["http://localhost:18080/mcp"] }), false);
+  assert.equal(isMcpInsecureLocalEndpointAllowed("http://192.168.1.10:18080/mcp", { insecureLocalEndpoints: ["http://192.168.1.10:18080/mcp"] }), false);
+});
+
+test("local MCP env options fail closed unless both settings are valid", () => {
+  process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL = "1";
+  process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS = JSON.stringify([
+    "http://127.0.0.1:18080/mcp",
+    "http://192.168.1.10:18080/mcp",
+    "https://127.0.0.1:18080/mcp",
+  ]);
+  assert.deepEqual(mcpEndpointValidationOptionsFromEnv(), {
+    insecureLocalEndpoints: ["http://127.0.0.1:18080/mcp"],
+  });
+  delete process.env.DOFE_AGENT_MCP_ALLOW_INSECURE_LOCAL;
+  assert.deepEqual(mcpEndpointValidationOptionsFromEnv(), {});
+  delete process.env.DOFE_AGENT_MCP_INSECURE_LOCAL_ENDPOINTS;
+});
+
+test("trusted private MCP DNS answers are bound to their configured hostname", () => {
+  const original = process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON;
+  process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON = JSON.stringify({
+    "api.tools.test.dofe.ai": ["172.18.0.1", "172.21.0.1", "127.0.0.1", "203.0.113.8"],
+    "bad host": ["172.18.0.2"],
+  });
+  try {
+    const options = mcpEndpointValidationOptionsFromEnv();
+    assert.deepEqual(options.trustedPrivateResolvedAddresses, {
+      "api.tools.test.dofe.ai": ["172.18.0.1", "172.21.0.1"],
+    });
+    assert.equal(validateMcpResolvedAddresses(["172.18.0.1"], options, "api.tools.test.dofe.ai").ok, true);
+    assert.equal(validateMcpResolvedAddresses(["172.21.0.1"], options, "api.tools.test.dofe.ai").ok, true);
+    assert.equal(validateMcpResolvedAddresses(["172.18.0.2"], options, "api.tools.test.dofe.ai").ok, false);
+    assert.equal(validateMcpResolvedAddresses(["172.18.0.1"], options, "other.tools.test.dofe.ai").ok, false);
+    assert.equal(validateMcpResolvedAddresses(["172.18.0.1", "203.0.113.8"], options, "api.tools.test.dofe.ai").ok, false);
+  } finally {
+    if (original === undefined) delete process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON;
+    else process.env.DOFE_AGENT_MCP_TRUSTED_PRIVATE_ENDPOINTS_JSON = original;
+  }
+});
+
+test("validateMcpEndpoint rejects loopback, private, link-local and metadata addresses", () => {
+  for (const host of ["localhost", "127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "169.254.169.254", "0.0.0.0", "[::1]"]) {
+    const result = validateMcpEndpoint(`https://${host}/mcp`, [host]);
+    assert.equal(result.ok, false, `expected ${host} to be rejected`);
+    assert.equal(result.code, "mcp.policy_denied");
+  }
+});
+
+test("validateMcpResolvedAddresses rejects a mixed public and private DNS answer", () => {
+  assert.equal(validateMcpResolvedAddresses(["203.0.113.8"]).ok, true);
+  assert.equal(validateMcpResolvedAddresses(["203.0.113.8", "169.254.169.254"]).ok, false);
+  assert.equal(validateMcpResolvedAddresses(["::ffff:127.0.0.1"]).ok, false);
+});
+
+test("local address validation only allows pure loopback answers", () => {
+  const options = { allowLoopbackResolvedAddresses: true };
+  assert.equal(validateMcpResolvedAddresses(["127.0.0.1"], options).ok, true);
+  assert.equal(validateMcpResolvedAddresses(["::1"], options).ok, true);
+  assert.equal(validateMcpResolvedAddresses(["127.0.0.1", "203.0.113.8"], options).ok, false);
+  assert.equal(validateMcpResolvedAddresses(["192.168.1.10"], options).ok, false);
+});
+
+test("validateMcpEndpoint rejects credentials embedded in the URL", () => {
+  const result = validateMcpEndpoint("https://user:pass@github-mcp.example.com/mcp", ["github-mcp.example.com"]);
+  assert.equal(result.ok, false);
+});
+
+test("validateMcpEndpoint rejects query and fragment data", () => {
+  assert.equal(validateMcpEndpoint("https://github-mcp.example.com/mcp?token=secret", ["github-mcp.example.com"]).ok, false);
+  assert.equal(validateMcpEndpoint("https://github-mcp.example.com/mcp#secret", ["github-mcp.example.com"]).ok, false);
+});
+
+test("validateMcpEndpoint rejects non-standard HTTPS ports", () => {
+  assert.equal(validateMcpEndpoint("https://github-mcp.example.com:8443/mcp", ["github-mcp.example.com"]).ok, false);
+  assert.equal(validateMcpEndpoint("https://github-mcp.example.com:443/mcp", ["github-mcp.example.com"]).ok, true);
+});
+
+test("validateMcpRequestHeaders accepts scalar headers and rejects protocol overrides", () => {
+  assert.equal(validateMcpRequestHeaders({ "X-Tenant": "workspace-1", Accept: "application/json" }).ok, true);
+  assert.equal(validateMcpRequestHeaders({ Host: "internal.service" }).ok, false);
+  assert.equal(validateMcpRequestHeaders({ "X-Test": "ok\r\nHost: internal.service" }).ok, false);
+  assert.equal(validateMcpRequestHeaders({ "bad header": "value" }).ok, false);
+});
+
+test("validateMcpConnectionConfiguration rejects fields outside the reviewed schema", () => {
+  const schema = {
+    type: "object",
+    properties: { "X-Tenant": { type: "string", maxLength: 64 } },
+    required: ["X-Tenant"],
+    additionalProperties: false,
+  };
+  assert.equal(validateMcpConnectionConfiguration(schema, { "X-Tenant": "workspace-1" }).ok, true);
+  assert.equal(validateMcpConnectionConfiguration(schema, { "X-Tenant": "workspace-1", "X-Unsafe": "value" }).ok, false);
+  assert.equal(validateMcpConnectionConfiguration(schema, {}).ok, false);
+});
+
+test("encrypt/decrypt round-trips a secret and never exposes plaintext in the ciphertext", () => {
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+  const plaintext = "sk-super-secret-token-12345";
+  const encrypted = encryptMcpSecret(plaintext);
+  assert.equal(encrypted.includes(plaintext), false);
+  assert.equal(encrypted.startsWith("mcp1:"), true);
+  assert.equal(decryptMcpSecret(encrypted), plaintext);
+});
+
+test("decrypt rejects a tampered or wrong-version ciphertext", () => {
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+  assert.throws(() => decryptMcpSecret("other:1:2:3"));
+  assert.throws(() => decryptMcpSecret("mcp1:only:two"));
+});
+
+test("MCP keyring decrypts old envelopes while new writes use the current key version", () => {
+  const oldKey = Buffer.alloc(32, 7).toString("base64");
+  const newKey = Buffer.alloc(32, 8).toString("base64");
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION = "mcp1";
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = oldKey;
+  const oldSecret = encryptMcpSecret("old-secret");
+  const oldGrant = encryptMcpGrant('{"connections":[]}');
+
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION = "mcp2";
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = newKey;
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS = JSON.stringify({ mcp1: oldKey });
+
+  assert.equal(decryptMcpSecret(oldSecret), "old-secret");
+  assert.equal(decryptMcpGrant(oldGrant), '{"connections":[]}');
+  assert.match(encryptMcpSecret("new-secret"), /^mcp2:/);
+  assert.match(encryptMcpGrant('{"connections":[]}'), /^mcpg2:/);
+
+  delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION;
+  delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS;
+});
+
+test("redactMcpText strips authorization, bearer and secret-like values", () => {
+  const redacted = redactMcpText('Authorization: Bearer abc.def.ghi and api_key=sk-live-XYZ');
+  assert.equal(redacted.includes("abc.def.ghi"), false);
+  assert.equal(redacted.includes("sk-live-XYZ"), false);
+  assert.ok(redacted.includes("[REDACTED]"));
+});
+
+test("redactToolInputSchema removes sensitive defaults and examples recursively", () => {
+  const redacted = redactToolInputSchema({
+    type: "object",
+    properties: {
+      token: { type: "string", default: "secret-default", examples: ["secret-example"], const: "secret-const", enum: ["secret-enum"] },
+      request: { type: "object", properties: { Authorization: { default: "Bearer secret" } } },
+      safe: { type: "string", default: "visible-default" },
+    },
+  });
+  const serialized = JSON.stringify(redacted);
+  assert.equal(serialized.includes("secret-default"), false);
+  assert.equal(serialized.includes("secret-example"), false);
+  assert.equal(serialized.includes("secret-const"), false);
+  assert.equal(serialized.includes("secret-enum"), false);
+  assert.equal(serialized.includes("Bearer secret"), false);
+  assert.equal(serialized.includes("visible-default"), true);
+});

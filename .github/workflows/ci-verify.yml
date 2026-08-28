@@ -1,0 +1,48 @@
+# CI 质量门（不部署）：docs/0821/opz 02 的 Stage A（预检）+ Stage B（静态质量门）。
+# 通过后 Docker build 才能依赖本 job 成功（见 P0-01 验收）。
+# 注意：本文件位于 .gitignore 的 .github/ 规则下，提交需 git add -f（历史遗留
+# deploy-production.yml 为已跟踪文件）。
+name: CI Verify
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: agentspace-ci-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # 仓库默认走 npmmirror；audit 需显式指向官方 registry（npmmirror 不实现 audit endpoint）。
+      PNPM_CONFIG_REGISTRY: https://registry.npmmirror.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Quality gate (ci:verify)
+        run: pnpm run ci:verify
+
+      - name: Production dependency audit
+        run: pnpm audit --registry=https://registry.npmjs.org --prod --audit-level=high

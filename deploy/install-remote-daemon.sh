@@ -1,0 +1,629 @@
+#!/usr/bin/env bash
+DEFAULT_SERVER_URL="${DEFAULT_SERVER_URL:-}"
+DEFAULT_PACKAGE_URL="${DEFAULT_PACKAGE_URL:-}"
+set -euo pipefail
+
+SCRIPT_NAME="$(basename "$0")"
+
+PACKAGE_PATH=""
+PACKAGE_URL=""
+SERVER_URL="$DEFAULT_SERVER_URL"
+DAEMON_TOKEN=""
+DAEMON_ID=""
+PROVIDER_ACCOUNT_ID=""
+RUNTIME_PROVIDER=""
+PROVIDER_CREDENTIAL_ROOT=""
+PROVIDER_CREDENTIAL_MAP_REF=""
+DEVICE_NAME="$(hostname -s 2>/dev/null || hostname || echo remote-daemon)"
+RUNTIME_NAME="Remote Agent"
+MANAGED_NODE="false"
+MANAGED_RUNTIME_DOCKER_NETWORK="${MANAGED_RUNTIME_DOCKER_NETWORK:-}"
+MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK="${MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK:-}"
+MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS="${MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS:-}"
+MANAGED_RUNTIME_TLS_CA_PATH="${MANAGED_RUNTIME_TLS_CA_PATH:-}"
+MANAGED_RUNTIME_IMAGE_TAG="${MANAGED_RUNTIME_IMAGE_TAG:-latest}"
+MCP_EGRESS_ENFORCE="${MCP_EGRESS_ENFORCE:-false}"
+MCP_EGRESS_PROXY_URL="${MCP_EGRESS_PROXY_URL:-}"
+MCP_EGRESS_PROXY_ADMIN_TOKEN="${MCP_EGRESS_PROXY_ADMIN_TOKEN:-}"
+DOFE_AGENT_NPM_REGISTRY="${DOFE_AGENT_NPM_REGISTRY:-}"
+DOFE_AGENT_PYPI_INDEX_URL="${DOFE_AGENT_PYPI_INDEX_URL:-}"
+BASE_DIR="${DOFE_AGENT_DAEMON_HOME:-$HOME/.dofe-agent-daemon}"
+STATE_DIR="${DOFE_AGENT_DAEMON_STATE_DIR:-$BASE_DIR}"
+INSTALL_ROOT="${DOFE_AGENT_DAEMON_INSTALL_ROOT:-$BASE_DIR/runtime}"
+ENV_FILE="${DOFE_AGENT_DAEMON_ENV_FILE:-$BASE_DIR/daemon.env}"
+LAUNCHER_PATH="${DOFE_AGENT_DAEMON_LAUNCHER:-$BASE_DIR/start-daemon.sh}"
+PROVIDER_PATH="${PATH}"
+TMP_PACKAGE_PATH=""
+UPDATE_EXISTING="false"
+SERVER_URL_SET="false"
+DAEMON_TOKEN_SET="false"
+DAEMON_ID_SET="false"
+PROVIDER_ACCOUNT_ID_SET="false"
+RUNTIME_PROVIDER_SET="false"
+PROVIDER_CREDENTIAL_ROOT_SET="false"
+PROVIDER_CREDENTIAL_MAP_REF_SET="false"
+DEVICE_NAME_SET="false"
+RUNTIME_NAME_SET="false"
+MANAGED_NODE_SET="false"
+STATE_DIR_SET="false"
+INSTALL_ROOT_SET="false"
+ENV_FILE_SET="false"
+LAUNCHER_SET="false"
+PATH_SET="false"
+
+if [[ -n "${DOFE_AGENT_DAEMON_STATE_DIR:-}" ]]; then STATE_DIR_SET="true"; fi
+if [[ -n "${DOFE_AGENT_DAEMON_INSTALL_ROOT:-}" ]]; then INSTALL_ROOT_SET="true"; fi
+if [[ -n "${DOFE_AGENT_DAEMON_ENV_FILE:-}" ]]; then ENV_FILE_SET="true"; fi
+if [[ -n "${DOFE_AGENT_DAEMON_LAUNCHER:-}" ]]; then LAUNCHER_SET="true"; fi
+
+print_help() {
+  cat <<'EOF'
+Install and start the standalone DofeAgent remote daemon in user space.
+
+Usage:
+  install-remote-daemon.sh --daemon-token adt_xxx
+
+  install-remote-daemon.sh \
+    --package /path/to/dofe-agent-daemon-<version>.tgz \
+    --server-url https://dofe-agent.example \
+    --daemon-token adt_xxx \
+    --daemon-id daemon-prod-01
+
+  install-remote-daemon.sh \
+    --package-url https://artifact.example.com/dofe-agent-daemon-<version>.tgz \
+    --server-url https://dofe-agent.example \
+    --daemon-token adt_xxx \
+    --daemon-id daemon-prod-01
+
+Required:
+  --daemon-token <token>   required unless --update-existing can read daemon.env
+  --provider-account-id <id>  required when the workspace has a configured Provider Account
+  --runtime-provider <id>     restrict this runtime to one provider CLI
+  --provider-credential-root <path> node-local credential directory
+  --provider-credential-map-ref <uri> node-local file:// account-to-reference map
+
+Defaults:
+  --server-url <url>       default: baked into install-script when served from Server A
+  --daemon-id <id>         default: hostname
+  --package-url <url>      default: baked into install-script when served from Server A
+  --base-dir <dir>         default: ~/.dofe-agent-daemon
+  --state-dir <dir>        default: <base-dir>
+  --install-root <dir>     default: <base-dir>/runtime
+
+Package source:
+  One of:
+    --package <local-tgz-path>
+    --package-url <remote-tgz-url>
+  or rely on the default package URL baked into the install script
+
+Optional:
+  --managed-node           run Docker-backed managed Runtimes; no host Provider CLI login required
+  --device-name <name>     default: hostname
+  --runtime-name <label>   default: Remote Agent
+  --base-dir <dir>         default: ~/.dofe-agent-daemon
+  --state-dir <dir>        default: ~/.dofe-agent-daemon
+  --install-root <dir>     default: ~/.dofe-agent-daemon/runtime
+  --env-file <path>        default: ~/.dofe-agent-daemon/daemon.env
+  --launcher <path>        default: ~/.dofe-agent-daemon/start-daemon.sh
+  --path <PATH>            PATH captured for codex/claude/agy/gemini/opencode/openclaw/nanobot/hermes lookup
+  --update-existing        read existing daemon.env and reuse token/id/device/runtime settings
+  --no-start               install files but do not start the daemon
+  --help
+
+Notes:
+  - Managed nodes require Docker access for the installing user.
+  - Managed nodes reuse MANAGED_RUNTIME_DOCKER_NETWORK when set; otherwise the installer creates dofe-managed-egress.
+  - MCP_EGRESS_ENFORCE=true requires an existing dofe-runtime-restricted network managed by the deployment stack.
+  - MCP_EGRESS_ENFORCE=true also requires MCP_EGRESS_PROXY_URL and MCP_EGRESS_PROXY_ADMIN_TOKEN.
+  - Runtime app downloads use MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK plus DOFE_AGENT_NPM_REGISTRY / DOFE_AGENT_PYPI_INDEX_URL.
+  - Run this script as a user that has access to codex / claude / agy / gemini / opencode / openclaw / nanobot / hermes.
+  - Root is supported for server installs, but Claude Code must be logged in for /root and task commands run with root privileges.
+  - Feishu document and data operations are enabled through a bound Feishu Bot and resource bindings in the web application.
+  - Codex-based agents may also require a compatible bwrap unless the installed Codex can fall back to its vendored bwrap.
+  - For advanced systemd deployment, use deploy/systemd manually.
+EOF
+}
+
+log() {
+  printf '[%s] %s\n' "$SCRIPT_NAME" "$*"
+}
+
+fail() {
+  printf '[%s] ERROR: %s\n' "$SCRIPT_NAME" "$*" >&2
+  exit 1
+}
+
+warn() {
+  printf '[%s] WARNING: %s\n' "$SCRIPT_NAME" "$*" >&2
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    fail "Missing required command: $1"
+  fi
+}
+
+resolve_on_provider_path() {
+  local command_name="$1"
+  if [[ "$command_name" == */* ]]; then
+    if [[ -x "$command_name" ]]; then
+      printf '%s\n' "$command_name"
+      return 0
+    fi
+    return 1
+  fi
+  PATH="$PROVIDER_PATH" command -v "$command_name"
+}
+
+run_on_provider_path() {
+  local command_name="$1"
+  shift
+  if [[ "$command_name" == */* ]]; then
+    "$command_name" "$@"
+    return $?
+  fi
+  PATH="$PROVIDER_PATH" "$command_name" "$@"
+}
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/ }"
+  value="${value//$'\r'/ }"
+  printf '%s' "$value"
+}
+
+verify_dofe_agent_output_cli() {
+  local cli_path
+  cli_path="$(resolve_on_provider_path dofe-agent || true)"
+  [[ -n "$cli_path" ]] || fail "dofe-agent CLI was not found on PATH after install. Expected ${INSTALL_ROOT%/}/bin to be present."
+  run_on_provider_path dofe-agent output --help >/dev/null || fail "dofe-agent output --help failed after install."
+  run_on_provider_path dofe-agent output validate --help >/dev/null || fail "dofe-agent output validate --help failed after install."
+  DOFE_AGENT_OUTPUT_CLI_PATH="$cli_path"
+}
+
+verify_bwrap_cli() {
+  local bwrap_path
+  bwrap_path="$(resolve_on_provider_path bwrap || true)"
+  BWRAP_AVAILABLE="false"
+  BWRAP_SUPPORTS_PERMS="false"
+  BWRAP_CLI_PATH="$bwrap_path"
+  BWRAP_VERSION=""
+  BWRAP_ERROR=""
+  if [[ -z "$bwrap_path" ]]; then
+    BWRAP_ERROR="bwrap was not found on PATH. Codex-based agents may fail unless Codex can fall back to its vendored bwrap."
+    warn "$BWRAP_ERROR"
+    return 0
+  fi
+  if ! BWRAP_VERSION="$(run_on_provider_path bwrap --version 2>&1)"; then
+    BWRAP_ERROR="bwrap --version failed. Codex-based agents may fail unless Codex can fall back to its vendored bwrap."
+    warn "$BWRAP_ERROR"
+    return 0
+  fi
+  local bwrap_help
+  bwrap_help="$(run_on_provider_path bwrap --help 2>&1 || true)"
+  if [[ "$bwrap_help" != *"--perms"* ]]; then
+    BWRAP_ERROR="Installed bwrap does not support --perms. Codex-based agents may fail unless Codex can fall back to its vendored bwrap; current version output: ${BWRAP_VERSION:-unknown}."
+    warn "$BWRAP_ERROR"
+    return 0
+  fi
+  BWRAP_AVAILABLE="true"
+  BWRAP_SUPPORTS_PERMS="true"
+}
+
+if [[ "${DOFE_AGENT_INSTALLER_TEST_HOOK:-}" == "verify-runtime-readiness" ]]; then
+  PROVIDER_PATH="${DOFE_AGENT_INSTALLER_TEST_PATH:-$PROVIDER_PATH}"
+  verify_dofe_agent_output_cli
+  verify_bwrap_cli
+  printf 'Runtime readiness checks passed.\n'
+  exit 0
+fi
+
+cleanup() {
+  if [[ -n "$TMP_PACKAGE_PATH" && -f "$TMP_PACKAGE_PATH" ]]; then
+    rm -f "$TMP_PACKAGE_PATH"
+  fi
+}
+
+trap cleanup EXIT
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --package)
+      PACKAGE_PATH="${2:-}"
+      shift 2
+      ;;
+    --package-url)
+      PACKAGE_URL="${2:-}"
+      shift 2
+      ;;
+    --server-url)
+      SERVER_URL="${2:-}"
+      SERVER_URL_SET="true"
+      shift 2
+      ;;
+    --daemon-token)
+      DAEMON_TOKEN="${2:-}"
+      DAEMON_TOKEN_SET="true"
+      shift 2
+      ;;
+    --daemon-id)
+      DAEMON_ID="${2:-}"
+      DAEMON_ID_SET="true"
+      shift 2
+      ;;
+    --provider-account-id)
+      PROVIDER_ACCOUNT_ID="${2:-}"
+      PROVIDER_ACCOUNT_ID_SET="true"
+      shift 2
+      ;;
+    --runtime-provider)
+      RUNTIME_PROVIDER="${2:-}"
+      RUNTIME_PROVIDER_SET="true"
+      shift 2
+      ;;
+    --provider-credential-root)
+      PROVIDER_CREDENTIAL_ROOT="${2:-}"
+      PROVIDER_CREDENTIAL_ROOT_SET="true"
+      shift 2
+      ;;
+    --provider-credential-map-ref)
+      PROVIDER_CREDENTIAL_MAP_REF="${2:-}"
+      PROVIDER_CREDENTIAL_MAP_REF_SET="true"
+      shift 2
+      ;;
+    --device-name)
+      DEVICE_NAME="${2:-}"
+      DEVICE_NAME_SET="true"
+      shift 2
+      ;;
+    --runtime-name)
+      RUNTIME_NAME="${2:-}"
+      RUNTIME_NAME_SET="true"
+      shift 2
+      ;;
+    --managed-node)
+      MANAGED_NODE="true"
+      MANAGED_NODE_SET="true"
+      shift
+      ;;
+    --base-dir)
+      BASE_DIR="${2:-}"
+      if [[ "$STATE_DIR_SET" != "true" ]]; then STATE_DIR="$BASE_DIR"; fi
+      if [[ "$INSTALL_ROOT_SET" != "true" ]]; then INSTALL_ROOT="$BASE_DIR/runtime"; fi
+      if [[ "$ENV_FILE_SET" != "true" ]]; then ENV_FILE="$BASE_DIR/daemon.env"; fi
+      if [[ "$LAUNCHER_SET" != "true" ]]; then LAUNCHER_PATH="$BASE_DIR/start-daemon.sh"; fi
+      shift 2
+      ;;
+    --state-dir)
+      STATE_DIR="${2:-}"
+      STATE_DIR_SET="true"
+      shift 2
+      ;;
+    --install-root)
+      INSTALL_ROOT="${2:-}"
+      INSTALL_ROOT_SET="true"
+      shift 2
+      ;;
+    --env-file)
+      ENV_FILE="${2:-}"
+      ENV_FILE_SET="true"
+      shift 2
+      ;;
+    --launcher)
+      LAUNCHER_PATH="${2:-}"
+      LAUNCHER_SET="true"
+      shift 2
+      ;;
+    --path)
+      PROVIDER_PATH="${2:-}"
+      PATH_SET="true"
+      shift 2
+      ;;
+    --update-existing)
+      UPDATE_EXISTING="true"
+      shift
+      ;;
+    --no-start)
+      START_NOW="false"
+      shift
+      ;;
+    --help|-h)
+      print_help
+      exit 0
+      ;;
+    *)
+      fail "Unknown argument: $1"
+      ;;
+  esac
+done
+
+START_NOW="${START_NOW:-true}"
+
+if [[ "$UPDATE_EXISTING" == "true" ]]; then
+  [[ -f "$ENV_FILE" ]] || fail "--update-existing could not find daemon env file: $ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+
+  if [[ "$SERVER_URL_SET" != "true" && -n "${DOFE_AGENT_SERVER_URL:-}" ]]; then
+    SERVER_URL="$DOFE_AGENT_SERVER_URL"
+  fi
+  if [[ "$DAEMON_TOKEN_SET" != "true" && -n "${DOFE_AGENT_DAEMON_TOKEN:-}" ]]; then
+    DAEMON_TOKEN="$DOFE_AGENT_DAEMON_TOKEN"
+  fi
+  if [[ "$DAEMON_ID_SET" != "true" && -n "${DOFE_AGENT_DAEMON_ID:-}" ]]; then
+    DAEMON_ID="$DOFE_AGENT_DAEMON_ID"
+  fi
+  if [[ "$PROVIDER_ACCOUNT_ID_SET" != "true" && -n "${DOFE_AGENT_PROVIDER_ACCOUNT_ID:-}" ]]; then
+    PROVIDER_ACCOUNT_ID="$DOFE_AGENT_PROVIDER_ACCOUNT_ID"
+  fi
+  if [[ "$RUNTIME_PROVIDER_SET" != "true" && -n "${DOFE_AGENT_RUNTIME_PROVIDER:-}" ]]; then
+    RUNTIME_PROVIDER="$DOFE_AGENT_RUNTIME_PROVIDER"
+  fi
+  if [[ "$PROVIDER_CREDENTIAL_ROOT_SET" != "true" && -n "${DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT:-}" ]]; then
+    PROVIDER_CREDENTIAL_ROOT="$DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT"
+  fi
+  if [[ "$PROVIDER_CREDENTIAL_MAP_REF_SET" != "true" && -n "${DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF:-}" ]]; then
+    PROVIDER_CREDENTIAL_MAP_REF="$DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF"
+  fi
+  if [[ "$DEVICE_NAME_SET" != "true" && -n "${DOFE_AGENT_DEVICE_NAME:-}" ]]; then
+    DEVICE_NAME="$DOFE_AGENT_DEVICE_NAME"
+  fi
+  if [[ "$RUNTIME_NAME_SET" != "true" && -n "${DOFE_AGENT_RUNTIME_NAME:-}" ]]; then
+    RUNTIME_NAME="$DOFE_AGENT_RUNTIME_NAME"
+  fi
+  if [[ "$MANAGED_NODE_SET" != "true" && ( "${DOFE_AGENT_MANAGED_NODE:-}" == "true" || "${DOFE_AGENT_MANAGED_NODE:-}" == "1" ) ]]; then
+    MANAGED_NODE="true"
+  fi
+  if [[ "$STATE_DIR_SET" != "true" && -n "${DOFE_AGENT_DAEMON_STATE_DIR:-}" ]]; then
+    STATE_DIR="$DOFE_AGENT_DAEMON_STATE_DIR"
+  fi
+  if [[ "$INSTALL_ROOT_SET" != "true" && -n "${DOFE_AGENT_DAEMON_INSTALL_ROOT:-}" ]]; then
+    INSTALL_ROOT="$DOFE_AGENT_DAEMON_INSTALL_ROOT"
+  elif [[ "$INSTALL_ROOT_SET" != "true" && -n "${DOFE_AGENT_DAEMON_BIN:-}" ]]; then
+    INSTALL_ROOT="$(dirname "$(dirname "$DOFE_AGENT_DAEMON_BIN")")"
+  fi
+  if [[ "$PATH_SET" != "true" ]]; then
+    PROVIDER_PATH="$PATH"
+  fi
+fi
+
+[[ -n "$DAEMON_TOKEN" ]] || fail "--daemon-token is required"
+
+if [[ -z "$PACKAGE_URL" && -n "$DEFAULT_PACKAGE_URL" ]]; then
+  PACKAGE_URL="$DEFAULT_PACKAGE_URL"
+fi
+
+[[ -n "$SERVER_URL" ]] || fail "--server-url is required"
+
+if [[ -z "$DAEMON_ID" ]]; then
+  DAEMON_ID="$DEVICE_NAME"
+fi
+
+if [[ -n "$PACKAGE_PATH" && -n "$PACKAGE_URL" ]]; then
+  fail "Use either --package or --package-url, not both"
+fi
+
+if [[ -z "$PACKAGE_PATH" && -z "$PACKAGE_URL" ]]; then
+  fail "One of --package or --package-url is required"
+fi
+
+require_command pnpm
+require_command mktemp
+require_command install
+if [[ "$MANAGED_NODE" == "true" ]]; then
+  require_command docker
+fi
+
+if [[ -n "$PACKAGE_URL" ]]; then
+  if command -v curl >/dev/null 2>&1; then
+    TMP_PACKAGE_PATH="$(mktemp /tmp/dofe-agent-daemon.XXXXXX.tgz)"
+    log "Downloading package from $PACKAGE_URL"
+    curl -fsSL -H "Authorization: Bearer $DAEMON_TOKEN" "$PACKAGE_URL" -o "$TMP_PACKAGE_PATH"
+    PACKAGE_PATH="$TMP_PACKAGE_PATH"
+  elif command -v wget >/dev/null 2>&1; then
+    TMP_PACKAGE_PATH="$(mktemp /tmp/dofe-agent-daemon.XXXXXX.tgz)"
+    log "Downloading package from $PACKAGE_URL"
+    wget -qO "$TMP_PACKAGE_PATH" --header="Authorization: Bearer $DAEMON_TOKEN" "$PACKAGE_URL"
+    PACKAGE_PATH="$TMP_PACKAGE_PATH"
+  else
+    fail "Neither curl nor wget is available to download --package-url"
+  fi
+fi
+
+[[ -f "$PACKAGE_PATH" ]] || fail "Package does not exist: $PACKAGE_PATH"
+
+mkdir -p "$BASE_DIR" "$STATE_DIR" "$INSTALL_ROOT" "$(dirname "$ENV_FILE")" "$(dirname "$LAUNCHER_PATH")"
+
+OLD_BIN_PATH="${INSTALL_ROOT%/}/bin/dofe-agent-daemon"
+if [[ -x "$OLD_BIN_PATH" ]]; then
+  log "Stopping existing user-space daemon if it is running"
+  env PATH="$PROVIDER_PATH" "$OLD_BIN_PATH" stop --state-dir "$STATE_DIR" >/dev/null 2>&1 || true
+fi
+
+PNPM_STORE_DIR="${TMPDIR:-/tmp}/dofe-agent-pnpm-store"
+mkdir -p "$PNPM_STORE_DIR"
+
+log "Installing standalone daemon package into $INSTALL_ROOT"
+PATH="$INSTALL_ROOT/bin:$PATH" pnpm --store-dir "$PNPM_STORE_DIR" add --global --global-dir "$INSTALL_ROOT" --global-bin-dir "$INSTALL_ROOT/bin" "$PACKAGE_PATH"
+
+BIN_PATH="${INSTALL_ROOT%/}/bin/dofe-agent-daemon"
+[[ -x "$BIN_PATH" ]] || fail "Installed binary not found at $BIN_PATH"
+DAEMON_VERSION="$("$BIN_PATH" --version 2>/dev/null || true)"
+DAEMON_VERSION="${DAEMON_VERSION//$'\r'/ }"
+DAEMON_VERSION="${DAEMON_VERSION//$'\n'/ }"
+DAEMON_VERSION="${DAEMON_VERSION:-unknown}"
+log "Installed dofe-agent-daemon version: $DAEMON_VERSION"
+DOFE_AGENT_CLI_PATH="${INSTALL_ROOT%/}/bin/dofe-agent"
+if [[ "$MANAGED_NODE" != "true" ]]; then
+  [[ -x "$DOFE_AGENT_CLI_PATH" ]] || fail "Installed dofe-agent CLI not found at $DOFE_AGENT_CLI_PATH"
+fi
+INSTALL_BIN_DIR="${INSTALL_ROOT%/}/bin"
+if [[ ":$PROVIDER_PATH:" != *":$INSTALL_BIN_DIR:"* ]]; then
+  PROVIDER_PATH="$INSTALL_BIN_DIR:$PROVIDER_PATH"
+fi
+
+DOFE_AGENT_OUTPUT_CLI_PATH=""
+BWRAP_AVAILABLE="false"
+BWRAP_SUPPORTS_PERMS="false"
+BWRAP_CLI_PATH=""
+BWRAP_VERSION=""
+BWRAP_ERROR=""
+if [[ "$MANAGED_NODE" == "true" ]]; then
+  log "Checking managed-node Docker readiness"
+  docker version >/dev/null 2>&1 || fail "docker version failed; the installing user must be able to run managed Runtime containers"
+  if [[ -z "$MANAGED_RUNTIME_DOCKER_NETWORK" ]]; then
+    if [[ "$MCP_EGRESS_ENFORCE" == "true" ]]; then
+      MANAGED_RUNTIME_DOCKER_NETWORK="dofe-runtime-restricted"
+    else
+      MANAGED_RUNTIME_DOCKER_NETWORK="dofe-managed-egress"
+    fi
+  fi
+  if [[ -z "$MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK" ]]; then
+    MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK="dofe-managed-install"
+  fi
+  if [[ ! "$MANAGED_RUNTIME_DOCKER_NETWORK" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; then
+    fail "Invalid MANAGED_RUNTIME_DOCKER_NETWORK: $MANAGED_RUNTIME_DOCKER_NETWORK"
+  fi
+  if [[ ! "$MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; then
+    fail "Invalid MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK: $MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK"
+  fi
+  if [[ -n "$MCP_EGRESS_PROXY_URL" && ! "$MCP_EGRESS_PROXY_URL" =~ ^https?://[^/?#[:space:]]+/?$ ]]; then
+    fail "MCP_EGRESS_PROXY_URL must be an HTTP(S) origin without a path, query, or fragment"
+  fi
+  if [[ "$MCP_EGRESS_ENFORCE" == "true" ]]; then
+    [[ "$MANAGED_RUNTIME_DOCKER_NETWORK" == "dofe-runtime-restricted" ]] || fail "MCP_EGRESS_ENFORCE=true requires MANAGED_RUNTIME_DOCKER_NETWORK=dofe-runtime-restricted"
+    [[ -n "$MCP_EGRESS_PROXY_URL" ]] || fail "MCP_EGRESS_PROXY_URL is required when MCP_EGRESS_ENFORCE=true"
+    [[ ${#MCP_EGRESS_PROXY_ADMIN_TOKEN} -ge 16 ]] || fail "MCP_EGRESS_PROXY_ADMIN_TOKEN must contain at least 16 characters when MCP_EGRESS_ENFORCE=true"
+    [[ "$MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK" != "$MANAGED_RUNTIME_DOCKER_NETWORK" ]] || fail "MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK must be separate from the restricted Runtime network"
+    [[ "$DOFE_AGENT_NPM_REGISTRY" =~ ^https://[^[:space:]?#]+ ]] || fail "DOFE_AGENT_NPM_REGISTRY must be an HTTPS registry when MCP_EGRESS_ENFORCE=true"
+    [[ "$DOFE_AGENT_PYPI_INDEX_URL" =~ ^https://[^[:space:]?#]+ ]] || fail "DOFE_AGENT_PYPI_INDEX_URL must be an HTTPS index when MCP_EGRESS_ENFORCE=true"
+  fi
+  NORMALIZED_MANAGED_NETWORK="$(printf '%s' "$MANAGED_RUNTIME_DOCKER_NETWORK" | tr '[:upper:]' '[:lower:]')"
+  case "$NORMALIZED_MANAGED_NETWORK" in
+    bridge|default|host|none)
+      fail "MANAGED_RUNTIME_DOCKER_NETWORK must be an isolated user-defined Docker network"
+      ;;
+  esac
+  if ! docker network inspect "$MANAGED_RUNTIME_DOCKER_NETWORK" >/dev/null 2>&1; then
+    if [[ "$MCP_EGRESS_ENFORCE" == "true" ]]; then
+      fail "Required restricted Docker network does not exist: $MANAGED_RUNTIME_DOCKER_NETWORK"
+    fi
+    log "Creating managed Runtime Docker network: $MANAGED_RUNTIME_DOCKER_NETWORK"
+    docker network create --driver bridge --label dofe.managed-egress=unrestricted "$MANAGED_RUNTIME_DOCKER_NETWORK" >/dev/null
+  fi
+  NORMALIZED_INSTALL_NETWORK="$(printf '%s' "$MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK" | tr '[:upper:]' '[:lower:]')"
+  case "$NORMALIZED_INSTALL_NETWORK" in
+    bridge|default|host|none)
+      fail "MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK must be an isolated user-defined Docker network"
+      ;;
+  esac
+  if ! docker network inspect "$MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK" >/dev/null 2>&1; then
+    log "Creating managed Runtime install network: $MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK"
+    docker network create --driver bridge --label dofe.managed-egress=package-install "$MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK" >/dev/null
+  fi
+else
+  log "Checking runtime output readiness"
+  verify_dofe_agent_output_cli
+  verify_bwrap_cli
+fi
+
+TMP_ENV_FILE="$(mktemp /tmp/dofe-agent-daemon-env.XXXXXX)"
+cat >"$TMP_ENV_FILE" <<EOF
+# Generated by $SCRIPT_NAME
+PATH=$(printf '%q' "$PROVIDER_PATH")
+DOFE_AGENT_SERVER_URL=$(printf '%q' "$SERVER_URL")
+DOFE_AGENT_DAEMON_TOKEN=$(printf '%q' "$DAEMON_TOKEN")
+DOFE_AGENT_DAEMON_ID=$(printf '%q' "$DAEMON_ID")
+DOFE_AGENT_PROVIDER_ACCOUNT_ID=$(printf '%q' "$PROVIDER_ACCOUNT_ID")
+DOFE_AGENT_RUNTIME_PROVIDER=$(printf '%q' "$RUNTIME_PROVIDER")
+DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT=$(printf '%q' "$PROVIDER_CREDENTIAL_ROOT")
+DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF=$(printf '%q' "$PROVIDER_CREDENTIAL_MAP_REF")
+DOFE_AGENT_DEVICE_NAME=$(printf '%q' "$DEVICE_NAME")
+DOFE_AGENT_RUNTIME_NAME=$(printf '%q' "$RUNTIME_NAME")
+DOFE_AGENT_MANAGED_NODE=$(printf '%q' "$MANAGED_NODE")
+MANAGED_RUNTIME_DOCKER_NETWORK=$(printf '%q' "$MANAGED_RUNTIME_DOCKER_NETWORK")
+MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK=$(printf '%q' "$MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK")
+MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS=$(printf '%q' "$MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS")
+MANAGED_RUNTIME_TLS_CA_PATH=$(printf '%q' "$MANAGED_RUNTIME_TLS_CA_PATH")
+MANAGED_RUNTIME_IMAGE_TAG=$(printf '%q' "$MANAGED_RUNTIME_IMAGE_TAG")
+MCP_EGRESS_ENFORCE=$(printf '%q' "$MCP_EGRESS_ENFORCE")
+MCP_EGRESS_PROXY_URL=$(printf '%q' "$MCP_EGRESS_PROXY_URL")
+MCP_EGRESS_PROXY_ADMIN_TOKEN=$(printf '%q' "$MCP_EGRESS_PROXY_ADMIN_TOKEN")
+DOFE_AGENT_NPM_REGISTRY=$(printf '%q' "$DOFE_AGENT_NPM_REGISTRY")
+DOFE_AGENT_PYPI_INDEX_URL=$(printf '%q' "$DOFE_AGENT_PYPI_INDEX_URL")
+DOFE_AGENT_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")
+DOFE_AGENT_DAEMON_INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
+DOFE_AGENT_DAEMON_BIN=$(printf '%q' "$BIN_PATH")
+EOF
+# Parent directories were created above. Avoid GNU-only install -D so this
+# bootstrap works with the BSD install shipped by macOS as well.
+install -m 600 "$TMP_ENV_FILE" "$ENV_FILE"
+rm -f "$TMP_ENV_FILE"
+
+TMP_LAUNCHER="$(mktemp /tmp/dofe-agent-daemon-launcher.XXXXXX)"
+cat >"$TMP_LAUNCHER" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+set -a
+source "$ENV_FILE"
+set +a
+MANAGED_NODE_FLAG=""
+if [[ "\${DOFE_AGENT_MANAGED_NODE:-false}" == "true" || "\${DOFE_AGENT_MANAGED_NODE:-false}" == "1" ]]; then
+  MANAGED_NODE_FLAG="--managed-node"
+fi
+exec "\$DOFE_AGENT_DAEMON_BIN" start \\
+  --state-dir "\$DOFE_AGENT_DAEMON_STATE_DIR" \\
+  --server-url "\$DOFE_AGENT_SERVER_URL" \\
+  --daemon-token "\$DOFE_AGENT_DAEMON_TOKEN" \\
+  --daemon-id "\$DOFE_AGENT_DAEMON_ID" \\
+  --device-name "\$DOFE_AGENT_DEVICE_NAME" \\
+  --runtime-name "\$DOFE_AGENT_RUNTIME_NAME" \\
+  \$MANAGED_NODE_FLAG
+EOF
+install -m 700 "$TMP_LAUNCHER" "$LAUNCHER_PATH"
+rm -f "$TMP_LAUNCHER"
+
+if [[ "$START_NOW" == "true" ]]; then
+  log "Starting user-space daemon"
+  "$LAUNCHER_PATH"
+else
+  log "Skipping daemon start because --no-start was provided"
+fi
+
+STATUS_JSON="$("$BIN_PATH" status --json --state-dir "$STATE_DIR" 2>/dev/null || true)"
+if [[ "$MANAGED_NODE" == "true" ]]; then
+  READINESS_JSON="{\"managedNode\":true,\"docker\":{\"available\":true}}"
+else
+  READINESS_JSON="{\"managedNode\":false,\"dofeAgentOutput\":{\"available\":true,\"path\":\"$(json_escape "$DOFE_AGENT_OUTPUT_CLI_PATH")\"},\"bwrap\":{\"available\":$BWRAP_AVAILABLE,\"path\":\"$(json_escape "$BWRAP_CLI_PATH")\",\"version\":\"$(json_escape "$BWRAP_VERSION")\",\"supportsPerms\":$BWRAP_SUPPORTS_PERMS,\"error\":\"$(json_escape "$BWRAP_ERROR")\"}}"
+fi
+
+cat <<EOF
+
+User-space remote daemon bootstrap completed.
+
+Binary:
+  $BIN_PATH
+
+Version:
+  $DAEMON_VERSION
+
+State dir:
+  $STATE_DIR
+
+Env file:
+  $ENV_FILE
+
+Launcher:
+  $LAUNCHER_PATH
+
+Status:
+  ${STATUS_JSON:-<unavailable>}
+
+Readiness:
+  $READINESS_JSON
+
+Stop daemon:
+  "$BIN_PATH" stop --state-dir "$STATE_DIR"
+EOF

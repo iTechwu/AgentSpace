@@ -1,0 +1,78 @@
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    PNPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    PNPM_CONFIG_REPLACE_REGISTRY_HOST=always \
+    npm_config_registry=https://registry.npmmirror.com \
+    npm_config_replace_registry_host=always
+
+WORKDIR /workspace
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/cli ./apps/cli
+COPY packages ./packages
+
+RUN --mount=type=cache,id=dofe-managed-node-pnpm,target=/pnpm/store \
+  npm install --global pnpm@10.26.2 \
+  && pnpm install --frozen-lockfile --ignore-scripts \
+  && pnpm --filter @dofe-agent/db run prisma:generate \
+  && pnpm --filter dofe-agent-daemon run build \
+  && mkdir -p /opt/daemon-package \
+  && npm_config_ignore_scripts=true pnpm --filter dofe-agent-daemon pack --pack-destination /opt/daemon-package
+
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS cosign-download
+
+ARG TARGETARCH
+ARG COSIGN_VERSION=v3.1.2
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates curl \
+  && case "${TARGETARCH}" in \
+       amd64) COSIGN_SHA256=f7622ed3cf22e55e1ae6377c080979ff77a22da9981c11df222a2e444991e7cf ;; \
+       arm64) COSIGN_SHA256=90e7ae0b5dfd60f20816b52c012addf7fc055ebcc7bea4ce81c428ca8518c302 ;; \
+       *) echo "Unsupported cosign architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+     esac \
+  && curl --fail --location --silent --show-error --http1.1 \
+       --retry 5 --retry-all-errors --retry-delay 2 \
+       "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" \
+       --output /tmp/cosign \
+  && echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum --check --strict \
+  && install --mode 0755 /tmp/cosign /usr/local/bin/cosign
+
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates curl docker.io iptables \
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd --gid 10001 dofe-agent \
+  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
+
+COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
+COPY --from=cosign-download /usr/local/bin/cosign /usr/local/bin/cosign
+COPY deploy/daemon/managed-node-entrypoint.sh /usr/local/bin/managed-node-entrypoint
+COPY deploy/daemon/reconcile-runtime-egress.sh /usr/local/bin/reconcile-runtime-egress
+
+RUN mkdir -p /opt/dofe-agent-daemon \
+  && tar -xzf /tmp/dofe-agent-daemon-*.tgz -C /opt/dofe-agent-daemon --strip-components=1 \
+  && rm /tmp/dofe-agent-daemon-*.tgz \
+  && ln -s /opt/dofe-agent-daemon/bin/agent-router.js /usr/local/bin/agent-router \
+  && ln -s /opt/dofe-agent-daemon/bin/dofe-agent.js /usr/local/bin/dofe-agent \
+  && ln -s /opt/dofe-agent-daemon/bin/dofe-agent-daemon.js /usr/local/bin/dofe-agent-daemon \
+  && mkdir -p /var/lib/dofe-agent-daemon \
+  && chown -R dofe-agent:dofe-agent /home/dofe-agent /var/lib/dofe-agent-daemon \
+  && chmod 0755 /usr/local/bin/managed-node-entrypoint /usr/local/bin/reconcile-runtime-egress /opt/dofe-agent-daemon/bin/*.js
+
+ENV HOME=/home/dofe-agent \
+    NODE_ENV=production \
+    DOFE_AGENT_MANAGED_NODE=true
+
+ENTRYPOINT ["/usr/local/bin/managed-node-entrypoint"]
+CMD ["dofe-agent-daemon", "start", "--foreground", "--managed-node"]

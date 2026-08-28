@@ -1,0 +1,22 @@
+import { defaultRuntimeMaintenanceDependencies, runRuntimeMaintenanceAsync } from "@dofe-agent/services/runtime";
+import { runCommitReconciliationStage } from "../../daemon/_lib/commit-reconciliation";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request): Promise<Response> {
+  const expected = process.env.CRON_SECRET;
+  if (!expected) {
+    return Response.json({ error: "CRON_SECRET is not configured." }, { status: 500 });
+  }
+
+  const header = request.headers.get("authorization")?.trim() ?? "";
+  if (!header.startsWith("Bearer ") || header.slice("Bearer ".length).trim() !== expected) {
+    return Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  const result = await runRuntimeMaintenanceAsync({
+    ...defaultRuntimeMaintenanceDependencies,
+    commitReconciliation: runCommitReconciliationStage,
+  });
+  return Response.json(result, { status: result.ok ? 200 : 503 });
+}

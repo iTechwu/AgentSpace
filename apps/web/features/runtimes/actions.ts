@@ -1,0 +1,432 @@
+"use server";
+
+import { readAgentRuntimeSync, updateAgentRuntimeManagedFieldsSync } from "@dofe-agent/db";
+import { DAEMON_PROVIDER_PROTOCOLS, resolveProviderLocalModels, resolveProviderProtocols } from "@dofe-agent/domain";
+import { cancelRuntimeProvisioningTaskAsync, deleteManagedRuntimeAsync, ensureManagedRuntimeCapacitySync, getManagedRuntimeCredentialStatusAsync, getRuntimeProvisioningTaskDetailSync, listManagedRuntimeTasksSync, preflightManagedRuntimeCreationAsync, resolveAgentRuntimeMode, resolveManagedRuntimeScopeSync, retryRuntimeProvisioningTaskSync, rotateManagedRuntimeCredentialAsync, setManagedRuntimeDefaultModelAsync, stopManagedRuntimeAsync } from "@dofe-agent/services/runtime";
+import { getModelsInternalClient, isExecutionLanguageModel, isModelsInternalConfigured } from "@dofe-agent/services/models";
+import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
+import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
+import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";
+import type { DaemonProvider } from "@dofe-agent/domain";
+import { assertManagedRuntimeProviderEnabled } from "@/features/runtimes/runtime-feature-flags";
+
+function requireAdminActor() {
+  return requireCurrentWorkspaceContext().then((ctx) => {
+    assertWorkspaceRoleForContext(ctx, "admin");
+    return {
+      workspaceId: ctx.currentWorkspace.id,
+      actorUserId: ctx.currentUser.id,
+      slug: ctx.currentWorkspace.slug,
+    };
+  });
+}
+
+function assertRemoteManagedRuntimeMode(): void {
+  if (resolveAgentRuntimeMode() !== "remote") {
+    throw new Error("managed_runtime.remote_mode_required");
+  }
+}
+
+export async function createManagedRuntimeAction(input: {
+  provider: DaemonProvider;
+  defaultModel?: string;
+  allowedModels?: string[];
+  idempotencyKey: string;
+  targetServer?: string;
+  name?: string;
+  allowNewEmployeeSharing?: boolean;
+  forceProvisioning?: boolean;
+}): Promise<
+  | { kind: "reused"; runtimeId: string; runtimeName: string }
+  | { kind: "provisioning"; taskId: string }
+> {
+  assertRemoteManagedRuntimeMode();
+  assertManagedRuntimeProviderEnabled(input.provider);
+  const { workspaceId, actorUserId, slug } = await requireAdminActor();
+  const result = ensureManagedRuntimeCapacitySync({
+    workspaceId,
+    actorUserId,
+    provider: input.provider,
+    defaultModel: input.defaultModel,
+    allowedModels: input.allowedModels,
+    idempotencyKey: input.idempotencyKey,
+    targetServer: input.targetServer,
+    name: input.name,
+    allowNewEmployeeSharing: input.allowNewEmployeeSharing,
+    forceProvisioning: input.forceProvisioning,
+  });
+  revalidateWorkspacePath("/runtimes", slug);
+  return result.kind === "reused"
+    ? result
+    : { kind: "provisioning", taskId: result.task.id };
+}
+
+export async function preflightManagedRuntimeAction(input: {
+  provider: DaemonProvider;
+  defaultModel?: string;
+  forceProvisioning?: boolean;
+}) {
+  assertRemoteManagedRuntimeMode();
+  assertManagedRuntimeProviderEnabled(input.provider);
+  const { workspaceId, actorUserId } = await requireAdminActor();
+  if (!isModelsInternalConfigured()) {
+    return {
+      allowed: false,
+      code: "managed_runtime.models_not_configured",
+      message: "The models service is not configured for this deployment.",
+    };
+  }
+  return preflightManagedRuntimeCreationAsync({
+    workspaceId,
+    actorUserId,
+    provider: input.provider,
+    defaultModel: input.defaultModel,
+    forceProvisioning: input.forceProvisioning,
+  });
+}
+
+export async function getProvisioningTaskAction(taskId: string) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId } = await requireAdminActor();
+  return getRuntimeProvisioningTaskDetailSync({ workspaceId, actorUserId, taskId });
+}
+
+export async function listManagedRuntimeTasksAction() {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId } = await requireAdminActor();
+  return listManagedRuntimeTasksSync({ workspaceId, actorUserId });
+}
+
+export async function retryProvisioningAction(taskId: string) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId, slug } = await requireAdminActor();
+  const task = retryRuntimeProvisioningTaskSync({ workspaceId, actorUserId, taskId });
+  revalidateWorkspacePath(`/runtimes/${task.id}`, slug);
+  return { taskId: task.id };
+}
+
+export async function cancelProvisioningAction(taskId: string, reason?: string) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId, slug } = await requireAdminActor();
+  await cancelRuntimeProvisioningTaskAsync({ workspaceId, actorUserId, taskId, reason });
+  revalidateWorkspacePath("/runtimes", slug);
+}
+
+export async function stopManagedRuntimeAction(runtimeId: string, reason?: string) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId, slug } = await requireAdminActor();
+  await stopManagedRuntimeAsync({ workspaceId, actorUserId, runtimeId, reason });
+  revalidateWorkspacePath("/runtimes", slug);
+}
+
+export async function deleteManagedRuntimeAction(runtimeId: string, reason?: string) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId, slug } = await requireAdminActor();
+  await deleteManagedRuntimeAsync({ workspaceId, actorUserId, runtimeId, reason });
+  revalidateWorkspacePath("/runtimes", slug);
+}
+
+export async function rotateManagedRuntimeCredentialAction(
+  runtimeId: string,
+  reason?: "manual" | "expired" | "compromised" | "gateway-rejected",
+) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId, slug } = await requireAdminActor();
+  await rotateManagedRuntimeCredentialAsync({
+    workspaceId,
+    actorUserId,
+    runtimeId,
+    reason: reason ?? "manual",
+  });
+  revalidateWorkspacePath("/runtimes", slug);
+}
+
+export async function getManagedRuntimeCredentialStatusAction(runtimeId: string) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId } = await requireAdminActor();
+  return getManagedRuntimeCredentialStatusAsync({ workspaceId, actorUserId, runtimeId });
+}
+
+export async function updateManagedRuntimeSharingAction(input: {
+  runtimeId: string;
+  allowNewEmployeeSharing: boolean;
+}): Promise<void> {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, slug } = await requireAdminActor();
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId) {
+    throw new Error("runtime.not_found");
+  }
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: input.runtimeId,
+    workspaceId,
+    allowNewEmployeeSharing: input.allowNewEmployeeSharing,
+  });
+  revalidateWorkspacePath(`/runtimes/runtime/${input.runtimeId}`, slug);
+  revalidateWorkspacePath("/runtimes", slug);
+}
+
+export async function updateManagedRuntimeDefaultModelAction(input: {
+  runtimeId: string;
+  defaultModel?: string;
+}): Promise<void> {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId, slug } = await requireAdminActor();
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId || !runtime.managedCredentialId) {
+    throw new Error("managed_runtime.runtime_not_found");
+  }
+
+  const requestedModel = input.defaultModel?.trim() ?? "";
+  await setManagedRuntimeDefaultModelAsync({
+    workspaceId,
+    actorUserId,
+    runtimeId: runtime.id,
+    defaultModel: requestedModel || undefined,
+  });
+  revalidateWorkspacePath(`/runtimes/runtime/${runtime.id}`, slug);
+  revalidateWorkspacePath("/runtimes", slug);
+}
+
+export interface RuntimeModelCatalogItem {
+  alias: string;
+  displayName?: string | null;
+  model?: string;
+  modelType: "llm";
+  protocol: string;
+  contextLength?: number;
+  supportsVision?: boolean;
+  supportsFunctionCalling?: boolean;
+  inputPrice?: number | null;
+  outputPrice?: number | null;
+  priceCurrency?: string | null;
+  isAvailable: boolean;
+  unavailableReason?: string;
+}
+
+export type RuntimeModelCatalogIssue = "sso_binding_required" | "catalog_unavailable";
+
+export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonProvider): Promise<{
+  list: RuntimeModelCatalogItem[];
+  configured: boolean;
+  issue?: RuntimeModelCatalogIssue;
+}> {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId } = await requireAdminActor();
+  const localModels = buildLocalRuntimeModelCatalog(provider);
+  if (localModels.length > 0) {
+    return { list: localModels, configured: true };
+  }
+  if (!isModelsInternalConfigured()) {
+    return { list: [], configured: false };
+  }
+  const protocols = DAEMON_PROVIDER_PROTOCOLS[provider] ?? [];
+  if (protocols.length === 0) {
+    return { list: [], configured: true };
+  }
+  let tenantId: string;
+  try {
+    tenantId = resolveManagedRuntimeScopeSync(workspaceId).tenantId;
+  } catch (error) {
+    if (isRuntimeScopeConfigurationError(error)) {
+      return { list: [], configured: false, issue: "sso_binding_required" };
+    }
+    throw error;
+  }
+
+  let response: Awaited<ReturnType<ReturnType<typeof getModelsInternalClient>["models"]["list"]>>;
+  try {
+    const client = getModelsInternalClient();
+    response = await client.models.list({ query: { tenantId } });
+  } catch {
+    return { list: [], configured: false, issue: "catalog_unavailable" };
+  }
+  // Default-model pickers only need the models this runtime can actually
+  // speak. Availability is a protocol-intersection check: codex speaks
+  // openai_response, claudecode speaks anthropic, and everything else is not
+  // part of this runtime's catalog. The audit/verification stamps from the
+  // model service (`codexReady`, health probes) are intentionally NOT used
+  // here so the picker never empties out while verification is still running.
+  const list = response.list
+    .filter(isExecutionLanguageModel)
+    .map((model) => {
+      const effectivePricing = resolveEffectiveModelPricing(model);
+      const supported = (model as { supportedProtocols?: string[] }).supportedProtocols ?? [];
+      const protocol = protocols.find((p) => supported.includes(p));
+      const isEnabled = (model as { isEnabled?: boolean }).isEnabled !== false;
+      const isDeprecated = (model as { isDeprecated?: boolean }).isDeprecated === true;
+      const isAvailable = Boolean(protocol && isEnabled && !isDeprecated);
+      return {
+        alias: String((model as { alias?: string }).alias ?? (model as { id?: string }).id ?? ""),
+        displayName: (model as { displayName?: string | null }).displayName,
+        model: (model as { model?: string }).model,
+        modelType: "llm" as const,
+        protocol: protocol ?? "",
+        contextLength: (model as { contextLength?: number }).contextLength,
+        supportsVision: (model as { supportsVision?: boolean }).supportsVision,
+        supportsFunctionCalling: (model as { supportsFunctionCalling?: boolean }).supportsFunctionCalling,
+        inputPrice: effectivePricing.inputPrice,
+        outputPrice: effectivePricing.outputPrice,
+        priceCurrency: effectivePricing.currency,
+        isAvailable,
+        unavailableReason: isAvailable ? undefined : "Model is disabled or deprecated",
+      };
+    })
+    .filter((item) => item.alias && item.protocol);
+  return { list, configured: true };
+}
+
+function isRuntimeScopeConfigurationError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === "managed_runtime.sso_binding_required"
+    || error.message === "managed_runtime.team_scoped_workspace_required"
+  );
+}
+
+/**
+ * Models that can become an existing runtime's default. The current credential
+ * may have a narrower allowlist, but presenting that list would make changing
+ * the default impossible. Saving a selection reissues the credential with the
+ * selected model as its gateway allowlist.
+ */
+export async function getManagedRuntimeModelsAction(runtimeId: string) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId } = await requireAdminActor();
+  const runtime = readAgentRuntimeSync(runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId || !runtime.managedCredentialId) {
+    throw new Error("managed_runtime.runtime_not_found");
+  }
+  const localModels = buildLocalRuntimeModelCatalog(runtime.provider);
+  if (localModels.length > 0) {
+    const list = localModels.map((model) => ({ ...model, id: model.alias, isEnabled: true }));
+    return { list, total: list.length, configured: true as const, catalogState: "ready" as const };
+  }
+  if (!isModelsInternalConfigured()) {
+    return { list: [], total: 0, configured: false as const, catalogState: "not_configured" as const };
+  }
+  let response;
+  try {
+    const { tenantId } = resolveManagedRuntimeScopeSync(workspaceId);
+    response = await getModelsInternalClient().models.list({ query: { tenantId } });
+  } catch (error) {
+    const status = typeof error === "object" && error && "status" in error ? (error as { status?: number }).status : undefined;
+    return {
+      list: [], total: 0, configured: false as const,
+      catalogState: status === 404 ? "credential_missing" as const : "unavailable" as const,
+    };
+  }
+  const list = response.list.filter(isExecutionLanguageModel).map((model) => {
+    const catalogModel = model as typeof model & {
+      supportedProtocols?: string[];
+      contextLength?: number;
+      supportsVision?: boolean;
+      supportsFunctionCalling?: boolean;
+      inputPrice?: number | null;
+      outputPrice?: number | null;
+      inputPriceCurrency?: string | null;
+      outputPriceCurrency?: string | null;
+      pricing?: unknown;
+      isAvailable?: boolean;
+      codexReady?: boolean;
+    };
+    const effectivePricing = resolveEffectiveModelPricing(catalogModel);
+    const supportedProtocols = catalogModel.supportedProtocols ?? [];
+    const runtimeProtocols = runtime.protocols?.length
+      ? runtime.protocols
+      : resolveProviderProtocols(runtime.provider);
+    const matchedProtocol = supportedProtocols.find((protocol) => runtimeProtocols.includes(protocol));
+    // Collapse the credential, policy, deprecation, and protocol signals into a
+    // single availability flag. Only protocol-compatible models are part of the
+    // default-model catalog; the audit/verification stamp (`codexReady`) is not
+    // a selection criterion here so verification in progress never empties the
+    // picker. The gateway still blocks unverified openai_response routes.
+    const credentialAvailable = catalogModel.isAvailable;
+    const policyEnabled = model.isEnabled !== false;
+    const deprecated = model.isDeprecated === true;
+    const isAvailable = Boolean(credentialAvailable && policyEnabled && !deprecated && matchedProtocol);
+    const unavailableReason = isAvailable
+      ? undefined
+      : !matchedProtocol
+        ? `Runtime protocol (${runtimeProtocols.join(", ")}) not supported`
+        : !credentialAvailable
+          ? "Credential unavailable"
+          : !policyEnabled
+            ? "Disabled by team policy"
+            : "Model is deprecated";
+    return {
+      id: model.id ?? model.alias,
+      alias: model.alias,
+      model: model.model,
+      displayName: model.displayName,
+      modelType: "llm" as const,
+      protocol: matchedProtocol ?? supportedProtocols[0],
+      contextLength: catalogModel.contextLength,
+      supportsVision: catalogModel.supportsVision,
+      supportsFunctionCalling: catalogModel.supportsFunctionCalling,
+      inputPrice: effectivePricing.inputPrice,
+      outputPrice: effectivePricing.outputPrice,
+      priceCurrency: effectivePricing.currency,
+      isAvailable,
+      isEnabled: model.isEnabled,
+      unavailableReason,
+    };
+  })
+  .filter((item) => item.alias && item.protocol);
+  return {
+    list,
+    total: list.length,
+    configured: true as const,
+    catalogState: "ready" as const,
+  };
+}
+
+function buildLocalRuntimeModelCatalog(provider: DaemonProvider): RuntimeModelCatalogItem[] {
+  return resolveProviderLocalModels(provider).map((model) => ({
+    alias: model.id,
+    displayName: model.displayName,
+    model: model.id,
+    modelType: "llm",
+    protocol: model.protocol,
+    supportsVision: false,
+    supportsFunctionCalling: true,
+    isAvailable: true,
+  }));
+}
+
+function resolveEffectiveModelPricing(model: {
+  inputPrice?: number | null;
+  outputPrice?: number | null;
+  inputPriceCurrency?: string | null;
+  outputPriceCurrency?: string | null;
+  pricing?: unknown;
+}): { inputPrice?: number | null; outputPrice?: number | null; currency?: string | null } {
+  const pricing = typeof model.pricing === "object" && model.pricing !== null
+    ? model.pricing as Record<string, unknown>
+    : undefined;
+  return {
+    inputPrice: typeof pricing?.actualInputPrice === "number" ? pricing.actualInputPrice : model.inputPrice,
+    outputPrice: typeof pricing?.actualOutputPrice === "number" ? pricing.actualOutputPrice : model.outputPrice,
+    currency: typeof pricing?.currency === "string"
+      ? pricing.currency
+      : model.inputPriceCurrency ?? model.outputPriceCurrency,
+  };
+}
+
+/**
+ * Runtime diagnostics intentionally expose no storage locator or secret data.
+ */
+export async function getManagedRuntimeDiagnosticAction(runtimeId: string) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId } = await requireAdminActor();
+  const runtime = readAgentRuntimeSync(runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId) {
+    throw new Error("managed_runtime.runtime_not_found");
+  }
+  return {
+    provisioningState: runtime.provisioningState ?? null,
+    managedCredentialId: runtime.managedCredentialId ?? null,
+    credentialConfigured: Boolean(runtime.credentialSecretRef),
+    protocols: runtime.protocols ?? [],
+    defaultModel: runtime.defaultModel ?? null,
+  };
+}

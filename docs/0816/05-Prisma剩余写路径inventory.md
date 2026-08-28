@@ -1,0 +1,43 @@
+# Prisma 剩余写路径 inventory
+
+审查基线：`dev` 分支 `b94242bb`，2026-08-17。此清单区分“已有 Prisma 写适配器”和“仍由同步 PostgreSQL/SQLite 路径承担”的事实，不把 Prisma model 存在误判为写迁移完成。
+
+## 已有 Prisma 写适配器
+
+| 域 | 入口 | 当前状态 | 已验证契约 | 退出 legacy 条件 |
+| --- | --- | --- | --- | --- |
+| audit log | `prisma/audit-log-prisma-write.ts` | 已切流 | upsert 幂等键、主键冲突、错误不重试 | 30 天零 fallback；审计行 source/data 一致 |
+| document agent access | `prisma/document-agent-access-prisma-write.ts` | 已切流 | 四列唯一键、grant upsert、revoke COALESCE、affected rows | 主/备结果和撤销语义连续 30 天一致 |
+| workspace notifications | `prisma/notifications-prisma-write.ts` | 已切流/仍保留 raw SQL 更新 | create 冲突重试、markRead/archive 的列集与状态保护 | 将 `UPDATE` raw SQL 替换为受审计 Prisma API；完成并发顺序回归 |
+| skill drafts | `prisma/skill-drafts-prisma-write.ts` | 已切流 | `(workspace_id, skill_id)` upsert、版本和更新时间语义 | 完成删除/恢复语义、事件审计与 30 天零 fallback |
+| task queue row | `prisma/task-queue-prisma-write.ts` + `prisma/workflow-dispatch-prisma-write.ts` | **node-level 原子路径已完成 / flag 关闭** | run→node lock、queue id 幂等、node/link CAS、binding/session、queue unavailable +60s、router/task event 去重、run event、outbox acknowledgement、P2034/40P01 有界重试；真实 40P01 测试通过 | 完成 shadow 对照与 30 天零 drift |
+| workflow outbox | `prisma/workflow-outbox-prisma-write.ts` + `workflows/outbox-dispatcher.ts` | **node.ready 与 run fan-out 已接入 / flag 关闭** | node.ready 同事务 publish、终态原子确认、attempt 单次递增；三类事件全局有序取批；run.ready/resumed 原子生成确定性子事件并发布父事件；真库双 worker/末段失败回滚；approval 显式 legacy fallback | coordinator 外层业务写 + outbox insert 合并事务和发布顺序 shadow 对照 |
+| workflow materialization + trigger lease | `prisma/workflow-materialization-prisma-write.ts` + `scheduler.ts` | **worker auto 接线完成 / flag 关闭** | published definition/trigger lock、lease CAS、trigger-key 幂等、run/nodes/events/outbox 同事务、release+audit 同事务、P2034/40P01 重试；audit 失败真库回滚 | 写路径 shadow oracle、并发抢占/过期 reclaim 实测和 30 天零 drift |
+| workflow coordinator ready | `prisma/workflow-coordinator-prisma-write.ts` | **原子原语已完成 / 未接生产外层事务** | run→node 锁顺序、pending CAS、resolved input、node.ready outbox 同事务；outbox 失败整体回滚 | 将 task complete、commit journal、节点完成及完整 downstream 计算收进同一 Prisma transaction，再做 shadow |
+
+## 待迁移高风险写路径
+
+| 优先级 | 路径/调用方 | 现状证据 | 必须先固定的契约 | 实施批次 |
+| --- | --- | --- | --- | --- |
+| P1 | task enqueue：`workflows/dispatcher.ts` → `dispatchReadyWorkflowNodePrisma` | node-level Prisma interactive transaction、run-level fan-out、P2034/真实 40P01 重试和 approval fallback 已实现；同步入口仍是 rollback runner | idempotency key、claim/queue/router event 原子性、队列不可用重试、affected rows、重复 dispatch | 完成 shadow/write 对照与 30 天准入，再关闭 rollback runner |
+| P1 | workflow node/run/event：`workflows/runs.ts`、`workflows/events.ts` | 多张表同步写入，事件顺序依赖事务提交 | run/node 状态机、版本锁、事件序号、唯一 `(run_id, sequence)` | 与 task enqueue 同批，禁止拆成独立非事务写 |
+| P1 | workflow outbox：`workflows/outbox.ts`、`workflows/definitions.ts` | 已有 Prisma enqueue/claim/publish adapter；生产调用仍为 `enqueueWorkflowOutboxSync` | outbox idempotency、delivery lease、attempt/backoff、事件 payload digest | 单独迁移，先比对未投递数量、重复消费和业务变更事务提交顺序 |
+| P1 | workflow lease/recovery：`workflows/definitions.ts`、scheduler/reconcile worker | trigger lease Prisma adapter 已实现；recovery/其他 lease 仍是同步 SQL | owner token、expiresAt、compare-and-swap、抢占失败分类 | 先建立并发锁压测，再开 `WORKFLOW_TRIGGERS_PRISMA_WRITE_ENABLED` |
+| P2 | pager/集中告警：`pager-alert-state.ts` | 当前同步 upsert；SLO flush 已使用该中心表保存 active/cleared 状态 | alert key、severity、恢复幂等、渠道投递状态 | 接入真实告警路由后再扩展域 |
+| P2 | channel access/invitations/participants：`channel-access.ts` | 仍是同步 SQL，多表权限/邀请状态存在联动 | workspace 隔离、唯一键、状态转换、审计事件顺序 | 先完成权限矩阵和 Prisma relation 契约 |
+| P2 | skill installation/rollout/reconcile | rollout 计划与安装状态包含一次性审批和 Runtime 绑定 | planDigest/consumedAt、placement、reconcile attempt、跨 Runtime 幂等 | 依赖 0815 全部 P1 门禁，不与普通 CRUD 混迁 |
+
+## 每条路径的强制盘点字段
+
+实施 PR 必须在本表或对应 ADR 补齐：
+
+1. 所有生产调用方和入口文件；
+2. 事务边界、锁/隔离级别、提交前后事件顺序；
+3. 幂等键、唯一约束、affected rows 预期和重复请求结果；
+4. PostgreSQL 错误分类（特别是 deadlock `40P01`、serialization/P2034 `40001`）与重试上限；
+5. Prisma 与 legacy 结果对照、指标域、fallback 原因和 rollback reason；
+6. shadow/write flag、负责人、目标版本、关闭 legacy 的可观测证据。
+
+## 当前结论
+
+本 inventory 已完成“发现、契约定义、dispatcher/run fan-out/materialization 接线、coordinator ready/outbox 原语、真实 deadlock/末段回滚注入和主路径指标生产”。它仍不表示生产写切流已经实施：coordinator 仍处于外层同步 task-commit 事务内，recovery lease、无副作用 shadow oracle 和 30 天实际对照仍缺失；在这些证据完成前，不删除 legacy 写路径或开启 write flag。

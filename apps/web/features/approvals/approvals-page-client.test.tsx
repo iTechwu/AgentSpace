@@ -1,0 +1,410 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApprovalsPageClient } from "@/features/approvals/approvals-page-client";
+import { reviewApprovalQueueItemAction } from "@/features/approvals/actions";
+import { WorkspaceModuleNavigationProvider } from "@/features/dashboard/workspace-module-navigation";
+import { LanguageProvider } from "@/features/i18n/language-provider";
+import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
+import type { ApprovalsPageData } from "@/features/dashboard/data";
+
+const routerPush = vi.fn();
+const routerRefresh = vi.fn();
+const mockSearchParams = new URLSearchParams();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: routerPush,
+    refresh: routerRefresh,
+  }),
+  useSearchParams: () => mockSearchParams,
+}));
+
+vi.mock("@/features/approvals/actions", () => ({
+  reviewApprovalQueueItemAction: vi.fn(async () => {}),
+}));
+
+function mockMatchMedia(matches: boolean): void {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation(() => ({
+      matches,
+      media: "(max-width: 860px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
+const data: ApprovalsPageData = {
+  approvals: [
+    {
+      id: "workspace-approval:approval-1",
+      actionId: "approval-1",
+      kind: "workspace_approval",
+      type: "task_output",
+      sourceId: "task-1",
+      agentId: "atlas",
+      agentDisplayName: "Atlas",
+      channelName: "travel",
+      status: "pending",
+      contentPreview: "请审批大阪行程草稿",
+      createdAt: "2026-04-10T09:00:00.000Z",
+    },
+    {
+      id: "channel-access:request-1",
+      actionId: "request-1",
+      kind: "channel_access",
+      type: "channel_access",
+      sourceId: "request-1",
+      agentId: "user-1",
+      agentDisplayName: "techwu",
+      channelName: "private-planning",
+      status: "pending",
+      contentPreview: "techwu requested access to private-planning.",
+      createdAt: "2026-04-10T08:45:00.000Z",
+    },
+    {
+      id: "workspace-approval:approval-2",
+      actionId: "approval-2",
+      kind: "workspace_approval",
+      type: "message_draft",
+      sourceId: "message-1",
+      agentId: "nova",
+      agentDisplayName: "Nova",
+      channelName: "launch",
+      status: "approved",
+      contentPreview: "请审批发布公告",
+      reviewerComment: "已确认",
+      createdAt: "2026-04-10T08:00:00.000Z",
+      reviewedAt: "2026-04-10T08:30:00.000Z",
+    },
+    {
+      id: "knowledge-proposal:proposal-1",
+      actionId: "proposal-1",
+      kind: "knowledge_proposal",
+      type: "knowledge_proposal",
+      sourceId: "task-2",
+      agentId: "atlas",
+      agentDisplayName: "Atlas",
+      channelName: "travel",
+      status: "pending",
+      contentPreview: "Create knowledge page: Osaka access checklist",
+      metadata: {
+        tags: ["travel"],
+      },
+      detail: {
+        title: "Osaka access checklist",
+        markdown: "# Checklist\n\n- Ask for approval",
+        reason: "Reusable after this task",
+        operation: "create",
+        assignmentMode: "selected_agents",
+        assignedEmployeeNames: ["Atlas"],
+      },
+      createdAt: "2026-04-10T07:30:00.000Z",
+    },
+  ],
+  totalCount: 4,
+  pendingCount: 3,
+  approvedCount: 1,
+  rejectedCount: 0,
+  cancelledCount: 0,
+};
+
+describe("ApprovalsPageClient", () => {
+  beforeEach(() => {
+    mockMatchMedia(false);
+    routerPush.mockClear();
+    routerRefresh.mockClear();
+    mockSearchParams.delete("focus");
+    vi.mocked(reviewApprovalQueueItemAction).mockClear();
+  });
+
+  it("uses the full-bleed workbench density", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector("[data-page-density='full-bleed'].approvals-page")).toBeInTheDocument();
+  });
+
+  it("does not introduce a nested main landmark inside the workspace shell", () => {
+    const view = render(
+      <main>
+        <LanguageProvider initialLanguage="zh">
+          <FeedbackToastProvider>
+            <ApprovalsPageClient data={data} />
+          </FeedbackToastProvider>
+        </LanguageProvider>
+      </main>,
+    );
+
+    expect(view.container.querySelectorAll("main")).toHaveLength(1);
+  });
+
+  it("switches between approvals list and detail on compact layouts", async () => {
+    mockMatchMedia(true);
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: /请审批大阪行程草稿/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "返回列表" })).not.toBeInTheDocument();
+    expect(screen.queryByText("内容预览")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /请审批大阪行程草稿/i }));
+
+    expect(await screen.findByRole("button", { name: "返回列表" })).toBeInTheDocument();
+    expect(screen.getByText("任务产出")).toBeInTheDocument();
+    expect(screen.getByText("内容预览")).toBeInTheDocument();
+    expect(screen.getByText("请审批大阪行程草稿")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回列表" }));
+
+    expect(screen.getByRole("button", { name: /请审批大阪行程草稿/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "返回列表" })).not.toBeInTheDocument();
+  });
+
+  it("renders channel access approvals in the merged approvals list", () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: /techwu requested access to private-planning/i })).toBeInTheDocument();
+    expect(screen.getAllByText("群访问申请")[0]).toBeInTheDocument();
+  });
+
+  it("selects the approval targeted by the ?focus deep link over the default", () => {
+    // 运行详情「前往审批中心」带 ?focus=<原始审批 id>（= actionId）。默认会选中 approval-1，
+    // 这里用 approval-2 的原始 id 深链，验证覆盖默认并定位到目标审批。
+    mockSearchParams.set("focus", "approval-2");
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    // 「已确认」只作为当前选中项的审批意见渲染，approval-1 没有审批意见。
+    expect(screen.getByText("已确认")).toBeInTheDocument();
+  });
+
+  it("renders knowledge proposal detail with markdown body", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Osaka access checklist/i }));
+
+    expect(screen.getAllByText("知识候选")[0]).toBeInTheDocument();
+    expect(screen.getByText("Markdown 正文")).toBeInTheDocument();
+    expect(screen.getAllByText(/Ask for approval/i).length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("Osaka access checklist")).toBeInTheDocument();
+  });
+
+  it("submits edited knowledge proposal fields and opens the created page", async () => {
+    const user = userEvent.setup();
+    const onDataChanged = vi.fn();
+    const onInvalidation = vi.fn();
+    const navigateWorkspaceModule = vi.fn(() => true);
+    const invalidation = {
+      workspaceId: "workspace-1",
+      modules: ["approvals" as const, "knowledge" as const],
+      resources: [
+        { type: "approval" as const, id: "proposal-1" },
+        { type: "document" as const, id: "knowledge-page-created" },
+      ],
+      shell: "counters" as const,
+    };
+    vi.mocked(reviewApprovalQueueItemAction).mockResolvedValueOnce({
+      data: { knowledgePageId: "knowledge-page-created" },
+      invalidation,
+      toast: { tone: "success", zh: "已批准", en: "Approved" },
+    });
+    window.history.pushState({}, "", "/w/workspace-alpha/approvals");
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <WorkspaceModuleNavigationProvider navigateWorkspaceModule={navigateWorkspaceModule}>
+            <ApprovalsPageClient data={data} onDataChanged={onDataChanged} onInvalidation={onInvalidation} />
+          </WorkspaceModuleNavigationProvider>
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Osaka access checklist/i }));
+    await user.clear(screen.getByDisplayValue("Osaka access checklist"));
+    await user.type(screen.getByLabelText("标题"), "Edited checklist");
+    await user.clear(screen.getByLabelText("正文"));
+    await user.type(screen.getByLabelText("正文"), "# Edited");
+    await user.click(screen.getByRole("button", { name: "批准" }));
+
+    expect(reviewApprovalQueueItemAction).toHaveBeenCalledWith(
+      "knowledge_proposal",
+      "proposal-1",
+      "approved",
+      undefined,
+      expect.objectContaining({
+        title: "Edited checklist",
+        contentMarkdown: "# Edited",
+        tags: ["travel"],
+        assignmentMode: "selected_agents",
+        assignedEmployeeNames: ["Atlas"],
+      }),
+    );
+    expect(onInvalidation).toHaveBeenCalledWith(invalidation);
+    expect(onDataChanged).toHaveBeenCalledTimes(1);
+    expect(routerRefresh).not.toHaveBeenCalled();
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/knowledge?page=knowledge-page-created");
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  it("shows the default reviewer and a remaining countdown for a pending approval without a designated reviewer", async () => {
+    // 未指定审批人（无 reviewerLabel）时，审批中心须展示默认「管理员/负责人」，与 UI 及
+    // Web Action 的管理员要求一致；待审批状态下审批限时附带剩余倒计时。
+    const user = userEvent.setup();
+    const deadlineData: ApprovalsPageData = {
+      approvals: [
+        {
+          id: "workspace-approval:deadline-open",
+          actionId: "deadline-open",
+          kind: "workspace_approval",
+          type: "task_output",
+          sourceId: "task-open",
+          agentId: "atlas",
+          agentDisplayName: "Atlas",
+          channelName: "travel",
+          status: "pending",
+          contentPreview: "未指定审批人的限时审批",
+          createdAt: "2026-04-10T09:00:00.000Z",
+          // 工作流审批携带 metadata.kind=workflow_node，是「管理员/负责人」默认审批人 fallback 的适用范围。
+          metadata: { kind: "workflow_node" },
+          reviewerExpiresAt: "2099-01-01T00:00:00.000Z",
+          reviewerRisk: "medium",
+        },
+      ],
+      totalCount: 1,
+      pendingCount: 1,
+      approvedCount: 0,
+      rejectedCount: 0,
+      cancelledCount: 0,
+    };
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={deadlineData} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /未指定审批人的限时审批/i }));
+
+    expect(screen.getByText("管理员/负责人")).toBeInTheDocument();
+    expect(screen.getByText("审批限时")).toBeInTheDocument();
+    expect(screen.getByText(/剩余/)).toBeInTheDocument();
+  });
+
+  it("does not show the workflow-only default reviewer fallback for non-workflow approvals", async () => {
+    // 「管理员/负责人」默认审批人只适用于 Workflow ApprovalGate。知识提案等审批类型的授权方不同，
+    // 不应套用该 fallback——未指定审批人时显示中性占位「—」，避免误导。
+    const user = userEvent.setup();
+    const knowledgeData: ApprovalsPageData = {
+      approvals: [
+        {
+          id: "workspace-approval:knowledge-open",
+          actionId: "knowledge-open",
+          kind: "knowledge_proposal",
+          type: "knowledge_proposal",
+          sourceId: "task-knowledge",
+          agentId: "atlas",
+          agentDisplayName: "Atlas",
+          channelName: "travel",
+          status: "pending",
+          contentPreview: "知识提案审批不应套用工作流默认审批人",
+          createdAt: "2026-04-10T09:00:00.000Z",
+        },
+      ],
+      totalCount: 1,
+      pendingCount: 1,
+      approvedCount: 0,
+      rejectedCount: 0,
+      cancelledCount: 0,
+    };
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={knowledgeData} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /知识提案审批不应套用工作流默认审批人/i }));
+
+    expect(screen.queryByText("管理员/负责人")).not.toBeInTheDocument();
+  });
+
+  it("preserves the original deadline for a terminal approval without a remaining countdown", async () => {
+    // 终态审批（已驳回等）仍保留原截止时间，便于审计回溯；但不再附加剩余倒计时。
+    const user = userEvent.setup();
+    const terminalData: ApprovalsPageData = {
+      approvals: [
+        {
+          id: "workspace-approval:deadline-terminal",
+          actionId: "deadline-terminal",
+          kind: "workspace_approval",
+          type: "task_output",
+          sourceId: "task-terminal",
+          agentId: "nova",
+          agentDisplayName: "Nova",
+          channelName: "launch",
+          status: "rejected",
+          contentPreview: "终态保留截止时间",
+          createdAt: "2026-04-10T08:00:00.000Z",
+          reviewedAt: "2026-04-10T08:30:00.000Z",
+          reviewerLabel: "Alice",
+          reviewerExpiresAt: "2026-04-10T09:00:00.000Z",
+        },
+      ],
+      totalCount: 1,
+      pendingCount: 0,
+      approvedCount: 0,
+      rejectedCount: 1,
+      cancelledCount: 0,
+    };
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <ApprovalsPageClient data={terminalData} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /终态保留截止时间/i }));
+
+    expect(screen.getByText("审批限时")).toBeInTheDocument();
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.queryByText(/剩余/)).not.toBeInTheDocument();
+  });
+});

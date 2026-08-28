@@ -1,0 +1,97 @@
+import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
+import {
+  digestMcpEgressPolicyRevision,
+  verifyMcpEgressLease,
+  type McpEgressLeaseVerificationKey,
+} from "@dofe-agent/services/mcp-center/egress";
+
+export const MCP_EGRESS_POLICY_SNAPSHOT_MAX_AGE_MS = 120_000;
+const MCP_EGRESS_POLICY_SNAPSHOT_FUTURE_SKEW_MS = 30_000;
+
+export interface LeaseVerificationResult {
+  ok: true;
+  claims: McpEgressLeaseClaims;
+  policy: McpEgressPolicyRevision;
+}
+
+export interface LeaseVerificationFailure {
+  ok: false;
+  code: McpEgressErrorCode;
+  message: string;
+}
+
+export interface LeaseVerifierDependencies {
+  leaseVerificationKey?: McpEgressLeaseVerificationKey;
+  /** Explicit compatibility input for tests and controlled HS256 migration. */
+  leaseSecret?: string;
+  fetchPolicySnapshot: (policyRevisionId: string) => McpEgressPolicySnapshot | undefined | Promise<McpEgressPolicySnapshot | undefined>;
+  isJtiRevoked?: (jti: string) => boolean | Promise<boolean>;
+  bindJtiToSession: (jti: string, sessionId: string | undefined, exp: number) => boolean | Promise<boolean>;
+  consumeTaskCallJti: (jti: string) => boolean | Promise<boolean>;
+}
+
+/**
+ * Verifies a lease token end-to-end: signature, TTL, revocation, JTI replay,
+ * and matching policy revision presence.
+ */
+export async function verifyLeaseForRequest(
+  token: string | undefined,
+  deps: LeaseVerifierDependencies,
+  proxySessionId?: string,
+): Promise<LeaseVerificationResult | LeaseVerificationFailure> {
+  if (!token) {
+    return { ok: false, code: "mcp_egress.lease_missing", message: "Request is missing a DofeEgressLease token." };
+  }
+
+  const verificationKey = deps.leaseVerificationKey ?? deps.leaseSecret;
+  if (!verificationKey) {
+    return { ok: false, code: "mcp_egress.lease_invalid", message: "Proxy lease verification key is not configured." };
+  }
+  const verified = verifyMcpEgressLease(token, verificationKey);
+  if (!verified.ok) {
+    return { ok: false, code: verified.code, message: verified.message };
+  }
+
+  const { claims, jti } = verified.lease;
+
+  if (deps.isJtiRevoked && (await deps.isJtiRevoked(jti))) {
+    return { ok: false, code: "mcp_egress.lease_revoked", message: "Lease has been revoked." };
+  }
+
+  const snapshot = await deps.fetchPolicySnapshot(claims.policyRevisionId);
+  if (!snapshot) {
+    return { ok: false, code: "mcp_egress.policy_mismatch", message: "Policy revision is not available to the proxy." };
+  }
+  if (!isMcpEgressPolicySnapshotFresh(snapshot)) {
+    return { ok: false, code: "mcp_egress.policy_mismatch", message: "Policy snapshot is stale or has an invalid timestamp." };
+  }
+  if (snapshot.revoked) {
+    return { ok: false, code: "mcp_egress.lease_revoked", message: "Policy revision has been revoked." };
+  }
+  if (
+    snapshot.revision.id !== claims.policyRevisionId ||
+    snapshot.revision.workspaceId !== claims.workspaceId ||
+    snapshot.revision.connectionId !== claims.connectionId ||
+    snapshot.revision.releaseId !== claims.releaseId ||
+    snapshot.revision.releaseManifestDigest !== claims.releaseManifestDigest ||
+    snapshot.revision.manifestDigest !== claims.policyDigest ||
+    digestMcpEgressPolicyRevision(snapshot.revision) !== claims.policyDigest
+  ) {
+    return { ok: false, code: "mcp_egress.policy_mismatch", message: "Lease does not match the policy revision." };
+  }
+  if (!(await deps.bindJtiToSession(jti, proxySessionId, claims.exp))) {
+    return { ok: false, code: "mcp_egress.lease_replayed", message: "Lease JTI has already been consumed." };
+  }
+
+  return { ok: true, claims, policy: snapshot.revision };
+}
+
+export function isMcpEgressPolicySnapshotFresh(
+  snapshot: McpEgressPolicySnapshot,
+  nowMs = Date.now(),
+): boolean {
+  const fetchedAtMs = Date.parse(snapshot.fetchedAt);
+  return Number.isFinite(fetchedAtMs)
+    && fetchedAtMs <= nowMs + MCP_EGRESS_POLICY_SNAPSHOT_FUTURE_SKEW_MS
+    && nowMs - fetchedAtMs <= MCP_EGRESS_POLICY_SNAPSHOT_MAX_AGE_MS;
+}

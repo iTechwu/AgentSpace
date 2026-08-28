@@ -1,0 +1,58 @@
+.codex
+.env
+.env.*
+.test.env
+!.env.example
+# Generated per-machine E2E config (references local temp paths)
+dofe-svc-e2e.env
+node_modules
+.pnpm-store/
+.next
+dist
+dist-types
+.turbo
+coverage
+playwright-report
+test-results
+*.log
+*.tsbuildinfo
+.agentspace-dev/
+.agentspace-record/
+.agentspace-record-live/
+.claude/
+.github/
+/demo/
+dofe-agent-daemon-*.tgz
+# Prisma 迁移工作笔记（本地维护，勿入库；重建产物请用 pnpm run daemon:pack）
+findings.md
+progress.md
+task_plan.md
+# 运行时数据目录（锚定根与 apps/web，避免误伤 features/dashboard/data/ 源码目录）
+/data/
+apps/web/data/
+runtime-output/
+agent-output.json
+artifacts/
+!apps/web/app/api/**/artifacts/
+!apps/web/app/api/**/artifacts/**
+administrator/
+Design/
+example/
+PR/
+TODO/
+CLAUDE.md
+AGENTS.md
+GOOGLE_WORKSPACE_SETUP.md
+POSTGRESQL_SETUP.md
+scripts/loadtest/
+scripts/record
+# Added by code-review-graph
+.code-review-graph/
+.worktrees/
+
+# macOS
+.DS_Store
+temp/
+tmp/
+test/
+apps/web/next-env.d.ts

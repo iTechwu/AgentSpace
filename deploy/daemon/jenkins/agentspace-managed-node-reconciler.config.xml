@@ -1,0 +1,50 @@
+<?xml version="1.1" encoding="UTF-8"?>
+<flow-definition plugin="workflow-job">
+  <description>Reconciles one isolated managed execution node for every AgentSpace SSO team.</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps">
+    <script><![CDATA[pipeline {
+  agent any
+  options { timestamps() }
+  triggers { cron('H/5 * * * *') }
+  environment {
+    SOURCE_DIR = '/home/hello/codes/dofe.ai/agentspace.dofe.ai'
+    DEPLOY_DIR = '/home/hello/codes/dofe.ai/docker-helm.dofe.ai/apps/agentspace'
+    COMPOSE_PROJECT = 'dofe-agentspace'
+  }
+  stages {
+    stage('Reconcile SSO managed nodes') {
+      steps {
+        sh '''#!/bin/sh
+          set -eu
+          web_id="$(docker compose --project-name "$COMPOSE_PROJECT" --env-file "$DEPLOY_DIR/.env" -f "$SOURCE_DIR/deploy/self-hosted/docker-compose.yml" -f "$DEPLOY_DIR/docker-compose.ci.yml" ps -q web)"
+          [ -n "$web_id" ]
+          MANAGED_NODE_DEPLOY_DIR="$DEPLOY_DIR" \
+          MANAGED_NODE_SOURCE_DIR="$SOURCE_DIR" \
+          MANAGED_NODE_WEB_CONTAINER="$web_id" \
+          MANAGED_NODE_SERVER_URL='https://agents.test.dofe.ai' \
+          MANAGED_NODE_SERVER_HOST='agents.test.dofe.ai' \
+          MANAGED_NODE_TLS_CA_PATH='/home/hello/.local/share/mkcert/rootCA.pem' \
+          MANAGED_NODE_USER='1000:984' \
+          MANAGED_NODE_DOCKER_NETWORK='dofe-managed-egress' \
+          MANAGED_NODE_POSTGRES_CONTAINER='dofe-postgres' \
+          MANAGED_NODE_POSTGRES_USER='dofe' \
+          MANAGED_NODE_POSTGRES_DB='agentspace_dofe' \
+            "$SOURCE_DIR/deploy/daemon/ensure-ci-managed-nodes.sh"
+          totals="$(docker exec dofe-postgres psql -U dofe -d agentspace_dofe -Atqc \"SELECT (SELECT count(*) FROM workspace WHERE id LIKE 'sso-team-%'), (SELECT count(DISTINCT w.id) FROM workspace w JOIN daemon_connection d ON d.workspace_id = w.id WHERE w.id LIKE 'sso-team-%' AND d.status = 'online' AND d.metadata_json->>'managedNode' = 'true');\")"
+          expected="$(printf '%s' "$totals" | cut -d'|' -f1)"
+          online="$(printf '%s' "$totals" | cut -d'|' -f2)"
+          [ "$expected" = "$online" ]
+        '''
+      }
+    }
+  }
+}]]></script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>

@@ -1,0 +1,312 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import test, { before, beforeEach } from "node:test";
+import {
+  createUserSync,
+  createMcpConnectionSync,
+  getDatabase,
+  randomLikeId,
+  readSkillArtifactByDigestSync,
+  readSkillInstallationSync,
+  readSkillInstallationComponentsSync,
+  updateMcpConnectionStatusSync,
+  updateSkillInstallationComponentStatusSync,
+  upsertMcpCatalogItemSync,
+  upsertMcpDiscoverySnapshotSync,
+} from "@dofe-agent/db";
+import { resetWorkspaceStateSync } from "../index.ts";
+import {
+  approveSkillInstallSync,
+  assertSkillInstallationReadyForTaskSync,
+  buildAndPersistSkillArtifactSync,
+  buildSkillInstallRiskItemsSync,
+  computeSkillReleaseLockSync,
+  createSkillInstallationPlanSync,
+  disableMcpConnectionSync,
+  evaluateSkillInstallationReadinessSync,
+  evaluateSkillInstallationCapabilitiesSync,
+  resolveSkillCliCapabilitySync,
+  resolveSkillMcpCapabilitySync,
+} from "../index.ts";
+
+before(() => {
+  process.env.NODE_ENV = "test";
+});
+
+beforeEach(() => {
+  resetWorkspaceStateSync();
+  getDatabase().exec("DELETE FROM skill_install_approval");
+});
+
+function approvedPlan(runtimeId: string, artifactDigest: string) {
+  const artifact = readSkillArtifactByDigestSync(artifactDigest, "default");
+  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest });
+  const lock = computeSkillReleaseLockSync(artifact, "default");
+  const approvalId = approveSkillInstallSync({
+    artifactDigest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: "test approval",
+  }).approvalId;
+  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
+}
+
+function createTestRuntime(): string {
+  const id = `rt-${randomLikeId()}`;
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
+     VALUES (?, 'default', 'test-provider', ?, 'online', ?, ?)`,
+  ).run(id, `Test Runtime ${id}`, now, now);
+  return id;
+}
+
+function setupReadyMcpConnection(runtimeId: string, slug: string, tools: string[], approved: string[], version = "1.0.0") {
+  const catalog = upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    slug,
+    transport: "streamable_http",
+    displayName: slug,
+    version,
+    declaredToolsJson: JSON.stringify(tools.map((name) => ({ name }))),
+  });
+  const connection = createMcpConnectionSync({
+    workspaceId: "default",
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: "https://example.com/mcp",
+    approvedToolsJson: JSON.stringify(approved),
+  });
+  updateMcpConnectionStatusSync({
+    connectionId: connection.id,
+    workspaceId: "default",
+    status: "ready",
+    lastVerifiedAt: new Date().toISOString(),
+  });
+  upsertMcpDiscoverySnapshotSync({
+    workspaceId: "default",
+    connectionId: connection.id,
+    protocolVersion: "2025-11-25",
+    toolsMetadataJson: JSON.stringify(
+      tools.map((name) => ({ name, description: `desc ${name}`, inputSchema: { type: "object" } })),
+    ),
+    toolsFingerprint: tools.join("|"),
+  });
+  return { connectionId: connection.id, catalogItemId: catalog.id };
+}
+
+test("resolveSkillMcpCapabilitySync matches a ready connection by catalog slug", () => {
+  const runtimeId = createTestRuntime();
+  const { connectionId } = setupReadyMcpConnection(runtimeId, "github", ["search_issues", "list_repos"], ["search_issues"]);
+
+  const resolution = resolveSkillMcpCapabilitySync({
+    workspaceId: "default",
+    runtimeId,
+    catalogSlug: "github",
+    requiredTools: ["search_issues"],
+  });
+  assert.equal(resolution.ready, true);
+  assert.equal(resolution.connectionId, connectionId);
+  assert.deepEqual(resolution.missingTools, []);
+});
+
+test("resolveSkillMcpCapabilitySync requires the release pinned by the Skill lock", () => {
+  const runtimeId = createTestRuntime();
+  const v1 = setupReadyMcpConnection(runtimeId, "github", ["search_issues"], ["search_issues"], "1.0.0");
+  setupReadyMcpConnection(runtimeId, "github", ["search_issues", "delete_repository"], ["search_issues"], "2.0.0");
+
+  const resolution = resolveSkillMcpCapabilitySync({
+    workspaceId: "default",
+    runtimeId,
+    catalogSlug: "github",
+    expectedCatalogItemId: v1.catalogItemId,
+    expectedCatalogVersion: "1.0.0",
+    requiredTools: ["search_issues"],
+  });
+  assert.equal(resolution.ready, true);
+  assert.equal(resolution.connectionId, v1.connectionId);
+
+  const unavailable = resolveSkillMcpCapabilitySync({
+    workspaceId: "default",
+    runtimeId,
+    catalogSlug: "github",
+    expectedCatalogItemId: "missing-release",
+    expectedCatalogVersion: "1.0.0",
+  });
+  assert.equal(unavailable.ready, false);
+  assert.match(unavailable.reason, /github@1\.0\.0/);
+});
+
+test("legacy MCP fingerprints stay pinned to their historical catalog release", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `github-legacy-${randomLikeId()}`;
+  const v1Tools = [{ name: "search_issues" }];
+  upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    slug,
+    transport: "streamable_http",
+    displayName: slug,
+    version: "1.0.0",
+    declaredToolsJson: JSON.stringify(v1Tools),
+  });
+  setupReadyMcpConnection(runtimeId, slug, ["search_issues", "delete_repository"], ["search_issues"], "2.0.0");
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `Legacy MCP lock ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# Legacy lock\n") }],
+    capabilities: [{ kind: "mcp", catalogSlug: slug, requiredTools: ["search_issues"] }],
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  const v1Fingerprint = createHash("sha256").update(JSON.stringify(v1Tools)).digest("hex");
+  getDatabase().prepare(
+    "UPDATE skill_installation SET resolved_lock_json = ? WHERE id = ?",
+  ).run(JSON.stringify({ mcpToolFingerprints: { [slug]: v1Fingerprint } }), installation.id);
+
+  evaluateSkillInstallationCapabilitiesSync({
+    installationId: installation.id,
+    workspaceId: "default",
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+
+  const component = readSkillInstallationComponentsSync(installation.id).find((item) => item.kind === "mcp");
+  assert.equal(component?.status, "blocked");
+  assert.match(component?.errorMessage ?? "", new RegExp(`${slug}@1\\.0\\.0`));
+});
+
+test("resolveSkillMcpCapabilitySync blocks when a required tool is not approved/discovered", () => {
+  const runtimeId = createTestRuntime();
+  setupReadyMcpConnection(runtimeId, "github", ["search_issues", "list_repos"], ["search_issues"]);
+
+  const resolution = resolveSkillMcpCapabilitySync({
+    workspaceId: "default",
+    runtimeId,
+    catalogSlug: "github",
+    requiredTools: ["search_issues", "write_issue"],
+  });
+  assert.equal(resolution.ready, false);
+  assert.deepEqual(resolution.missingTools, ["write_issue"]);
+});
+
+test("resolveSkillMcpCapabilitySync blocks when no ready connection matches the slug", () => {
+  const runtimeId = createTestRuntime();
+  setupReadyMcpConnection(runtimeId, "github", ["search_issues"], ["search_issues"]);
+
+  const resolution = resolveSkillMcpCapabilitySync({
+    workspaceId: "default",
+    runtimeId,
+    catalogSlug: "slack",
+  });
+  assert.equal(resolution.ready, false);
+  assert.match(resolution.reason, /slack/);
+});
+
+test("disabling an MCP connection immediately blocks dependent Skill installations and new tasks", () => {
+  const runtimeId = createTestRuntime();
+  const catalogSlug = `github-invalidation-${randomLikeId()}`;
+  const { connectionId } = setupReadyMcpConnection(runtimeId, catalogSlug, ["search_issues"], ["search_issues"]);
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `MCP invalidation ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# MCP invalidation\n") }],
+    capabilities: [{ kind: "mcp", catalogSlug, requiredTools: ["search_issues"] }],
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  for (const component of readSkillInstallationComponentsSync(installation.id)) {
+    updateSkillInstallationComponentStatusSync({
+      installationId: installation.id,
+      kind: component.kind,
+      key: component.key,
+      status: "ready",
+      verifiedAt: new Date().toISOString(),
+    });
+  }
+  assert.equal(evaluateSkillInstallationReadinessSync(installation.id), "ready");
+
+  const admin = createUserSync({ displayName: "MCP invalidation admin", isAdmin: true });
+  disableMcpConnectionSync({ workspaceId: "default", connectionId, actorUserId: admin.id });
+
+  assert.equal(readSkillInstallationSync(installation.id, "default")?.status, "blocked");
+  assert.deepEqual(
+    assertSkillInstallationReadyForTaskSync({ workspaceId: "default", runtimeId, artifactDigest: artifact.digest }),
+    {
+      ok: false,
+      status: "blocked",
+      reason: 'Installation is "blocked" (not ready); new tasks will not load this skill.',
+    },
+  );
+});
+
+test("resolveSkillCliCapabilitySync requires an installed and enabled app", () => {
+  const runtimeId = createTestRuntime();
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO runtime_installed_app (id, workspace_id, runtime_id, source, name, display_name, version, entry_point, status, install_strategy, enabled, installed_at, updated_at)
+     VALUES (?, 'default', ?, 'cli', 'gh', 'GitHub CLI', '1.0', 'gh', 'installed', '', 1, ?, ?)`,
+  ).run(`app-${randomLikeId()}`, runtimeId, now, now);
+
+  const ready = resolveSkillCliCapabilitySync({ workspaceId: "default", runtimeId, catalogSlug: "gh" });
+  assert.equal(ready.ready, true);
+
+  const missing = resolveSkillCliCapabilitySync({ workspaceId: "default", runtimeId, catalogSlug: "nonexistent" });
+  assert.equal(missing.ready, false);
+});
+
+test("egress component is created for a network manifest and ready when the risk decision is approved", () => {
+  const runtimeId = createTestRuntime();
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `Egress component ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# egress\n") }],
+    network: { egressAllowlist: ["api.example.com"] },
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  assert.ok(
+    readSkillInstallationComponentsSync(installation.id).some((c) => c.kind === "egress"),
+    "a network manifest yields an egress component",
+  );
+
+  evaluateSkillInstallationCapabilitiesSync({
+    installationId: installation.id,
+    workspaceId: "default",
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+
+  const egress = readSkillInstallationComponentsSync(installation.id).find((c) => c.kind === "egress");
+  assert.equal(egress?.status, "ready");
+  assert.equal(egress?.errorCode, undefined);
+});
+
+test("egress component fails closed (blocked) when the bound approval is absent", () => {
+  const runtimeId = createTestRuntime();
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `Egress blocked ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# egress blocked\n") }],
+    network: { egressAllowlist: ["api.example.com"] },
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  // Simulate a revoked/absent approval record.
+  getDatabase().prepare("DELETE FROM skill_install_approval WHERE artifact_digest = ?").run(artifact.digest.toLowerCase());
+
+  evaluateSkillInstallationCapabilitiesSync({
+    installationId: installation.id,
+    workspaceId: "default",
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+
+  const egress = readSkillInstallationComponentsSync(installation.id).find((c) => c.kind === "egress");
+  assert.equal(egress?.status, "blocked");
+  assert.equal(egress?.errorCode, "skill_installation.egress_not_approved");
+});
+
+test("no egress component is created when the manifest declares no network", () => {
+  const runtimeId = createTestRuntime();
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `No egress ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# no egress\n") }],
+  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
+  assert.ok(
+    !readSkillInstallationComponentsSync(installation.id).some((c) => c.kind === "egress"),
+    "absent network → no egress component",
+  );
+});

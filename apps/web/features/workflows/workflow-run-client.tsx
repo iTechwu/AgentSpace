@@ -1,0 +1,269 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  translateApprovalRisk,
+  translateWorkflowErrorCode,
+  translateWorkflowNodeStatus,
+  translateWorkflowRunStatus,
+  translateWorkflowTriggerType,
+} from "@/features/i18n/presentation";
+import { useLanguage } from "@/features/i18n/language-provider";
+import { controlWorkflowRunAction, rerunWorkflowRunAction } from "./workflow-actions";
+import { WorkflowRunFlowchart } from "./workflow-run-flowchart";
+import { WorkflowRunTimeline } from "./workflow-run-timeline";
+import { WorkflowStatusIndicator } from "./workflow-status-indicator";
+import type { WorkflowRunEventItem, WorkflowRunPageData } from "./workflow-types";
+
+const POLL_INTERVAL_MS = 2_500;
+const TERMINAL_STATUSES = new Set(["succeeded", "partially_succeeded", "failed", "cancelled"]);
+
+export function WorkflowRunClient({
+  workspaceId,
+  workspaceSlug,
+  data,
+}: {
+  workspaceId: string;
+  workspaceSlug?: string;
+  data: WorkflowRunPageData;
+}) {
+  const router = useRouter();
+  const { tx } = useLanguage();
+  const [projection, setProjection] = useState(data);
+  const [events, setEvents] = useState(data.events);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [pendingControl, setPendingControl] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  // 步骤视图：列表（默认，逐节点明细）或流程图（按拓扑分层，承载多分支大图）。
+  const [stepView, setStepView] = useState<"list" | "flow">("list");
+  const lastSequenceRef = useRef(lastSequence(data.events));
+  const refreshRequestRef = useRef(0);
+  const appliedProjectionRequestRef = useRef(0);
+
+  const refreshFrom = useCallback(async (after: number): Promise<void> => {
+    const requestId = ++refreshRequestRef.current;
+    setIsSyncing(true);
+    try {
+      let cursor = after;
+      let hasMore = true;
+      while (hasMore) {
+        const response = await fetch(
+          `/api/workspaces/${encodeURIComponent(workspaceId)}/workflow-runs/${encodeURIComponent(data.id)}/events?after=${cursor}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) throw new Error("workflow_run_events_unavailable");
+        const page = await response.json() as {
+          events: WorkflowRunEventItem[];
+          hasMore: boolean;
+          projection: WorkflowRunPageData | null;
+        };
+        setEvents((current) => {
+          const merged = mergeWorkflowRunEvents(current, page.events);
+          lastSequenceRef.current = lastSequence(merged.events);
+          return merged.events;
+        });
+        if (page.projection) {
+          const previousRequestId = appliedProjectionRequestRef.current;
+          setProjection((current) => selectLatestWorkflowProjection(current, page.projection!, previousRequestId, requestId));
+          appliedProjectionRequestRef.current = Math.max(previousRequestId, requestId);
+        }
+        cursor = Math.max(cursor, ...page.events.map((event) => event.sequence));
+        hasMore = page.hasMore && page.events.length > 0;
+      }
+    } catch {
+      setNotice(translateWorkflowErrorCode("workflow_run_events_unavailable", tx));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [data.id, workspaceId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => void refreshFrom(lastSequenceRef.current), POLL_INTERVAL_MS);
+    const handleRealtime = (event: Event): void => {
+      const incoming = (event as CustomEvent<WorkflowRunEventItem>).detail;
+      if (!incoming || typeof incoming.sequence !== "number") return;
+      setEvents((current) => {
+        const merged = mergeWorkflowRunEvents(current, [incoming]);
+        if (merged.gapAfter !== undefined) {
+          void refreshFrom(merged.gapAfter);
+          return current;
+        }
+        lastSequenceRef.current = lastSequence(merged.events);
+        return merged.events;
+      });
+    };
+    window.addEventListener("workflow-run-event", handleRealtime);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("workflow-run-event", handleRealtime);
+    };
+  }, [refreshFrom]);
+
+  async function control(action: "pause" | "resume" | "cancel" | "retry_node", nodeId?: string): Promise<void> {
+    if (!projection.canControl) return;
+    // 取消运行与重试步骤属于高影响操作，执行前需显式二次确认（UIUX:136）。
+    if (action === "cancel" && !window.confirm("确认取消该运行？已开始的步骤将被中止，且无法恢复。")) return;
+    if (action === "retry_node" && !window.confirm("确认重试该步骤？将重新派发该节点。")) return;
+    setPendingControl(`${action}:${nodeId ?? "run"}`);
+    setNotice(undefined);
+    try {
+      const result = await controlWorkflowRunAction({ runId: projection.id, action, nodeId });
+      if (!result.ok) {
+        setNotice(translateWorkflowErrorCode(result.error.code, tx));
+        return;
+      }
+      setProjection((current) => ({ ...current, status: result.data.status }));
+      setNotice("运行控制已提交。");
+      await refreshFrom(lastSequenceRef.current);
+      router.refresh();
+    } catch {
+      setNotice("运行控制未完成，请稍后重试。");
+    } finally {
+      setPendingControl(undefined);
+    }
+  }
+
+  async function rerun(): Promise<void> {
+    if (!projection.canRerun || !TERMINAL_STATUSES.has(projection.status)) return;
+    if (!window.confirm("确认重新运行该工作流？将以原版本与输入重新创建一个运行。")) return;
+    setPendingControl("rerun");
+    setNotice(undefined);
+    try {
+      const result = await rerunWorkflowRunAction({
+        runId: projection.id,
+        idempotencyKey: `rerun-${projection.id}-${Date.now()}`,
+      });
+      if (!result.ok) {
+        setNotice(translateWorkflowErrorCode(result.error.code, tx));
+        return;
+      }
+      setNotice("已创建新的运行。");
+      if (workspaceSlug) {
+        router.push(`/w/${encodeURIComponent(workspaceSlug)}/automations/runs/${result.data.runId}`);
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setNotice("重新运行未完成，请稍后重试。");
+    } finally {
+      setPendingControl(undefined);
+    }
+  }
+
+  const canPause = projection.canControl && (projection.status === "running" || projection.status === "queued" || projection.status === "waiting_approval");
+  const canResume = projection.canControl && projection.status === "paused";
+  const canCancel = projection.canControl && !TERMINAL_STATUSES.has(projection.status);
+  const canRerun = Boolean(projection.canRerun) && TERMINAL_STATUSES.has(projection.status);
+
+  return (
+    <main className="workflow-run">
+      <header className="workflow-run__header">
+        <div>
+          <span>编排中心 / 运行详情</span>
+          <h1>{projection.workflowName}</h1>
+          <p>运行 ID {projection.id} · {translateWorkflowTriggerType(projection.triggerType, tx)}</p>
+        </div>
+        <div className="workflow-run__header-state">
+          <WorkflowStatusIndicator className="workflow-run__header-status" status={projection.status} label={translateWorkflowRunStatus(projection.status, tx)} />
+          <div className="workflow-run__controls">
+            {canPause ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("pause")} type="button">暂停</button> : null}
+            {canResume ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("resume")} type="button">恢复</button> : null}
+            {canCancel ? <button className="knowledge-btn knowledge-btn--danger" disabled={Boolean(pendingControl)} onClick={() => void control("cancel")} type="button">取消</button> : null}
+            {canRerun ? <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void rerun()} type="button">{pendingControl === "rerun" ? "创建中" : "重新运行"}</button> : null}
+          </div>
+        </div>
+      </header>
+
+      {isSyncing ? <p className="workflow-run__sync" role="status">{translateWorkflowErrorCode("workflow_event_sequence_gap", tx)}</p> : null}
+      {notice ? <p className="workflow-run__notice" role="status">{notice}</p> : null}
+
+      <section aria-labelledby="workflow-run-steps-title" className="workflow-run__steps">
+        <header>
+          <h2 id="workflow-run-steps-title">执行步骤</h2>
+          <div aria-label="步骤视图" className="workflow-segmented workflow-run__view-toggle" role="tablist">
+            <button aria-selected={stepView === "list"} onClick={() => setStepView("list")} role="tab" type="button">列表</button>
+            <button aria-selected={stepView === "flow"} onClick={() => setStepView("flow")} role="tab" type="button">流程图</button>
+          </div>
+          <span>{projection.nodes.length} 个节点</span>
+        </header>
+        {stepView === "flow" && projection.nodes.length > 0 ? (
+          <WorkflowRunFlowchart edges={projection.edges} nodes={projection.nodes} tx={tx} />
+        ) : (
+        <ol>
+          {projection.nodes.map((node) => (
+            <li key={node.id}>
+              <WorkflowStatusIndicator className="workflow-run__node-status" status={node.status} label={translateWorkflowNodeStatus(node.status, tx)} />
+              <div className="workflow-run__node-copy">
+                <strong>{node.employeeName}</strong>
+                <small>{node.nodeType} · 尝试 {node.attemptCount}/{node.maxAttempts} · {durationLabel(node.startedAt, node.finishedAt)}</small>
+              </div>
+              <span>{node.artifactCount} 个产物{node.costUsd !== undefined ? ` · $${node.costUsd.toFixed(4)}` : ""}</span>
+              {node.nodeType === "approval" && (node.approvalId || node.approvalRisk || node.approvalReviewerLabel || node.approvalDeadlineLabel) ? (
+                <div className="workflow-run__approval-detail">
+                  <small>
+                    {node.approvalSource ? <span>来源：{node.approvalSource} · </span> : null}
+                    {node.approvalRisk ? <span>风险：{translateApprovalRisk(node.approvalRisk, tx)} · </span> : null}
+                    {node.approvalReviewerLabel ? <span>审批人：{node.approvalReviewerLabel}</span> : null}
+                    {node.approvalDeadlineLabel ? <span> · {node.approvalDeadlineLabel}</span> : null}
+                  </small>
+                  {node.approvalId ? (
+                    <a className="knowledge-btn" href={workspaceSlug ? `/w/${encodeURIComponent(workspaceSlug)}/approvals?focus=${encodeURIComponent(node.approvalId)}` : "/approvals"}>前往审批中心</a>
+                  ) : null}
+                </div>
+              ) : null}
+              {node.errorCode ? <span>{translateWorkflowErrorCode(node.errorCode, tx)}</span> : null}
+              {projection.canControl && node.status === "failed" && node.errorCode !== "workflow_completion_effect_uncertain" && (projection.status === "failed" || projection.status === "partially_succeeded") && node.nodeType === "employee_task" ? (
+                <button className="knowledge-btn" disabled={Boolean(pendingControl)} onClick={() => void control("retry_node", node.nodeId)} type="button">重试步骤</button>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+        )}
+      </section>
+
+      <WorkflowRunTimeline events={events} />
+    </main>
+  );
+}
+
+export function mergeWorkflowRunEvents(
+  current: WorkflowRunEventItem[],
+  incoming: WorkflowRunEventItem[],
+): { events: WorkflowRunEventItem[]; gapAfter?: number } {
+  const sorted = [...incoming].sort((left, right) => left.sequence - right.sequence);
+  const previous = lastSequence(current);
+  const next = sorted.filter((event) => event.sequence > previous);
+  if (next.length > 0 && next[0]!.sequence > previous + 1) return { events: current, gapAfter: previous };
+  const bySequence = new Map(current.map((event) => [event.sequence, event]));
+  for (const event of next) bySequence.set(event.sequence, event);
+  return { events: [...bySequence.values()].sort((left, right) => left.sequence - right.sequence) };
+}
+
+export function selectLatestWorkflowProjection(
+  current: WorkflowRunPageData,
+  incoming: WorkflowRunPageData,
+  currentRequestId = 0,
+  incomingRequestId = 0,
+): WorkflowRunPageData {
+  if (incoming.currentSequence < current.currentSequence) return current;
+  if (incoming.currentSequence === current.currentSequence && incomingRequestId < currentRequestId) return current;
+  if (
+    incoming.currentSequence === current.currentSequence
+    && TERMINAL_STATUSES.has(current.status)
+    && !TERMINAL_STATUSES.has(incoming.status)
+  ) return current;
+  return incoming;
+}
+
+function lastSequence(events: WorkflowRunEventItem[]): number {
+  return events.reduce((highest, event) => Math.max(highest, event.sequence), 0);
+}
+
+function durationLabel(startedAt?: string, finishedAt?: string): string {
+  if (!startedAt) return "尚未开始";
+  const end = finishedAt ? Date.parse(finishedAt) : Date.now();
+  const duration = Math.max(0, end - Date.parse(startedAt));
+  if (!Number.isFinite(duration)) return "耗时未知";
+  return duration < 60_000 ? `${Math.round(duration / 1000)} 秒` : `${Math.round(duration / 60_000)} 分钟`;
+}

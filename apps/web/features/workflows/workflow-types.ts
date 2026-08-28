@@ -1,0 +1,145 @@
+import type {
+  WorkflowDefinitionStatus,
+  WorkflowGraphDefinition,
+  WorkflowRunStatus,
+} from "@dofe-agent/domain";
+
+export interface WorkflowListItem {
+  id: string;
+  name: string;
+  status: WorkflowDefinitionStatus;
+  ownerLabel: string;
+  triggerLabelCode: "manual" | "schedule" | "event" | "none";
+  nextFireAt?: string;
+  lastTriggerOutcome?: {
+    code: "workflow.trigger.misfire_skipped" | "workflow.trigger.misfire_fire_once" | "workflow.trigger.invalid" | "workflow.trigger.materialization_failed";
+    createdAt: string;
+  };
+  latestRun?: {
+    id: string;
+    status: WorkflowRunStatus;
+    finishedAt?: string;
+  };
+  topology: {
+    employeeNodeCount: number;
+    parallelGroupCount: number;
+    hasApproval: boolean;
+  };
+  sourceKind?: "workflow" | "legacy";
+  migrationStatus?: "migrated" | "needs_migration";
+  legacySourceId?: string;
+}
+
+export interface WorkflowRunSummary {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  status: WorkflowRunStatus;
+  triggerType: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface WorkflowCenterPageData {
+  workflows: WorkflowListItem[];
+  totals: {
+    all: number;
+    published: number;
+    paused: number;
+    blocked: number;
+  };
+  recentRuns: WorkflowRunSummary[];
+  recentRunsTotal: number;
+  // 游标分页（UIUX:运行历史分页）：SSR 首页与 GET /api/workspaces/:id/workflow-runs 共用同一
+  // keyset 实现。hasMore/nextCursor 由服务端按 (created_at DESC, id DESC) 游标判定下发，
+  // 前端据此续拉，避免 offset 分页在并发新增时漏记录或按钮永不结束。
+  recentRunsHasMore: boolean;
+  recentRunsNextCursor: string | null;
+}
+
+export type WorkflowBuilderEntry = "automations" | "calendar" | "task-board";
+
+export interface WorkflowBuilderEmployee {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export interface WorkflowBuilderInitialValue {
+  id: string;
+  name: string;
+  description: string;
+  status: WorkflowDefinitionStatus;
+  graph: WorkflowGraphDefinition;
+  draftVersion: number;
+  publishedVersionNumber?: number;
+  trigger: {
+    type: "manual" | "schedule" | "event" | "none";
+    config: Record<string, unknown>;
+    timezone?: string;
+    misfirePolicy: "skip" | "fire_once";
+  };
+  governance: {
+    maxConcurrency: number;
+    budgetUsd?: number;
+  };
+  channelName?: string;
+}
+
+export interface WorkflowBuilderPageData {
+  employees: WorkflowBuilderEmployee[];
+  channels: string[];
+  members: Array<{ userId: string; displayName: string }>;
+  ownerLabel: string;
+  workflow?: WorkflowBuilderInitialValue;
+}
+
+export interface WorkflowRunEventItem {
+  id: string;
+  sequence: number;
+  type: string;
+  nodeRunId?: string;
+  severity: string;
+  createdAt: string;
+}
+
+export interface WorkflowNodeRunItem {
+  id: string;
+  nodeId: string;
+  nodeType: string;
+  employeeName: string;
+  status: string;
+  attemptCount: number;
+  maxAttempts: number;
+  artifactCount: number;
+  costUsd?: number;
+  errorCode?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  // 审批等待详情（UIUX:82）：审批 id（用于跳转审批中心）、风险等级、审批人姓名、来源、限时标签。
+  approvalId?: string;
+  approvalRisk?: "low" | "medium" | "high";
+  approvalReviewerLabel?: string;
+  approvalSource?: string;
+  approvalDeadlineLabel?: string;
+}
+
+export interface WorkflowRunPageData {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  status: string;
+  triggerType: string;
+  currentSequence: number;
+  canControl: boolean;
+  canRerun?: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+  createdAt: string;
+  nodes: WorkflowNodeRunItem[];
+  // 运行流程图视图（UIUX:运行详情可扩展流程图）：从绑定版本的 graphJson 解析、
+  // 收敛到本次运行节点集合的边，供只读 React Flow 画布按拓扑分层着色渲染。
+  edges: Array<{ source: string; target: string }>;
+  events: WorkflowRunEventItem[];
+}

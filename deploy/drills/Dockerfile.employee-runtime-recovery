@@ -1,0 +1,5 @@
+ARG BASE_IMAGE=dofe/agent-runtime-codex:latest
+FROM ${BASE_IMAGE}
+ARG DRILL_IMAGE_REVISION
+LABEL ai.dofe.employee-data-durability.drill="D-07/D-08" \
+      ai.dofe.employee-data-durability.revision="${DRILL_IMAGE_REVISION}"

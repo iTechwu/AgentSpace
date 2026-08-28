@@ -1,0 +1,25 @@
+import type { Metadata } from "next";
+import { WorkflowListClient } from "@/features/workflows/workflow-list-client";
+import { renderWorkspaceModule } from "../_lib/render-workspace-module";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "编排中心",
+  description: "设计与管理工作流编排。",
+};
+
+export default async function WorkspaceAutomationsPage({
+  params,
+}: {
+  params: Promise<{ workspaceSlug: string }>;
+}) {
+  const { workspaceSlug } = await params;
+  return renderWorkspaceModule(workspaceSlug, "automations", (data, workspaceContext) => (
+    <WorkflowListClient
+      data={data.data}
+      workspaceId={workspaceContext.currentWorkspace.id}
+      workspaceSlug={workspaceContext.currentWorkspace.id}
+    />
+  ));
+}

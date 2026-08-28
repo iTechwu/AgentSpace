@@ -1,0 +1,165 @@
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile
+      target: web
+      args:
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
+    env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
+      DOFE_AGENT_RUNTIME_CREDENTIAL_ENCRYPTION_KEY: ${DOFE_AGENT_RUNTIME_CREDENTIAL_ENCRYPTION_KEY:?Set DOFE_AGENT_RUNTIME_CREDENTIAL_ENCRYPTION_KEY in .env}
+      DOFE_AGENT_RUNTIME_CREDENTIAL_VAULT_DIR: /srv/DofeAgent/data/runtime-credential-vault
+      NODE_ENV: production
+    ports:
+      - "${DOFE_AGENT_HTTP_PORT:-1455}:1455"
+    volumes:
+      - web-data:/srv/DofeAgent/data
+    healthcheck:
+      # readiness：区分进程存活与数据库可用（见 /api/health/ready）。liveness 用 /api/health/live。
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:1455/api/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    init: true
+    restart: unless-stopped
+
+  runtime-maintenance:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile
+      target: runtime
+      args:
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
+    command: ["node", "deploy/self-hosted/runtime-maintenance.mjs"]
+    env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
+      DOFE_AGENT_INTERNAL_URL: http://web:1455
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node --experimental-strip-types deploy/self-hosted/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    init: true
+    restart: unless-stopped
+
+  workflow-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/workflow-worker/Dockerfile
+    env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      WORKFLOW_CUTOVER_MODE: ${WORKFLOW_CUTOVER_MODE:-legacy_only}
+      WORKFLOW_CUTOVER_MODES: ${WORKFLOW_CUTOVER_MODES:-{}}
+      WORKFLOW_WORKER_ID: ${WORKFLOW_WORKER_ID:-workflow-worker-compose}
+      WORKFLOW_WORKER_POLL_MS: ${WORKFLOW_WORKER_POLL_MS:-1000}
+    healthcheck:
+      test: ["CMD-SHELL", "node --experimental-strip-types deploy/self-hosted/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    init: true
+    restart: unless-stopped
+
+  # The Feishu WebSocket worker is intentionally independent of provider daemons.
+  # Run exactly one replica for a workspace; do not also enable daemon-managed
+  # Feishu workers for the same workspace.
+  feishu-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile
+      target: runtime
+      args:
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
+    command:
+      ["pnpm", "run", "cli", "--", "integrations", "feishu", "worker", "--workspace-id", "${DOFE_AGENT_FEISHU_WORKSPACE_ID:-default}", "--locked-by", "${DOFE_AGENT_FEISHU_WORKER_ID:-feishu-worker-compose}", "--json"]
+    env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
+    environment:
+      DOFE_AGENT_FEISHU_WORKER_ID: ${DOFE_AGENT_FEISHU_WORKER_ID:-feishu-worker-compose}
+    healthcheck:
+      test: ["CMD-SHELL", "pnpm run cli -- integrations feishu worker --workspace-id ${DOFE_AGENT_FEISHU_WORKSPACE_ID:-default} --locked-by ${DOFE_AGENT_FEISHU_WORKER_ID:-feishu-worker-compose} --dry-run --json >/dev/null"]
+      interval: 15s
+      timeout: 15s
+      retries: 6
+      start_period: 30s
+    init: true
+    restart: unless-stopped
+
+  daemon-claude:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile
+      target: daemon
+      args:
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
+        PROVIDER_INSTALL_COMMAND: ${CLAUDE_PROVIDER_INSTALL_COMMAND:?Set CLAUDE_PROVIDER_INSTALL_COMMAND in .env}
+    env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
+    environment:
+      DOFE_AGENT_DAEMON_ID: ${DOFE_AGENT_CLAUDE_DAEMON_ID:-docker-claude}
+      DOFE_AGENT_DEVICE_NAME: ${DOFE_AGENT_CLAUDE_DEVICE_NAME:-DofeAgent Docker Claude}
+      DOFE_AGENT_RUNTIME_NAME: ${DOFE_AGENT_CLAUDE_RUNTIME_NAME:-DofeAgent Docker Claude Runtime}
+      DOFE_AGENT_PROVIDER_ACCOUNT_ID: ${DOFE_AGENT_CLAUDE_PROVIDER_ACCOUNT_ID:-}
+      DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT: /run/dofe-agent-provider
+      DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF: file:///run/dofe-agent-provider/provider-accounts.json
+      # Feishu long connections are owned by the dedicated feishu-worker
+      # service above. Keeping daemon-managed supervision disabled prevents
+      # two processes from competing for the same app connection.
+      DOFE_AGENT_MANAGE_FEISHU_WORKER: "false"
+    volumes:
+      - claude-home:/home/node
+      - daemon-claude-data:/srv/DofeAgent/data
+      - ${DOFE_AGENT_CLAUDE_PROVIDER_CREDENTIAL_DIR:-./credentials/claude}:/run/dofe-agent-provider:ro
+    healthcheck:
+      test: ["CMD-SHELL", "node --experimental-strip-types deploy/self-hosted/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    init: true
+    restart: unless-stopped
+
+  daemon-codex:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile
+      target: daemon
+      args:
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
+        PROVIDER_INSTALL_COMMAND: ${CODEX_PROVIDER_INSTALL_COMMAND:?Set CODEX_PROVIDER_INSTALL_COMMAND in .env}
+    env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
+    environment:
+      DOFE_AGENT_DAEMON_ID: ${DOFE_AGENT_CODEX_DAEMON_ID:-docker-codex}
+      DOFE_AGENT_DEVICE_NAME: ${DOFE_AGENT_CODEX_DEVICE_NAME:-DofeAgent Docker Codex}
+      DOFE_AGENT_RUNTIME_NAME: ${DOFE_AGENT_CODEX_RUNTIME_NAME:-DofeAgent Docker Codex Runtime}
+      DOFE_AGENT_PROVIDER_ACCOUNT_ID: ${DOFE_AGENT_CODEX_PROVIDER_ACCOUNT_ID:-}
+      DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT: /run/dofe-agent-provider
+      DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF: file:///run/dofe-agent-provider/provider-accounts.json
+      DOFE_AGENT_MANAGE_FEISHU_WORKER: "false"
+    volumes:
+      - codex-home:/home/node
+      - daemon-codex-data:/srv/DofeAgent/data
+      - ${DOFE_AGENT_CODEX_PROVIDER_CREDENTIAL_DIR:-./credentials/codex}:/run/dofe-agent-provider:ro
+    healthcheck:
+      test: ["CMD-SHELL", "node --experimental-strip-types deploy/self-hosted/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    init: true
+    restart: unless-stopped
+
+volumes:
+  web-data:
+  claude-home:
+  codex-home:
+  daemon-claude-data:
+  daemon-codex-data:

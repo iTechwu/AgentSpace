@@ -1,0 +1,54 @@
+{
+  "name": "dofe-agent-daemon",
+  "version": "0.1.3",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "agent-router": "./bin/agent-router.js",
+    "dofe-agent": "./bin/dofe-agent.js",
+    "dofe-agent-daemon": "./bin/dofe-agent-daemon.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./daemon-client": {
+      "types": "./dist-types/daemon-client.d.ts",
+      "default": "./dist/daemon-client.js"
+    },
+    "./agent-router": {
+      "types": "./dist-types/agent-router/index.d.ts",
+      "default": "./dist/agent-router/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "dist-types",
+    "README.md",
+    "package.json"
+  ],
+  "engines": {
+    "node": "^25.9.0"
+  },
+  "scripts": {
+    "test": "sh -c 'node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/agent-router/capabilities.test.ts src/daemon-client.test.ts src/dist-smoke.test.ts src/local-managed-node-env-config.test.ts src/managed-node-image-contract.test.ts src/resumable-transfer.test.ts src/runtime-apps.test.ts src/skill-install/*.test.ts src/skill-service/*.test.ts src/skill-environment.test.ts src/skill-runner*.test.ts src/task-context-skill-env.test.ts' --",
+    "pretypes": "pnpm --dir ../domain run types && pnpm --dir ../db run types && pnpm --dir ../services run types && tsc -p ../sandbox/tsconfig.types.json --incremental false",
+    "types": "tsc -p tsconfig.types.json --incremental false",
+    "build": "node ./scripts/build.mjs",
+    "prepack": "pnpm run types && pnpm run build",
+    "dofe-agent-daemon": "node ./bin/dofe-agent-daemon.js"
+  },
+  "dependencies": {
+    "@dofe-agent/db": "workspace:*",
+    "@dofe-agent/domain": "workspace:*",
+    "@dofe-agent/sandbox": "workspace:*",
+    "@dofe-agent/services": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

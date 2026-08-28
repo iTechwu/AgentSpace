@@ -1,0 +1,691 @@
+import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import type { LedgerItem, WorkspaceMessage } from "@/shared/types/workspace";
+import type { WorkflowErrorCode } from "@dofe-agent/domain";
+
+export type TxFn = (zh: string, en: string) => string;
+
+const zhTx: TxFn = (zh) => zh;
+
+export function translateApprovalRisk(value: "low" | "medium" | "high" | undefined, tx: TxFn = zhTx): string {
+  if (value === undefined) return "";
+  const labels: Record<"low" | "medium" | "high", [string, string]> = {
+    low: ["低", "Low"],
+    medium: ["中", "Medium"],
+    high: ["高", "High"],
+  };
+  return tx(...labels[value]);
+}
+
+export function translateWorkflowRunStatus(value: string | undefined, tx: TxFn = zhTx): string {
+  const labels: Record<string, [string, string]> = {
+    created: ["已创建", "Created"],
+    queued: ["排队中", "Queued"],
+    running: ["运行中", "Running"],
+    waiting_approval: ["等待审批", "Waiting approval"],
+    paused: ["已暂停", "Paused"],
+    succeeded: ["已完成", "Succeeded"],
+    partially_succeeded: ["部分完成", "Partially succeeded"],
+    failed: ["失败", "Failed"],
+    cancelled: ["已取消", "Cancelled"],
+  };
+  const label = value ? labels[value] : undefined;
+  return label ? tx(label[0], label[1]) : tx("状态未知", "Unknown status");
+}
+
+export function translateWorkflowNodeStatus(value: string | undefined, tx: TxFn = zhTx): string {
+  const labels: Record<string, [string, string]> = {
+    pending: ["等待", "Pending"],
+    ready: ["就绪", "Ready"],
+    queued: ["排队", "Queued"],
+    running: ["执行中", "Running"],
+    waiting_approval: ["待审批", "Waiting approval"],
+    retry_wait: ["待重试", "Waiting to retry"],
+    succeeded: ["成功", "Succeeded"],
+    failed: ["失败", "Failed"],
+    skipped: ["已跳过", "Skipped"],
+    cancelled: ["已取消", "Cancelled"],
+  };
+  const label = value ? labels[value] : undefined;
+  return label ? tx(label[0], label[1]) : tx("未知", "Unknown");
+}
+
+export function translateWorkflowTriggerType(value: string | undefined, tx: TxFn = zhTx): string {
+  if (value === "schedule") return tx("定时触发", "Scheduled trigger");
+  if (value === "event") return tx("事件触发", "Event trigger");
+  if (value === "manual") return tx("手动触发", "Manual trigger");
+  return tx("未知触发方式", "Unknown trigger");
+}
+
+export function translateWorkflowErrorCode(code: string | undefined, tx: TxFn = zhTx): string {
+  const labels: Record<WorkflowErrorCode, [string, string]> = {
+    workflow_actor_forbidden: ["当前成员没有执行此操作的权限", "You do not have permission to perform this operation"],
+    workflow_version_conflict: ["草稿已被其他编辑者更新，请刷新后重试", "The draft was updated elsewhere. Refresh and try again"],
+    workflow_version_not_found: ["未找到对应的工作流版本", "Workflow version not found"],
+    workflow_version_node_missing: ["版本缺少引用的步骤定义", "The version is missing a referenced step definition"],
+    workflow_definition_not_found: ["未找到工作流", "Workflow not found"],
+    workflow_definition_archived: ["已归档的工作流不能编辑", "Archived workflows cannot be edited"],
+    workflow_definition_not_published: ["请先发布工作流", "Publish the workflow first"],
+    workflow_definition_not_runnable: ["工作流已暂停或归档，无法发起新的运行", "The workflow is paused or archived and cannot start new runs"],
+    workflow_definition_conflict: ["工作流状态冲突，请刷新后重试", "Workflow state conflict. Refresh and try again"],
+    workflow_definition_control_conflict: ["工作流状态已变化，请刷新后重试", "The workflow state changed. Refresh and try again"],
+    workflow_draft_version_conflict: ["草稿已被其他编辑者更新，请刷新后重试", "The draft was updated elsewhere. Refresh and try again"],
+    workflow_manual_trigger_required: ["只有已发布的手动触发工作流可以立即运行", "Only a published manual workflow can run immediately"],
+    workflow_active_version_missing: ["工作流缺少可运行的发布版本", "The workflow has no runnable published version"],
+    workflow_graph_invalid: ["流程结构无效，请检查步骤连接", "The workflow structure is invalid. Check its connections"],
+    workflow_operation_failed: ["工作流操作失败，请稍后重试", "The workflow operation failed. Try again later"],
+    workflow_unknown_error: ["工作流发生未知错误，请稍后重试", "An unknown workflow error occurred. Try again later"],
+    workflow_graph_requires_employee_task: ["至少添加一个 AI 员工步骤", "Add at least one AI employee step"],
+    workflow_graph_cycle: ["流程中不能存在循环连接", "Workflow connections cannot contain a cycle"],
+    workflow_graph_requires_single_entry_node: ["流程只能有一个起点", "The workflow must have one entry step"],
+    workflow_graph_requires_single_terminal_node: ["流程只能有一个终点", "The workflow must have one terminal step"],
+    workflow_graph_duplicate_node_id: ["步骤 ID 不能重复", "Workflow step IDs must be unique"],
+    workflow_graph_edge_endpoint_missing: ["连接线引用了不存在的步骤", "A connection references a missing step"],
+    workflow_graph_isolated_node: ["存在未连接到主流程的步骤", "A step is disconnected from the main workflow"],
+    workflow_node_unreachable: ["存在无法从起点到达的步骤", "A step cannot be reached from the workflow entry"],
+    workflow_employee_task_requires_employee_id: ["请选择执行此步骤的 AI 员工", "Select an AI employee for this step"],
+    workflow_node_type_unsupported: ["该步骤类型不在首期支持范围内", "This step type is not supported in the first release"],
+    workflow_employee_not_ready: ["AI 员工运行环境尚未就绪", "The AI employee runtime is not ready"],
+    workflow_skill_not_ready: ["AI 员工尚未配置此步骤所需技能", "The AI employee does not have a skill required by this step"],
+    workflow_channel_not_ready: ["AI 员工尚未加入此步骤的协作频道", "The AI employee is not a member of this step's collaboration channel"],
+    workflow_approval_employee_not_ready: ["请选择提交审批的 AI 员工", "Select the AI employee submitting this approval"],
+    workflow_approval_channel_not_ready: ["提交审批的 AI 员工尚未加入审批频道", "The submitting AI employee is not a member of the approval channel"],
+    workflow_approval_already_created: ["该步骤的审批请求已经存在", "An approval request already exists for this step"],
+    workflow_approval_deadline_invalid: ["审批限时必须为 1 秒至 30 天之间的正整数", "Approval deadline must be a positive integer from 1 second to 30 days"],
+    workflow_approval_create_failed: ["审批请求创建失败，请稍后重试", "Failed to create the approval request. Try again later"],
+    workflow_approval_node_conflict: ["审批步骤状态冲突，请刷新后重试", "Approval step state conflict. Refresh and try again"],
+    workflow_approval_node_not_found: ["未找到对应的审批步骤", "Approval step not found"],
+    workflow_approval_not_linked: ["审批请求未关联到运行步骤", "The approval request is not linked to a run step"],
+    workflow_approval_rejected: ["审批已被驳回", "The approval was rejected"],
+    workflow_approval_deadline_exceeded: ["审批限时已到，未在规定时间内完成审批", "The approval deadline elapsed before a decision was made"],
+    workflow_approval_reviewer_unauthorized: ["当前成员没有审批此步骤的权限", "You are not authorized to review this approval"],
+    workflow_approval_scan_failed: ["审批限时扫描处理失败，将在下一轮重试", "The approval deadline scan failed and will retry on the next tick"],
+    workflow_schedule_invalid: ["定时配置无效，请检查时间或 Cron 表达式", "The schedule is invalid. Check the time or cron expression"],
+    workflow_now_invalid: ["调度时钟无效，请检查传入的时间参数", "The scheduler clock is invalid. Check the time argument"],
+    workflow_schedule_in_past: ["一次性执行时间必须晚于当前时间", "The one-time schedule must be in the future"],
+    workflow_schedule_timezone_invalid: ["时区无效，请填写标准 IANA 时区", "Enter a valid IANA timezone"],
+    workflow_event_invalid: ["事件名称无效，仅支持字母、数字、点、冒号、下划线和短横线", "The event name contains unsupported characters"],
+    workflow_event_payload_too_large: ["事件载荷过大，请减小后重试", "The event payload is too large. Reduce it and try again"],
+    workflow_join_requires_multiple_inputs: ["汇聚步骤至少需要两个并行输入", "A join requires at least two parallel inputs"],
+    workflow_join_requires_downstream: ["汇聚步骤后需要添加汇总员工", "Add a summarizing employee after the join"],
+    workflow_trigger_duplicate: ["相同触发器已经绑定到其他工作流", "An identical trigger is already assigned to another workflow"],
+    workflow_trigger_owner_conflict: ["当前切流阶段不允许从此入口修改触发器", "This cutover stage does not allow trigger changes from this entry point"],
+    workflow_trigger_cross_workspace_conflict: ["触发器不能引用其他工作空间", "The trigger cannot reference another workspace"],
+    workflow_trigger_not_active: ["触发器未激活", "The trigger is not active"],
+    workflow_trigger_stale_snapshot: ["触发器快照已过期，请刷新后重试", "Trigger snapshot is stale. Refresh and try again"],
+    workflow_trigger_lease_conflict: ["触发器已被其他进程领取", "The trigger is already leased by another process"],
+    workflow_workspace_mismatch: ["工作流引用的资源归属不一致，请刷新后重试", "Workflow resources do not belong to the same workspace"],
+    workflow_cross_workspace_reference: ["工作流不能引用其他工作空间的资源", "The workflow cannot reference resources from another workspace"],
+    workflow_budget_exceeded: ["工作流预算不足，请调整预算或流程", "The workflow budget is insufficient. Adjust the budget or workflow"],
+    workflow_budget_invalid: ["预算必须是大于零的有效金额", "The budget must be a valid amount greater than zero"],
+    workflow_concurrency_invalid: ["最大并发数必须是 1 到 20 之间的整数", "Maximum concurrency must be an integer from 1 to 20"],
+    workflow_retry_policy_invalid: ["最大尝试次数必须是 1 到 10 之间的整数", "Maximum attempts must be an integer from 1 to 10"],
+    workflow_input_reference_missing: ["步骤缺少必需的上游输入", "A step is missing required upstream input"],
+    workflow_input_reference_invalid: ["输入映射包含无效引用", "The input mapping contains an invalid reference"],
+    workflow_input_reference_not_upstream: ["输入映射只能引用当前步骤的上游输出", "Input mappings may only reference upstream outputs"],
+    workflow_join_reference_missing: ["使用汇聚输出前需要连接汇聚步骤", "Connect a join before referencing its outputs"],
+    workflow_run_not_found: ["未找到运行记录", "Workflow run not found"],
+    workflow_run_control_conflict: ["运行状态已变化，请刷新后重试", "The run state changed. Refresh and try again"],
+    workflow_run_commit_in_progress: ["步骤结果正在提交，请稍后再取消运行", "A step result is being committed. Try cancelling again shortly"],
+    workflow_run_not_startable: ["运行已暂停或结束，当前步骤不能开始执行", "The run is paused or finished, so this step cannot start"],
+    workflow_run_not_terminal: ["只能重跑已结束的运行，该运行尚未结束", "Only a finished run can be rerun; this run is still in progress"],
+    workflow_run_create_failed: ["运行创建失败，请稍后重试", "Failed to create the workflow run. Try again later"],
+    workflow_run_event_create_failed: ["运行事件创建失败，请稍后重试", "Failed to create a run event. Try again later"],
+    workflow_run_materialization_conflict: ["运行物化状态冲突，请刷新后重试", "Run materialization conflict. Refresh and try again"],
+    workflow_task_commit_conflict: ["步骤提交状态已变化，请刷新后重试", "The step commit state changed. Refresh and try again"],
+    workflow_task_queue_mismatch: ["任务队列不匹配，请刷新后重试", "Task queue mismatch. Refresh and try again"],
+    workflow_completion_effect_uncertain: ["外部操作状态不确定，请先检查并补偿", "External operation state is uncertain. Inspect and compensate before continuing"],
+    workflow_commit_abort_conflict: ["步骤提交中止失败，状态已变化，请刷新后重试", "Step commit abort failed; the state changed. Refresh and try again"],
+    workflow_commit_finalization_conflict: ["步骤提交终结失败，状态已变化，请刷新后重试", "Step commit finalization failed; the state changed. Refresh and try again"],
+    workflow_commit_snapshot_missing: ["缺少完成提交快照，请重试任务完成流程", "Completion commit snapshot is missing. Retry the task completion flow"],
+    workflow_completion_feishu_outbox_failed: ["飞书通知投递失败，请稍后重试", "Feishu notification delivery failed. Try again shortly"],
+    workflow_node_manual_compensation_required: ["请先检查并补偿外部操作，再处理此步骤", "Inspect and compensate external operations before handling this step"],
+    workflow_run_events_unavailable: ["运行状态同步失败，将自动重试", "Run synchronization failed and will retry automatically"],
+    workflow_event_sequence_gap: ["正在同步缺失事件", "Synchronizing missing events"],
+    workflow_outbox_lease_conflict: ["出库事件已被其他进程领取", "An outbox event is already leased by another process"],
+    workflow_outbox_payload_invalid: ["出库事件载荷无效", "The outbox event payload is invalid"],
+    workflow_outbox_event_unsupported: ["出库事件类型不受支持", "The outbox event type is not supported"],
+    workflow_outbox_dispatch_failed: ["出库事件投递失败，将按策略重试", "Outbox delivery failed and will retry according to policy"],
+    workflow_node_run_not_found: ["未找到步骤运行记录", "Workflow step run not found"],
+    workflow_node_not_retryable: ["当前步骤不能重试", "This step cannot be retried"],
+    workflow_node_retry_conflict: ["步骤状态已变化，请刷新后重试", "The step state changed. Refresh and try again"],
+    workflow_node_retry_exhausted: ["该步骤已达到最大重试次数", "This step reached its retry limit"],
+    workflow_node_queue_link_conflict: ["步骤队列关联冲突，请刷新后重试", "Step queue link conflict. Refresh and try again"],
+    workflow_node_queue_retry_conflict: ["步骤队列重试冲突，请刷新后重试", "Step queue retry conflict. Refresh and try again"],
+    workflow_run_cursor_snapshot_incomplete: ["运行列表快照不完整，无法继续翻页，请刷新后重试", "The run list snapshot is incomplete. Refresh and try again"],
+    workflow_run_cursor_snapshot_required: ["分页游标缺少必需的快照信息，无法生成分页标记", "The pagination cursor is missing required snapshot fields"],
+    workflow_node_execution_failed: ["步骤执行失败", "Step execution failed"],
+    workflow_task_failed: ["步骤执行失败", "Step execution failed"],
+    workflow_task_setup_failed: ["AI 员工执行环境准备失败", "The AI employee execution environment could not be prepared"],
+    workflow_runtime_offline: ["AI 员工运行时离线，任务已由恢复流程收敛", "The AI employee runtime went offline and recovery closed the task"],
+    workflow_output_invalid: ["AI 员工未返回步骤声明的输出字段", "The AI employee did not return the declared output fields"],
+    workflow_output_too_large: ["步骤输出超过 256 KiB，请缩小摘要或改用产物引用", "The step output exceeds 256 KiB. Shorten it or use an artifact reference"],
+    workflow_output_field_invalid: ["输出字段名称无效、重复或数量超限", "Output field names are invalid, duplicated, or over the limit"],
+    workflow_output_field_unsupported: ["输入映射引用了上游未声明的输出字段", "The input mapping references an undeclared upstream output field"],
+    workflow_misfire_policy_invalid: ["错过执行策略无效，请重新选择", "The misfire policy is invalid. Choose again"],
+    workflow_channel_not_found: ["所选频道不存在或不在当前工作空间内", "The selected channel does not exist in this workspace"],
+    workflow_approval_risk_invalid: ["审批风险等级无效，请重新选择", "The approval risk level is invalid. Choose again"],
+    workflow_approval_reviewer_not_ready: ["指定的审批人不在当前工作空间内", "The selected reviewer is not a member of this workspace"],
+    workflow_iteration_group_invalid: ["迭代组配置无效（轮数、质量门或循环体）", "The iteration group is invalid (rounds, quality gate, or loop body)"],
+  };
+  const label = code ? labels[code as WorkflowErrorCode] : undefined;
+  return label ? tx(label[0], label[1]) : tx("工作流操作未完成，请稍后重试", "The workflow operation did not complete. Try again later");
+}
+
+export function translateTaskStatus(value: string | undefined, tx: TxFn): string {
+  if (value === "todo" || value === "待开始") return tx("待开始", "Todo");
+  if (value === "in_progress" || value === "进行中") return tx("进行中", "In progress");
+  if (value === "blocked" || value === "已阻塞") return tx("已阻塞", "Blocked");
+  if (value === "done" || value === "已完成") return tx("已完成", "Done");
+  return value ?? "";
+}
+
+export function translateQueueStatus(value: string | undefined, tx: TxFn): string {
+  if (value === "not_queued" || value === "未入队") return tx("未入队", "Not queued");
+  if (value === "queued" || value === "已入队") return tx("已入队", "Queued");
+  if (value === "claimed" || value === "已认领") return tx("已认领", "Claimed");
+  if (value === "running" || value === "执行中") return tx("执行中", "Running");
+  if (value === "completed" || value === "已完成") return tx("已完成", "Completed");
+  if (value === "failed" || value === "执行失败") return tx("执行失败", "Failed");
+  if (value === "cancelled" || value === "已取消") return tx("已取消", "Cancelled");
+  return value ?? "";
+}
+
+export function translatePriority(value: string | undefined, tx: TxFn): string {
+  if (value === "high" || value === "高优先级") return tx("高优先级", "High");
+  if (value === "medium" || value === "中优先级") return tx("中优先级", "Medium");
+  if (value === "low" || value === "低优先级") return tx("低优先级", "Low");
+  return value ?? "";
+}
+
+export function translateAgentStatus(value: string | undefined, tx: TxFn): string {
+  if (value === "busy" || value === "处理中") return tx("处理中", "Working");
+  if (value === "blocked" || value === "阻塞") return tx("阻塞", "Blocked");
+  if (value === "linked" || value === "已连接") return tx("已连接", "Connected");
+  if (value === "error" || value === "异常") return tx("异常", "Error");
+  if (value === "online" || value === "在线") return tx("在线", "Online");
+  return value ?? "";
+}
+
+export function translateKnowledgeAssignmentMode(value: string | undefined, tx: TxFn): string {
+  if (value === "all_agents") return tx("全员共享", "All AI employees");
+  if (value === "selected_agents") return tx("指定 AI员工", "Selected AI employees");
+  return value ?? "";
+}
+
+export function translateContainerDescription(value: string | undefined, tx: TxFn): string {
+  if (value === "容器已在线，可承载多个 AI员工 的独立工作区域。") {
+    return tx("容器已在线，可承载多个 AI员工 的独立工作区域。", "The container is online and can host independent work areas for multiple AI employees.");
+  }
+  if (value === "容器当前离线。") {
+    return tx("容器当前离线。", "The container is currently offline.");
+  }
+  return value ?? "";
+}
+
+function formatNoticeDateTime(value: string | undefined): string {
+  return formatCompactTimestamp(value, { emptyFallback: "" });
+}
+
+export function translateSystemSpeaker(value: string | undefined, tx: TxFn): string {
+  if (!value) return "";
+  if (
+    value === "系统提示" ||
+    value === "Atlas · 运行时协调器" ||
+    value === "Atlas · 任务分派器" ||
+    value === "Atlas · 文档协调器"
+  ) {
+    return tx("系统提示", "System Notice");
+  }
+  if (value === "系统通知") return tx("系统通知", "System");
+  return value;
+}
+
+export function translateMemberLabel(value: string | undefined, tx: TxFn): string {
+  if (!value) return "";
+  const match = value.match(/^(\d+)\s+人类\s+\/\s+(\d+)\s+(?:agent|AI员工)$/);
+  if (!match) {
+    return value;
+  }
+  return tx(`${match[1]} 人类 / ${match[2]} AI员工`, `${match[1]} humans / ${match[2]} AI employees`);
+}
+
+export function translateWorkspaceMessageSummary(
+  message:
+    | Pick<WorkspaceMessage, "summary" | "code" | "data">
+    | {
+        content: string;
+        code?: string;
+        data?: Record<string, string>;
+      },
+  tx: TxFn,
+): string {
+  const code = message.code;
+  const data = message.data ?? {};
+  if (!code) {
+    return translateRuntimeFailureSummary("summary" in message ? message.summary : message.content, tx);
+  }
+
+  switch (code) {
+    case "runtime.bound":
+      return tx(`${data.employee_name ?? "AI员工"} 已绑定到执行引擎：${data.runtime_name ?? "执行引擎"}。`, `${data.employee_name ?? "AI employee"} is now bound to execution engine ${data.runtime_name ?? "execution engine"}.`);
+    case "runtime.unbound":
+      return tx(`${data.employee_name ?? "AI员工"} 已解除执行引擎绑定。`, `${data.employee_name ?? "AI employee"} was unbound from the execution engine.`);
+    case "agent.deleted":
+      return tx(`${data.employee_name ?? "AI员工"} 已删除，相关执行引擎绑定与工作区域已清理。`, `${data.employee_name ?? "AI employee"} was deleted together with its execution-engine binding and work area records.`);
+    case "channel.created_notice":
+      return tx(`新群组 ${data.channel_name ?? "group"} 已创建，可立即接入数字员工与协作流。`, `Group ${data.channel_name ?? "group"} was created and is ready for collaboration.`);
+    case "channel.renamed_notice":
+      return tx(`群组 ${data.previous_name ?? "group"} 已重命名为 ${data.next_name ?? "group"}。`, `Group ${data.previous_name ?? "group"} was renamed to ${data.next_name ?? "group"}.`);
+    case "mention.unavailable":
+      return tx(`${data.agent_names ?? "AI员工"} 当前没有绑定可执行引擎，无法响应这次 @。`, `${data.agent_names ?? "AI employee"} does not have an executable execution engine bound and cannot respond to this mention.`);
+    case "task.assigned_notice":
+      return tx(`新任务已分派给 ${data.assignee ?? "AI员工"}：${data.task_title ?? "task"}。`, `A new task was assigned to ${data.assignee ?? "AI employee"}: ${data.task_title ?? "task"}.`);
+    case "task.queued_notice":
+      return tx(`任务 ${data.task_title ?? "task"} 已进入执行队列，目标执行引擎：${data.runtime_name ?? "执行引擎"}。`, `Task ${data.task_title ?? "task"} entered the execution queue for engine ${data.runtime_name ?? "execution engine"}.`);
+    case "task.status_notice":
+      return tx(`任务 ${data.task_title ?? "task"} 当前状态已更新为 ${translateTaskStatus(data.status, tx)}。`, `Task ${data.task_title ?? "task"} status was updated to ${translateTaskStatus(data.status, tx)}.`);
+    case "channel_document.created_notice":
+      return tx(`群文档《${data.document_title ?? "文档"}》已创建。`, `Channel document "${data.document_title ?? "Document"}" was created.`);
+    case "channel_document.updated_notice":
+      return tx(
+        `群文档《${data.document_title ?? "文档"}》已更新。${data.summary ? ` 摘要：${data.summary}` : ""}`,
+        `Channel document "${data.document_title ?? "Document"}" was updated.${data.summary ? ` Summary: ${data.summary}` : ""}`,
+      );
+    case "channel_document.archived_notice":
+      return tx(`群文档《${data.document_title ?? "文档"}》已归档。`, `Channel document "${data.document_title ?? "Document"}" was archived.`);
+    case "channel_document.restored_notice":
+      return tx(`群文档《${data.document_title ?? "文档"}》已恢复。`, `Channel document "${data.document_title ?? "Document"}" was restored.`);
+    case "channel_document.rolled_back_notice":
+      return tx(`群文档《${data.document_title ?? "文档"}》已回滚。`, `Channel document "${data.document_title ?? "Document"}" was rolled back.`);
+    case "channel_document.exported_notice":
+      return tx(`群文档《${data.document_title ?? "文档"}》已导出为附件。`, `Channel document "${data.document_title ?? "Document"}" was exported as an attachment.`);
+    case "channel_document.run_created_notice":
+      return tx(
+        `已创建一条群文档协作流程，共 ${data.step_count ?? "0"} 步。`,
+        `A document workflow with ${data.step_count ?? "0"} step(s) was created.`,
+      );
+    case "channel_document.step_completed_notice":
+      return tx(
+        `${data.agent_label ?? "AI员工"} 已完成当前文档步骤。`,
+        `${data.agent_label ?? "AI employee"} completed the current document step.`,
+      );
+    case "channel_document.step_completed_without_update_notice":
+      return tx(
+        `${data.agent_label ?? "AI员工"} 已结束当前步骤，但没有写入新的群文档版本。`,
+        `${data.agent_label ?? "AI employee"} finished the step without writing a new document version.`,
+      );
+    case "channel_document.step_queued_notice":
+      return tx(
+        `流程已推进到 ${data.agent_label ?? "AI员工"}。`,
+        `The workflow moved to ${data.agent_label ?? "AI employee"}.`,
+      );
+    case "channel_document.run_completed_notice":
+      return tx("群文档协作流程已完成。", "The document workflow has completed.");
+    case "channel_document.run_completed_with_warning_notice":
+      return tx(
+        "群文档协作流程已结束，但至少有一步没有写入新的文档版本。",
+        "The document workflow finished, but at least one step did not write a new document version.",
+      );
+    case "channel_document.run_failed_notice":
+      return tx(
+        `群文档协作流程在 ${data.agent_label ?? "AI员工"} 处失败。`,
+        `The document workflow failed at ${data.agent_label ?? "AI employee"}.`,
+      );
+    case "channel_document.plan_ambiguous_notice":
+      return tx(
+        "系统无法判断安全的协作顺序，请明确写出先后关系，例如“@A ... 然后 @B ...”。",
+        'The system could not infer a safe collaboration order. Please rewrite it with explicit sequencing, for example "@A ... then @B ...".',
+      );
+    case "channel_document.conflict_notice":
+      return tx(
+        `群文档《${data.document_title ?? "文档"}》的更新发生冲突，请基于最新版本重试。`,
+        `Document "${data.document_title ?? "Document"}" has an update conflict. Please retry on top of the latest version.`,
+      );
+    case "channel_document.conflict_resolved_notice":
+      return tx(
+        `群文档《${data.document_title ?? "文档"}》的冲突已标记为已处理。`,
+        `Document "${data.document_title ?? "Document"}" conflict was marked as resolved.`,
+      );
+    case "channel_document.conflict_retried_notice":
+      return tx(
+        `群文档《${data.document_title ?? "文档"}》的冲突改动已基于最新版本重新应用。`,
+        `Document "${data.document_title ?? "Document"}" conflicted change was reapplied on top of the latest version.`,
+      );
+    case "channel_document.collaborator_added_notice":
+      return tx(
+        `群文档《${data.document_title ?? "文档"}》已新增协作者 ${data.collaborator_name ?? "User"}，角色为 ${data.role ?? "editor"}。`,
+        `Document "${data.document_title ?? "Document"}" added collaborator ${data.collaborator_name ?? "User"} as ${data.role ?? "editor"}.`,
+      );
+    case "channel_document.collaborator_removed_notice":
+      return tx(
+        `群文档《${data.document_title ?? "文档"}》已移除协作者 ${data.collaborator_name ?? "User"}。`,
+        `Document "${data.document_title ?? "Document"}" removed collaborator ${data.collaborator_name ?? "User"}.`,
+      );
+    case "channel_document.access_updated_notice":
+      return tx(
+        `群文档《${data.document_title ?? "文档"}》协作者 ${data.collaborator_name ?? "User"} 的角色已从 ${data.previous_role ?? "viewer"} 调整为 ${data.next_role ?? "editor"}。`,
+        `Document "${data.document_title ?? "Document"}" changed collaborator ${data.collaborator_name ?? "User"} role from ${data.previous_role ?? "viewer"} to ${data.next_role ?? "editor"}.`,
+      );
+    case "auto_continuation.started_notice":
+      return tx(
+        `已开启自动续跑：${data.agent_name ?? "AI员工"} 将持续工作到 ${formatNoticeDateTime(data.until)}。`,
+        `Auto continuation started: ${data.agent_name ?? "AI employee"} will keep working until ${formatNoticeDateTime(data.until)}.`,
+      );
+    case "auto_continuation.stopped_notice":
+      return tx(
+        `已停止自动续跑：${data.agent_name ?? "AI员工"} 不会再自动排队下一轮任务。`,
+        `Auto continuation stopped: ${data.agent_name ?? "AI employee"} will not queue another follow-up task.`,
+      );
+    case "contact.unavailable":
+      return tx(`${data.contact_name ?? "Contact"} 当前没有绑定可执行容器，无法处理这条私聊消息。`, `${data.contact_name ?? "Contact"} does not have an executable container bound and cannot process this direct message.`);
+    case "approval.created":
+      if (data.approval_type === "runtime_tool") {
+        const toolName = data.tool_name ?? tx("工具", "tool");
+        const preview = data.content_preview ? `：${data.content_preview}` : "";
+        if (data.approval_status === "approved") {
+          return tx(`${data.agent_id ?? "AI员工"} 的 ${toolName} 调用已批准${preview}`, `${data.agent_id ?? "AI employee"}'s ${toolName} call was approved${preview}`);
+        }
+        if (data.approval_status === "rejected") {
+          return tx(`${data.agent_id ?? "AI员工"} 的 ${toolName} 调用已驳回${preview}`, `${data.agent_id ?? "AI employee"}'s ${toolName} call was rejected${preview}`);
+        }
+        return tx(`${data.agent_id ?? "AI员工"} 请求审批 ${toolName} 调用${preview}`, `${data.agent_id ?? "AI employee"} requested approval for a ${toolName} call${preview}`);
+      }
+      return tx(`${data.agent_id ?? "AI员工"} 提交了一条审批。`, `${data.agent_id ?? "AI employee"} submitted an approval.`);
+    case "approval.approved":
+      return tx(`${data.agent_id ?? "AI员工"} 的审批已批准。`, `${data.agent_id ?? "AI employee"}'s approval was approved.`);
+    case "approval.rejected":
+      return tx(`${data.agent_id ?? "AI员工"} 的审批已驳回。`, `${data.agent_id ?? "AI employee"}'s approval was rejected.`);
+    case "agent.pending":
+      return tx("思考中", "Thinking");
+    default:
+      return translateRuntimeFailureSummary("summary" in message ? message.summary : message.content, tx);
+  }
+}
+
+/**
+ * Protect the chat UI from legacy messages that were persisted before the
+ * daemon started normalizing provider failures. Runtime diagnostics can
+ * contain Docker image names, exit codes, and provider internals that are not
+ * actionable to a user and should remain available only in server-side logs.
+ */
+export function translateRuntimeFailureSummary(value: string, tx: TxFn = zhTx): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return value;
+  }
+
+  const failureMarker = "执行失败：";
+  const markerIndex = compact.indexOf(failureMarker);
+  const prefix = markerIndex >= 0 ? compact.slice(0, markerIndex + failureMarker.length) : "";
+  const detail = markerIndex >= 0 ? compact.slice(markerIndex + failureMarker.length).trim() : compact;
+  let safeDetail: string | undefined;
+
+  if (/No such image:\s*dofe\/agent-runtime-[^\s'";]+/i.test(detail)
+    || /Approved managed runtime image\s+dofe\/agent-runtime-[^\s'";]+\s+is unavailable locally/i.test(detail)) {
+    safeDetail = tx(
+      "执行环境尚未就绪，请联系管理员完成 Runtime 镜像安装后重试。",
+      "The execution environment is not ready. Ask an administrator to install the Runtime image, then retry.",
+    );
+  } else if (/--dangerously-skip-permissions cannot be used with root\/sudo privileges/i.test(detail)) {
+    safeDetail = tx(
+      "运行时权限模式与 root/sudo 环境不兼容，请切换到受支持的执行环境后重试。",
+      "The runtime permission mode is incompatible with root/sudo. Switch to a supported execution environment and retry.",
+    );
+  } else if (/This command requires approval/i.test(detail)) {
+    safeDetail = tx(
+      "运行时需要命令审批，但当前会话无法交互审批。",
+      "The runtime requires command approval, but this session cannot approve commands interactively.",
+    );
+  } else if (/unexpected argument ['"]--sandbox['"]|exec resume[\s\S]*--sandbox/i.test(detail)) {
+    safeDetail = tx(
+      "当前执行引擎不支持会话续接参数，请更新执行引擎后重试。",
+      "The execution engine does not support session resume parameters. Update the engine and retry.",
+    );
+  } else if (/stream disconnected[\s\S]*(response\.completed|turn\.failed)|response\.completed[\s\S]*not received|turn\.failed/i.test(detail)) {
+    safeDetail = tx(
+      "模型的流式响应在完成前中断，自动重试后仍未完成。请检查模型连接或切换模型后重试。",
+      "The model stream ended before completion. Check the model connection or switch models and retry.",
+    );
+  } else if (/model metadata[\s\S]*not found|model metadata[\s\S]*fallback metadata/i.test(detail)) {
+    safeDetail = tx(
+      "所选模型的执行配置不完整，请切换到已验证的模型后重试。",
+      "The selected model configuration is incomplete. Switch to a verified model and retry.",
+    );
+  } else if (/(?:\bHTTP\s*)?500\s+Internal Server Error|\bInternal Server Error\b/i.test(detail)) {
+    safeDetail = tx(
+      "上游模型服务暂时不可用，请稍后重试或切换模型；完整错误已保留在执行记录中。",
+      "The upstream model service is temporarily unavailable. Retry shortly or switch models; the full error is retained in the execution record.",
+    );
+  }
+
+  if (!safeDetail && /(?:provider\.runtime_generic_failure|Codex CLI exited|Claude CLI exited|stderrTail=|exitCode=|provider diagnostic:)/i.test(detail)) {
+    safeDetail = tx(
+      "执行引擎返回了未能识别的错误，请检查执行引擎配置后重试。",
+      "The execution engine returned an unexpected error. Check its configuration and retry.",
+    );
+  }
+
+  if (!safeDetail) {
+    return value;
+  }
+  return `${prefix}${safeDetail}`;
+}
+
+export function translateLedgerTitle(entry: LedgerItem, tx: TxFn): string {
+  switch (entry.code) {
+    case "runtime.bound":
+      return tx("Runtime 绑定", "Runtime bound");
+    case "runtime.unbound":
+      return tx("Runtime 解绑", "Runtime unbound");
+    case "agent.deleted":
+      return tx("AI员工 删除", "AI employee deleted");
+    case "agent.instructions_updated":
+      return tx("AI员工 指令更新", "AI employee instructions updated");
+    case "skill.created":
+      return tx("Skill 创建", "Skill created");
+    case "skill.updated":
+      return tx("Skill 更新", "Skill updated");
+    case "skill.deleted":
+      return tx("Skill 删除", "Skill deleted");
+    case "skill.file_updated":
+      return tx("Skill 文件更新", "Skill file updated");
+    case "skill.file_created":
+      return tx("Skill 文件创建", "Skill file created");
+    case "skill.file_deleted":
+      return tx("Skill 文件删除", "Skill file deleted");
+    case "agent.skills_updated":
+      return tx("AI员工 Skills 绑定更新", "AI employee skill assignments updated");
+    case "knowledge.assignment_mode_updated":
+      return tx("知识分配范围更新", "Knowledge assignment scope updated");
+    case "knowledge.page_agents_updated":
+      return tx("知识页 AI员工 绑定更新", "Knowledge page AI employee assignments updated");
+    case "agent.knowledge_updated":
+      return tx("AI员工 知识绑定更新", "AI employee knowledge assignments updated");
+    case "contact.queued":
+      return tx("联系人私聊入队", "Direct message queued");
+    case "channel.created":
+      return tx("群组创建", "Group created");
+    case "channel.deleted":
+      return tx("群组删除", "Group deleted");
+    case "channel.renamed":
+      return tx("群组重命名", "Group renamed");
+    case "material.added":
+      return tx("原料补充", "Material added");
+    case "material.imported":
+      return tx("文件导入", "File imported");
+    case "material.parsed":
+      return tx("原料解析", "Material parsed");
+    case "channel.message":
+      return tx("群组消息", "Group message");
+    case "channel.mention_dispatched":
+    case "channel.mention_unavailable":
+      return tx("群组 mention", "Group mention");
+    case "employee.created":
+      return tx("员工直加入组", "Employee created");
+    case "task.created":
+      return tx("任务创建", "Task created");
+    case "task.queued":
+      return tx("任务入队", "Task queued");
+    case "task.status_updated":
+      return tx("任务状态更新", "Task status updated");
+    case "channel_document.created":
+      return tx("群文档创建", "Channel document created");
+    case "channel_document.updated":
+      return tx("群文档更新", "Channel document updated");
+    case "channel_document.archived":
+      return tx("群文档归档", "Channel document archived");
+    case "channel_document.restored":
+      return tx("群文档恢复", "Channel document restored");
+    case "channel_document.rolled_back":
+      return tx("群文档回滚", "Channel document rolled back");
+    case "channel_document.exported":
+      return tx("群文档导出", "Channel document exported");
+    case "channel_document.run_created":
+      return tx("群文档流程创建", "Channel document workflow created");
+    case "channel_document.step_completed":
+      return tx("群文档步骤完成", "Channel document step completed");
+    case "channel_document.run_failed":
+      return tx("群文档流程失败", "Channel document workflow failed");
+    case "channel_document.run_ambiguous":
+      return tx("群文档流程顺序不明确", "Channel document workflow order is ambiguous");
+    case "channel_document.conflict":
+      return tx("群文档冲突", "Channel document conflict");
+    case "channel_document.conflict_resolved":
+      return tx("群文档冲突已处理", "Channel document conflict resolved");
+    case "channel_document.conflict_retried":
+      return tx("群文档冲突重试", "Channel document conflict retried");
+    case "channel_document.collaborator_added":
+      return tx("群文档新增协作者", "Channel document collaborator added");
+    case "channel_document.collaborator_removed":
+      return tx("群文档移除协作者", "Channel document collaborator removed");
+    case "channel_document.access_updated":
+      return tx("群文档权限更新", "Channel document access updated");
+    default:
+      return entry.title;
+  }
+}
+
+export function translateLedgerBody(entry: LedgerItem, tx: TxFn): string {
+  const data = entry.data ?? {};
+  switch (entry.code) {
+    case "runtime.bound":
+      return tx(`${data.employee_name ?? "AI员工"} 已绑定到 ${data.runtime_name ?? "执行引擎"}。`, `${data.employee_name ?? "AI employee"} is now bound to ${data.runtime_name ?? "execution engine"}.`);
+    case "runtime.unbound":
+      return tx(`${data.employee_name ?? "AI员工"} 已解绑执行引擎。`, `${data.employee_name ?? "AI employee"} was unbound from the execution engine.`);
+    case "agent.deleted":
+      return tx(`${data.employee_name ?? "AI员工"} 已从组织中移除，并清理绑定、任务和工作区域。`, `${data.employee_name ?? "AI employee"} was removed from the workspace along with bindings, tasks, and work areas.`);
+    case "agent.instructions_updated":
+      return tx(`${data.employee_name ?? "AI员工"} 的 instructions 已更新。`, `${data.employee_name ?? "AI employee"} instructions were updated.`);
+    case "skill.created":
+      return tx(`${data.skill_name ?? "Skill"} 已加入工作区技能库。`, `${data.skill_name ?? "Skill"} was added to the workspace library.`);
+    case "skill.updated":
+      return tx(`${data.skill_name ?? "Skill"} 的元信息已更新。`, `${data.skill_name ?? "Skill"} metadata was updated.`);
+    case "skill.deleted":
+      return tx(`${data.skill_name ?? "Skill"} 已从工作区技能库移除，并解除所有 AI员工 绑定。`, `${data.skill_name ?? "Skill"} was removed from the workspace library and all AI employee assignments were cleared.`);
+    case "skill.file_updated":
+      return tx(`${data.skill_name ?? "Skill"} 的 ${data.file_path ?? "file"} 已更新。`, `${data.skill_name ?? "Skill"} file ${data.file_path ?? "file"} was updated.`);
+    case "skill.file_created":
+      return tx(`${data.skill_name ?? "Skill"} 新增文件 ${data.file_path ?? "file"}。`, `${data.skill_name ?? "Skill"} added file ${data.file_path ?? "file"}.`);
+    case "skill.file_deleted":
+      return tx(`${data.skill_name ?? "Skill"} 的 ${data.file_path ?? "file"} 已删除。`, `${data.skill_name ?? "Skill"} file ${data.file_path ?? "file"} was deleted.`);
+    case "agent.skills_updated":
+      return tx(`${data.employee_name ?? "AI员工"} 的 skills 绑定已更新，共 ${data.skill_count ?? "0"} 项。`, `${data.employee_name ?? "AI employee"} skill assignments were updated with ${data.skill_count ?? "0"} item(s).`);
+    case "knowledge.assignment_mode_updated":
+      return tx(
+        `知识页 ${data.knowledge_page_id ?? "page"} 的分配范围已更新为 ${translateKnowledgeAssignmentMode(data.assignment_mode, tx)}。`,
+        `Knowledge page ${data.knowledge_page_id ?? "page"} assignment scope changed to ${translateKnowledgeAssignmentMode(data.assignment_mode, tx)}.`,
+      );
+    case "knowledge.page_agents_updated":
+      return tx(
+        `知识页 ${data.knowledge_page_id ?? "page"} 已绑定 ${data.agent_count ?? "0"} 个 AI员工。`,
+        `Knowledge page ${data.knowledge_page_id ?? "page"} was assigned to ${data.agent_count ?? "0"} AI employee(s).`,
+      );
+    case "agent.knowledge_updated":
+      return tx(
+        `${data.employee_name ?? "AI员工"} 的知识绑定已更新，共 ${data.knowledge_page_count ?? "0"} 篇。`,
+        `${data.employee_name ?? "AI employee"} knowledge assignments were updated with ${data.knowledge_page_count ?? "0"} page(s).`,
+      );
+    case "contact.queued":
+      return tx(`你向 ${data.contact_name ?? "contact"} 发起了一条私聊，已转交 AI员工 执行。`, `You sent a direct message to ${data.contact_name ?? "contact"}, and it was queued for an AI employee.`);
+    case "channel.created":
+      return tx(`已创建群组 ${data.channel_name ?? "group"}，成员 ${data.human_count ?? "0"} 名人类 / ${data.agent_count ?? "0"} 名 AI员工。`, `Group ${data.channel_name ?? "group"} was created with ${data.human_count ?? "0"} human member(s) and ${data.agent_count ?? "0"} AI employee(s).`);
+    case "channel.deleted":
+      return tx(`群组 ${data.channel_name ?? "group"} 已删除，并清理相关消息、任务和成员绑定。`, `Group ${data.channel_name ?? "group"} was deleted along with related messages, tasks, and memberships.`);
+    case "channel.renamed":
+      return tx(`群组 ${data.previous_name ?? "group"} 已重命名为 ${data.next_name ?? "group"}。`, `Group ${data.previous_name ?? "group"} was renamed to ${data.next_name ?? "group"}.`);
+    case "material.added":
+      return tx(`新增原料来源 ${data.source ?? "source"}，当前状态：${data.status ?? "unknown"}。`, `Added material source ${data.source ?? "source"} with status ${data.status ?? "unknown"}.`);
+    case "material.imported":
+      return tx(`已导入文件 ${data.source ?? "file"}，落盘到 ${data.stored_name ?? "target"}，后续可用于切片和员工生成。`, `Imported file ${data.source ?? "file"} and stored it as ${data.stored_name ?? "target"} for downstream processing.`);
+    case "material.parsed":
+      return tx(`文件 ${data.source ?? "file"} 已完成首轮解析，可进入切片或员工生成流程。`, `File ${data.source ?? "file"} was parsed and is ready for downstream slicing or generation.`);
+    case "channel.message":
+      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} 发送了一条普通消息，未触发任何 AI员工。`, `${data.speaker ?? "Someone"} sent a regular message in ${data.channel_name ?? "channel"} without triggering any AI employee.`);
+    case "channel.mention_dispatched":
+      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} 定向 @了 ${data.mentions ?? "AI员工"}，已分发给 ${data.queued_count ?? "0"} 个 AI员工。`, `${data.speaker ?? "Someone"} directly mentioned ${data.mentions ?? "AI employees"} in ${data.channel_name ?? "channel"}, dispatching ${data.queued_count ?? "0"} AI employee(s).`);
+    case "channel.mention_unavailable":
+      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} @了 ${data.mentions ?? "AI员工"}，但目标 AI员工 当前不可执行。`, `${data.speaker ?? "Someone"} mentioned ${data.mentions ?? "AI employees"} in ${data.channel_name ?? "channel"}, but the target AI employee is not executable right now.`);
+    case "employee.created":
+      return tx(`${data.employee_name ?? "AI员工"} 已直接入组，等待后续手动加入群组。`, `${data.employee_name ?? "AI employee"} joined the workspace directly and is waiting to be added to groups.`);
+    case "task.created":
+      return tx(`${data.assignee ?? "AI员工"} 已在 ${data.channel_name ?? "channel"} 接收任务：${data.task_title ?? "task"}。`, `${data.assignee ?? "AI employee"} received task ${data.task_title ?? "task"} in ${data.channel_name ?? "channel"}.`);
+    case "task.queued":
+      return tx(`${data.task_title ?? "Task"} 已进入执行队列，等待 ${data.runtime_name ?? "执行引擎"} 执行。`, `${data.task_title ?? "Task"} entered the execution queue and is waiting for ${data.runtime_name ?? "execution engine"} to execute it.`);
+    case "task.status_updated":
+      return tx(`任务 ${data.task_title ?? "task"} 已更新为 ${translateTaskStatus(data.status ?? "", tx)}。`, `Task ${data.task_title ?? "task"} was updated to ${translateTaskStatus(data.status ?? "", tx)}.`);
+    case "channel_document.created":
+      return tx(`群组 ${data.channel_name ?? "group"} 新建文档《${data.document_title ?? "文档"}》。`, `Document "${data.document_title ?? "Document"}" was created in ${data.channel_name ?? "group"}.`);
+    case "channel_document.updated":
+      return tx(`群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》已更新。`, `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} was updated.`);
+    case "channel_document.archived":
+      return tx(`群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》已归档。`, `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} was archived.`);
+    case "channel_document.restored":
+      return tx(`群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》已恢复。`, `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} was restored.`);
+    case "channel_document.rolled_back":
+      return tx(`群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》已回滚。`, `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} was rolled back.`);
+    case "channel_document.exported":
+      return tx(`群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》已导出为附件。`, `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} was exported as an attachment.`);
+    case "channel_document.run_created":
+      return tx(
+        `群组 ${data.channel_name ?? "group"} 创建了一条 ${data.step_count ?? "0"} 步的群文档协作流程。`,
+        `A ${data.step_count ?? "0"}-step document workflow was created in ${data.channel_name ?? "group"}.`,
+      );
+    case "channel_document.run_ambiguous":
+      return tx(
+        `群组 ${data.channel_name ?? "group"} 的多 AI员工 协作顺序不明确，系统要求用户改写指令。`,
+        `The multi-AI employee collaboration order in ${data.channel_name ?? "group"} was ambiguous, so the system asked the user to rewrite the instruction.`,
+      );
+    case "channel_document.conflict":
+      return tx(
+        `群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》发生并发更新冲突。`,
+        `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} has a concurrent update conflict.`,
+      );
+    case "channel_document.conflict_resolved":
+      return tx(
+        `群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》冲突已被标记为已处理。`,
+        `Document "${data.document_title ?? "Document"}" conflict in ${data.channel_name ?? "group"} was marked as resolved.`,
+      );
+    case "channel_document.conflict_retried":
+      return tx(
+        `群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》冲突改动已按最新版本重新应用。`,
+        `Document "${data.document_title ?? "Document"}" conflicted change in ${data.channel_name ?? "group"} was reapplied on top of the latest version.`,
+      );
+    case "channel_document.collaborator_added":
+      return tx(
+        `群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》新增协作者 ${data.collaborator_name ?? "User"}，角色为 ${data.role ?? "editor"}。`,
+        `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} added collaborator ${data.collaborator_name ?? "User"} as ${data.role ?? "editor"}.`,
+      );
+    case "channel_document.collaborator_removed":
+      return tx(
+        `群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》移除了协作者 ${data.collaborator_name ?? "User"}。`,
+        `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} removed collaborator ${data.collaborator_name ?? "User"}.`,
+      );
+    case "channel_document.access_updated":
+      return tx(
+        `群组 ${data.channel_name ?? "group"} 的文档《${data.document_title ?? "文档"}》把 ${data.collaborator_name ?? "User"} 的角色从 ${data.previous_role ?? "viewer"} 调整为 ${data.next_role ?? "editor"}。`,
+        `Document "${data.document_title ?? "Document"}" in ${data.channel_name ?? "group"} changed ${data.collaborator_name ?? "User"} role from ${data.previous_role ?? "viewer"} to ${data.next_role ?? "editor"}.`,
+      );
+    default:
+      return entry.note;
+  }
+}

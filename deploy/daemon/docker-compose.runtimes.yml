@@ -1,0 +1,167 @@
+x-mcp-egress-environment: &mcp-egress-environment
+  # Keep canary/observe by default until daemon/Provider process isolation gates pass.
+  MCP_EGRESS_ENFORCE: ${MCP_EGRESS_ENFORCE:-false}
+  MCP_EGRESS_PROXY_URL: http://mcp-egress-proxy:8080
+  MCP_EGRESS_PROXY_ADMIN_TOKEN: ${MCP_EGRESS_PROXY_ADMIN_TOKEN:?Set the active MCP egress proxy admin token}
+
+services:
+  runtime-codex:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${CODEX_PROVIDER_INSTALL_COMMAND}
+    image: dofe-agent-runtime-codex:local
+    env_file: ./runtimes/codex.env
+    volumes:
+      - codex-auth:/home/dofe-agent
+      - codex-state:/var/lib/dofe-agent-daemon
+      - ${CODEX_PROVIDER_CREDENTIAL_DIR:-./credentials/codex}:/run/dofe-agent-provider:ro
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      <<: *mcp-egress-environment
+      # Explicitly prevent Provider from observing or using any proxy variable.
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
+
+  runtime-claude:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${CLAUDE_PROVIDER_INSTALL_COMMAND}
+    image: dofe-agent-runtime-claude:local
+    env_file: ./runtimes/claude.env
+    volumes:
+      - claude-auth:/home/dofe-agent
+      - claude-state:/var/lib/dofe-agent-daemon
+      - ${CLAUDE_PROVIDER_CREDENTIAL_DIR:-./credentials/claude}:/run/dofe-agent-provider:ro
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      <<: *mcp-egress-environment
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
+
+  runtime-openclaw:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${OPENCLAW_PROVIDER_INSTALL_COMMAND}
+    image: dofe-agent-runtime-openclaw:local
+    env_file: ./runtimes/openclaw.env
+    volumes:
+      - openclaw-auth:/home/dofe-agent
+      - openclaw-state:/var/lib/dofe-agent-daemon
+      - ${OPENCLAW_PROVIDER_CREDENTIAL_DIR:-./credentials/openclaw}:/run/dofe-agent-provider:ro
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      <<: *mcp-egress-environment
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
+
+  runtime-hermes:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${HERMES_PROVIDER_INSTALL_COMMAND}
+    image: dofe-agent-runtime-hermes:local
+    env_file: ./runtimes/hermes.env
+    volumes:
+      - hermes-auth:/home/dofe-agent
+      - hermes-state:/var/lib/dofe-agent-daemon
+      - ${HERMES_PROVIDER_CREDENTIAL_DIR:-./credentials/hermes}:/run/dofe-agent-provider:ro
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      <<: *mcp-egress-environment
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
+
+  runtime-deepseek-harness:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile.deepseek-harness-runtime
+      additional_contexts:
+        deepseek-runtime-bundle: ${DEEPSEEK_HARNESS_RUNTIME_BUNDLE_CONTEXT:-./runtimes/deepseek-jsonrpc/artifacts/linux-amd64}
+      args:
+        PROVIDER_BASE_IMAGE: ${DEEPSEEK_HARNESS_PROVIDER_BASE_IMAGE:-uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim}
+        DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: ${DEEPSEEK_JSONRPC_EXECUTABLE_SHA256:-}
+        DEEPSEEK_JSONRPC_RIPGREP_SHA256: ${DEEPSEEK_JSONRPC_RIPGREP_SHA256:-}
+        DEEPSEEK_RUNTIME_WHEEL_SHA256: ${DEEPSEEK_RUNTIME_WHEEL_SHA256:-}
+        DEEPSEEK_RUNTIME_SOURCE_COMMIT: ${DEEPSEEK_RUNTIME_SOURCE_COMMIT:-}
+    image: dofe-agent-runtime-deepseek-harness:local
+    env_file: ./runtimes/deepseek-harness.env
+    volumes:
+      - deepseek-harness-auth:/home/dofe-agent
+      - deepseek-harness-state:/var/lib/dofe-agent-daemon
+      - ${DEEPSEEK_HARNESS_PROVIDER_CREDENTIAL_DIR:-./credentials/deepseek-harness}:/run/dofe-agent-provider:ro
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      <<: *mcp-egress-environment
+      DSH_HOME: /home/dofe-agent/.dsh
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
+
+volumes:
+  codex-auth:
+  codex-state:
+  claude-auth:
+  claude-state:
+  openclaw-auth:
+  openclaw-state:
+  hermes-auth:
+  hermes-state:
+  deepseek-harness-auth:
+  deepseek-harness-state:
+
+networks:
+  dofe-runtime-restricted:
+    name: dofe-runtime-restricted
+    driver: bridge
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: ${MCP_EGRESS_RUNTIME_SUBNET:-172.31.240.0/24}
+    labels:
+      dofe.managed-egress: restricted

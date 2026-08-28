@@ -1,0 +1,392 @@
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  archiveWorkspaceSync,
+  createChannelParticipantSync,
+  createWorkspaceMembershipSync,
+  createWorkspaceSync,
+  getDatabase,
+  listUserWorkspacesSync,
+  upsertWorkspaceSsoBindingSync,
+} from "@dofe-agent/db";
+import type { AuthUser } from "./server-auth";
+import {
+  resolveCurrentWorkspaceContextForUserSync,
+  resolveWorkspaceAccessForIdentifierSync,
+} from "./server-workspace-resolver";
+
+const originalCwd = process.cwd();
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-server-workspace-"));
+
+beforeAll(() => {
+  writeFileSync(join(tempRoot, "Target.md"), "# test\n");
+  mkdirSync(join(tempRoot, "data"), { recursive: true });
+  process.chdir(tempRoot);
+});
+
+beforeEach(() => {
+  const db = getDatabase();
+  db.exec("DELETE FROM workspace_membership");
+  db.exec("DELETE FROM workspace_sso_binding");
+  db.exec("DELETE FROM workspace");
+  db.exec("DELETE FROM users");
+});
+
+afterAll(() => {
+  process.chdir(originalCwd);
+});
+
+describe("server workspace context", () => {
+  it("rejects users without an SSO workspace membership", () => {
+    const user: AuthUser = {
+      id: "user-1",
+      organizationName: "Northstar Labs",
+      displayName: "techwu",
+      role: "Founder",
+      email: "techwu@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+
+    expect(() => resolveCurrentWorkspaceContextForUserSync(user)).toThrow("auth.sso_no_workspace");
+  });
+
+  it("resolves an explicitly selected workspace for a channel-scoped guest", () => {
+    const user: AuthUser = {
+      id: "channel-guest-1",
+      organizationName: "",
+      displayName: "Channel Guest",
+      role: "member",
+      email: "channel-guest@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+    const workspace = createWorkspaceSync({
+      id: "sso-team-channel-guest",
+      slug: "channel-guest",
+      name: "Channel Guest Workspace",
+      createdBy: "workspace-owner",
+    });
+    const now = new Date().toISOString();
+    getDatabase().prepare(
+      `INSERT INTO workspace_channel (
+        id, workspace_id, name, kind, human_member_names_json,
+        human_member_count, employee_names_json, version, created_at, updated_at
+      ) VALUES (?, ?, ?, 'group', '[]', 0, '[]', 1, ?, ?)`,
+    ).run("channel-guest-general", workspace.id, "guest-general", now, now);
+    createChannelParticipantSync({
+      workspaceId: workspace.id,
+      channelName: "guest-general",
+      userId: user.id,
+      addedBy: "workspace-owner",
+    });
+
+    const context = resolveCurrentWorkspaceContextForUserSync(user, workspace.slug);
+
+    expect(context.accessScope).toBe("channel");
+    expect(context.channelNames).toEqual(["guest-general"]);
+    expect(context.currentMembership.role).toBe("member");
+    expect(context.memberships).toEqual([]);
+  });
+
+  it("prefers existing user memberships instead of forcing default workspace", () => {
+    const user: AuthUser = {
+      id: "user-2",
+      organizationName: "Northstar Labs",
+      displayName: "Alex",
+      role: "Member",
+      email: "alex@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+
+    const workspace = createWorkspaceSync({
+      id: "sso-team-alex",
+      slug: "sso-team-alex",
+      name: "Alex Workspace",
+      createdBy: user.id,
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: workspace.id,
+      userId: user.id,
+      role: "member",
+    });
+
+    const context = resolveCurrentWorkspaceContextForUserSync(user);
+
+    expect(context.currentWorkspace.id).toBe("sso-team-alex");
+    expect(context.currentMembership.workspaceId).toBe("sso-team-alex");
+    expect(listUserWorkspacesSync(user.id)).toHaveLength(1);
+    expect(listUserWorkspacesSync(user.id)[0]?.workspaceId).toBe("sso-team-alex");
+  });
+
+  it("uses the selected workspace when it belongs to the user", () => {
+    const user: AuthUser = {
+      id: "user-3",
+      organizationName: "Northstar Labs",
+      displayName: "Mina",
+      role: "Owner",
+      email: "mina@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+
+    createWorkspaceSync({
+      id: "sso-team-alpha",
+      slug: "sso-team-alpha",
+      name: "Alpha Workspace",
+      createdBy: user.id,
+    });
+    createWorkspaceSync({
+      id: "sso-team-beta",
+      slug: "sso-team-beta",
+      name: "Beta Workspace",
+      createdBy: user.id,
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: "sso-team-alpha",
+      userId: user.id,
+      role: "owner",
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: "sso-team-beta",
+      userId: user.id,
+      role: "admin",
+    });
+
+    const context = resolveCurrentWorkspaceContextForUserSync(user, "sso-team-beta");
+
+    expect(context.currentWorkspace.id).toBe("sso-team-beta");
+    expect(context.currentWorkspace.slug).toBe("sso-team-beta");
+    expect(context.currentMembership.workspaceId).toBe("sso-team-beta");
+    expect(context.workspaces.map((workspace) => workspace.id)).toEqual(["sso-team-beta", "sso-team-alpha"]);
+  });
+
+  it("falls back to the next recent workspace when the latest selection is unavailable", () => {
+    const user: AuthUser = {
+      id: "user-3b",
+      organizationName: "Northstar Labs",
+      displayName: "Mina",
+      role: "Owner",
+      email: "mina-2@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+
+    createWorkspaceSync({
+      id: "sso-team-alpha-2",
+      slug: "sso-team-alpha-2",
+      name: "Alpha Workspace",
+      createdBy: user.id,
+    });
+    createWorkspaceSync({
+      id: "sso-team-beta-2",
+      slug: "sso-team-beta-2",
+      name: "Beta Workspace",
+      createdBy: user.id,
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: "sso-team-alpha-2",
+      userId: user.id,
+      role: "owner",
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: "sso-team-beta-2",
+      userId: user.id,
+      role: "admin",
+    });
+
+    const context = resolveCurrentWorkspaceContextForUserSync(user, [
+      "missing-workspace",
+      "sso-team-beta-2",
+      "sso-team-alpha-2",
+    ]);
+
+    expect(context.currentWorkspace.id).toBe("sso-team-beta-2");
+    expect(context.currentWorkspace.slug).toBe("sso-team-beta-2");
+    expect(context.currentMembership.workspaceId).toBe("sso-team-beta-2");
+    expect(context.workspaces.map((workspace) => workspace.id)).toEqual([
+      "sso-team-beta-2",
+      "sso-team-alpha-2",
+    ]);
+  });
+
+  it("returns not_found when the requested workspace does not exist", () => {
+    const user: AuthUser = {
+      id: "user-4",
+      organizationName: "Northstar Labs",
+      displayName: "Mina",
+      role: "Owner",
+      email: "mina@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+    createSsoWorkspace(user.id, "sso-team-existing");
+
+    const resolution = resolveWorkspaceAccessForIdentifierSync(user, "missing-workspace");
+
+    expect(resolution.status).toBe("not_found");
+  });
+
+  it("returns forbidden when the user does not belong to the requested workspace", () => {
+    const user: AuthUser = {
+      id: "user-5",
+      organizationName: "Northstar Labs",
+      displayName: "Mina",
+      role: "Owner",
+      email: "mina@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+
+    createWorkspaceSync({
+      id: "sso-team-allowed",
+      slug: "sso-team-allowed",
+      name: "Allowed Workspace",
+      createdBy: user.id,
+    });
+    createWorkspaceSync({
+      id: "sso-team-locked",
+      slug: "sso-team-locked",
+      name: "Locked Workspace",
+      createdBy: "other-user",
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: "sso-team-allowed",
+      userId: user.id,
+      role: "owner",
+    });
+
+    const resolution = resolveWorkspaceAccessForIdentifierSync(user, "sso-team-locked");
+
+    expect(resolution.status).toBe("forbidden");
+    if (resolution.status === "forbidden") {
+      expect(resolution.workspaces.map((workspace) => workspace.id)).toEqual(["sso-team-allowed"]);
+    }
+  });
+
+  it("rejects archived workspaces even when stored member or channel access remains", () => {
+    const user: AuthUser = {
+      id: "user-archived-access",
+      organizationName: "",
+      displayName: "Archived user",
+      role: "member",
+      email: "archived@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+    const memberWorkspace = createWorkspaceSync({
+      id: "sso-team-archived-member",
+      slug: "archived-member",
+      name: "Archived Member",
+      createdBy: user.id,
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: memberWorkspace.id,
+      userId: user.id,
+      role: "member",
+    });
+    archiveWorkspaceSync(memberWorkspace.id);
+
+    const channelWorkspace = createWorkspaceSync({
+      id: "sso-team-archived-channel",
+      slug: "archived-channel",
+      name: "Archived Channel",
+      createdBy: "workspace-owner",
+    });
+    const now = new Date().toISOString();
+    getDatabase().prepare(
+      `INSERT INTO workspace_channel (
+        id, workspace_id, name, kind, human_member_names_json,
+        human_member_count, employee_names_json, version, created_at, updated_at
+      ) VALUES (?, ?, ?, 'group', '[]', 0, '[]', 1, ?, ?)`,
+    ).run("archived-channel-general", channelWorkspace.id, "general", now, now);
+    createChannelParticipantSync({
+      workspaceId: channelWorkspace.id,
+      channelName: "general",
+      userId: user.id,
+      addedBy: "workspace-owner",
+    });
+    archiveWorkspaceSync(channelWorkspace.id);
+
+    expect(resolveWorkspaceAccessForIdentifierSync(user, memberWorkspace.slug).status).toBe("forbidden");
+    expect(resolveWorkspaceAccessForIdentifierSync(user, channelWorkspace.slug).status).toBe("forbidden");
+    expect(() => resolveCurrentWorkspaceContextForUserSync(user)).toThrow("auth.sso_no_workspace");
+  });
+
+  it("grants a platform administrator access only to active SSO-bound workspaces", () => {
+    const user: AuthUser = {
+      id: "platform-admin-1",
+      organizationName: "",
+      displayName: "Operations user",
+      role: "member",
+      email: "operations@example.com",
+      isPlatformAdmin: true,
+    };
+    seedUser(user);
+    createWorkspaceSync({
+      id: "sso-team-platform-target",
+      slug: "platform-target",
+      name: "Platform Target",
+      createdBy: "workspace-owner",
+    });
+    upsertWorkspaceSsoBindingSync({
+      workspaceId: "sso-team-platform-target",
+      tenantId: "tenant-platform",
+      tenantName: "Platform",
+      teamId: "team-platform-target",
+      teamName: "Platform Target",
+      source: "team",
+    });
+    createWorkspaceSync({
+      id: "sso-team-e2e-unbound",
+      slug: "sso-team-e2e-unbound",
+      name: "E2E Workspace unbound",
+      createdBy: "workspace-owner",
+    });
+    createWorkspaceSync({
+      id: "sso-team-archived-target",
+      slug: "archived-target",
+      name: "Archived Target",
+      createdBy: "workspace-owner",
+    });
+    upsertWorkspaceSsoBindingSync({
+      workspaceId: "sso-team-archived-target",
+      tenantId: "tenant-archived",
+      tenantName: "Archived",
+      teamId: "team-archived-target",
+      teamName: "Archived Target",
+      source: "team",
+    });
+    archiveWorkspaceSync("sso-team-archived-target");
+
+    const resolution = resolveWorkspaceAccessForIdentifierSync(user, "platform-target");
+
+    expect(resolution.status).toBe("ok");
+    if (resolution.status === "ok") {
+      expect(resolution.context.currentMembership.role).toBe("admin");
+      expect(resolution.context.currentMembership.id).toContain("platform-admin-scope");
+    }
+    expect(resolveWorkspaceAccessForIdentifierSync(user, "sso-team-e2e-unbound").status).toBe("forbidden");
+    expect(resolveWorkspaceAccessForIdentifierSync(user, "archived-target").status).toBe("forbidden");
+    expect(resolveCurrentWorkspaceContextForUserSync(user).workspaces.map((item) => item.id)).toEqual([
+      "sso-team-platform-target",
+    ]);
+    expect(listUserWorkspacesSync(user.id)).toEqual([]);
+  });
+});
+
+function seedUser(user: AuthUser): void {
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO users (id, display_name, avatar_url, primary_email, created_at, updated_at, last_login_at)
+     VALUES (?, ?, NULL, ?, ?, ?, NULL)`,
+  ).run(user.id, user.displayName, user.email, now, now);
+}
+
+function createSsoWorkspace(userId: string, id: string): void {
+  createWorkspaceSync({ id, slug: id, name: id, createdBy: userId });
+  createWorkspaceMembershipSync({ workspaceId: id, userId, role: "member" });
+}

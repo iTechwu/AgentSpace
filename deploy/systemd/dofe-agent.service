@@ -1,0 +1,17 @@
+[Unit]
+Description=DofeAgent Web
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/DofeAgent
+ExecStart=/usr/local/bin/pnpm run start:web
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+User=www-data
+Environment=NODE_ENV=production
+EnvironmentFile=-/etc/dofe-agent/web.env
+
+[Install]
+WantedBy=multi-user.target

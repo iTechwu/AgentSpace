@@ -1,0 +1,46 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "types": [
+      "node"
+    ],
+    "typeRoots": [
+      "../../apps/cli/node_modules/@types"
+    ],
+    "rootDir": "./src",
+    "outDir": "./dist-types",
+    "paths": {
+      "@dofe-agent/domain": [
+        "../domain/dist-types/index.d.ts"
+      ],
+      "@dofe-agent/domain/*": [
+        "../domain/dist-types/*"
+      ],
+      "@dofe-agent/db": [
+        "../db/dist-types/index.d.ts"
+      ],
+      "@dofe-agent/db/*": [
+        "../db/dist-types/*"
+      ],
+      "@dofe-agent/services": [
+        "../services/dist-types/index.d.ts"
+      ],
+      "@dofe-agent/services/*": [
+        "../services/dist-types/*"
+      ],
+      "@dofe-agent/sandbox": [
+        "../sandbox/dist-types/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ]
+}

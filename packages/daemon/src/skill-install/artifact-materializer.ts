@@ -1,0 +1,216 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import type {
+  ClaimedSkillInstallationOperation,
+  SkillInstallationOperationFile,
+} from "@dofe-agent/domain";
+import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services/skills";
+import { resolveAttachmentRuntimeConfig, type AttachmentRuntimeConfig } from "@dofe-agent/services/runtime";
+import {
+  downloadSkillArtifactFile,
+  type SkillArtifactDownloadInput,
+} from "./secure-artifact-download.ts";
+
+export interface MaterializedSkillFile {
+  path: string;
+  sha256: string;
+  size: number;
+}
+
+export interface MaterializeResult {
+  files: MaterializedSkillFile[];
+  rootDigestMatches: boolean;
+  computedDigest: string;
+  expectedDigest: string;
+}
+
+export class SkillMaterializationError extends Error {
+  readonly code: string;
+  readonly cause?: unknown;
+
+  constructor(message: string, code: string, cause?: unknown) {
+    super(message);
+    this.name = "SkillMaterializationError";
+    this.code = code;
+    this.cause = cause;
+  }
+}
+
+export interface MaterializeOptions {
+  resolveAttachmentRuntimeConfig?: () => AttachmentRuntimeConfig;
+  download?: Omit<SkillArtifactDownloadInput, "url" | "expectedSize">;
+}
+
+/**
+ * Downloads/decodes an artifact file from the claim payload and writes it into
+ * `targetDir` while preserving the executable bit and verifying per-file sha256.
+ *
+ * Files are sourced from `downloadUrl` (remote TOS/signed URL) when present;
+ * otherwise `storedPath` is parsed for local blob access. This lets the same
+ * materializer work in production (short-lived URLs) and local tests (direct
+ * filesystem blob store).
+ */
+export async function materializeSkillInstallationArtifact(
+  operation: ClaimedSkillInstallationOperation,
+  targetDir: string,
+  options?: MaterializeOptions,
+): Promise<MaterializeResult> {
+  mkdirSync(targetDir, { recursive: true });
+
+  const manifest = parseManifestJson(operation.manifestJson);
+  const materialized: MaterializedSkillFile[] = [];
+  const errors: string[] = [];
+
+  for (const file of operation.files) {
+    try {
+      const bytes = await fetchFileBytes(file, operation.workspaceId, options);
+      const actualSha256 = sha256Hex(bytes);
+      if (actualSha256 !== file.sha256.toLowerCase()) {
+        throw new SkillMaterializationError(
+          `File "${file.path}" digest mismatch: expected ${file.sha256}, got ${actualSha256}`,
+          "skill_installation.file_digest_mismatch",
+        );
+      }
+      if (bytes.byteLength !== file.size) {
+        throw new SkillMaterializationError(
+          `File "${file.path}" size mismatch: expected ${file.size}, got ${bytes.byteLength}`,
+          "skill_installation.file_size_mismatch",
+        );
+      }
+
+      const targetPath = resolveMaterializePath(targetDir, file.path);
+      mkdirSync(dirname(targetPath), { recursive: true });
+      writeFileSync(targetPath, bytes);
+      if (file.mode === "0755") {
+        chmodSync(targetPath, 0o755);
+      }
+
+      materialized.push({ path: file.path, sha256: actualSha256, size: bytes.byteLength });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`"${file.path}": ${message}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new SkillMaterializationError(
+      `Artifact materialization failed:\n${errors.join("\n")}`,
+      "skill_installation.materialization_failed",
+    );
+  }
+
+  // The canonical root digest is computed over file digests sorted by path
+  // using the same locale-aware comparator as the build/verify paths.
+  const digestsSortedByPath = materialized
+    .slice()
+    .sort((left, right) => left.path.localeCompare(right.path, "en-US"))
+    .map((file) => file.sha256);
+  const computedDigest = computeArtifactDigest(manifest, digestsSortedByPath);
+  const rootDigestMatches = computedDigest === operation.artifactDigest;
+
+  return {
+    files: materialized,
+    rootDigestMatches,
+    computedDigest,
+    expectedDigest: operation.artifactDigest,
+  };
+}
+
+async function fetchFileBytes(
+  file: SkillInstallationOperationFile,
+  workspaceId: string,
+  options?: MaterializeOptions,
+): Promise<Uint8Array> {
+  if (file.downloadUrl) {
+    return downloadSkillArtifactFile({
+      ...options?.download,
+      url: file.downloadUrl,
+      expectedSize: file.size,
+    });
+  }
+  if (file.storedPath?.startsWith("local:///")) {
+    return readLocalBlobBytes(file.storedPath, workspaceId, options);
+  }
+  if (file.storedPath?.startsWith("tos://")) {
+    throw new SkillMaterializationError(
+      `File "${file.path}" has no downloadUrl and cannot be fetched from TOS without credentials`,
+      "skill_installation.missing_download_url",
+    );
+  }
+  throw new SkillMaterializationError(
+    `File "${file.path}" has no downloadUrl or storedPath`,
+    "skill_installation.missing_file_source",
+  );
+}
+
+function readLocalBlobBytes(
+  storedPath: string,
+  _workspaceId: string,
+  options?: MaterializeOptions,
+): Uint8Array {
+  const config = options?.resolveAttachmentRuntimeConfig
+    ? options.resolveAttachmentRuntimeConfig()
+    : resolveAttachmentRuntimeConfig();
+  if (config.provider !== "local") {
+    throw new Error("Local blob fallback requested but attachment runtime config is not local");
+  }
+  const key = storedPath.slice("local:///".length);
+  const targetPath = resolve(config.local.root, key);
+  const rel = relative(config.local.root, targetPath);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error("Local blob path escapes the configured attachment root");
+  }
+  return new Uint8Array(readFileSync(targetPath));
+}
+
+function resolveMaterializePath(targetDir: string, filePath: string): string {
+  const candidate = filePath.trim();
+  if (!candidate) {
+    throw new SkillMaterializationError("File path is required", "skill_installation.empty_file_path");
+  }
+  if (isAbsolute(candidate)) {
+    throw new SkillMaterializationError(
+      `File path must be relative: ${candidate}`,
+      "skill_installation.absolute_file_path",
+    );
+  }
+  const resolvedPath = resolve(targetDir, candidate);
+  const rel = relative(targetDir, resolvedPath);
+  if (!rel || rel === "." || (!rel.startsWith("..") && !isAbsolute(rel))) {
+    return resolvedPath;
+  }
+  throw new SkillMaterializationError(
+    `File path escapes target directory: ${candidate}`,
+    "skill_installation.path_traversal",
+  );
+}
+
+function parseManifestJson(manifestJson: string): SkillArtifactManifest {
+  try {
+    return JSON.parse(manifestJson) as SkillArtifactManifest;
+  } catch {
+    throw new SkillMaterializationError(
+      "Artifact manifest JSON is invalid",
+      "skill_installation.invalid_manifest_json",
+    );
+  }
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  const hash = createHash("sha256");
+  hash.update(bytes);
+  return hash.digest("hex");
+}
+
+export function normalizeScriptInterpreter(filePath: string, mode: string): string | null {
+  if (mode !== "0755") {
+    return null;
+  }
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith(".sh")) return "sh";
+  if (lower.endsWith(".js") || lower.endsWith(".mjs")) return "node";
+  if (lower.endsWith(".ts") || lower.endsWith(".mts")) return "node";
+  if (lower.endsWith(".py")) return "python";
+  return null;
+}

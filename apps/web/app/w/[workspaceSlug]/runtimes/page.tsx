@@ -1,0 +1,55 @@
+import type { Metadata } from "next";
+import { listManagedRuntimesForWorkspaceSync, listManagedRuntimeTasksSync, listManagedExecutionNodesSync, resolveAgentRuntimeMode } from "@dofe-agent/services/runtime";
+import { notFound } from "next/navigation";
+import { getWorkspacePageContext } from "../_lib/workspace-page-context";
+import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
+import { RuntimesPageClient } from "@/features/runtimes/runtimes-page-client";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "执行引擎管理",
+  description: "管理工作区的执行引擎与运行时环境。",
+};
+
+export default async function WorkspaceRuntimesPage({
+  params,
+}: {
+  params: Promise<{ workspaceSlug: string }>;
+}) {
+  const { workspaceSlug } = await params;
+  if (resolveAgentRuntimeMode() !== "remote") {
+    notFound();
+  }
+  const workspaceContext = await getWorkspacePageContext(workspaceSlug);
+  const isAdmin = hasWorkspaceRole(workspaceContext.currentMembership.role, "admin");
+
+  const tasks = isAdmin
+    ? listManagedRuntimeTasksSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        actorUserId: workspaceContext.currentUser.id,
+      })
+    : [];
+  const runtimes = isAdmin
+    ? listManagedRuntimesForWorkspaceSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        actorUserId: workspaceContext.currentUser.id,
+      })
+    : [];
+  const targetServers = isAdmin
+    ? listManagedExecutionNodesSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        actorUserId: workspaceContext.currentUser.id,
+      })
+    : [];
+
+  return (
+    <RuntimesPageClient
+      workspaceSlug={workspaceContext.currentWorkspace.id}
+      isAdmin={isAdmin}
+      initialTasks={tasks}
+      initialRuntimes={runtimes}
+      targetServers={targetServers}
+    />
+  );
+}

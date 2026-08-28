@@ -1,0 +1,939 @@
+import { createHash, randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath } from "@dofe-agent/db";
+import {
+  buildSkillRunnerCommandName,
+  type DaemonSkillDependencyEnvironment,
+  type DaemonSkillRunnerEntrypoint,
+  type RuntimeToolCapability,
+  type SkillEntrypointRuntime,
+} from "@dofe-agent/domain";
+import { buildSkillDependencyTaskEnvironment } from "./skill-install/task-environment.ts";
+import type { ManagedServiceEgressPolicyRuntime } from "./skill-service/egress-policy.ts";
+import {
+  createIptablesManagedServiceEgressPolicy,
+  ManagedServiceEgressPolicyError,
+  sweepPersistedEgressPolicies,
+} from "./skill-service/egress-policy.ts";
+import {
+  executeDockerSkillRunner,
+  forceRemoveDockerSkillRunnerContainer,
+  listLiveSkillRunnerEgressPolicyServiceIds,
+  minimalRunnerHostEnvironment,
+  SkillRunnerContainerCleanupError,
+  type SkillRunnerExecutionResult,
+} from "./skill-runner-docker.ts";
+import {
+  executeSkillRunnerWithEgressPolicy,
+  resolveSkillRunnerEgressPlan,
+  SkillRunnerEgressAddressBlockedError,
+  SkillRunnerEgressOriginError,
+  SkillRunnerEgressResolutionError,
+  type SkillRunnerEgressLookup,
+  type SkillRunnerEgressPlan,
+} from "./skill-runner-egress.ts";
+
+// The daemon package's public entrypoint (index.ts) re-exports this module;
+// keep the split modules reachable through the same surface.
+export * from "./skill-runner-docker.ts";
+export * from "./skill-runner-egress.ts";
+
+/**
+ * Process-wide crash-recovery sweep for persisted Skill Runner egress policy
+ * state. The first broker to bring up an egress policy runtime awaits it before
+ * serving any granted run; subsequent brokers in the same process share the
+ * already-completed sweep.
+ *
+ * The sweep is container-aware — it keeps the firewall of any still-running
+ * Runner (matched by the egress-policy label) and only revokes policies whose
+ * owner is gone — so a completed sweep is cached and shared. A sweep that
+ * ABORTS (live-owner enumeration failed → it kept everything, the safe DROP
+ * direction), that LEFT stale chains behind (a `remove` failed for some
+ * candidate → `removalFailed > 0`, its state file survives to be retried), or
+ * REJECTS is NOT cached: the cache entry is dropped so the next broker start
+ * retries once the firewall/Docker is reachable again, instead of permanently
+ * marking cleanup done and leaking stale chains for the process lifetime.
+ */
+const daemonEgressStartupSweeps = new Map<string, Promise<void>>();
+function ensureDaemonEgressStartupSweep(
+  egressPolicyStateDir: string,
+  policy: ManagedServiceEgressPolicyRuntime,
+  enumerateLivePolicyOwners: (() => Promise<Set<string>>) | undefined,
+): Promise<void> {
+  const existing = daemonEgressStartupSweeps.get(egressPolicyStateDir);
+  if (existing) {
+    return existing;
+  }
+  const cached = sweepPersistedEgressPolicies(egressPolicyStateDir, policy, { enumerateLivePolicyOwners })
+    .then((result) => {
+      if (result.enumerationFailed || result.removalFailed > 0) {
+        // Either enumeration failed (kept everything, safe) or a candidate's
+        // remove failed (its state file survives to be retried). Drop the cache
+        // so the next broker start re-runs the sweep instead of marking it done.
+        daemonEgressStartupSweeps.delete(egressPolicyStateDir);
+      }
+    })
+    .catch((error) => {
+      daemonEgressStartupSweeps.delete(egressPolicyStateDir);
+      throw error;
+    });
+  daemonEgressStartupSweeps.set(egressPolicyStateDir, cached);
+  return cached;
+}
+
+const DEFAULT_TIMEOUT_MS = 60_000;
+const MAX_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_MAX_CONCURRENT_RUNS = 2;
+const MAX_CONCURRENT_RUNS = 32;
+const MAX_REQUEST_BYTES = 64 * 1024;
+const MAX_ARGUMENTS = 64;
+const MAX_ARGUMENT_BYTES = 8 * 1024;
+const MAX_OUTPUT_FILES = 1_000;
+const MAX_OUTPUT_DEPTH = 32;
+const MAX_OUTPUT_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_OUTPUT_TOTAL_BYTES = 64 * 1024 * 1024;
+
+export interface SkillRunnerDockerPlanInput {
+  image: string;
+  containerName?: string;
+  runtime: SkillEntrypointRuntime;
+  artifactDir: string;
+  workspaceDir: string;
+  outputDir: string;
+  configFile?: string;
+  dependencyDir?: string;
+  entrypointPath: string;
+  argv: string[];
+  /**
+   * Docker network flags derived from the entrypoint's frozen egress grant.
+   * Absent → `--network none` (default, fully isolated). Otherwise the flags
+   * produced by {@link buildSkillRunnerEgressNetworkArgs} (shared egress network
+   * ± DNS poison + /etc/hosts pinning).
+   */
+  networkArgs?: string[];
+}
+
+export function buildSkillRunnerDockerArgs(input: SkillRunnerDockerPlanInput): string[] {
+  if (!/@sha256:[a-f0-9]{64}$/i.test(input.image)) {
+    throw new Error("Skill Runner image must be pinned by an immutable digest.");
+  }
+  const entrypointPath = normalizeEntrypointPath(input.entrypointPath);
+  for (const hostPath of [input.artifactDir, input.workspaceDir, input.outputDir, input.configFile, input.dependencyDir].filter(
+    (value): value is string => Boolean(value),
+  )) {
+    if (!isAbsolute(hostPath) || /[\r\n,]/.test(hostPath)) {
+      throw new Error(`Skill Runner host path is unsafe: ${hostPath}`);
+    }
+  }
+  if (input.argv.length > MAX_ARGUMENTS || input.argv.some((argument) => Buffer.byteLength(argument) > MAX_ARGUMENT_BYTES)) {
+    throw new Error("Skill Runner arguments exceed the configured budget.");
+  }
+  if (input.containerName && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(input.containerName)) {
+    throw new Error("Skill Runner container name is unsafe.");
+  }
+  return [
+    "run", "--rm", "--init", "--pull", "never",
+    ...(input.containerName ? ["--name", input.containerName] : []),
+    "--read-only",
+    ...(input.networkArgs ?? ["--network", "none"]),
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
+    "--user", "65532:65532",
+    "--pids-limit", "64",
+    "--memory", "256m",
+    "--memory-swap", "256m",
+    "--cpus", "0.5",
+    "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=32m",
+    "--mount", `type=bind,src=${input.artifactDir},dst=/skill,readonly`,
+    "--mount", `type=bind,src=${input.workspaceDir},dst=/workspace,readonly`,
+    "--mount", `type=bind,src=${input.outputDir},dst=/output`,
+    ...(input.configFile ? [
+      "--mount", `type=bind,src=${input.configFile},dst=/run/secrets/dofe-skill-config.json,readonly`,
+      "--env", "DOFE_SKILL_CONFIG_FILE=/run/secrets/dofe-skill-config.json",
+    ] : []),
+    ...(input.dependencyDir ? [
+      "--mount", `type=bind,src=${input.dependencyDir},dst=/deps,readonly`,
+      "--env", "NODE_PATH=/deps/node_modules",
+      "--env", "PYTHONPATH=/deps",
+      "--env", "PYTHONNOUSERSITE=1",
+      "--env", "PATH=/deps/node_modules/.bin:/deps/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    ] : []),
+    "--workdir", "/workspace",
+    "--env", "DOFE_SKILL_OUTPUT_DIR=/output",
+    input.image,
+    interpreterForRuntime(input.runtime),
+    `/skill/${entrypointPath}`,
+    ...input.argv,
+  ];
+}
+
+interface SkillRunnerOutputFile {
+  path: string;
+  contentBase64: string;
+  sha256: string;
+  size: number;
+  mode: number;
+}
+
+export interface SkillRunnerBroker {
+  capabilities: RuntimeToolCapability[];
+  close(): Promise<void>;
+}
+
+/** A completed entrypoint run, reported for persistent audit (P1-3). */
+export interface SkillRunnerBrokerInvocationReport {
+  entrypoint: DaemonSkillRunnerEntrypoint;
+  exitCode: number;
+  timedOut: boolean;
+  durationMs: number;
+  safeSummary?: string;
+  eventId: string;
+}
+
+export async function startSkillRunnerBroker(input: {
+  stateDir: string;
+  workspaceId: string;
+  workDir: string;
+  entrypoints: DaemonSkillRunnerEntrypoint[];
+  dependencyEnvironments?: readonly DaemonSkillDependencyEnvironment[];
+  skillEnv?: Readonly<Record<string, string>>;
+  environment?: NodeJS.ProcessEnv;
+  inspectImage?: (image: string, environment: NodeJS.ProcessEnv) => boolean;
+  execute?: (args: string[], timeoutMs: number) => Promise<SkillRunnerExecutionResult>;
+  /** Best-effort durable audit hook invoked after each entrypoint run completes. */
+  reportInvocation?: (report: SkillRunnerBrokerInvocationReport) => void | Promise<void>;
+  /** Injectable DNS resolver for egress allowlist pinning (tests avoid real DNS). */
+  lookupHost?: SkillRunnerEgressLookup;
+  /** Injectable L3/L4 egress firewall (tests); production uses iptables. */
+  egressPolicy?: ManagedServiceEgressPolicyRuntime;
+  /** Injectable live-owner enumerator for the startup sweep (tests); production shells out to docker. */
+  enumerateLiveEgressPolicyOwners?: () => Promise<Set<string>>;
+}): Promise<SkillRunnerBroker> {
+  if (input.entrypoints.length === 0) {
+    return { capabilities: [], close: async () => {} };
+  }
+  const byKey = new Map<string, DaemonSkillRunnerEntrypoint>();
+  const commandOwners = new Map<string, string>();
+  for (const entrypoint of input.entrypoints) {
+    if (byKey.has(entrypoint.key)) {
+      throw new Error(`skill_runner.duplicate_entrypoint_key: ${entrypoint.key}`);
+    }
+    const command = buildLauncherCommand(entrypoint);
+    const existingOwner = commandOwners.get(command);
+    if (existingOwner) {
+      throw new Error(`skill_runner.duplicate_launcher_command: ${existingOwner}, ${entrypoint.key}`);
+    }
+    byKey.set(entrypoint.key, entrypoint);
+    commandOwners.set(command, entrypoint.key);
+  }
+  const launcherDir = join(input.workDir, ".dofe-runtime", "skill-runner-bin");
+  rmSync(launcherDir, { recursive: true, force: true });
+  mkdirSync(launcherDir, { recursive: true, mode: 0o700 });
+  const socketPath = join(input.workDir, ".dofe-sr.sock");
+  rmSync(socketPath, { force: true });
+  const token = randomBytes(32).toString("hex");
+  const environment = input.environment ?? process.env;
+  const runnerTimeoutMs = resolveRunnerTimeout(environment);
+  const maxConcurrentRuns = resolveRunnerMaxConcurrency(environment);
+  const inspectImage = input.inspectImage ?? isSkillRunnerImageAvailableLocally;
+  const configuredImages = new Map<SkillEntrypointRuntime, string>();
+  const runnerImages = new Map<SkillEntrypointRuntime, string>();
+  for (const runtime of new Set(input.entrypoints.map((entrypoint) => entrypoint.runtime))) {
+    const image = resolveSkillRunnerImage(runtime, environment);
+    if (!image) continue;
+    configuredImages.set(runtime, image);
+    if (inspectImage(image, environment)) runnerImages.set(runtime, image);
+  }
+  const execute = input.execute ?? executeDockerSkillRunner;
+  // A granted run only goes through the L3/L4 firewall on the real docker
+  // path; an injected execute (tests) receives the plain docker plan.
+  const executeIsDefault = !input.execute;
+  const egressPolicyStateDir = join(input.stateDir, "skill-runner-egress-policies");
+  const egressPolicy = input.egressPolicy
+    ?? createIptablesManagedServiceEgressPolicy({ stateRootDir: egressPolicyStateDir });
+  const enumerateLiveEgressPolicyOwners = input.enumerateLiveEgressPolicyOwners
+    ?? (() => listLiveSkillRunnerEgressPolicyServiceIds(environment));
+  // A crashed daemon can leave per-run chains + DOCKER-USER jumps behind. Sweep
+  // persisted state before serving any granted run, but keep the firewall of any
+  // Runner whose container is still running (matched by the egress-policy label)
+  // so a restart never re-opens a live container's network. Awaits completion
+  // pre-listen.
+  await ensureDaemonEgressStartupSweep(egressPolicyStateDir, egressPolicy, enumerateLiveEgressPolicyOwners);
+  const activeContainers = new Set<string>();
+  const activeRuns = new Set<string>();
+  const brokerCleanup = new Map<string, Promise<void>>();
+  let closing = false;
+  const server = createServer((request, response) => {
+    void handleBrokerRequest(request, response, {
+      ...input,
+      token,
+      byKey,
+      runnerImages,
+      runnerTimeoutMs,
+      maxConcurrentRuns,
+      environment,
+      execute,
+      executeIsDefault,
+      egressPolicy,
+      activeContainers,
+      activeRuns,
+      brokerCleanup,
+      isClosing: () => closing,
+    });
+  });
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.listen(socketPath, () => {
+      server.off("error", rejectPromise);
+      resolvePromise();
+    });
+  });
+  chmodSync(socketPath, 0o600);
+
+  const capabilities = input.entrypoints.map((entrypoint): RuntimeToolCapability => {
+    const command = buildLauncherCommand(entrypoint);
+    const launcherPath = join(launcherDir, command);
+    writeFileSync(launcherPath, buildLauncherSource({
+      token,
+      key: entrypoint.key,
+      outputSegment: sanitizeSegment(entrypoint.key),
+    }), { encoding: "utf8", mode: 0o500 });
+    chmodSync(launcherPath, 0o500);
+    const image = runnerImages.get(entrypoint.runtime);
+    const configuredImage = configuredImages.get(entrypoint.runtime);
+    return {
+      id: `skill-runner:${entrypoint.key}`,
+      command,
+      displayName: `${entrypoint.skillName}: ${entrypoint.id}`,
+      binPath: launcherPath,
+      binDir: launcherDir,
+      allowedShellPatterns: [`${command} *`, command],
+      diagnosticCommands: image ? [`test -x ${shellQuote(launcherPath)}`] : [],
+      source: "runtime",
+      status: image ? "available" : "missing",
+      denialReason: image
+        ? undefined
+        : configuredImage
+          ? `Immutable ${entrypoint.runtime} Skill Runner image is not available locally.`
+          : `No immutable ${entrypoint.runtime} Skill Runner image is configured.`,
+    };
+  });
+  let closePromise: Promise<void> | undefined;
+  return {
+    capabilities,
+    close: () => {
+      closePromise ??= (async () => {
+        closing = true;
+        const serverClose = new Promise<void>((resolvePromise, rejectPromise) => {
+          server.close((error) => error ? rejectPromise(error) : resolvePromise());
+        });
+        if (!input.execute) {
+          for (const containerName of activeContainers) {
+            const cleanup = forceRemoveDockerSkillRunnerContainer(containerName, environment);
+            brokerCleanup.set(containerName, cleanup);
+          }
+          await Promise.all(brokerCleanup.values());
+        }
+        await serverClose;
+        rmSync(socketPath, { force: true });
+        rmSync(launcherDir, { recursive: true, force: true });
+      })();
+      return closePromise;
+    },
+  };
+}
+
+async function handleBrokerRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: {
+    stateDir: string;
+    workspaceId: string;
+    workDir: string;
+    dependencyEnvironments?: readonly DaemonSkillDependencyEnvironment[];
+    skillEnv?: Readonly<Record<string, string>>;
+    environment?: NodeJS.ProcessEnv;
+    token: string;
+    byKey: Map<string, DaemonSkillRunnerEntrypoint>;
+    runnerImages: Map<SkillEntrypointRuntime, string>;
+    runnerTimeoutMs: number;
+    maxConcurrentRuns: number;
+    execute: (args: string[], timeoutMs: number, containerName?: string, environment?: NodeJS.ProcessEnv) => Promise<SkillRunnerExecutionResult>;
+    executeIsDefault: boolean;
+    egressPolicy: ManagedServiceEgressPolicyRuntime;
+    activeContainers: Set<string>;
+    activeRuns: Set<string>;
+    brokerCleanup: Map<string, Promise<void>>;
+    isClosing: () => boolean;
+    reportInvocation?: (report: SkillRunnerBrokerInvocationReport) => void | Promise<void>;
+    lookupHost?: SkillRunnerEgressLookup;
+  },
+): Promise<void> {
+  try {
+    if (request.method !== "POST" || request.url !== "/run" || request.headers.authorization !== `Bearer ${context.token}`) {
+      sendJson(response, 403, { error: "skill_runner.unauthorized" });
+      return;
+    }
+    const payload = await readJsonBody(request) as { key?: unknown; argv?: unknown };
+    const entrypoint = typeof payload.key === "string" ? context.byKey.get(payload.key) : undefined;
+    const argv = Array.isArray(payload.argv) && payload.argv.every((value) => typeof value === "string")
+      ? payload.argv as string[]
+      : null;
+    if (!entrypoint || !argv) {
+      sendJson(response, 400, { error: "skill_runner.invalid_request" });
+      return;
+    }
+    const image = context.runnerImages.get(entrypoint.runtime);
+    if (!image) {
+      sendJson(response, 424, { error: "skill_runner.image_not_configured" });
+      return;
+    }
+    const artifactDir = getDaemonSkillInstallCachePath(context.stateDir, {
+      workspaceId: context.workspaceId,
+      artifactDigest: entrypoint.artifactDigest,
+    });
+    assertSkillRunnerCacheEntry(artifactDir, entrypoint);
+    if (context.isClosing()) {
+      sendJson(response, 503, { error: "skill_runner.broker_closing" });
+      return;
+    }
+    if (context.activeRuns.size >= context.maxConcurrentRuns) {
+      sendJson(response, 429, {
+        error: "skill_runner.concurrency_limit_exceeded",
+        message: "Skill Runner is at its task-scoped concurrency limit.",
+      });
+      return;
+    }
+    const runLease = randomBytes(16).toString("hex");
+    context.activeRuns.add(runLease);
+    try {
+      const outputDir = createPrivateRunnerOutputDir(context.stateDir, entrypoint.key);
+      let privateConfig: { dir: string; file: string } | undefined;
+      let preservePrivateState = false;
+      try {
+        const dependencyReference = context.dependencyEnvironments?.find(
+          (candidate) => candidate.installationId === entrypoint.installationId,
+        );
+        let dependencyDir: string | undefined;
+        if (dependencyReference) {
+          buildSkillDependencyTaskEnvironment({
+            stateDir: context.stateDir,
+            workspaceId: context.workspaceId,
+            environments: [dependencyReference],
+            baseEnv: {},
+          });
+          dependencyDir = getDaemonSkillInstallEnvsDirPath(context.stateDir, {
+            workspaceId: context.workspaceId,
+            installationId: entrypoint.installationId,
+          });
+        }
+        privateConfig = createPrivateRunnerConfig(context.stateDir, entrypoint, context.skillEnv ?? {});
+        let egressPlan: SkillRunnerEgressPlan | undefined;
+        if (entrypoint.egressAllowlist && entrypoint.egressAllowlist.length > 0) {
+          try {
+            egressPlan = await resolveSkillRunnerEgressPlan({
+              egressAllowlist: entrypoint.egressAllowlist,
+              environment: context.environment ?? {},
+              lookupHost: context.lookupHost,
+            });
+          } catch (error) {
+            if (error instanceof SkillRunnerEgressResolutionError) {
+              sendJson(response, 424, {
+                error: "skill_runner.egress_host_unresolved",
+                message: `Declared egress hostname did not resolve; the run was blocked: ${error.hostname}`,
+              });
+              return;
+            }
+            if (error instanceof SkillRunnerEgressOriginError) {
+              sendJson(response, 424, {
+                error: "skill_runner.egress_origin_invalid",
+                message: `Declared egress origin is invalid; the run was blocked: ${error.entry}`,
+              });
+              return;
+            }
+            if (error instanceof SkillRunnerEgressAddressBlockedError) {
+              sendJson(response, 424, {
+                error: "skill_runner.egress_address_blocked",
+                message: `Declared egress hostname resolved only to private/link-local addresses; the run was blocked: ${error.hostname}`,
+              });
+              return;
+            }
+            throw error;
+          }
+        }
+        const networkArgs = egressPlan?.networkArgs;
+        const containerName = buildSkillRunnerContainerName(entrypoint.key);
+        const args = buildSkillRunnerDockerArgs({
+          image,
+          containerName,
+          runtime: entrypoint.runtime,
+          artifactDir,
+          workspaceDir: resolve(context.workDir),
+          outputDir,
+          configFile: privateConfig?.file,
+          dependencyDir,
+          entrypointPath: entrypoint.path,
+          argv,
+          ...(networkArgs ? { networkArgs } : {}),
+        });
+        context.activeContainers.add(containerName);
+        const startedAt = Date.now();
+        let result: SkillRunnerExecutionResult;
+        try {
+          if (egressPlan && egressPlan.targets.length > 0 && context.executeIsDefault) {
+            // Granted egress runs behind the per-run L3/L4 firewall (create →
+            // inspect IP → chain → start). Policy failures fail closed (424).
+            try {
+              result = await executeSkillRunnerWithEgressPolicy({
+                runArgs: args,
+                containerName,
+                runId: runLease,
+                targets: egressPlan.targets,
+                policy: context.egressPolicy,
+                timeoutMs: context.runnerTimeoutMs,
+                environment: context.environment,
+              });
+            } catch (error) {
+              if (error instanceof ManagedServiceEgressPolicyError) {
+                sendJson(response, 424, {
+                  error: error.code.replace(/^skill_service\.egress_policy/, "skill_runner.egress_policy"),
+                  message: `Egress firewall could not be applied; the run was blocked: ${error.message}`,
+                });
+                return;
+              }
+              throw error;
+            }
+          } else {
+            result = await context.execute(args, context.runnerTimeoutMs, containerName, context.environment);
+          }
+          const cleanup = context.brokerCleanup.get(containerName);
+          if (cleanup) await cleanup;
+        } catch (error) {
+          preservePrivateState = error instanceof SkillRunnerContainerCleanupError;
+          throw error;
+        } finally {
+          context.activeContainers.delete(containerName);
+          context.brokerCleanup.delete(containerName);
+        }
+        const outputFiles = collectRunnerOutput(outputDir);
+        if (context.reportInvocation) {
+          // Persistent invocation audit (P1-3). Best-effort: the server dedups
+          // by eventId, so a lost response on retry never duplicates a record.
+          // safeSummary carries no raw output or secrets.
+          const eventId = runLease;
+          const exitCode = result.exitCode ?? 1;
+          const durationMs = Date.now() - startedAt;
+          void Promise.resolve(context.reportInvocation({
+            entrypoint,
+            exitCode,
+            timedOut: result.timedOut,
+            durationMs,
+            safeSummary: `Skill entrypoint ${entrypoint.key} exited with code ${exitCode}${result.timedOut ? " (timed out)" : ""}.`,
+            eventId,
+          })).catch(() => { /* audit delivery is best-effort */ });
+        }
+        sendJson(
+          response,
+          result.exitCode === 0 && !result.timedOut ? 200 : 422,
+          {
+            ...result,
+            // Structured markers so callers and audits can distinguish
+            // "force-stopped for timeout" and "the skill's own non-zero exit"
+            // from infrastructure errors (skill_runner.execution_failed).
+            ...(result.timedOut
+              ? {
+                error: "skill_runner.timeout_exceeded",
+                message: `Skill runner timed out after ${context.runnerTimeoutMs}ms and was force-stopped.`,
+              }
+              : result.exitCode
+                ? {
+                  error: "skill_runner.nonzero_exit",
+                  message: `Skill entrypoint exited with code ${result.exitCode}.`,
+                }
+                : {}),
+            outputFiles,
+          },
+        );
+      } finally {
+        if (!preservePrivateState) {
+          if (privateConfig) rmSync(privateConfig.dir, { recursive: true, force: true });
+          rmSync(outputDir, { recursive: true, force: true });
+        }
+      }
+    } finally {
+      context.activeRuns.delete(runLease);
+    }
+  } catch (error) {
+    sendJson(response, 500, {
+      error: "skill_runner.execution_failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function buildLauncherSource(input: { token: string; key: string; outputSegment: string }): string {
+  return `#!/usr/bin/env node
+import { createHash, randomBytes } from "node:crypto";
+import { chmodSync, existsSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { request } from "node:http";
+import { dirname, join, relative, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
+const workspaceDir = resolvePath(dirname(fileURLToPath(import.meta.url)), "../..");
+const outputDir = resolvePath(workspaceDir, "runtime-output", "skill-runs", ${JSON.stringify(input.outputSegment)});
+const ensureRealDirectory = (directory) => {
+  if (existsSync(directory)) {
+    const stats = lstatSync(directory);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("skill_runner.output_symlink_forbidden: " + relative(workspaceDir, directory));
+    return;
+  }
+  mkdirSync(directory, { mode: 0o700 });
+};
+const prepareOutputDir = () => {
+  const workspaceStats = lstatSync(workspaceDir);
+  if (!workspaceStats.isDirectory() || workspaceStats.isSymbolicLink()) throw new Error("skill_runner.output_symlink_forbidden: task workspace must be a real directory");
+  let current = workspaceDir;
+  for (const segment of ["runtime-output", "skill-runs", ${JSON.stringify(input.outputSegment)}]) {
+    current = join(current, segment);
+    ensureRealDirectory(current);
+  }
+};
+const publishOutput = (files) => {
+  if (!Array.isArray(files)) throw new Error("skill_runner.output_manifest_invalid");
+  prepareOutputDir();
+  for (const file of files) {
+    if (!file || typeof file.path !== "string" || typeof file.contentBase64 !== "string" || typeof file.sha256 !== "string" || !Number.isInteger(file.size) || !Number.isInteger(file.mode)) {
+      throw new Error("skill_runner.output_manifest_invalid");
+    }
+    const segments = file.path.split("/");
+    if (segments.some((segment) => !segment || segment === "." || segment === "..")) throw new Error("skill_runner.output_path_invalid");
+    let parent = outputDir;
+    for (const segment of segments.slice(0, -1)) {
+      parent = join(parent, segment);
+      ensureRealDirectory(parent);
+    }
+    const bytes = Buffer.from(file.contentBase64, "base64");
+    if (bytes.byteLength !== file.size || createHash("sha256").update(bytes).digest("hex") !== file.sha256) throw new Error("skill_runner.output_digest_mismatch");
+    const target = join(parent, segments.at(-1));
+    if (existsSync(target)) {
+      const stats = lstatSync(target);
+      if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("skill_runner.output_symlink_forbidden: " + file.path);
+    }
+    const temporary = join(parent, ".dofe-output-" + process.pid + "-" + randomBytes(8).toString("hex"));
+    try {
+      writeFileSync(temporary, bytes, { flag: "wx", mode: 0o600 });
+      chmodSync(temporary, file.mode & 0o777);
+      renameSync(temporary, target);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  }
+};
+const requestBody = JSON.stringify({ key: ${JSON.stringify(input.key)}, argv: process.argv.slice(2) });
+const response = await new Promise((resolve, reject) => {
+  const req = request({
+    socketPath: resolvePath(dirname(fileURLToPath(import.meta.url)), "../..", ".dofe-sr.sock"),
+    path: "/run",
+    method: "POST",
+    headers: {
+      authorization: ${JSON.stringify(`Bearer ${input.token}`)},
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(requestBody),
+    },
+  }, (res) => {
+    const chunks = [];
+    res.on("data", (chunk) => chunks.push(chunk));
+    res.on("end", () => {
+      try { resolve({ ok: (res.statusCode ?? 500) < 400, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) }); }
+      catch (error) { reject(error); }
+    });
+  });
+  req.on("error", reject);
+  req.end(requestBody);
+});
+const body = response.body;
+if (Object.prototype.hasOwnProperty.call(body, "outputFiles")) publishOutput(body.outputFiles);
+if (body.stdout) process.stdout.write(String(body.stdout));
+if (body.stderr) process.stderr.write(String(body.stderr));
+if (!response.ok) { if (body.error) process.stderr.write(String(body.error) + "\\n"); if (body.message) process.stderr.write(String(body.message) + "\\n"); process.exit(Number.isInteger(body.exitCode) && body.exitCode > 0 && body.exitCode < 256 ? body.exitCode : 1); }
+process.exit(Number.isInteger(body.exitCode) ? body.exitCode : 0);
+`;
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.byteLength;
+    if (size > MAX_REQUEST_BYTES) throw new Error("skill_runner.request_too_large");
+    chunks.push(bytes);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function sendJson(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+  response.end(JSON.stringify(body));
+}
+
+export function resolveSkillRunnerImage(runtime: SkillEntrypointRuntime, env: NodeJS.ProcessEnv): string | undefined {
+  const key = runtime === "node"
+    ? "DOFE_SKILL_RUNNER_NODE_IMAGE"
+    : runtime === "python"
+      ? "DOFE_SKILL_RUNNER_PYTHON_IMAGE"
+      : "DOFE_SKILL_RUNNER_BASH_IMAGE";
+  const value = env[key]?.trim();
+  return value && /@sha256:[a-f0-9]{64}$/i.test(value) ? value : undefined;
+}
+
+export function isSkillRunnerImageAvailableLocally(image: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const result = spawnSync(/*turbopackIgnore: true*/ env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", ["image", "inspect", image], {
+    env: minimalRunnerHostEnvironment(env),
+    encoding: "utf8",
+    timeout: 10_000,
+    stdio: "ignore",
+  });
+  return !result.error && result.status === 0;
+}
+
+const SYSTEM_PROBE_TIMEOUT_MS = 10_000;
+
+export interface SkillRunnerSystemProbeInput {
+  /** Digest-pinned Skill Runner image. */
+  image: string;
+  /** Catalog binary name to verify present on PATH inside the image. */
+  binary: string;
+}
+
+/**
+ * Plans the docker invocation that verifies a cataloged system binary exists
+ * on PATH inside an immutable Skill Runner image. The binary name is passed as
+ * a positional arg to a fixed `command -v` script — it never enters the script
+ * string, so command injection is impossible regardless of the value (which is
+ * also allow-listed below and re-resolved from the curated system-dependency
+ * catalog by the caller). The probe is hermetic: read-only, no network, no
+ * mounts, dropped capabilities.
+ */
+export function buildSkillRunnerSystemProbeDockerArgs(input: SkillRunnerSystemProbeInput): string[] {
+  if (!/@sha256:[a-f0-9]{64}$/i.test(input.image)) {
+    throw new Error("Skill Runner system probe image must be pinned by an immutable digest.");
+  }
+  if (!/^[a-zA-Z0-9_.+-]+$/.test(input.binary)) {
+    throw new Error(`Skill Runner system probe binary name is unsafe: ${input.binary}`);
+  }
+  return [
+    "run", "--rm", "--pull", "never",
+    "--read-only", "--network", "none",
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
+    "--user", "65532:65532",
+    "--pids-limit", "32",
+    "--memory", "64m",
+    "--memory-swap", "64m",
+    "--cpus", "0.25",
+    input.image,
+    "sh", "-c", 'command -v "$1" >/dev/null 2>&1 || exit 1', "sh", input.binary,
+  ];
+}
+
+/** Runs the system-binary presence probe; true only if the binary resolves in the image. */
+export function runSkillRunnerSystemProbe(
+  input: SkillRunnerSystemProbeInput,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  let args: string[];
+  try {
+    args = buildSkillRunnerSystemProbeDockerArgs(input);
+  } catch {
+    return false;
+  }
+  const result = spawnSync(/*turbopackIgnore: true*/ env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
+    env: minimalRunnerHostEnvironment(env),
+    encoding: "utf8",
+    timeout: SYSTEM_PROBE_TIMEOUT_MS,
+    stdio: "ignore",
+  });
+  return !result.error && result.status === 0;
+}
+
+function resolveRunnerTimeout(env: NodeJS.ProcessEnv): number {
+  const parsed = Number(env.DOFE_SKILL_RUNNER_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(Math.floor(parsed), MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
+}
+
+function resolveRunnerMaxConcurrency(env: NodeJS.ProcessEnv): number {
+  const parsed = Number(env.DOFE_SKILL_RUNNER_MAX_CONCURRENCY);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(Math.floor(parsed), MAX_CONCURRENT_RUNS)
+    : DEFAULT_MAX_CONCURRENT_RUNS;
+}
+
+function interpreterForRuntime(runtime: SkillEntrypointRuntime): string {
+  return runtime === "python" ? "python3" : runtime === "bash" ? "bash" : "node";
+}
+
+function normalizeEntrypointPath(value: string): string {
+  const normalized = value.replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!normalized || normalized.startsWith("/") || normalized.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+    throw new Error("Skill Runner entrypoint path must be a safe relative path.");
+  }
+  return normalized;
+}
+
+function buildLauncherCommand(entrypoint: DaemonSkillRunnerEntrypoint): string {
+  return buildSkillRunnerCommandName(entrypoint.skillName, entrypoint.skillId, entrypoint.id);
+}
+
+function sanitizeSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "entrypoint";
+}
+
+function buildSkillRunnerContainerName(entrypointKey: string): string {
+  const key = createHash("sha256").update(entrypointKey).digest("hex").slice(0, 10);
+  return `dofe-skill-run-${process.pid}-${key}-${randomBytes(8).toString("hex")}`;
+}
+
+function assertInside(root: string, path: string): void {
+  const rel = relative(resolve(root), resolve(path));
+  if (!rel || rel === ".." || rel.startsWith("../") || isAbsolute(rel)) {
+    throw new Error("Skill Runner output path escapes the task workspace.");
+  }
+}
+
+function createPrivateRunnerOutputDir(stateDir: string, entrypointKey: string): string {
+  const root = resolve(stateDir, "skill-runner-output");
+  if (existsSync(root)) {
+    const stats = lstatSync(root);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error("skill_runner.private_output_untrusted");
+    }
+  } else {
+    mkdirSync(root, { mode: 0o700 });
+  }
+  const outputDir = mkdtempSync(join(root, `${sanitizeSegment(entrypointKey)}-`));
+  chmodSync(outputDir, 0o777);
+  return outputDir;
+}
+
+function createPrivateRunnerConfig(
+  stateDir: string,
+  entrypoint: Pick<DaemonSkillRunnerEntrypoint, "key" | "configKeys">,
+  skillEnv: Readonly<Record<string, string>>,
+): { dir: string; file: string } | undefined {
+  const keys = entrypoint.configKeys ?? [];
+  if (keys.length === 0) return undefined;
+  const values: Record<string, string> = {};
+  for (const key of keys) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) {
+      throw new Error(`skill_runner.config_key_invalid: ${key}`);
+    }
+    if (!Object.prototype.hasOwnProperty.call(skillEnv, key) || typeof skillEnv[key] !== "string") {
+      throw new Error(`skill_runner.config_missing: ${key}`);
+    }
+    values[key] = skillEnv[key]!;
+  }
+  const root = resolve(stateDir, "skill-runner-config");
+  if (existsSync(root)) {
+    const stats = lstatSync(root);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error("skill_runner.private_config_untrusted");
+    }
+  } else {
+    mkdirSync(root, { mode: 0o700 });
+  }
+  const dir = mkdtempSync(join(root, `${sanitizeSegment(entrypoint.key)}-`));
+  const file = join(dir, "config.json");
+  try {
+    writeFileSync(file, JSON.stringify(values), { encoding: "utf8", mode: 0o400 });
+    chmodSync(file, 0o444);
+    return { dir, file };
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function collectRunnerOutput(sourceDir: string): SkillRunnerOutputFile[] {
+  const files: SkillRunnerOutputFile[] = [];
+  let entryCount = 0;
+  let fileCount = 0;
+  let totalBytes = 0;
+  const collectDirectory = (source: string, prefix: string, depth: number): void => {
+    if (depth > MAX_OUTPUT_DEPTH) throw new Error("skill_runner.output_budget_exceeded");
+    for (const entry of readdirSync(source, { withFileTypes: true })) {
+      entryCount += 1;
+      if (entryCount > MAX_OUTPUT_FILES) throw new Error("skill_runner.output_budget_exceeded");
+      const sourcePath = join(source, entry.name);
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) {
+        throw new Error(`skill_runner.output_symlink_forbidden: ${relativePath}`);
+      }
+      if (entry.isDirectory()) {
+        collectDirectory(sourcePath, relativePath, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) {
+        throw new Error(`skill_runner.output_file_type_forbidden: ${relativePath}`);
+      }
+      const stats = statSync(sourcePath);
+      fileCount += 1;
+      totalBytes += stats.size;
+      if (fileCount > MAX_OUTPUT_FILES || stats.size > MAX_OUTPUT_FILE_BYTES || totalBytes > MAX_OUTPUT_TOTAL_BYTES) {
+        throw new Error("skill_runner.output_budget_exceeded");
+      }
+      const bytes = readFileSync(sourcePath);
+      if (bytes.byteLength !== stats.size) throw new Error("skill_runner.output_changed_during_collection");
+      files.push({
+        path: relativePath,
+        contentBase64: bytes.toString("base64"),
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        size: bytes.byteLength,
+        mode: stats.mode & 0o777,
+      });
+    }
+  };
+  collectDirectory(sourceDir, "", 0);
+  return files;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function assertSkillRunnerCacheEntry(
+  artifactDir: string,
+  entrypoint: Pick<DaemonSkillRunnerEntrypoint, "path" | "sha256">,
+): void {
+  const rootStat = lstatSync(artifactDir);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || (rootStat.mode & 0o222) !== 0) {
+    throw new Error("skill_runner.artifact_cache_untrusted");
+  }
+  if (!existsSync(join(artifactDir, ".cache-complete"))) {
+    throw new Error("skill_runner.artifact_cache_incomplete");
+  }
+  const relativePath = normalizeEntrypointPath(entrypoint.path);
+  const filePath = resolve(artifactDir, relativePath);
+  assertInside(artifactDir, filePath);
+  const fileStat = lstatSync(filePath);
+  if (!fileStat.isFile() || fileStat.isSymbolicLink() || (fileStat.mode & 0o222) !== 0) {
+    throw new Error("skill_runner.entrypoint_untrusted");
+  }
+  const actualDigest = createHash("sha256").update(readFileSync(filePath)).digest("hex");
+  if (actualDigest !== entrypoint.sha256.toLowerCase()) {
+    throw new Error("skill_runner.entrypoint_digest_mismatch");
+  }
+}

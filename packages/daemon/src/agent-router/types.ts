@@ -1,0 +1,184 @@
+import type { RuntimeToolCapability, ToolSurfaceLaunchContext } from "@dofe-agent/domain";
+import type { ProviderHealthSnapshot } from "@dofe-agent/domain";
+
+export const AGENT_ROUTER_HARNESSES = ["claude", "codex", "antigravity", "opencode", "openclaw", "hermes", "deepseek-harness"] as const;
+
+export type AgentRouterHarness = typeof AGENT_ROUTER_HARNESSES[number];
+
+export type AgentRouterOutputFormat = "text" | "json-events";
+
+export interface AgentRouterRunRequest {
+  version: 1;
+  harness: AgentRouterHarness;
+  prompt: string;
+  cwd: string;
+  executablePath?: string;
+  model?: string;
+  mode?: string;
+  /** Explicit JSON-RPC gate. Production queue callers set it only with a verified release policy. */
+  deepSeekJsonRpcEnabled?: boolean;
+  /** Trusted operator pins used by the provider queue. Exact file bytes are verified before the runtime is spawned. */
+  deepSeekJsonRpcReleasePolicy?: {
+    executableSha256: string;
+    cordisConfigSha256: string;
+    ripgrepSha256: string;
+    spawnHelperSha256?: string;
+    provenancePath?: string;
+    sourceCommit?: string;
+    wheelSha256?: string;
+  };
+  /** Release-verification only: discard inherited process credentials before spawning the pinned carrier. */
+  deepSeekJsonRpcIsolatedEnvironment?: boolean;
+  sessionId?: string;
+  env?: Record<string, string>;
+  /** Keys in `env` that were injected from per-employee Skill configuration. Their values are always redacted from logs, even when the key name does not look like a secret. */
+  skillEnvKeys?: string[];
+  timeoutMs?: number;
+  outputFormat?: AgentRouterOutputFormat;
+  maxTurns?: number;
+  permissionMode?: string;
+  codexApprovalPolicy?: "untrusted" | "on-request" | "never";
+  codexFullAccess?: boolean;
+  allowedTools?: string[];
+  temporaryAllowedTools?: string[];
+  claudeTools?: string;
+  handleControlRequests?: boolean;
+  openClawEphemeralAgent?: boolean;
+  providerHealth?: ProviderHealthSnapshot;
+  runtimeToolCapabilities?: RuntimeToolCapability[];
+  /** Generic tool surface context. AgentRouter treats provider config as opaque. */
+  toolSurface?: ToolSurfaceLaunchContext;
+  /**
+   * Loopback MCP gateway URL (task-scoped session). When set, the provider is
+   * launched with a one-shot MCP config pointing ONLY at this URL — the
+   * Provider never receives remote endpoints or credentials.
+   */
+  /** @deprecated Use toolSurface; retained for legacy gateway rollback. */
+  mcpGatewayUrl?: string;
+  /**
+   * Codex MCP experiment switch (P1-2): only true injects the loopback gateway
+   * as `mcp_servers`. Missing or false keeps the unverified integration closed
+   * until the market eligibility gate passes E2E.
+   */
+  codexMcpInjectionEnabled?: boolean;
+  onApprovalRequest?: (request: AgentRouterApprovalRequest) => Promise<AgentRouterApprovalDecision>;
+  /** Process-local cancellation signal. This field is never serialized to a Provider. */
+  signal?: AbortSignal;
+}
+
+export interface AgentRouterRunResult {
+  status: "completed" | "failed" | "cancelled" | "timeout";
+  harness: AgentRouterHarness;
+  sessionId?: string;
+  outputText?: string;
+  events: AgentRouterEvent[];
+  diagnostics: AgentRouterDiagnostic[];
+  exitCode?: number | null;
+  signal?: string | null;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export type AgentRouterEvent =
+  | { type: "harness_detected"; harness: string; version?: string; path?: string }
+  | { type: "harness_started"; harness: string; pid?: number; command: string[] }
+  | { type: "text_delta"; text: string }
+  | { type: "thought_delta"; text: string }
+  | { type: "narration_delta"; text: string }
+  | { type: "approval_requested"; toolName: string; toolInput?: Record<string, unknown>; contentPreview: string }
+  | { type: "tool_started"; tool: string; title?: string; input?: unknown; toolUseId?: string }
+  | { type: "tool_output"; tool: string; output?: string; metadata?: unknown; toolUseId?: string }
+  | { type: "tool_finished"; tool: string; status: "completed" | "failed"; toolUseId?: string }
+  | { type: "session_updated"; sessionId: string }
+  | { type: "harness_exited"; exitCode: number | null; signal?: string | null };
+
+export interface AgentRouterDiagnostic {
+  code:
+    | "harness.cli_missing"
+    | "harness.auth_required"
+    | "harness.auth_invalid"
+    | "harness.profile_missing"
+    | "harness.model_unavailable"
+    | "harness.tool_available"
+    | "harness.tool_missing"
+    | "harness.tool_unauthorized"
+    | "harness.tool_permission_denied"
+    | "harness.empty_response"
+    | "harness.protocol_parse_failed"
+    | "harness.timeout"
+    | "harness.session_missing"
+    | "harness.exited_nonzero"
+    | "harness.unknown_failure";
+  severity: "info" | "warning" | "error";
+  message: string;
+  rawProviderMessage?: string;
+  stderrTail?: string;
+}
+
+export type { RuntimeToolCapability } from "@dofe-agent/domain";
+
+export interface AgentRouterApprovalRequest {
+  harness: AgentRouterHarness;
+  sessionId?: string;
+  toolName: string;
+  toolInput?: Record<string, unknown>;
+  contentPreview: string;
+}
+
+export interface AgentRouterApprovalDecision {
+  decision: "approved" | "rejected";
+  comment?: string;
+}
+
+export interface HarnessLaunchPlan {
+  executable: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+  metadata?: Record<string, string>;
+  stdin?: string;
+  keepStdinOpen?: boolean;
+  timeoutMs: number;
+  redactions: Array<{
+    envName?: string;
+    pattern?: string;
+    replacement: string;
+  }>;
+}
+
+export interface HarnessDetectionResult {
+  id: AgentRouterHarness;
+  label: string;
+  status: "available" | "missing";
+  path?: string;
+  version?: string;
+}
+
+export interface HarnessErrorContext {
+  request: AgentRouterRunRequest;
+  plan?: HarnessLaunchPlan;
+  stderrTail?: string;
+  stdoutTail?: string;
+  exitCode?: number | null;
+  signal?: string | null;
+  timedOut?: boolean;
+}
+
+export interface AgentRouterObserver {
+  emit(event: AgentRouterEvent): void;
+}
+
+export interface HarnessAdapter {
+  id: AgentRouterHarness;
+  label: string;
+  detect(): Promise<HarnessDetectionResult>;
+  buildLaunch(input: AgentRouterRunRequest): Promise<HarnessLaunchPlan>;
+  run(plan: HarnessLaunchPlan, observer: AgentRouterObserver, request: AgentRouterRunRequest): Promise<AgentRouterRunResult>;
+  disposeLaunch?(plan: HarnessLaunchPlan): void | Promise<void>;
+  normalizeError(error: unknown, context: HarnessErrorContext): AgentRouterDiagnostic;
+}
+
+export interface HarnessCatalogEntry {
+  id: AgentRouterHarness;
+  label: string;
+}

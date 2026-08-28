@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "drill": "D-10",
+  "runId": "1785715496648-4ff3fc",
+  "status": "passed",
+  "checkedAt": "2026-08-03T00:05:04.645Z",
+  "postgres": {
+    "method": "pg_dump_custom_archive_restore",
+    "sourceDatabase": "agent_space_test",
+    "scratchDatabase": "dofe_ead_drill_1785715496648_4ff3fc",
+    "container": "dofe-postgres",
+    "restorePointAt": "2026-08-03T08:04:56.880034+08:00",
+    "sourceWalLsn": "6/7B653A0",
+    "dumpSizeBytes": 464779,
+    "archiveEntries": 716,
+    "sourceCounts": {
+      "workspace": 2,
+      "employee": 1,
+      "task": 2,
+      "revision": 1,
+      "artifact": 1,
+      "contentBlob": 2,
+      "skillArtifact": 0,
+      "legalHold": 0,
+      "auditLog": 0,
+      "schemaVersion": ""
+    },
+    "restoredCounts": {
+      "workspace": 2,
+      "employee": 1,
+      "task": 2,
+      "revision": 1,
+      "artifact": 1,
+      "contentBlob": 2,
+      "skillArtifact": 0,
+      "legalHold": 0,
+      "auditLog": 0,
+      "schemaVersion": ""
+    },
+    "sourceCountsDigest": "d77644a2306160ce12ca51fd206dff4922cfaa51496cac1e28a099ad1df526d9",
+    "restoredCountsDigest": "d77644a2306160ce12ca51fd206dff4922cfaa51496cac1e28a099ad1df526d9",
+    "durationMs": 4019,
+    "pitrValidated": false,
+    "scratchDatabaseRemoved": true
+  },
+  "tos": {
+    "method": "scratch_prefix_backup_delete_restore",
+    "sourceKey": "workspaces/ead-d10-drill-1785715496648-4ff3fc/attachments/2026/08/ead-d10-source-1785715496648-4ff3fc/physical-restore.bin",
+    "backupKey": "workspaces/ead-d10-drill-1785715496648-4ff3fc/attachments/2026/08/ead-d10-backup-1785715496648-4ff3fc/physical-restore.bin",
+    "bucket": "dofe-system",
+    "endpoint": "https://tos-cn-beijing.volces.com",
+    "sha256": "58f07e0abb33cc8e4f72bea8632b12bf8bab03a5231972c0ffe246045bfbba96",
+    "sizeBytes": 47,
+    "sourceDeletionObserved": true,
+    "restoredDigestVerified": true,
+    "scratchObjectsRemoved": true,
+    "versioningValidated": false
+  },
+  "assertions": {
+    "postgresArchiveNonEmpty": true,
+    "postgresRestoredCountsMatch": true,
+    "postgresScratchRemoved": true,
+    "tosSourceDeletionObserved": true,
+    "tosRestoredDigestVerified": true,
+    "tosScratchObjectsRemoved": true
+  },
+  "limitations": [
+    "PostgreSQL PITR/WAL replay was not exercised; this drill uses a consistent custom-format pg_dump restored into an isolated scratch database.",
+    "TOS bucket versioning and provider-side undelete were not exercised; this drill restores a deleted source object from a task-owned backup prefix."
+  ]
+}

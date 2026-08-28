@@ -1,0 +1,132 @@
+{
+  "name": "@dofe-agent/services",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "sh -c 'node --experimental-strip-types scripts/verify-test-coverage.mjs && for file in src/runtime-maintenance/*.test.ts src/observability/*.test.ts src/skills/*.test.ts src/skills/package/*.test.ts src/mcp-center/*.test.ts src/skill-services/*.test.ts src/openmontage/*.test.ts src/workflows/*.test.ts src/permissions/*.test.ts src/document-permissions/*.test.ts src/documents/*.test.ts src/employees/*.test.ts src/knowledge/*.test.ts src/attachments/storage.test.ts src/attachments/tos-signer.test.ts src/messages/messages.test.ts src/conversations/conversations.test.ts src/notifications/notifications.test.ts src/channel-access/channel-access.test.ts src/shared/audit.test.ts src/prisma-read-cutovers.test.ts src/prisma-write-cutovers.test.ts src/integrations/providers/feishu/__tests__/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
+    "test:tos": "node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/attachments/storage-tos.integration.test.ts",
+    "types": "tsc -p tsconfig.types.json --incremental false"
+  },
+  "dependencies": {
+    "@dofe-agent/db": "workspace:*",
+    "@dofe-agent/domain": "workspace:*",
+    "@dofe/models-sdk": "^0.5.7",
+    "@larksuiteoapi/node-sdk": "^1.73.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "cron-parser": "^5.8.1",
+    "fflate": "^0.8.2",
+    "mammoth": "^1.8.0",
+    "pdf-parse": "^2.4.5",
+    "pptx2json": "^0.0.10",
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz",
+    "yaml": "^2.7.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./storage/storage-scan": {
+      "types": "./dist-types/storage/storage-scan.d.ts",
+      "default": "./src/storage/storage-scan.ts"
+    },
+    "./storage/workspace-purge": {
+      "types": "./dist-types/storage/workspace-purge.d.ts",
+      "default": "./src/storage/workspace-purge.ts"
+    },
+    "./mcp-center/egress": {
+      "types": "./dist-types/mcp-center/egress.d.ts",
+      "default": "./src/mcp-center/egress.ts"
+    },
+    "./mcp-center/security": {
+      "types": "./dist-types/mcp-center/security.d.ts",
+      "default": "./src/mcp-center/security.ts"
+    },
+    "./workflows": {
+      "types": "./dist-types/workflows/index.d.ts",
+      "default": "./src/workflows/index.ts"
+    },
+    "./skills": {
+      "types": "./dist-types/skills/index.d.ts",
+      "default": "./src/skills/index.ts"
+    },
+    "./employees": {
+      "types": "./dist-types/employees/index.d.ts",
+      "default": "./src/employees/index.ts"
+    },
+    "./workspace": {
+      "types": "./dist-types/workspace/index.d.ts",
+      "default": "./src/workspace/index.ts"
+    },
+    "./mcp-center": {
+      "types": "./dist-types/mcp-center/index.d.ts",
+      "default": "./src/mcp-center/index.ts"
+    },
+    "./models": {
+      "types": "./dist-types/models/index.d.ts",
+      "default": "./src/models/index.ts"
+    },
+    "./runtime": {
+      "types": "./dist-types/runtime/index.d.ts",
+      "default": "./src/runtime/index.ts"
+    },
+    "./integrations": {
+      "types": "./dist-types/integrations/index.d.ts",
+      "default": "./src/integrations/index.ts"
+    },
+    "./openmontage": {
+      "types": "./dist-types/openmontage/index.d.ts",
+      "default": "./src/openmontage/index.ts"
+    },
+    "./capabilities": {
+      "types": "./dist-types/capabilities/index.d.ts",
+      "default": "./src/capabilities/index.ts"
+    },
+    "./channels": {
+      "types": "./dist-types/channels/index.d.ts",
+      "default": "./src/channels/index.ts"
+    },
+    "./messaging": {
+      "types": "./dist-types/messaging/index.d.ts",
+      "default": "./src/messaging/index.ts"
+    },
+    "./tasks": {
+      "types": "./dist-types/tasks/index.d.ts",
+      "default": "./src/tasks/index.ts"
+    },
+    "./collaboration": {
+      "types": "./dist-types/collaboration/index.d.ts",
+      "default": "./src/collaboration/index.ts"
+    },
+    "./knowledge": {
+      "types": "./dist-types/knowledge/index.d.ts",
+      "default": "./src/knowledge/index.ts"
+    },
+    "./documents": {
+      "types": "./dist-types/documents/index.d.ts",
+      "default": "./src/documents/index.ts"
+    },
+    "./content": {
+      "types": "./dist-types/content/index.d.ts",
+      "default": "./src/content/index.ts"
+    },
+    "./finance": {
+      "types": "./dist-types/finance/index.d.ts",
+      "default": "./src/finance/index.ts"
+    },
+    "./operations": {
+      "types": "./dist-types/operations/index.d.ts",
+      "default": "./src/operations/index.ts"
+    },
+    "./conversations": {
+      "types": "./dist-types/conversations/index.d.ts",
+      "default": "./src/conversations/index.ts"
+    }
+  },
+  "engines": {
+    "node": "^25.9.0"
+  }
+}

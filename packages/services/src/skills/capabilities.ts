@@ -1,0 +1,298 @@
+import { getDatabase } from "@dofe-agent/db";
+import { listReadyMcpConnectionsForTaskSync } from "../mcp-center/readiness.ts";
+import {
+  listSkillServiceBindingsSync,
+  listSkillServiceCatalogSync,
+  readManagedSkillServiceSync,
+  readSkillArtifactByDigestSync,
+  readSkillInstallationSync,
+  readSkillInstallationComponentsSync,
+  updateSkillInstallationComponentStatusSync,
+} from "@dofe-agent/db";
+import { sameValue } from "../shared/helpers.ts";
+import {
+  isMcpCatalogReleaseLockMap,
+  resolveLegacyMcpReleasePins,
+  type McpCatalogReleaseLock,
+} from "./mcp-release-lock.ts";
+import { readApprovedSkillInstallDecisionSync } from "./install-approval.ts";
+
+/**
+ * Skill → capability resolution (Phase 3).
+ *
+ * A skill's `capabilities` only DECLARE what the skill needs; they resolve to
+ * ready, platform-managed capabilities on the SAME runtime:
+ *   - `mcp:<catalogSlug>`   → a ready MCP connection whose approved∩discovered
+ *     tools cover the declared requiredTools (MCP Center is authoritative).
+ *   - `cli:<catalogSlug>`    → an installed + enabled runtime app.
+ *
+ * A capability component is `ready` ONLY when the underlying platform
+ * capability is ready. Nothing is satisfied by a config string or an env var.
+ */
+
+export interface SkillCapabilityResolution {
+  ready: boolean;
+  /** Resolved MCP connection id (when a matching ready connection exists). */
+  connectionId?: string;
+  matchedTools: string[];
+  missingTools: string[];
+  reason: string;
+}
+
+export function resolveSkillMcpCapabilitySync(input: {
+  workspaceId: string;
+  runtimeId: string;
+  catalogSlug: string;
+  expectedCatalogItemId?: string;
+  expectedCatalogVersion?: string;
+  requiredTools?: string[];
+}): SkillCapabilityResolution {
+  const readyConnections = listReadyMcpConnectionsForTaskSync({
+    workspaceId: input.workspaceId,
+    runtimeId: input.runtimeId,
+  });
+  const candidates = readyConnections.filter((connection) => {
+    if (!sameValue(connection.catalogItemSlug, input.catalogSlug)) return false;
+    if (input.expectedCatalogItemId && connection.catalogItemId !== input.expectedCatalogItemId) return false;
+    if (input.expectedCatalogVersion && connection.catalogItemVersion !== input.expectedCatalogVersion) return false;
+    return true;
+  });
+  if (candidates.length === 0) {
+    return {
+      ready: false,
+      matchedTools: [],
+      missingTools: input.requiredTools ?? [],
+      reason: input.expectedCatalogVersion
+        ? `No ready MCP connection matches catalog release "${input.catalogSlug}@${input.expectedCatalogVersion}" on this runtime.`
+        : `No ready MCP connection matches catalog slug "${input.catalogSlug}" on this runtime.`,
+    };
+  }
+
+  // Prefer the ready connection exposing the most tools.
+  const candidate = [...candidates].sort((left, right) => right.tools.length - left.tools.length)[0]!;
+  const available = new Set(candidate.tools.map((tool) => tool.name));
+  const requiredTools = input.requiredTools ?? [];
+  const missingTools = requiredTools.filter((tool) => !available.has(tool));
+  const matchedTools = requiredTools.filter((tool) => available.has(tool));
+
+  if (missingTools.length > 0) {
+    return {
+      ready: false,
+      matchedTools,
+      missingTools,
+      reason: `Ready MCP connection "${candidate.connectionId}" (${input.catalogSlug}) is missing required tools: ${missingTools.join(", ")}.`,
+    };
+  }
+  return {
+    ready: true,
+    connectionId: candidate.connectionId,
+    matchedTools: candidate.tools.map((tool) => tool.name),
+    missingTools: [],
+    reason: "",
+  };
+}
+
+export function resolveSkillCliCapabilitySync(input: {
+  workspaceId: string;
+  runtimeId: string;
+  catalogSlug: string;
+}): { ready: boolean; appId?: string; reason: string } {
+  const row = getDatabase().prepare(
+    `SELECT id, enabled, status FROM runtime_installed_app
+     WHERE workspace_id = ? AND runtime_id = ? AND name = ? LIMIT 1`,
+  ).get(input.workspaceId, input.runtimeId, input.catalogSlug) as
+    | { id: string; enabled: number; status: string }
+    | undefined;
+  if (!row) {
+    return { ready: false, reason: `No installed app matches catalog slug "${input.catalogSlug}" on this runtime.` };
+  }
+  if (row.enabled !== 1) {
+    return { ready: false, appId: row.id, reason: `App "${input.catalogSlug}" is installed but disabled.` };
+  }
+  if (row.status !== "installed" && row.status !== "ready") {
+    return { ready: false, appId: row.id, reason: `App "${input.catalogSlug}" is not ready (status "${row.status}").` };
+  }
+  return { ready: true, appId: row.id, reason: "" };
+}
+
+/**
+ * Control-plane service component resolution: `service:<slug>` is ready only
+ * when the installation has a binding to a managed service whose catalog slug
+ * matches AND the managed service instance is `ready`. Any other state
+ * (no binding, retired/degraded service) blocks the component, fail-closed.
+ */
+export function resolveSkillServiceComponentStatusSync(
+  componentKey: string,
+  installationId: string,
+  workspaceId: string,
+): { status: "ready" | "blocked" } {
+  const slug = componentKey.startsWith("service:") ? componentKey.slice("service:".length) : componentKey;
+  // Match by the BOUND service's own catalog slug, not a slug→id map: a slug
+  // can have several catalog versions (green v1 + blue v2 during a canary), and
+  // the binding points at exactly one instance — that one decides readiness.
+  const catalogSlugById = new Map(
+    listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.id, catalog.slug]),
+  );
+  const bindings = listSkillServiceBindingsSync(installationId);
+  for (const binding of bindings) {
+    const managed = readManagedSkillServiceSync(binding.serviceId, workspaceId);
+    if (!managed || managed.status !== "ready") {
+      continue;
+    }
+    if (catalogSlugById.get(managed.catalogId) === slug) {
+      return { status: "ready" };
+    }
+  }
+  return { status: "blocked" };
+}
+
+/**
+ * Re-resolves every mcp/cli/service component of an installation against ready
+ * platform capabilities and updates its status. Called by the readiness gate
+ * (and service provision/retire completion) so `ready` can never be reached
+ * while a declared capability is unresolved — and a retired service re-blocks
+ * its dependent installation.
+ */
+export function evaluateSkillInstallationCapabilitiesSync(input: {
+  installationId: string;
+  workspaceId: string;
+  runtimeId: string;
+  artifactDigest: string;
+}): void {
+  const components = readSkillInstallationComponentsSync(input.installationId);
+  const installation = readSkillInstallationSync(input.installationId, input.workspaceId);
+  const mcpReleaseLocks = readMcpReleaseLocks(installation?.resolvedLockJson, input.workspaceId);
+  const artifact = readSkillArtifactByDigestSync(input.artifactDigest, input.workspaceId);
+  let manifestCapabilities: Array<{ kind?: string; catalogSlug?: string; requiredTools?: string[] }> = [];
+  if (artifact) {
+    try {
+      const parsed = JSON.parse(artifact.manifestJson) as { capabilities?: typeof manifestCapabilities };
+      manifestCapabilities = parsed.capabilities ?? [];
+    } catch {
+      manifestCapabilities = [];
+    }
+  }
+
+  for (const component of components) {
+    if (component.kind === "mcp") {
+      const slug = component.key.replace(/^mcp:/, "");
+      const expectedRelease = mcpReleaseLocks?.[slug];
+      if (!expectedRelease) {
+        updateSkillInstallationComponentStatusSync({
+          installationId: input.installationId,
+          kind: "mcp",
+          key: component.key,
+          status: "blocked",
+          errorCode: "capability.release_lock_unresolved",
+          errorMessage: `MCP capability "${slug}" has no uniquely reconstructable catalog release lock.`,
+        });
+        continue;
+      }
+      const declaration = manifestCapabilities.find(
+        (capability) => capability.kind === "mcp" && sameValue(capability.catalogSlug ?? "", slug),
+      );
+      const resolution = resolveSkillMcpCapabilitySync({
+        workspaceId: input.workspaceId,
+        runtimeId: input.runtimeId,
+        catalogSlug: slug,
+        expectedCatalogItemId: expectedRelease.catalogItemId,
+        expectedCatalogVersion: expectedRelease.version,
+        requiredTools: declaration?.requiredTools,
+      });
+      updateSkillInstallationComponentStatusSync({
+        installationId: input.installationId,
+        kind: "mcp",
+        key: component.key,
+        status: resolution.ready ? "ready" : "blocked",
+        errorCode: resolution.ready ? undefined : "capability.unresolved",
+        errorMessage: resolution.ready ? undefined : resolution.reason,
+        verifiedAt: resolution.ready ? new Date().toISOString() : undefined,
+      });
+    } else if (component.kind === "cli") {
+      const slug = component.key.replace(/^cli:/, "");
+      const resolution = resolveSkillCliCapabilitySync({
+        workspaceId: input.workspaceId,
+        runtimeId: input.runtimeId,
+        catalogSlug: slug,
+      });
+      updateSkillInstallationComponentStatusSync({
+        installationId: input.installationId,
+        kind: "cli",
+        key: component.key,
+        status: resolution.ready ? "ready" : "blocked",
+        errorCode: resolution.ready ? undefined : "capability.unresolved",
+        errorMessage: resolution.ready ? undefined : resolution.reason,
+        verifiedAt: resolution.ready ? new Date().toISOString() : undefined,
+      });
+    } else if (component.kind === "service") {
+      const resolved = resolveSkillServiceComponentStatusSync(component.key, input.installationId, input.workspaceId);
+      updateSkillInstallationComponentStatusSync({
+        installationId: input.installationId,
+        kind: "service",
+        key: component.key,
+        status: resolved.status,
+        errorCode: resolved.status === "ready" ? undefined : "skill_installation.service_not_ready",
+        errorMessage: resolved.status === "ready"
+          ? undefined
+          : "Service is not ready on this runtime (binding missing or not healthy).",
+        verifiedAt: resolved.status === "ready" ? new Date().toISOString() : undefined,
+      });
+    } else if (component.kind === "egress") {
+      // Declared runtime egress is control-plane-gated: ready only when an
+      // approved first-install risk decision (which covers the egress hostnames)
+      // is re-verified against this installation's release lock. Fail-closed when
+      // the lock or the approval is absent → the Runner stays `--network none`.
+      const releaseLockDigest = readReleaseLockDigestFromJson(installation?.resolvedLockJson);
+      const approval = releaseLockDigest
+        ? readApprovedSkillInstallDecisionSync({
+          workspaceId: input.workspaceId,
+          artifactDigest: input.artifactDigest,
+          releaseLockDigest,
+        })
+        : null;
+      const approved = approval !== null;
+      updateSkillInstallationComponentStatusSync({
+        installationId: input.installationId,
+        kind: "egress",
+        key: component.key,
+        status: approved ? "ready" : "blocked",
+        errorCode: approved ? undefined : "skill_installation.egress_not_approved",
+        errorMessage: approved
+          ? undefined
+          : "该 Skill 声明的出站网络（egress）尚未获批；请由管理员完成首次安装风险审批。",
+        verifiedAt: approved ? new Date().toISOString() : undefined,
+      });
+    }
+  }
+}
+
+function readMcpReleaseLocks(
+  resolvedLockJson: string | undefined,
+  workspaceId: string,
+): Record<string, McpCatalogReleaseLock> | null {
+  if (!resolvedLockJson) return null;
+  try {
+    const parsed = JSON.parse(resolvedLockJson) as {
+      mcpCatalogReleases?: unknown;
+      mcpToolFingerprints?: Record<string, string>;
+    };
+    if (isMcpCatalogReleaseLockMap(parsed.mcpCatalogReleases)) return parsed.mcpCatalogReleases;
+    return resolveLegacyMcpReleasePins(parsed.mcpToolFingerprints, workspaceId);
+  } catch {
+    return null;
+  }
+}
+
+/** Extracts the bound `lockDigest` from an installation's resolved lock JSON. */
+function readReleaseLockDigestFromJson(resolvedLockJson: string | undefined): string | undefined {
+  if (!resolvedLockJson) return undefined;
+  try {
+    const parsed = JSON.parse(resolvedLockJson) as { lockDigest?: unknown };
+    if (typeof parsed.lockDigest === "string" && parsed.lockDigest.length > 0) {
+      return parsed.lockDigest;
+    }
+  } catch {
+    // Absent/malformed lock → no digest (egress fails closed).
+  }
+  return undefined;
+}

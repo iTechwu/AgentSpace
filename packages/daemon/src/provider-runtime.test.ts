@@ -1,0 +1,3540 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
+import test from "node:test";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
+import {
+  buildProviderRuntimeMetadata,
+  detectProviders,
+  readProviderTaskFailureMetadata,
+  resolveModelId,
+  runProviderTask,
+  type ProviderRuntimeRecord,
+} from "./provider-runtime.ts";
+import { inspectOpenClawDaemonAuthHealth, normalizeOpenClawProviderError } from "./openclaw-health.ts";
+
+test("detectProviders includes expanded providers when their CLIs are on PATH", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
+  const originalPath = process.env.PATH;
+
+  try {
+    for (const command of ["opencode", "openclaw", "nanobot"]) {
+      const filePath = join(binDir, command);
+      writeFileSync(filePath, "#!/bin/sh\necho 0.1.0\n", "utf8");
+      chmodSync(filePath, 0o755);
+    }
+    const antigravityPath = join(binDir, "agy");
+    writeFileSync(antigravityPath, "#!/bin/sh\necho agy 0.9.0\n", "utf8");
+    chmodSync(antigravityPath, 0o755);
+    const hermesPath = join(binDir, "hermes-agent");
+    writeFileSync(
+      hermesPath,
+      "#!/bin/sh\nif [ \"$1\" = 'version' ]; then echo hermes 0.2.0; fi\n",
+      "utf8",
+    );
+    chmodSync(hermesPath, 0o755);
+    const dshPath = join(binDir, "dsh");
+    writeFileSync(dshPath, "#!/bin/sh\necho dsh 0.1.1-rc.2\n", "utf8");
+    chmodSync(dshPath, 0o755);
+
+    process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
+
+    const detected = detectProviders();
+    const antigravity = detected.find((provider) => provider.provider === "antigravity");
+    assert.equal(Boolean(antigravity), true);
+    assert.equal(antigravity?.version, "agy 0.9.0");
+    assert.equal(detected.some((provider) => provider.provider === "opencode"), true);
+    assert.equal(detected.some((provider) => provider.provider === "openclaw"), true);
+    assert.equal(detected.some((provider) => provider.provider === "nanobot"), true);
+    const hermes = detected.find((provider) => provider.provider === "hermes");
+    assert.equal(Boolean(hermes), true);
+    assert.equal(hermes?.version, "hermes 0.2.0");
+    const deepSeekHarness = detected.find((provider) => provider.provider === "deepseek-harness");
+    assert.equal(deepSeekHarness?.version, "dsh 0.1.1-rc.2");
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask routes DeepSeek Harness through AgentRouter with the selected native model", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-harness-provider-"));
+  const binPath = join(workDir, "dsh");
+  const argsPath = join(workDir, "dsh-args.txt");
+  const patchCopyPath = join(workDir, "dsh-patch-copy.yml");
+  const events: Array<{ type: string; content?: string }> = [];
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$DSH_ARGS_PATH\"",
+      "cat \"$4\" > \"$DSH_PATCH_COPY_PATH\"",
+      "printf '%s\\n' 'deepseek provider output'",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-deepseek-harness-test",
+    workspaceId: "default",
+    provider: "deepseek-harness",
+    name: "DeepSeek Harness",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "write a short reply", workDir, {
+      modelId: "deepseek-v4-pro",
+      contextEnv: { DSH_ARGS_PATH: argsPath, DSH_PATCH_COPY_PATH: patchCopyPath },
+      taskTimeoutMs: 5_000,
+      onEvent: (event) => events.push(event),
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "deepseek provider output");
+    assert.deepEqual(args.slice(0, 3), ["--profile", "headless", "--patch"]);
+    assert.equal(args.at(-1), "write a short reply");
+    assert.match(readFileSync(patchCopyPath, "utf8"), /model: deepseek-v4-pro/);
+    assert.equal(existsSync(args[3]!), false);
+    assert.ok(events.some((event) => event.type === "status" && event.content?.includes("DeepSeek Harness")));
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask admits pinned standalone and attested managed DeepSeek JSON-RPC runtimes", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-release-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const runtimeEnvPath = join(workDir, "runtime-env.json");
+  const provenancePath = join(workDir, "provenance.json");
+  const wheelSha256 = "1".repeat(64);
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(
+    releaseKeys.map((key) => [key, process.env[key]]),
+  );
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-deepseek-jsonrpc-release",
+    workspaceId: "default",
+    provider: "deepseek-harness",
+    name: "DeepSeek Harness JSON-RPC",
+    status: "online",
+    metadata: { executablePath: runtimePath, mode: "remote" },
+  };
+
+  try {
+    writeApprovedDeepSeekCordisConfig(configPath);
+    writeFileSync(
+      runtimePath,
+      [
+        `#!${process.execPath}`,
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        "fs.writeFileSync(process.env.RUNTIME_ENV_PATH, JSON.stringify({ operatorKeys: Object.keys(process.env).filter((key) => key.startsWith('DOFE_AGENT_DEEPSEEK_JSONRPC_')), config: process.env.DSH_CORDIS_CONFIG, ldPreload: process.env.LD_PRELOAD ?? null, nodeOptions: process.env.NODE_OPTIONS ?? null, pythonPath: process.env.PYTHONPATH ?? null, bashEnv: process.env.BASH_ENV ?? null, path: process.env.PATH }));",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (message) => process.stdout.write(`${JSON.stringify(message)}\\n`);",
+        "const sendEvent = (sessionId, event) => send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event } });",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') { send({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' }, protocolVersion: '2.0' } }); return; }",
+        "  if (message.method === 'session/prompt') {",
+        "    const sessionId = message.params.sessionId;",
+        "    send({ jsonrpc: '2.0', id: message.id, result: { messageId: 'message-1' } });",
+        "    sendEvent(sessionId, { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { inserted: [{ id: 'message-1' }] } });",
+        "    sendEvent(sessionId, { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } });",
+        "    sendEvent(sessionId, { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } });",
+        "    sendEvent(sessionId, { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'queue jsonrpc output' }] } } });",
+        "    sendEvent(sessionId, { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } });",
+        "    sendEvent(sessionId, { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'shutdown') { send({ jsonrpc: '2.0', id: message.id, result: {} }); rl.close(); }",
+        "});",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(runtimePath, 0o755);
+    configureDeepSeekRuntimeSidecarPins(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = runtimePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+
+    const result = await runProviderTask(runtime, "run through queue", workDir, {
+      modelId: "deepseek-v4-flash",
+      contextEnv: {
+        RUNTIME_ENV_PATH: runtimeEnvPath,
+        DSH_CORDIS_CONFIG: join(workDir, "task-controlled-cordis.yml"),
+        LD_PRELOAD: join(workDir, "task-controlled.so"),
+        NODE_OPTIONS: `--require=${join(workDir, "task-controlled.cjs")}`,
+        PYTHONPATH: join(workDir, "task-controlled-python"),
+        BASH_ENV: join(workDir, "task-controlled-bash-env"),
+        PATH: join(workDir, "task-controlled-bin"),
+      },
+      taskTimeoutMs: 5_000,
+    });
+
+    assert.equal(result.output, "queue jsonrpc output");
+    assert.equal(result.sessionId, undefined);
+    const runtimeEnvironment = JSON.parse(readFileSync(runtimeEnvPath, "utf8")) as Record<string, unknown>;
+    assert.deepEqual({ ...runtimeEnvironment, path: undefined }, {
+      operatorKeys: [],
+      config: realpathSync(configPath),
+      ldPreload: null,
+      nodeOptions: null,
+      pythonPath: null,
+      bashEnv: null,
+      path: undefined,
+    });
+    assert.equal(String(runtimeEnvironment.path).includes("task-controlled-bin"), false);
+
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE = "1";
+    writeDeepSeekRuntimeProvenance(provenancePath, runtimePath, wheelSha256);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = provenancePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256 = wheelSha256;
+    const managedResult = await runProviderTask({
+      ...runtime,
+      id: "runtime-deepseek-jsonrpc-managed-release",
+      metadata: {
+        ...runtime.metadata,
+        managedCredentialId: "credential-deepseek-jsonrpc-managed-release",
+        provisioningState: "managed",
+      },
+    }, "run through managed queue", workDir, {
+      modelId: "deepseek-v4-flash",
+      contextEnv: { RUNTIME_ENV_PATH: runtimeEnvPath },
+      taskTimeoutMs: 5_000,
+    });
+    assert.equal(managedResult.output, "queue jsonrpc output");
+    assert.equal(managedResult.sessionId, undefined);
+  } finally {
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask rejects managed DeepSeek JSON-RPC launchers before spawn", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-managed-gate-"));
+  const runtimePath = join(workDir, "run-provider");
+  const configPath = join(workDir, "cordis.yml");
+  const startedPath = join(workDir, "started.txt");
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(
+    releaseKeys.map((key) => [key, process.env[key]]),
+  );
+
+  try {
+    writeApprovedDeepSeekCordisConfig(configPath);
+    writeFileSync(runtimePath, `#!/bin/sh\nprintf '%s' started > '${startedPath}'\n`, "utf8");
+    chmodSync(runtimePath, 0o755);
+    configureDeepSeekRuntimeSidecarPins(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = runtimePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+
+    for (const managedMetadata of [
+      { managedCredentialId: "credential-deepseek-jsonrpc-managed" },
+      { provisioningState: "managed" },
+    ]) {
+      await assert.rejects(
+        () => runProviderTask({
+          id: "runtime-deepseek-jsonrpc-managed",
+          workspaceId: "default",
+          provider: "deepseek-harness",
+          name: "Managed DeepSeek Harness",
+          status: "online",
+          metadata: {
+            executablePath: runtimePath,
+            mode: "remote",
+            ...managedMetadata,
+          },
+        }, "must not launch", workDir, { modelId: "deepseek-v4-flash", taskTimeoutMs: 1_000 }),
+        /requires an attested in-image bundle/,
+      );
+    }
+    assert.equal(existsSync(startedPath), false);
+
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE = "1";
+    await assert.rejects(
+      () => runProviderTask({
+        id: "runtime-deepseek-jsonrpc-managed-without-provenance",
+        workspaceId: "default",
+        provider: "deepseek-harness",
+        name: "Managed DeepSeek Harness",
+        status: "online",
+        metadata: {
+          executablePath: runtimePath,
+          mode: "remote",
+          managedCredentialId: "credential-deepseek-jsonrpc-managed",
+          provisioningState: "managed",
+        },
+      }, "must reject missing provenance", workDir, { modelId: "deepseek-v4-flash", taskTimeoutMs: 1_000 }),
+      /requires DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE/,
+    );
+    assert.equal(existsSync(startedPath), false);
+
+    const provenancePath = join(workDir, "provenance.json");
+    const wheelSha256 = "1".repeat(64);
+    writeDeepSeekRuntimeProvenance(provenancePath, runtimePath, wheelSha256);
+    const tampered = JSON.parse(readFileSync(provenancePath, "utf8")) as {
+      source: { commit: string };
+    };
+    tampered.source.commit = "0".repeat(40);
+    writeFileSync(provenancePath, JSON.stringify(tampered), "utf8");
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = provenancePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256 = wheelSha256;
+    await assert.rejects(
+      () => runProviderTask({
+        id: "runtime-deepseek-jsonrpc-managed-tampered-provenance",
+        workspaceId: "default",
+        provider: "deepseek-harness",
+        name: "Managed DeepSeek Harness",
+        status: "online",
+        metadata: {
+          executablePath: runtimePath,
+          mode: "remote",
+          managedCredentialId: "credential-deepseek-jsonrpc-managed",
+        },
+      }, "must reject tampered provenance", workDir, { modelId: "deepseek-v4-flash", taskTimeoutMs: 1_000 }),
+      /managed provenance did not match the pinned runtime release/,
+    );
+    assert.equal(existsSync(startedPath), false);
+
+    const detachedDirectory = join(workDir, "detached");
+    const detachedProvenancePath = join(detachedDirectory, "provenance.json");
+    mkdirSync(detachedDirectory);
+    writeDeepSeekRuntimeProvenance(detachedProvenancePath, runtimePath, wheelSha256);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = detachedProvenancePath;
+    await assert.rejects(
+      () => runProviderTask({
+        id: "runtime-deepseek-jsonrpc-managed-detached-provenance",
+        workspaceId: "default",
+        provider: "deepseek-harness",
+        name: "Managed DeepSeek Harness",
+        status: "online",
+        metadata: {
+          executablePath: runtimePath,
+          mode: "remote",
+          provisioningState: "managed",
+        },
+      }, "must reject detached provenance", workDir, { modelId: "deepseek-v4-flash", taskTimeoutMs: 1_000 }),
+      /managed provenance must be adjacent to the runtime executable/,
+    );
+    assert.equal(existsSync(startedPath), false);
+  } finally {
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("detectProviders discovers the operator-pinned standalone DeepSeek JSON-RPC carrier", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-detect-"));
+  const runtimePath = join(workDir, "dsh-jsonrpc-agent");
+  const invokedPath = join(workDir, "invoked.txt");
+  const configPath = join(workDir, "cordis.yml");
+  const originalPath = process.env.PATH;
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(releaseKeys.map((key) => [key, process.env[key]]));
+
+  try {
+    writeFileSync(runtimePath, `#!/bin/sh\nprintf '%s' invoked > '${invokedPath}'\n`, "utf8");
+    writeApprovedDeepSeekCordisConfig(configPath);
+    chmodSync(runtimePath, 0o755);
+    configureDeepSeekRuntimeSidecarPins(runtimePath);
+    process.env.PATH = "";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = runtimePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(runtimePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+
+    const deepSeek = detectProviders().find((provider) => provider.provider === "deepseek-harness");
+
+    assert.equal(deepSeek?.executablePath, runtimePath);
+    assert.equal(deepSeek?.version, "jsonrpc-release-configured");
+    assert.equal(existsSync(invokedPath), false);
+  } finally {
+    process.env.PATH = originalPath;
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("detectProviders fails closed without executing PATH fallback when the DeepSeek JSON-RPC release gate is incomplete", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-incomplete-detect-"));
+  const dshPath = join(workDir, "dsh");
+  const configPath = join(workDir, "cordis.yml");
+  const provenancePath = join(workDir, "provenance.json");
+  const invokedPath = join(workDir, "invoked.txt");
+  const originalPath = process.env.PATH;
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(releaseKeys.map((key) => [key, process.env[key]]));
+
+  try {
+    writeFileSync(dshPath, `#!/bin/sh\nprintf '%s' invoked > '${invokedPath}'\n`, "utf8");
+    writeFileSync(configPath, "- id: sdk-jsonrpc-server\n", "utf8");
+    chmodSync(dshPath, 0o755);
+    process.env.PATH = workDir;
+    const invalidConfigurations: Array<Record<string, string>> = [
+      {},
+      { DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: dshPath },
+      {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: dshPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: "not-a-digest",
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+      },
+      {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: "dsh",
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(dshPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: "0".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: "0".repeat(64),
+      },
+      {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: dshPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(dshPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: "0".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: "0".repeat(64),
+      },
+      {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: dshPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(dshPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: "0".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: "0".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE: "1",
+        DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE: provenancePath,
+      },
+    ];
+    for (const configuration of invalidConfigurations) {
+      for (const key of releaseKeys) delete process.env[key];
+      process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+      Object.assign(process.env, configuration);
+      assert.equal(detectProviders().some((provider) => provider.provider === "deepseek-harness"), false);
+      assert.equal(existsSync(invokedPath), false);
+    }
+  } finally {
+    process.env.PATH = originalPath;
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask refuses a DeepSeek model absent from the verified health catalog", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-model-gate-"));
+  const binPath = join(workDir, "dsh");
+  writeFileSync(binPath, "#!/bin/sh\nprintf '%s' 'must not launch'\n", "utf8");
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-deepseek-health-gate",
+    workspaceId: "default",
+    provider: "deepseek-harness",
+    name: "DeepSeek Harness",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+      providerHealth: {
+        status: "broken",
+        modelIds: ["deepseek-v4-flash"],
+      },
+    },
+  };
+
+  try {
+    await assert.rejects(
+      () => runProviderTask(runtime, "should not launch", workDir, {
+        modelId: "deepseek-v4-pro",
+        taskTimeoutMs: 5_000,
+      }),
+      (error: unknown) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.code, "provider.model_unavailable");
+        assert.equal(metadata?.providerError?.category, "model");
+        return true;
+      },
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask refuses a DeepSeek task when health breaks after claim", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-broken-health-gate-"));
+  const binPath = join(workDir, "dsh");
+  writeFileSync(binPath, "#!/bin/sh\nprintf '%s' 'must not launch'\n", "utf8");
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-deepseek-broken-health-gate",
+    workspaceId: "default",
+    provider: "deepseek-harness",
+    name: "DeepSeek Harness",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+      providerHealth: {
+        status: "broken",
+        reason: "provider.auth_invalid secret=should-not-leak",
+        modelIds: ["deepseek-v4-flash", "deepseek-v4-pro"],
+      },
+    },
+  };
+
+  try {
+    await assert.rejects(
+      () => runProviderTask(runtime, "should not launch", workDir, {
+        modelId: "deepseek-v4-flash",
+        taskTimeoutMs: 5_000,
+      }),
+      (error: unknown) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.code, "provider.runtime_generic_failure");
+        assert.equal(metadata?.providerError?.category, "runtime");
+        assert.match(metadata?.providerError?.message ?? "", /provider health is broken/);
+        assert.doesNotMatch(metadata?.providerError?.message ?? "", /should-not-leak/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("detectProviders allows Claude Code when the daemon is running as root", async () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
+  const originalPath = process.env.PATH;
+
+  try {
+    for (const command of ["claude", "codex"]) {
+      const filePath = join(binDir, command);
+      writeFileSync(filePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+      chmodSync(filePath, 0o755);
+    }
+
+    process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
+
+    await withProcessGetuid(0, () => {
+      const detected = detectProviders();
+      assert.equal(detected.some((provider) => provider.provider === "claude"), true);
+      assert.equal(detected.some((provider) => provider.provider === "codex"), true);
+    });
+
+    await withProcessGetuid(1000, () => {
+      const detected = detectProviders();
+      assert.equal(detected.some((provider) => provider.provider === "claude"), true);
+    });
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("detectProviders registers only the configured container provider", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
+  const originalPath = process.env.PATH;
+  const originalRuntimeProvider = process.env.DOFE_AGENT_RUNTIME_PROVIDER;
+
+  try {
+    for (const command of ["codex", "claude"]) {
+      const filePath = join(binDir, command);
+      writeFileSync(filePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+      chmodSync(filePath, 0o755);
+    }
+    process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
+    process.env.DOFE_AGENT_RUNTIME_PROVIDER = "codex";
+
+    assert.deepEqual(detectProviders().map((provider) => provider.provider), ["codex"]);
+  } finally {
+    process.env.PATH = originalPath;
+    if (originalRuntimeProvider === undefined) {
+      delete process.env.DOFE_AGENT_RUNTIME_PROVIDER;
+    } else {
+      process.env.DOFE_AGENT_RUNTIME_PROVIDER = originalRuntimeProvider;
+    }
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata runs a requested provider verification", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
+  const executablePath = join(binDir, "claude");
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+    chmodSync(executablePath, 0o755);
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "claude",
+      metadata: {
+        executablePath,
+        mode: "local",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; checkedAt?: unknown } | undefined;
+    assert.equal(health?.status, "healthy");
+    assert.equal(typeof health?.checkedAt, "string");
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata handshakes only after DeepSeek JSON-RPC release pins pass", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-jsonrpc-health-"));
+  const executablePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const provenancePath = join(workDir, "provenance.json");
+  const invokedPath = join(workDir, "invoked.txt");
+  const releaseKeys = [
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT",
+    "DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256",
+  ] as const;
+  const originalReleaseEnvironment = Object.fromEntries(releaseKeys.map((key) => [key, process.env[key]]));
+
+  try {
+    writeFileSync(
+      executablePath,
+      [
+        `#!${process.execPath}`,
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        `fs.appendFileSync(${JSON.stringify(invokedPath)}, '1');`,
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "rl.on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' }, protocolVersion: '2.0' } })}\\n`);",
+        "  if (message.method === 'shutdown') { process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} })}\\n`); rl.close(); }",
+        "});",
+      ].join("\n"),
+      "utf8",
+    );
+    writeApprovedDeepSeekCordisConfig(configPath);
+    chmodSync(executablePath, 0o755);
+    configureDeepSeekRuntimeSidecarPins(executablePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE = executablePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(executablePath);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG = configPath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256 = sha256File(configPath);
+
+    const runtime = {
+      provider: "deepseek-harness" as const,
+      metadata: {
+        executablePath,
+        mode: "remote" as const,
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    };
+    const verified = buildProviderRuntimeMetadata(runtime, {
+      environment: {
+        DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED: "1",
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: join(workDir, "credential-controlled-carrier"),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: "f".repeat(64),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: join(workDir, "credential-controlled-config"),
+        DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: "f".repeat(64),
+      },
+    });
+    assert.equal((verified.providerHealth as { status?: unknown })?.status, "degraded");
+    assert.equal(readFileSync(invokedPath, "utf8"), "1");
+
+    const wheelSha256 = "1".repeat(64);
+    writeDeepSeekRuntimeProvenance(provenancePath, executablePath, wheelSha256);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE = "1";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE = provenancePath;
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT = "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e";
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256 = wheelSha256;
+    const managedRuntime = {
+      ...runtime,
+      metadata: {
+        ...runtime.metadata,
+        managedCredentialId: "credential-deepseek-jsonrpc-managed-health",
+        provisioningState: "managed" as const,
+      },
+    };
+    const managedVerified = buildProviderRuntimeMetadata(managedRuntime);
+    assert.equal((managedVerified.providerHealth as { status?: unknown })?.status, "degraded");
+    assert.equal(readFileSync(invokedPath, "utf8"), "11");
+
+    const tamperedProvenance = JSON.parse(readFileSync(provenancePath, "utf8")) as {
+      wheel: { sha256: string };
+    };
+    tamperedProvenance.wheel.sha256 = "0".repeat(64);
+    writeFileSync(provenancePath, JSON.stringify(tamperedProvenance), "utf8");
+    const managedRejected = buildProviderRuntimeMetadata(managedRuntime);
+    assert.equal((managedRejected.providerHealth as { status?: unknown })?.status, "broken");
+    assert.equal(readFileSync(invokedPath, "utf8"), "11");
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE;
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE;
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT;
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256;
+
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = "0".repeat(64);
+    const rejected = buildProviderRuntimeMetadata(runtime);
+    assert.equal((rejected.providerHealth as { status?: unknown })?.status, "broken");
+    assert.equal(readFileSync(invokedPath, "utf8"), "11");
+
+    const incompatibleRuntime = readFileSync(executablePath, "utf8")
+      .replace("version: '0.0.1'", "version: '9.9.9'");
+    writeFileSync(executablePath, incompatibleRuntime, "utf8");
+    chmodSync(executablePath, 0o755);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(executablePath);
+    const incompatible = buildProviderRuntimeMetadata(runtime);
+    const incompatibleHealth = incompatible.providerHealth as {
+      status?: unknown;
+      error?: { code?: unknown };
+    };
+    assert.equal(incompatibleHealth.status, "broken");
+    assert.equal(incompatibleHealth.error?.code, "provider.protocol_parse_failed");
+    assert.equal(readFileSync(invokedPath, "utf8"), "111");
+
+    writeFileSync(
+      executablePath,
+      [
+        `#!${process.execPath}`,
+        "const fs = require('node:fs');",
+        `fs.appendFileSync(${JSON.stringify(invokedPath)}, '1');`,
+        "process.stdin.resume();",
+        "setInterval(() => {}, 1_000);",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256 = sha256File(executablePath);
+    const startedAt = Date.now();
+    const unresponsive = buildProviderRuntimeMetadata(runtime);
+    const elapsedMs = Date.now() - startedAt;
+    const unresponsiveHealth = unresponsive.providerHealth as {
+      status?: unknown;
+      error?: { code?: unknown };
+    };
+    assert.equal(unresponsiveHealth.status, "broken");
+    assert.equal(unresponsiveHealth.error?.code, "provider.protocol_parse_failed");
+    assert.ok(elapsedMs < 5_500, `expected bounded health probe, observed ${elapsedMs}ms`);
+    assert.equal(readFileSync(invokedPath, "utf8"), "1111");
+  } finally {
+    for (const key of releaseKeys) {
+      const value = originalReleaseEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("daemon CLI verifies both native DeepSeek models without leaking unrelated credentials", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-model-canary-"));
+  const executablePath = join(workDir, "dsh-jsonrpc-agent");
+  const configPath = join(workDir, "cordis.yml");
+  const provenancePath = join(workDir, "provenance.json");
+  const modelsPath = join(workDir, "models.txt");
+  const wheelSha256 = "1".repeat(64);
+  const imageDigest = `sha256:${"2".repeat(64)}`;
+
+  try {
+    writeFileSync(
+      executablePath,
+      [
+        `#!${process.execPath}`,
+        "if (!process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY) process.exit(41);",
+        "const fs = require('node:fs');",
+        "const readline = require('node:readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "const send = (value) => process.stdout.write(`${JSON.stringify(value)}\\n`);",
+        "rl.on('line', (line) => {",
+        "  const request = JSON.parse(line);",
+        "  if (request.method === 'initialize') {",
+        `    fs.appendFileSync(${JSON.stringify(modelsPath)}, request.params.model + '\\n');`,
+        "    send({ jsonrpc: '2.0', id: request.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' }, protocolVersion: '2.0' } });",
+        "    return;",
+        "  }",
+        "  if (request.method === 'session/prompt') {",
+        "    const sessionId = request.params.sessionId;",
+        "    const usage = { inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1, reasoningTokens: 1 };",
+        "    const event = (type, seq, data) => send({ jsonrpc: '2.0', method: 'session.event', params: { sessionId, event: { type, seq, time: seq + 1, data } } });",
+        "    send({ jsonrpc: '2.0', id: request.id, result: { messageId: 'canary-message' } });",
+        "    event('agent/inbox/spliced', 0, { target: 'next-turn', start: 0, inserted: [{ id: 'canary-message' }] });",
+        "    event('turn/start', 1, { turn: 1 });",
+        "    event('step/start', 2, { turn: 1, step: 1 });",
+        "    event('assistant/chunk', 3, { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } });",
+        "    event('assistant/chunk', 4, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'DOFE_DEEPSEEK_CANARY_OK' } });",
+        "    event('assistant/chunk', 5, { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: 'DOFE_DEEPSEEK_CANARY_OK' } } });",
+        "    event('assistant/chunk', 6, { turn: 1, step: 1, chunk: { type: 'usage', usage } });",
+        "    event('assistant/chunk', 7, { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'stop' } } });",
+        "    event('assistant/message', 8, { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'DOFE_DEEPSEEK_CANARY_OK' }] }, usage });",
+        "    event('step/end', 9, { turn: 1, step: 1 });",
+        "    event('turn/end', 10, { turn: 1, reason: { kind: 'completed' } });",
+        "    send({ jsonrpc: '2.0', method: 'session.status', params: { sessionId, status: 'idle' } });",
+        "    return;",
+        "  }",
+        "  if (request.method === 'shutdown') { send({ jsonrpc: '2.0', id: request.id, result: {} }); rl.close(); }",
+        "});",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    writeApprovedDeepSeekCordisConfig(configPath);
+    configureDeepSeekRuntimeSidecarPins(executablePath);
+    writeDeepSeekRuntimeProvenance(provenancePath, executablePath, wheelSha256);
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        join(process.cwd(), "packages/daemon/src/cli.ts"),
+        "verify-deepseek-model-canary",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: "deepseek-secret-must-not-appear",
+          DEEPSEEK_BASE_URL: "",
+          OPENAI_API_KEY: "unrelated-secret-must-not-reach-carrier",
+          DOFE_AGENT_DEEPSEEK_RUNTIME_IMAGE_DIGEST: imageDigest,
+          DOFE_AGENT_DEEPSEEK_COSIGN_PUBLIC_KEY_SHA256: "3".repeat(64),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_ENABLED: "1",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_MANAGED_BUNDLE: "1",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE: executablePath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_EXECUTABLE_SHA256: sha256File(executablePath),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG: configPath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_CORDIS_CONFIG_SHA256: sha256File(configPath),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256: sha256File(`${executablePath}-rg`),
+          DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256: process.platform === "darwin"
+            ? sha256File(`${executablePath}-spawn-helper`)
+            : "",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_PROVENANCE: provenancePath,
+          DOFE_AGENT_DEEPSEEK_JSONRPC_SOURCE_COMMIT: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+          DOFE_AGENT_DEEPSEEK_JSONRPC_WHEEL_SHA256: wheelSha256,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout.includes("deepseek-secret-must-not-appear"), false);
+    assert.equal(result.stdout.includes("unrelated-secret-must-not-reach-carrier"), false);
+    assert.equal(result.stdout.includes("DOFE_DEEPSEEK_CANARY_OK"), false);
+    const evidence = JSON.parse(result.stdout) as Record<string, unknown>;
+    assert.equal(evidence.schemaVersion, 1);
+    assert.equal(evidence.kind, "deepseek-native-model-canary-evidence");
+    assert.equal(evidence.imageDigest, imageDigest);
+    assert.equal(typeof evidence.checkedAt, "string");
+    assert.deepEqual(evidence.endpoint, { kind: "official" });
+    assert.deepEqual(evidence.attestation, { kind: "cosign-public-key", publicKeySha256: "3".repeat(64) });
+    assert.deepEqual(evidence.models, [
+      {
+        id: "deepseek-v4-flash",
+        status: "passed",
+        usage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1, reasoningTokens: 1 },
+      },
+      {
+        id: "deepseek-v4-pro",
+        status: "passed",
+        usage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1, reasoningTokens: 1 },
+      },
+    ]);
+    assert.deepEqual(readFileSync(modelsPath, "utf8").trim().split(/\r?\n/), [
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+    ]);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata reports a missing executable without interrupting the daemon", () => {
+  assert.doesNotThrow(() => {
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "claude",
+      metadata: {
+        executablePath: "",
+        mode: "remote",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    });
+    const health = metadata.providerHealth as { status?: unknown; error?: { code?: unknown } } | undefined;
+    assert.equal(health?.status, "broken");
+    assert.equal(health?.error?.code, "provider.cli_missing");
+  });
+});
+
+test("buildProviderRuntimeMetadata passes the managed provider environment to a requested verification", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
+  const executablePath = join(binDir, "claude");
+
+  try {
+    writeFileSync(
+      executablePath,
+      "#!/bin/sh\n[ \"$ANTHROPIC_BASE_URL\" = \"http://gateway.internal/v1\" ] || exit 19\necho 1.0.0\n",
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "claude",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        managedCredentialId: "credential-managed-1",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: { ANTHROPIC_BASE_URL: "http://gateway.internal/v1" },
+    });
+
+    assert.equal((metadata.providerHealth as { status?: unknown } | undefined)?.status, "healthy");
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata performs an authenticated provider request without exposing the key", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-probe-bin-"));
+  const executablePath = join(binDir, "claude");
+  // The probe spawns `process.execPath`; faking it stands in for the gateway:
+  // it reads the {url,headers} JSON from stdin and returns 204 only when the
+  // credential is present. stdin (not argv) carries the key, so it never leaks.
+  const fakeProbePath = join(binDir, "node");
+  const originalExecPath = process.execPath;
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+    writeFileSync(
+      fakeProbePath,
+      '#!/bin/sh\ninput=$(cat)\ncase "$input" in *"managed-provider-key"*) printf \'%s\' \'{"ok":true,"status":204}\';; *) printf \'%s\' \'{"ok":false,"error":"unauthorized"}\';; esac\n',
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    chmodSync(fakeProbePath, 0o755);
+    process.execPath = fakeProbePath;
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "claude",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        managedCredentialId: "credential-managed-provider-probe",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: {
+        ANTHROPIC_API_KEY: "managed-provider-key",
+        ANTHROPIC_BASE_URL: "https://gateway.example.test/v1",
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; verificationKind?: unknown; reason?: unknown } | undefined;
+    assert.equal(health?.status, "healthy");
+    assert.equal(health?.verificationKind, "provider_request");
+    assert.equal(JSON.stringify(metadata).includes("managed-provider-key"), false);
+  } finally {
+    process.execPath = originalExecPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata verifies DeepSeek Harness through its native models endpoint", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-provider-probe-"));
+  const executablePath = join(binDir, "dsh");
+  const fakeProbePath = join(binDir, "node");
+  const originalExecPath = process.execPath;
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho dsh 0.1.1-rc.2\n", "utf8");
+    writeFileSync(
+      fakeProbePath,
+      [
+        "#!/bin/sh",
+        "input=$(cat)",
+        "case \"$input\" in",
+        "  *\"https://native.deepseek.test/v1/models\"*\"deepseek-managed-key\"*) printf '%s' '{\"ok\":true,\"status\":200,\"models\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]}' ;;",
+        "  *) printf '%s' '{\"ok\":false,\"error\":\"unexpected request\"}' ;;",
+        "esac",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    chmodSync(fakeProbePath, 0o755);
+    process.execPath = fakeProbePath;
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "deepseek-harness",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        managedCredentialId: "credential-managed-deepseek",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: {
+        DEEPSEEK_API_KEY: "deepseek-managed-key",
+        DEEPSEEK_BASE_URL: "https://native.deepseek.test/v1",
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; verificationKind?: unknown; modelIds?: string[] } | undefined;
+    assert.equal(health?.status, "healthy");
+    assert.equal(health?.verificationKind, "provider_request");
+    assert.deepEqual(health?.modelIds, ["deepseek-v4-flash", "deepseek-v4-pro"]);
+    assert.equal(JSON.stringify(metadata).includes("deepseek-managed-key"), false);
+  } finally {
+    process.execPath = originalExecPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata rejects a DeepSeek catalog missing a native model", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-model-probe-"));
+  const executablePath = join(binDir, "dsh");
+  const fakeProbePath = join(binDir, "node");
+  const originalExecPath = process.execPath;
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho dsh 0.1.1-rc.2\n", "utf8");
+    writeFileSync(
+      fakeProbePath,
+      "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"ok\":true,\"status\":200,\"models\":[\"deepseek-v4-flash\"]}'\n",
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    chmodSync(fakeProbePath, 0o755);
+    process.execPath = fakeProbePath;
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "deepseek-harness",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: {
+        DEEPSEEK_API_KEY: "deepseek-model-probe-key",
+        DEEPSEEK_BASE_URL: "https://native.deepseek.test/v1",
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; modelIds?: string[]; error?: { code?: string } } | undefined;
+    assert.equal(health?.status, "broken");
+    assert.deepEqual(health?.modelIds, ["deepseek-v4-flash"]);
+    assert.equal(health?.error?.code, "provider.model_unavailable");
+  } finally {
+    process.execPath = originalExecPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata classifies a DeepSeek catalog auth rejection", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-auth-probe-"));
+  const executablePath = join(binDir, "dsh");
+  const fakeProbePath = join(binDir, "node");
+  const originalExecPath = process.execPath;
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho dsh 0.1.1-rc.2\n", "utf8");
+    writeFileSync(fakeProbePath, "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"ok\":true,\"status\":401}'\n", "utf8");
+    chmodSync(executablePath, 0o755);
+    chmodSync(fakeProbePath, 0o755);
+    process.execPath = fakeProbePath;
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "deepseek-harness",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: {
+        DEEPSEEK_API_KEY: "deepseek-auth-probe-key",
+        DEEPSEEK_BASE_URL: "https://native.deepseek.test/v1",
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; error?: { code?: string; category?: string } } | undefined;
+    assert.equal(health?.status, "broken");
+    assert.equal(health?.error?.code, "provider.auth_invalid");
+    assert.equal(health?.error?.category, "auth");
+  } finally {
+    process.execPath = originalExecPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata rejects a DeepSeek Harness with a broken headless profile", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-deepseek-profile-probe-"));
+  const executablePath = join(binDir, "dsh");
+  try {
+    writeFileSync(
+      executablePath,
+      [
+        "#!/bin/sh",
+        "if [ \"$1\" = '--profile' ]; then printf '%s\\n' 'headless profile unavailable' >&2; exit 1; fi",
+        "printf '%s\\n' 'dsh 0.1.1-rc.2'",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "deepseek-harness",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; error?: { code?: string; category?: string } } | undefined;
+    assert.equal(health?.status, "broken");
+    assert.equal(health?.error?.code, "provider.profile_missing");
+    assert.equal(health?.error?.category, "profile");
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata reports invalid provider probe configuration without interrupting the daemon", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-probe-config-"));
+  const executablePath = join(binDir, "claude");
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+    chmodSync(executablePath, 0o755);
+
+    assert.doesNotThrow(() => {
+      const metadata = buildProviderRuntimeMetadata({
+        provider: "claude",
+        metadata: {
+          executablePath,
+          mode: "remote",
+          providerVerificationRequestedAt: new Date().toISOString(),
+        },
+      }, {
+        environment: {
+          ANTHROPIC_API_KEY: "managed-provider-key",
+          ANTHROPIC_BASE_URL: "file:///tmp/not-an-api",
+        },
+      });
+
+      const health = metadata.providerHealth as { status?: unknown; verificationKind?: unknown } | undefined;
+      assert.equal(health?.status, "broken");
+      assert.equal(health?.verificationKind, "provider_auth");
+      assert.equal(JSON.stringify(metadata).includes("managed-provider-key"), false);
+    });
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata accepts managed OpenClaw gateway credentials without a daemon profile", () => {
+  const metadata = buildProviderRuntimeMetadata({
+    provider: "openclaw",
+    metadata: {
+      executablePath: "/usr/bin/openclaw",
+      mode: "remote",
+      managedCredentialId: "credential-managed-openclaw-1",
+    },
+  }, {
+    environment: {
+      OPENAI_API_KEY: "managed-openclaw-key",
+      OPENAI_BASE_URL: "http://gateway.internal/v1",
+    },
+  });
+
+  const health = metadata.providerHealth as { status?: unknown; error?: unknown } | undefined;
+  assert.equal(health?.status, "healthy");
+  assert.equal(health?.error, undefined);
+});
+
+test("resolveModelId returns provider-specific defaults and overrides for expanded providers", () => {
+  const baseRuntime: Omit<ProviderRuntimeRecord, "provider"> = {
+    id: "runtime-1",
+    workspaceId: "default",
+    name: "Runtime",
+    status: "online",
+    metadata: {
+      executablePath: "/usr/bin/mock",
+      mode: "remote",
+    },
+  };
+
+  const originalOpenCodeModel = process.env.OPENCODE_MODEL;
+  const originalOpenClawModel = process.env.OPENCLAW_MODEL;
+  const originalAntigravityModel = process.env.ANTIGRAVITY_MODEL;
+  const originalNanoBotModel = process.env.NANOBOT_MODEL;
+  const originalCodexModel = process.env.CODEX_MODEL;
+  const originalHermesModel = process.env.HERMES_MODEL;
+  const originalHermesInferenceModel = process.env.HERMES_INFERENCE_MODEL;
+
+  try {
+    delete process.env.CODEX_MODEL;
+    delete process.env.OPENCODE_MODEL;
+    delete process.env.OPENCLAW_MODEL;
+    delete process.env.ANTIGRAVITY_MODEL;
+    delete process.env.NANOBOT_MODEL;
+    delete process.env.HERMES_MODEL;
+    delete process.env.HERMES_INFERENCE_MODEL;
+
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "codex" }), undefined);
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "opencode" }), "opencode-default");
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "openclaw" }), undefined);
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "antigravity" }), undefined);
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "nanobot" }), "nanobot-default");
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "hermes" }), undefined);
+
+    process.env.CODEX_MODEL = "gpt-5.5";
+    process.env.OPENCODE_MODEL = "openrouter/openai/gpt-4.1";
+    process.env.OPENCLAW_MODEL = "openrouter/anthropic/claude-sonnet";
+    process.env.ANTIGRAVITY_MODEL = "Gemini 3.5 Flash";
+    process.env.NANOBOT_MODEL = "gpt-4.1-mini";
+    process.env.HERMES_INFERENCE_MODEL = "nous-hermes-config";
+
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "codex" }), "gpt-5.5");
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "opencode" }), "openrouter/openai/gpt-4.1");
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "openclaw" }), "openrouter/anthropic/claude-sonnet");
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "antigravity" }), "Gemini 3.5 Flash");
+    assert.equal(resolveModelId({
+      ...baseRuntime,
+      provider: "openclaw",
+      metadata: {
+        ...baseRuntime.metadata,
+        openClawModel: "runtime/override-model",
+      },
+    }), "runtime/override-model");
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "nanobot" }), "gpt-4.1-mini");
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "hermes" }), "nous-hermes-config");
+
+    process.env.HERMES_MODEL = "nous-hermes";
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "hermes" }), "nous-hermes");
+  } finally {
+    if (originalCodexModel === undefined) {
+      delete process.env.CODEX_MODEL;
+    } else {
+      process.env.CODEX_MODEL = originalCodexModel;
+    }
+    if (originalOpenCodeModel === undefined) {
+      delete process.env.OPENCODE_MODEL;
+    } else {
+      process.env.OPENCODE_MODEL = originalOpenCodeModel;
+    }
+    if (originalOpenClawModel === undefined) {
+      delete process.env.OPENCLAW_MODEL;
+    } else {
+      process.env.OPENCLAW_MODEL = originalOpenClawModel;
+    }
+    if (originalAntigravityModel === undefined) {
+      delete process.env.ANTIGRAVITY_MODEL;
+    } else {
+      process.env.ANTIGRAVITY_MODEL = originalAntigravityModel;
+    }
+    if (originalNanoBotModel === undefined) {
+      delete process.env.NANOBOT_MODEL;
+    } else {
+      process.env.NANOBOT_MODEL = originalNanoBotModel;
+    }
+    if (originalHermesModel === undefined) {
+      delete process.env.HERMES_MODEL;
+    } else {
+      process.env.HERMES_MODEL = originalHermesModel;
+    }
+    if (originalHermesInferenceModel === undefined) {
+      delete process.env.HERMES_INFERENCE_MODEL;
+    } else {
+      process.env.HERMES_INFERENCE_MODEL = originalHermesInferenceModel;
+    }
+  }
+});
+
+test("formatDaemonProviderLabel returns friendly labels for expanded providers", () => {
+  assert.equal(formatDaemonProviderLabel("antigravity"), "Antigravity CLI");
+  assert.equal(formatDaemonProviderLabel("opencode"), "OpenCode");
+  assert.equal(formatDaemonProviderLabel("openclaw"), "OpenClaw");
+  assert.equal(formatDaemonProviderLabel("nanobot"), "NanoBot");
+  assert.equal(formatDaemonProviderLabel("hermes"), "Hermes Agent");
+});
+
+test("runProviderTask resumes Codex sessions when sessionId is provided", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-resume-"));
+  const binPath = join(workDir, "codex");
+  const argsPath = join(workDir, "codex-args.json");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      ": > \"$CODEX_ARGS_PATH\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$CODEX_ARGS_PATH\"",
+      "done",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then",
+      "    printf '%s' 'resumed output' > \"$arg\"",
+      "  fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-next\"}'",
+      "printf '%s\\n' '{\"type\":\"item.started\",\"item\":{\"type\":\"commandExecution\",\"id\":\"codex-tool-1\",\"command\":\"pwd\"}}'",
+      "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"commandExecution\",\"id\":\"codex-tool-1\",\"aggregatedOutput\":\"/tmp\"}}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-test",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    const events: Array<{ type: string; refId?: string }> = [];
+    const result = await runProviderTask(runtime, "continue work", workDir, {
+      sessionId: "session-prev",
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+      onEvent: (event) => events.push(event),
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "resumed output");
+    assert.equal(result.sessionId, "session-next");
+    assert.deepEqual(args.slice(0, 2), ["exec", "resume"]);
+    assert.equal(args.includes("session-prev"), true);
+    assert.equal(args.includes("--cd"), false);
+    assert.equal(args.includes("--model"), false);
+    assert.equal(args.includes("--sandbox"), false);
+    assert.equal(args.includes("workspace-write"), false);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+    assert.deepEqual(events.filter((event) => event.type === "tool_use" || event.type === "tool_result").map((event) => event.refId), [
+      "codex-tool-1",
+      "codex-tool-1",
+    ]);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("concurrent provider tasks keep model selection scoped to each invocation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-codex-model-isolation-"));
+  const binPath = join(root, "codex");
+  const firstWorkDir = join(root, "first");
+  const secondWorkDir = join(root, "second");
+  const firstArgsPath = join(root, "first-args.txt");
+  const secondArgsPath = join(root, "second-args.txt");
+  const originalModel = process.env.CODEX_MODEL;
+  mkdirSync(firstWorkDir, { recursive: true });
+  mkdirSync(secondWorkDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      ": > \"$CODEX_ARGS_PATH\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$CODEX_ARGS_PATH\"",
+      "done",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then printf '%s' 'model isolated' > \"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-model\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  process.env.CODEX_MODEL = "parent-default";
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-model-isolation",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    await Promise.all([
+      runProviderTask(runtime, "first prompt", firstWorkDir, {
+        contextEnv: { CODEX_ARGS_PATH: firstArgsPath },
+        modelId: "model-first",
+        taskTimeoutMs: 5_000,
+      }),
+      runProviderTask(runtime, "second prompt", secondWorkDir, {
+        contextEnv: { CODEX_ARGS_PATH: secondArgsPath },
+        modelId: "model-second",
+        taskTimeoutMs: 5_000,
+      }),
+    ]);
+
+    const firstArgs = readFileSync(firstArgsPath, "utf8");
+    const secondArgs = readFileSync(secondArgsPath, "utf8");
+    assert.match(firstArgs, /--model\nmodel-first/);
+    assert.doesNotMatch(firstArgs, /model-second/);
+    assert.match(secondArgs, /--model\nmodel-second/);
+    assert.doesNotMatch(secondArgs, /model-first/);
+    assert.equal(process.env.CODEX_MODEL, "parent-default");
+  } finally {
+    if (originalModel === undefined) {
+      delete process.env.CODEX_MODEL;
+    } else {
+      process.env.CODEX_MODEL = originalModel;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask adds daemon bin directory to provider PATH", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-provider-path-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const daemonBinDir = join(workDir, "daemon-runtime", "bin");
+  const binPath = join(providerBinDir, "codex");
+  const daemonBinPath = join(daemonBinDir, "dofe-agent-daemon");
+  const seenPathFile = join(workDir, "seen-path.txt");
+  mkdirSync(providerBinDir, { recursive: true });
+  mkdirSync(daemonBinDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then",
+      "    if command -v dofe-agent-daemon >/dev/null 2>&1; then",
+      "      printf '%s' 'path ok' > \"$arg\"",
+      "    else",
+      "      printf '%s' 'path missing' > \"$arg\"",
+      "    fi",
+      "  fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(daemonBinPath, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(daemonBinPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-path-test",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
+
+  try {
+    process.env.DOFE_AGENT_DAEMON_BIN = daemonBinPath;
+    const result = await runProviderTask(runtime, "check path", workDir, {
+      contextEnv: {
+        PATH: providerBinDir,
+        SEEN_PATH_FILE: seenPathFile,
+      },
+      taskTimeoutMs: 5_000,
+    });
+    const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
+
+    assert.equal(result.output, "path ok");
+    assert.equal(seenPath[0], providerBinDir);
+    assert.equal(seenPath.includes(daemonBinDir), true);
+  } finally {
+    if (originalDaemonBin === undefined) {
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
+    } else {
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask starts a new Codex conversation when resume rollout is missing", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-stale-resume-"));
+  const binPath = join(workDir, "codex");
+  const argsDir = join(workDir, "args");
+  const countPath = join(workDir, "count.txt");
+  mkdirSync(argsDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f \"$CODEX_COUNT_PATH\" ]; then",
+      "  count=$(cat \"$CODEX_COUNT_PATH\")",
+      "fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > \"$CODEX_COUNT_PATH\"",
+      "args_path=\"$CODEX_ARGS_DIR/invocation-$count.txt\"",
+      ": > \"$args_path\"",
+      "output_path=\"\"",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$args_path\"",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then",
+      "    output_path=\"$arg\"",
+      "  fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "if [ \"$count\" = \"1\" ]; then",
+      "  printf '%s\\n' 'Error: thread/resume: thread/resume failed: no rollout found for thread id session-stale (code -32600)' >&2",
+      "  exit 1",
+      "fi",
+      "printf '%s' 'fresh codex reply' > \"$output_path\"",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-fresh\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-stale-resume-test",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    const events: Array<{ type: string; content?: string }> = [];
+    const result = await runProviderTask(runtime, "continue work", workDir, {
+      sessionId: "session-stale",
+      contextEnv: {
+        CODEX_ARGS_DIR: argsDir,
+        CODEX_COUNT_PATH: countPath,
+      },
+      taskTimeoutMs: 5_000,
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    const firstArgs = readFileSync(join(argsDir, "invocation-1.txt"), "utf8").trim().split(/\r?\n/);
+    const secondArgs = readFileSync(join(argsDir, "invocation-2.txt"), "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "fresh codex reply");
+    assert.equal(result.sessionId, "session-fresh");
+    assert.deepEqual(firstArgs.slice(0, 2), ["exec", "resume"]);
+    assert.equal(firstArgs.includes("session-stale"), true);
+    assert.equal(secondArgs.slice(0, 2).join(" "), "exec --json");
+    assert.equal(secondArgs.includes("session-stale"), false);
+    assert.equal(secondArgs.includes("--cd"), false);
+    assert.equal(events.some((event) => event.type === "status" && event.content?.includes("starting a new conversation")), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask starts a new Codex conversation when a resumed transport stalls", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-stalled-resume-"));
+  const binPath = join(workDir, "codex");
+  const argsDir = join(workDir, "args");
+  const countPath = join(workDir, "count.txt");
+  mkdirSync(argsDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f \"$CODEX_COUNT_PATH\" ]; then count=$(cat \"$CODEX_COUNT_PATH\"); fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > \"$CODEX_COUNT_PATH\"",
+      "args_path=\"$CODEX_ARGS_DIR/invocation-$count.txt\"",
+      ": > \"$args_path\"",
+      "output_path=\"\"",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$args_path\"",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then output_path=\"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "if [ \"$count\" = \"1\" ]; then",
+      "  printf '%s\\n' '{\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. request timed out\"}'",
+      "  exit 1",
+      "fi",
+      "printf '%s' 'fresh codex reply' > \"$output_path\"",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-fresh\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-stalled-resume-test",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    const events: Array<{ type: string; content?: string }> = [];
+    const result = await runProviderTask(runtime, "continue work", workDir, {
+      sessionId: "session-stalled",
+      contextEnv: {
+        CODEX_ARGS_DIR: argsDir,
+        CODEX_COUNT_PATH: countPath,
+      },
+      taskTimeoutMs: 5_000,
+      onEvent: (event) => events.push(event),
+    });
+
+    const firstArgs = readFileSync(join(argsDir, "invocation-1.txt"), "utf8").trim().split(/\r?\n/);
+    const secondArgs = readFileSync(join(argsDir, "invocation-2.txt"), "utf8").trim().split(/\r?\n/);
+    assert.equal(result.output, "fresh codex reply");
+    assert.equal(result.sessionId, "session-fresh");
+    assert.deepEqual(firstArgs.slice(0, 2), ["exec", "resume"]);
+    assert.equal(secondArgs.slice(0, 2).join(" "), "exec --json");
+    assert.equal(secondArgs.includes("session-stalled"), false);
+    assert.equal(events.some((event) => event.type === "status" && event.content?.includes("starting a new conversation")), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask passes one-shot Claude prompts as a CLI argument", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-stdin-"));
+  const binPath = join(workDir, "claude");
+  const argsPath = join(workDir, "claude-args.txt");
+  const stdinPath = join(workDir, "claude-stdin.json");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      ": > \"$CLAUDE_ARGS_PATH\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$CLAUDE_ARGS_PATH\"",
+      "done",
+      "cat > \"$CLAUDE_STDIN_PATH\"",
+      "printf '%s\\n' '{\"type\":\"system\",\"session_id\":\"session-next\"}'",
+      "printf '%s\\n' '{\"type\":\"tool_use\",\"id\":\"claude-tool-1\",\"name\":\"Bash\",\"input\":{\"command\":\"pwd\"}}'",
+      "printf '%s\\n' '{\"type\":\"tool_result\",\"tool_use_id\":\"claude-tool-1\",\"name\":\"Bash\",\"output\":\"/tmp\"}'",
+      "printf '%s\\n' '{\"type\":\"stream_event\",\"session_id\":\"session-next\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}}'",
+      "printf '%s\\n' '{\"type\":\"stream_event\",\"session_id\":\"session-next\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\" \"}}}'",
+      "printf '%s\\n' '{\"type\":\"stream_event\",\"session_id\":\"session-next\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"from claude\"}}}'",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"hello from claude\",\"session_id\":\"session-next\",\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      const events: Array<{ type: string; content?: string; inputJson?: Record<string, unknown>; refId?: string }> = [];
+      const result = await runProviderTask(runtime, "write a short reply", workDir, {
+        executionPolicy: { claudePermissionMode: "plan" },
+        contextEnv: {
+          CLAUDE_ARGS_PATH: argsPath,
+          CLAUDE_STDIN_PATH: stdinPath,
+        },
+        taskTimeoutMs: 5_000,
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+      assert.equal(result.output, "hello from claude");
+      assert.equal(result.sessionId, "session-next");
+      assert.deepEqual(args.slice(0, 7), [
+        "-p",
+        "write a short reply",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--max-turns",
+      ]);
+      assert.equal(args.includes("--input-format"), false);
+      assert.equal(args.includes("--permission-mode"), true);
+      assert.equal(args.includes("plan"), true);
+      assert.equal(args.includes("bypassPermissions"), false);
+      assert.equal(args.includes("--dangerously-skip-permissions"), false);
+      assert.deepEqual(args.slice(-2), ["--tools", "default"]);
+      assert.equal(readFileSync(stdinPath, "utf8"), "");
+      assert.equal(events.some((event) => event.type === "usage" && event.inputJson?.input_tokens === 3), true);
+      assert.deepEqual(
+        events.filter((event) => event.type === "text").map((event) => event.content),
+        ["hello", " ", "from claude"],
+      );
+      assert.deepEqual(events.filter((event) => event.type === "tool_use" || event.type === "tool_result").map((event) => event.refId), [
+        "claude-tool-1",
+        "claude-tool-1",
+      ]);
+    });
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask maps Codex employee access levels to CLI approval and sandbox flags", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-codex-policy-"));
+  const binPath = join(root, "codex");
+  const argsPath = join(root, "codex-args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      ": > \"$CODEX_ARGS_PATH\"",
+      "for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$CODEX_ARGS_PATH\"; done",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then printf '%s' 'policy applied' > \"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-policy\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-policy-test",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    await runProviderTask(runtime, "use the default access level", root, {
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    let args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+
+    await runProviderTask(runtime, "review this change", root, {
+      executionPolicy: {
+        codexApprovalPolicy: "untrusted",
+        codexSandboxMode: "workspace-write",
+      },
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(args.includes('approval_policy="untrusted"'), true);
+    assert.equal(args.includes("--sandbox"), true);
+    assert.equal(args.includes("workspace-write"), true);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+
+    await runProviderTask(runtime, "apply this change", root, {
+      executionPolicy: {
+        codexApprovalPolicy: "never",
+        codexSandboxMode: "danger-full-access",
+      },
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(args.includes('approval_policy="never"'), true);
+    assert.equal(args.includes("danger-full-access"), true);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("managed Codex runtimes bypass nested sandbox launch", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-managed-codex-policy-"));
+  const binPath = join(root, "codex");
+  const argsPath = join(root, "codex-args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      ": > \"$CODEX_ARGS_PATH\"",
+      "for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$CODEX_ARGS_PATH\"; done",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then printf '%s' 'managed policy applied' > \"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"managed-session\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-managed-codex-policy",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Managed Codex",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+      managedCredentialId: "credential-managed-policy",
+    },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "run managed task", root, {
+      executionPolicy: {
+        codexApprovalPolicy: "never",
+        codexSandboxMode: "workspace-write",
+      },
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(result.output, "managed policy applied");
+    assert.equal(args.includes("--sandbox"), false);
+    assert.equal(args.includes("workspace-write"), false);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask starts a new Claude conversation when resume session is missing", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-stale-resume-"));
+  const binPath = join(workDir, "claude");
+  const argsDir = join(workDir, "args");
+  const countPath = join(workDir, "count.txt");
+  mkdirSync(argsDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f \"$CLAUDE_COUNT_PATH\" ]; then",
+      "  count=$(cat \"$CLAUDE_COUNT_PATH\")",
+      "fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > \"$CLAUDE_COUNT_PATH\"",
+      "args_path=\"$CLAUDE_ARGS_DIR/invocation-$count.txt\"",
+      ": > \"$args_path\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$args_path\"",
+      "done",
+      "cat > /dev/null",
+      "if [ \"$count\" = \"1\" ]; then",
+      "  printf '%s\\n' '{\"type\":\"result\",\"session_id\":\"session-stale\",\"errors\":[\"No conversation found with session ID: session-stale\"]}'",
+      "  printf '%s\\n' 'No conversation found with session ID: session-stale' >&2",
+      "  exit 1",
+      "fi",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"fresh reply\",\"session_id\":\"session-fresh\",\"usage\":{\"input_tokens\":5,\"output_tokens\":6}}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-stale-resume-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      const events: Array<{ type: string; content?: string }> = [];
+      const result = await runProviderTask(runtime, "continue the chat", workDir, {
+        sessionId: "session-stale",
+        contextEnv: {
+          CLAUDE_ARGS_DIR: argsDir,
+          CLAUDE_COUNT_PATH: countPath,
+        },
+        taskTimeoutMs: 5_000,
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      const firstArgs = readFileSync(join(argsDir, "invocation-1.txt"), "utf8").trim().split(/\r?\n/);
+      const secondArgs = readFileSync(join(argsDir, "invocation-2.txt"), "utf8").trim().split(/\r?\n/);
+
+      assert.equal(result.output, "fresh reply");
+      assert.equal(result.sessionId, "session-fresh");
+      assert.equal(firstArgs.includes("--resume"), true);
+      assert.equal(firstArgs.includes("session-stale"), true);
+      assert.equal(secondArgs.includes("--resume"), false);
+      assert.equal(secondArgs.includes("session-stale"), false);
+      assert.equal(events.some((event) => event.type === "status" && event.content?.includes("starting a new conversation")), true);
+    });
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask starts a new Claude conversation when a resumed session is rejected for prompt injection", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-poisoned-resume-"));
+  const binPath = join(workDir, "claude");
+  const argsDir = join(workDir, "args");
+  const countPath = join(workDir, "count.txt");
+  mkdirSync(argsDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f \"$CLAUDE_COUNT_PATH\" ]; then",
+      "  count=$(cat \"$CLAUDE_COUNT_PATH\")",
+      "fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > \"$CLAUDE_COUNT_PATH\"",
+      "args_path=\"$CLAUDE_ARGS_DIR/invocation-$count.txt\"",
+      ": > \"$args_path\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$args_path\"",
+      "done",
+      "cat > /dev/null",
+      "if [ \"$count\" = \"1\" ]; then",
+      "  printf '%s\\n' '{\"type\":\"result\",\"session_id\":\"session-poisoned\",\"is_error\":true,\"result\":\"API Error: 400 Prompt injection detected: encoding_bypass\"}'",
+      "  exit 1",
+      "fi",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"fresh reply\",\"session_id\":\"session-fresh\",\"usage\":{\"input_tokens\":5,\"output_tokens\":6}}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-poisoned-resume-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      const events: Array<{ type: string; content?: string; inputJson?: Record<string, unknown> }> = [];
+      const result = await runProviderTask(runtime, "continue the chat", workDir, {
+        sessionId: "session-poisoned",
+        contextEnv: {
+          CLAUDE_ARGS_DIR: argsDir,
+          CLAUDE_COUNT_PATH: countPath,
+        },
+        taskTimeoutMs: 5_000,
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      const firstArgs = readFileSync(join(argsDir, "invocation-1.txt"), "utf8").trim().split(/\r?\n/);
+      const secondArgs = readFileSync(join(argsDir, "invocation-2.txt"), "utf8").trim().split(/\r?\n/);
+
+      assert.equal(result.output, "fresh reply");
+      assert.equal(result.sessionId, "session-fresh");
+      assert.equal(firstArgs.includes("--resume"), true);
+      assert.equal(secondArgs.includes("--resume"), false);
+      assert.equal(events.some((event) => event.type === "provider_session_invalid" && event.inputJson?.code === "provider.session_poisoned"), true);
+    });
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enabled", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-feishu-lark-cli-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const larkBinDir = join(workDir, "lark-bin");
+  const binPath = join(providerBinDir, "claude");
+  const larkPath = join(larkBinDir, "lark-cli");
+  const argsPath = join(workDir, "claude-args.txt");
+  const originalPath = process.env.PATH;
+  const originalEnabled = process.env.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED;
+  mkdirSync(providerBinDir, { recursive: true });
+  mkdirSync(larkBinDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "IFS= read -r _prompt",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"feishu cli ok\",\"session_id\":\"session-feishu-cli\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(larkPath, "#!/bin/sh\necho lark-cli 1.0.0\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(larkPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-feishu-lark-cli-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    process.env.PATH = `${providerBinDir}${delimiter}${larkBinDir}`;
+    process.env.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED = "true";
+    await withProcessGetuid(0, async () => {
+      const result = await runProviderTask(runtime, "hi", workDir, {
+        contextEnv: {
+          CLAUDE_ARGS_PATH: argsPath,
+        },
+        taskTimeoutMs: 5_000,
+      });
+      const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+      assert.equal(result.output, "feishu cli ok");
+      assert.equal(result.sessionId, "session-feishu-cli");
+      assert.equal(args.includes("Bash(lark-cli --version)"), true);
+      assert.equal(args.includes("Bash(lark-cli auth status)"), true);
+      assert.equal(args.includes("Bash(lark-cli schema *)"), true);
+      assert.equal(args.includes("Bash(lark-cli docs *)"), false);
+      assert.equal(args.includes("Bash(lark-cli *)"), false);
+    });
+  } finally {
+    if (originalEnabled === undefined) {
+      delete process.env.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED;
+    } else {
+      process.env.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED = originalEnabled;
+    }
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask does not auto-expose curl to the agent even when curl is on PATH", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-curl-capability-"));
+  const binDir = join(workDir, "bin");
+  const binPath = join(binDir, "claude");
+  const curlPath = join(binDir, "curl");
+  const argsPath = join(workDir, "claude-args.txt");
+  const originalPath = process.env.PATH;
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"curl not exposed\",\"session_id\":\"session-curl\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(curlPath, "#!/bin/sh\necho curl 8.0.0\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(curlPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-curl-capability-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    process.env.PATH = binDir;
+    const result = await withProcessGetuid(0, () => runProviderTask(runtime, "install the skill", workDir, {
+      contextEnv: { CLAUDE_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    }));
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "curl not exposed");
+    assert.equal(args.includes("Bash(curl *)"), false, "curl must not be auto-granted to every task");
+    assert.equal(args.includes("Bash(curl --version)"), false);
+    assert.equal(args.includes("Bash(command -v curl)"), false);
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-specific code", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-clihub-capability-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const pythonUserBase = join(workDir, "python-user");
+  const toolBinDir = join(pythonUserBase, "bin");
+  const binPath = join(providerBinDir, "claude");
+  const fakeCliPath = join(toolBinDir, "fooctl");
+  const argsPath = join(workDir, "claude-args.txt");
+  const seenPathFile = join(workDir, "seen-path.txt");
+  const originalPath = process.env.PATH;
+  const originalPythonUserBase = process.env.PYTHONUSERBASE;
+  mkdirSync(providerBinDir, { recursive: true });
+  mkdirSync(toolBinDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
+      "IFS= read -r _prompt",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"foo ok\",\"session_id\":\"foo-session\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(fakeCliPath, "#!/bin/sh\necho fooctl ok\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(fakeCliPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-clihub-capability-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    process.env.PATH = `${providerBinDir}${delimiter}${originalPath ?? ""}`;
+    process.env.PYTHONUSERBASE = pythonUserBase;
+    await withProcessGetuid(0, async () => {
+      const result = await runProviderTask(runtime, "use fooctl", workDir, {
+        contextEnv: {
+          CLAUDE_ARGS_PATH: argsPath,
+          SEEN_PATH_FILE: seenPathFile,
+        },
+        runtimeApps: [{
+          source: "clihub_public",
+          name: "foo",
+          displayName: "Foo CLI",
+          entryPoint: "fooctl",
+        }],
+        taskTimeoutMs: 5_000,
+      });
+      const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+      const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
+
+      assert.equal(result.output, "foo ok");
+      assert.equal(result.sessionId, "foo-session");
+      assert.equal(seenPath.includes(toolBinDir), true);
+      assert.equal(args.includes("Bash(fooctl *)"), true);
+      assert.equal(args.includes("Bash(fooctl --help)"), true);
+      assert.equal(args.includes("Bash(command -v fooctl)"), true);
+    });
+  } finally {
+    process.env.PATH = originalPath;
+    if (originalPythonUserBase === undefined) delete process.env.PYTHONUSERBASE;
+    else process.env.PYTHONUSERBASE = originalPythonUserBase;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask skips daemon-host CLI-Hub diagnostics for managed child runtimes", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-managed-clihub-capability-"));
+  const binPath = join(workDir, "claude");
+  const argsPath = join(workDir, "claude-args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "IFS= read -r _prompt",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"managed app ok\",\"session_id\":\"managed-app-session\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-managed-clihub-capability-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    const result = await withProcessGetuid(0, () => runProviderTask(runtime, "use childctl", workDir, {
+      contextEnv: { CLAUDE_ARGS_PATH: argsPath },
+      runtimeApps: [{
+        source: "clihub_public",
+        name: "child",
+        displayName: "Child CLI",
+        entryPoint: "childctl",
+      }],
+      runtimeAppBinDir: join(workDir, "not-visible-in-daemon", "bin"),
+      runtimeAppHostDiagnostics: false,
+      taskTimeoutMs: 5_000,
+    }));
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "managed app ok");
+    assert.equal(result.sessionId, "managed-app-session");
+    assert.equal(args.includes("Bash(childctl *)"), true);
+    assert.equal(args.includes("Bash(childctl --help)"), true);
+    assert.equal(args.includes("Bash(command -v childctl)"), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask maps missing and unauthorized runtime tool capabilities to distinct provider errors", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-runtime-tool-diagnostics-"));
+  const binPath = join(workDir, "codex");
+  writeFileSync(binPath, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-tool-diagnostics-test",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    await assert.rejects(
+      () => runProviderTask(runtime, "try denied tool", workDir, {
+        runtimeToolCapabilities: [{
+          id: "denied-tool",
+          command: "denied-tool",
+          allowedShellPatterns: ["denied-tool *"],
+          source: "workspace",
+          status: "denied",
+          denialReason: "Agent lacks workspace grant.",
+        }],
+        taskTimeoutMs: 5_000,
+      }),
+      (error) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.code, "provider.tool_unauthorized");
+        assert.match(metadata?.providerError?.rawProviderMessage ?? "", /workspace grant/);
+        return true;
+      },
+    );
+
+    await assert.rejects(
+      () => runProviderTask(runtime, "try missing tool", workDir, {
+        runtimeToolCapabilities: [{
+          id: "missing-tool",
+          command: "missing-tool",
+          allowedShellPatterns: ["missing-tool *"],
+          diagnosticCommands: ["command -v missing-tool"],
+          source: "runtime",
+        }],
+        taskTimeoutMs: 5_000,
+      }),
+      (error) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.code, "provider.tool_missing");
+        return true;
+      },
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask routes Hermes through AgentRouter with model, PATH capabilities, and structured errors", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-hermes-provider-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const daemonBinDir = join(workDir, "daemon-bin");
+  const toolBinDir = join(workDir, "tool-bin");
+  const binPath = join(providerBinDir, "hermes");
+  const daemonBinPath = join(daemonBinDir, "dofe-agent-daemon");
+  const dofeAgentPath = join(daemonBinDir, "dofe-agent");
+  const fakeCliPath = join(toolBinDir, "fake-cli");
+  const argsPath = join(workDir, "hermes-args.txt");
+  const seenPathFile = join(workDir, "seen-path.txt");
+  const originalHermesModel = process.env.HERMES_MODEL;
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
+  mkdirSync(providerBinDir, { recursive: true });
+  mkdirSync(daemonBinDir, { recursive: true });
+  mkdirSync(toolBinDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$HERMES_ARGS_PATH\"",
+      "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
+      "if [ \"$HERMES_FAIL\" = '1' ]; then",
+      "  printf '%s\\n' 'Hermes auth failed' >&2",
+      "  exit 7",
+      "fi",
+      "if command -v fake-cli >/dev/null 2>&1; then",
+      "  if command -v dofe-agent >/dev/null 2>&1; then",
+      "    printf '%s\\n' 'hermes provider output'",
+      "  else",
+      "    printf '%s\\n' 'missing dofe-agent'",
+      "  fi",
+      "else",
+      "  printf '%s\\n' 'missing fake cli'",
+      "fi",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(daemonBinPath, "#!/bin/sh\nexit 0\n", "utf8");
+  writeFileSync(dofeAgentPath, "#!/bin/sh\necho dofe-agent\n", "utf8");
+  writeFileSync(fakeCliPath, "#!/bin/sh\necho fake-cli-ok\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(daemonBinPath, 0o755);
+  chmodSync(dofeAgentPath, 0o755);
+  chmodSync(fakeCliPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-hermes-test",
+    workspaceId: "default",
+    provider: "hermes",
+    name: "Hermes",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    process.env.DOFE_AGENT_DAEMON_BIN = daemonBinPath;
+    process.env.HERMES_MODEL = "nous-hermes";
+    const result = await runProviderTask(runtime, "write a short reply", workDir, {
+      sessionId: "previous-hermes-session",
+      contextEnv: {
+        HERMES_ARGS_PATH: argsPath,
+        SEEN_PATH_FILE: seenPathFile,
+      },
+      runtimeToolCapabilities: [{
+        id: "fake-cli",
+        command: "fake-cli",
+        displayName: "Fake CLI",
+        binDir: toolBinDir,
+        allowedShellPatterns: ["fake-cli *"],
+        source: "runtime",
+      }],
+      taskTimeoutMs: 5_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
+
+    assert.equal(result.output, "hermes provider output");
+    assert.equal(result.sessionId, undefined);
+    assert.deepEqual(args, ["-z", "write a short reply", "--model", "nous-hermes"]);
+    assert.equal(seenPath.includes(daemonBinDir), true);
+    assert.equal(seenPath.includes(toolBinDir), true);
+
+    await assert.rejects(
+      () => runProviderTask(runtime, "fail please", workDir, {
+        contextEnv: {
+          HERMES_ARGS_PATH: argsPath,
+          SEEN_PATH_FILE: seenPathFile,
+          HERMES_FAIL: "1",
+        },
+        taskTimeoutMs: 5_000,
+      }),
+      (error) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.provider, "hermes");
+        assert.equal(metadata?.providerError?.code, "provider.runtime_generic_failure");
+        assert.equal(metadata?.providerError?.category, "runtime");
+        assert.match(metadata?.providerError?.rawProviderMessage ?? "", /Hermes auth failed/);
+        return true;
+      },
+    );
+  } finally {
+    if (originalHermesModel === undefined) {
+      delete process.env.HERMES_MODEL;
+    } else {
+      process.env.HERMES_MODEL = originalHermesModel;
+    }
+    if (originalDaemonBin === undefined) {
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
+    } else {
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask routes Antigravity through AgentRouter with prompt mode, model, session, and PATH capabilities", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-antigravity-provider-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const daemonBinDir = join(workDir, "daemon-bin");
+  const toolBinDir = join(workDir, "tool-bin");
+  const binPath = join(providerBinDir, "agy");
+  const daemonBinPath = join(daemonBinDir, "dofe-agent-daemon");
+  const dofeAgentPath = join(daemonBinDir, "dofe-agent");
+  const fakeCliPath = join(toolBinDir, "fake-cli");
+  const argsPath = join(workDir, "antigravity-args.txt");
+  const seenPathFile = join(workDir, "seen-path.txt");
+  const originalAntigravityModel = process.env.ANTIGRAVITY_MODEL;
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
+  mkdirSync(providerBinDir, { recursive: true });
+  mkdirSync(daemonBinDir, { recursive: true });
+  mkdirSync(toolBinDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$ANTIGRAVITY_ARGS_PATH\"",
+      "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
+      "if command -v fake-cli >/dev/null 2>&1 && command -v dofe-agent >/dev/null 2>&1; then",
+      "  printf '%s\\n' 'antigravity provider output'",
+      "else",
+      "  printf '%s\\n' 'missing runtime path'",
+      "fi",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(daemonBinPath, "#!/bin/sh\nexit 0\n", "utf8");
+  writeFileSync(dofeAgentPath, "#!/bin/sh\necho dofe-agent\n", "utf8");
+  writeFileSync(fakeCliPath, "#!/bin/sh\necho fake-cli-ok\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(daemonBinPath, 0o755);
+  chmodSync(dofeAgentPath, 0o755);
+  chmodSync(fakeCliPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-antigravity-test",
+    workspaceId: "default",
+    provider: "antigravity",
+    name: "Antigravity",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    process.env.DOFE_AGENT_DAEMON_BIN = daemonBinPath;
+    process.env.ANTIGRAVITY_MODEL = "Gemini 3.5 Flash";
+    const result = await runProviderTask(runtime, "write a short reply", workDir, {
+      sessionId: "conversation-prev",
+      contextEnv: {
+        ANTIGRAVITY_ARGS_PATH: argsPath,
+        SEEN_PATH_FILE: seenPathFile,
+      },
+      runtimeToolCapabilities: [{
+        id: "fake-cli",
+        command: "fake-cli",
+        displayName: "Fake CLI",
+        binDir: toolBinDir,
+        allowedShellPatterns: ["fake-cli *"],
+        source: "runtime",
+      }],
+      taskTimeoutMs: 5_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
+
+    assert.equal(result.output, "antigravity provider output");
+    assert.equal(result.sessionId, "conversation-prev");
+    assert.deepEqual(args, [
+      "--conversation",
+      "conversation-prev",
+      "-p",
+      "write a short reply",
+      "--cwd",
+      workDir,
+      "--model",
+      "Gemini 3.5 Flash",
+    ]);
+    assert.equal(seenPath.includes(daemonBinDir), true);
+    assert.equal(seenPath.includes(toolBinDir), true);
+  } finally {
+    if (originalAntigravityModel === undefined) {
+      delete process.env.ANTIGRAVITY_MODEL;
+    } else {
+      process.env.ANTIGRAVITY_MODEL = originalAntigravityModel;
+    }
+    if (originalDaemonBin === undefined) {
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
+    } else {
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask routes OpenCode through AgentRouter with model, session, and PATH capabilities", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-opencode-provider-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const daemonBinDir = join(workDir, "daemon-bin");
+  const toolBinDir = join(workDir, "tool-bin");
+  const binPath = join(providerBinDir, "opencode");
+  const daemonBinPath = join(daemonBinDir, "dofe-agent-daemon");
+  const fakeCliPath = join(toolBinDir, "fake-cli");
+  const argsPath = join(workDir, "opencode-args.txt");
+  const seenPathFile = join(workDir, "seen-path.txt");
+  const originalOpenCodeModel = process.env.OPENCODE_MODEL;
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
+  mkdirSync(providerBinDir, { recursive: true });
+  mkdirSync(daemonBinDir, { recursive: true });
+  mkdirSync(toolBinDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$OPENCODE_ARGS_PATH\"",
+      "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
+      "if command -v fake-cli >/dev/null 2>&1 && command -v dofe-agent-daemon >/dev/null 2>&1; then",
+      "  printf '%s\\n' '{\"type\":\"step_start\",\"sessionID\":\"opencode-session\",\"part\":{\"text\":\"working\"}}'",
+      "  printf '%s\\n' '{\"type\":\"text\",\"sessionID\":\"opencode-session\",\"part\":{\"text\":\"opencode provider output\"}}'",
+      "  printf '%s\\n' '{\"type\":\"step_finish\",\"sessionID\":\"opencode-session\",\"part\":{\"tokens\":{\"input\":3,\"output\":4}}}'",
+      "else",
+      "  printf '%s\\n' 'missing runtime path'",
+      "fi",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(daemonBinPath, "#!/bin/sh\nexit 0\n", "utf8");
+  writeFileSync(fakeCliPath, "#!/bin/sh\necho fake-cli-ok\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(daemonBinPath, 0o755);
+  chmodSync(fakeCliPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-opencode-test",
+    workspaceId: "default",
+    provider: "opencode",
+    name: "OpenCode",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    process.env.DOFE_AGENT_DAEMON_BIN = daemonBinPath;
+    process.env.OPENCODE_MODEL = "openrouter/openai/gpt-4.1";
+    const events: Array<{ type: string; content?: string }> = [];
+    const result = await runProviderTask(runtime, "write a short reply", workDir, {
+      sessionId: "previous-opencode-session",
+      contextEnv: {
+        OPENCODE_ARGS_PATH: argsPath,
+        SEEN_PATH_FILE: seenPathFile,
+      },
+      runtimeToolCapabilities: [{
+        id: "fake-cli",
+        command: "fake-cli",
+        displayName: "Fake CLI",
+        binDir: toolBinDir,
+        allowedShellPatterns: ["fake-cli *"],
+        source: "runtime",
+      }],
+      onEvent: (event) => events.push(event),
+      taskTimeoutMs: 5_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
+
+    assert.equal(result.output, "opencode provider output");
+    assert.equal(result.sessionId, "opencode-session");
+    assert.deepEqual(args, [
+      "run",
+      "--format",
+      "json",
+      "--session",
+      "previous-opencode-session",
+      "--model",
+      "openrouter/openai/gpt-4.1",
+      "write a short reply",
+    ]);
+    assert.equal(seenPath.includes(daemonBinDir), true);
+    assert.equal(seenPath.includes(toolBinDir), true);
+    assert.equal(events.some((event) => event.type === "usage"), true);
+  } finally {
+    if (originalOpenCodeModel === undefined) {
+      delete process.env.OPENCODE_MODEL;
+    } else {
+      process.env.OPENCODE_MODEL = originalOpenCodeModel;
+    }
+    if (originalDaemonBin === undefined) {
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
+    } else {
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask maps Hermes capability and empty-response diagnostics to provider errors", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-hermes-diagnostics-"));
+  const binPath = join(workDir, "hermes");
+  writeFileSync(binPath, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-hermes-diagnostics-test",
+    workspaceId: "default",
+    provider: "hermes",
+    name: "Hermes",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    await assert.rejects(
+      () => runProviderTask(runtime, "try denied tool", workDir, {
+        runtimeToolCapabilities: [{
+          id: "denied-tool",
+          command: "denied-tool",
+          allowedShellPatterns: ["denied-tool *"],
+          source: "workspace",
+          status: "denied",
+          denialReason: "Agent lacks workspace grant.",
+        }],
+        taskTimeoutMs: 5_000,
+      }),
+      (error) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.provider, "hermes");
+        assert.equal(metadata?.providerError?.code, "provider.tool_unauthorized");
+        assert.match(metadata?.providerError?.rawProviderMessage ?? "", /workspace grant/);
+        return true;
+      },
+    );
+
+    await assert.rejects(
+      () => runProviderTask(runtime, "try missing tool", workDir, {
+        runtimeToolCapabilities: [{
+          id: "missing-tool",
+          command: "missing-tool",
+          allowedShellPatterns: ["missing-tool *"],
+          diagnosticCommands: ["command -v missing-tool"],
+          source: "runtime",
+        }],
+        taskTimeoutMs: 5_000,
+      }),
+      (error) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.provider, "hermes");
+        assert.equal(metadata?.providerError?.code, "provider.tool_missing");
+        return true;
+      },
+    );
+
+    await assert.rejects(
+      () => runProviderTask(runtime, "empty", workDir, {
+        taskTimeoutMs: 5_000,
+      }),
+      (error) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.provider, "hermes");
+        assert.equal(metadata?.providerError?.code, "provider.empty_response");
+        return true;
+      },
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask keeps Claude one-shot when an approval callback is available", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-control-request-"));
+  const binPath = join(workDir, "claude");
+  const stdinPath = join(workDir, "claude-stdin.jsonl");
+  const argsPath = join(workDir, "claude-args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "cat > \"$CLAUDE_STDIN_PATH\"",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"completed\",\"session_id\":\"session-control\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-control-request-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    await withProcessGetuid(0, async () => {
+      const approvals: Array<{ toolName: string; command?: string }> = [];
+      const result = await runProviderTask(runtime, "run ls", workDir, {
+        contextEnv: {
+          CLAUDE_STDIN_PATH: stdinPath,
+          CLAUDE_ARGS_PATH: argsPath,
+        },
+        onApprovalRequest: async (request) => {
+          approvals.push({
+            toolName: request.toolName,
+            command: typeof request.toolInput?.command === "string" ? request.toolInput.command : undefined,
+          });
+          return { decision: "approved" };
+        },
+        taskTimeoutMs: 5_000,
+      });
+      const args = readFileSync(argsPath, "utf8");
+
+      assert.equal(result.output, "completed");
+      assert.equal(result.sessionId, "session-control");
+      assert.doesNotMatch(args, /--input-format/);
+      assert.match(args, /run ls/);
+      assert.equal(readFileSync(stdinPath, "utf8"), "");
+      assert.deepEqual(approvals, []);
+    });
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask asks for approval and retries Claude permission denials under root", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-permission-denial-"));
+  const binPath = join(workDir, "claude");
+  const argsPath = join(workDir, "claude-args.txt");
+  const countPath = join(workDir, "count.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f \"$CLAUDE_COUNT_PATH\" ]; then",
+      "  count=$(cat \"$CLAUDE_COUNT_PATH\")",
+      "fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > \"$CLAUDE_COUNT_PATH\"",
+      "printf '%s\\n' \"-- invocation $count --\" >> \"$CLAUDE_ARGS_PATH\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$CLAUDE_ARGS_PATH\"",
+      "done",
+      "IFS= read -r _prompt",
+      "if [ \"$count\" = \"1\" ]; then",
+      "  printf '%s\\n' '{\"type\":\"result\",\"result\":\"need approval\",\"session_id\":\"session-denied\",\"permission_denials\":[{\"tool_name\":\"Bash\",\"tool_use_id\":\"tool-1\",\"tool_input\":{\"command\":\"acme-tool read --help\"}}]}'",
+      "else",
+      "  printf '%s\\n' '{\"type\":\"result\",\"result\":\"continued after approval\",\"session_id\":\"session-denied\"}'",
+      "fi",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-permission-denial-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    await withProcessGetuid(0, async () => {
+      const approvals: Array<{ toolName: string; command?: string }> = [];
+      const result = await runProviderTask(runtime, "run acme-tool", workDir, {
+        contextEnv: {
+          CLAUDE_ARGS_PATH: argsPath,
+          CLAUDE_COUNT_PATH: countPath,
+        },
+        onApprovalRequest: async (request) => {
+          approvals.push({
+            toolName: request.toolName,
+            command: typeof request.toolInput?.command === "string" ? request.toolInput.command : undefined,
+          });
+          return { decision: "approved" };
+        },
+        taskTimeoutMs: 5_000,
+      });
+      const args = readFileSync(argsPath, "utf8");
+
+      assert.equal(result.output, "continued after approval");
+      assert.equal(result.sessionId, "session-denied");
+      assert.deepEqual(approvals, [{ toolName: "Bash", command: "acme-tool read --help" }]);
+      assert.match(args, /--resume\nsession-denied/);
+      assert.match(args, /Bash\(acme-tool read --help\)/);
+    });
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask uses Claude assistant text as fallback when result event is missing", async () => {
+  const fixture = createClaudeRuntimeFixture([
+    "#!/bin/sh",
+    "cat >/dev/null",
+    "printf '%s\\n' '{\"type\":\"assistant\",\"session_id\":\"session-text\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"fallback answer\"}]}}'",
+    "",
+  ]);
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      const result = await runProviderTask(fixture.runtime, "summarize", fixture.workDir, {
+        taskTimeoutMs: 5_000,
+      });
+
+      assert.equal(result.output, "fallback answer");
+      assert.equal(result.sessionId, "session-text");
+    });
+  } finally {
+    rmSync(fixture.workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask reports Claude usage-only responses with structured diagnostics", async () => {
+  const fixture = createClaudeRuntimeFixture([
+    "#!/bin/sh",
+    "cat >/dev/null",
+    "printf '%s\\n' '{\"type\":\"result\",\"session_id\":\"session-usage\",\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}'",
+    "",
+  ]);
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      await assert.rejects(
+        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 5_000 }),
+        (error) => {
+          const metadata = readProviderTaskFailureMetadata(error);
+          assert.equal(metadata?.providerError?.code, "provider.empty_response.no_text_event");
+          assert.equal(metadata?.sessionId, "session-usage");
+          const message = error instanceof Error ? error.message : String(error);
+          assert.match(message, /events=result:1/);
+          assert.match(message, /resultEvent=true/);
+          assert.match(message, /textEvent=false/);
+          return true;
+        },
+      );
+    });
+  } finally {
+    rmSync(fixture.workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask reports Claude non-JSON stdout as a protocol diagnostic", async () => {
+  const fixture = createClaudeRuntimeFixture([
+    "#!/bin/sh",
+    "cat >/dev/null",
+    "printf '%s\\n' 'not json output'",
+    "",
+  ]);
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      await assert.rejects(
+        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 5_000 }),
+        (error) => {
+          const metadata = readProviderTaskFailureMetadata(error);
+          assert.equal(metadata?.providerError?.code, "provider.protocol_parse_failed");
+          const message = error instanceof Error ? error.message : String(error);
+          assert.match(message, /nonJsonLines=1/);
+          assert.match(message, /stdoutTail="not json output"/);
+          return true;
+        },
+      );
+    });
+  } finally {
+    rmSync(fixture.workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask includes sanitized Claude stderr tail on empty stdout", async () => {
+  const fixture = createClaudeRuntimeFixture([
+    "#!/bin/sh",
+    "cat >/dev/null",
+    "printf '%s\\n' 'ANTHROPIC_API_KEY=secret-value failure detail' >&2",
+    "",
+  ]);
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      await assert.rejects(
+        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 5_000 }),
+        (error) => {
+          const metadata = readProviderTaskFailureMetadata(error);
+          assert.equal(metadata?.providerError?.code, "provider.empty_response.stdout_empty");
+          const message = error instanceof Error ? error.message : String(error);
+          assert.match(message, /stderrTail=.*ANTHROPIC_API_KEY=\[redacted\]/);
+          assert.doesNotMatch(message, /secret-value/);
+          return true;
+        },
+      );
+    });
+  } finally {
+    rmSync(fixture.workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask value-redacts bare secret values leaked into Gemini output", async () => {
+  // Gemini runs through runGeminiProviderTask (LocalSandbox.exec), not the
+  // agent-router, so its stdout/stderr were not value-redacted. The legacy
+  // diagnostic sanitizer only catches recognizable shapes (KEY=value, sk-…,
+  // Bearer …); a bare secret value echoed by the provider is only scrubbed by
+  // the value-based redaction added here, mirroring the agent-router path.
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-gemini-redact-"));
+  const binPath = join(workDir, "gemini");
+  writeFileSync(binPath, "#!/bin/sh\nprintf '%s\\n' \"leaked: $CUSTOM_API_TOKEN\"\n", "utf8");
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-gemini-redact-test",
+    workspaceId: "default",
+    provider: "gemini",
+    name: "Gemini",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "summarize", workDir, {
+      taskTimeoutMs: 5_000,
+      contextEnv: { CUSTOM_API_TOKEN: "gamma-delta-9988-echo" },
+    });
+    assert.equal(result.output.includes("gamma-delta-9988-echo"), false);
+    assert.equal(result.output.includes("[redacted:CUSTOM_API_TOKEN]"), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask reports Claude timeouts with execution diagnostics", async () => {
+  const fixture = createClaudeRuntimeFixture([
+    "#!/bin/sh",
+    "cat >/dev/null",
+    "sleep 1",
+    "",
+  ]);
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      await assert.rejects(
+        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 20 }),
+        (error) => {
+          const metadata = readProviderTaskFailureMetadata(error);
+          assert.equal(metadata?.providerError?.code, "provider.timeout");
+          const message = error instanceof Error ? error.message : String(error);
+          assert.match(message, /claude timed out after 20ms/);
+          assert.match(message, /timedOut=true/);
+          return true;
+        },
+      );
+    });
+  } finally {
+    rmSync(fixture.workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask allows Claude execution under root", async () => {
+  const fixture = createClaudeRuntimeFixture([
+    "#!/bin/sh",
+    "IFS= read -r _prompt",
+    "printf '%s\\n' '{\"type\":\"result\",\"result\":\"root claude ok\",\"session_id\":\"session-root\"}'",
+    "",
+  ]);
+  try {
+    await withProcessGetuid(0, async () => {
+      const result = await runProviderTask(fixture.runtime, "hi", fixture.workDir, { taskTimeoutMs: 5_000 });
+      assert.equal(result.output, "root claude ok");
+      assert.equal(result.sessionId, "session-root");
+    });
+  } finally {
+    rmSync(fixture.workDir, { recursive: true, force: true });
+  }
+});
+
+test("inspectOpenClawDaemonAuthHealth reports missing task auth profiles as broken", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-health-"));
+
+  try {
+    const result = inspectOpenClawDaemonAuthHealth({
+      workDir,
+      env: {},
+      homeDir: join(workDir, "home"),
+    });
+
+    assert.equal(result.provider, "openclaw");
+    assert.equal(result.status, "broken");
+    assert.equal(result.usable, false);
+    assert.equal(result.error?.code, "provider.profile_missing");
+    assert.match(result.error?.message ?? "", /auth profile/i);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+function createClaudeRuntimeFixture(scriptLines: string[]): {
+  workDir: string;
+  runtime: ProviderRuntimeRecord;
+} {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-diagnostics-"));
+  const binPath = join(workDir, "claude");
+  writeFileSync(binPath, scriptLines.join("\n"), "utf8");
+  chmodSync(binPath, 0o755);
+  return {
+    workDir,
+    runtime: {
+      id: "runtime-claude-diagnostics-test",
+      workspaceId: "default",
+      provider: "claude",
+      name: "Claude",
+      status: "online",
+      metadata: {
+        executablePath: binPath,
+        mode: "remote",
+      },
+    },
+  };
+}
+
+async function withProcessGetuid<T>(uid: number, run: () => T | Promise<T>): Promise<T> {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "getuid");
+  Object.defineProperty(process, "getuid", {
+    configurable: true,
+    writable: true,
+    value: () => uid,
+  });
+  try {
+    return await run();
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(process, "getuid", descriptor);
+    } else {
+      delete (process as typeof process & { getuid?: () => number }).getuid;
+    }
+  }
+}
+
+test("inspectOpenClawDaemonAuthHealth reports missing model mappings separately", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-health-"));
+
+  try {
+    mkdirSync(join(workDir, "agent"), { recursive: true });
+    writeFileSync(
+      join(workDir, "agent", "auth-profiles.json"),
+      JSON.stringify({ profiles: { "openrouter:default": { provider: "openrouter" } } }),
+      "utf8",
+    );
+
+    const result = inspectOpenClawDaemonAuthHealth({
+      workDir,
+      env: {},
+      homeDir: join(workDir, "home"),
+    });
+
+    assert.equal(result.status, "broken");
+    assert.equal(result.error?.code, "provider.model_unavailable");
+    assert.equal(result.error?.category, "model");
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("inspectOpenClawDaemonAuthHealth reports usable and degraded states", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-health-"));
+
+  try {
+    mkdirSync(join(workDir, "agent"), { recursive: true });
+    writeFileSync(
+      join(workDir, "agent", "auth-profiles.json"),
+      JSON.stringify({ profiles: { "openrouter:default": { provider: "openrouter" } } }),
+      "utf8",
+    );
+    writeFileSync(
+      join(workDir, "agent", "models.json"),
+      JSON.stringify({ default: "openrouter/google/gemini-3.1-pro-preview" }),
+      "utf8",
+    );
+
+    const usable = inspectOpenClawDaemonAuthHealth({
+      workDir,
+      env: {},
+      homeDir: join(workDir, "home"),
+    });
+    assert.equal(usable.status, "healthy");
+    assert.equal(usable.usable, true);
+
+    const degraded = inspectOpenClawDaemonAuthHealth({
+      env: { OPENCLAW_PROFILE: "default" },
+      homeDir: join(workDir, "home"),
+    });
+    assert.equal(degraded.status, "degraded");
+    assert.equal(degraded.usable, true);
+    assert.equal(degraded.error?.code, "provider.profile_missing");
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("normalizeOpenClawProviderError maps auth and profile failures to structured codes", () => {
+  const authFailure = normalizeOpenClawProviderError("HTTP 401: User not found.");
+  assert.equal(authFailure?.code, "provider.auth_invalid");
+  assert.equal(authFailure?.category, "auth");
+  assert.equal(authFailure?.provider, "openclaw");
+
+  const profileFailure = normalizeOpenClawProviderError("openclaw profile default not found");
+  assert.equal(profileFailure?.code, "provider.profile_missing");
+  assert.equal(profileFailure?.category, "profile");
+
+  const modelFailure = normalizeOpenClawProviderError("model acme/missing not found");
+  assert.equal(modelFailure?.code, "provider.model_unavailable");
+
+  const sessionFailure = normalizeOpenClawProviderError("session stale-session not found");
+  assert.equal(sessionFailure?.code, "provider.session_invalid");
+});
+
+test("runProviderTask returns OpenClaw final text without keyword-classifying it", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-task-"));
+  const binPath = join(workDir, "openclaw");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"agents\" ]; then",
+      "  exit 0",
+      "fi",
+      "if [ \"$1\" = \"agent\" ]; then",
+      "  echo 'HTTP 401: User not found.'",
+      "  exit 0",
+      "fi",
+      "exit 0",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-openclaw-test",
+    workspaceId: "default",
+    provider: "openclaw",
+    name: "OpenClaw",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "local",
+    },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "hi", workDir, { taskTimeoutMs: 5_000 });
+    assert.equal(result.output, "HTTP 401: User not found.");
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask maps OpenClaw router diagnostics to provider errors", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-diagnostic-"));
+  const binPath = join(workDir, "openclaw");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' 'model missing-model not found' >&2",
+      "exit 1",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime = createOpenClawRuntime(binPath);
+
+  try {
+    await assert.rejects(
+      () => runProviderTask(runtime, "hi", workDir, { taskTimeoutMs: 5_000 }),
+      (error) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.code, "provider.model_unavailable");
+        assert.equal(metadata?.providerError?.category, "model");
+        assert.match(metadata?.providerError?.rawProviderMessage ?? "", /missing-model/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask retries OpenClaw when resume session is missing", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-stale-session-"));
+  const binPath = join(workDir, "openclaw");
+  const argsDir = join(workDir, "args");
+  const countPath = join(workDir, "count.txt");
+  mkdirSync(argsDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f \"$OPENCLAW_COUNT_PATH\" ]; then count=$(cat \"$OPENCLAW_COUNT_PATH\"); fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > \"$OPENCLAW_COUNT_PATH\"",
+      "printf '%s\\n' \"$@\" > \"$OPENCLAW_ARGS_DIR/invocation-$count.txt\"",
+      "if [ \"$count\" = \"1\" ]; then",
+      "  printf '%s\\n' 'session stale-openclaw not found' >&2",
+      "  exit 1",
+      "fi",
+      "if [ \"$1\" = \"agents\" ]; then",
+      "  exit 0",
+      "fi",
+      "printf '%s\\n' '{\"sessionId\":\"fresh-openclaw\",\"message\":{\"content\":\"fresh claw reply\"}}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime = createOpenClawRuntime(binPath);
+
+  try {
+    const events: Array<{ type: string; content?: string }> = [];
+    const result = await runProviderTask(runtime, "continue", workDir, {
+      sessionId: "stale-openclaw",
+      contextEnv: {
+        OPENCLAW_ARGS_DIR: argsDir,
+        OPENCLAW_COUNT_PATH: countPath,
+      },
+      taskTimeoutMs: 5_000,
+      onEvent: (event) => events.push(event),
+    });
+    const firstArgs = readFileSync(join(argsDir, "invocation-1.txt"), "utf8").trim().split(/\r?\n/);
+    const secondArgs = readFileSync(join(argsDir, "invocation-2.txt"), "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "fresh claw reply");
+    assert.equal(result.sessionId, "fresh-openclaw");
+    assert.equal(firstArgs.includes("--session-id"), true);
+    assert.equal(firstArgs.includes("stale-openclaw"), true);
+    assert.equal(secondArgs.includes("--session-id"), false);
+    assert.equal(secondArgs.includes("agents"), true);
+    assert.equal(secondArgs.includes("add"), true);
+    const thirdArgs = readFileSync(join(argsDir, "invocation-3.txt"), "utf8").trim().split(/\r?\n/);
+    assert.equal(thirdArgs.includes("--agent"), true);
+    assert.equal(events.some((event) => event.type === "status" && event.content?.includes("starting a new conversation")), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask fails OpenClaw daemon preflight before provider launch", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-preflight-"));
+  const binPath = join(workDir, "openclaw");
+  const countPath = join(workDir, "count.txt");
+  writeFileSync(binPath, "#!/bin/sh\nprintf '1' > \"$OPENCLAW_COUNT_PATH\"\necho should-not-run\n", "utf8");
+  writeFileSync(join(workDir, "task.json"), "{}", "utf8");
+  chmodSync(binPath, 0o755);
+
+  const runtime = createOpenClawRuntime(binPath);
+
+  try {
+    await assert.rejects(
+      () => runProviderTask(runtime, "hi", workDir, {
+        contextEnv: {
+          OPENCLAW_COUNT_PATH: countPath,
+          DOFE_AGENT_CONTEXT_TASK_ID: "task-openclaw",
+        },
+        taskTimeoutMs: 5_000,
+      }),
+      (error) => {
+        const metadata = readProviderTaskFailureMetadata(error);
+        assert.equal(metadata?.providerError?.code, "provider.profile_missing");
+        assert.equal(existsSync(countPath), false);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask keeps OpenClaw execution on AgentRouter launch shape", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-router-only-"));
+  const binPath = join(workDir, "openclaw");
+  const argsPath = join(workDir, "args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" >> \"$OPENCLAW_ARGS_PATH\"",
+      "if [ \"$1\" = \"agents\" ]; then exit 0; fi",
+      "printf '%s\\n' '{\"sessionId\":\"router-session\",\"message\":{\"content\":\"router only\"}}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime = createOpenClawRuntime(binPath);
+
+  try {
+    const result = await runProviderTask(runtime, "hi", workDir, {
+      contextEnv: { OPENCLAW_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    const argsText = readFileSync(argsPath, "utf8");
+
+    assert.equal(result.output, "router only");
+    assert.match(argsText, /agents\nadd/);
+    assert.match(argsText, /agent\n--local/);
+    assert.match(argsText, /--json/);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("managed runtimes do not inherit host provider credentials", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-managed-env-"));
+  const binPath = join(workDir, "codex");
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const originalMcpAdminToken = process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN;
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "output_path=''",
+      "previous_arg=''",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = '-o' ]; then output_path=\"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '[%s|%s]' \"${OPENAI_API_KEY-unset}\" \"${MCP_EGRESS_PROXY_ADMIN_TOKEN-unset}\" > \"$output_path\"",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"managed-session\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  process.env.OPENAI_API_KEY = "host-only-key";
+  process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN = "must-not-reach-provider";
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-managed-env",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Managed Codex",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+      managedCredentialId: "credential-managed-env",
+    },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "verify isolation", workDir, { taskTimeoutMs: 5_000 });
+    assert.equal(result.output, "[|unset]");
+  } finally {
+    if (originalOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalOpenAiKey;
+    if (originalMcpAdminToken === undefined) delete process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN;
+    else process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN = originalMcpAdminToken;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+function createOpenClawRuntime(binPath: string): ProviderRuntimeRecord {
+  return {
+    id: "runtime-openclaw-test",
+    workspaceId: "default",
+    provider: "openclaw",
+    name: "OpenClaw",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "local",
+    },
+  };
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function writeApprovedDeepSeekCordisConfig(path: string): void {
+  writeFileSync(
+    path,
+    readFileSync(new URL("../../../deploy/daemon/runtimes/deepseek-jsonrpc/cordis.yml", import.meta.url)),
+  );
+}
+
+function configureDeepSeekRuntimeSidecarPins(runtimePath: string): void {
+  const ripgrepPath = `${runtimePath}-rg`;
+  writeFileSync(ripgrepPath, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(ripgrepPath, 0o755);
+  process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_RIPGREP_SHA256 = sha256File(ripgrepPath);
+  if (process.platform !== "darwin") {
+    delete process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256;
+    return;
+  }
+  const spawnHelperPath = `${runtimePath}-spawn-helper`;
+  writeFileSync(spawnHelperPath, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(spawnHelperPath, 0o755);
+  process.env.DOFE_AGENT_DEEPSEEK_JSONRPC_SPAWN_HELPER_SHA256 = sha256File(spawnHelperPath);
+}
+
+function writeDeepSeekRuntimeProvenance(path: string, runtimePath: string, wheelSha256: string): void {
+  writeFileSync(path, JSON.stringify({
+    schemaVersion: 1,
+    source: {
+      repository: "https://github.com/iTechwu/deepseek-harness",
+      ref: "dsh-v0.1.1-rc.2",
+      commit: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+    },
+    wheel: {
+      filename: "deepseek_harness_runtime_bin-0.1.1rc2-py3-none-manylinux_2_28_x86_64.whl",
+      sha256: wheelSha256,
+      distribution: "deepseek-harness-runtime-bin",
+      version: "0.1.1rc2",
+      tag: "py3-none-manylinux_2_28_x86_64",
+    },
+    artifacts: {
+      "dsh-jsonrpc-agent": {
+        source: "deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-linux-x64",
+        sha256: sha256File(runtimePath),
+      },
+      "dsh-jsonrpc-agent-rg": {
+        source: "deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-linux-x64-rg",
+        sha256: sha256File(`${runtimePath}-rg`),
+      },
+    },
+  }), "utf8");
+}

@@ -1,0 +1,166 @@
+// @deprecated — Phase 2 pg 直连原型，保留作 Prisma 接入迁移期 fallback。
+// 生产路径走 task-execution-events-prisma.ts（同等接口，@prisma/client 真接入）。
+//
+// task-execution-events Phase 2 异步 primary（pg.Client 直连原型）：
+// - listTaskExecutionEventsAsync 通过 pg.Client 直连 PG 拉 task_execution_event
+//   行，作为 cutover runner 的 async primary。
+// - shadow 关闭时无任何额外开销（不在 sync 路径上调用）。
+// - mapTaskExecutionEventRow 桥接 pg JSONB → object 与 Date → ISO 的类型差异。
+
+import { Client } from "pg";
+import { resolvePostgresDatabaseUrl } from "../postgres-config.ts";
+import type { TaskExecutionEventListOptions } from "../task-execution-events.ts";
+import type { TaskExecutionEventRecord } from "../types.ts";
+
+interface AsyncTaskEventRow {
+  id: string;
+  workspace_id: string | null;
+  task_id: string | null;
+  channel_name: string | null;
+  agent_id: string | null;
+  runtime_id: string | null;
+  run_id: string | null;
+  type: string;
+  title: string | null;
+  summary: string | null;
+  severity: string;
+  status: string | null;
+  data_json: unknown;
+  created_at: Date | string;
+}
+
+const SEVERITIES = new Set(["info", "warning", "error", "success"]);
+const STATUSES = new Set(["pending", "running", "succeeded", "failed"]);
+
+export async function listTaskExecutionEventsAsync(
+  options: TaskExecutionEventListOptions = {},
+): Promise<TaskExecutionEventRecord[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  function pushIfString(value: string | undefined, column: string): void {
+    if (typeof value === "string") {
+      conditions.push(`${column} = $${params.length + 1}`);
+      params.push(value);
+    }
+  }
+  pushIfString(options.workspaceId, "workspace_id");
+  pushIfString(options.taskId, "task_id");
+  if (!options.taskId && options.taskIds) {
+    const taskIds = [...new Set(options.taskIds)].filter((taskId) => taskId.length > 0);
+    if (taskIds.length === 0) return [];
+    conditions.push(`task_id = ANY($${params.length + 1}::text[])`);
+    params.push(taskIds);
+  }
+  pushIfString(options.channelName, "channel_name");
+  pushIfString(options.agentId, "agent_id");
+  pushIfString(options.runtimeId, "runtime_id");
+
+  const taskIds = options.taskIds ? normalizeTaskIds(options.taskIds) : [];
+  const limitPerTask = taskIds.length > 0 && options.limitPerTask !== undefined
+    ? normalizeLimit(options.limitPerTask, 500)
+    : null;
+  const limit = limitPerTask === null
+    ? normalizeLimit(options.limit, options.taskIds ? 5000 : 500)
+    : Math.min(5000, taskIds.length * limitPerTask);
+  const order = options.order === "desc" ? "DESC" : "ASC";
+  const tieOrder = options.order === "desc" ? "DESC" : "ASC";
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  let sql: string;
+  if (limitPerTask === null) {
+    params.push(limit);
+    sql = `SELECT id, workspace_id, task_id, channel_name, agent_id,
+                  runtime_id, run_id, type, title, summary,
+                  severity, status, data_json, created_at
+           FROM task_execution_event
+           ${whereClause}
+           ORDER BY created_at ${order}, id ${tieOrder}
+           LIMIT $${params.length}`;
+  } else {
+    params.push(limitPerTask, limit);
+    sql = `SELECT id, workspace_id, task_id, channel_name, agent_id,
+                  runtime_id, run_id, type, title, summary,
+                  severity, status, data_json, created_at
+           FROM (
+             SELECT task_execution_event.*,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY task_id ORDER BY created_at ${order}, id ${tieOrder}
+                    ) AS task_rank
+             FROM task_execution_event
+             ${whereClause}
+           ) ranked
+           WHERE task_rank <= $${params.length - 1}
+           ORDER BY created_at ${order}, id ${tieOrder}
+           LIMIT $${params.length}`;
+  }
+
+  const client = new Client({ connectionString: resolvePostgresDatabaseUrl() });
+  try {
+    await client.connect();
+    const result = await client.query<AsyncTaskEventRow>(sql, params);
+    return result.rows
+      .map(mapTaskExecutionEventRow)
+      .filter((row): row is TaskExecutionEventRecord => row !== null);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+export function isTaskExecutionEventsAsyncReadEnabled(): boolean {
+  return process.env.TASK_EXECUTION_EVENTS_ASYNC_READ_ENABLED === "1";
+}
+
+export function isTaskExecutionEventsShadowReadEnabled(): boolean {
+  return process.env.TASK_EXECUTION_EVENTS_SHADOW_READ_ENABLED === "1";
+}
+
+function normalizeLimit(limit: number | undefined, maximum: number): number {
+  return Math.min(Math.max(limit ?? 100, 1), maximum);
+}
+
+function normalizeTaskIds(taskIds: string[]): string[] {
+  return [...new Set(taskIds)].filter((taskId) => taskId.length > 0);
+}
+
+function mapTaskExecutionEventRow(
+  row: AsyncTaskEventRow,
+): TaskExecutionEventRecord | null {
+  if (!SEVERITIES.has(row.severity)) return null;
+  if (row.status !== null && !STATUSES.has(row.status)) return null;
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id ?? "",
+    taskId: row.task_id ?? "",
+    channelName: row.channel_name ?? "",
+    agentId: row.agent_id ?? "",
+    runtimeId: row.runtime_id ?? undefined,
+    runId: row.run_id ?? undefined,
+    type: row.type as TaskExecutionEventRecord["type"],
+    title: row.title ?? "",
+    summary: row.summary ?? undefined,
+    severity: row.severity as TaskExecutionEventRecord["severity"],
+    status: (row.status ?? undefined) as TaskExecutionEventRecord["status"],
+    dataJson: serializeJson(row.data_json),
+    createdAt: toIsoString(row.created_at),
+  };
+}
+
+function toIsoString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function serializeJson(value: unknown): string {
+  if (value === null || value === undefined) return "{}";
+  if (typeof value === "string") {
+    try {
+      return JSON.stringify(JSON.parse(value));
+    } catch {
+      return value;
+    }
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "{}";
+  }
+}

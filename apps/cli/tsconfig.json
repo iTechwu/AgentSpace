@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["es2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "noEmit": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@dofe-agent/domain": ["packages/domain/src/index.ts"],
+      "@dofe-agent/domain/*": ["packages/domain/src/*"],
+      "@dofe-agent/domain/workspace": ["packages/domain/src/workspace.ts"],
+      "@dofe-agent/services": ["packages/services/src/index.ts"],
+      "@dofe-agent/services/*": ["packages/services/src/*"],
+      "@dofe-agent/db": ["packages/db/src/index.ts"],
+      "@dofe-agent/db/*": ["packages/db/src/*"],
+      "@dofe-agent/sandbox": ["packages/sandbox/src/index.ts"],
+      "dofe-agent-daemon": ["packages/daemon/src/index.ts"],
+      "dofe-agent-daemon/agent-router": ["packages/daemon/src/agent-router/index.ts"],
+      "dofe-agent-daemon/daemon-client": ["packages/daemon/src/daemon-client.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

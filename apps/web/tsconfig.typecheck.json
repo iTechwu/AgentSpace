@@ -1,0 +1,37 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": [
+        "./*"
+      ],
+      "@dofe-agent/domain": [
+        "../../packages/domain/dist-types/index.d.ts"
+      ],
+      "@dofe-agent/domain/*": [
+        "../../packages/domain/dist-types/*"
+      ],
+      "@dofe-agent/services": [
+        "../../packages/services/dist-types/index.d.ts"
+      ],
+      "@dofe-agent/services/*": [
+        "../../packages/services/dist-types/*"
+      ],
+      "@dofe-agent/db": [
+        "../../packages/db/dist-types/index.d.ts"
+      ],
+      "@dofe-agent/db/*": [
+        "../../packages/db/dist-types/*"
+      ],
+      "dofe-agent-daemon": [
+        "../../packages/daemon/dist-types/index.d.ts"
+      ],
+      "dofe-agent-daemon/agent-router": [
+        "../../packages/daemon/dist-types/agent-router/index.d.ts"
+      ],
+      "dofe-agent-daemon/daemon-client": [
+        "../../packages/daemon/dist-types/daemon-client.d.ts"
+      ]
+    }
+  }
+}

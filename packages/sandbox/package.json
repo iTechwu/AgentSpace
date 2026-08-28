@@ -1,0 +1,19 @@
+{
+  "name": "@dofe-agent/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "sh -c 'node --experimental-strip-types --test --test-concurrency=1 src/*.test.ts src/local/*.test.ts' --"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "engines": {
+    "node": "^25.9.0"
+  }
+}

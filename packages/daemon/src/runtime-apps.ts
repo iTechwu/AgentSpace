@@ -1,0 +1,829 @@
+import { spawn } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { accessSync, closeSync, constants as fsConstants, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
+import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@dofe-agent/domain";
+
+const MAX_TAIL_CHARS = 8_000;
+const MAX_CLI_HUB_REGISTRY_SNAPSHOT_CHARS = 256_000;
+const MAX_RUNTIME_APP_ARTIFACT_BYTES = 512 * 1024 * 1024;
+const RUNTIME_APP_ARTIFACT_TIMEOUT_MS = 120_000;
+const SECRET_PATTERNS = [
+  /(api[_-]?key|token|secret|password|authorization)(["'\s:=]+)([^\s"',;]+)/gi,
+  /(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi,
+];
+
+export interface RuntimeAppReadinessItem {
+  available: boolean;
+  version?: string;
+  error?: string;
+}
+
+/**
+ * Runtime execution profile (docs/0811/cli-install Phase 2 / §4.5).
+ *
+ * Beyond the tool versions in {@link CliHubReadiness}, this describes WHAT the
+ * runtime can execute so the control plane can negotiate CLI vs MCP instead of
+ * deriving capability from `daemonMode`:
+ *   - writableHome          — the runtime HOME is writable (CLI installs land here)
+ *   - persistentHome        — HOME persists across restarts
+ *   - runtimePackageExecutor — the runtime package executor is present
+ *   - mcpGateway            — the MCP gateway is wired on this runtime
+ *   - managedServiceReachable — managed-service containers are reachable
+ *   - chromium              — a Chromium binary is available
+ * Fail-safe: optional profile items are omitted (unknown) unless the daemon can
+ * assert them, so a missing signal never claims a capability it cannot prove.
+ */
+export interface RuntimeExecutionProfile {
+  writableHome: RuntimeAppReadinessItem;
+  persistentHome: RuntimeAppReadinessItem;
+  runtimePackageExecutor: RuntimeAppReadinessItem;
+  chromium: RuntimeAppReadinessItem;
+  mcpGateway?: RuntimeAppReadinessItem;
+  managedServiceReachable?: RuntimeAppReadinessItem;
+}
+
+export interface CliHubReadiness {
+  checkedAt: string;
+  python: RuntimeAppReadinessItem;
+  pip: RuntimeAppReadinessItem;
+  cliHub: RuntimeAppReadinessItem;
+  npm: RuntimeAppReadinessItem;
+  uv: RuntimeAppReadinessItem;
+  executionProfile?: RuntimeExecutionProfile;
+}
+
+/**
+ * Builds the host-side execution profile. Tool versions are probed; the
+ * profile facts are asserted by the daemon from its own environment — a managed
+ * node mounts a writable persistent HOME by construction, and the runtime
+ * package executor ships with the daemon. mcpGateway / managedServiceReachable
+ * are only asserted when explicitly enabled via env, so an unasserted profile
+ * never over-claims.
+ */
+export function readRuntimeExecutionProfile(
+  environment: NodeJS.ProcessEnv = process.env,
+  runtimeHomeDir?: string,
+): RuntimeExecutionProfile {
+  const pathValue = environment.PATH ?? "";
+  const homeDir = runtimeHomeDir ?? environment.HOME;
+  const profile: RuntimeExecutionProfile = {
+    writableHome: probeWritableHome(homeDir),
+    persistentHome: probePersistentHome(homeDir),
+    runtimePackageExecutor: { available: true },
+    chromium: pickAvailableChromium(pathValue, environment),
+  };
+  if (environment.DOFE_AGENT_MCP_GATEWAY_ENABLED === "1") {
+    profile.mcpGateway = { available: true };
+  }
+  if (environment.DOFE_AGENT_MANAGED_SERVICE_REACHABLE === "1") {
+    profile.managedServiceReachable = { available: true };
+  }
+  return profile;
+}
+
+/**
+ * Honest persistentHome probe: CLI installs land in Runtime HOME, so a home on
+ * ephemeral storage (tmpfs/ramfs/zram) would lose all installs on restart and
+ * must NOT be reported persistent. Reads /proc/mounts (Linux managed nodes);
+ * on platforms without it (e.g. local macOS where HOME is the machine home) the
+ * probe cannot find a mount and conservatively reports available — the machine
+ * home persists across daemon restarts.
+ */
+function probePersistentHome(homeDir: string | undefined): RuntimeAppReadinessItem {
+  const target = homeDir?.trim();
+  if (!target) {
+    return { available: false, error: "HOME is not set." };
+  }
+  const fileSystemType = findMountFileSystemType(target);
+  if (fileSystemType && ["tmpfs", "ramfs", "zram", "devtmpfs"].includes(fileSystemType)) {
+    return {
+      available: false,
+      error: `Runtime HOME "${target}" is on ephemeral ${fileSystemType} storage; CLI installs would not persist across restarts.`,
+    };
+  }
+  return { available: true };
+}
+
+function findMountFileSystemType(target: string): string | undefined {
+  try {
+    const resolved = resolve(target);
+    let best: { mountPoint: string; fileSystemType: string } | undefined;
+    for (const line of readFileSync("/proc/mounts", "utf8").split("\n")) {
+      const parts = line.split(/\s+/);
+      if (parts.length < 3) continue;
+      const [device, mountPoint, fileSystemType] = parts;
+      if (resolved === mountPoint || resolved.startsWith(`${mountPoint}/`)) {
+        if (!best || mountPoint.length > best.mountPoint.length) {
+          best = { mountPoint, fileSystemType };
+        }
+      }
+    }
+    return best?.fileSystemType;
+  } catch {
+    // /proc/mounts unavailable (non-Linux) — caller falls back to conservative.
+    return undefined;
+  }
+}
+
+function probeWritableHome(homeDir: string | undefined): RuntimeAppReadinessItem {
+  const target = homeDir?.trim();
+  if (!target) {
+    return { available: false, error: "HOME is not set." };
+  }
+  try {
+    accessSync(target, fsConstants.W_OK);
+    return { available: true };
+  } catch (error) {
+    return {
+      available: false,
+      error: `Runtime HOME "${target}" is not writable: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function pickAvailableChromium(pathValue: string, environment: NodeJS.ProcessEnv): RuntimeAppReadinessItem {
+  for (const candidate of ["chromium", "google-chrome", "chromium-browser"]) {
+    const probe = checkCommand(candidate, ["--version"], pathValue, environment);
+    if (probe.available) return probe;
+  }
+  return { available: false, error: "No Chromium binary found in PATH." };
+}
+
+export interface RuntimeAppExecutionResult {
+  safeStdoutTail: string;
+  safeStderrTail: string;
+  /** sha256 over the installed deps dir (download artifact digest, P1-4). */
+  downloadedDigest?: string;
+}
+
+export interface ManagedRuntimeAppPlanOptions {
+  image: string;
+  runtimeHomeDir: string;
+  depsRoot: string;
+  dockerNetwork: string;
+  dockerConnectivityArgs?: string[];
+  registryEnvironment?: Record<string, string>;
+  user: string;
+}
+
+interface RuntimeAppExecutionEnvironment {
+  path: string;
+  pythonExecutable?: string;
+  pythonUserBinDir?: string;
+  installEnv?: Record<string, string>;
+}
+
+const RUNTIME_APP_CONTAINER_HOME = "/dofe-home";
+const RUNTIME_APP_CONTAINER_DEPS_ROOT = "/runtime-app-deps";
+const RUNTIME_APP_CONTAINER_PATH = [
+  `${RUNTIME_APP_CONTAINER_HOME}/.local/bin`,
+  "/usr/local/sbin",
+  "/usr/local/bin",
+  "/usr/sbin",
+  "/usr/bin",
+  "/sbin",
+  "/bin",
+].join(":");
+
+export function buildManagedRuntimeAppPlan(
+  plan: RuntimeAppInstallPlan,
+  options: ManagedRuntimeAppPlanOptions,
+): RuntimeAppInstallPlan {
+  const wrap = (command: RuntimeAppCommandPlanItem): RuntimeAppCommandPlanItem => ({
+    executable: "docker",
+    args: [
+      "run", "--rm", "--init", "--pull", "never", "--read-only",
+      "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
+      "--security-opt", "no-new-privileges",
+      "--cap-drop", "ALL",
+      ...(options.dockerConnectivityArgs ?? []),
+      "--network", options.dockerNetwork,
+      "--user", options.user,
+      "--mount", `type=bind,src=${options.runtimeHomeDir},dst=${RUNTIME_APP_CONTAINER_HOME}`,
+      "--mount", `type=bind,src=${options.depsRoot},dst=${RUNTIME_APP_CONTAINER_DEPS_ROOT}`,
+      "--workdir", RUNTIME_APP_CONTAINER_DEPS_ROOT,
+      ...Object.entries(command.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+      ...Object.entries(options.registryEnvironment ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+      "--env", `HOME=${RUNTIME_APP_CONTAINER_HOME}`,
+      "--env", `PYTHONUSERBASE=${RUNTIME_APP_CONTAINER_HOME}/.local`,
+      "--env", `NPM_CONFIG_PREFIX=${RUNTIME_APP_CONTAINER_HOME}/.local`,
+      "--env", `PATH=${RUNTIME_APP_CONTAINER_PATH}`,
+      "--entrypoint", command.executable,
+      options.image,
+      ...command.args,
+    ],
+  });
+  return {
+    ...plan,
+    commands: plan.commands.map(wrap),
+    verifyCommands: plan.verifyCommands.map(wrap),
+  };
+}
+
+/**
+ * Deterministic sha256 over a directory tree (relative path + file bytes, sorted).
+ * Returns undefined when the directory is missing or unreadable — the download
+ * digest is an audit enrichment, never a hard blocker.
+ */
+export function computeDirectoryDigestSync(dirPath: string): string | undefined {
+  const hash = createHash("sha256");
+  const walk = (relative: string): boolean => {
+    let entries;
+    try {
+      entries = readdirSync(join(dirPath, relative), { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const entry of [...entries].sort((left, right) => left.name.localeCompare(right.name, "en-US"))) {
+      const rel = relative ? join(relative, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        if (!walk(rel)) return false;
+      } else if (entry.isFile()) {
+        hash.update(rel);
+        hash.update("\0");
+        try {
+          hash.update(readFileSync(join(dirPath, rel)));
+        } catch {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  if (!walk("")) {
+    return undefined;
+  }
+  return hash.digest("hex");
+}
+
+export async function executeRuntimeAppPlan(
+  plan: RuntimeAppInstallPlan,
+  options?: {
+    cwd?: string;
+    runtimeHomeDir?: string;
+    onStage?: (stage: "installing" | "verifying") => void | Promise<void>;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<RuntimeAppExecutionResult> {
+  let stdout = "";
+  let stderr = "";
+  if (options?.runtimeHomeDir) {
+    seedCliHubRegistryCacheSync(plan, options.runtimeHomeDir);
+  }
+  const executionEnvironment = resolveRuntimeAppExecutionEnvironment(process.env, options?.runtimeHomeDir);
+  let verifiedArtifactPath: string | undefined;
+  try {
+    if (plan.commands.length > 0) await options?.onStage?.("installing");
+    if (plan.artifactLock) {
+      if (!options?.cwd) throw new Error("runtime_app.artifact_workdir_required");
+      verifiedArtifactPath = await downloadAndVerifyRuntimeAppArtifact(plan.artifactLock, options.cwd, options.fetchImpl ?? fetch);
+    }
+    for (const command of plan.commands) {
+      const result = await execCommand(command, {
+        cwd: options?.cwd,
+        executionEnvironment,
+      });
+      stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
+      stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
+    }
+    if (plan.verifyCommands.length > 0) await options?.onStage?.("verifying");
+    for (const command of plan.verifyCommands) {
+      const result = await execCommand(command, {
+        cwd: options?.cwd,
+        executionEnvironment,
+      });
+      stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
+      stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
+    }
+    return {
+      safeStdoutTail: tailAndRedact(stdout),
+      safeStderrTail: tailAndRedact(stderr),
+      // Download artifact digest over the isolated deps dir (P1-4). Best-effort:
+      // a missing dir (e.g. no-op plan) simply yields no digest.
+      downloadedDigest: plan.depsDir && options?.cwd
+        ? computeDirectoryDigestSync(join(options.cwd, plan.depsDir))
+        : undefined,
+    };
+  } finally {
+    if (verifiedArtifactPath) {
+      try {
+        unlinkSync(verifiedArtifactPath);
+      } catch {
+        // The verified artifact is disposable; installation state lives in Runtime HOME.
+      }
+    }
+  }
+}
+
+export function readCliHubReadiness(options: {
+  environment?: NodeJS.ProcessEnv;
+  runtimeHomeDir?: string;
+} = {}): CliHubReadiness {
+  const environment = options.environment ?? process.env;
+  const executionEnvironment = resolveRuntimeAppExecutionEnvironment(environment, options.runtimeHomeDir);
+  const pythonExecutable = executionEnvironment.pythonExecutable ?? "python3";
+  return {
+    checkedAt: new Date().toISOString(),
+    python: checkCommand(pythonExecutable, ["--version"], executionEnvironment.path, environment),
+    pip: checkCommand(pythonExecutable, ["-m", "pip", "--version"], executionEnvironment.path, environment),
+    cliHub: checkCommand("cli-hub", ["--version"], executionEnvironment.path, environment),
+    npm: checkCommand("npm", ["--version"], executionEnvironment.path, environment),
+    uv: checkCommand("uv", ["--version"], executionEnvironment.path, environment),
+    executionProfile: readRuntimeExecutionProfile(environment, options.runtimeHomeDir),
+  };
+}
+
+export function readManagedCliHubReadiness(options: {
+  image: string;
+  runtimeHomeDir: string;
+  user: string;
+  environment?: NodeJS.ProcessEnv;
+}): CliHubReadiness {
+  const environment = options.environment ?? process.env;
+  const result = spawnSync("docker", [
+    "run", "--rm", "--pull", "never", "--read-only", "--network", "none",
+    "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
+    "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
+    "--user", options.user,
+    "--mount", `type=bind,src=${options.runtimeHomeDir},dst=${RUNTIME_APP_CONTAINER_HOME},readonly`,
+    "--env", `HOME=${RUNTIME_APP_CONTAINER_HOME}`,
+    "--env", `PATH=${RUNTIME_APP_CONTAINER_PATH}`,
+    "--entrypoint", "node",
+    options.image,
+    "-e", MANAGED_READINESS_SCRIPT,
+  ], {
+    env: environment,
+    encoding: "utf8",
+    timeout: 20_000,
+    maxBuffer: 64 * 1024,
+  });
+  if (result.error || result.status !== 0) {
+    return unavailableCliHubReadiness(tailAndRedact(result.error?.message || result.stderr || "Managed Runtime readiness probe failed."));
+  }
+  try {
+    const parsed = JSON.parse(result.stdout.trim()) as CliHubReadiness;
+    if (!parsed.checkedAt || !parsed.python || !parsed.cliHub || !parsed.npm) throw new Error("invalid readiness response");
+    // The probe container is deliberately read-only + no-network, so it cannot
+    // assert the execution profile; the managed node asserts it host-side.
+    parsed.executionProfile = readRuntimeExecutionProfile(environment, options.runtimeHomeDir);
+    return parsed;
+  } catch {
+    return unavailableCliHubReadiness("Managed Runtime readiness probe returned invalid output.");
+  }
+}
+
+export function resolveRuntimeAppRegistryEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const npmRegistry = validateRegistryUrl(environment.DOFE_AGENT_NPM_REGISTRY, "runtime_app.npm_registry_invalid");
+  const pypiIndex = validateRegistryUrl(environment.DOFE_AGENT_PYPI_INDEX_URL, "runtime_app.pypi_index_invalid");
+  if (environment.MCP_EGRESS_ENFORCE === "true" && (!npmRegistry || !pypiIndex)) {
+    throw new Error("runtime_app.controlled_registries_required");
+  }
+  return {
+    ...(npmRegistry ? { NPM_CONFIG_REGISTRY: npmRegistry } : {}),
+    ...(pypiIndex ? { PIP_INDEX_URL: pypiIndex, UV_DEFAULT_INDEX: pypiIndex } : {}),
+  };
+}
+
+export function resolveRuntimeAppUserBinDir(): string | undefined {
+  return resolveRuntimeAppExecutionEnvironment().pythonUserBinDir;
+}
+
+export function parseRuntimeAppInstallPlan(value: unknown): RuntimeAppInstallPlan | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const plan = value as RuntimeAppInstallPlan;
+  if (
+    !plan.app ||
+    typeof plan.app.name !== "string" ||
+    !Array.isArray(plan.commands) ||
+    !Array.isArray(plan.verifyCommands)
+  ) {
+    return null;
+  }
+  if (![...plan.commands, ...plan.verifyCommands].every(isCommandPlanItem)) {
+    return null;
+  }
+  if (plan.cliHubRegistrySnapshot && !isCliHubRegistrySnapshot(plan.cliHubRegistrySnapshot, plan.app.name)) {
+    return null;
+  }
+  if (plan.artifactLock) {
+    if (
+      !isRuntimeAppArtifactLock(plan.artifactLock)
+      || plan.app.source !== "workspace_private"
+      || plan.integrityLock !== plan.artifactLock.integrity
+    ) return null;
+  }
+  return plan;
+}
+
+async function downloadAndVerifyRuntimeAppArtifact(
+  artifact: NonNullable<RuntimeAppInstallPlan["artifactLock"]>,
+  cwd: string,
+  fetchImpl: typeof fetch,
+): Promise<string> {
+  if (!isRuntimeAppArtifactLock(artifact)) throw new Error("runtime_app.artifact_lock_invalid");
+  const cwdPath = resolve(cwd);
+  const targetPath = resolve(cwdPath, artifact.localPath);
+  if (!targetPath.startsWith(`${cwdPath}${sep}`)) throw new Error("runtime_app.artifact_path_invalid");
+  mkdirSync(dirname(targetPath), { recursive: true, mode: 0o700 });
+  const temporaryPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RUNTIME_APP_ARTIFACT_TIMEOUT_MS);
+  let handle: number | undefined;
+  try {
+    const response = await fetchImpl(artifact.url, { redirect: "error", signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error("runtime_app.artifact_download_failed");
+    const declaredLength = Number(response.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_RUNTIME_APP_ARTIFACT_BYTES) {
+      throw new Error("runtime_app.artifact_too_large");
+    }
+    const parsedIntegrity = parseArtifactIntegrity(artifact.integrity);
+    if (!parsedIntegrity) throw new Error("runtime_app.artifact_lock_invalid");
+    const hash = createHash(parsedIntegrity.algorithm);
+    const reader = response.body.getReader();
+    handle = openSync(temporaryPath, "wx", 0o600);
+    let received = 0;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      received += chunk.value.byteLength;
+      if (received > MAX_RUNTIME_APP_ARTIFACT_BYTES) {
+        await reader.cancel();
+        throw new Error("runtime_app.artifact_too_large");
+      }
+      hash.update(chunk.value);
+      writeSync(handle, chunk.value);
+    }
+    closeSync(handle);
+    handle = undefined;
+    const digest = hash.digest(parsedIntegrity.encoding);
+    if (!digestMatches(digest, parsedIntegrity.expected, parsedIntegrity.encoding)) {
+      throw new Error("runtime_app.artifact_integrity_mismatch");
+    }
+    renameSync(temporaryPath, targetPath);
+    return targetPath;
+  } catch (error) {
+    if (handle !== undefined) closeSync(handle);
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+      // No temporary artifact was created or it was already removed.
+    }
+    if (error instanceof Error && error.message.startsWith("runtime_app.")) throw error;
+    throw new Error("runtime_app.artifact_download_failed");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Integrity-verified artifact hosts the daemon will download from. The canonical
+// package registries (npm/pypi) plus the two natural binary hosts for the
+// runtime baseline's node/python artifacts (docs Phase 7). All downloads are
+// sha256-pinned, so a host here cannot inject content without the preimage.
+const RUNTIME_APP_ARTIFACT_ALLOWED_HOSTS = new Set([
+  "registry.npmjs.org",
+  "files.pythonhosted.org",
+  "nodejs.org",
+  "python.org",
+  "www.python.org",
+]);
+
+function isRuntimeAppArtifactLock(value: unknown): value is NonNullable<RuntimeAppInstallPlan["artifactLock"]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const artifact = value as Record<string, unknown>;
+  if (typeof artifact.url !== "string" || typeof artifact.integrity !== "string" || typeof artifact.localPath !== "string") return false;
+  try {
+    const url = new URL(artifact.url);
+    return url.protocol === "https:"
+      && RUNTIME_APP_ARTIFACT_ALLOWED_HOSTS.has(url.hostname)
+      && !url.username && !url.password && !url.search && !url.hash
+      && Boolean(parseArtifactIntegrity(artifact.integrity))
+      && /^\.runtime-app-artifacts\/[A-Za-z0-9][A-Za-z0-9._-]{0,380}$/.test(artifact.localPath);
+  } catch {
+    return false;
+  }
+}
+
+function parseArtifactIntegrity(value: string): {
+  algorithm: "sha256" | "sha384" | "sha512";
+  encoding: "hex" | "base64";
+  expected: string;
+} | undefined {
+  const match = /^(sha(?:256|384|512))-([A-Za-z0-9+/=]+)$/.exec(value.trim());
+  if (!match?.[1] || !match[2]) return undefined;
+  const algorithm = match[1] as "sha256" | "sha384" | "sha512";
+  const expected = match[2];
+  const hexLength = algorithm === "sha256" ? 64 : algorithm === "sha384" ? 96 : 128;
+  const encoding = expected.length === hexLength && /^[a-f0-9]+$/i.test(expected) ? "hex" : "base64";
+  return { algorithm, encoding, expected };
+}
+
+function digestMatches(actual: string, expected: string, encoding: "hex" | "base64"): boolean {
+  const left = Buffer.from(encoding === "hex" ? actual.toLowerCase() : actual, "utf8");
+  const right = Buffer.from(encoding === "hex" ? expected.toLowerCase() : expected, "utf8");
+  return left.length === right.length && left.equals(right);
+}
+
+export function seedCliHubRegistryCacheSync(plan: RuntimeAppInstallPlan, runtimeHomeDir: string): void {
+  const snapshot = plan.cliHubRegistrySnapshot;
+  if (!snapshot) return;
+  if (!isCliHubRegistrySnapshot(snapshot, plan.app.name)) {
+    throw new Error("runtime_app.cli_hub_registry_snapshot_invalid");
+  }
+  const entry = JSON.parse(snapshot.registryJson) as Record<string, unknown>;
+  const cacheDir = join(runtimeHomeDir, ".cli-hub");
+  mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  const harnessCachePath = join(cacheDir, "registry_cache.json");
+  const publicCachePath = join(cacheDir, "public_registry_cache.json");
+  writeCliHubCacheSync(harnessCachePath, snapshot.source === "clihub_harness" ? entry : undefined);
+  writeCliHubCacheSync(publicCachePath, snapshot.source === "clihub_public" ? entry : undefined);
+}
+
+function writeCliHubCacheSync(cachePath: string, entry?: Record<string, unknown>): void {
+  const entries = readCliHubCacheEntries(cachePath);
+  if (entry && typeof entry.name === "string") {
+    const normalizedName = entry.name.trim().toLocaleLowerCase("en-US");
+    const existingIndex = entries.findIndex((candidate) =>
+      typeof candidate.name === "string" && candidate.name.trim().toLocaleLowerCase("en-US") === normalizedName,
+    );
+    if (existingIndex >= 0) entries[existingIndex] = entry;
+    else entries.push(entry);
+  }
+  const temporaryPath = `${cachePath}.tmp`;
+  writeFileSync(temporaryPath, JSON.stringify({
+    _cached_at: Math.floor(Date.now() / 1_000),
+    data: { clis: entries },
+  }), { encoding: "utf8", mode: 0o600 });
+  renameSync(temporaryPath, cachePath);
+}
+
+function readCliHubCacheEntries(cachePath: string): Array<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(readFileSync(cachePath, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+    const data = (parsed as Record<string, unknown>).data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) return [];
+    const clis = (data as Record<string, unknown>).clis;
+    return Array.isArray(clis)
+      ? clis.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function isCliHubRegistrySnapshot(value: unknown, appName: string): value is NonNullable<RuntimeAppInstallPlan["cliHubRegistrySnapshot"]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const snapshot = value as Record<string, unknown>;
+  if (snapshot.source !== "clihub_harness" && snapshot.source !== "clihub_public") return false;
+  if (typeof snapshot.registryJson !== "string" || snapshot.registryJson.length > MAX_CLI_HUB_REGISTRY_SNAPSHOT_CHARS) return false;
+  try {
+    const entry = JSON.parse(snapshot.registryJson) as unknown;
+    return Boolean(entry)
+      && typeof entry === "object"
+      && !Array.isArray(entry)
+      && typeof (entry as Record<string, unknown>).name === "string"
+      && (entry as Record<string, unknown>).name === appName;
+  } catch {
+    return false;
+  }
+}
+
+function checkCommand(
+  command: string,
+  args: string[],
+  pathValue = process.env.PATH ?? "",
+  environment: NodeJS.ProcessEnv = process.env,
+): RuntimeAppReadinessItem {
+  const result = spawnSync(command, args, {
+    env: { ...environment, PATH: pathValue },
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  if (result.error) {
+    return { available: false, error: result.error.message };
+  }
+  if (result.status !== 0) {
+    return {
+      available: false,
+      error: tailAndRedact(`${result.stderr || result.stdout || `${command} exited with code ${result.status}`}`),
+    };
+  }
+  const version = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim().split(/\r?\n/)[0]?.trim();
+  return {
+    available: true,
+    version: version || undefined,
+  };
+}
+
+function validateRegistryUrl(value: string | undefined, errorCode: string): string | undefined {
+  const candidate = value?.trim();
+  if (!candidate) return undefined;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error(errorCode);
+    return url.toString();
+  } catch {
+    throw new Error(errorCode);
+  }
+}
+
+function unavailableCliHubReadiness(error: string): CliHubReadiness {
+  const unavailable = (): RuntimeAppReadinessItem => ({ available: false, error });
+  return {
+    checkedAt: new Date().toISOString(),
+    python: unavailable(),
+    pip: unavailable(),
+    cliHub: unavailable(),
+    npm: unavailable(),
+    uv: unavailable(),
+    executionProfile: {
+      writableHome: unavailable(),
+      persistentHome: unavailable(),
+      runtimePackageExecutor: unavailable(),
+      chromium: unavailable(),
+    },
+  };
+}
+
+const MANAGED_READINESS_SCRIPT = `
+const { spawnSync } = require("node:child_process");
+const check = (command, args) => {
+  const result = spawnSync(command, args, { encoding: "utf8", timeout: 5000, env: process.env });
+  if (result.error) return { available: false, error: result.error.message };
+  if (result.status !== 0) return { available: false, error: String(result.stderr || result.stdout || command + " failed").slice(-8000) };
+  const version = String(result.stdout + "\\n" + result.stderr).trim().split(/\\r?\\n/)[0];
+  return { available: true, ...(version ? { version } : {}) };
+};
+const python = ["python3", "python"].find((candidate) => check(candidate, ["--version"]).available) || "python3";
+process.stdout.write(JSON.stringify({
+  checkedAt: new Date().toISOString(),
+  python: check(python, ["--version"]),
+  pip: check(python, ["-m", "pip", "--version"]),
+  cliHub: check("cli-hub", ["--version"]),
+  npm: check("npm", ["--version"]),
+  uv: check("uv", ["--version"]),
+}));
+`;
+
+const DEFAULT_RUNTIME_APP_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+const MIN_RUNTIME_APP_COMMAND_TIMEOUT_MS = 30 * 1000;
+const MAX_RUNTIME_APP_COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
+const KILL_GRACE_MS = 5_000;
+
+export function resolveRuntimeAppCommandTimeoutMs(
+  environment: NodeJS.ProcessEnv = process.env,
+): number {
+  const rawValue = environment.DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS?.trim();
+  if (!rawValue) return DEFAULT_RUNTIME_APP_COMMAND_TIMEOUT_MS;
+  const configured = Number(rawValue);
+  if (!Number.isFinite(configured)) return DEFAULT_RUNTIME_APP_COMMAND_TIMEOUT_MS;
+  return Math.min(MAX_RUNTIME_APP_COMMAND_TIMEOUT_MS, Math.max(MIN_RUNTIME_APP_COMMAND_TIMEOUT_MS, Math.floor(configured)));
+}
+
+function execCommand(
+  command: RuntimeAppCommandPlanItem,
+  options: { cwd?: string; executionEnvironment: RuntimeAppExecutionEnvironment },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const executable = command.executable === "python3"
+      ? options.executionEnvironment.pythonExecutable ?? command.executable
+      : command.executable;
+    const commandPath = prependPath(
+      command.env?.PATH ?? options.executionEnvironment.path,
+      options.executionEnvironment.pythonUserBinDir,
+    );
+    const child = spawn(executable, command.args, {
+      cwd: options?.cwd,
+      // Minimal env: only PATH + the plan's own env — host secrets must not leak
+      // into package-manager subprocesses.
+      env: {
+        ...(command.env ?? {}),
+        ...(options.executionEnvironment.installEnv ?? {}),
+        PATH: commandPath,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const commandTimeoutMs = resolveRuntimeAppCommandTimeoutMs();
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref();
+    }, commandTimeoutMs);
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+      stdout = stdout.slice(-MAX_TAIL_CHARS * 2);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+      stderr = stderr.slice(-MAX_TAIL_CHARS * 2);
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const detail = tailAndRedact(stderr || stdout);
+      const error = new Error(timedOut
+        ? `Runtime application command timed out after ${Math.round(commandTimeoutMs / 1000)} seconds.${detail ? ` ${detail}` : ""}`
+        : `Runtime application command failed (${basename(command.executable)}, exit code ${code ?? "unknown"}).${detail ? ` ${detail}` : ""}`);
+      reject(Object.assign(error, {
+        stdout: tailAndRedact(stdout),
+        stderr: tailAndRedact(stderr),
+      }));
+    });
+  });
+}
+
+function resolveRuntimeAppExecutionEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+  runtimeHomeDir?: string,
+): RuntimeAppExecutionEnvironment {
+  const basePath = environment.PATH ?? "";
+  const runtimePrefix = runtimeHomeDir ? join(runtimeHomeDir, ".local") : undefined;
+  const runtimeBinDir = runtimePrefix
+    ? join(runtimePrefix, process.platform === "win32" ? "Scripts" : "bin")
+    : undefined;
+  const installEnv = runtimeHomeDir && runtimePrefix
+    ? {
+        HOME: runtimeHomeDir,
+        PYTHONUSERBASE: runtimePrefix,
+        NPM_CONFIG_PREFIX: runtimePrefix,
+      }
+    : undefined;
+  for (const candidate of ["python3", "python"]) {
+    const version = spawnSync(/*turbopackIgnore: true*/ candidate, ["--version"], {
+      env: environment,
+      encoding: "utf8",
+      timeout: 5_000,
+    });
+    if (version.error || version.status !== 0) continue;
+
+    const userBase = spawnSync(/*turbopackIgnore: true*/ candidate, ["-c", "import site; print(site.USER_BASE)"], {
+      env: environment,
+      encoding: "utf8",
+      timeout: 5_000,
+    });
+    const pythonUserBase = userBase.status === 0 ? userBase.stdout.trim() : "";
+    const pythonUserBinDir = runtimeBinDir ?? (pythonUserBase
+      ? join(pythonUserBase, process.platform === "win32" ? "Scripts" : "bin")
+      : undefined);
+    return {
+      pythonExecutable: candidate,
+      pythonUserBinDir,
+      path: prependPath(basePath, pythonUserBinDir),
+      installEnv,
+    };
+  }
+  return {
+    pythonUserBinDir: runtimeBinDir,
+    path: prependPath(basePath, runtimeBinDir),
+    installEnv,
+  };
+}
+
+function prependPath(pathValue: string, directory?: string): string {
+  if (!directory) return pathValue;
+  return [directory, ...pathValue.split(delimiter).filter((entry) => entry && entry !== directory)].join(delimiter);
+}
+
+function isCommandPlanItem(value: unknown): value is RuntimeAppCommandPlanItem {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as RuntimeAppCommandPlanItem;
+  return (
+    typeof record.executable === "string" &&
+    record.executable.trim().length > 0 &&
+    Array.isArray(record.args) &&
+    record.args.every((arg) => typeof arg === "string")
+  );
+}
+
+function renderCommand(command: RuntimeAppCommandPlanItem): string {
+  if (command.executable === "docker") return "docker run [managed Runtime application command]";
+  return [command.executable, ...command.args].join(" ");
+}
+
+export function tailAndRedact(value: string): string {
+  let output = value.slice(-MAX_TAIL_CHARS);
+  for (const pattern of SECRET_PATTERNS) {
+    output = output.replace(pattern, (_match, prefix: string, separator?: string) =>
+      separator ? `${prefix}${separator}[REDACTED]` : `${prefix}[REDACTED]`,
+    );
+  }
+  return output;
+}

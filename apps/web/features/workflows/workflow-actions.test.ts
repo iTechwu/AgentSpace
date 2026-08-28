@@ -1,0 +1,213 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  requireContext: vi.fn(),
+  createDefinition: vi.fn(),
+  readDefinition: vi.fn(),
+  readRun: vi.fn(),
+  updateDraft: vi.fn(),
+  manualRun: vi.fn(),
+  publish: vi.fn(),
+  pauseDefinition: vi.fn(),
+  resumeDefinition: vi.fn(),
+  readTrigger: vi.fn(),
+  cancelRun: vi.fn(),
+  retryNode: vi.fn(),
+  revalidate: vi.fn(),
+}));
+
+vi.mock("@/features/auth/server-workspace", () => ({ requireCurrentWorkspaceContext: mocks.requireContext }));
+vi.mock("@/features/auth/workspace-revalidation", () => ({ revalidateWorkspacePaths: mocks.revalidate }));
+vi.mock("@dofe-agent/db", () => ({
+  createWorkflowDefinitionSync: mocks.createDefinition,
+  readWorkflowDefinitionSync: mocks.readDefinition,
+  readWorkflowRunSync: mocks.readRun,
+  readWorkflowTriggerForWorkflowSync: mocks.readTrigger,
+  updateWorkflowDraftSync: mocks.updateDraft,
+}));
+vi.mock("@dofe-agent/services", () => ({
+  assertTriggerWriteOwnerSync: vi.fn(),
+  cancelWorkflowRunSync: mocks.cancelRun,
+  materializeManualWorkflowRunSync: mocks.manualRun,
+  pauseWorkflowRunSync: vi.fn(),
+  pauseWorkflowDefinitionSync: mocks.pauseDefinition,
+  publishWorkflowSync: mocks.publish,
+  resumeWorkflowRunSync: vi.fn(),
+  resumeWorkflowDefinitionSync: mocks.resumeDefinition,
+  retryWorkflowNodeSync: mocks.retryNode,
+  validateWorkflowForPublishSync: vi.fn(),
+}));
+
+import { controlWorkflowDefinitionAction, controlWorkflowRunAction, createWorkflowDraftAction, publishWorkflowAction, runWorkflowAction, updateWorkflowDraftAction } from "./workflow-actions";
+
+const graph = {
+  schemaVersion: 1 as const,
+  nodes: [{ id: "a", type: "employee_task" as const, employeeId: "emp-a", config: {} }],
+  edges: [],
+};
+
+function mockContext(role: "owner" | "admin" | "member") {
+  mocks.requireContext.mockResolvedValue({
+    currentWorkspace: { id: "workspace-1", slug: "default" },
+    currentUser: { id: "user-1", displayName: "User" },
+    currentMembership: { role },
+  });
+}
+
+describe("workflow actions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readDefinition.mockReturnValue({
+      id: "wf-1",
+      workspaceId: "workspace-1",
+      ownerUserId: "user-1",
+      status: "published",
+      draftVersion: 2,
+      draftGraphJson: JSON.stringify(graph),
+    });
+    mocks.manualRun.mockReturnValue({ runId: "run-1", created: true });
+    mocks.createDefinition.mockReturnValue({ id: "wf-new", draftVersion: 1, draftGraphJson: JSON.stringify(graph) });
+    mocks.readRun.mockReturnValue({ id: "run-1", workflowId: "wf-1", status: "running" });
+    mocks.readTrigger.mockReturnValue(null);
+    mocks.publish.mockReturnValue({ version: { id: "version-1" } });
+    mocks.pauseDefinition.mockReturnValue({ id: "wf-1", status: "paused" });
+    mocks.resumeDefinition.mockReturnValue({ id: "wf-1", status: "published" });
+  });
+
+  it("requires admin to publish but lets members run published workflows", async () => {
+    mockContext("member");
+    await expect(publishWorkflowAction({ workflowId: "wf-1", expectedDraftVersion: 2 })).rejects.toThrow(/workspace role/i);
+    await expect(runWorkflowAction({ workflowId: "wf-1", idempotencyKey: "manual:u1:1", input: {} }))
+      .resolves.toMatchObject({ ok: true, data: { runId: "run-1" } });
+  });
+
+  it("returns a stable error when the published trigger is not manual", async () => {
+    mockContext("member");
+    mocks.manualRun.mockImplementation(() => { throw new Error("workflow_manual_trigger_required"); });
+
+    await expect(runWorkflowAction({ workflowId: "wf-1", idempotencyKey: "manual:u1:2", input: {} }))
+      .resolves.toMatchObject({ ok: false, error: { code: "workflow_manual_trigger_required" } });
+  });
+
+  it("persists the selected notification channel when creating a draft", async () => {
+    mockContext("member");
+
+    const result = await createWorkflowDraftAction({
+      name: "审计流程",
+      description: "汇总结果",
+      channelName: " 审计通知群 ",
+      graph,
+    });
+
+    expect(result).toMatchObject({ ok: true, data: { workflowId: "wf-new" } });
+    expect(mocks.createDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      channelName: "审计通知群",
+      ownerUserId: "user-1",
+    }));
+  });
+
+  it("returns a stable conflict code for stale drafts", async () => {
+    mockContext("admin");
+    mocks.updateDraft.mockImplementation(() => { throw new Error("workflow_draft_version_conflict"); });
+    const result = await updateWorkflowDraftAction({
+      workflowId: "wf-1",
+      expectedDraftVersion: 1,
+      patch: { name: "Changed" },
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: "workflow_version_conflict" } });
+  });
+
+  it("never forwards an untrusted draft owner reassignment", async () => {
+    mockContext("member");
+    mocks.updateDraft.mockReturnValue({ draftVersion: 3, draftGraphJson: JSON.stringify(graph) });
+
+    const result = await updateWorkflowDraftAction({
+      workflowId: "wf-1",
+      expectedDraftVersion: 2,
+      patch: { name: "Changed", ownerUserId: "attacker-selected-owner" },
+    } as never);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(mocks.updateDraft).toHaveBeenCalledWith(expect.not.objectContaining({ ownerUserId: expect.anything() }));
+  });
+
+  it("prevents members from editing or controlling another owner's workflow", async () => {
+    mockContext("member");
+    mocks.readDefinition.mockReturnValue({
+      id: "wf-1",
+      workspaceId: "workspace-1",
+      ownerUserId: "user-2",
+      status: "published",
+      draftVersion: 2,
+      draftGraphJson: JSON.stringify(graph),
+    });
+
+    const update = await updateWorkflowDraftAction({
+      workflowId: "wf-1",
+      expectedDraftVersion: 2,
+      patch: { name: "Unauthorized" },
+    });
+    const control = await controlWorkflowRunAction({ runId: "run-1", action: "cancel" });
+
+    expect(update).toMatchObject({ ok: false, error: { code: "workflow_actor_forbidden" } });
+    expect(control).toMatchObject({ ok: false, error: { code: "workflow_actor_forbidden" } });
+    expect(mocks.updateDraft).not.toHaveBeenCalled();
+  });
+
+  it("reuses the current trigger when republishing", async () => {
+    mockContext("admin");
+    mocks.readTrigger.mockReturnValue({ id: "trigger-1" });
+
+    const result = await publishWorkflowAction({
+      workflowId: "wf-1",
+      expectedDraftVersion: 2,
+      trigger: { type: "schedule", config: { cron: "0 9 * * 1-5" }, timezone: "Asia/Shanghai" },
+    });
+
+    expect(result).toMatchObject({ ok: true, data: { versionId: "version-1" } });
+    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: expect.objectContaining({ id: "trigger-1", type: "schedule", misfirePolicy: undefined }),
+    }));
+  });
+
+  it("marks user-requested node retries as manual overrides", async () => {
+    mockContext("owner");
+    mocks.readRun.mockReturnValue({ id: "run-1", workflowId: "wf-1", status: "failed" });
+
+    const result = await controlWorkflowRunAction({ runId: "run-1", action: "retry_node", nodeId: "audit" });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(mocks.retryNode).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-1",
+      nodeId: "audit",
+      manualOverride: true,
+    }));
+  });
+
+  it("returns an actionable error while a node result is being committed", async () => {
+    mockContext("owner");
+    mocks.cancelRun.mockImplementation(() => { throw new Error("workflow_run_commit_in_progress"); });
+
+    const result = await controlWorkflowRunAction({ runId: "run-1", action: "cancel" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "workflow_run_commit_in_progress",
+        message: "步骤结果正在提交，请稍后再取消运行。",
+      },
+    });
+  });
+
+  it("lets the workflow manager pause and resume future triggers", async () => {
+    mockContext("member");
+
+    const paused = await controlWorkflowDefinitionAction({ workflowId: "wf-1", action: "pause" });
+    const resumed = await controlWorkflowDefinitionAction({ workflowId: "wf-1", action: "resume" });
+
+    expect(paused).toMatchObject({ ok: true, data: { status: "paused" } });
+    expect(resumed).toMatchObject({ ok: true, data: { status: "published" } });
+    expect(mocks.pauseDefinition).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-1", actorUserId: "user-1" }));
+    expect(mocks.resumeDefinition).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-1", actorUserId: "user-1" }));
+  });
+});

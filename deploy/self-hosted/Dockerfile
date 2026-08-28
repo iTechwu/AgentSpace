@@ -1,0 +1,75 @@
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS build
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    PNPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    PNPM_CONFIG_REPLACE_REGISTRY_HOST=always
+
+WORKDIR /srv/DofeAgent
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+COPY deploy ./deploy
+
+RUN npm install --global pnpm@10.26.2 \
+  && pnpm install --frozen-lockfile --ignore-scripts
+
+ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
+
+RUN pnpm --filter @dofe-agent/db run prisma:generate \
+  && pnpm --filter dofe-agent-daemon run build \
+  && pnpm --filter @dofe-agent/web run build
+
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS runtime
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    NODE_ENV=production
+
+WORKDIR /srv/DofeAgent
+
+# Artifact and attachment storage use curl for signed TOS transfers. Keep it in
+# the shared runtime stage so web, maintenance, and daemon processes fail the
+# same way at build time rather than discovering a missing binary in production.
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates curl openssl \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install --global pnpm@10.26.2
+
+COPY --from=build /srv/DofeAgent /srv/DofeAgent
+
+RUN mkdir -p /srv/DofeAgent/data \
+  && chown -R node:node /srv/DofeAgent
+
+USER node
+
+FROM runtime AS web
+
+EXPOSE 1455
+
+CMD ["pnpm", "run", "start:web"]
+
+FROM runtime AS daemon
+
+USER root
+
+ARG PROVIDER_INSTALL_COMMAND
+
+RUN test -n "$PROVIDER_INSTALL_COMMAND" \
+  && /bin/sh -ceu "$PROVIDER_INSTALL_COMMAND"
+
+COPY deploy/self-hosted/start-daemon.sh /usr/local/bin/start-dofe-daemon
+
+RUN chmod 0555 /usr/local/bin/start-dofe-daemon \
+  && chown node:node /usr/local/bin/start-dofe-daemon
+
+USER node
+
+ENTRYPOINT ["/usr/local/bin/start-dofe-daemon"]

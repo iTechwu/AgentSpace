@@ -1,0 +1,20 @@
+[Unit]
+Description=DofeAgent Remote Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/dofe-agent-daemon
+StateDirectory=dofe-agent-daemon
+User=dofe-agent-daemon
+Group=dofe-agent-daemon
+EnvironmentFile=/etc/dofe-agent/daemon.env
+Environment=HOME=/var/lib/dofe-agent-daemon
+ExecStart=/usr/bin/env dofe-agent-daemon start --foreground --state-dir ${DOFE_AGENT_DAEMON_STATE_DIR} --server-url ${DOFE_AGENT_SERVER_URL} --daemon-token ${DOFE_AGENT_DAEMON_TOKEN} --daemon-id ${DOFE_AGENT_DAEMON_ID} --device-name ${DOFE_AGENT_DEVICE_NAME} --runtime-name ${DOFE_AGENT_RUNTIME_NAME}
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

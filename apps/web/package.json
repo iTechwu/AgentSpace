@@ -1,0 +1,58 @@
+{
+  "name": "@dofe-agent/web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "prebuild": "pnpm --dir ../.. run typecheck:deps && pnpm --dir ../.. run typecheck:web:only && pnpm --filter dofe-agent-daemon run build",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "pnpm run typecheck:deps && next typegen && tsc -p tsconfig.typecheck.json --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit",
+    "typecheck:deps": "pnpm --dir ../.. run typecheck:deps",
+    "lint": "eslint . --max-warnings=0",
+    "reconcile:sso-workspaces": "node --env-file-if-exists=../../.env --experimental-strip-types scripts/reconcile-sso-workspaces.ts",
+    "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
+    "test:watch": "NODE_OPTIONS=--no-experimental-webstorage vitest",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@dofe-agent/db": "workspace:*",
+    "@dofe-agent/domain": "workspace:*",
+    "@dofe-agent/services": "workspace:*",
+    "@dofe/sso-node": "^0.1.75",
+    "@uiw/react-md-editor": "^4.1.1",
+    "@xyflow/react": "^12.11.3",
+    "dofe-agent-daemon": "workspace:*",
+    "geist": "^1.7.2",
+    "next": "^16.3.0",
+    "pg": "^8.23.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.56.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.4",
+    "@types/node": "catalog:",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": "^25.9.0"
+  }
+}

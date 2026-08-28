@@ -1,0 +1,54 @@
+{
+  "name": "@dofe-agent/db",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./postgres": {
+      "types": "./dist-types/postgres.d.ts",
+      "default": "./src/postgres.ts"
+    },
+    "./postgres-schema": {
+      "types": "./dist-types/postgres-schema.d.ts",
+      "default": "./src/postgres-schema.ts"
+    }
+  },
+  "scripts": {
+    "pretest": "pnpm run prisma:generate && pnpm run prisma:verify:pilot && pnpm run postgres:verify:invariants && pnpm run prisma:verify:raw-sql",
+    "test": "sh -c 'for file in src/skill-service-operations.test.ts src/skill-services.test.ts src/skill-runner-invocations.test.ts src/skill-rollout-plans.test.ts src/employee-data-legal-holds.test.ts src/openmontage-jobs.test.ts src/postgres-alias-drift-guard.test.ts src/postgres-sql-column-guard.test.ts src/conversations.test.ts src/conversation-flags.test.ts src/workflows/*.test.ts src/prisma/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done' --",
+    "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
+    "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
+    "prisma:verify:pilot": "node --experimental-strip-types src/prisma-schema-drift.ts",
+    "prisma:verify:contract": "node --experimental-strip-types src/prisma-schema-drift.ts",
+    "prisma:verify:raw-sql": "node scripts/verify-prisma-raw-sql.mjs",
+    "postgres:verify:invariants": "node --experimental-strip-types src/postgres-invariant-drift.ts",
+    "types": "tsc -p tsconfig.types.json --incremental false",
+    "postgres": "node --experimental-strip-types ./src/postgres-cli.ts",
+    "postgres:status": "node --experimental-strip-types ./src/postgres-cli.ts status",
+    "postgres:init": "node --experimental-strip-types ./src/postgres-cli.ts init",
+    "prisma:pool:evidence": "node --experimental-strip-types ./src/postgres-cli.ts prisma-pool-evidence --json",
+    "prisma:pool:loadtest": "node --experimental-strip-types ./src/postgres-cli.ts prisma-pool-loadtest",
+    "postgres:migrate": "node --experimental-strip-types ./src/postgres-cli.ts migrate-from-sqlite",
+    "postgres:cutover-plan": "node --experimental-strip-types ./src/postgres-cli.ts cutover-plan"
+  },
+  "dependencies": {
+    "@dofe-agent/domain": "workspace:*",
+    "@prisma/adapter-pg": "7.9.1",
+    "@prisma/client": "^7.9.1",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/pg": "^8.21.0",
+    "prisma": "^7.9.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": "^25.9.0"
+  }
+}
