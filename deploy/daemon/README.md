@@ -63,8 +63,8 @@ compose deployment mounts that CA read-only and sets Node's
 
 Provider containers are separate Docker siblings, so their model-gateway
 connectivity is configured independently. For a local endpoint such as
-`https://model.local.dofe.ai/api`, set
-`MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS=model.local.dofe.ai:host-gateway` and set
+`https://ixicai.cn/api`, and leave
+`MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS` empty so managed runtimes use the public gateway.
 `MANAGED_RUNTIME_TLS_CA_PATH` to the absolute host path of its signing CA.
 The managed node passes the host mapping, a read-only CA mount, and
 `NODE_EXTRA_CA_CERTS` to both provisioning health checks and provider

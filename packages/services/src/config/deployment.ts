@@ -19,11 +19,10 @@ export function resolveAgentRuntimeMode(env: NodeJS.ProcessEnv = process.env): A
  * managed runtimes to reach the model gateway) share one default origin so a
  * deployment that sets neither still resolves consistently. Per-environment
  * overrides via the env vars are always honored; these constants exist only to
- * avoid scattering the literal `model.local.dofe.ai/api` default across modules.
+ * avoid scattering the canonical public Models API default across modules.
  */
-export const DEFAULT_MODELS_BASE_URL = "https://model.local.dofe.ai/api";
-export const DEFAULT_MODELS_GATEWAY_BASE_URL = "https://model.local.dofe.ai/api";
-const HTTPS_ONLY_MODELS_GATEWAY_HOSTS = new Set(["model.local.dofe.ai"]);
+export const DEFAULT_MODELS_BASE_URL = "https://ixicai.cn/api";
+export const DEFAULT_MODELS_GATEWAY_BASE_URL = "https://ixicai.cn/api";
 
 export function resolveModelsBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return env.MODELS_BASE_URL?.trim() || DEFAULT_MODELS_BASE_URL;
@@ -31,11 +30,6 @@ export function resolveModelsBaseUrl(env: NodeJS.ProcessEnv = process.env): stri
 
 export function resolveModelsGatewayBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.MODELS_GATEWAY_BASE_URL?.trim() || DEFAULT_MODELS_GATEWAY_BASE_URL;
-  const url = new URL(configured);
-  if (url.protocol === "http:" && HTTPS_ONLY_MODELS_GATEWAY_HOSTS.has(url.hostname)) {
-    url.protocol = "https:";
-    return url.toString().replace(/\/$/, "");
-  }
   return configured;
 }
 

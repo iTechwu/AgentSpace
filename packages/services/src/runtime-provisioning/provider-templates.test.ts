@@ -10,18 +10,18 @@ const originalGatewayBaseUrl = process.env.MODELS_GATEWAY_BASE_URL;
 
 test("managed credential bundles use the gateway endpoint required by each protocol", () => {
   process.env.MODELS_BASE_URL = "http://models-control.test";
-  process.env.MODELS_GATEWAY_BASE_URL = "http://model.local.dofe.ai/api";
+  process.env.MODELS_GATEWAY_BASE_URL = "https://ixicai.cn/api";
   try {
     const claude = buildManagedCredentialBundleDocument(runtime("claude"), "claude-key");
     const codex = buildManagedCredentialBundleDocument(runtime("codex"), "codex-key");
     const gemini = buildManagedCredentialBundleDocument(runtime("gemini"), "gemini-key");
     const deepSeekHarness = buildManagedCredentialBundleDocument(runtime("deepseek-harness"), "deepseek-key");
 
-    assert.equal(claude.environment.ANTHROPIC_BASE_URL, "https://model.local.dofe.ai/api/anthropic");
-    assert.equal(codex.environment.OPENAI_BASE_URL, "https://model.local.dofe.ai/api/v1");
-    assert.equal(gemini.environment.GEMINI_BASE_URL, "https://model.local.dofe.ai/api/gemini");
+    assert.equal(claude.environment.ANTHROPIC_BASE_URL, "https://ixicai.cn/api/anthropic");
+    assert.equal(codex.environment.OPENAI_BASE_URL, "https://ixicai.cn/api/v1");
+    assert.equal(gemini.environment.GEMINI_BASE_URL, "https://ixicai.cn/api/gemini");
     assert.equal(deepSeekHarness.environment.DEEPSEEK_API_KEY, "deepseek-key");
-    assert.equal(deepSeekHarness.environment.DEEPSEEK_BASE_URL, "https://model.local.dofe.ai/api/v1");
+    assert.equal(deepSeekHarness.environment.DEEPSEEK_BASE_URL, "https://ixicai.cn/api/v1");
   } finally {
     if (originalModelsBaseUrl === undefined) delete process.env.MODELS_BASE_URL;
     else process.env.MODELS_BASE_URL = originalModelsBaseUrl;
@@ -34,7 +34,7 @@ test("DeepSeek Harness install stage verifies the JSON-RPC carrier in its approv
   const commands = buildManagedProvisioningStageCommands("deepseek-harness", "install_cli", {
     runtimeId: "runtime-deepseek-harness",
     runtimeCredentialId: "credential-deepseek-harness",
-    gatewayBaseUrl: "http://model.local.dofe.ai/api",
+    gatewayBaseUrl: "https://ixicai.cn/api",
     imageTag: "stable",
   });
 
@@ -46,7 +46,7 @@ test("install stage verifies the provider CLI inside the pulled runtime image", 
   const commands = buildManagedProvisioningStageCommands("codex", "install_cli", {
     runtimeId: "runtime-codex",
     runtimeCredentialId: "credential-codex",
-    gatewayBaseUrl: "http://model.local.dofe.ai/api",
+    gatewayBaseUrl: "https://ixicai.cn/api",
     imageTag: "stable",
   });
 
@@ -71,7 +71,7 @@ test("Hermes install stage uses the CLI path provided by its approved image", ()
   const commands = buildManagedProvisioningStageCommands("hermes", "install_cli", {
     runtimeId: "runtime-hermes",
     runtimeCredentialId: "credential-hermes",
-    gatewayBaseUrl: "http://model.local.dofe.ai/api",
+    gatewayBaseUrl: "https://ixicai.cn/api",
     imageTag: "stable",
   });
 

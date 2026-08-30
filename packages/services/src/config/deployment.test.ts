@@ -33,16 +33,16 @@ test("models base url falls back to the shared default and honors env overrides"
 });
 
 test("models gateway base url falls back to the shared default and honors env overrides", () => {
-  assert.equal(DEFAULT_MODELS_GATEWAY_BASE_URL, "https://model.local.dofe.ai/api");
+  assert.equal(DEFAULT_MODELS_GATEWAY_BASE_URL, "https://ixicai.cn/api");
   assert.equal(resolveModelsGatewayBaseUrl({}), DEFAULT_MODELS_GATEWAY_BASE_URL);
   assert.equal(resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "https://gateway.example/api" }), "https://gateway.example/api");
   assert.equal(resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "" }), DEFAULT_MODELS_GATEWAY_BASE_URL);
 });
 
-test("models gateway avoids redirecting streamed POST requests on the local public host", () => {
+test("models gateway preserves explicitly configured public or internal URLs", () => {
   assert.equal(
-    resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "http://model.local.dofe.ai/api" }),
-    "https://model.local.dofe.ai/api",
+    resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "https://ixicai.cn/api" }),
+    "https://ixicai.cn/api",
   );
   assert.equal(
     resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "http://models.internal/api" }),

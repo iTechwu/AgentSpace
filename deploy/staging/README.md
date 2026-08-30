@@ -1,12 +1,12 @@
 # Managed-Runtime Staging (Phase 3 E2E)
 
 Run the `verify:managed-runtime-*` release gates end-to-end against the **real**
-`models.dofe.ai` service (mounted by nginx at `model.local.dofe.ai/api`).
+`models.dofe.ai` service through the public `https://ixicai.cn/api` gateway.
 
 This directory adds **orchestration + seed tooling + image alignment**. It does
 NOT duplicate the models service (that lives in `../models.dofe.ai`) or any
 already-deployed AgentSpace stack. Both codebases already implement and align on
-the contract; nginx maps `model.local.dofe.ai/api/*` → the models app, so
+the contract; the public gateway maps `/api/*` to the models app, so
 AgentSpace's gateway URL composition (`{base}/v1`, `{base}/anthropic`,
 `{base}/gemini`) is correct as-is.
 
@@ -28,7 +28,7 @@ The verify gates themselves are in `deploy/self-hosted/`
 ## Prerequisites
 
 1. **Docker** (for image builds, the egress network, and the probe container).
-2. **`models.dofe.ai` reachable** at `model.local.dofe.ai/api` (nginx) — OR a
+2. **`models.dofe.ai` reachable** at `https://ixicai.cn/api` — OR a
    local instance. A test **tenant + team + billing account (with balance)** must
    exist and its `tenantId` / `teamId` be known. There is **no internal API to
    create tenants/teams** — create them through the models admin flow or models
@@ -62,7 +62,7 @@ This script builds via that compose and re-tags into the expected namespace.
 # Local (models runs as a container on this network; no external egress at all):
 STAGING_EGRESS_MODE=internal ./deploy/staging/setup-egress-network.sh
 
-# Deployed models at model.local.dofe.ai (external route + host firewall):
+# Deployed models at ixicai.cn/api (external route + host firewall):
 STAGING_EGRESS_MODE=firewall ./deploy/staging/setup-egress-network.sh
 ```
 

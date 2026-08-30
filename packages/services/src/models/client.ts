@@ -26,8 +26,6 @@ export interface ModelsInternalConfig {
 }
 
 const DEFAULT_MODELS_INTERNAL_API_TIMEOUT_MS = 15_000;
-const HTTPS_ONLY_MODELS_HOSTS = new Set(["model.local.dofe.ai"]);
-
 let cachedClient: ModelsInternalDataClient | null = null;
 let cachedConfigKey: string | null = null;
 
@@ -56,11 +54,6 @@ export function resolveModelsInternalConfig(env: NodeJS.ProcessEnv = process.env
 }
 
 function normalizeModelsInternalBaseUrl(value: string): string {
-  const url = new URL(value);
-  if (url.protocol === "http:" && HTTPS_ONLY_MODELS_HOSTS.has(url.hostname)) {
-    url.protocol = "https:";
-    return url.toString().replace(/\/$/, "");
-  }
   return value;
 }
 

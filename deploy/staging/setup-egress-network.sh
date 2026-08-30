@@ -17,7 +17,7 @@
 #     are unreachable by construction; the gate passes as long as the gateway
 #     container is reachable. Fully reproducible on a laptop.
 #
-#   MODE=firewall (deployed models at model.local.dofe.ai): labelled network
+#   MODE=firewall (public Models at ixicai.cn): labelled network
 #     WITH external route, plus host iptables rules that allow only the models
 #     gateway host and drop the blocked list. Requires sudo / privileged host.
 #     Production should use Kubernetes NetworkPolicy or a cloud firewall instead
@@ -58,7 +58,7 @@ fi
 echo "==> Label OK: $LABEL_KEY=$LABEL_VALUE"
 
 if [ "$MODE" = "firewall" ]; then
-  GATEWAY_HOST="${MODELS_GATEWAY_HOST:-model.local.dofe.ai}"
+  GATEWAY_HOST="${MODELS_GATEWAY_HOST:-ixicai.cn}"
   SUBNET="$(docker network inspect "$NETWORK" --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}')"
   cat <<EOF
 ==> Firewall mode: network $NETWORK subnet=$SUBNET
